@@ -3195,7 +3195,7 @@
     add(host, pageHeader('Command Center', 'Current AMD operations with observed nightly failure movement and direct paths to source evidence.', ops.generated_at));
     add(host, statusStrip([
       {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: nightlyState.meta, tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at},
-      {id: 'home-upstream-parity', label: 'UPSTREAM TEST-GROUP PARITY', value: paritySummary.existing_groups === undefined ? 'Unavailable' : integer(paritySummary.existing_groups) + ' / ' + integer(paritySummary.applicable_groups), meta: paritySummary.upstream_logical_groups === undefined ? 'Reviewed parity inventory unavailable' : integer(paritySummary.local_candidate_complete_groups) + ' / ' + integer(paritySummary.applicable_groups) + ' with local #50519 candidates · ' + integer(paritySummary.upstream_logical_groups) + ' scoped upstream', tone: Number(paritySummary.action_groups) ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'parity'}); }},
+      {id: 'home-upstream-parity', label: 'UPSTREAM TEST-GROUP PARITY', value: paritySummary.main_complete_groups === undefined ? 'Unavailable' : integer(paritySummary.main_complete_groups) + ' / ' + integer(paritySummary.applicable_groups), meta: paritySummary.upstream_logical_groups === undefined ? 'Reviewed parity inventory unavailable' : percent(paritySummary.main_complete_groups, paritySummary.applicable_groups) + ' on main · ' + integer(paritySummary.main_plus_proposed_complete_groups) + ' / ' + integer(paritySummary.applicable_groups) + ' (' + percent(paritySummary.main_plus_proposed_complete_groups, paritySummary.applicable_groups) + ') with proposed changes · missing ' + integer(paritySummary.main_missing_groups) + ' → ' + integer(paritySummary.main_plus_proposed_missing_groups), tone: Number(paritySummary.action_groups) ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'parity'}); }},
       {id: 'home-latest-logical-groups', label: 'LATEST UNIQUE TEST GROUPS', value: latestLogicalGroups.available === false || latestLogicalGroups.total === undefined ? 'Unavailable' : integer(latestLogicalGroups.passing) + ' / ' + integer(latestLogicalGroups.total) + ' passing', meta: latestLogicalGroups.total === undefined ? 'No aligned runtime test-group signal' : integer(latestLogicalGroups.passing_all) + ' green on every observed AMD route · ' + integer(latestLogicalGroups.partial) + ' mixed by hardware', tone: Number(latestLogicalGroups.non_passing) ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'overview'}); }},
       {id: 'home-upstream-scheduled-gating', label: 'UPSTREAM SCHEDULED COHORT', value: scheduledGatingState.value, meta: scheduledGatingState.meta, tone: scheduledGatingState.tone, onOpen: function () { openUpstreamScheduledGatingDetail(scheduledGating); }},
       {id: 'home-failure-lifecycle', label: 'FAILURE MOVEMENT', value: nightlyState.movementLabel, meta: nightlyState.movementMeta, tone: nightlyState.movementTone, onOpen: function () { openBuildDetail(build); }},
@@ -3683,10 +3683,10 @@
 
   function testGroupParityState(stateName) {
     const presentations = {
-      existing: {label: '● Existing', tone: 'is-success'},
-      proposed: {label: '● In / proposed for #50519', tone: 'is-warning'},
+      existing: {label: '● Covered on main', tone: 'is-success'},
+      proposed: {label: '● Proposed addition', tone: 'is-warning'},
       unsupported: {label: '■ Not targeted / unsupported', tone: 'is-not-targeted'},
-      action: {label: '● Action / investigate', tone: 'is-danger'},
+      action: {label: '● Missing / investigate', tone: 'is-danger'},
     };
     return presentations[stateName] || {label: value(stateName), tone: 'is-neutral'};
   }
@@ -3915,7 +3915,7 @@
       {id: 'health-build', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: build.number ? nightlyState.meta : 'No completed build', tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci')},
       {id: 'health-hardware', label: 'CONFIGURED HEALTH CHECKS', value: uniqueHealth.pass_percentage === null || uniqueHealth.pass_percentage === undefined ? 'Unavailable' : Number(uniqueHealth.pass_percentage).toFixed(1) + '% passing', meta: uniqueHealth.best_hardware_unavailable ? 'Refresh for the complete configured-check inventory' : integer(uniqueHealth.passing_groups) + ' / ' + integer(uniqueHealth.included_groups) + ' best-hardware checks · ' + integer(uniqueHealth.failing_groups) + ' failing · ' + integer(Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0)) + ' no signal', tone: uniqueHealth.best_hardware_unavailable ? 'is-warning' : Number(uniqueHealth.failing_groups) ? 'is-warning' : Number(uniqueHealth.waiting_groups || 0) + Number(uniqueHealth.unknown_groups || 0) ? 'is-warning' : 'is-success', onOpen: function () { openMatrixHealthBrowser('all'); }},
       {id: 'health-upstream-scheduled-gating', label: 'UPSTREAM SCHEDULED COHORT', value: scheduledGatingState.value, meta: scheduledGatingState.meta, tone: scheduledGatingState.tone, onOpen: function () { openUpstreamScheduledGatingDetail(scheduledGating); }},
-      {id: 'health-parity', label: 'UPSTREAM TEST-GROUP PARITY', value: paritySummary.existing_groups === undefined ? 'Unavailable' : integer(paritySummary.existing_groups) + ' / ' + integer(paritySummary.applicable_groups), meta: paritySummary.upstream_logical_groups === undefined ? 'Reviewed parity inventory unavailable' : integer(paritySummary.local_candidate_complete_groups) + ' / ' + integer(paritySummary.applicable_groups) + ' with local #50519 candidates · ' + integer(paritySummary.upstream_logical_groups) + ' scoped upstream', tone: Number(paritySummary.action_groups) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'parity', 'health_view'); }},
+      {id: 'health-parity', label: 'UPSTREAM TEST-GROUP PARITY', value: paritySummary.main_complete_groups === undefined ? 'Unavailable' : integer(paritySummary.main_complete_groups) + ' / ' + integer(paritySummary.applicable_groups), meta: paritySummary.upstream_logical_groups === undefined ? 'Reviewed parity inventory unavailable' : percent(paritySummary.main_complete_groups, paritySummary.applicable_groups) + ' on main · ' + integer(paritySummary.main_plus_proposed_complete_groups) + ' / ' + integer(paritySummary.applicable_groups) + ' (' + percent(paritySummary.main_plus_proposed_complete_groups, paritySummary.applicable_groups) + ') with proposed changes · missing ' + integer(paritySummary.main_missing_groups) + ' → ' + integer(paritySummary.main_plus_proposed_missing_groups), tone: Number(paritySummary.action_groups) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'parity', 'health_view'); }},
       {id: 'health-latest-logical-groups', label: 'LATEST UNIQUE TEST GROUPS', value: latestLogicalGroups.available === false || latestLogicalGroups.total === undefined ? 'Unavailable' : integer(latestLogicalGroups.passing) + ' / ' + integer(latestLogicalGroups.total) + ' passing', meta: latestLogicalGroups.total === undefined ? 'No aligned runtime test-group signal' : integer(latestLogicalGroups.passing_all) + ' green on every observed AMD route · ' + integer(latestLogicalGroups.partial) + ' mixed by hardware', tone: Number(latestLogicalGroups.non_passing) ? 'is-warning' : 'is-success', onOpen: function () { setRouteState('ci-health', 'healthView', 'overview', 'health_view'); }},
     ]));
 
@@ -4003,17 +4003,16 @@
       const rocmInventory = parity.rocm_inventory || summary.rocm_inventory || {};
       const upstreamTotal = Number(summary.upstream_logical_groups || 0);
       const applicableTotal = Number(summary.applicable_groups || 0);
-      const existingTotal = Number(summary.existing_groups || 0);
-      const publishedTotal = Number(summary.published_pr_complete_groups || 0);
-      const localTotal = Number(summary.local_candidate_complete_groups || 0);
+      const mainTotal = Number(summary.main_complete_groups || 0);
+      const proposedCompleteTotal = Number(summary.main_plus_proposed_complete_groups || 0);
       const proposedTotal = Number(summary.proposed_groups || 0);
       const unsupportedTotal = Number(summary.unsupported_groups || 0);
       const actionTotal = Number(summary.action_groups || 0);
+      const mainMissingTotal = Number(summary.main_missing_groups || 0);
+      const proposedMissingTotal = Number(summary.main_plus_proposed_missing_groups || 0);
       const allRows = testGroupParityRows(parity, 'all', 'all');
-      const upstreamCommit = source.upstream_commit || source.commit_sha || '';
-      const upstreamUrl = source.upstream_commit_url || (upstreamCommit ? 'https://github.com/vllm-project/vllm/commit/' + upstreamCommit : '');
-      const prNumber = source.pull_request || 50519;
-      const prUrl = source.pull_request_url || 'https://github.com/vllm-project/vllm/pull/' + prNumber;
+      const mainCommit = source.main_commit || source.commit_sha || '';
+      const mainUrl = source.main_commit_url || (mainCommit ? 'https://github.com/vllm-project/vllm/commit/' + mainCommit : '');
 
       if (!allRows.length || !upstreamTotal) {
         host.append(n('div', 'ops-evidence-note is-warning', 'The reviewed upstream test-group parity inventory is unavailable in this snapshot.'));
@@ -4021,41 +4020,36 @@
       }
 
       host.append(statusStrip([
-        {id: 'parity-scope', label: 'UPSTREAM SCOPED GROUPS', value: integer(upstreamTotal), meta: integer(summary.upstream_physical_definitions) + ' physical CUDA definitions folded into logical groups', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'all', 'health_parity_state'); }},
-        {id: 'parity-existing', label: 'COMPLETE NOW', value: integer(existingTotal), meta: percent(existingTotal, applicableTotal) + ' of ' + integer(applicableTotal) + ' applicable · ' + percent(existingTotal, upstreamTotal) + ' strict', tone: 'is-success', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'existing', 'health_parity_state'); }},
-        {id: 'parity-proposed', label: 'IN / PROPOSED FOR #50519', value: integer(proposedTotal), meta: integer(publishedTotal) + ' complete at published PR head · ' + integer(localTotal) + ' with local candidates', tone: 'is-warning', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'proposed', 'health_parity_state'); }},
-        {id: 'parity-action', label: 'ACTION / INVESTIGATE', value: integer(actionTotal), meta: 'unresolved applicable groups · shown first below', tone: 'is-danger', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'action', 'health_parity_state'); }},
-        {id: 'parity-unsupported', label: 'NOT TARGETED / UNSUPPORTED', value: integer(unsupportedTotal), meta: 'known N/A, temporary, disabled, or unsupported today', tone: 'is-not-targeted', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'unsupported', 'health_parity_state'); }},
+        {id: 'parity-scope', label: 'APPLICABLE UPSTREAM GROUPS', value: integer(applicableTotal), meta: integer(upstreamTotal) + ' reviewed · ' + integer(unsupportedTotal) + ' not targeted', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'all', 'health_parity_state'); }},
+        {id: 'parity-existing', label: 'COVERED ON MAIN', value: integer(mainTotal) + ' / ' + integer(applicableTotal), meta: percent(mainTotal, applicableTotal) + ' · ' + integer(mainMissingTotal) + ' missing', tone: 'is-success', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'existing', 'health_parity_state'); }},
+        {id: 'parity-proposed', label: 'WITH PROPOSED CHANGES', value: integer(proposedCompleteTotal) + ' / ' + integer(applicableTotal), meta: percent(proposedCompleteTotal, applicableTotal) + ' · +' + integer(proposedTotal) + ' covered · ' + integer(proposedMissingTotal) + ' missing', tone: 'is-warning', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'proposed', 'health_parity_state'); }},
+        {id: 'parity-action', label: 'REMAINING GAPS', value: integer(actionTotal), meta: 'applicable groups still missing after proposed changes · shown first below', tone: 'is-danger', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'action', 'health_parity_state'); }},
+        {id: 'parity-unsupported', label: 'NOT TARGETED', value: integer(unsupportedTotal), meta: 'known N/A, temporary, disabled, or unsupported today', tone: 'is-not-targeted', onOpen: function () { setRouteState('ci-health', 'healthParityState', 'unsupported', 'health_parity_state'); }},
       ]));
 
       const parityNote = n('div', 'ops-evidence-note is-info');
       add(parityNote, [
         n('strong', '', 'Reviewed logical test-group parity. '),
-        n('span', '', integer(existingTotal) + ' of ' + integer(applicableTotal) + ' applicable upstream groups are complete now (' + percent(existingTotal, applicableTotal) + '); the published PR reaches ' + integer(publishedTotal) + ' (' + percent(publishedTotal, applicableTotal) + '), and the local candidate reaches ' + integer(localTotal) + ' (' + percent(localTotal, applicableTotal) + '). Strict rates over all ' + integer(upstreamTotal) + ' scoped groups are ' + percent(existingTotal, upstreamTotal) + ', ' + percent(publishedTotal, upstreamTotal) + ', and ' + percent(localTotal, upstreamTotal) + '. The ' + integer(unsupportedTotal) + ' dark-green rows remain visible but do not count as applicable targets.'),
-        upstreamUrl ? externalLink(' Open upstream ' + String(upstreamCommit).slice(0, 12), upstreamUrl) : null,
-        externalLink(' Open PR #' + prNumber, prUrl),
+        n('span', '', 'Main covers ' + integer(mainTotal) + ' of ' + integer(applicableTotal) + ' applicable upstream groups (' + percent(mainTotal, applicableTotal) + '), leaving ' + integer(mainMissingTotal) + ' missing. With all reviewed proposed changes, coverage becomes ' + integer(proposedCompleteTotal) + ' of ' + integer(applicableTotal) + ' (' + percent(proposedCompleteTotal, applicableTotal) + '), leaving ' + integer(proposedMissingTotal) + '. The ' + integer(unsupportedTotal) + ' dark-green rows remain visible but do not count as applicable targets.'),
+        mainUrl ? externalLink(' Open reviewed main ' + String(mainCommit).slice(0, 12), mainUrl) : null,
       ]);
       host.append(parityNote);
 
-      const inventoryDefinitions = rocmInventory.physical_definitions || {};
-      const inventoryLogical = rocmInventory.logical_groups || {};
-      const inventoryLinks = rocmInventory.direct_upstream_links || {};
+      const inventoryMain = rocmInventory.main || {};
+      const inventoryProposed = rocmInventory.main_plus_proposed || {};
       const inventoryNote = n('div', 'ops-evidence-note is-info');
       add(inventoryNote, [
-        n('strong', '', 'ROCm inventory milestones. '),
-        n('span', '', 'Physical definitions / logical groups / direct upstream links: ' +
-          integer(inventoryDefinitions.before_pr) + ' / ' + integer(inventoryLogical.before_pr) + ' / ' + integer(inventoryLinks.before_pr) + ' before PR; ' +
-          integer(inventoryDefinitions.published_pr) + ' / ' + integer(inventoryLogical.published_pr) + ' / ' + integer(inventoryLinks.published_pr) + ' at the published PR; ' +
-          integer(inventoryDefinitions.local_candidate) + ' / ' + integer(inventoryLogical.local_candidate) + ' / ' + integer(inventoryLinks.local_candidate) + ' in the local candidate. These are configured inventory/matcher populations, not the reviewed parity numerator or observed runtime health.'),
+        n('strong', '', 'ROCm CI inventory (separate from parity). '),
+        n('span', '', 'Main has ' + integer(inventoryMain.logical_groups) + ' logical AMD test groups from ' + integer(inventoryMain.physical_definitions) + ' YAML definitions; with proposed changes it has ' + integer(inventoryProposed.logical_groups) + ' logical groups from ' + integer(inventoryProposed.physical_definitions) + ' definitions. These inventory counts are not the ' + integer(mainTotal) + ' / ' + integer(applicableTotal) + ' parity numerator and denominator.'),
       ]);
       host.append(inventoryNote);
 
       const toolbar = n('div', 'ops-toolbar');
       toolbar.append(segmented([
-        {id: 'action', label: 'Action (' + actionTotal + ')'},
+        {id: 'action', label: 'Missing (' + actionTotal + ')'},
         {id: 'proposed', label: 'Proposed (' + proposedTotal + ')'},
         {id: 'unsupported', label: 'Not targeted (' + unsupportedTotal + ')'},
-        {id: 'existing', label: 'Existing (' + existingTotal + ')'},
+        {id: 'existing', label: 'On main (' + mainTotal + ')'},
         {id: 'all', label: 'All (' + upstreamTotal + ')'},
       ], state.healthParityState, function (nextState) {
         setRouteState('ci-health', 'healthParityState', nextState, 'health_parity_state');
@@ -4075,17 +4069,17 @@
 
       const selectedRows = testGroupParityRows(parity, state.healthParityState, state.healthParityArea);
       const selectedLabel = state.healthParityState === 'action'
-        ? 'Actionable parity gaps'
+        ? 'Remaining parity gaps'
         : state.healthParityState === 'unsupported'
           ? 'Not targeted / unsupported groups'
           : state.healthParityState === 'proposed'
-            ? 'In / proposed for #50519'
+            ? 'Proposed additions'
             : state.healthParityState === 'existing'
-              ? 'Existing complete coverage'
+              ? 'Covered on main'
               : 'Complete reviewed inventory';
       host.append(compactTablePanel(
         selectedLabel,
-        integer(selectedRows.length) + ' logical groups · red/actionable is the initial view',
+        integer(selectedRows.length) + ' logical groups · red/missing is the initial view',
         testGroupParityColumns(),
         selectedRows,
         {
@@ -4093,7 +4087,7 @@
           limit: state.healthParityState === 'action' ? actionTotal : 18,
           headerActions: toolbar,
           browserTitle: 'Upstream CUDA to ROCm logical test-group parity',
-          browserSubtitle: 'State and area filters preserve the reviewed 191-group denominator',
+          browserSubtitle: 'State and area filters preserve the reviewed ' + integer(upstreamTotal) + '-group scope and ' + integer(applicableTotal) + '-group parity denominator',
           searchPlaceholder: 'Filter test group, area, CUDA variant, state, or assessment',
           searchText: function (row) { return [row.id, row.title, row.area, row.cuda_variants, row.state, row.assessment].join(' '); },
           geometry: {name: 'upstream-test-group-parity', minWidth: '1465px'},
@@ -4102,15 +4096,16 @@
 
       host.append(panel(
         'Parity by test area',
-        integer(areas.length) + ' areas · ROCm logical inventory ' + integer(rocmInventory.before_pr) + ' before PR / ' + integer(rocmInventory.published_pr) + ' published PR / ' + integer(rocmInventory.local_candidate) + ' local candidate · definition inventory, not observed runtime health',
+        integer(areas.length) + ' areas · main compared with all reviewed proposed changes · definition coverage, not observed runtime health',
         dataTable([
           {label: 'Test area', sticky: true, width: '250px', render: function (row) { return value(row.area); }},
-          {label: 'Scoped', numeric: true, width: '100px', render: function (row) { return integer(row.total); }},
-          {label: 'Existing', numeric: true, width: '110px', render: function (row) { return badge(integer(row.existing), 'is-success'); }},
-          {label: 'Proposed', numeric: true, width: '110px', render: function (row) { return badge(integer(row.proposed), row.proposed ? 'is-warning' : 'is-neutral'); }},
+          {label: 'Applicable', numeric: true, width: '110px', render: function (row) { return integer(row.applicable); }},
+          {label: 'On main', numeric: true, width: '110px', render: function (row) { return badge(integer(row.complete_on_main), 'is-success'); }},
+          {label: 'Proposed additions', numeric: true, width: '150px', render: function (row) { return badge(integer(row.proposed), row.proposed ? 'is-warning' : 'is-neutral'); }},
+          {label: 'With proposed', numeric: true, width: '140px', render: function (row) { return integer(row.complete_with_proposed); }},
+          {label: 'Remaining', numeric: true, width: '110px', render: function (row) { return badge(integer(row.remaining_after_proposed), row.remaining_after_proposed ? 'is-danger' : 'is-neutral'); }},
           {label: 'Not targeted', numeric: true, width: '130px', render: function (row) { return badge(integer(row.unsupported), row.unsupported ? 'is-not-targeted' : 'is-neutral'); }},
-          {label: 'Action', numeric: true, width: '100px', render: function (row) { return badge(integer(row.action), row.action ? 'is-danger' : 'is-neutral'); }},
-        ], areas, integer(upstreamTotal) + ' reviewed upstream logical groups', {name: 'parity-by-area', minWidth: '800px'})
+        ], areas, integer(upstreamTotal) + ' reviewed upstream logical groups', {name: 'parity-by-area', minWidth: '940px'})
       ));
       return;
     }

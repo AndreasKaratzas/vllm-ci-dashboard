@@ -4,8 +4,8 @@
 The automatic definition matcher answers whether AMD YAML definitions can be
 linked to upstream YAML definitions.  This reviewed inventory answers a
 different question: which upstream logical CUDA test groups have complete
-ROCm coverage, are being added by PR #50519, are intentionally unsupported,
-or still require action.
+ROCm coverage on main, are included in proposed changes, are intentionally
+unsupported, or still require action.
 """
 
 from __future__ import annotations
@@ -23,17 +23,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG = ROOT / "config" / "vllm_upstream_test_group_parity.json"
 OUTPUT = ROOT / "data" / "vllm" / "ci"
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ALL_STATES = frozenset({"existing", "proposed", "unsupported", "action"})
 GAP_STATES = ALL_STATES - {"existing"}
-PROPOSAL_STAGES = frozenset({"published_pr", "local_candidate"})
 AREA_COUNT_FIELDS = ("existing", "proposed", "unsupported", "action")
-ROCM_INVENTORY_MILESTONES = ("before_pr", "published_pr", "local_candidate")
-ROCM_INVENTORY_POPULATIONS = (
-    "physical_definitions",
-    "logical_groups",
-    "direct_upstream_links",
-)
+ROCM_INVENTORY_MILESTONES = ("main", "main_plus_proposed")
+ROCM_INVENTORY_POPULATIONS = ("physical_definitions", "logical_groups")
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
@@ -84,11 +79,16 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
     if not isinstance(source, dict):
         raise ValueError("source must be an object")
     _nonempty_string(source.get("repository"), "source.repository")
-    for field in ("upstream_commit", "published_pr_commit"):
-        commit = _nonempty_string(source.get(field), f"source.{field}").casefold()
-        if not FULL_COMMIT_SHA_RE.fullmatch(commit):
-            raise ValueError(f"source.{field} must be a full 40-hex commit SHA")
-    _positive_int(source.get("pull_request"), "source.pull_request")
+    for obsolete_field in ("pull_request", "published_pr_commit", "upstream_commit"):
+        if obsolete_field in source:
+            raise ValueError(
+                f"source.{obsolete_field} is obsolete; parity is pinned to main"
+            )
+    main_commit = _nonempty_string(
+        source.get("main_commit"), "source.main_commit"
+    ).casefold()
+    if not FULL_COMMIT_SHA_RE.fullmatch(main_commit):
+        raise ValueError("source.main_commit must be a full 40-hex commit SHA")
 
     scope = review.get("scope")
     if not isinstance(scope, dict):
@@ -108,41 +108,29 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
     rocm_inventory = review.get("rocm_inventory")
     if not isinstance(rocm_inventory, dict):
         raise ValueError("rocm_inventory must be an object")
-    rocm_counts = [
-        _positive_int(rocm_inventory.get(field), f"rocm_inventory.{field}")
-        for field in ROCM_INVENTORY_MILESTONES
-    ]
-    if rocm_counts != sorted(rocm_counts):
-        raise ValueError("ROCm inventory milestones must be non-decreasing")
     inventory_populations: dict[str, list[int]] = {}
-    for population in ROCM_INVENTORY_POPULATIONS:
-        values = rocm_inventory.get(population)
+    for milestone in ROCM_INVENTORY_MILESTONES:
+        values = rocm_inventory.get(milestone)
         if not isinstance(values, dict):
-            raise ValueError(f"rocm_inventory.{population} must be an object")
-        counts = [
-            _positive_int(
-                values.get(milestone),
-                f"rocm_inventory.{population}.{milestone}",
+            raise ValueError(f"rocm_inventory.{milestone} must be an object")
+        counts = {
+            population: _positive_int(
+                values.get(population),
+                f"rocm_inventory.{milestone}.{population}",
             )
-            for milestone in ROCM_INVENTORY_MILESTONES
-        ]
+            for population in ROCM_INVENTORY_POPULATIONS
+        }
+        if counts["physical_definitions"] < counts["logical_groups"]:
+            raise ValueError(
+                "ROCm inventory must satisfy physical definitions >= logical "
+                f"groups at {milestone}"
+            )
+        for population, count in counts.items():
+            inventory_populations.setdefault(population, []).append(count)
+    for population, counts in inventory_populations.items():
         if counts != sorted(counts):
             raise ValueError(
                 f"ROCm {population} milestones must be non-decreasing"
-            )
-        inventory_populations[population] = counts
-    if inventory_populations["logical_groups"] != rocm_counts:
-        raise ValueError(
-            "ROCm logical_groups must match the top-level logical milestones"
-        )
-    for index, milestone in enumerate(ROCM_INVENTORY_MILESTONES):
-        definitions = inventory_populations["physical_definitions"][index]
-        logical = inventory_populations["logical_groups"][index]
-        direct = inventory_populations["direct_upstream_links"][index]
-        if not definitions >= logical >= direct:
-            raise ValueError(
-                "ROCm inventory populations must satisfy physical definitions "
-                f">= logical groups >= direct links at {milestone}"
             )
     _nonempty_string(
         rocm_inventory.get("count_basis"), "rocm_inventory.count_basis"
@@ -180,7 +168,6 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
         raise ValueError("groups must be a list")
     seen_ids: set[int] = set()
     detailed_counts: dict[str, Counter[str]] = defaultdict(Counter)
-    proposal_stages: Counter[str] = Counter()
     for index, group in enumerate(groups):
         if not isinstance(group, dict):
             raise ValueError(f"groups[{index}] must be an object")
@@ -205,17 +192,10 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
             group.get("cuda_variants"), f"groups[{index}].cuda_variants"
         )
         _nonempty_string(group.get("assessment"), f"groups[{index}].assessment")
-        stage = str(group.get("proposal_stage") or "").strip()
-        if state == "proposed":
-            if stage not in PROPOSAL_STAGES:
-                raise ValueError(
-                    f"groups[{index}].proposal_stage must be one of "
-                    f"{sorted(PROPOSAL_STAGES)}"
-                )
-            proposal_stages[stage] += 1
-        elif stage:
+        if "proposal_stage" in group:
             raise ValueError(
-                f"groups[{index}] may only set proposal_stage when state is proposed"
+                f"groups[{index}].proposal_stage is obsolete; proposed groups "
+                "are intentionally PR-agnostic"
             )
         detailed_counts[area][state] += 1
 
@@ -242,13 +222,11 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
             "group ids must be contiguous from 1 through the logical inventory "
             f"total (missing={missing}; unexpected={unexpected})"
         )
-    if proposal_stages.total() != totals["proposed"]:
-        raise ValueError("proposal-stage totals do not match proposed groups")
     applicable = total_groups - totals["unsupported"]
-    local_complete = totals["existing"] + totals["proposed"]
-    if local_complete + totals["action"] != applicable:
+    proposed_complete = totals["existing"] + totals["proposed"]
+    if proposed_complete + totals["action"] != applicable:
         raise ValueError(
-            "applicable groups must equal local-complete groups plus action groups"
+            "applicable groups must equal proposed-complete groups plus action groups"
         )
     return review
 
@@ -275,26 +253,21 @@ def build_payload(
     existing = totals["existing"]
     proposed = totals["proposed"]
     action = totals["action"]
-    proposal_stages = Counter(
-        str(row.get("proposal_stage") or "")
-        for row in groups
-        if row.get("state") == "proposed"
-    )
-    published_additions = proposal_stages["published_pr"]
-    local_additions = proposal_stages["local_candidate"]
-    published_complete = existing + published_additions
-    local_complete = published_complete + local_additions
+    proposed_complete = existing + proposed
+    main_missing = applicable - existing
+    proposed_missing = applicable - proposed_complete
 
     normalized_areas = []
     for row in areas:
         normalized_areas.append({
             **row,
             "applicable": int(row["total"]) - int(row["unsupported"]),
-            "complete_before_pr": int(row["existing"]),
-            "complete_with_local_candidate": (
+            "complete_on_main": int(row["existing"]),
+            "complete_with_proposed": (
                 int(row["existing"]) + int(row["proposed"])
             ),
-            "pending_action": int(row["action"]),
+            "missing_on_main": int(row["proposed"]) + int(row["action"]),
+            "remaining_after_proposed": int(row["action"]),
         })
 
     source = dict(review["source"])
@@ -316,27 +289,16 @@ def build_payload(
             ),
             "upstream_logical_groups": upstream_logical,
             "applicable_groups": applicable,
-            "existing_groups": existing,
+            "main_complete_groups": existing,
             "proposed_groups": proposed,
-            "published_pr_additions": published_additions,
-            "local_candidate_additions": local_additions,
-            "published_pr_complete_groups": published_complete,
-            "local_candidate_complete_groups": local_complete,
+            "main_plus_proposed_complete_groups": proposed_complete,
             "unsupported_groups": unsupported,
             "action_groups": action,
-            "strict_rate_pct": _rate(existing, upstream_logical),
-            "applicable_rate_pct": _rate(existing, applicable),
-            "published_pr_strict_rate_pct": _rate(
-                published_complete, upstream_logical
-            ),
-            "published_pr_applicable_rate_pct": _rate(
-                published_complete, applicable
-            ),
-            "local_candidate_strict_rate_pct": _rate(
-                local_complete, upstream_logical
-            ),
-            "local_candidate_applicable_rate_pct": _rate(
-                local_complete, applicable
+            "main_missing_groups": main_missing,
+            "main_plus_proposed_missing_groups": proposed_missing,
+            "main_applicable_rate_pct": _rate(existing, applicable),
+            "main_plus_proposed_applicable_rate_pct": _rate(
+                proposed_complete, applicable
             ),
         },
         "rocm_inventory": dict(review["rocm_inventory"]),

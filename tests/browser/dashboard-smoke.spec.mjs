@@ -363,11 +363,11 @@ test('CI health upstream parity opens with the actionable list', async ({ page }
   await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
-  await expect(health.getByRole('button', { name: /Action \(12\)/ })).toHaveAttribute('aria-pressed', 'true');
-  const actionPanel = health.locator('.ops-panel').filter({ has: health.getByRole('heading', { name: 'Actionable parity gaps' }) });
+  await expect(health.getByRole('button', { name: /Missing \(8\)/ })).toHaveAttribute('aria-pressed', 'true');
+  const actionPanel = health.locator('.ops-panel').filter({ has: health.getByRole('heading', { name: 'Remaining parity gaps' }) });
   await expect(actionPanel).toBeVisible();
-  await expect(actionPanel.locator('.ops-table tbody tr')).toHaveCount(12);
-  await expect(health).toContainText('Fusion and Compile');
+  await expect(actionPanel.locator('.ops-table tbody tr')).toHaveCount(8);
+  await expect(health).toContainText('Kimi-Linear-48B-A3B Disaggregated DP EP');
   await expect(health).toContainText('LM Eval PCP');
 
   await health.getByRole('button', { name: /Not targeted \(28\)/ }).click();

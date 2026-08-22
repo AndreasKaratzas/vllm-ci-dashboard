@@ -1,11 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "reviewed_at": "2026-08-22",
   "source": {
     "repository": "vllm-project/vllm",
-    "upstream_commit": "a556f3fccb701e5618d84d547ff454c56a1bfdfb",
-    "pull_request": 50519,
-    "published_pr_commit": "6bc87a29a3ec8c75cad472aa51ebcc3f5575c23a"
+    "main_commit": "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
   },
   "scope": {
     "upstream_physical_definitions": 201,
@@ -24,23 +22,13 @@
     ]
   },
   "rocm_inventory": {
-    "before_pr": 143,
-    "published_pr": 152,
-    "local_candidate": 157,
-    "physical_definitions": {
-      "before_pr": 184,
-      "published_pr": 193,
-      "local_candidate": 198
+    "main": {
+      "physical_definitions": 184,
+      "logical_groups": 143
     },
-    "logical_groups": {
-      "before_pr": 143,
-      "published_pr": 152,
-      "local_candidate": 157
-    },
-    "direct_upstream_links": {
-      "before_pr": 122,
-      "published_pr": 132,
-      "local_candidate": 137
+    "main_plus_proposed": {
+      "physical_definitions": 198,
+      "logical_groups": 157
     },
     "count_basis": "ROCm logical groups; this is an inventory, not an upstream-parity numerator"
   },
@@ -218,18 +206,18 @@
     {"id": 190, "area": "Spec Decode", "title": "V1 Spec Decode", "cuda_variants": "H200", "state": "existing", "assessment": "V1 Spec Decode (MI300, MI355); inline AMD mirror [mi300_1]"},
     {"id": 191, "area": "Weight Loading", "title": "Weight Loading Multi-GPU", "cuda_variants": "L4 (2 GPUs)", "state": "existing", "assessment": "Weight Loading Multi-GPU (MI300, MI355); inline AMD mirror [mi300_2]"},
     {"id": 5, "area": "Compile", "title": "AsyncTP Correctness", "cuda_variants": "B200 (2 GPUs)", "state": "unsupported", "assessment": "AsyncTP is not enabled on ROCm."},
-    {"id": 7, "area": "Compile", "title": "Fusion and Compile", "cuda_variants": "B200", "state": "proposed", "proposal_stage": "local_candidate", "assessment": "The local candidate adds a substantive ROCm AITER-MLA static-FP8 parametrization; its focused DeepSeek-V2-Lite case passed. Per-group FP8 remains CUDA-kernel-specific and NVFP4 is NVIDIA-specific."},
-    {"id": 9, "area": "Compile", "title": "Fusion E2E Quick", "cuda_variants": "H100 (1 GPU)", "state": "proposed", "proposal_stage": "local_candidate", "assessment": "The local candidate adds the portable DeepSeek-Coder static-FP8 MLA selector to the existing MI300 group; it passed locally. CUDA's remaining DeepSeek-V3 per-group path is backend-specific."},
+    {"id": 7, "area": "Compile", "title": "Fusion and Compile", "cuda_variants": "B200", "state": "proposed", "assessment": "The proposed changes add a substantive ROCm AITER-MLA static-FP8 parametrization; its focused DeepSeek-V2-Lite case passed. Per-group FP8 remains CUDA-kernel-specific and NVFP4 is NVIDIA-specific."},
+    {"id": 9, "area": "Compile", "title": "Fusion E2E Quick", "cuda_variants": "H100 (1 GPU)", "state": "proposed", "assessment": "The proposed changes add the portable DeepSeek-Coder static-FP8 MLA selector to the existing MI300 group; it passed locally. CUDA's remaining DeepSeek-V3 per-group path is backend-specific."},
     {"id": 10, "area": "Compile", "title": "Fusion E2E TP2", "cuda_variants": "B200 (2 GPUs)", "state": "unsupported", "assessment": "The remaining selectors require FlashInfer/NVFP4 or AsyncTP."},
     {"id": 11, "area": "Compile", "title": "Fusion E2E TP2 AR-RMS Config Sweep", "cuda_variants": "H100 (2 GPUs)", "state": "unsupported", "assessment": "ROCm covers generic BF16 AR-RMS; the remaining static-FP8 path is CUDA-only."},
     {"id": 12, "area": "Compile", "title": "Fusion E2E TP2 AsyncTP Config Sweep", "cuda_variants": "H100 (2 GPUs)", "state": "unsupported", "assessment": "AsyncTP is not enabled on ROCm."},
-    {"id": 13, "area": "Compile", "title": "Fusion E2E TP2 Quick", "cuda_variants": "H100 (2 GPUs)", "state": "proposed", "proposal_stage": "local_candidate", "assessment": "The proposed MI355_2 group preserves the CUDA matrix while covering supported ROCm AITER AR+RMS paths. Strengthened Llama static-FP8, Qwen per-group-FP8, and DeepSeek-Coder AITER-MLA static-FP8 selectors all passed. DeepSeek-V3 per-group output quant and AsyncTP remain unsupported."},
+    {"id": 13, "area": "Compile", "title": "Fusion E2E TP2 Quick", "cuda_variants": "H100 (2 GPUs)", "state": "proposed", "assessment": "The proposed MI355_2 group preserves the CUDA matrix while covering supported ROCm AITER AR+RMS paths. Strengthened Llama static-FP8, Qwen per-group-FP8, and DeepSeek-Coder AITER-MLA static-FP8 selectors all passed. DeepSeek-V3 per-group output quant and AsyncTP remain unsupported."},
     {"id": 14, "area": "Compile", "title": "Sequence Parallel Correctness", "cuda_variants": "B200 (2 GPUs)", "state": "unsupported", "assessment": "The upstream ROCm port is still WIP and the AMD job remains disabled."},
     {"id": 18, "area": "Disaggregated", "title": "Distributed FlashInfer NixlConnector PD accuracy", "cuda_variants": "L4 (4 GPUs)", "state": "unsupported", "assessment": "FlashInfer connector implementation is NVIDIA-specific."},
-    {"id": 21, "area": "Disaggregated", "title": "DSv4-Flash Disaggregated DP EP", "cuda_variants": "H200 (8 GPUs)", "state": "proposed", "proposal_stage": "local_candidate", "assessment": "Proposed MI355 route passed the NIXL compatibility check and its full local accuracy run."},
+    {"id": 21, "area": "Disaggregated", "title": "DSv4-Flash Disaggregated DP EP", "cuda_variants": "H200 (8 GPUs)", "state": "proposed", "assessment": "The proposed MI355 route passed the NIXL compatibility check and its full local accuracy run."},
     {"id": 24, "area": "Disaggregated", "title": "Kimi-Linear-48B-A3B Disaggregated DP EP", "cuda_variants": "H200 (4 GPUs)", "state": "action", "assessment": "NIXL rejected incompatible prefill and decode cache-block sizes; recomputation masked the transfer failure."},
-    {"id": 28, "area": "Disaggregated", "title": "NixlConnector PD edge case", "cuda_variants": "L4 (2 GPUs)", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
-    {"id": 29, "area": "Disaggregated", "title": "Push NixlConnector PP prefill PD accuracy", "cuda_variants": "L4 (4 GPUs)", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
+    {"id": 28, "area": "Disaggregated", "title": "NixlConnector PD edge case", "cuda_variants": "L4 (2 GPUs)", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
+    {"id": 29, "area": "Disaggregated", "title": "Push NixlConnector PP prefill PD accuracy", "cuda_variants": "L4 (4 GPUs)", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
     {"id": 30, "area": "Disaggregated Mooncake", "title": "Distributed MooncakeConnector PD accuracy", "cuda_variants": "B200 (4 GPUs)", "state": "action", "assessment": "The Mooncake connector route is absent on ROCm."},
     {"id": 31, "area": "Distributed", "title": "Distributed", "cuda_variants": "B200 (2 GPUs)", "state": "action", "assessment": "ROCm covers context parallelism and DBO; symmetric-memory and MNNVL all-to-all are CUDA-only."},
     {"id": 33, "area": "Distributed", "title": "Distributed 2-Node", "cuda_variants": "L4 (2 GPUs)", "state": "action", "assessment": "A deliberate multi-node ROCm route is still required."},
@@ -243,31 +231,31 @@
     {"id": 80, "area": "Kernels", "title": "FP4 MoE Kernels", "cuda_variants": "B200 (1 GPU)", "state": "unsupported", "assessment": "NVFP4 is NVIDIA-specific; the ROCm parity target is MXFP4."},
     {"id": 81, "area": "Kernels", "title": "FP8 MoE Kernels", "cuda_variants": "H100 (1 GPU)", "state": "action", "assessment": "ROCm covers the portable subset; CUDA-only CUTLASS and FlashInfer cases remain."},
     {"id": 86, "area": "Kernels", "title": "MiniMax Reduce RMS Kernels", "cuda_variants": "H100 (2 GPUs)", "state": "unsupported", "assessment": "CUDA-specific fused kernel route."},
-    {"id": 87, "area": "Kernels", "title": "Miscellaneous Kernels", "cuda_variants": "B200", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
+    {"id": 87, "area": "Kernels", "title": "Miscellaneous Kernels", "cuda_variants": "B200", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
     {"id": 90, "area": "Kernels", "title": "Spark b12x Linear Kernels Nightly", "cuda_variants": "DGX (1 GPU)", "state": "unsupported", "assessment": "DGX Spark-specific kernels."},
     {"id": 93, "area": "LM Eval", "title": "LM Eval Humming Activation FP8/INT8 TEMPORARY", "cuda_variants": "H100 (1 GPU), B200 (1 GPU)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
     {"id": 94, "area": "LM Eval", "title": "LM Eval Humming Activation INT8 TEMPORARY", "cuda_variants": "A100 (1 GPU)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
     {"id": 95, "area": "LM Eval", "title": "LM Eval Humming FP16 TEMPORARY", "cuda_variants": "B200 (1 GPU)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
     {"id": 96, "area": "LM Eval", "title": "LM Eval Humming FP16 TEMPORARY Shard", "cuda_variants": "A100 (1 GPU), H100 (1 GPU)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
-    {"id": 97, "area": "LM Eval", "title": "LM Eval KV-Offload", "cuda_variants": "H200", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
-    {"id": 98, "area": "LM Eval", "title": "LM Eval KV-Offload Large", "cuda_variants": "H100 (4 GPUs)", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
-    {"id": 99, "area": "LM Eval", "title": "LM Eval KV-Offload Medium", "cuda_variants": "H100 (2 GPUs)", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
+    {"id": 97, "area": "LM Eval", "title": "LM Eval KV-Offload", "cuda_variants": "H200", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
+    {"id": 98, "area": "LM Eval", "title": "LM Eval KV-Offload Large", "cuda_variants": "H100 (4 GPUs)", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
+    {"id": 99, "area": "LM Eval", "title": "LM Eval KV-Offload Medium", "cuda_variants": "H100 (2 GPUs)", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
     {"id": 100, "area": "LM Eval", "title": "LM Eval Large Models", "cuda_variants": "H100 (4 GPUs)", "state": "action", "assessment": "ROCm large-model eval groups use different model lists and topologies."},
     {"id": 103, "area": "LM Eval", "title": "LM Eval PCP", "cuda_variants": "B200 (4 GPUs)", "state": "action", "assessment": "An exact source/extension-matched TP2xPCP2 PCP-only run reached AITER MXFP4/MLA, loaded all 282 shards, and allocated 158.33 GiB of KV cache per rank on 4xMI355. All four ranks then hit native GPU memory-access faults during 1,024-token warmup before API readiness. This rules out source/binary mismatch; PCP+EP remains blocked behind the simpler failure."},
-    {"id": 106, "area": "LM Eval", "title": "LM Eval Small Models Distributed", "cuda_variants": "B200 (2 GPUs)", "state": "proposed", "proposal_stage": "local_candidate", "assessment": "Proposed DiffusionGemma FP8 TP2 route passed its full local GSM8K run."},
+    {"id": 106, "area": "LM Eval", "title": "LM Eval Small Models Distributed", "cuda_variants": "B200 (2 GPUs)", "state": "proposed", "assessment": "The proposed DiffusionGemma FP8 TP2 route passed its full local GSM8K run."},
     {"id": 107, "area": "LM Eval", "title": "LM Eval Spec Decode", "cuda_variants": "B200 (4 GPUs)", "state": "action", "assessment": "Meaningful partial coverage: a proposed MI355_4 TP4+EP fixed-length DSpark job uses FP8 indexer/KV caches and passed all 1,319 GSM8K cases at 0.9484 accuracy with 4.448 mean accepted tokens. Exact CUDA parity remains open because Blackwell MXFP4 indexer caching and adaptive verification require ROCm capabilities not yet present."},
-    {"id": 108, "area": "LM Eval", "title": "LM Eval TurboQuant KV Cache", "cuda_variants": "H200", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
+    {"id": 108, "area": "LM Eval", "title": "LM Eval TurboQuant KV Cache", "cuda_variants": "H200", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
     {"id": 109, "area": "LM Eval", "title": "MoE Refactor DP Integration TEMPORARY", "cuda_variants": "B200 (2 GPUs)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
     {"id": 110, "area": "LM Eval", "title": "MoE Refactor Integration TEMPORARY", "cuda_variants": "H100 (2 GPUs)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
     {"id": 111, "area": "LM Eval", "title": "MoE Refactor Integration TEMPORARY Shard", "cuda_variants": "B200 (2 GPUs)", "state": "unsupported", "assessment": "Temporary upstream track; monitor rather than port mechanically."},
     {"id": 113, "area": "LM Eval", "title": "Spark GPQA Eval (GPT-OSS)", "cuda_variants": "DGX (1 GPU)", "state": "unsupported", "assessment": "DGX/SM120 physical route; ROCm already runs the same GPT-OSS payload."},
-    {"id": 136, "area": "Models - Basic", "title": "Inkling", "cuda_variants": "B200", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
-    {"id": 137, "area": "Models - Basic", "title": "Kimi K3", "cuda_variants": "B200", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
+    {"id": 136, "area": "Models - Basic", "title": "Inkling", "cuda_variants": "B200", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
+    {"id": 137, "area": "Models - Basic", "title": "Kimi K3", "cuda_variants": "B200", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
     {"id": 158, "area": "Plugins", "title": "BitsAndBytes Plugin", "cuda_variants": "H200", "state": "unsupported", "assessment": "CUDA bitsandbytes plugin route."},
     {"id": 159, "area": "Plugins", "title": "BitsAndBytes Plugin", "cuda_variants": "L4 (2 GPUs)", "state": "unsupported", "assessment": "CUDA bitsandbytes plugin route."},
     {"id": 163, "area": "PyTorch", "title": "PyTorch Compilation H100 Cases", "cuda_variants": "H200", "state": "unsupported", "assessment": "H100-specific compilation cases."},
-    {"id": 168, "area": "Quantization", "title": "Quantized Fusions", "cuda_variants": "H200", "state": "proposed", "proposal_stage": "published_pr", "assessment": "ROCm counterpart is included in PR #50519."},
+    {"id": 168, "area": "Quantization", "title": "Quantized Fusions", "cuda_variants": "H200", "state": "proposed", "assessment": "A ROCm counterpart is included in the proposed changes."},
     {"id": 170, "area": "Quantization", "title": "Quantized MoE", "cuda_variants": "B200", "state": "unsupported", "assessment": "Blackwell and NVIDIA quantized-MoE route."},
-    {"id": 179, "area": "Spec Decode", "title": "Spec Decode AL MTP + Other Acceptance Nightly", "cuda_variants": "H200", "state": "proposed", "proposal_stage": "local_candidate", "assessment": "The proposed optional MI355 job runs the exact four-selector directory; its authenticated aggregate run completed 4/4 passes. Medusa reached 0.2202 versus 0.198, both Gemma4 MTP modes cleared every acceptance floor, and synthetic Eagle3 reached 1.876 versus 1.875 +/- 0.15."}
+    {"id": 179, "area": "Spec Decode", "title": "Spec Decode AL MTP + Other Acceptance Nightly", "cuda_variants": "H200", "state": "proposed", "assessment": "The proposed optional MI355 job runs the exact four-selector directory; its authenticated aggregate run completed 4/4 passes. Medusa reached 0.2202 versus 0.198, both Gemma4 MTP modes cleared every acceptance floor, and synthetic Eagle3 reached 1.876 versus 1.875 +/- 0.15."}
   ]
 }

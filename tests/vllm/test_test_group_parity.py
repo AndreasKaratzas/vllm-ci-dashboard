@@ -19,47 +19,37 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
     review = parity.load_review()
     payload = parity.build_payload(review, generated_at=GENERATED_AT)
 
+    assert payload["schema_version"] == 2
     assert payload["generated_at"] == GENERATED_AT
     assert payload["source"]["config_path"] == (
         "config/vllm_upstream_test_group_parity.json"
     )
+    assert payload["source"]["main_commit"] == (
+        "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
+    )
+    assert "pull_request" not in payload["source"]
     assert payload["summary"] == {
         "upstream_physical_definitions": 201,
         "upstream_logical_groups": 191,
         "applicable_groups": 163,
-        "existing_groups": 139,
+        "main_complete_groups": 139,
         "proposed_groups": 16,
-        "published_pr_additions": 10,
-        "local_candidate_additions": 6,
-        "published_pr_complete_groups": 149,
-        "local_candidate_complete_groups": 155,
+        "main_plus_proposed_complete_groups": 155,
         "unsupported_groups": 28,
         "action_groups": 8,
-        "strict_rate_pct": 72.8,
-        "applicable_rate_pct": 85.3,
-        "published_pr_strict_rate_pct": 78.0,
-        "published_pr_applicable_rate_pct": 91.4,
-        "local_candidate_strict_rate_pct": 81.2,
-        "local_candidate_applicable_rate_pct": 95.1,
+        "main_missing_groups": 24,
+        "main_plus_proposed_missing_groups": 8,
+        "main_applicable_rate_pct": 85.3,
+        "main_plus_proposed_applicable_rate_pct": 95.1,
     }
     assert payload["rocm_inventory"] == {
-        "before_pr": 143,
-        "published_pr": 152,
-        "local_candidate": 157,
-        "physical_definitions": {
-            "before_pr": 184,
-            "published_pr": 193,
-            "local_candidate": 198,
+        "main": {
+            "physical_definitions": 184,
+            "logical_groups": 143,
         },
-        "logical_groups": {
-            "before_pr": 143,
-            "published_pr": 152,
-            "local_candidate": 157,
-        },
-        "direct_upstream_links": {
-            "before_pr": 122,
-            "published_pr": 132,
-            "local_candidate": 137,
+        "main_plus_proposed": {
+            "physical_definitions": 198,
+            "logical_groups": 157,
         },
         "count_basis": (
             "ROCm logical groups; this is an inventory, not an "
@@ -80,7 +70,7 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
     groups = {row["id"]: row for row in payload["groups"]}
     for group_id in (7, 9, 13, 179):
         assert groups[group_id]["state"] == "proposed"
-        assert groups[group_id]["proposal_stage"] == "local_candidate"
+        assert "proposal_stage" not in groups[group_id]
     assert "DeepSeek-Coder AITER-MLA static-FP8" in groups[13]["assessment"]
     assert groups[103]["state"] == "action"
     assert "282 shards" in groups[103]["assessment"]
@@ -115,11 +105,26 @@ def test_review_validator_rejects_rocm_inventory_population_drift(
     tmp_path: Path,
 ) -> None:
     review = json.loads(parity.CONFIG.read_text())
-    review["rocm_inventory"]["logical_groups"]["local_candidate"] += 1
+    review["rocm_inventory"]["main_plus_proposed"]["logical_groups"] = (
+        review["rocm_inventory"]["main"]["logical_groups"] - 1
+    )
     config_path = tmp_path / "parity.json"
     config_path.write_text(json.dumps(review))
 
-    with pytest.raises(ValueError, match="logical_groups must match"):
+    with pytest.raises(ValueError, match="logical_groups milestones"):
+        parity.load_review(config_path)
+
+
+def test_review_validator_rejects_pr_specific_proposal_stage(
+    tmp_path: Path,
+) -> None:
+    review = json.loads(parity.CONFIG.read_text())
+    proposed = next(row for row in review["groups"] if row["state"] == "proposed")
+    proposed["proposal_stage"] = "published_pr"
+    config_path = tmp_path / "parity.json"
+    config_path.write_text(json.dumps(review))
+
+    with pytest.raises(ValueError, match="PR-agnostic"):
         parity.load_review(config_path)
 
 
@@ -161,6 +166,7 @@ def test_operations_views_publish_compact_and_full_parity_projections() -> None:
     org_summary = operations.build_org_summary(operations_payload)
     assert org_summary["test_group_parity"] == {
         "available": True,
+        "schema_version": 2,
         "reviewed_at": "2026-08-22",
         "summary": parity_payload["summary"],
         "rocm_inventory": parity_payload["rocm_inventory"],

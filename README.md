@@ -111,16 +111,17 @@ that every high-value input still has a producer and consumer.
 The reviewed upstream CUDA-to-ROCm test-group inventory lives in
 `config/vllm_upstream_test_group_parity.json`. Its validated public
 projection is `data/vllm/ci/test_group_parity.json`, with physical and logical
-upstream totals, applicable coverage, current and proposed parity, ROCm-only
-inventory milestones for physical definitions, logical groups, and direct
-upstream links, area summaries, and all reviewed group rows kept distinct.
+upstream totals, applicable coverage on the reviewed main snapshot and with
+proposed changes, separate ROCm physical/logical inventory counts, area
+summaries, and all reviewed group rows kept distinct. It does not track a
+hard-coded pull request or expose matcher-link bookkeeping as parity.
 
 Organization-wide OSS rollups should consume the versioned
 [`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)
 artifact. It keeps observed logical test groups, exact job variants, the
 reviewed upstream parity inventory, best-hardware test-group health checks, scheduled
 cohorts, reviewed parity targets, and queue activity as separate populations.
-Schema v5 exposes these as `test_groups`, `test_group_parity`, `health_checks`,
+Schema v6 exposes these as `test_groups`, `test_group_parity`, `health_checks`,
 `scheduled_cohorts`, and `parity_targets`; it does not combine them under a
 generic gating count. `queues.daily_served_job_waits.days` remains the compact
 UTC-day index. Its `source` object points to the exact vectors already published in

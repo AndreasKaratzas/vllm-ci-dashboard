@@ -248,7 +248,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     assert summary["schema_id"] == "oss-project-ci-summary"
-    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 5
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 6
     assert summary["project"]["id"] == "vllm"
 
     logical = summary["test_groups"]["observed_latest_amd"]
@@ -511,7 +511,7 @@ def test_snapshot_bundle_writes_bounded_discoverable_org_summary(tmp_path) -> No
     assert summary["generated_at"] == GENERATED_AT
     assert path.stat().st_size == descriptor["bytes"]
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
-    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 5
+    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 6
     assert "groups" not in summary["scheduled_cohorts"]["upstream_nightly"]
 
 
@@ -587,7 +587,7 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
 
     path = data_dir / ops.ORG_SUMMARY_NAME
     summary = json.loads(path.read_text())
-    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 5
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 6
     summary["test_groups"]["observed_latest_amd"]["total"] = 236
     path.write_text(json.dumps(summary, indent=2) + "\n")
 

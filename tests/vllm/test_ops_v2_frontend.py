@@ -690,29 +690,35 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
         "{id: 'parity', label: 'Upstream parity'}",
         "ops.test_group_parity || {}",
         "UPSTREAM TEST-GROUP PARITY",
-        "UPSTREAM SCOPED GROUPS",
-        "COMPLETE NOW",
-        "IN / PROPOSED FOR #50519",
-        "ACTION / INVESTIGATE",
-        "NOT TARGETED / UNSUPPORTED",
+        "APPLICABLE UPSTREAM GROUPS",
+        "COVERED ON MAIN",
+        "WITH PROPOSED CHANGES",
+        "REMAINING GAPS",
+        "NOT TARGETED",
         "Reviewed logical test-group parity.",
-        "Actionable parity gaps",
+        "Remaining parity gaps",
         "Parity by test area",
-        "definition inventory, not observed runtime health",
-        "ROCm inventory milestones.",
-        "Physical definitions / logical groups / direct upstream links",
-        "configured inventory/matcher populations",
-        "not the reviewed parity numerator or observed runtime health",
+        "definition coverage, not observed runtime health",
+        "ROCm CI inventory (separate from parity).",
+        "logical AMD test groups",
+        "These inventory counts are not the",
         "Upstream CUDA to ROCm logical test-group parity",
         "Filter reviewed upstream test groups by parity state",
         "Filter reviewed upstream test groups by area",
         "healthParityState: 'action'",
         "healthParityArea: 'all'",
         "testGroupParityRows(parity, state.healthParityState, state.healthParityArea)",
-        "red/actionable is the initial view",
+        "red/missing is the initial view",
         "is-not-targeted",
     ):
         assert contract in OPS_JS or contract in OPS_CSS
+    for obsolete_parity_label in (
+        "#50519",
+        "published PR",
+        "local candidate",
+        "direct upstream links",
+    ):
+        assert obsolete_parity_label not in OPS_JS
     for ambiguous_label in (
         "BEST-HARDWARE TEST GROUPS",
         "UPSTREAM SCHEDULED GATING",
@@ -2555,7 +2561,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=12' in INDEX
-    assert 'assets/js/ops-v2.js?v=23' in INDEX
+    assert 'assets/js/ops-v2.js?v=24' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (

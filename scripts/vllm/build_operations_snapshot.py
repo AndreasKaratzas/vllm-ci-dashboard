@@ -50,7 +50,7 @@ OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
 ORG_SUMMARY_NAME = "org_summary.json"
 ORG_SUMMARY_MAX_BYTES = 2 * 1024 * 1024
-ORG_SUMMARY_SCHEMA_VERSION = 5
+ORG_SUMMARY_SCHEMA_VERSION = 6
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
@@ -7952,6 +7952,11 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         },
         "test_group_parity": {
             "available": bool(test_group_parity_summary),
+            "schema_version": (
+                _org_int(test_group_parity.get("schema_version"))
+                if test_group_parity_summary
+                else None
+            ),
             "reviewed_at": test_group_parity.get("reviewed_at"),
             "summary": test_group_parity_summary,
             "rocm_inventory": test_group_parity.get("rocm_inventory") or {},
@@ -8250,7 +8255,7 @@ def write_snapshot_bundle(
         _load_json(output.parent / QUEUE_LIFECYCLE_NAME),
     )
     org_summary_path = output.parent / ORG_SUMMARY_NAME
-    # This is a machine-consumed exchange contract. Schema v5 keeps only the
+    # This is a machine-consumed exchange contract. Schema v6 keeps only the
     # validated daily index here and references the exact vectors in the public
     # lifecycle source, avoiding a second large copy in every publication.
     org_summary_encoded = _encoded_json(org_summary)
