@@ -1,9 +1,9 @@
 {
-  "baseline_ref": "bf4d74cd44366f4bf2a59f44f3ce7d36c62386a6",
+  "baseline_ref": "497bf2eade6fbb8ed7eb9e7259884852148c3811",
   "candidate_degradations": [
     {
       "code": "dns-health-stale",
-      "message": "DNS health source is 5.8h old; maximum is 3h",
+      "message": "DNS health source is 6.9h old; maximum is 3h",
       "path": "data/vllm/ci/dns_failures.json",
       "severity": "degradation",
       "surfaces": [
@@ -11,33 +11,157 @@
       ]
     }
   ],
-  "candidate_errors": [],
-  "collector_failure_streaks": {},
-  "collector_failures": [],
+  "candidate_errors": [
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "collector": "collect_agent_health.py",
+        "details": {
+          "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ConnectionError(err, request=request) | requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+        },
+        "exit_code": 1,
+        "persistence_runs": 1,
+        "reason_class": "timeout",
+        "step": "AMD agent health",
+        "surface": "agent_health"
+      },
+      "message": "AMD agent health (collect_agent_health.py) failed with timeout; agent_health will use its validated baseline",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "agent_health"
+      ]
+    },
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "collector": "collect_perf_eval_artifacts.py",
+        "details": {
+          "summary": "raw = requests.get(item[\"download_url\"], headers=headers, timeout=30) | raise ConnectionError(err, request=request) | requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+        },
+        "exit_code": 1,
+        "persistence_runs": 1,
+        "reason_class": "timeout",
+        "step": "perf-eval artifacts",
+        "surface": "perf_eval"
+      },
+      "message": "perf-eval artifacts (collect_perf_eval_artifacts.py) failed with timeout; perf_eval will use its validated baseline",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "perf_eval"
+      ]
+    }
+  ],
+  "collector_failure_streaks": {
+    "2c94c57b5d19803be3be": 1,
+    "bbe10dde8de59267c1cf": 1
+  },
+  "collector_failures": [
+    {
+      "collector": "collect_agent_health.py",
+      "details": {
+        "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ConnectionError(err, request=request) | requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+      },
+      "exit_code": 1,
+      "persistence_runs": 1,
+      "reason_class": "timeout",
+      "schema_version": 1,
+      "step": "AMD agent health",
+      "surface": "agent_health"
+    },
+    {
+      "collector": "collect_perf_eval_artifacts.py",
+      "details": {
+        "summary": "raw = requests.get(item[\"download_url\"], headers=headers, timeout=30) | raise ConnectionError(err, request=request) | requests.exceptions.ConnectionError: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))"
+      },
+      "exit_code": 1,
+      "persistence_runs": 1,
+      "reason_class": "timeout",
+      "schema_version": 1,
+      "step": "perf-eval artifacts",
+      "surface": "perf_eval"
+    }
+  ],
   "collector_incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
   "degraded_since": {
-    "dns_health": "2026-08-22T13:08:05Z"
+    "agent_health": "2026-08-22T16:45:38Z",
+    "dns_health": "2026-08-22T13:08:05Z",
+    "perf_eval": "2026-08-22T16:45:38Z"
   },
   "degraded_surfaces": [
-    "dns_health"
+    "agent_health",
+    "dns_health",
+    "perf_eval"
   ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {},
-  "fallback_surfaces": [],
-  "final_degradations": [],
+  "fallback_since": {
+    "agent_health": "2026-08-22T16:45:38Z",
+    "perf_eval": "2026-08-22T16:45:38Z"
+  },
+  "fallback_surfaces": [
+    "agent_health",
+    "perf_eval"
+  ],
+  "final_degradations": [
+    {
+      "code": "dns-health-stale",
+      "message": "DNS health source is 6.9h old; maximum is 3h",
+      "path": "data/vllm/ci/dns_failures.json",
+      "severity": "degradation",
+      "surfaces": [
+        "dns_health"
+      ]
+    }
+  ],
   "final_errors": [],
   "fresh_degraded_surfaces": [
     "dns_health"
   ],
-  "generated_at": "2026-08-22T15:42:31Z",
-  "mode": "degraded",
-  "restored_manifest": {},
-  "restored_paths": {},
+  "generated_at": "2026-08-22T16:45:38Z",
+  "mode": "mixed",
+  "restored_manifest": {
+    "agent_health": {
+      "data/vllm/ci/agent_health.json": {
+        "bytes": 7252155,
+        "sha256": "2a2004d583104e99f4924f011a07a5c8aecc023daee762433a7f833407d3fd45"
+      },
+      "data/vllm/ci/agent_health/infra_failures.jsonl": {
+        "bytes": 7345798,
+        "sha256": "868993c9e1beb45afeb49cd37a7f6afd88960f0c1202eb60530d7b179f5a5a4e"
+      },
+      "data/vllm/ci/agent_health/node_days.jsonl": {
+        "bytes": 659657,
+        "sha256": "3c4e7617ad440956c699e9febd2d94d0e814d7262f11a47d27d9b240a082f715"
+      }
+    },
+    "perf_eval": {
+      "data/vllm/perf_eval/events.jsonl": {
+        "bytes": 262345,
+        "sha256": "400c56df1211968f903fb662c0e1f5d7239c55e2fbc1b778b5612e18d017c768"
+      },
+      "data/vllm/perf_eval/perf_eval.json": {
+        "bytes": 1803558,
+        "sha256": "c868028601fb25692411c5251b5918b824d9d369a1634a0f4362e75ee36d0a83"
+      }
+    }
+  },
+  "restored_paths": {
+    "agent_health": [
+      "data/vllm/ci/agent_health.json",
+      "data/vllm/ci/agent_health/infra_failures.jsonl",
+      "data/vllm/ci/agent_health/node_days.jsonl"
+    ],
+    "perf_eval": [
+      "data/vllm/perf_eval/events.jsonl",
+      "data/vllm/perf_eval/perf_eval.json"
+    ]
+  },
   "schema_version": 2,
   "surface_contract_version": 4
 }
