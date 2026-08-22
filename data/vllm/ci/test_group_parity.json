@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-22T04:51:23Z",
+  "generated_at": "2026-08-22T05:29:03Z",
   "reviewed_at": "2026-08-22",
   "source": {
     "repository": "vllm-project/vllm",
@@ -30,24 +30,39 @@
     "upstream_logical_groups": 191,
     "applicable_groups": 163,
     "existing_groups": 139,
-    "proposed_groups": 12,
+    "proposed_groups": 16,
     "published_pr_additions": 10,
-    "local_candidate_additions": 2,
+    "local_candidate_additions": 6,
     "published_pr_complete_groups": 149,
-    "local_candidate_complete_groups": 151,
+    "local_candidate_complete_groups": 155,
     "unsupported_groups": 28,
-    "action_groups": 12,
+    "action_groups": 8,
     "strict_rate_pct": 72.8,
     "applicable_rate_pct": 85.3,
     "published_pr_strict_rate_pct": 78.0,
     "published_pr_applicable_rate_pct": 91.4,
-    "local_candidate_strict_rate_pct": 79.1,
-    "local_candidate_applicable_rate_pct": 92.6
+    "local_candidate_strict_rate_pct": 81.2,
+    "local_candidate_applicable_rate_pct": 95.1
   },
   "rocm_inventory": {
     "before_pr": 143,
     "published_pr": 152,
-    "local_candidate": 155,
+    "local_candidate": 157,
+    "physical_definitions": {
+      "before_pr": 184,
+      "published_pr": 193,
+      "local_candidate": 198
+    },
+    "logical_groups": {
+      "before_pr": 143,
+      "published_pr": 152,
+      "local_candidate": 157
+    },
+    "direct_upstream_links": {
+      "before_pr": 122,
+      "published_pr": 132,
+      "local_candidate": 137
+    },
     "count_basis": "ROCm logical groups; this is an inventory, not an upstream-parity numerator"
   },
   "areas": [
@@ -91,13 +106,13 @@
       "area": "Compile",
       "total": 10,
       "existing": 2,
-      "proposed": 0,
+      "proposed": 3,
       "unsupported": 5,
-      "action": 3,
+      "action": 0,
       "applicable": 5,
       "complete_before_pr": 2,
-      "complete_with_local_candidate": 2,
-      "pending_action": 3
+      "complete_with_local_candidate": 5,
+      "pending_action": 0
     },
     {
       "area": "CUDA",
@@ -403,13 +418,13 @@
       "area": "Spec Decode",
       "total": 14,
       "existing": 13,
-      "proposed": 0,
+      "proposed": 1,
       "unsupported": 0,
-      "action": 1,
+      "action": 0,
       "applicable": 14,
       "complete_before_pr": 13,
-      "complete_with_local_candidate": 13,
-      "pending_action": 1
+      "complete_with_local_candidate": 14,
+      "pending_action": 0
     },
     {
       "area": "Weight Loading",
@@ -478,8 +493,9 @@
       "area": "Compile",
       "title": "Fusion and Compile",
       "cuda_variants": "B200",
-      "state": "action",
-      "assessment": "Portable compile paths exist, but MLA attention quant-fusion has no substantive ROCm parametrization."
+      "state": "proposed",
+      "proposal_stage": "local_candidate",
+      "assessment": "The local candidate adds a substantive ROCm AITER-MLA static-FP8 parametrization; its focused DeepSeek-V2-Lite case passed. Per-group FP8 remains CUDA-kernel-specific and NVFP4 is NVIDIA-specific."
     },
     {
       "id": 8,
@@ -494,8 +510,9 @@
       "area": "Compile",
       "title": "Fusion E2E Quick",
       "cuda_variants": "H100 (1 GPU)",
-      "state": "action",
-      "assessment": "The generic selector is aligned; equivalent Qwen and DeepSeek FP8 coverage remains incomplete."
+      "state": "proposed",
+      "proposal_stage": "local_candidate",
+      "assessment": "The local candidate adds the portable DeepSeek-Coder static-FP8 MLA selector to the existing MI300 group; it passed locally. CUDA's remaining DeepSeek-V3 per-group path is backend-specific."
     },
     {
       "id": 10,
@@ -526,8 +543,9 @@
       "area": "Compile",
       "title": "Fusion E2E TP2 Quick",
       "cuda_variants": "H100 (2 GPUs)",
-      "state": "action",
-      "assessment": "Generic BF16 is covered; equivalent Qwen and DeepSeek AITER FP8 AR-RMS E2E coverage remains incomplete."
+      "state": "proposed",
+      "proposal_stage": "local_candidate",
+      "assessment": "The proposed MI355_2 group preserves the CUDA matrix while covering supported ROCm AITER AR+RMS paths. Strengthened Llama static-FP8, Qwen per-group-FP8, and DeepSeek-Coder AITER-MLA static-FP8 selectors all passed. DeepSeek-V3 per-group output quant and AsyncTP remain unsupported."
     },
     {
       "id": 14,
@@ -1254,7 +1272,7 @@
       "title": "LM Eval PCP",
       "cuda_variants": "B200 (4 GPUs)",
       "state": "action",
-      "assessment": "Native MXFP4 initialized on four MI355 GPUs, but the engine died on the first real TP2 x PCP2 + EP batch."
+      "assessment": "An exact source/extension-matched TP2xPCP2 PCP-only run reached AITER MXFP4/MLA, loaded all 282 shards, and allocated 158.33 GiB of KV cache per rank on 4xMI355. All four ranks then hit native GPU memory-access faults during 1,024-token warmup before API readiness. This rules out source/binary mismatch; PCP+EP remains blocked behind the simpler failure."
     },
     {
       "id": 104,
@@ -1287,7 +1305,7 @@
       "title": "LM Eval Spec Decode",
       "cuda_variants": "B200 (4 GPUs)",
       "state": "action",
-      "assessment": "ROCm lacks the indexer, confidence-head, varlen, and full-graph capabilities required by adaptive verification."
+      "assessment": "Meaningful partial coverage: a proposed MI355_4 TP4+EP fixed-length DSpark job uses FP8 indexer/KV caches and passed all 1,319 GSM8K cases at 0.9484 accuracy with 4.448 mean accepted tokens. Exact CUDA parity remains open because Blackwell MXFP4 indexer caching and adaptive verification require ROCm capabilities not yet present."
     },
     {
       "id": 108,
@@ -1866,8 +1884,9 @@
       "area": "Spec Decode",
       "title": "Spec Decode AL MTP + Other Acceptance Nightly",
       "cuda_variants": "H200",
-      "state": "action",
-      "assessment": "Medusa passes locally, but the two Gemma MTP cases and synthetic Eagle3 case still need authenticated model runs."
+      "state": "proposed",
+      "proposal_stage": "local_candidate",
+      "assessment": "The proposed optional MI355 job runs the exact four-selector directory; its authenticated aggregate run completed 4/4 passes. Medusa reached 0.2202 versus 0.198, both Gemma4 MTP modes cleared every acceptance floor, and synthetic Eagle3 reached 1.876 versus 1.875 +/- 0.15."
     },
     {
       "id": 180,
