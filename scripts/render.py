@@ -98,7 +98,7 @@ def render_readme(config, data):
         "| View | Description |",
         "|------|-------------|",
         "| **Home** | PRs, project #39 issues, and ROCm vs upstream test parity |",
-        "| **CI Health** | Visual AMD runtime overview, main-only upstream parity, reviewed target health with explicit mapping/no-definition reasons, and architecture drilldowns |",
+        "| **CI Health** | Visual AMD runtime overview, main-only upstream parity, build-pinned logical AMD target health, separate reviewed-plan mapping diagnostics, and architecture drilldowns |",
         "| **CI Analytics** | AMD test health, precomputed 30-day flake/retry/latency comparison, nightlies, DNS, and agent health |",
         "| **Queue Monitor** | Buildkite queue workload, wait-time charts, active job overlays, and AMD capacity projections |",
         "| **Hotness / Omni** | Workload trajectories; exact Omni active-job evidence, 1h–3d queue windows, queued-age bands, daily deltas, and explicit partial-attribution labels |",

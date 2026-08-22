@@ -418,7 +418,7 @@
       'ci-health': [
         ['healthView', 'health_view', ['overview', 'parity', 'targets', 'coverage']],
         ['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']],
-        ['healthResult', 'health_result', ['attention', 'incident', 'no_definition', 'mapping_review', 'not_observed', 'passed', 'all']],
+        ['healthResult', 'health_result', ['attention', 'non_passing', 'partial', 'passing', 'all']],
         ['healthParityState', 'health_parity_state', ['all', 'existing', 'unsupported', 'action']],
         ['healthParityArea', 'health_parity_area', null],
       ],
@@ -2799,7 +2799,7 @@
     if (tabId === 'ci-health') {
       if (state.healthView === 'overview') return ['nightly', 'amd_test_health'];
       if (state.healthView === 'parity') return ['test_group_parity'];
-      if (state.healthView === 'targets') return ['gating'];
+      if (state.healthView === 'targets') return ['amd_test_health', 'gating'];
       if (state.healthView === 'quality') return [state.healthQualityView === 'collectors' ? 'diagnostics' : 'definition_parity'];
       if (state.healthView === 'gating') return ['definition_parity'];
       if (state.healthView === 'diagnostics') return ['diagnostics'];
@@ -3132,6 +3132,7 @@
       queue_waiting: 'Jobs currently waiting across tracked queues',
       gating_red_targets: 'Canonical target groups not ready',
       target_groups_with_current_incidents: 'Reviewed target groups with current AMD failures',
+      amd_logical_groups_not_fully_passing: 'AMD logical test groups not passing every route',
       mixed_state_flaky_candidates: 'Upstream groups with mixed pass and incident history',
       omni_waiting: 'Omni jobs waiting across the fleet',
     };
@@ -3140,7 +3141,8 @@
 
   function inspectAttention(item, ops) {
     if (String(item.kind || '').startsWith('queue_')) navigateTo('ci-queue', {queueView: item.kind === 'queue_waiting' ? 'jobs' : 'current', queueScope: 'all'});
-    else if (item.kind === 'gating_red_targets' || item.kind === 'target_groups_with_current_incidents') navigateTo('ci-health', {healthView: 'targets', healthResult: 'incident'});
+    else if (item.kind === 'gating_red_targets' || item.kind === 'target_groups_with_current_incidents') navigateTo('ci-health', {healthView: 'targets', healthResult: 'all'});
+    else if (item.kind === 'amd_logical_groups_not_fully_passing') navigateTo('ci-health', {healthView: 'targets', healthResult: 'attention'});
     else if (item.kind === 'mixed_state_flaky_candidates') navigateTo('ci-analytics', {analyticsView: 'flakes'});
     else if (item.kind === 'omni_waiting') navigateTo('ci-omni');
     else {
@@ -3863,7 +3865,7 @@
     const presentations = {
       existing: {label: '● Covered on main', tone: 'is-success'},
       unsupported: {label: '■ Not targeted / unsupported', tone: 'is-not-targeted'},
-      action: {label: '● Missing / investigate', tone: 'is-danger'},
+      action: {label: '● Potential open gap', tone: 'is-danger'},
     };
     return presentations[stateName] || {label: value(stateName), tone: 'is-neutral'};
   }
@@ -3991,7 +3993,10 @@
         return integer(segment.count) + ' ' + value(segment.label, 'groups');
       }).join(', ') + '. Open group table.');
       const header = n('div', 'ops-health-area-heading');
-      add(header, [n('strong', '', area.label), n('span', '', integer(area.attention) + ' need attention')]);
+      add(header, [
+        n('strong', '', area.label),
+        n('span', '', area.countLabel || integer(area.attention) + ' open items'),
+      ]);
       const stack = n('div', 'ops-health-mini-stack');
       (area.segments || []).forEach(function (segment) {
         if (!segment.count) return;
@@ -4256,7 +4261,7 @@
     const viewDescriptions = {
       overview: 'Latest AMD nightly outcomes and failure movement. Logical test groups are separate from exact Buildkite job variants.',
       parity: 'Reviewed upstream logical test-group coverage on vLLM main. Runtime pass/fail is separate.',
-      targets: 'Current AMD runtime and mapping signal for the reviewed target groups only.',
+      targets: 'Build-pinned health for the logical AMD test groups observed in the latest complete test signal.',
       coverage: 'Configured AMD test groups by architecture and the fixed best-hardware health policy.',
     };
     let headerAction = null;
@@ -4271,6 +4276,12 @@
       const mainUrl = source.main_commit_url || (mainCommit ? 'https://github.com/vllm-project/vllm/commit/' + mainCommit : '');
       if (mainUrl) headerAction = externalLink('Open reviewed vLLM main ↗', mainUrl, 'ops-button');
       observedAt = (ops.test_group_parity || {}).reviewed_at || observedAt;
+    }
+    if (state.healthView === 'targets') {
+      if (amdHealthSummary.latest_build_url) {
+        headerAction = externalLink('Open AMD test build #' + value(amdHealthSummary.latest_build_number) + ' ↗', amdHealthSummary.latest_build_url, 'ops-button');
+      }
+      observedAt = amdHealthSummary.latest_observed_at || observedAt;
     }
     const headerActions = n('div', 'ops-inline-actions');
     if (headerAction) headerActions.append(headerAction);
@@ -4417,7 +4428,7 @@
         title: 'Applicable test groups covered',
         current: mainTotal,
         total: applicableTotal,
-        meta: integer(mainMissingTotal) + ' applicable groups are still missing',
+        meta: integer(mainMissingTotal) + ' potential open gaps remain',
         tone: mainMissingTotal ? 'is-warning' : 'is-success',
         onOpen: function () { openParityRows('Applicable upstream test groups', applicableRows, parity); },
       }));
@@ -4426,7 +4437,7 @@
         integer(unsupportedTotal) + ' hardware- or backend-specific groups are classified outside the parity denominator.',
         [
           {label: 'covered on main', count: mainTotal, tone: 'is-success', onOpen: function () { openParityRows('Covered on main', mainRows, parity); }},
-          {label: 'missing on main', count: actionTotal, tone: 'is-danger', onOpen: function () { openParityRows('Missing on main', missingRows, parity); }},
+          {label: 'potential open gaps', count: actionTotal, tone: 'is-danger', onOpen: function () { openParityRows('Potential open gaps', missingRows, parity); }},
           {label: 'not targeted', count: unsupportedTotal, tone: 'is-not-targeted', onOpen: function () { openParityRows('Not targeted / unsupported', unsupportedRows, parity); }},
         ]
       ));
@@ -4437,26 +4448,27 @@
         return {
           label: row.area,
           attention: Number(row.action || 0),
+          countLabel: integer(row.action || 0) + ' potential open ' + (Number(row.action || 0) === 1 ? 'gap' : 'gaps'),
           total: Number(row.total || 0),
           rows: groupRows,
           preview: groupRows.map(function (group) { return '#' + integer(group.id) + ' ' + group.title; }),
           segments: [
             {label: 'covered on main', count: Number(row.existing || 0), tone: 'is-success'},
-            {label: 'missing on main', count: Number(row.action || 0), tone: 'is-danger'},
+            {label: 'potential open gaps', count: Number(row.action || 0), tone: 'is-danger'},
             {label: 'not targeted', count: Number(row.unsupported || 0), tone: 'is-not-targeted'},
           ],
         };
       }).sort(function (left, right) { return right.attention - left.attention || left.label.localeCompare(right.label); });
       host.append(healthAreaBoard(
-        'Missing on main by test area',
-        'The red backlog is shown first and grouped. Select an area to open its complete table.',
+        'Potential open gaps by test area',
+        'Potential gaps are shown first and grouped. Select an area to open its complete table.',
         gapAreas,
-        function (area) { openParityRows(area.label + ' gaps on main', area.rows, parity); }
+        function (area) { openParityRows(area.label + ' potential open gaps', area.rows, parity); }
       ));
 
       const actions = n('div', 'ops-related-actions');
       add(actions, [
-        button('Browse all ' + integer(actionTotal) + ' missing groups', function () { openParityRows('Missing on main', missingRows, parity); }, true),
+        button('Browse all ' + integer(actionTotal) + ' potential open gaps', function () { openParityRows('Potential open gaps', missingRows, parity); }, true),
         button('Browse ' + integer(unsupportedTotal) + ' not-targeted groups', function () { openParityRows('Not targeted / unsupported', unsupportedRows, parity); }),
         button('Browse complete ' + integer(upstreamTotal) + '-group inventory', function () { openParityRows('Complete reviewed upstream inventory', allRows, parity); }),
       ]);
@@ -4472,142 +4484,151 @@
     }
 
     if (state.healthView === 'targets') {
-      const allTargets = Array.isArray(gating.target_groups) ? gating.target_groups : [];
-      function targetState(row) {
-        return runtimeTargetState(row);
+      const amdHealth = ops.amd_test_health || {};
+      const logicalInventory = amdLogicalInventory(amdHealth);
+      const allTargets = Array.from(logicalInventory.rows || []);
+      const latestAmdBuild = logicalInventory.build_number || amdHealthSummary.latest_build_number;
+      const passingAllTargets = allTargets.filter(function (row) { return row.state === 'passing_all'; });
+      const partialTargets = allTargets.filter(function (row) { return row.state === 'partial'; });
+      const nonPassingTargets = allTargets.filter(function (row) { return row.state === 'non_passing'; });
+      const attentionTargets = nonPassingTargets.concat(partialTargets);
+      const passingTargets = passingAllTargets.concat(partialTargets);
+      function sortTargetRows(rows) {
+        const rank = {non_passing: 0, partial: 1, passing_all: 2};
+        return Array.from(rows || []).sort(function (left, right) {
+          return Number(rank[left.state] === undefined ? 3 : rank[left.state])
+            - Number(rank[right.state] === undefined ? 3 : rank[right.state])
+            || compareText(left.label || left.logical_key, right.label || right.logical_key)
+            || compareText(left.id, right.id);
+        });
       }
-      function isTargetIncident(row) {
-        return isIncidentObservation({state: targetState(row)});
-      }
-      const incidentTargets = allTargets.filter(isTargetIncident);
-      const passedTargets = allTargets.filter(function (row) { return targetState(row) === 'passed'; });
-      const unresolvedTargets = allTargets.filter(function (row) {
-        return targetState(row) !== 'passed' && !isTargetIncident(row);
-      });
-      const noDefinitionTargets = unresolvedTargets.filter(function (row) { return targetResolutionPresentation(row).status === 'no_amd_definition'; });
-      const mappingReviewTargets = unresolvedTargets.filter(function (row) { return ['stale_target_alias', 'ambiguous'].includes(targetResolutionPresentation(row).status); });
-      const notObservedTargets = unresolvedTargets.filter(function (row) { return !noDefinitionTargets.includes(row) && !mappingReviewTargets.includes(row); });
-      const attentionTargets = sortRuntimeTargetRows(incidentTargets.concat(unresolvedTargets));
       const filters = {
         all: allTargets,
         attention: attentionTargets,
-        incident: incidentTargets,
-        no_definition: noDefinitionTargets,
-        mapping_review: mappingReviewTargets,
-        not_observed: notObservedTargets,
-        passed: passedTargets,
+        non_passing: nonPassingTargets,
+        partial: partialTargets,
+        passing: passingAllTargets,
       };
-      const targetRows = sortRuntimeTargetRows(filters[state.healthResult] || allTargets);
-      if (!allTargets.length) {
-        host.append(n('div', 'ops-evidence-note is-warning', 'The reviewed AMD target inventory is unavailable in this snapshot.'));
+      const targetRows = sortTargetRows(filters[state.healthResult] || attentionTargets);
+      const reviewedPlanRows = Array.isArray(gating.target_groups) ? gating.target_groups : [];
+      function appendReviewedPlan() {
+        if (!reviewedPlanRows.length) return;
+        const noDefinitionPlanRows = reviewedPlanRows.filter(function (row) { return targetResolutionPresentation(row).status === 'no_amd_definition'; });
+        const mappingReviewPlanRows = reviewedPlanRows.filter(function (row) { return ['stale_target_alias', 'ambiguous'].includes(targetResolutionPresentation(row).status); });
+        const notObservedPlanRows = reviewedPlanRows.filter(function (row) { return targetResolutionPresentation(row).status === 'not_observed'; });
+        function openReviewedPlanRows(title, rows) {
+          openTableBrowser({
+            id: 'reviewed-coverage-plan-browser',
+            title: title,
+            subtitle: 'Manually reviewed coverage-plan entries; mapping quality is separate from AMD runtime health',
+            rows: sortRuntimeTargetRows(rows),
+            columns: [
+              {label: 'Reviewed plan entry', sticky: true, width: '390px', render: function (row) { return linkButton(row.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
+              {label: 'Area', width: '170px', render: function (row) { return healthAreaLabel(row.area); }},
+              {label: 'Mapping', width: '220px', render: function (row) { const resolution = targetResolutionPresentation(row); return linkButton(resolution.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
+              {label: 'Plan note / assessment', width: '520px', render: function (row) { return linkButton(targetAssessmentText(row), function () { openGatingDetailWithEvidence(row, ops); }); }},
+            ],
+            searchPlaceholder: 'Filter plan entry, area, mapping, or assessment',
+            searchText: function (row) { const resolution = targetResolutionPresentation(row); return [row.label, row.area, targetAssessmentText(row), resolution.label, resolution.reason, resolution.amdDefinitionLabels.join(' ')].join(' '); },
+            geometry: {name: 'reviewed-coverage-plan', minWidth: '1300px'},
+          });
+        }
+        const planActions = n('div', 'ops-related-actions');
+        add(planActions, [
+          button('Browse all ' + integer(reviewedPlanRows.length) + ' plan entries', function () { openReviewedPlanRows('Reviewed coverage plan', reviewedPlanRows); }, true),
+          button('Browse ' + integer(noDefinitionPlanRows.length) + ' without one-to-one AMD definitions', function () { openReviewedPlanRows('Plan entries without one-to-one AMD definitions', noDefinitionPlanRows); }),
+          button('Browse ' + integer(mappingReviewPlanRows.length) + ' mapping-review entries', function () { openReviewedPlanRows('Plan entries needing mapping review', mappingReviewPlanRows); }),
+          notObservedPlanRows.length ? button('Browse ' + integer(notObservedPlanRows.length) + ' mapped but unobserved entries', function () { openReviewedPlanRows('Mapped plan entries not observed', notObservedPlanRows); }) : null,
+        ]);
+        const denominatorCopy = allTargets.length
+          ? 'excluded from the ' + integer(allTargets.length) + '-group runtime-health denominator.'
+          : 'excluded from the runtime-health denominator.';
+        host.append(panel(
+          'Reviewed coverage plan',
+          integer(reviewedPlanRows.length) + ' manually reviewed plan entries. They are retained for coverage planning and mapping review but ' + denominatorCopy,
+          planActions
+        ));
+      }
+      if (!logicalInventory.available || !allTargets.length) {
+        host.append(n('div', 'ops-evidence-note is-warning', 'The build-pinned AMD logical test-group inventory is unavailable in this snapshot.'));
+        appendReviewedPlan();
         return;
       }
       function openTargetRows(title, rows) {
-        openTableBrowser({
-          id: 'runtime-target-browser',
-          title: title,
-          subtitle: 'Reviewed AMD targets only; select a row to inspect exact mapping and execution evidence',
-          rows: sortRuntimeTargetRows(rows),
-          columns: [
-            {label: 'Reviewed target', sticky: true, width: '400px', render: function (row) { return linkButton(row.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
-            {label: 'Area', width: '170px', render: function (row) { return healthAreaLabel(row.area); }},
-            {label: 'Current AMD', width: '150px', render: function (row) { return linkedBadge(targetState(row), null, function () { openGatingDetailWithEvidence(row, ops); }, toneForState(targetState(row))); }},
-            {label: 'Mapping', width: '220px', render: function (row) { const resolution = targetResolutionPresentation(row); return linkButton(resolution.label, function () { openGatingDetailWithEvidence(row, ops); }); }},
-            {label: 'Assessment', width: '420px', render: function (row) { return linkButton(targetAssessmentText(row), function () { openGatingDetailWithEvidence(row, ops); }); }},
-            {label: 'Build', width: '110px', render: function (row) { const latest = row.latest_amd_result || {}; const url = gatingEvidenceUrl(row); return url ? externalLink('#' + value(latest.build_number), url, 'ops-mono') : n('span', 'ops-cell-muted', '-'); }},
-          ],
-          searchPlaceholder: 'Filter target, area, AMD result, mapping, or assessment',
-          searchText: function (row) { const resolution = targetResolutionPresentation(row); return [row.label, row.area, targetState(row), targetAssessmentText(row), resolution.label, resolution.reason, resolution.amdDefinitionLabels.join(' ')].join(' '); },
-          geometry: {name: 'runtime-targets', minWidth: '1390px'},
-        });
+        openAmdLogicalCatalog(
+          title,
+          'Build-pinned logical AMD test groups from test signal #' + value(latestAmdBuild) + '; select a row for every hardware route and exact job',
+          sortTargetRows(rows),
+          logicalInventory,
+          amdHealth
+        );
       }
 
       const targetHero = n('div', 'ops-health-hero-grid');
       targetHero.append(healthRingCard({
-        eyebrow: 'AMD RUNTIME TARGETS',
+        eyebrow: 'AMD RUNTIME TEST GROUPS',
         title: 'Passing now',
-        current: passedTargets.length,
+        current: passingTargets.length,
         total: allTargets.length,
-        meta: integer(incidentTargets.length) + ' failing · ' + integer(unresolvedTargets.length) + ' need mapping or observation',
+        meta: integer(passingAllTargets.length) + ' pass every route · ' + integer(partialTargets.length) + ' partial · ' + integer(nonPassingTargets.length) + ' non-passing',
         tone: attentionTargets.length ? 'is-warning' : 'is-success',
-        onOpen: function () { openTargetRows('All reviewed AMD targets', allTargets); },
+        actionLabel: 'Inspect all logical test groups →',
+        onOpen: function () { openTargetRows('AMD runtime test groups', allTargets); },
       }));
       targetHero.append(healthDistributionCard(
-        'CURRENT SIGNAL AND MAPPING',
-        'Unresolved targets are split by cause instead of collapsed into one “no signal” number.',
+        'LOGICAL GROUP OUTCOMES · ' + (latestAmdBuild ? '#' + integer(latestAmdBuild) : 'UNAVAILABLE'),
+        'Hardware routes combine only when the build-pinned identity rules identify the same logical AMD test group.',
         [
-          {label: 'passing now', count: passedTargets.length, tone: 'is-success', onOpen: function () { openTargetRows('Passing reviewed targets', passedTargets); }},
-          {label: 'failing now', count: incidentTargets.length, tone: 'is-danger', onOpen: function () { openTargetRows('Failing reviewed targets', incidentTargets); }},
-          {label: 'no AMD definition', count: noDefinitionTargets.length, tone: 'is-warning', onOpen: function () { openTargetRows('Targets without an AMD definition', noDefinitionTargets); }},
-          {label: 'mapping review', count: mappingReviewTargets.length, tone: 'is-info', onOpen: function () { openTargetRows('Targets needing mapping review', mappingReviewTargets); }},
-          {label: 'not observed', count: notObservedTargets.length, tone: 'is-neutral', onOpen: function () { openTargetRows('Targets not observed', notObservedTargets); }},
+          {label: 'pass every route', count: passingAllTargets.length, tone: 'is-success', onOpen: function () { openTargetRows('AMD groups passing every route', passingAllTargets); }},
+          {label: 'pass some routes', count: partialTargets.length, tone: 'is-warning', onOpen: function () { openTargetRows('AMD groups passing some routes', partialTargets); }},
+          {label: 'non-passing', count: nonPassingTargets.length, tone: 'is-danger', onOpen: function () { openTargetRows('Non-passing AMD groups', nonPassingTargets); }},
         ]
       ));
       host.append(targetHero);
 
       const targetToolbar = n('div', 'ops-toolbar');
       targetToolbar.append(segmented([
-        {id: 'attention', label: 'Needs attention (' + integer(attentionTargets.length) + ')'},
-        {id: 'incident', label: 'Failing now (' + integer(incidentTargets.length) + ')'},
-        {id: 'no_definition', label: 'No AMD definition (' + integer(noDefinitionTargets.length) + ')'},
-        {id: 'mapping_review', label: 'Mapping review (' + integer(mappingReviewTargets.length) + ')'},
-        {id: 'not_observed', label: 'Not observed (' + integer(notObservedTargets.length) + ')'},
-        {id: 'passed', label: 'Passing (' + integer(passedTargets.length) + ')'},
+        {id: 'attention', label: 'Not fully passing (' + integer(attentionTargets.length) + ')'},
+        {id: 'non_passing', label: 'Non-passing (' + integer(nonPassingTargets.length) + ')'},
+        {id: 'partial', label: 'Partial (' + integer(partialTargets.length) + ')'},
+        {id: 'passing', label: 'Pass every route (' + integer(passingAllTargets.length) + ')'},
         {id: 'all', label: 'All (' + integer(allTargets.length) + ')'},
       ], state.healthResult, function (result) {
         setRouteState('ci-health', 'healthResult', result, 'health_result');
-      }, 'Filter runtime target groups by latest AMD result'));
+      }, 'Filter logical AMD test groups by latest result'));
       const attentionList = n('div', 'ops-health-attention-list');
       targetRows.slice(0, 8).forEach(function (row) {
-        const resolution = targetResolutionPresentation(row);
         const control = n('button', 'ops-health-attention-row');
         control.type = 'button';
-        control.addEventListener('click', function () { openGatingDetailWithEvidence(row, ops); });
+        control.addEventListener('click', function () { openAmdLogicalGroupDetail(row, logicalInventory, amdHealth); });
         const identity = n('span', 'ops-health-attention-copy');
-        add(identity, [n('strong', '', row.label), n('small', '', healthAreaLabel(row.area) + ' · ' + resolution.label)]);
+        add(identity, [
+          n('strong', '', row.label || row.logical_key),
+          n('small', '', integer(row.hardware_count) + ' hardware ' + (Number(row.hardware_count) === 1 ? 'route' : 'routes') + ' · ' + integer(row.job_variant_count) + ' exact job ' + (Number(row.job_variant_count) === 1 ? 'variant' : 'variants')),
+        ]);
+        const routeSummary = (row.hardware_states || []).map(function (item) {
+          return hardwareDisplayLabel(item.hardware) + ': ' + amdLogicalSignalLabel(item.state).toLowerCase();
+        }).join(' · ');
         add(control, [
-          n('span', 'ops-health-attention-state ' + toneForState(targetState(row)), targetState(row)),
+          n('span', 'ops-health-attention-state ' + amdLogicalStateTone(row.state), amdLogicalStateLabel(row.state)),
           identity,
-          n('span', 'ops-health-attention-reason', targetAssessmentText(row)),
+          n('span', 'ops-health-attention-reason', routeSummary),
           n('span', 'ops-stat-action', 'Inspect →'),
         ]);
         attentionList.append(control);
       });
-      if (!targetRows.length) attentionList.append(n('div', 'ops-empty', 'No reviewed targets match this filter.'));
-      const browse = button('Browse all ' + integer(targetRows.length) + ' selected targets', function () { openTargetRows('Reviewed targets · ' + state.healthResult.replaceAll('_', ' '), targetRows); }, true);
+      if (!targetRows.length) attentionList.append(n('div', 'ops-empty', 'No logical AMD test groups match this filter.'));
+      const browse = button('Browse all ' + integer(targetRows.length) + ' selected test groups', function () { openTargetRows('AMD runtime test groups · ' + state.healthResult.replaceAll('_', ' '), targetRows); }, true);
       const body = n('div', 'ops-stack');
       add(body, [targetToolbar, attentionList, browse]);
       host.append(panel(
-        state.healthResult === 'attention' ? 'Reviewed targets needing attention' : 'Reviewed target selection',
-        'Select a row for exact AMD result, mapping resolution, definitions, and retained evidence.',
+        state.healthResult === 'attention' ? 'AMD test groups not fully passing' : 'AMD runtime test-group selection',
+        'Select a row for its build-pinned hardware routes, exact job variants, and execution evidence.',
         body,
         'ops-health-target-panel'
       ));
 
-      const attentionByArea = Array.from(new Set(attentionTargets.map(function (row) { return row.area || 'other'; }))).map(function (area) {
-        const rows = attentionTargets.filter(function (row) { return (row.area || 'other') === area; });
-        const totalRows = allTargets.filter(function (row) { return (row.area || 'other') === area; });
-        const passCount = totalRows.filter(function (row) { return targetState(row) === 'passed'; }).length;
-        const incidentCount = rows.filter(isTargetIncident).length;
-        return {
-          label: healthAreaLabel(area),
-          attention: rows.length,
-          total: totalRows.length,
-          rows: rows,
-          preview: rows.map(function (row) { return row.label; }),
-          segments: [
-            {label: 'passing', count: passCount, tone: 'is-success'},
-            {label: 'failing', count: incidentCount, tone: 'is-danger'},
-            {label: 'unresolved', count: rows.length - incidentCount, tone: 'is-warning'},
-          ],
-        };
-      }).sort(function (left, right) { return right.attention - left.attention || left.label.localeCompare(right.label); });
-      host.append(healthAreaBoard(
-        'Attention by reviewed test area',
-        'Failing and unresolved groups are categorized together here; select an area for its exact table.',
-        attentionByArea,
-        function (area) { openTargetRows(area.label + ' reviewed targets needing attention', area.rows); }
-      ));
+      appendReviewedPlan();
       return;
     }
 
@@ -5590,7 +5611,21 @@
 
   function amdLogicalInventory(amdHealth) {
     const inventory = (amdHealth || {}).latest_logical_test_groups || {};
-    if (inventory.available !== true || !Array.isArray(inventory.rows)) {
+    const counts = ((amdHealth || {}).summary || {}).latest_test_group_counts || {};
+    const reconciliation = inventory.reconciliation || {};
+    const inventoryBuild = Number(inventory.build_number);
+    const countsBuild = Number(counts.build_number);
+    const buildAligned = Number.isInteger(inventoryBuild)
+      && inventoryBuild > 0
+      && Number.isInteger(countsBuild)
+      && countsBuild > 0
+      && inventoryBuild === countsBuild;
+    if (inventory.available !== true
+      || reconciliation.matches_latest_test_group_counts !== true
+      || counts.available !== true
+      || !buildAligned
+      || !Array.isArray(inventory.rows)
+      || Number(counts.total) !== inventory.rows.length) {
       return Object.assign({}, inventory, {available: false, rows: []});
     }
     return inventory;

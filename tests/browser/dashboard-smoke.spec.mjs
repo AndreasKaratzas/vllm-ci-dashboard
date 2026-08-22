@@ -368,8 +368,11 @@ test('CI health upstream parity exposes the main backlog and not-targeted set', 
   await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
-  await expect(health.getByRole('button', { name: /24 missing on main/i })).toBeVisible();
-  await expect(health).toContainText('Missing on main by test area');
+  await expect(health.getByRole('button', { name: '24 potential open gaps', exact: true })).toBeVisible();
+  await expect(health).toContainText('Potential open gaps by test area');
+  await expect(health.getByText('8 potential open gaps', { exact: true })).toBeVisible();
+  await expect(health.getByText('1 potential open gap', { exact: true }).first()).toBeVisible();
+  await expect(health.getByText(/need attention/i)).toHaveCount(0);
   await health.getByRole('button', { name: /Browse 28 not-targeted groups/i }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'Not targeted / unsupported' })).toBeVisible();
@@ -446,37 +449,96 @@ test('CI health tabs retain keyboard focus after route-backed rerenders', async 
 test('CI health parity is main-only and opens grouped gap tables', async ({ page }) => {
   await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
-  await expect(health).toContainText('Missing on main by test area');
+  await expect(health).toContainText('Potential open gaps by test area');
   await expect(health.getByText(/proposed/i)).toHaveCount(0);
-  await health.getByRole('button', { name: /Browse all \d+ missing groups/ }).click();
+  await health.getByRole('button', { name: /Browse all \d+ potential open gaps/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('Missing on main');
+  await expect(dialog).toContainText('Potential open gaps');
   await expect(dialog.locator('tbody tr').first()).toBeVisible();
 });
 
-test('CI health names the AMD target population without NVIDIA hardware aliases', async ({ page }) => {
+test('CI health uses logical AMD runtime groups and separates the reviewed plan', async ({ page }) => {
   await page.goto('/?ops_health_view=targets#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
+  const populations = await page.evaluate(async () => {
+    const [healthResponse, gatingResponse] = await Promise.all([
+      fetch('/data/vllm/ci/operations_v2/amd_test_health.json'),
+      fetch('/data/vllm/ci/operations_v2/gating.json'),
+    ]);
+    const healthPayload = await healthResponse.json();
+    const gatingPayload = await gatingResponse.json();
+    const amdHealth = healthPayload.amd_test_health || healthPayload;
+    const gating = gatingPayload.gating || gatingPayload;
+    const counts = amdHealth.summary.latest_test_group_counts;
+    return {
+      passing: counts.passing,
+      runtimeTotal: counts.total,
+      planTotal: gating.target_groups.length,
+    };
+  });
 
-  await expect(health.getByText('AMD RUNTIME TARGETS', { exact: true })).toBeVisible();
-  await expect(health.getByRole('button', { name: /Failing now \(\d+\)/ })).toBeVisible();
-  await health.getByRole('button', { name: /All \(\d+\)/ }).click();
+  await expect(health.getByText('AMD RUNTIME TEST GROUPS', { exact: true })).toBeVisible();
+  expect(populations.runtimeTotal).toBeGreaterThan(0);
+  expect(populations.runtimeTotal).not.toBe(populations.planTotal);
+  await expect(health.getByText(`${populations.passing} / ${populations.runtimeTotal}`, { exact: true })).toBeVisible();
+  await expect(health.getByRole('button', { name: /Not fully passing \(\d+\)/ })).toBeVisible();
+  await health.getByRole('button', { name: `All (${populations.runtimeTotal})`, exact: true }).click();
   await expect(health).not.toContainText(':nvidia:');
   await expect(health).not.toContainText(/\((?:A100|H100|H200|B200|L4)\)/i);
-  await expect(health).toContainText('Attention by reviewed test area');
+  await expect(health).not.toContainText('need mapping or observation');
+  await expect(health.getByRole('heading', { name: 'Reviewed coverage plan', exact: true })).toBeVisible();
+  await expect(health.getByRole('button', { name: `Browse all ${populations.planTotal} plan entries`, exact: true })).toBeVisible();
 });
 
-test('Target Health opens its evidence popup without downloading full history', async ({ page }) => {
+test('Target Health opens exact logical AMD evidence without downloading full history', async ({ page }) => {
   const requested = [];
   page.on('request', request => requested.push(new URL(request.url()).pathname));
   await page.goto('/?ops_health_view=targets#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
 
+  await health.getByRole('button', { name: /All \(\d+\)/ }).click();
   await health.locator('.ops-health-attention-row').first().click();
   await expect(page.getByRole('dialog')).toBeVisible();
   expect(requested.some(path => path.endsWith('/operations_v2/reliability.json'))).toBe(false);
-  await expect(page.getByRole('dialog').getByRole('button', { name: 'Load full 30-day variant history' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toContainText('Hardware routes and exact jobs');
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Load full 30-day variant history' })).toHaveCount(0);
+});
+
+test('Target Health keeps reviewed-plan mapping evidence independently inspectable', async ({ page }) => {
+  const requested = [];
+  page.on('request', request => requested.push(new URL(request.url()).pathname));
+  await page.goto('/?ops_health_view=targets#ci-health', { waitUntil: 'domcontentloaded' });
+  const health = page.locator('#tab-ci-health');
+
+  await health.getByRole('button', { name: /Browse all \d+ plan entries/ }).click();
+  const planDialog = page.getByRole('dialog');
+  await expect(planDialog.getByRole('heading', { name: 'Reviewed coverage plan' })).toBeVisible();
+  await planDialog.locator('tbody tr').first().getByRole('button').first().click();
+  const detailDialog = page.getByRole('dialog').last();
+  await expect(detailDialog).toContainText('Reviewed plan');
+  await expect(detailDialog.getByRole('button', { name: 'Load full 30-day variant history' })).toBeVisible();
+  expect(requested.some(path => path.endsWith('/operations_v2/reliability.json'))).toBe(false);
+});
+
+test('Target Health retains the reviewed plan when runtime inventory is unavailable', async ({ page }) => {
+  await page.route('**/operations_v2/amd_test_health.json*', async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const amdHealth = payload.amd_test_health || payload;
+    amdHealth.latest_logical_test_groups = {
+      ...amdHealth.latest_logical_test_groups,
+      available: false,
+      rows: [],
+    };
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto('/?ops_health_view=targets#ci-health', { waitUntil: 'domcontentloaded' });
+  const health = page.locator('#tab-ci-health');
+
+  await expect(health).toContainText('logical test-group inventory is unavailable');
+  await expect(health.getByRole('heading', { name: 'Reviewed coverage plan', exact: true })).toBeVisible();
+  await expect(health.getByRole('button', { name: /Browse all \d+ plan entries/ })).toBeVisible();
 });
 
 test('CI analytics separates logical test groups from exact job variants', async ({ page }) => {

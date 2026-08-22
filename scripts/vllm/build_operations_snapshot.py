@@ -7719,7 +7719,14 @@ def _trajectory(
     }
 
 
-def _attention(nightly: dict, reliability: dict, gating: dict, queue: dict, omni: dict) -> list[dict]:
+def _attention(
+    nightly: dict,
+    reliability: dict,
+    gating: dict,
+    queue: dict,
+    omni: dict,
+    amd_test_health: dict | None = None,
+) -> list[dict]:
     items = []
     amd_builds = (nightly.get("pipelines") or [{}])[0].get("builds") or []
     latest = amd_builds[0] if amd_builds else {}
@@ -7750,13 +7757,40 @@ def _attention(nightly: dict, reliability: dict, gating: dict, queue: dict, omni
         items.append({"kind": "queue_zombies", "severity": "critical", "count": zombies})
     if int(snapshot.get("total_waiting") or 0):
         items.append({"kind": "queue_waiting", "severity": "warning", "count": snapshot["total_waiting"]})
-    latest_states = (gating.get("active_target_summary") or {}).get("by_latest_amd_state") or {}
-    target_incidents = int(latest_states.get("hard") or 0) + int(latest_states.get("soft") or 0)
-    if target_incidents:
+    logical_inventory = (
+        (amd_test_health or {}).get("latest_logical_test_groups") or {}
+    )
+    logical_counts = (
+        ((amd_test_health or {}).get("summary") or {}).get(
+            "latest_test_group_counts"
+        )
+        or {}
+    )
+    logical_summary = logical_inventory.get("summary") or {}
+    logical_rows = logical_inventory.get("rows")
+    logical_inventory_eligible = (
+        logical_inventory.get("available") is True
+        and (logical_inventory.get("reconciliation") or {}).get(
+            "matches_latest_test_group_counts"
+        ) is True
+        and logical_counts.get("available") is True
+        and _strict_int(logical_inventory.get("build_number")) is not None
+        and _strict_int(logical_inventory.get("build_number"))
+        == _strict_int(logical_counts.get("build_number"))
+        and isinstance(logical_rows, list)
+        and len(logical_rows) == _strict_int(logical_counts.get("total"))
+    )
+    logical_not_fully_passing = (
+        int(logical_summary.get("partial") or 0)
+        + int(logical_summary.get("non_passing") or 0)
+        if logical_inventory_eligible
+        else 0
+    )
+    if logical_not_fully_passing:
         items.append({
-            "kind": "target_groups_with_current_incidents",
+            "kind": "amd_logical_groups_not_fully_passing",
             "severity": "warning",
-            "count": target_incidents,
+            "count": logical_not_fully_passing,
         })
     if reliability.get("flaky_candidates"):
         items.append({
@@ -7897,7 +7931,14 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         loaded.get("workload_mapping") or {},
         queue_history,
     )
-    attention = _attention(nightly, reliability, gating, queue, omni)
+    attention = _attention(
+        nightly,
+        reliability,
+        gating,
+        queue,
+        omni,
+        amd_test_health,
+    )
     status = "critical" if any(row["severity"] == "critical" for row in attention) else (
         "attention" if any(row["severity"] == "warning" for row in attention) else "healthy"
     )

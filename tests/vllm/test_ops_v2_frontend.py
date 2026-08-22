@@ -503,6 +503,26 @@ def test_current_amd_health_keeps_latest_and_retained_counts_distinct(ops_data):
     assert summary["latest_group_count"] < retained
 
 
+@pytest.mark.live_data
+def test_target_health_runtime_inventory_is_not_the_reviewed_plan(ops_data):
+    health = ops_data["amd_test_health"]
+    counts = health["summary"]["latest_test_group_counts"]
+    inventory = health["latest_logical_test_groups"]
+    reviewed_plan = ops_data["gating"]["target_groups"]
+
+    assert inventory["available"] is True
+    assert inventory["route_map_aligned"] is True
+    assert inventory["reconciliation"][
+        "matches_latest_test_group_counts"
+    ] is True
+    assert len(inventory["rows"]) == counts["total"]
+    assert sum(
+        row["state"] in {"passing_all", "partial"}
+        for row in inventory["rows"]
+    ) == counts["passing"]
+    assert counts["total"] != len(reviewed_plan)
+
+
 def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
     for contract in (
         "AMD incident frequency - ",
@@ -695,7 +715,7 @@ def test_ci_health_previews_remove_repeated_counts_and_redundant_columns():
         assert helper in OPS_JS
     for contract in (
         "ops-health-hero-grid",
-        "Missing on main by test area",
+        "Potential open gaps by test area",
         "ops-health-attention-list",
         "Tables open in a searchable popup",
         "Data freshness",
@@ -771,8 +791,8 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
         "ops.test_group_parity || {}",
         "UPSTREAM PARITY ON MAIN",
         "Applicable test groups covered",
-        "Missing on main by test area",
-        "Browse all ' + integer(actionTotal) + ' missing groups",
+        "Potential open gaps by test area",
+        "Browse all ' + integer(actionTotal) + ' potential open gaps",
         "Complete reviewed upstream inventory",
         "logical AMD test groups",
         "function openTestGroupParityDetail",
@@ -893,25 +913,92 @@ def test_published_definition_parity_reconciles_coverage_and_mirror_evidence(ops
         assert isinstance(mirror["nvidia_commands"], list)
 
 
-def test_runtime_target_incident_attention_loads_and_filters_runtime_gating():
+def test_runtime_target_health_uses_logical_amd_groups_and_separates_plan():
     for contract in (
         "{id: 'targets', label: 'Target health'}",
-        "if (state.healthView === 'targets') return ['gating']",
-        "healthView: 'targets', healthResult: 'incident'",
-        "Array.isArray(gating.target_groups)",
-        "noDefinitionTargets",
-        "mappingReviewTargets",
-        "notObservedTargets",
-        "const incidentTargets = allTargets.filter(isTargetIncident)",
+        "if (state.healthView === 'targets') return ['amd_test_health', 'gating']",
+        "amdLogicalInventory(amdHealth)",
+        "const passingAllTargets",
+        "const partialTargets",
+        "const nonPassingTargets",
         "filters[state.healthResult]",
-        "openGatingDetailWithEvidence(row, ops)",
-        "Reviewed targets needing attention",
+        "AMD RUNTIME TEST GROUPS",
+        "AMD test groups not fully passing",
+        "openAmdLogicalGroupDetail(row, logicalInventory, amdHealth)",
+        "Reviewed coverage plan",
+        "const denominatorCopy = allTargets.length",
+        "coverage planning and mapping review",
     ):
         assert contract in OPS_JS
+    render_health = OPS_JS.index("async function renderHealth")
+    target_start = OPS_JS.index(
+        "if (state.healthView === 'targets')",
+        render_health,
+    )
+    target_branch = OPS_JS[
+        target_start:OPS_JS.index("if (state.healthView === 'quality')", target_start)
+    ]
+    assert "current: passingTargets.length" in target_branch
+    assert "total: allTargets.length" in target_branch
+    assert "current: passedTargets.length" not in target_branch
+    assert target_branch.index("function appendReviewedPlan") < target_branch.index(
+        "if (!logicalInventory.available || !allTargets.length)"
+    )
+    unavailable_branch = target_branch[
+        target_branch.index("if (!logicalInventory.available || !allTargets.length)"):
+        target_branch.index("function openTargetRows")
+    ]
+    assert "appendReviewedPlan();" in unavailable_branch
     assert (
         "healthView: 'gating', healthResult: 'incident'"
         not in OPS_JS
     )
+
+
+def test_amd_logical_inventory_accepts_reconciled_unaligned_identity_fallback():
+    inventory_start = OPS_JS.index("function amdLogicalInventory")
+    inventory_end = OPS_JS.index("function amdLogicalStateLabel", inventory_start)
+    inventory_helper = OPS_JS[inventory_start:inventory_end]
+
+    assert "inventory.route_map_aligned !== true" not in inventory_helper
+    for contract in (
+        "reconciliation.matches_latest_test_group_counts !== true",
+        "counts.available !== true",
+        "!buildAligned",
+        "Number(counts.total) !== inventory.rows.length",
+    ):
+        assert contract in inventory_helper
+    if not shutil.which("node"):
+        pytest.skip("node is not available")
+    script = f"""
+const assert = require('assert');
+{inventory_helper}
+const reconciled = {{
+  summary: {{latest_test_group_counts: {{available: true, build_number: 123, total: 1}}}},
+  latest_logical_test_groups: {{
+    available: true,
+    build_number: 123,
+    route_map_aligned: false,
+    reconciliation: {{matches_latest_test_group_counts: true}},
+    rows: [{{state: 'passing_all'}}],
+  }},
+}};
+assert.equal(amdLogicalInventory(reconciled).available, true);
+const missingBuilds = JSON.parse(JSON.stringify(reconciled));
+missingBuilds.summary.latest_test_group_counts.build_number = null;
+missingBuilds.latest_logical_test_groups.build_number = null;
+assert.equal(amdLogicalInventory(missingBuilds).available, false);
+const mismatchedBuilds = JSON.parse(JSON.stringify(reconciled));
+mismatchedBuilds.latest_logical_test_groups.build_number = 124;
+assert.equal(amdLogicalInventory(mismatchedBuilds).available, false);
+"""
+    result = subprocess.run(
+        ["node", "-e", script],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_runtime_target_resolution_is_explained_and_drillable():
@@ -1218,7 +1305,8 @@ def test_runtime_target_sort_uses_one_shared_in_scope_text_comparator():
         targets_start
         :OPS_JS.index("if (state.healthView === 'quality')", targets_start)
     ]
-    assert "sortRuntimeTargetRows(filters[state.healthResult] || allTargets)" in targets_branch
+    assert "const targetRows = sortTargetRows(filters[state.healthResult] || attentionTargets)" in targets_branch
+    assert "rows: sortRuntimeTargetRows(rows)" in targets_branch
 
 
 def test_runtime_target_and_omni_helpers_execute_in_javascript():
@@ -2636,7 +2724,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=15' in INDEX
-    assert 'assets/js/ops-v2.js?v=28' in INDEX
+    assert 'assets/js/ops-v2.js?v=29' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (

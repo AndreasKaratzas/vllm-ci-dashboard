@@ -1341,6 +1341,51 @@ def test_attention_uses_current_hardness_instead_of_newness():
     }]
 
 
+def test_attention_uses_reconciled_logical_amd_runtime_groups():
+    amd_health = {
+        "summary": {
+            "latest_test_group_counts": {
+                "available": True,
+                "build_number": 123,
+                "total": 4,
+            },
+        },
+        "latest_logical_test_groups": {
+            "available": True,
+            "build_number": 123,
+            "summary": {
+                "passing_all": 0,
+                "partial": 2,
+                "non_passing": 2,
+            },
+            "rows": [
+                {"state": "partial"},
+                {"state": "partial"},
+                {"state": "non_passing"},
+                {"state": "non_passing"},
+            ],
+            "reconciliation": {
+                "matches_latest_test_group_counts": True,
+            },
+        },
+    }
+
+    attention = ops._attention(
+        {"pipelines": [{"builds": []}]},
+        {},
+        {"active_target_summary": {"by_latest_amd_state": {"soft": 99}}},
+        {"snapshot": {}},
+        {"status": "healthy", "current": {}},
+        amd_health,
+    )
+
+    assert attention == [{
+        "kind": "amd_logical_groups_not_fully_passing",
+        "severity": "warning",
+        "count": 4,
+    }]
+
+
 def test_compact_queue_history_retains_observed_idle_rows_and_wait_provenance():
     compact = ops._compact_history_snapshot({
         "ts": GENERATED_AT,
