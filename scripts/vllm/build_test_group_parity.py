@@ -28,6 +28,12 @@ ALL_STATES = frozenset({"existing", "proposed", "unsupported", "action"})
 GAP_STATES = ALL_STATES - {"existing"}
 PROPOSAL_STAGES = frozenset({"published_pr", "local_candidate"})
 AREA_COUNT_FIELDS = ("existing", "proposed", "unsupported", "action")
+ROCM_INVENTORY_MILESTONES = ("before_pr", "published_pr", "local_candidate")
+ROCM_INVENTORY_POPULATIONS = (
+    "physical_definitions",
+    "logical_groups",
+    "direct_upstream_links",
+)
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
@@ -104,10 +110,40 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
         raise ValueError("rocm_inventory must be an object")
     rocm_counts = [
         _positive_int(rocm_inventory.get(field), f"rocm_inventory.{field}")
-        for field in ("before_pr", "published_pr", "local_candidate")
+        for field in ROCM_INVENTORY_MILESTONES
     ]
     if rocm_counts != sorted(rocm_counts):
         raise ValueError("ROCm inventory milestones must be non-decreasing")
+    inventory_populations: dict[str, list[int]] = {}
+    for population in ROCM_INVENTORY_POPULATIONS:
+        values = rocm_inventory.get(population)
+        if not isinstance(values, dict):
+            raise ValueError(f"rocm_inventory.{population} must be an object")
+        counts = [
+            _positive_int(
+                values.get(milestone),
+                f"rocm_inventory.{population}.{milestone}",
+            )
+            for milestone in ROCM_INVENTORY_MILESTONES
+        ]
+        if counts != sorted(counts):
+            raise ValueError(
+                f"ROCm {population} milestones must be non-decreasing"
+            )
+        inventory_populations[population] = counts
+    if inventory_populations["logical_groups"] != rocm_counts:
+        raise ValueError(
+            "ROCm logical_groups must match the top-level logical milestones"
+        )
+    for index, milestone in enumerate(ROCM_INVENTORY_MILESTONES):
+        definitions = inventory_populations["physical_definitions"][index]
+        logical = inventory_populations["logical_groups"][index]
+        direct = inventory_populations["direct_upstream_links"][index]
+        if not definitions >= logical >= direct:
+            raise ValueError(
+                "ROCm inventory populations must satisfy physical definitions "
+                f">= logical groups >= direct links at {milestone}"
+            )
     _nonempty_string(
         rocm_inventory.get("count_basis"), "rocm_inventory.count_basis"
     )

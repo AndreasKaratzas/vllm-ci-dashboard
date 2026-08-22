@@ -4037,6 +4037,19 @@
       ]);
       host.append(parityNote);
 
+      const inventoryDefinitions = rocmInventory.physical_definitions || {};
+      const inventoryLogical = rocmInventory.logical_groups || {};
+      const inventoryLinks = rocmInventory.direct_upstream_links || {};
+      const inventoryNote = n('div', 'ops-evidence-note is-info');
+      add(inventoryNote, [
+        n('strong', '', 'ROCm inventory milestones. '),
+        n('span', '', 'Physical definitions / logical groups / direct upstream links: ' +
+          integer(inventoryDefinitions.before_pr) + ' / ' + integer(inventoryLogical.before_pr) + ' / ' + integer(inventoryLinks.before_pr) + ' before PR; ' +
+          integer(inventoryDefinitions.published_pr) + ' / ' + integer(inventoryLogical.published_pr) + ' / ' + integer(inventoryLinks.published_pr) + ' at the published PR; ' +
+          integer(inventoryDefinitions.local_candidate) + ' / ' + integer(inventoryLogical.local_candidate) + ' / ' + integer(inventoryLinks.local_candidate) + ' in the local candidate. These are configured inventory/matcher populations, not the reviewed parity numerator or observed runtime health.'),
+      ]);
+      host.append(inventoryNote);
+
       const toolbar = n('div', 'ops-toolbar');
       toolbar.append(segmented([
         {id: 'action', label: 'Action (' + actionTotal + ')'},

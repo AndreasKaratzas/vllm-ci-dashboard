@@ -699,6 +699,10 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
         "Actionable parity gaps",
         "Parity by test area",
         "definition inventory, not observed runtime health",
+        "ROCm inventory milestones.",
+        "Physical definitions / logical groups / direct upstream links",
+        "configured inventory/matcher populations",
+        "not the reviewed parity numerator or observed runtime health",
         "Upstream CUDA to ROCm logical test-group parity",
         "Filter reviewed upstream test groups by parity state",
         "Filter reviewed upstream test groups by area",
@@ -2551,7 +2555,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=12' in INDEX
-    assert 'assets/js/ops-v2.js?v=22' in INDEX
+    assert 'assets/js/ops-v2.js?v=23' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (

@@ -112,7 +112,8 @@ The reviewed upstream CUDA-to-ROCm test-group inventory lives in
 `config/vllm_upstream_test_group_parity.json`. Its validated public
 projection is `data/vllm/ci/test_group_parity.json`, with physical and logical
 upstream totals, applicable coverage, current and proposed parity, ROCm-only
-inventory totals, area summaries, and all reviewed group rows kept distinct.
+inventory milestones for physical definitions, logical groups, and direct
+upstream links, area summaries, and all reviewed group rows kept distinct.
 
 Organization-wide OSS rollups should consume the versioned
 [`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)

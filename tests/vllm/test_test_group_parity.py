@@ -28,24 +28,39 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
         "upstream_logical_groups": 191,
         "applicable_groups": 163,
         "existing_groups": 139,
-        "proposed_groups": 12,
+        "proposed_groups": 16,
         "published_pr_additions": 10,
-        "local_candidate_additions": 2,
+        "local_candidate_additions": 6,
         "published_pr_complete_groups": 149,
-        "local_candidate_complete_groups": 151,
+        "local_candidate_complete_groups": 155,
         "unsupported_groups": 28,
-        "action_groups": 12,
+        "action_groups": 8,
         "strict_rate_pct": 72.8,
         "applicable_rate_pct": 85.3,
         "published_pr_strict_rate_pct": 78.0,
         "published_pr_applicable_rate_pct": 91.4,
-        "local_candidate_strict_rate_pct": 79.1,
-        "local_candidate_applicable_rate_pct": 92.6,
+        "local_candidate_strict_rate_pct": 81.2,
+        "local_candidate_applicable_rate_pct": 95.1,
     }
     assert payload["rocm_inventory"] == {
         "before_pr": 143,
         "published_pr": 152,
-        "local_candidate": 155,
+        "local_candidate": 157,
+        "physical_definitions": {
+            "before_pr": 184,
+            "published_pr": 193,
+            "local_candidate": 198,
+        },
+        "logical_groups": {
+            "before_pr": 143,
+            "published_pr": 152,
+            "local_candidate": 157,
+        },
+        "direct_upstream_links": {
+            "before_pr": 122,
+            "published_pr": 132,
+            "local_candidate": 137,
+        },
         "count_basis": (
             "ROCm logical groups; this is an inventory, not an "
             "upstream-parity numerator"
@@ -57,10 +72,22 @@ def test_reviewed_inventory_publishes_expected_counts_and_rates() -> None:
     assert [row["id"] for row in payload["groups"]] == list(range(1, 192))
     assert Counter(row["state"] for row in payload["groups"]) == {
         "existing": 139,
-        "proposed": 12,
+        "proposed": 16,
         "unsupported": 28,
-        "action": 12,
+        "action": 8,
     }
+
+    groups = {row["id"]: row for row in payload["groups"]}
+    for group_id in (7, 9, 13, 179):
+        assert groups[group_id]["state"] == "proposed"
+        assert groups[group_id]["proposal_stage"] == "local_candidate"
+    assert "DeepSeek-Coder AITER-MLA static-FP8" in groups[13]["assessment"]
+    assert groups[103]["state"] == "action"
+    assert "282 shards" in groups[103]["assessment"]
+    assert "rules out source/binary mismatch" in groups[103]["assessment"]
+    assert groups[107]["state"] == "action"
+    assert "0.9484 accuracy" in groups[107]["assessment"]
+    assert "4.448 mean accepted tokens" in groups[107]["assessment"]
 
 
 def test_review_validator_rejects_duplicate_group_ids(tmp_path: Path) -> None:
@@ -81,6 +108,18 @@ def test_review_validator_rejects_area_state_drift(tmp_path: Path) -> None:
     config_path.write_text(json.dumps(review))
 
     with pytest.raises(ValueError, match="detailed existing groups"):
+        parity.load_review(config_path)
+
+
+def test_review_validator_rejects_rocm_inventory_population_drift(
+    tmp_path: Path,
+) -> None:
+    review = json.loads(parity.CONFIG.read_text())
+    review["rocm_inventory"]["logical_groups"]["local_candidate"] += 1
+    config_path = tmp_path / "parity.json"
+    config_path.write_text(json.dumps(review))
+
+    with pytest.raises(ValueError, match="logical_groups must match"):
         parity.load_review(config_path)
 
 
