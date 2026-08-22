@@ -439,6 +439,86 @@ def test_command_twin_override_is_exported_for_every_coalesced_member(
     assert overrides[amd_mi355.normalized_label] == identity
 
 
+def test_runtime_group_key_map_preserves_same_label_gpu_topologies(
+    monkeypatch,
+):
+    label_mi300 = ":amd: (MI300) Qwen EPLB Accuracy"
+    label_mi355 = ":amd: (MI355) Qwen EPLB Accuracy"
+    amd_mi300 = _step(
+        label_mi300,
+        "qwen eplb accuracy (4 gpus)",
+        ["bash qwen-eplb.sh --tp 4"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#qwen-mi300",
+        agent_pool="mi300_4",
+        semantic_title="Qwen EPLB Accuracy",
+        fingerprint="qwen-mi300-4",
+        num_gpus=4,
+    )
+    amd_mi355 = _step(
+        label_mi355,
+        "qwen eplb accuracy (2 gpus)",
+        ["bash qwen-eplb.sh --tp 2"],
+        ".buildkite/test-amd.yaml",
+        definition_id="amd#qwen-mi355",
+        agent_pool="mi355_2",
+        semantic_title="Qwen EPLB Accuracy",
+        fingerprint="qwen-mi355-2",
+        num_gpus=2,
+    )
+    source_commit = "a" * 40
+    monkeypatch.setattr(
+        config_parity,
+        "_load_config_steps",
+        lambda: ([amd_mi300, amd_mi355], [], []),
+    )
+    monkeypatch.setattr(
+        config_parity,
+        "_source_provenance",
+        lambda: {"commit_sha": source_commit},
+    )
+
+    commit, route_keys = config_parity.extract_amd_runtime_group_key_map()
+
+    normalized = config_parity._normalize_job_name(label_mi300)
+    assert commit == source_commit
+    assert route_keys == {
+        (normalized, "mi300_4"): "qwen eplb accuracy (4 gpus)",
+        (normalized, "mi355_2"): "qwen eplb accuracy (2 gpus)",
+    }
+
+
+def test_runtime_group_key_map_can_be_recovered_from_published_report():
+    source_commit = "b" * 40
+    report = {
+        "source": {"commit_sha": source_commit},
+        "matches": [
+            {
+                "amd_identity_family_key": "qwen eplb accuracy (4 gpus)",
+                "amd_member_labels": [":amd: (MI300) Qwen EPLB Accuracy"],
+                "amd_member_agent_pools": ["mi300_4"],
+            }
+        ],
+        "amd_only": [
+            {
+                "amd_identity_family_key": "qwen eplb accuracy (2 gpus)",
+                "member_labels": [":amd: (MI355) Qwen EPLB Accuracy"],
+                "member_agent_pools": ["mi355_2"],
+            }
+        ],
+    }
+
+    commit, route_keys = (
+        config_parity.extract_amd_runtime_group_key_map_from_report(report)
+    )
+
+    assert commit == source_commit
+    assert route_keys == {
+        ("qwen eplb accuracy", "mi300_4"): "qwen eplb accuracy (4 gpus)",
+        ("qwen eplb accuracy", "mi355_2"): "qwen eplb accuracy (2 gpus)",
+    }
+
+
 def test_command_twin_requires_nonempty_commands():
     amd = _step("Same title", "amd-key", [], ".buildkite/test-amd.yaml")
     upstream = _step("Same title", "up-key", [], ".buildkite/test_areas/basic.yaml")

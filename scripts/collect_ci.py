@@ -996,6 +996,21 @@ def main():
         log.info("Data collection complete (analysis skipped).")
         return
 
+    # Publish the reviewed CUDA-to-ROCm logical test-group inventory on every
+    # complete analysis run. This source is deliberately independent of the
+    # runtime health and automatic YAML-link reports.
+    from vllm.build_test_group_parity import publish as publish_test_group_parity
+
+    parity_inventory_path, parity_inventory = publish_test_group_parity(
+        output_dir=output_dir,
+    )
+    log.info(
+        "Wrote %s (%d upstream logical groups; %d action groups)",
+        parity_inventory_path,
+        parity_inventory["summary"]["upstream_logical_groups"],
+        parity_inventory["summary"]["action_groups"],
+    )
+
     evidence_build, evidence_verified_complete = _select_shard_evidence_build(
         all_builds.get("amd", []),
         all_results.get("amd", {}),
@@ -1030,6 +1045,7 @@ def main():
     if not args.skip_config_parity:
         log.info("Extracting shard bases from upstream YAML...")
         from vllm.config_parity import (
+            extract_amd_runtime_group_key_map,
             extract_parity_key_overrides,
             extract_shard_base_catalog,
         )
@@ -1048,14 +1064,75 @@ def main():
             "Wrote shard_base_catalog.json (%d definitions)",
             len(shard_catalog.get("definitions", [])),
         )
+        # Install the newly fetched shard catalog before deriving any keys.
+        # Both extractors normalize labels through analyzer._normalize_job_name;
+        # using the previous on-disk catalog here could create stale route keys.
+        from vllm.ci.analyzer import (
+            set_amd_runtime_group_key_map,
+            set_parity_key_overrides,
+            set_shard_bases,
+        )
+        set_shard_bases(shard_bases)
         parity_key_overrides = extract_parity_key_overrides()
         override_path = output_dir / "parity_key_overrides.json"
         override_path.write_text(json.dumps(parity_key_overrides, indent=2))
         log.info("Wrote parity_key_overrides.json (%d overrides)", len(parity_key_overrides))
+        runtime_group_commit, runtime_group_keys = (
+            extract_amd_runtime_group_key_map()
+        )
         # Update the analyzer's YAML-derived normalization knobs for this run.
-        from vllm.ci.analyzer import set_parity_key_overrides, set_shard_bases
-        set_shard_bases(shard_bases)
         set_parity_key_overrides(parity_key_overrides)
+        set_amd_runtime_group_key_map(
+            runtime_group_commit,
+            runtime_group_keys,
+        )
+        log.info(
+            "Installed %d AMD runtime group routes for config commit %s",
+            len(runtime_group_keys),
+            runtime_group_commit or "unavailable",
+        )
+    else:
+        # Reuse the last published, commit-tagged definition identities when a
+        # caller intentionally skips the network-backed config refresh. This
+        # prevents label-only analysis from collapsing topology-distinct AMD
+        # groups back together.
+        from vllm.ci.analyzer import (
+            set_amd_runtime_group_key_map,
+            set_parity_key_overrides,
+            set_shard_bases,
+        )
+        shard_path = output_dir / "shard_bases.json"
+        if shard_path.exists():
+            set_shard_bases(json.loads(shard_path.read_text()))
+        override_path = output_dir / "parity_key_overrides.json"
+        if override_path.exists():
+            set_parity_key_overrides(json.loads(override_path.read_text()))
+        config_parity_path = output_dir / "config_parity.json"
+        if config_parity_path.exists():
+            from vllm.config_parity import (
+                extract_amd_runtime_group_key_map_from_report,
+            )
+            runtime_group_commit, runtime_group_keys = (
+                extract_amd_runtime_group_key_map_from_report(
+                    json.loads(config_parity_path.read_text())
+                )
+            )
+            set_amd_runtime_group_key_map(
+                runtime_group_commit,
+                runtime_group_keys,
+            )
+            log.info(
+                "Reused %d AMD runtime group routes for config commit %s",
+                len(runtime_group_keys),
+                runtime_group_commit or "unavailable",
+            )
+        else:
+            set_amd_runtime_group_key_map(None, None)
+            log.warning(
+                "Config parity refresh was skipped and no prior "
+                "config_parity.json is available; AMD group counts will use "
+                "normalized-label fallback semantics"
+            )
 
     # Phase 2: Load all results (existing + new) for analysis
     log.info("=== Running analysis ===")

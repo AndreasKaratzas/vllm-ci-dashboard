@@ -95,3 +95,34 @@ def test_write_ci_health_names_observed_unique_test_group_population(tmp_path):
         assert "hardware-specific executions" in basis, label
         assert "configured %N shard jobs" in basis, label
         assert "configured-definition inventories are separate" in basis, label
+
+
+def test_build_summary_uses_pipeline_specific_group_count_basis():
+    amd = BuildSummary(
+        pipeline="amd",
+        build_number=1,
+        build_url="",
+        branch="main",
+        commit="abc123",
+        created_at="2026-08-21T00:00:00Z",
+        state="passed",
+    ).to_dict()
+    upstream = BuildSummary(
+        pipeline="upstream",
+        build_number=2,
+        build_url="",
+        branch="main",
+        commit="abc123",
+        created_at="2026-08-21T00:00:00Z",
+        state="passed",
+    ).to_dict()
+
+    assert "normalized label plus agent pool" in amd[
+        "observed_unique_test_groups_count_basis"
+    ]
+    assert "normalized label plus agent pool" not in upstream[
+        "observed_unique_test_groups_count_basis"
+    ]
+    assert "once per normalized group" in upstream[
+        "observed_unique_test_groups_count_basis"
+    ]

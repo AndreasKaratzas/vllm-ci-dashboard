@@ -334,7 +334,7 @@ test.describe('public dashboard routes', () => {
   }
 });
 
-test('CI health separates the gating total from the passing rate', async ({ page }) => {
+test('CI health separates configured checks from reviewed parity groups', async ({ page }) => {
   await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health .ops-unique-health');
@@ -343,20 +343,36 @@ test('CI health separates the gating total from the passing rate', async ({ page
   const stats = health.locator('.ops-unique-health-stat');
   await expect(stats).toHaveCount(4);
   await expect(stats.locator('span')).toHaveText([
-    'Gating test groups',
+    'Health checks',
     'Passing',
     'Failing',
     'No signal',
   ]);
 
-  const totalStat = stats.filter({ hasText: 'Gating test groups' });
+  const totalStat = stats.filter({ hasText: 'Health checks' });
   const total = Number(await totalStat.locator('strong').innerText());
   expect(total).toBeGreaterThan(0);
   await totalStat.click();
 
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'Best-hardware gated groups' })).toBeVisible();
-  await expect(dialog).toContainText(`${total} best-hardware gates`);
+  await expect(dialog.getByRole('heading', { name: 'Configured best-hardware health checks' })).toBeVisible();
+  await expect(dialog).toContainText(`${total} configured best-hardware checks`);
+});
+
+test('CI health upstream parity opens with the actionable list', async ({ page }) => {
+  await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health');
+  await expect(health.getByRole('button', { name: /Action \(12\)/ })).toHaveAttribute('aria-pressed', 'true');
+  const actionPanel = health.locator('.ops-panel').filter({ has: health.getByRole('heading', { name: 'Actionable parity gaps' }) });
+  await expect(actionPanel).toBeVisible();
+  await expect(actionPanel.locator('.ops-table tbody tr')).toHaveCount(12);
+  await expect(health).toContainText('Fusion and Compile');
+  await expect(health).toContainText('LM Eval PCP');
+
+  await health.getByRole('button', { name: /Not targeted \(28\)/ }).click();
+  await expect(health.getByRole('heading', { name: 'Not targeted / unsupported groups' })).toBeVisible();
+  await expect(health).toContainText('NVFP4 is NVIDIA-specific');
 });
 
 test('CI analytics separates logical test groups from exact job variants', async ({ page }) => {

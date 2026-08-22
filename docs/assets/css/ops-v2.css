@@ -43,6 +43,8 @@
 
   --ops-success: #35bb78;
   --ops-success-soft: #123526;
+  --ops-not-targeted: #67c99a;
+  --ops-not-targeted-soft: #10291f;
   --ops-warning: #e3a63a;
   --ops-warning-soft: #3b2d13;
   --ops-danger: #e06464;
@@ -110,6 +112,8 @@
 
   --ops-success: #197346;
   --ops-success-soft: #dff1e7;
+  --ops-not-targeted: #0f5736;
+  --ops-not-targeted-soft: #d2e8dc;
   --ops-warning: #98620a;
   --ops-warning-soft: #f7ead1;
   --ops-danger: #b43d45;
@@ -1993,6 +1997,12 @@
   border-color: rgba(53, 187, 120, 0.42);
   color: var(--ops-success);
   background: var(--ops-success-soft);
+}
+
+.ops-page .ops-badge.is-not-targeted {
+  border-color: color-mix(in srgb, var(--ops-not-targeted) 55%, transparent);
+  color: var(--ops-not-targeted);
+  background: var(--ops-not-targeted-soft);
 }
 
 .ops-page .ops-badge.is-warning,

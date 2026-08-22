@@ -25,6 +25,9 @@ from vllm.ci.incident_transitions import (  # noqa: E402
     advance_incident,
     completed_build_eligibility,
 )
+from vllm.ci.models import (  # noqa: E402
+    AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS,
+)
 from vllm.ci.reliability_history import (  # noqa: E402
     OBSERVED_FAILURE_MOVEMENT_ID,
     collapse_nightly_attempts,
@@ -47,7 +50,7 @@ OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
 ORG_SUMMARY_NAME = "org_summary.json"
 ORG_SUMMARY_MAX_BYTES = 2 * 1024 * 1024
-ORG_SUMMARY_SCHEMA_VERSION = 4
+ORG_SUMMARY_SCHEMA_VERSION = 5
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
@@ -119,6 +122,7 @@ SOURCE_FILES = {
     "agent_health": "agent_health.json",
     "ci_health": "ci_health.json",
     "config_parity": "config_parity.json",
+    "test_group_parity": "test_group_parity.json",
     "gating_targets": "gating_targets.json",
     "gating_target_candidates": "gating_target_candidates.json",
     "amd_test_matrix": "amd_test_matrix.json",
@@ -1146,11 +1150,9 @@ def _latest_amd_test_group_counts(
         "pass_rate_pct": None,
         "source": source,
         "passing_policy": "passes_on_any_observed_hardware",
-        "count_basis": (
-            "unique logical test-group identities observed in this AMD nightly; "
-            "hardware-specific executions and configured %N shard jobs count "
-            "once per normalized group; configured-definition inventories are "
-            "separate"
+        "count_basis": str(
+            signal.get("observed_unique_test_groups_count_basis")
+            or AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
         ),
     }
     if job_variant_build_number is None:
@@ -7193,6 +7195,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     }
     reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
     definition_parity = loaded.get("config_parity") or {}
+    test_group_parity = loaded.get("test_group_parity") or {}
     gating = _gating(
         loaded.get("gating_targets") or {},
         loaded.get("gating_target_candidates") or {},
@@ -7284,6 +7287,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "amd_agent_health": amd_agent_health,
         "reliability": reliability,
         "definition_parity": definition_parity,
+        "test_group_parity": test_group_parity,
         "gating": gating,
         "ownership": ownership,
         "queue": queue,
@@ -7511,6 +7515,7 @@ def _operations_shell(payload: dict) -> dict:
     gating = payload.get("gating") or {}
     upstream_scheduled = gating.get("upstream_scheduled") or {}
     definition_parity = payload.get("definition_parity") or {}
+    test_group_parity = payload.get("test_group_parity") or {}
     queue = payload.get("queue") or {}
     return {
         key: payload.get(key)
@@ -7541,6 +7546,18 @@ def _operations_shell(payload: dict) -> dict:
             "summary": definition_parity.get("summary") or {},
             "source": definition_parity.get("source") or {},
         },
+        "test_group_parity": {
+            key: test_group_parity.get(key)
+            for key in (
+                "schema_version",
+                "generated_at",
+                "reviewed_at",
+                "source",
+                "scope",
+                "summary",
+                "rocm_inventory",
+            )
+        },
         "queue": {
             "snapshot": queue.get("snapshot") or {},
             "history_summary": queue.get("history_summary") or {},
@@ -7555,6 +7572,9 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
         "amd_agent_health": {"amd_agent_health": payload.get("amd_agent_health") or {}},
         "reliability": {"reliability": payload.get("reliability") or {}},
         "definition_parity": {"definition_parity": payload.get("definition_parity") or {}},
+        "test_group_parity": {
+            "test_group_parity": payload.get("test_group_parity") or {}
+        },
         "gating": {"gating": payload.get("gating") or {}},
         "ownership": {"ownership": payload.get("ownership") or {}},
         "queue": {"queue": _compact_queue(payload.get("queue") or {})},
@@ -7695,6 +7715,8 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
     if not logical_available and not logical_reason:
         logical_reason = "build_mismatch" if len(aligned_logical_builds) > 1 else "unavailable"
     job_states = amd_summary.get("latest_job_variant_state_counts") or {}
+    test_group_parity = payload.get("test_group_parity") or {}
+    test_group_parity_summary = test_group_parity.get("summary") or {}
 
     gating = payload.get("gating") or {}
     matrix = gating.get("matrix_summary") or {}
@@ -7908,10 +7930,9 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     else None
                 ),
                 "green_policy": "passes_on_any_observed_amd_hardware_route",
-                "count_basis": (
-                    "unique logical test groups observed in this build; "
-                    "hardware-route copies and configured %N shard jobs are "
-                    "counted once per normalized group"
+                "count_basis": str(
+                    logical.get("count_basis")
+                    or AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
                 ),
             },
             "exact_job_variants_latest_amd": {
@@ -7929,8 +7950,16 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                 "count_basis": "exact Buildkite job name",
             },
         },
-        "gating": {
-            "best_hardware_runtime": {
+        "test_group_parity": {
+            "available": bool(test_group_parity_summary),
+            "reviewed_at": test_group_parity.get("reviewed_at"),
+            "summary": test_group_parity_summary,
+            "rocm_inventory": test_group_parity.get("rocm_inventory") or {},
+            "source": test_group_parity.get("source") or {},
+            "scope": test_group_parity.get("scope") or {},
+        },
+        "health_checks": {
+            "best_hardware": {
                 "available": bool(best_hardware) and matrix_available,
                 "reason": (
                     None
@@ -7968,7 +7997,9 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     best_hardware.get("denominator_rule") if matrix_available else None
                 ),
             },
-            "upstream_scheduled_nightly": {
+        },
+        "scheduled_cohorts": {
+            "upstream_nightly": {
                 "available": bool(nightly),
                 "pipeline": "ci",
                 "kind": "nightly",
@@ -7978,7 +8009,7 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                 "commit": nightly.get("commit"),
                 "finished_at": nightly.get("finished_at"),
                 "configured": _org_int(nightly_summary.get("total")),
-                "gated": _org_int(nightly_summary.get("gated")),
+                "observed": _org_int(nightly_summary.get("gated")),
                 "green": _org_int(nightly_summary.get("passing")),
                 "non_green": (
                     _org_int(nightly_summary.get("gated"))
@@ -7994,17 +8025,21 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                 "queues_configured": _org_int(
                     nightly_summary.get("configured_queue_count")
                 ),
-                "queues_with_gated_work": _org_int(nightly_summary.get("queue_count")),
+                "queues_with_observed_work": _org_int(
+                    nightly_summary.get("queue_count")
+                ),
                 "selected_job_wait_minutes": {
                     "p50": _org_float((nightly.get("queue_wait_mins") or {}).get("p50")),
                     "p95": _org_float((nightly.get("queue_wait_mins") or {}).get("p95")),
                     "max": _org_float((nightly.get("queue_wait_mins") or {}).get("max")),
                 },
             },
-            "reviewed_targets": {
+        },
+        "parity_targets": {
+            "reviewed": {
                 "available": bool(target_summary),
                 "total": _org_int(target_summary.get("target_group_count")),
-                "current_gating_signal": target_summary.get("by_gating_signal") or {},
+                "current_coverage_signal": target_summary.get("by_gating_signal") or {},
                 "target_readiness_signal": target_summary.get("by_target_signal") or {},
                 "platform_readiness_signal": target_summary.get("by_pf_signal") or {},
                 "signal_scope": "reviewed configuration intent, not runtime health",
@@ -8122,27 +8157,33 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         "definitions": {
             "test_group": (
                 "A unique logical test-group identity observed in a run. "
-                "Hardware-route copies and configured %N shard jobs collapse into "
-                "that one observed group; configured-definition inventories are "
-                "separate."
+                "On a commit-aligned AMD run, its normalized label and agent pool "
+                "resolve the source identity family, so topology-distinct routes "
+                "remain separate while equivalent hardware routes and configured "
+                "%N shards collapse into one group."
             ),
             "job_variant": (
                 "One exact Buildkite job name; replicas and shards remain separate."
             ),
-            "runtime_gate": (
-                "One best-hardware policy group. It is green when any owned hardware "
+            "upstream_test_group_parity": (
+                "A reviewed upstream logical CUDA test-group inventory. Complete "
+                "ROCm coverage, proposed coverage, known unsupported work, and "
+                "actionable gaps remain separate states."
+            ),
+            "health_check": (
+                "One best-hardware policy test group. It is green when any owned hardware "
                 "cell passes, except explicitly MI355-sensitive groups use their "
                 "dedicated route."
             ),
-            "scheduled_gating_group": (
+            "scheduled_mirror_group": (
                 "One unique in-capacity-scope scheduled group, deduplicated by its "
-                "derived step key. It is gated when the run selected at least one "
+                "derived step key. It is observed when the run selected at least one "
                 "retry-collapsed job and green when all selected final jobs passed."
             ),
-            "gating_target": (
+            "parity_target": (
                 "A reviewed upstream semantic test group that ROCm CI owners intend "
-                "AMD CI to cover and potentially enforce. It records configuration "
-                "intent, not proof that the group currently gates or passes."
+                "AMD CI to cover. It records configuration "
+                "intent, not proof that the group currently executes or passes."
             ),
             "queue_waiting_job": "A Buildkite job in the SCHEDULED state.",
             "queue_running_job": (
@@ -8162,7 +8203,8 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
             },
             "ci_health": _org_source(payload, "ci_health"),
             "amd_test_matrix": _org_source(payload, "amd_test_matrix"),
-            "gating_targets": _org_source(payload, "gating_targets"),
+            "test_group_parity": _org_source(payload, "test_group_parity"),
+            "parity_targets": _org_source(payload, "gating_targets"),
             "capacity_monitor": _org_source(payload, "capacity_monitor"),
             "queue_timeseries": _org_source(payload, "queue_timeseries"),
             "queue_lifecycle": {
@@ -8208,7 +8250,7 @@ def write_snapshot_bundle(
         _load_json(output.parent / QUEUE_LIFECYCLE_NAME),
     )
     org_summary_path = output.parent / ORG_SUMMARY_NAME
-    # This is a machine-consumed exchange contract. Schema v4 keeps only the
+    # This is a machine-consumed exchange contract. Schema v5 keeps only the
     # validated daily index here and references the exact vectors in the public
     # lifecycle source, avoiding a second large copy in every publication.
     org_summary_encoded = _encoded_json(org_summary)

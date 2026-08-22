@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-22 04:05 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-08-22 04:13 UTC**
 
 ## Overview
 
@@ -59,9 +59,10 @@ Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles re
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD hardware matrix from upstream `test-amd.yaml`, matched against the latest AMD nightly |
 | `scripts/vllm/collect_ownership_parity.py` | Build a source-area parity map from the exact vLLM commit used by the latest AMD nightly |
+| `scripts/vllm/build_test_group_parity.py` | Validate and publish the reviewed upstream CUDA-to-ROCm logical test-group inventory |
 | `scripts/vllm/collect_gating_proposals.py` | Open vLLM PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors |
-| `scripts/vllm/collect_gating_targets.py` | Regenerate the canonical AMD gating target snapshot from `config/vllm_amd_gating_targets.json` |
-| `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD gating target list, including authorized `%N` shard expansion |
+| `scripts/vllm/collect_gating_targets.py` | Regenerate the canonical AMD parity target snapshot from `config/vllm_amd_gating_targets.json` |
+| `scripts/vllm/collect_gating_target_candidates.py` | Review-only audit of upstream nightly GPU jobs against the canonical AMD parity target list, including authorized `%N` shard expansion |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
@@ -82,6 +83,7 @@ python scripts/collect_ci.py --days 8 --pipeline both --output data/vllm/ci/
 python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
 python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
 python scripts/vllm/collect_ownership_parity.py --input-dir data/vllm/ci --output data/vllm/ci
+python scripts/vllm/build_test_group_parity.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
@@ -97,7 +99,7 @@ python scripts/build_site.py --cache-bust-index
 ```
 
 Configure tracked projects in [`config/projects.yaml`](config/projects.yaml).
-The authoritative AMD gating target configuration is
+The authoritative AMD parity target configuration is
 `config/vllm_amd_gating_targets.json`; `gating_targets.json` is regenerated
 from it on every canonical run. `operations_v2.json` is a private build input,
 while the allowlisted operations manifest and lazy shards are generated public
@@ -106,12 +108,21 @@ purged instead of surviving indefinitely. Do not hand-edit or delete generated
 data solely because its commit timestamp is old; the dashboard audit validates
 that every high-value input still has a producer and consumer.
 
+The reviewed upstream CUDA-to-ROCm test-group inventory lives in
+`config/vllm_upstream_test_group_parity.json`. Its validated public
+projection is `data/vllm/ci/test_group_parity.json`, with physical and logical
+upstream totals, applicable coverage, current and proposed parity, ROCm-only
+inventory totals, area summaries, and all reviewed group rows kept distinct.
+
 Organization-wide OSS rollups should consume the versioned
 [`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json)
-artifact. It keeps observed logical test groups, exact job variants, runtime
-gates, reviewed gating targets, and queue activity as separate populations.
-In schema v4, `queues.daily_served_job_waits.days` is the compact UTC-day index
-and its `source` object points to the exact vectors already published in
+artifact. It keeps observed logical test groups, exact job variants, the
+reviewed upstream parity inventory, best-hardware test-group health checks, scheduled
+cohorts, reviewed parity targets, and queue activity as separate populations.
+Schema v5 exposes these as `test_groups`, `test_group_parity`, `health_checks`,
+`scheduled_cohorts`, and `parity_targets`; it does not combine them under a
+generic gating count. `queues.daily_served_job_waits.days` remains the compact
+UTC-day index. Its `source` object points to the exact vectors already published in
 `queue_lifecycle.json`; consumers should follow `source.path`, `source.key`, and
 `source.vector_key`. This replaces schema v3's duplicated inline vectors without
 sampling them or reducing them to a daily average or percentile.

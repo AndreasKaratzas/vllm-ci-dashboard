@@ -81,6 +81,154 @@ def _load_upstream_test_results():
 class TestGroupCountCorrectness:
     """Validate that per-hardware group counts match the raw test results."""
 
+    def test_commit_aligned_definition_families_match_runtime_groups(self):
+        """One complete, commit-aligned AMD run must use the source identities.
+
+        Runtime labels do not always include YAML ``num_devices`` metadata.  A
+        label-only aggregation can therefore merge two GPU-count-distinct
+        definitions that happen to have the same display label.  Reconstruct
+        the expected same-build totals from the commit-pinned definition-family
+        assignments and matrix observations so that this cannot silently lower
+        either the total or the any-hardware passing count.
+        """
+        health = _load_json("ci_health.json")
+        definition_parity = _load_json("config_parity.json")
+        matrix = _load_json("amd_test_matrix.json")
+
+        latest = (
+            health.get("amd", {}).get("latest_test_signal_build")
+            or health.get("amd", {}).get("latest_build")
+            or {}
+        )
+        definition_commit = str(
+            definition_parity.get("source", {}).get("commit_sha") or ""
+        )
+        runtime_commit = str(latest.get("commit") or "")
+        if not definition_commit or not runtime_commit:
+            pytest.skip("definition/runtime commit provenance is unavailable")
+        if not (
+            definition_commit.startswith(runtime_commit)
+            or runtime_commit.startswith(definition_commit)
+        ):
+            pytest.skip(
+                "definition parity and latest AMD test signal use different commits"
+            )
+
+        runtime_build = latest.get("build_number") or latest.get("number")
+        matrix_build = matrix.get("source", {}).get("latest_build_number")
+        if str(runtime_build or "") != str(matrix_build or ""):
+            pytest.skip("AMD matrix and latest test signal use different builds")
+
+        from vllm.ci.analyzer import _normalize_job_name
+
+        family_rows = []
+        for section in (
+            "matches",
+            "inline_mirror_variants",
+            "additional_variants",
+            "amd_only",
+        ):
+            family_rows.extend(definition_parity.get(section, []))
+
+        all_families = {
+            row["amd_identity_family_key"]
+            for row in family_rows
+            if row.get("amd_identity_family_key")
+        }
+        published_family_count = definition_parity.get("summary", {}).get(
+            "amd_identity_families"
+        )
+        assert len(all_families) == published_family_count
+
+        families_by_definition = defaultdict(set)
+        families_by_runtime_label = defaultdict(set)
+        for row in family_rows:
+            family = row.get("amd_identity_family_key")
+            if not family:
+                continue
+            labels = (
+                row.get("amd_member_labels")
+                or row.get("member_labels")
+                or [row.get("amd_label") or row.get("label")]
+            )
+            pools = (
+                row.get("amd_member_agent_pools")
+                or row.get("member_agent_pools")
+                or [row.get("amd_agent_pool") or row.get("agent_pool")]
+            )
+            assert len(labels) == len(pools), (
+                f"Definition-family provenance has {len(labels)} labels but "
+                f"{len(pools)} pools for {family}"
+            )
+            for label, pool in zip(labels, pools):
+                normalized = _normalize_job_name(str(label or ""))
+                families_by_definition[(str(pool or ""), normalized)].add(family)
+                families_by_runtime_label[normalized].add(family)
+
+        ambiguous_runtime_labels = {
+            label: sorted(families)
+            for label, families in families_by_runtime_label.items()
+            if len(families) > 1
+        }
+        ambiguous_definition_keys = {
+            key: sorted(families)
+            for key, families in families_by_definition.items()
+            if len(families) > 1
+        }
+        assert not ambiguous_definition_keys, (
+            "Agent-pool + normalized-label definition keys are ambiguous: "
+            f"{ambiguous_definition_keys}"
+        )
+
+        states_by_family = defaultdict(list)
+        missing_definition_keys = set()
+        for group in matrix.get("health_groups", []):
+            for member in group.get("members", []):
+                for variant in member.get("variants", []):
+                    key = (
+                        str(variant.get("agent_pool") or ""),
+                        _normalize_job_name(str(variant.get("label") or "")),
+                    )
+                    families = families_by_definition.get(key, set())
+                    if not families:
+                        missing_definition_keys.add(key)
+                        continue
+                    family = next(iter(families))
+                    states_by_family[family].append(variant.get("state"))
+
+        assert not missing_definition_keys, (
+            "Matrix variants lack definition-family assignments: "
+            f"{sorted(missing_definition_keys)}"
+        )
+        assert set(states_by_family) == all_families, (
+            "Commit-aligned matrix does not cover every AMD identity family; "
+            f"missing={sorted(all_families - set(states_by_family))}, "
+            f"extra={sorted(set(states_by_family) - all_families)}"
+        )
+
+        expected_total = len(all_families)
+        expected_passing = sum(
+            "passed" in states for states in states_by_family.values()
+        )
+        runtime_total = latest.get("unique_test_groups")
+        runtime_passing = latest.get("test_groups_passing_or")
+        collision_hint = (
+            f" Normalized labels spanning multiple source identities: "
+            f"{ambiguous_runtime_labels}."
+            if ambiguous_runtime_labels
+            else ""
+        )
+        assert runtime_total == expected_total, (
+            f"Commit-aligned definition parity has {expected_total} AMD identity "
+            f"families but ci_health reports {runtime_total} latest unique test "
+            f"groups.{collision_hint}"
+        )
+        assert runtime_passing == expected_passing, (
+            f"Commit-aligned matrix has {expected_passing} identity families "
+            f"passing on at least one AMD route but ci_health reports "
+            f"{runtime_passing}.{collision_hint}"
+        )
+
     def test_ci_health_group_counts_match_jsonl(self):
         """ci_health.json per-HW group counts must match what's in the JSONL."""
         health = _load_json("ci_health.json")
@@ -670,6 +818,68 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
         for hardware in group.get("hardware") or []:
             parity_hardware_totals[hardware] += 1
     assert parity_hardware_totals == {"mi300": 1, "mi355": 1}
+
+
+def test_aligned_amd_route_map_preserves_topology_distinct_groups(monkeypatch):
+    from vllm.ci import analyzer
+    from vllm.ci.models import TestResult
+
+    source_commit = "a" * 40
+    label = "qwen3 sync eplb accuracy"
+    mi300 = "mi300_4: :amd: (MI300) Qwen3 Sync EPLB Accuracy"
+    mi355 = "mi355_2: :amd: (MI355) Qwen3 Sync EPLB Accuracy"
+    assert analyzer._normalize_job_name(mi300) == label
+    assert analyzer._normalize_job_name(mi355) == label
+
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    analyzer.set_amd_runtime_group_key_map(
+        source_commit,
+        {
+            (label, "mi300_4"): "qwen3 sync eplb accuracy (4 gpus)",
+            (label, "mi355_2"): "qwen3 sync eplb accuracy (2 gpus)",
+        },
+    )
+
+    results = [
+        TestResult(
+            test_id=f"group-{index}",
+            name="__passed__ (1)" if status == "passed" else "__skipped__ (1)",
+            classname="group",
+            status=status,
+            duration_secs=1,
+            failure_message="",
+            job_name=job_name,
+            job_id=f"job-{index}",
+            step_id=f"step-{index}",
+            build_number=501,
+            pipeline="amd-ci",
+            date="2026-08-21",
+        )
+        for index, (job_name, status) in enumerate(
+            ((mi300, "passed"), (mi355, "skipped")),
+            1,
+        )
+    ]
+    aligned = analyzer.compute_build_summary(
+        {"number": 501, "commit": source_commit, "state": "passed", "jobs": []},
+        results,
+        "amd",
+    )
+    stale = analyzer.compute_build_summary(
+        {"number": 501, "commit": "b" * 40, "state": "passed", "jobs": []},
+        results,
+        "amd",
+    )
+
+    assert aligned.unique_test_groups == 2
+    assert aligned.test_groups_passing_or == 1
+    assert aligned.test_groups_passing_all == 1
+    assert aligned.test_groups_partial == 0
+    assert stale.unique_test_groups == 1
+    assert stale.test_groups_passing_or == 1
+    assert stale.test_groups_passing_all == 0
+    assert stale.test_groups_partial == 1
 
 
 class TestNightlyDateFunction:

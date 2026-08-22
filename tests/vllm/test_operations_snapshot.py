@@ -670,10 +670,13 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "source": "ci_health.amd.latest_test_signal_build",
             "passing_policy": "passes_on_any_observed_hardware",
             "count_basis": (
-                "unique logical test-group identities observed in this AMD nightly; "
-                "hardware-specific executions and configured %N shard jobs count "
-                "once per normalized group; configured-definition inventories are "
-                "separate"
+                "unique logical test-group identities observed in this build; "
+                "when its commit matches the pinned AMD definitions, normalized "
+                "label plus agent pool resolves the configuration identity family, "
+                "preserving topology-distinct routes; hardware-specific executions "
+                "in one family and configured %N shard jobs count once per family; "
+                "without an aligned map they fall back to the normalized group; "
+                "configured-definition inventories are separate"
             ),
             "reason": None,
         },
@@ -4850,6 +4853,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         "amd_agent_health",
         "reliability",
         "definition_parity",
+        "test_group_parity",
         "gating",
         "ownership",
         "queue",

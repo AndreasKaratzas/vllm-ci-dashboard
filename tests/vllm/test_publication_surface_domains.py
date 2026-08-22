@@ -134,6 +134,7 @@ def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
         "data/vllm/ci/ownership_config_parity.json",
         "data/vllm/ci/parity_report.json",
         "data/vllm/ci/shard_bases.json",
+        "data/vllm/ci/test_group_parity.json",
         "data/vllm/parity_report.json",
         "data/vllm/test_results.json",
     }

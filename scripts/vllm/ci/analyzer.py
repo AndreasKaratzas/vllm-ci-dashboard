@@ -146,6 +146,15 @@ def _normalize_job_name(name: str) -> str:
 
 _PARITY_KEY_OVERRIDES: dict[str, str] = {}
 
+# The latest AMD nightly is analyzed against the exact commit-pinned YAML that
+# produced it. A normalized display label alone is not always a complete test
+# group identity: two routes can share a label while declaring different GPU
+# counts (for example the 2-GPU and 4-GPU Qwen EPLB groups). Keep the
+# build-pinned, route-aware identity map separate from the looser parity-label
+# overrides so it can only affect the matching AMD build.
+_AMD_RUNTIME_GROUP_KEY_COMMIT = ""
+_AMD_RUNTIME_GROUP_KEYS: dict[tuple[str, str], str] = {}
+
 
 def set_parity_key_overrides(overrides: dict[str, str] | None):
     """Set YAML-derived parity-key overrides for runtime job names.
@@ -165,6 +174,54 @@ def set_parity_key_overrides(overrides: dict[str, str] | None):
         if not label or not key:
             continue
         _PARITY_KEY_OVERRIDES[_normalize_job_name(str(label))] = str(key).lower()
+
+
+def set_amd_runtime_group_key_map(
+    commit_sha: str | None,
+    route_keys: dict[tuple[str, str], str] | None,
+) -> None:
+    """Install config-family keys for one exact AMD build commit.
+
+    ``route_keys`` is keyed by ``(normalized YAML label, agent_pool)``. The
+    commit guard is intentional: applying today's YAML identities to retained
+    historical builds could silently rewrite their test-group populations.
+    Invalid or incomplete provenance therefore clears the map and falls back
+    to the historical normalized-label grouping.
+    """
+    global _AMD_RUNTIME_GROUP_KEY_COMMIT, _AMD_RUNTIME_GROUP_KEYS
+    commit = str(commit_sha or "").strip().casefold()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        _AMD_RUNTIME_GROUP_KEY_COMMIT = ""
+        _AMD_RUNTIME_GROUP_KEYS = {}
+        return
+
+    normalized: dict[tuple[str, str], str] = {}
+    for raw_route, raw_family_key in (route_keys or {}).items():
+        if not isinstance(raw_route, tuple) or len(raw_route) != 2:
+            continue
+        raw_label, raw_agent_pool = raw_route
+        label = _normalize_job_name(str(raw_label or "")).strip()
+        agent_pool = str(raw_agent_pool or "").strip().casefold()
+        family_key = str(raw_family_key or "").strip().casefold()
+        if label and family_key:
+            normalized[(label, agent_pool)] = family_key
+
+    _AMD_RUNTIME_GROUP_KEY_COMMIT = commit
+    _AMD_RUNTIME_GROUP_KEYS = normalized
+
+
+def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
+    """Return the build-pinned AMD family key, or the normalized label."""
+    normalized = _normalize_job_name(job_name).strip()
+    commit = str(build_commit or "").strip().casefold()
+    if (
+        commit != _AMD_RUNTIME_GROUP_KEY_COMMIT
+        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+    ):
+        return normalized
+    route_match = _JOB_PREFIX_RE.match(str(job_name or ""))
+    agent_pool = route_match.group(1).casefold() if route_match else ""
+    return _AMD_RUNTIME_GROUP_KEYS.get((normalized, agent_pool), normalized)
 
 
 def _parity_key_base(name: str) -> str:
@@ -1197,6 +1254,12 @@ def compute_build_summary(
     errors = 0
     canceled = 0
     test_groups = len(test_results)  # entry count (old total_tests)
+    build_commit = str(build.get("commit") or "").strip().casefold()
+
+    def logical_group_key(job_name: str) -> str:
+        if pipeline_key == "amd":
+            return _amd_runtime_group_key(job_name, build_commit)
+        return _normalize_job_name(job_name).strip()
 
     # Build set of soft-failed job names — failures in these are expected
     # and should not count toward groups_failed
@@ -1240,7 +1303,7 @@ def compute_build_summary(
 
         # Track groups per HW — any failure in any shard marks the group as failed
         # but exclude soft-failed jobs (failures are expected/accepted)
-        norm = _normalize_job_name(r.job_name).strip()
+        norm = logical_group_key(r.job_name)
         hw_seen_groups[hw].add(norm)
         if r.status in ("failed", "error") and r.job_name not in soft_failed_jobs:
             hw_failed_groups[hw].add(norm)
@@ -1264,7 +1327,7 @@ def compute_build_summary(
     # AND-logic across shards: if ANY shard/result in a group fails, the group fails
     group_hw_status: dict[str, dict[str, bool]] = defaultdict(dict)
     for r in test_results:
-        norm = _normalize_job_name(r.job_name).strip()
+        norm = logical_group_key(r.job_name)
         hw = _extract_hardware(r.job_name)
         if r.status in ("failed", "error"):
             # Any failure -> mark group as failed on this HW (AND across shards)

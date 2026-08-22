@@ -207,10 +207,11 @@ class TestJSRenderingSafety:
                     f"{section} build #{b.get('build_number')} passing groups out of range"
                 )
 
-    def test_runtime_parity_counts_cover_latest_amd_groups(self):
-        """Group-level common + AMD-only parity rows should equal AMD unique groups."""
+    def test_latest_amd_group_count_matches_its_aligned_identity_source(self):
+        """Use source identities when definitions and runtime are commit-aligned."""
         health_path = DATA / "vllm" / "ci" / "ci_health.json"
         parity_path = DATA / "vllm" / "ci" / "parity_report.json"
+        definitions_path = DATA / "vllm" / "ci" / "config_parity.json"
         if not health_path.exists() or not parity_path.exists():
             pytest.skip("no CI parity data")
         health = json.loads(health_path.read_text())
@@ -220,6 +221,26 @@ class TestJSRenderingSafety:
         if amd_total is None:
             pytest.skip("latest AMD build has no unique group count")
 
+        if definitions_path.exists():
+            definitions = json.loads(definitions_path.read_text())
+            definition_commit = str(
+                (definitions.get("source") or {}).get("commit_sha") or ""
+            )
+            runtime_commit = str(latest_amd.get("commit") or "")
+            if definition_commit and runtime_commit and (
+                definition_commit.startswith(runtime_commit)
+                or runtime_commit.startswith(definition_commit)
+            ):
+                source_total = (definitions.get("summary") or {}).get(
+                    "amd_identity_families"
+                )
+                assert amd_total == source_total, (
+                    f"commit-aligned AMD runtime has {amd_total} unique groups "
+                    f"but the source inventory has {source_total} identity families"
+                )
+                return
+
+        # Legacy or commit-unaligned snapshots use normalized runtime labels.
         groups = parity.get("job_groups") or []
         common = sum(1 for g in groups if g.get("amd") and g.get("upstream"))
         amd_only = sum(1 for g in groups if g.get("amd") and not g.get("upstream"))

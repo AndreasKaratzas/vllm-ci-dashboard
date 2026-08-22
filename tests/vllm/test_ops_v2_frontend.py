@@ -224,7 +224,7 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
-        "['overview', 'targets', 'gating', 'coverage', 'diagnostics']]"
+        "['overview', 'parity', 'targets', 'gating', 'coverage', 'diagnostics']]"
     ) in OPS_JS
     assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
     assert "if (state.healthView === 'ownership')" not in OPS_JS
@@ -424,7 +424,7 @@ def test_amd_health_separates_same_build_test_groups_and_job_variants():
         "label: 'LATEST UNIQUE TEST GROUPS'",
         "same-build unique test-group counts unavailable",
         "logicalPassing) + ' green on any observed AMD route - ' + integer(logicalNonPassing) + ' non-green'",
-        "Unique normalized test-group identities observed in this AMD nightly; hardware-route copies and configured shard jobs are counted once per group.",
+        "latestTestGroups.count_basis || 'Unique source-aligned test-group identities observed in this AMD nightly; topology-distinct routes remain separate and configured shards count once.'",
         "summary.retained_job_variant_count || summary.retained_group_count",
         "label: 'LATEST JOB VARIANTS'",
         "value: integer(latestVariantCount)",
@@ -625,7 +625,7 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     ):
         assert removed_label not in OPS_JS
     for visible_label in (
-        "Definition parity",
+        "Definition mapping",
         "AMD IDENTITY FAMILIES",
         "LINKED / SOURCE-COVERED",
         "AMD-ONLY FAMILIES",
@@ -642,9 +642,6 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
         assert visible_label in OPS_JS
     assert "ops.definition_parity || {}" in OPS_JS
     assert "row.match_method === 'command_twin'" in OPS_JS
-    assert "definitionSummary.amd_identity_families" in OPS_JS
-    assert "definitionSummary.covered_identity_families" in OPS_JS
-    assert "definitionSummary.amd_only_identity_families" in OPS_JS
     assert "summary.amd_identity_families" in OPS_JS
     assert "summary.covered_identity_families" in OPS_JS
     assert "summary.amd_only_identity_families" in OPS_JS
@@ -654,10 +651,13 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     assert "summary.inline_mirror_variants" in OPS_JS
     assert "summary.additional_variants" in OPS_JS
     assert "collision-safe parity nodes" in OPS_JS
-    assert "supporting inventory does not alter the gated-group pass percentage" in OPS_JS
+    assert (
+        "supporting source inventory does not alter either runtime health or reviewed upstream test-group parity"
+        in OPS_JS
+    )
     assert (
         "label: 'AMD DEFINITIONS', value: "
-        "integer(definitionSummary.total_amd_steps)"
+        "integer(summary.total_amd_steps)"
     ) not in OPS_JS
     assert (
         "label: 'AMD DEFINITIONS', value: integer(summary.total_amd_steps)"
@@ -683,6 +683,52 @@ def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health(
     assert "Search 127 reviewed groups" not in OPS_JS
     assert "matrixData.rows || []" in OPS_JS
     assert "matrixData.rows || []).slice" not in OPS_JS
+
+
+def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
+    for contract in (
+        "{id: 'parity', label: 'Upstream parity'}",
+        "ops.test_group_parity || {}",
+        "UPSTREAM TEST-GROUP PARITY",
+        "UPSTREAM SCOPED GROUPS",
+        "COMPLETE NOW",
+        "IN / PROPOSED FOR #50519",
+        "ACTION / INVESTIGATE",
+        "NOT TARGETED / UNSUPPORTED",
+        "Reviewed logical test-group parity.",
+        "Actionable parity gaps",
+        "Parity by test area",
+        "definition inventory, not observed runtime health",
+        "Upstream CUDA to ROCm logical test-group parity",
+        "Filter reviewed upstream test groups by parity state",
+        "Filter reviewed upstream test groups by area",
+        "healthParityState: 'action'",
+        "healthParityArea: 'all'",
+        "testGroupParityRows(parity, state.healthParityState, state.healthParityArea)",
+        "red/actionable is the initial view",
+        "is-not-targeted",
+    ):
+        assert contract in OPS_JS or contract in OPS_CSS
+    for ambiguous_label in (
+        "BEST-HARDWARE TEST GROUPS",
+        "UPSTREAM SCHEDULED GATING",
+        "GATED TEST GROUPS",
+        "Logical gating groups",
+        "Gated groups by Buildkite queue",
+    ):
+        assert ambiguous_label not in OPS_JS
+
+
+def test_runtime_test_group_card_names_numerator_and_denominator():
+    for contract in (
+        "LATEST UNIQUE TEST GROUPS",
+        "amdHealthSummary.latest_test_group_counts || {}",
+        "integer(latestLogicalGroups.passing) + ' / ' + integer(latestLogicalGroups.total) + ' passing'",
+        "green on every observed AMD route",
+        "mixed by hardware",
+        "CONFIGURED HEALTH CHECKS",
+    ):
+        assert contract in OPS_JS
 
 
 @pytest.mark.live_data
@@ -2473,16 +2519,16 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "function matrixHealthCollection",
         "function openMatrixHealthBrowser",
         "function openMatrixGroupEvidence",
-        "BEST-HARDWARE GATED GROUPS",
-        "Best-hardware gated-group health",
-        "{mode: 'all', label: 'Gating test groups', count: policy.included_groups, tone: 'is-neutral'}",
+        "CONFIGURED HEALTH CHECKS",
+        "Configured best-hardware health checks",
+        "{mode: 'all', label: 'Health checks', count: policy.included_groups, tone: 'is-neutral'}",
         "n('span', '', 'Passing')",
         "generic best-of-hardware families",
         "explicit MI355-sensitive obligations",
         "health_groups",
         "classification_reason",
-        "Filter best-hardware gate status",
-        "Filter best-hardware gate classification",
+        "Filter configured health-check status",
+        "Filter configured health-check classification",
         "Search group, reason, command, hardware, or queue",
         "filters: [",
         "Executed commands",
@@ -2504,10 +2550,21 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=11' in INDEX
-    assert 'assets/js/ops-v2.js?v=21' in INDEX
+    assert 'assets/css/ops-v2.css?v=12' in INDEX
+    assert 'assets/js/ops-v2.js?v=22' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
+    for retired_gate_label in (
+        "BEST-HARDWARE GATED GROUPS",
+        "Best-hardware gated groups",
+        "Best-hardware gated-group health",
+        "Gating test groups",
+        "{label: 'Gated test group', sticky:",
+        "Gate classification",
+        "Filter best-hardware gate status",
+        "Filter best-hardware gate classification",
+    ):
+        assert retired_gate_label not in OPS_JS
     assert "openMatrixHealthBrowser('all')" in OPS_JS
     assert "shell.setAttribute('role', 'dialog')" in OPS_JS
     assert "shell.setAttribute('aria-modal', 'true')" in OPS_JS
@@ -2528,15 +2585,15 @@ def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
         "function openUpstreamScheduledGatingDetail",
         "home-upstream-scheduled-gating",
         "health-upstream-scheduled-gating",
-        "UPSTREAM SCHEDULED GATING",
-        "GATED TEST GROUPS",
+        "UPSTREAM SCHEDULED COHORT",
+        "SELECTED MIRROR GROUPS",
         "integer(summary.gated) + ' / ' + integer(summary.total)",
         "integer(summary.passing) + ' / ' + integer(summary.gated)",
         "USED / CONFIGURED QUEUES",
         "summary.configured_queue_count",
         "Number(row.gated || 0) > 0",
         "used of",
-        "Gated groups by Buildkite queue",
+        "Selected mirror groups by Buildkite queue",
         "scheduledGatingWait(row).p50",
         "scheduledGatingWait(row).p95",
         "QUEUE WAIT P50 / P95",
@@ -2544,7 +2601,7 @@ def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
         "Only main-branch Full CI run - nightly and Full CI run - daily builds are included.",
         "data/vllm/ci/operations_v2/gating.json",
         "data/vllm/ci/capacity_monitor.json",
-        "Open scheduled-gating JSON",
+        "Open scheduled-cohort JSON",
         "Open configured-group JSON",
     ):
         assert contract in OPS_JS
@@ -3314,7 +3371,7 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "Search workload trajectory test groups" in OPS_JS
     assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS
     assert "queueScope: 'all'" in OPS_JS
-    assert "BEST-HARDWARE GATED GROUPS" in OPS_JS
+    assert "CONFIGURED HEALTH CHECKS" in OPS_JS
     assert "uniqueHealth.passing_groups" in OPS_JS
     assert "uniqueHealth.failing_groups" in OPS_JS
 

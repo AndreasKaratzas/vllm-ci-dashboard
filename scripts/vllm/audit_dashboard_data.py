@@ -69,6 +69,7 @@ OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "amd_test_signal",
     "ci_health",
     "config_parity",
+    "test_group_parity",
     "gating_targets",
     "gating_target_candidates",
     "amd_test_matrix",
@@ -534,6 +535,26 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Commit-pinned vLLM AMD/upstream CI source-definition parity",
     ),
     DataSpec(
+        "data/vllm/ci/test_group_parity.json",
+        (
+            "scripts/collect_ci.py",
+            "scripts/vllm/build_test_group_parity.py",
+        ),
+        ("scripts/vllm/build_operations_snapshot.py",),
+        (
+            "schema_version",
+            "generated_at",
+            "reviewed_at",
+            "source",
+            "scope",
+            "summary",
+            "rocm_inventory",
+            "areas",
+            "groups",
+        ),
+        "Reviewed upstream CUDA-to-ROCm logical test-group inventory",
+    ),
+    DataSpec(
         DNS_FAILURES_DATA_PATH,
         ("scripts/vllm/collect_dns_failures.py",),
         ("docs/assets/js/ops-v2.js",),
@@ -602,7 +623,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "health_groups",
             "rows",
         ),
-        "AMD hardware matrix, gated-group health, and cross-view counts",
+        "AMD hardware matrix, best-hardware test-group health, and cross-view counts",
     ),
     DataSpec(
         "data/vllm/ci/gating_proposals.json",
@@ -712,7 +733,10 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "generated_at",
             "project",
             "test_groups",
-            "gating",
+            "test_group_parity",
+            "health_checks",
+            "scheduled_cohorts",
+            "parity_targets",
             "queues",
             "definitions",
             "sources",
@@ -4949,7 +4973,7 @@ class DashboardAudit:
         rows: list[dict[str, Any]],
         summary: dict[str, Any],
     ) -> dict[str, Any]:
-        """Reconcile the domain-aware gate inventory with every matrix cell."""
+        """Reconcile the best-hardware test-group inventory with every matrix cell."""
         relpath = "data/vllm/ci/amd_test_matrix.json"
         health_policies = _mapping(summary.get("health_policies"))
         raw_groups = matrix.get("health_groups")
@@ -5492,7 +5516,7 @@ class DashboardAudit:
             if set(sensitive_rules) != materialized_sensitive_titles:
                 self.error(
                     "matrix-best-hardware-policy-rules",
-                    "published MI355-sensitive rules do not exactly match the separate gates",
+                    "published MI355-sensitive rules do not exactly match the separate test groups",
                     relpath,
                     context={
                         "rules": sorted(sensitive_rules),

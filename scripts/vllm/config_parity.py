@@ -1869,6 +1869,112 @@ def extract_parity_key_overrides() -> dict[str, str]:
     return dict(sorted(overrides.items()))
 
 
+def _finalize_amd_runtime_group_key_map(
+    candidates: dict[tuple[str, str], set[str]],
+) -> dict[tuple[str, str], str]:
+    """Validate and flatten route candidates into one family per route."""
+    ambiguous = {
+        route: sorted(family_keys)
+        for route, family_keys in candidates.items()
+        if len(family_keys) != 1
+    }
+    if ambiguous:
+        details = "; ".join(
+            f"{agent_pool}:{label} -> {', '.join(family_keys)}"
+            for (label, agent_pool), family_keys in sorted(ambiguous.items())
+        )
+        raise ValueError(
+            "AMD runtime group routes map to multiple identity families: "
+            f"{details}"
+        )
+
+    return {
+        route: next(iter(family_keys))
+        for route, family_keys in sorted(candidates.items())
+    }
+
+
+def extract_amd_runtime_group_key_map() -> tuple[str, dict[tuple[str, str], str]]:
+    """Return build-pinned AMD route -> identity-family keys.
+
+    Runtime result rows retain the concrete ``agent_pool`` as their leading
+    Buildkite name prefix. Pairing that route with the normalized YAML label
+    disambiguates otherwise identical display labels that declare different
+    GPU counts. The returned commit must be checked by the consumer before the
+    map is applied to a build.
+    """
+    amd_steps, _, _ = _load_config_steps()
+    source_commit = str(
+        (_source_provenance() or {}).get("commit_sha") or ""
+    ).strip().casefold()
+    if amd_steps is None:
+        return source_commit, {}
+
+    logical_steps = _semantic_amd_steps(amd_steps)
+    _, family_by_definition_id = _amd_identity_family_keys(logical_steps)
+    candidates: dict[tuple[str, str], set[str]] = {}
+    for step in amd_steps:
+        family_key = family_by_definition_id.get(step.definition_id)
+        normalized_label = _normalize_job_name(step.label).strip()
+        agent_pool = str(step.agent_pool or "").strip().casefold()
+        if not family_key or not normalized_label:
+            continue
+        candidates.setdefault((normalized_label, agent_pool), set()).add(
+            family_key
+        )
+
+    return source_commit, _finalize_amd_runtime_group_key_map(candidates)
+
+
+def extract_amd_runtime_group_key_map_from_report(
+    report: dict,
+) -> tuple[str, dict[tuple[str, str], str]]:
+    """Recover the route map from a previously published parity report.
+
+    This keeps ``collect_ci.py --skip-config-parity`` source-aligned without a
+    network fetch. The report retains every physical member label and agent
+    pool, plus its configuration identity-family key and source commit.
+    """
+    source_commit = str(
+        ((report or {}).get("source") or {}).get("commit_sha") or ""
+    ).strip().casefold()
+    candidates: dict[tuple[str, str], set[str]] = {}
+    for section in (
+        "matches",
+        "inline_mirror_variants",
+        "additional_variants",
+        "amd_only",
+    ):
+        for row in (report or {}).get(section, []):
+            family_key = str(
+                row.get("amd_identity_family_key") or ""
+            ).strip().casefold()
+            labels = (
+                row.get("amd_member_labels")
+                or row.get("member_labels")
+                or [row.get("amd_label") or row.get("label")]
+            )
+            agent_pools = (
+                row.get("amd_member_agent_pools")
+                or row.get("member_agent_pools")
+                or [row.get("amd_agent_pool") or row.get("agent_pool")]
+            )
+            if len(labels) != len(agent_pools):
+                raise ValueError(
+                    "AMD runtime group report has mismatched member labels "
+                    f"and agent pools for family {family_key or '<unknown>'}"
+                )
+            for label, agent_pool in zip(labels, agent_pools):
+                normalized_label = _normalize_job_name(str(label or "")).strip()
+                normalized_pool = str(agent_pool or "").strip().casefold()
+                if family_key and normalized_label:
+                    candidates.setdefault(
+                        (normalized_label, normalized_pool), set()
+                    ).add(family_key)
+
+    return source_commit, _finalize_amd_runtime_group_key_map(candidates)
+
+
 # ---------------------------------------------------------------------------
 # Config parity report
 # ---------------------------------------------------------------------------

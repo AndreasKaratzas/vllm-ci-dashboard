@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Build AMD test-group coverage and gated-health data from ``test-amd.yaml``.
+"""Build AMD test-group coverage and best-hardware health data from ``test-amd.yaml``.
 
-The output powers the CI Analytics hardware matrix and CI Health gate inspector:
+The output powers the CI Analytics hardware matrix and CI Health test-group inspector:
 
 - one definition row per canonical test-group title and execution identity
 - duplicate clusters for exact command lists whose titles share >= 2 characters
 - one dynamic column per AMD architecture found in the YAML
 - per-cell metadata about the exact YAML label(s) and the latest AMD nightly
   match, so the frontend can link each symbol to Buildkite
-- one domain-aware gated-health inventory that collapses generic architecture
+- one best-hardware health inventory that collapses generic architecture
   replicas with best-hardware status while keeping reviewed MI355-sensitive
   workloads as separate obligations
 
@@ -83,7 +83,7 @@ WAITING_STATES = frozenset({"running", "scheduled", "assigned"})
 
 # These are deliberately policy, not a fuzzy inference.  Each rule identifies
 # an MI355 execution that exercises hardware-specific models, topology, or
-# kernels and must therefore remain a separate health gate.  Every other MI355
+# kernels and must therefore remain a separate test group. Every other MI355
 # definition is folded into its logical family and uses best-hardware status.
 MI355_SENSITIVE_RULES = (
     ("Attention Benchmark Smoke", "MI355-only ROCm/AITER attention backend benchmark"),
@@ -93,14 +93,14 @@ MI355_SENSITIVE_RULES = (
     ("Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy", "MI355-specific two-GPU EPLB topology"),
     ("LM Eval Large Models", "gfx950-specific large-model configuration"),
     ("Kernels", "MI355-only attention selector and ROCm AITER MLA smoke coverage"),
-    ("MLA Kernels", "architecture-sensitive ROCm AITER MLA gate"),
-    ("Attention Kernels Shard", "architecture-sensitive attention-kernel gate"),
-    ("MoE Kernels Shard", "architecture-sensitive MoE-kernel gate"),
-    ("Quantization Kernels", "architecture-sensitive quantization-kernel gate"),
-    ("DeepEP FP8 MoE Kernels", "architecture-sensitive FP8 MoE-kernel gate"),
-    ("Quantized Models", "architecture-sensitive quantized-model gate"),
-    ("Quantization", "architecture-sensitive quantization integration gate"),
-    ("V1 Attention Shard", "architecture-sensitive V1 attention gate"),
+    ("MLA Kernels", "architecture-sensitive ROCm AITER MLA coverage"),
+    ("Attention Kernels Shard", "architecture-sensitive attention-kernel coverage"),
+    ("MoE Kernels Shard", "architecture-sensitive MoE-kernel coverage"),
+    ("Quantization Kernels", "architecture-sensitive quantization-kernel coverage"),
+    ("DeepEP FP8 MoE Kernels", "architecture-sensitive FP8 MoE-kernel coverage"),
+    ("Quantized Models", "architecture-sensitive quantized-model coverage"),
+    ("Quantization", "architecture-sensitive quantization integration coverage"),
+    ("V1 Attention Shard", "architecture-sensitive V1 attention coverage"),
 )
 
 # These command differences are semantically immaterial for health identity.
@@ -111,7 +111,7 @@ GENERIC_MI355_ALIAS_REASONS = {
         "same test selection; only a trailing slash differs"
     ),
     "Language Models (Extended Generation)": (
-        "same test-family target; dependency revision is not a separate gate"
+        "same test-family target; dependency revision is not a separate test group"
     ),
 }
 
@@ -449,7 +449,7 @@ def matrix_health_policies(rows: list[dict[str, Any]]) -> dict[str, dict[str, An
 
 
 def _mi355_sensitive_reason(row: dict[str, Any]) -> str | None:
-    """Return the explicit reason an MI355 cell owns a separate health gate."""
+    """Return why an MI355 cell remains a separate best-hardware test group."""
     title = clean_label(row.get("canonical_title") or row.get("title", ""))
     for rule_title, reason in MI355_SENSITIVE_RULES:
         if title == rule_title:
@@ -458,7 +458,7 @@ def _mi355_sensitive_reason(row: dict[str, Any]) -> str | None:
 
 
 def _best_hardware_status(cells: list[dict[str, Any]]) -> str:
-    """Resolve a logical gate, preferring a pass on any owned architecture."""
+    """Resolve a test group, preferring a pass on any owned architecture."""
     states = [clean_label(cell.get("latest_state", "")).casefold() for cell in cells]
     if "passed" in states:
         return "passing"
@@ -513,12 +513,12 @@ def _health_member(
 def build_best_hardware_health_groups(
     rows: list[dict[str, Any]], source_url: str
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
-    """Build the auditable best-hardware logical gate model.
+    """Build the auditable best-hardware test-group model.
 
     Every source matrix cell belongs to exactly one output group.  Generic
     replicas share a group and pass when any owned architecture passes.  The
-    explicit MI355-sensitive cells own separate gates and are never also used
-    by their generic/base gate.
+    explicit MI355-sensitive cells remain separate test groups and are never
+    also used by their generic/base group.
     """
     generic_components: dict[str, list[tuple[dict[str, Any], str]]] = defaultdict(list)
     sensitive_cells: list[tuple[dict[str, Any], str, str]] = []
@@ -661,7 +661,7 @@ def build_best_hardware_health_groups(
         "status_rule": counts["status_rule"],
         "denominator_rule": counts["denominator_rule"],
         "generic_replica_rule": "collapse equivalent cross-architecture definitions",
-        "mi355_sensitive_rule": "keep the explicit hardware-sensitive allowlist as separate gates",
+        "mi355_sensitive_rule": "keep the explicit hardware-sensitive allowlist as separate test groups",
         "incident_states": sorted(INCIDENT_STATES),
         "waiting_states": sorted(WAITING_STATES),
         "no_signal_states": ["canceled", "expired", "skipped", "unknown", "missing"],

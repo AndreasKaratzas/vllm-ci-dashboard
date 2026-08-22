@@ -248,7 +248,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     assert summary["schema_id"] == "oss-project-ci-summary"
-    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 4
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 5
     assert summary["project"]["id"] == "vllm"
 
     logical = summary["test_groups"]["observed_latest_amd"]
@@ -258,7 +258,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
         2,
     )
     assert "configured %N shard jobs" in logical["count_basis"]
-    assert "configured-definition inventories are separate" in summary["definitions"][
+    assert "topology-distinct routes remain separate" in summary["definitions"][
         "test_group"
     ]
     assert "not averages or percentiles" in summary["definitions"][
@@ -272,16 +272,27 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     )
     assert "configured_amd_definitions" not in summary["test_groups"]
 
-    best = summary["gating"]["best_hardware_runtime"]
+    best = summary["health_checks"]["best_hardware"]
     assert (best["total"], best["green"], best["non_green"]) == (166, 163, 3)
-    nightly = summary["gating"]["upstream_scheduled_nightly"]
+    nightly = summary["scheduled_cohorts"]["upstream_nightly"]
     assert nightly["build_number"] == 84753
-    assert (nightly["configured"], nightly["gated"], nightly["green"]) == (
+    assert (nightly["configured"], nightly["observed"], nightly["green"]) == (
         73,
         73,
         73,
     )
-    assert summary["gating"]["reviewed_targets"]["total"] == 125
+    assert summary["parity_targets"]["reviewed"]["total"] == 125
+    assert "gating" not in summary
+    assert {
+        "health_check",
+        "scheduled_mirror_group",
+        "parity_target",
+    } <= set(summary["definitions"])
+    assert {
+        "runtime_gate",
+        "scheduled_gating_group",
+        "gating_target",
+    }.isdisjoint(summary["definitions"])
 
 
 def test_org_summary_projects_daily_wait_vectors_and_rolling_counts() -> None:
@@ -471,7 +482,7 @@ def test_org_summary_fails_closed_when_amd_builds_do_not_align() -> None:
     assert observed["available"] is False
     assert observed["reason"] == "build_mismatch"
     assert observed["total"] is None
-    best = summary["gating"]["best_hardware_runtime"]
+    best = summary["health_checks"]["best_hardware"]
     assert best["available"] is False
     assert best["green"] is None
 
@@ -500,8 +511,8 @@ def test_snapshot_bundle_writes_bounded_discoverable_org_summary(tmp_path) -> No
     assert summary["generated_at"] == GENERATED_AT
     assert path.stat().st_size == descriptor["bytes"]
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
-    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 4
-    assert "groups" not in summary["gating"]["upstream_scheduled_nightly"]
+    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 5
+    assert "groups" not in summary["scheduled_cohorts"]["upstream_nightly"]
 
 
 def test_snapshot_bundle_references_oversized_exact_wait_vectors_without_duplication(
@@ -576,7 +587,7 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
 
     path = data_dir / ops.ORG_SUMMARY_NAME
     summary = json.loads(path.read_text())
-    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 4
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 5
     summary["test_groups"]["observed_latest_amd"]["total"] = 236
     path.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -632,14 +643,14 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     assert variants["build_number"] == logical["build_number"]
     assert variants["total"] >= logical["total"]
 
-    best = summary["gating"]["best_hardware_runtime"]
+    best = summary["health_checks"]["best_hardware"]
     assert best["available"] is True
     assert best["build_number"] == logical["build_number"]
     assert best["non_green"] == best["total"] - best["green"]
 
-    scheduled = summary["gating"]["upstream_scheduled_nightly"]
-    assert scheduled["configured"] == scheduled["gated"] + scheduled["missing"]
-    assert scheduled["gated"] == sum(
+    scheduled = summary["scheduled_cohorts"]["upstream_nightly"]
+    assert scheduled["configured"] == scheduled["observed"] + scheduled["missing"]
+    assert scheduled["observed"] == sum(
         scheduled[key] for key in ("green", "failing", "soft_failing", "pending")
     )
 

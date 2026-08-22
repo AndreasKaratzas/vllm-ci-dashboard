@@ -11,6 +11,15 @@ OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS = (
     "hardware-specific executions and configured %N shard jobs count once per "
     "normalized group; configured-definition inventories are separate"
 )
+AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS = (
+    "unique logical test-group identities observed in this build; "
+    "when its commit matches the pinned AMD definitions, normalized label plus "
+    "agent pool resolves the configuration identity family, preserving "
+    "topology-distinct routes; hardware-specific executions in one family and "
+    "configured %N shard jobs count once per family; without an aligned map "
+    "they fall back to the normalized group; configured-definition inventories "
+    "are separate"
+)
 
 
 @dataclass
@@ -100,6 +109,12 @@ class BuildSummary:
     def test_pass_rate_basis(self) -> str:
         return TEST_PASS_RATE_BASIS
 
+    @property
+    def observed_unique_test_groups_count_basis(self) -> str:
+        if str(self.pipeline).strip().casefold() in {"amd", "amd-ci"}:
+            return AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
+        return OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
+
     def to_dict(self) -> dict:
         return {
             "pipeline": self.pipeline,
@@ -135,7 +150,7 @@ class BuildSummary:
             # runtime identities from configured definition-row counts.
             "observed_unique_test_groups": self.unique_test_groups,
             "observed_unique_test_groups_count_basis": (
-                OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS
+                self.observed_unique_test_groups_count_basis
             ),
             "test_groups_passing_or": self.test_groups_passing_or,
             "test_groups_passing_all": self.test_groups_passing_all,

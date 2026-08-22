@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-22T04:02:29Z",
+  "generated_at": "2026-08-22T04:11:05Z",
   "source": {
     "yaml_url": "https://raw.githubusercontent.com/vllm-project/vllm/0a21947d710f5aedb1865038ebef20e141b29c58/.buildkite/test-amd.yaml",
     "latest_build_number": 12305,
@@ -332,7 +332,7 @@
     "status_rule": "pass when any owned hardware cell passes",
     "denominator_rule": "all expected health groups, including waiting and unknown",
     "generic_replica_rule": "collapse equivalent cross-architecture definitions",
-    "mi355_sensitive_rule": "keep the explicit hardware-sensitive allowlist as separate gates",
+    "mi355_sensitive_rule": "keep the explicit hardware-sensitive allowlist as separate test groups",
     "incident_states": [
       "broken",
       "failed",
@@ -383,35 +383,35 @@
       },
       {
         "title": "MLA Kernels",
-        "reason": "architecture-sensitive ROCm AITER MLA gate"
+        "reason": "architecture-sensitive ROCm AITER MLA coverage"
       },
       {
         "title": "Attention Kernels Shard",
-        "reason": "architecture-sensitive attention-kernel gate"
+        "reason": "architecture-sensitive attention-kernel coverage"
       },
       {
         "title": "MoE Kernels Shard",
-        "reason": "architecture-sensitive MoE-kernel gate"
+        "reason": "architecture-sensitive MoE-kernel coverage"
       },
       {
         "title": "Quantization Kernels",
-        "reason": "architecture-sensitive quantization-kernel gate"
+        "reason": "architecture-sensitive quantization-kernel coverage"
       },
       {
         "title": "DeepEP FP8 MoE Kernels",
-        "reason": "architecture-sensitive FP8 MoE-kernel gate"
+        "reason": "architecture-sensitive FP8 MoE-kernel coverage"
       },
       {
         "title": "Quantized Models",
-        "reason": "architecture-sensitive quantized-model gate"
+        "reason": "architecture-sensitive quantized-model coverage"
       },
       {
         "title": "Quantization",
-        "reason": "architecture-sensitive quantization integration gate"
+        "reason": "architecture-sensitive quantization integration coverage"
       },
       {
         "title": "V1 Attention Shard",
-        "reason": "architecture-sensitive V1 attention gate"
+        "reason": "architecture-sensitive V1 attention coverage"
       }
     ],
     "generic_alias_rules": [
@@ -421,7 +421,7 @@
       },
       {
         "title": "Language Models (Extended Generation)",
-        "reason": "same test-family target; dependency revision is not a separate gate"
+        "reason": "same test-family target; dependency revision is not a separate test group"
       }
     ],
     "mi355_classification": [
@@ -518,7 +518,7 @@
         "title": "MLA Kernels",
         "label": ":amd: (MI355) MLA Kernels",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive ROCm AITER MLA gate",
+        "reason": "architecture-sensitive ROCm AITER MLA coverage",
         "health_group_id": "health-group-9880ea5ecc7d37bf"
       },
       {
@@ -526,7 +526,7 @@
         "title": "Attention Kernels Shard",
         "label": ":amd: (MI355) Attention Kernels Shard",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive attention-kernel gate",
+        "reason": "architecture-sensitive attention-kernel coverage",
         "health_group_id": "health-group-ffcd5f6ead812780"
       },
       {
@@ -542,7 +542,7 @@
         "title": "Quantization Kernels",
         "label": ":amd: (MI355) Quantization Kernels",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive quantization-kernel gate",
+        "reason": "architecture-sensitive quantization-kernel coverage",
         "health_group_id": "health-group-a00cb661680aa6e1"
       },
       {
@@ -550,7 +550,7 @@
         "title": "DeepEP FP8 MoE Kernels",
         "label": ":amd: (MI355) DeepEP FP8 MoE Kernels",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive FP8 MoE-kernel gate",
+        "reason": "architecture-sensitive FP8 MoE-kernel coverage",
         "health_group_id": "health-group-95a42498e05c7a22"
       },
       {
@@ -574,7 +574,7 @@
         "title": ":amd: (MI355) Language Models (Extended Generation)",
         "label": ":amd: (MI355) Language Models (Extended Generation)",
         "classification": "generic_replica",
-        "reason": "same test-family target; dependency revision is not a separate gate",
+        "reason": "same test-family target; dependency revision is not a separate test group",
         "health_group_id": "health-group-7eda259f5a9e3be5"
       },
       {
@@ -630,7 +630,7 @@
         "title": "V1 Attention Shard",
         "label": ":amd: (MI355) V1 Attention Shard",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive V1 attention gate",
+        "reason": "architecture-sensitive V1 attention coverage",
         "health_group_id": "health-group-18e13f49d79ffb38"
       },
       {
@@ -710,7 +710,7 @@
         "title": ":amd: (MI355) MoE Kernels Shard %N",
         "label": ":amd: (MI355) MoE Kernels Shard",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive MoE-kernel gate",
+        "reason": "architecture-sensitive MoE-kernel coverage",
         "health_group_id": "health-group-eb2374ac4ef7e2fe"
       },
       {
@@ -734,7 +734,7 @@
         "title": ":amd: (MI355) Quantized Models",
         "label": ":amd: (MI355) Quantized Models",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive quantized-model gate",
+        "reason": "architecture-sensitive quantized-model coverage",
         "health_group_id": "health-group-1d1dc518cc6ecf47"
       },
       {
@@ -742,7 +742,7 @@
         "title": ":amd: (MI355) Quantization",
         "label": ":amd: (MI355) Quantization",
         "classification": "separate_gate",
-        "reason": "architecture-sensitive quantization integration gate",
+        "reason": "architecture-sensitive quantization integration coverage",
         "health_group_id": "health-group-d48033e50148acae"
       },
       {
@@ -4952,7 +4952,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive ROCm AITER MLA gate",
+      "classification_reason": "architecture-sensitive ROCm AITER MLA coverage",
       "architectures": [
         "mi355"
       ],
@@ -5050,7 +5050,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive attention-kernel gate",
+      "classification_reason": "architecture-sensitive attention-kernel coverage",
       "architectures": [
         "mi355"
       ],
@@ -5365,7 +5365,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive quantization-kernel gate",
+      "classification_reason": "architecture-sensitive quantization-kernel coverage",
       "architectures": [
         "mi355"
       ],
@@ -5459,7 +5459,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive FP8 MoE-kernel gate",
+      "classification_reason": "architecture-sensitive FP8 MoE-kernel coverage",
       "architectures": [
         "mi355"
       ],
@@ -6275,7 +6275,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "generic_best_hardware",
-      "classification_reason": "same test-family target; dependency revision is not a separate gate",
+      "classification_reason": "same test-family target; dependency revision is not a separate test group",
       "architectures": [
         "mi300",
         "mi355"
@@ -8134,7 +8134,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive V1 attention gate",
+      "classification_reason": "architecture-sensitive V1 attention coverage",
       "architectures": [
         "mi355"
       ],
@@ -9422,7 +9422,7 @@
       "status": "failed",
       "is_passing": false,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive MoE-kernel gate",
+      "classification_reason": "architecture-sensitive MoE-kernel coverage",
       "architectures": [
         "mi355"
       ],
@@ -9569,7 +9569,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive quantized-model gate",
+      "classification_reason": "architecture-sensitive quantized-model coverage",
       "architectures": [
         "mi355"
       ],
@@ -9616,7 +9616,7 @@
       "status": "passing",
       "is_passing": true,
       "gate_kind": "mi355_sensitive",
-      "classification_reason": "architecture-sensitive quantization integration gate",
+      "classification_reason": "architecture-sensitive quantization integration coverage",
       "architectures": [
         "mi355"
       ],
