@@ -732,16 +732,16 @@
         "confirmed_soft": 0,
         "hard": 0,
         "incidents": 0,
-        "passed": 13,
+        "passed": 14,
         "pending_soft": 1,
-        "raw_incidents": 1,
+        "raw_incidents": 0,
         "raw_results": {
           "hard": 0,
-          "passed": 13,
-          "soft": 1,
+          "passed": 14,
+          "soft": 0,
           "unobserved": 0
         },
-        "soft": 1,
+        "soft": 0,
         "targets": 14,
         "unobserved": 0,
         "upstream_parity_gaps": 3
@@ -780,8 +780,8 @@
             "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-17f3-4568-a4d4-eca718ed96ef&tab=output"
           },
           "observed_at": "2026-08-22T09:00:00.732Z",
-          "raw_result": "soft",
-          "result": "soft",
+          "raw_result": "passed",
+          "result": "passed",
           "soft_streak": 1,
           "soft_threshold": 2,
           "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-17f3-4568-a4d4-eca718ed96ef&tab=output"
@@ -797,31 +797,6 @@
       "selection_reason": "no_ranked_owner_selected",
       "source_file": "distributed.yaml",
       "targets": [
-        {
-          "area_method": "definition_parity",
-          "build_number": 12332,
-          "id": "matrix-row-e0bfee044fa1e6b7",
-          "incident_change": "held",
-          "incident_classification": "pending_soft",
-          "incident_observation_eligible": false,
-          "incident_observation_reason": "ignored_non_monotonic_build",
-          "incident_peak_severity": "soft",
-          "incident_severity": "soft",
-          "incident_start_build_id": 12332,
-          "incident_status": "pending_soft",
-          "label": "Pipeline + Context Parallelism",
-          "last_failure_evidence": {
-            "build_number": 12332,
-            "observed_at": "2026-08-22T09:00:00.732Z",
-            "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-17f3-4568-a4d4-eca718ed96ef&tab=output"
-          },
-          "observed_at": "2026-08-22T09:00:00.732Z",
-          "raw_result": "soft",
-          "result": "soft",
-          "soft_streak": 1,
-          "soft_threshold": 2,
-          "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-17f3-4568-a4d4-eca718ed96ef&tab=output"
-        },
         {
           "area_method": "definition_parity",
           "build_number": 12332,
@@ -1041,6 +1016,31 @@
           "soft_streak": 0,
           "soft_threshold": 2,
           "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-183c-4190-94d6-01c09cd324c1&tab=output"
+        },
+        {
+          "area_method": "definition_parity",
+          "build_number": 12332,
+          "id": "matrix-row-e0bfee044fa1e6b7",
+          "incident_change": "held",
+          "incident_classification": "pending_soft",
+          "incident_observation_eligible": false,
+          "incident_observation_reason": "ignored_non_monotonic_build",
+          "incident_peak_severity": "soft",
+          "incident_severity": "soft",
+          "incident_start_build_id": 12332,
+          "incident_status": "pending_soft",
+          "label": "Pipeline + Context Parallelism",
+          "last_failure_evidence": {
+            "build_number": 12332,
+            "observed_at": "2026-08-22T09:00:00.732Z",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-17f3-4568-a4d4-eca718ed96ef&tab=output"
+          },
+          "observed_at": "2026-08-22T09:00:00.732Z",
+          "raw_result": "passed",
+          "result": "passed",
+          "soft_streak": 1,
+          "soft_threshold": 2,
+          "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-17f3-4568-a4d4-eca718ed96ef&tab=output"
         },
         {
           "area_method": "reviewed_area_override",
@@ -5133,7 +5133,7 @@
     "github_login": "AndreasKaratzas",
     "working_hours_profile": "NA"
   },
-  "generated_at": "2026-08-22T23:43:29Z",
+  "generated_at": "2026-08-23T03:05:49Z",
   "issue_mutations": "enabled",
   "policy": {
     "assignment": "first available owner by ascending rank; otherwise CI lead",
@@ -5164,16 +5164,16 @@
     "confirmed_soft": 2,
     "hard": 0,
     "incidents": 2,
-    "passed": 147,
+    "passed": 148,
     "pending_soft": 2,
-    "raw_incidents": 1,
+    "raw_incidents": 0,
     "raw_results": {
       "hard": 0,
-      "passed": 147,
-      "soft": 1,
+      "passed": 148,
+      "soft": 0,
       "unobserved": 3
     },
-    "soft": 1,
+    "soft": 0,
     "unmapped_targets": 18,
     "unobserved": 3,
     "upstream_parity_gaps": 64
@@ -5248,7 +5248,7 @@
       "id": "matrix-row-78a9fd539c8fed44",
       "label": "LM Eval Large Models ROCm Harness",
       "observed_at": "2026-08-22T09:00:00.732Z",
-      "result": "soft",
+      "result": "passed",
       "url": "https://buildkite.com/vllm/amd-ci/builds/12332/steps/canvas?sid=01a028b3-185c-46df-be9a-3d980f4321cf&tab=output"
     },
     {
