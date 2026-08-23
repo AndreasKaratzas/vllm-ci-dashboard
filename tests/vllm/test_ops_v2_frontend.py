@@ -380,9 +380,22 @@ def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
     assert health["source_pipeline"] == "amd-ci"
     assert summary["build_count"] == len(health["builds"])
     assert summary["build_count"] > 0
+    assert summary["latest_group_count"] > 0
     assert summary["latest_group_count"] == sum(latest.values())
-    assert latest["soft"] > 0
-    assert latest["hard"] >= 0
+    # A fully green nightly legitimately has no soft or hard failures.
+    assert set(latest) == {"passed", "soft", "hard", "unknown"}
+    assert all(
+        isinstance(count, int) and not isinstance(count, bool) and count >= 0
+        for count in latest.values()
+    )
+    for state, field in (
+        ("passed", "latest_passed_group_count"),
+        ("soft", "latest_soft_failed_group_count"),
+        ("hard", "latest_hard_failed_group_count"),
+        ("unknown", "latest_unknown_group_count"),
+    ):
+        assert summary[field] == latest[state]
+    assert summary["latest_incident_group_count"] == latest["soft"] + latest["hard"]
     assert len({row["id"] for row in health["group_catalog"]}) == summary["group_count"]
     assert all(
         observation["url"].startswith("https://buildkite.com/vllm/amd-ci/builds/")
