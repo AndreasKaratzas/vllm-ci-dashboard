@@ -3,11 +3,11 @@
   "source": {
     "repository": "vllm-project/vllm",
     "branch": "main",
-    "commit_sha": "0b19ebcacd0e9578460206035c4b3575361c19c4",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/0b19ebcacd0e9578460206035c4b3575361c19c4",
-    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/0b19ebcacd0e9578460206035c4b3575361c19c4/.buildkite/test-amd.yaml",
-    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/0b19ebcacd0e9578460206035c4b3575361c19c4/.buildkite/test_areas",
-    "fetched_at": "2026-08-23T17:36:28Z",
+    "commit_sha": "e25c586b9030a10702d78856b43ccae9481cc28c",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/e25c586b9030a10702d78856b43ccae9481cc28c",
+    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/e25c586b9030a10702d78856b43ccae9481cc28c/.buildkite/test-amd.yaml",
+    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/e25c586b9030a10702d78856b43ccae9481cc28c/.buildkite/test_areas",
+    "fetched_at": "2026-08-23T18:50:09Z",
     "matching_rules": [
       "Retain provenance for every parsed YAML definition and report the physical AMD count separately.",
       "Coalesce only AMD architecture replicas with the same matrix canonical title, execution fingerprint, projected reference hardware, and GPU count; preserve every member definition ID, label, group, and agent pool.",
@@ -380,11 +380,11 @@
   ],
   "evidence": {
     "pipeline": "amd",
-    "build_number": 12332,
-    "build_commit": "0b19ebcacd0e9578460206035c4b3575361c19c4",
+    "build_number": 12343,
+    "build_commit": "e25c586b9030a10702d78856b43ccae9481cc28c",
     "build_state": "passed",
     "roster_complete": true,
-    "result_file": "2026-08-22_amd.jsonl",
+    "result_file": "2026-08-23_amd.jsonl",
     "job_names": [
       "mi250_1: :amd: (MI250) Batch Invariance",
       "mi250_1: :amd: (MI250) CUDAGraph",

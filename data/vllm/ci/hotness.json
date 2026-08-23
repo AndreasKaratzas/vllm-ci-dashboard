@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-23T17:34:16Z",
+  "generated_at": "2026-08-23T18:47:42Z",
   "window_hours": 72,
   "builds_examined": 61,
   "test_groups": [
@@ -5076,6 +5076,32 @@
     {
       "count": 20,
       "avg_min": 16.8,
+      "p50_min": 16.4,
+      "p90_min": 17.7,
+      "max_min": 24.6,
+      "group": ":amd: (MI300) V1 Engine",
+      "hw": "mi300",
+      "workload": "vllm",
+      "fail_rate_pct": 0.0,
+      "fail_rate": 0.0,
+      "failures": 0,
+      "last_seen": "2026-08-23T17:37:00Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-23T17:37:00Z",
+        "pipeline": "amd-ci",
+        "build_number": 12343,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+        "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 20,
+      "avg_min": 16.8,
       "p50_min": 17.1,
       "p90_min": 17.2,
       "max_min": 17.6,
@@ -6213,32 +6239,6 @@
         "job_name": "mi300_1: :amd: (MI300) Python-only Installation",
         "job_id": "01a02dd9-5d9b-487f-8031-0010406ee8ee",
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5d9b-487f-8031-0010406ee8ee",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 19,
-      "avg_min": 16.9,
-      "p50_min": 16.4,
-      "p90_min": 17.7,
-      "max_min": 24.6,
-      "group": ":amd: (MI300) V1 Engine",
-      "hw": "mi300",
-      "workload": "vllm",
-      "fail_rate_pct": 0.0,
-      "fail_rate": 0.0,
-      "failures": 0,
-      "last_seen": "2026-08-23T06:22:05Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-23T06:22:05Z",
-        "pipeline": "amd-ci",
-        "build_number": 12339,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12339",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) V1 Engine",
-        "job_id": "01a02d31-98dd-4dae-897b-97303423ba2e",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12339#01a02d31-98dd-4dae-897b-97303423ba2e",
         "job_url_source": "job.web_url",
         "state": "passed"
       }
@@ -12356,7 +12356,7 @@
       }
     },
     {
-      "count": 719,
+      "count": 720,
       "avg_min": 25.0,
       "p50_min": 20.9,
       "p90_min": 44.3,
@@ -12366,17 +12366,17 @@
       "fork_url": "",
       "source": "schedule",
       "workload": "vllm",
-      "last_seen": "2026-08-23T10:48:48Z",
+      "last_seen": "2026-08-23T17:37:00Z",
       "builds": 3,
       "latest_evidence": {
-        "observed_at": "2026-08-23T10:48:48Z",
+        "observed_at": "2026-08-23T17:37:00Z",
         "pipeline": "amd-ci",
         "build_number": 12343,
         "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
         "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 6",
-        "job_id": "01a02dd9-5dc6-4d42-8f70-df312a250598",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5dc6-4d42-8f70-df312a250598",
+        "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+        "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
         "job_url_source": "job.web_url",
         "state": "passed"
       }
@@ -12982,22 +12982,22 @@
   ],
   "queues": [
     {
-      "count": 2719,
+      "count": 2720,
       "avg_min": 29.1,
       "p50_min": 23.8,
       "p90_min": 59.0,
       "max_min": 181.5,
       "queue": "amd_mi300_1",
-      "last_seen": "2026-08-23T10:48:48Z",
+      "last_seen": "2026-08-23T17:37:00Z",
       "latest_evidence": {
-        "observed_at": "2026-08-23T10:48:48Z",
+        "observed_at": "2026-08-23T17:37:00Z",
         "pipeline": "amd-ci",
         "build_number": 12343,
         "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
         "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 6",
-        "job_id": "01a02dd9-5dc6-4d42-8f70-df312a250598",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5dc6-4d42-8f70-df312a250598",
+        "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+        "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
         "job_url_source": "job.web_url",
         "state": "passed"
       }
@@ -13222,11 +13222,87 @@
       "jobs_in_window": 0
     },
     "3h": {
-      "test_groups": [],
-      "branches": [],
-      "queues": [],
+      "test_groups": [
+        {
+          "count": 1,
+          "avg_min": 16.0,
+          "p50_min": 16.0,
+          "p90_min": 16.0,
+          "max_min": 16.0,
+          "group": ":amd: (MI300) V1 Engine",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
+          "last_seen": "2026-08-23T17:37:00Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-23T17:37:00Z",
+            "pipeline": "amd-ci",
+            "build_number": 12343,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        }
+      ],
+      "branches": [
+        {
+          "count": 1,
+          "avg_min": 16.0,
+          "p50_min": 16.0,
+          "p90_min": 16.0,
+          "max_min": 16.0,
+          "branch": "main",
+          "commit": "e25c586b9030",
+          "fork_url": "",
+          "source": "schedule",
+          "workload": "vllm",
+          "last_seen": "2026-08-23T17:37:00Z",
+          "builds": 1,
+          "latest_evidence": {
+            "observed_at": "2026-08-23T17:37:00Z",
+            "pipeline": "amd-ci",
+            "build_number": 12343,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        }
+      ],
+      "queues": [
+        {
+          "count": 1,
+          "avg_min": 16.0,
+          "p50_min": 16.0,
+          "p90_min": 16.0,
+          "max_min": 16.0,
+          "queue": "amd_mi300_1",
+          "last_seen": "2026-08-23T17:37:00Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-23T17:37:00Z",
+            "pipeline": "amd-ci",
+            "build_number": 12343,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        }
+      ],
       "window_hours": 3,
-      "jobs_in_window": 0
+      "jobs_in_window": 1
     },
     "24h": {
       "test_groups": [
@@ -17470,6 +17546,32 @@
         },
         {
           "count": 3,
+          "avg_min": 16.7,
+          "p50_min": 16.3,
+          "p90_min": 17.7,
+          "max_min": 17.7,
+          "group": ":amd: (MI300) V1 Engine",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
+          "last_seen": "2026-08-23T17:37:00Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-23T17:37:00Z",
+            "pipeline": "amd-ci",
+            "build_number": 12343,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 3,
           "avg_min": 14.7,
           "p50_min": 13.6,
           "p90_min": 17.2,
@@ -19443,32 +19545,6 @@
             "job_url_source": "job.web_url",
             "state": "passed"
           }
-        },
-        {
-          "count": 2,
-          "avg_min": 17.0,
-          "p50_min": 17.7,
-          "p90_min": 17.7,
-          "max_min": 17.7,
-          "group": ":amd: (MI300) V1 Engine",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-23T06:22:05Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-23T06:22:05Z",
-            "pipeline": "amd-ci",
-            "build_number": 12339,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12339",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
-            "job_id": "01a02d31-98dd-4dae-897b-97303423ba2e",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12339#01a02d31-98dd-4dae-897b-97303423ba2e",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
         }
       ],
       "branches": [
@@ -19525,8 +19601,8 @@
           }
         },
         {
-          "count": 241,
-          "avg_min": 24.3,
+          "count": 242,
+          "avg_min": 24.2,
           "p50_min": 20.9,
           "p90_min": 44.3,
           "max_min": 100.2,
@@ -19535,17 +19611,17 @@
           "fork_url": "",
           "source": "schedule",
           "workload": "vllm",
-          "last_seen": "2026-08-23T10:48:48Z",
+          "last_seen": "2026-08-23T17:37:00Z",
           "builds": 2,
           "latest_evidence": {
-            "observed_at": "2026-08-23T10:48:48Z",
+            "observed_at": "2026-08-23T17:37:00Z",
             "pipeline": "amd-ci",
             "build_number": 12343,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 6",
-            "job_id": "01a02dd9-5dc6-4d42-8f70-df312a250598",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5dc6-4d42-8f70-df312a250598",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -19579,22 +19655,22 @@
       ],
       "queues": [
         {
-          "count": 345,
+          "count": 346,
           "avg_min": 29.2,
           "p50_min": 25.6,
           "p90_min": 60.8,
           "max_min": 109.7,
           "queue": "amd_mi300_1",
-          "last_seen": "2026-08-23T10:48:48Z",
+          "last_seen": "2026-08-23T17:37:00Z",
           "latest_evidence": {
-            "observed_at": "2026-08-23T10:48:48Z",
+            "observed_at": "2026-08-23T17:37:00Z",
             "pipeline": "amd-ci",
             "build_number": 12343,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 6",
-            "job_id": "01a02dd9-5dc6-4d42-8f70-df312a250598",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5dc6-4d42-8f70-df312a250598",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -19811,7 +19887,7 @@
         }
       ],
       "window_hours": 24,
-      "jobs_in_window": 738
+      "jobs_in_window": 739
     },
     "72h": {
       "test_groups": [
@@ -24888,6 +24964,32 @@
         {
           "count": 20,
           "avg_min": 16.8,
+          "p50_min": 16.4,
+          "p90_min": 17.7,
+          "max_min": 24.6,
+          "group": ":amd: (MI300) V1 Engine",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
+          "last_seen": "2026-08-23T17:37:00Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-23T17:37:00Z",
+            "pipeline": "amd-ci",
+            "build_number": 12343,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 20,
+          "avg_min": 16.8,
           "p50_min": 17.1,
           "p90_min": 17.2,
           "max_min": 17.6,
@@ -26025,32 +26127,6 @@
             "job_name": "mi300_1: :amd: (MI300) Python-only Installation",
             "job_id": "01a02dd9-5d9b-487f-8031-0010406ee8ee",
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5d9b-487f-8031-0010406ee8ee",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 19,
-          "avg_min": 16.9,
-          "p50_min": 16.4,
-          "p90_min": 17.7,
-          "max_min": 24.6,
-          "group": ":amd: (MI300) V1 Engine",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-23T06:22:05Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-23T06:22:05Z",
-            "pipeline": "amd-ci",
-            "build_number": 12339,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12339",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
-            "job_id": "01a02d31-98dd-4dae-897b-97303423ba2e",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12339#01a02d31-98dd-4dae-897b-97303423ba2e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -32168,7 +32244,7 @@
           }
         },
         {
-          "count": 719,
+          "count": 720,
           "avg_min": 25.0,
           "p50_min": 20.9,
           "p90_min": 44.3,
@@ -32178,17 +32254,17 @@
           "fork_url": "",
           "source": "schedule",
           "workload": "vllm",
-          "last_seen": "2026-08-23T10:48:48Z",
+          "last_seen": "2026-08-23T17:37:00Z",
           "builds": 3,
           "latest_evidence": {
-            "observed_at": "2026-08-23T10:48:48Z",
+            "observed_at": "2026-08-23T17:37:00Z",
             "pipeline": "amd-ci",
             "build_number": 12343,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 6",
-            "job_id": "01a02dd9-5dc6-4d42-8f70-df312a250598",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5dc6-4d42-8f70-df312a250598",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -32794,22 +32870,22 @@
       ],
       "queues": [
         {
-          "count": 2719,
+          "count": 2720,
           "avg_min": 29.1,
           "p50_min": 23.8,
           "p90_min": 59.0,
           "max_min": 181.5,
           "queue": "amd_mi300_1",
-          "last_seen": "2026-08-23T10:48:48Z",
+          "last_seen": "2026-08-23T17:37:00Z",
           "latest_evidence": {
-            "observed_at": "2026-08-23T10:48:48Z",
+            "observed_at": "2026-08-23T17:37:00Z",
             "pipeline": "amd-ci",
             "build_number": 12343,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12343",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 6",
-            "job_id": "01a02dd9-5dc6-4d42-8f70-df312a250598",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02dd9-5dc6-4d42-8f70-df312a250598",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12343#01a02fa3-b34b-4f6d-b6d2-520f044f2f1e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -33026,7 +33102,7 @@
         }
       ],
       "window_hours": 72,
-      "jobs_in_window": 5953
+      "jobs_in_window": 5954
     }
   }
 }
