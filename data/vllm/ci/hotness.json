@@ -1,10 +1,10 @@
 {
-  "generated_at": "2026-08-24T16:55:40Z",
+  "generated_at": "2026-08-24T17:46:28Z",
   "window_hours": 72,
-  "builds_examined": 44,
+  "builds_examined": 40,
   "test_groups": [
     {
-      "count": 44,
+      "count": 40,
       "avg_min": 0.6,
       "p50_min": 0.2,
       "p90_min": 1.4,
@@ -12,8 +12,8 @@
       "group": "bootstrap",
       "hw": "unknown",
       "workload": "vllm",
-      "fail_rate_pct": 2.3,
-      "fail_rate": 0.023,
+      "fail_rate_pct": 2.5,
+      "fail_rate": 0.025,
       "failures": 1,
       "last_seen": "2026-08-24T15:14:28Z",
       "latest_evidence": {
@@ -30,10 +30,10 @@
       }
     },
     {
-      "count": 43,
-      "avg_min": 8.6,
+      "count": 39,
+      "avg_min": 9.5,
       "p50_min": 0.1,
-      "p90_min": 1.5,
+      "p90_min": 2.8,
       "max_min": 282.8,
       "group": "AMD: :docker: refresh ROCm base",
       "hw": "unknown",
@@ -56,16 +56,16 @@
       }
     },
     {
-      "count": 38,
-      "avg_min": 1.3,
+      "count": 34,
+      "avg_min": 1.4,
       "p50_min": 0.2,
       "p90_min": 1.5,
       "max_min": 13.2,
       "group": "AMD: :docker: ensure ci_base",
       "hw": "unknown",
       "workload": "vllm",
-      "fail_rate_pct": 2.6,
-      "fail_rate": 0.026,
+      "fail_rate_pct": 2.9,
+      "fail_rate": 0.029,
       "failures": 1,
       "last_seen": "2026-08-24T15:17:18Z",
       "latest_evidence": {
@@ -82,17 +82,17 @@
       }
     },
     {
-      "count": 37,
-      "avg_min": 9.4,
+      "count": 33,
+      "avg_min": 9.8,
       "p50_min": 7.2,
       "p90_min": 17.6,
       "max_min": 24.6,
       "group": "AMD: :docker: build test image and artifacts",
       "hw": "unknown",
       "workload": "vllm",
-      "fail_rate_pct": 8.1,
-      "fail_rate": 0.081,
-      "failures": 3,
+      "fail_rate_pct": 6.1,
+      "fail_rate": 0.061,
+      "failures": 2,
       "last_seen": "2026-08-24T15:31:08Z",
       "latest_evidence": {
         "observed_at": "2026-08-24T15:31:08Z",
@@ -108,16 +108,16 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 46.5,
-      "p50_min": 47.7,
+      "p50_min": 48.4,
       "p90_min": 52.1,
       "max_min": 79.3,
       "group": ":amd: (MI300) Multimodal Models (Standard) 4: other + whisper",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 16.0,
-      "fail_rate": 0.16,
+      "fail_rate_pct": 16.7,
+      "fail_rate": 0.167,
       "failures": 4,
       "last_seen": "2026-08-24T16:20:14Z",
       "latest_evidence": {
@@ -134,17 +134,17 @@
       }
     },
     {
-      "count": 25,
-      "avg_min": 35.6,
+      "count": 24,
+      "avg_min": 36.9,
       "p50_min": 39.1,
       "p90_min": 43.5,
       "max_min": 46.8,
       "group": ":amd: (MI300) V1 Core + KV + Metrics",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 4.0,
-      "fail_rate": 0.04,
-      "failures": 1,
+      "fail_rate_pct": 0.0,
+      "fail_rate": 0.0,
+      "failures": 0,
       "last_seen": "2026-08-24T16:10:56Z",
       "latest_evidence": {
         "observed_at": "2026-08-24T16:10:56Z",
@@ -160,9 +160,9 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 38.2,
-      "p50_min": 40.2,
+      "p50_min": 40.4,
       "p90_min": 43.2,
       "max_min": 53.1,
       "group": ":amd: (MI355) Language Models (Extended Generation)",
@@ -186,16 +186,16 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 34.2,
-      "p50_min": 34.5,
+      "p50_min": 34.7,
       "p90_min": 40.9,
       "max_min": 50.8,
       "group": ":amd: (MI300) Entrypoints Integration (Speech to Text)",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 8.0,
-      "fail_rate": 0.08,
+      "fail_rate_pct": 8.3,
+      "fail_rate": 0.083,
       "failures": 2,
       "last_seen": "2026-08-24T16:04:57Z",
       "latest_evidence": {
@@ -212,8 +212,8 @@
       }
     },
     {
-      "count": 25,
-      "avg_min": 30.8,
+      "count": 24,
+      "avg_min": 30.7,
       "p50_min": 33.4,
       "p90_min": 34.8,
       "max_min": 38.4,
@@ -238,7 +238,7 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 28.9,
       "p50_min": 30.3,
       "p90_min": 33.7,
@@ -246,8 +246,8 @@
       "group": ":amd: (MI355) Entrypoints Integration (Pooling)",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 8.0,
-      "fail_rate": 0.08,
+      "fail_rate_pct": 8.3,
+      "fail_rate": 0.083,
       "failures": 2,
       "last_seen": "2026-08-24T16:01:02Z",
       "latest_evidence": {
@@ -264,8 +264,8 @@
       }
     },
     {
-      "count": 25,
-      "avg_min": 26.1,
+      "count": 24,
+      "avg_min": 26.0,
       "p50_min": 27.9,
       "p90_min": 30.0,
       "max_min": 30.4,
@@ -290,7 +290,7 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 21.7,
       "p50_min": 22.5,
       "p90_min": 27.0,
@@ -316,9 +316,9 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 19.4,
-      "p50_min": 20.4,
+      "p50_min": 20.6,
       "p90_min": 21.9,
       "max_min": 22.1,
       "group": ":amd: (MI355) V1 Spec Decode",
@@ -342,16 +342,16 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 18.7,
-      "p50_min": 18.7,
+      "p50_min": 18.8,
       "p90_min": 20.8,
       "max_min": 43.5,
       "group": ":amd: (MI300) PyTorch Compilation Passes",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 8.0,
-      "fail_rate": 0.08,
+      "fail_rate_pct": 8.3,
+      "fail_rate": 0.083,
       "failures": 2,
       "last_seen": "2026-08-24T15:47:36Z",
       "latest_evidence": {
@@ -368,7 +368,7 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 17.8,
       "p50_min": 18.6,
       "p90_min": 19.4,
@@ -376,8 +376,8 @@
       "group": ":amd: (MI355) Entrypoints Integration (Multimodal)",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 20.0,
-      "fail_rate": 0.2,
+      "fail_rate_pct": 20.8,
+      "fail_rate": 0.208,
       "failures": 5,
       "last_seen": "2026-08-24T15:47:50Z",
       "latest_evidence": {
@@ -394,16 +394,16 @@
       }
     },
     {
-      "count": 25,
-      "avg_min": 16.8,
+      "count": 24,
+      "avg_min": 16.9,
       "p50_min": 16.4,
       "p90_min": 18.2,
       "max_min": 36.9,
       "group": ":amd: (MI355) Language Models (Standard)",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 8.0,
-      "fail_rate": 0.08,
+      "fail_rate_pct": 8.3,
+      "fail_rate": 0.083,
       "failures": 2,
       "last_seen": "2026-08-24T16:03:34Z",
       "latest_evidence": {
@@ -420,7 +420,7 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 9.2,
       "p50_min": 9.5,
       "p90_min": 10.1,
@@ -446,9 +446,9 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 6.7,
-      "p50_min": 6.7,
+      "p50_min": 6.9,
       "p90_min": 7.6,
       "max_min": 8.4,
       "group": ":amd: (MI300) Weight Loading Multi-GPU",
@@ -472,9 +472,9 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 4.8,
-      "p50_min": 4.7,
+      "p50_min": 4.8,
       "p90_min": 5.2,
       "max_min": 6.2,
       "group": ":amd: (MI355) Weight Loading Multi-GPU",
@@ -498,8 +498,8 @@
       }
     },
     {
-      "count": 25,
-      "avg_min": 3.9,
+      "count": 24,
+      "avg_min": 4.0,
       "p50_min": 3.8,
       "p90_min": 4.8,
       "max_min": 5.2,
@@ -524,7 +524,7 @@
       }
     },
     {
-      "count": 25,
+      "count": 24,
       "avg_min": 1.9,
       "p50_min": 1.8,
       "p90_min": 2.6,
@@ -550,16 +550,16 @@
       }
     },
     {
-      "count": 23,
+      "count": 22,
       "avg_min": 27.7,
-      "p50_min": 29.1,
+      "p50_min": 29.2,
       "p90_min": 32.2,
       "max_min": 34.2,
       "group": ":amd: (MI300) LM Eval Small Models FP8 + Mixed",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 4.3,
-      "fail_rate": 0.043,
+      "fail_rate_pct": 4.5,
+      "fail_rate": 0.045,
       "failures": 1,
       "last_seen": "2026-08-24T15:59:44Z",
       "latest_evidence": {
@@ -576,9 +576,9 @@
       }
     },
     {
-      "count": 23,
-      "avg_min": 22.8,
-      "p50_min": 22.8,
+      "count": 22,
+      "avg_min": 22.9,
+      "p50_min": 23.1,
       "p90_min": 27.9,
       "max_min": 33.9,
       "group": ":amd: (MI250) Language Models (PPL)",
@@ -602,16 +602,16 @@
       }
     },
     {
-      "count": 23,
+      "count": 22,
       "avg_min": 14.6,
-      "p50_min": 14.8,
+      "p50_min": 14.9,
       "p90_min": 17.0,
       "max_min": 19.9,
       "group": ":amd: (MI300) LM Eval Small Models",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 4.3,
-      "fail_rate": 0.043,
+      "fail_rate_pct": 4.5,
+      "fail_rate": 0.045,
       "failures": 1,
       "last_seen": "2026-08-24T15:44:03Z",
       "latest_evidence": {
@@ -628,7 +628,7 @@
       }
     },
     {
-      "count": 23,
+      "count": 22,
       "avg_min": 6.6,
       "p50_min": 6.5,
       "p90_min": 7.5,
@@ -654,7 +654,7 @@
       }
     },
     {
-      "count": 23,
+      "count": 22,
       "avg_min": 5.9,
       "p50_min": 5.7,
       "p90_min": 7.2,
@@ -680,7 +680,7 @@
       }
     },
     {
-      "count": 23,
+      "count": 22,
       "avg_min": 2.7,
       "p50_min": 2.6,
       "p90_min": 2.9,
@@ -706,16 +706,16 @@
       }
     },
     {
-      "count": 22,
-      "avg_min": 15.6,
-      "p50_min": 16.6,
+      "count": 21,
+      "avg_min": 15.5,
+      "p50_min": 16.5,
       "p90_min": 18.2,
       "max_min": 18.5,
       "group": ":amd: (MI355) Attention Kernels Shard 2",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 9.1,
-      "fail_rate": 0.091,
+      "fail_rate_pct": 9.5,
+      "fail_rate": 0.095,
       "failures": 2,
       "last_seen": "2026-08-24T15:48:07Z",
       "latest_evidence": {
@@ -732,7 +732,7 @@
       }
     },
     {
-      "count": 22,
+      "count": 21,
       "avg_min": 15.2,
       "p50_min": 16.3,
       "p90_min": 17.5,
@@ -758,16 +758,16 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 50.8,
-      "p50_min": 54.4,
-      "p90_min": 59.8,
+      "count": 20,
+      "avg_min": 50.9,
+      "p50_min": 54.6,
+      "p90_min": 60.0,
       "max_min": 65.7,
       "group": ":amd: (MI250) Pipeline + Context Parallelism",
       "hw": "mi250",
       "workload": "vllm",
-      "fail_rate_pct": 4.8,
-      "fail_rate": 0.048,
+      "fail_rate_pct": 5.0,
+      "fail_rate": 0.05,
       "failures": 1,
       "last_seen": "2026-08-24T16:24:27Z",
       "latest_evidence": {
@@ -784,16 +784,16 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 34.2,
-      "p50_min": 37.1,
-      "p90_min": 38.2,
+      "count": 20,
+      "avg_min": 34.1,
+      "p50_min": 37.2,
+      "p90_min": 38.3,
       "max_min": 40.2,
       "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 3",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 9.5,
-      "fail_rate": 0.095,
+      "fail_rate_pct": 10.0,
+      "fail_rate": 0.1,
       "failures": 2,
       "last_seen": "2026-08-24T16:07:01Z",
       "latest_evidence": {
@@ -810,10 +810,10 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 33.8,
-      "p50_min": 36.6,
-      "p90_min": 37.9,
+      "count": 20,
+      "avg_min": 33.7,
+      "p50_min": 36.8,
+      "p90_min": 38.0,
       "max_min": 40.0,
       "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 5",
       "hw": "mi300",
@@ -836,10 +836,10 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 31.7,
-      "p50_min": 34.1,
-      "p90_min": 35.4,
+      "count": 20,
+      "avg_min": 31.5,
+      "p50_min": 34.2,
+      "p90_min": 36.2,
       "max_min": 38.8,
       "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 1",
       "hw": "mi300",
@@ -862,10 +862,10 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 31.5,
-      "p50_min": 33.9,
-      "p90_min": 35.1,
+      "count": 20,
+      "avg_min": 31.4,
+      "p50_min": 34.1,
+      "p90_min": 35.3,
       "max_min": 37.2,
       "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 6",
       "hw": "mi300",
@@ -888,10 +888,10 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 29.7,
+      "count": 20,
+      "avg_min": 29.5,
       "p50_min": 31.8,
-      "p90_min": 34.0,
+      "p90_min": 34.4,
       "max_min": 35.0,
       "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 4",
       "hw": "mi300",
@@ -914,16 +914,16 @@
       }
     },
     {
-      "count": 21,
+      "count": 20,
       "avg_min": 29.6,
       "p50_min": 32.0,
-      "p90_min": 33.1,
+      "p90_min": 33.9,
       "max_min": 36.2,
       "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 2",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 4.8,
-      "fail_rate": 0.048,
+      "fail_rate_pct": 5.0,
+      "fail_rate": 0.05,
       "failures": 1,
       "last_seen": "2026-08-24T16:01:11Z",
       "latest_evidence": {
@@ -940,8 +940,8 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 26.8,
+      "count": 20,
+      "avg_min": 26.6,
       "p50_min": 28.2,
       "p90_min": 32.3,
       "max_min": 33.0,
@@ -966,16 +966,16 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 13.3,
+      "count": 20,
+      "avg_min": 13.4,
       "p50_min": 11.1,
-      "p90_min": 22.3,
+      "p90_min": 23.5,
       "max_min": 25.1,
       "group": ":amd: (MI355) V1 Attention Shard 1",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 9.5,
-      "fail_rate": 0.095,
+      "fail_rate_pct": 10.0,
+      "fail_rate": 0.1,
       "failures": 2,
       "last_seen": "2026-08-24T09:14:58Z",
       "latest_evidence": {
@@ -992,16 +992,16 @@
       }
     },
     {
-      "count": 21,
+      "count": 20,
       "avg_min": 14.3,
       "p50_min": 12.5,
-      "p90_min": 22.1,
+      "p90_min": 22.6,
       "max_min": 26.6,
       "group": ":amd: (MI355) V1 Attention Shard 2",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 4.8,
-      "fail_rate": 0.048,
+      "fail_rate_pct": 5.0,
+      "fail_rate": 0.05,
       "failures": 1,
       "last_seen": "2026-08-24T09:14:29Z",
       "latest_evidence": {
@@ -1018,10 +1018,10 @@
       }
     },
     {
-      "count": 21,
+      "count": 20,
       "avg_min": 5.9,
       "p50_min": 5.7,
-      "p90_min": 6.1,
+      "p90_min": 7.7,
       "max_min": 9.1,
       "group": ":amd: (MI300) Extract Hidden States Integration",
       "hw": "mi300",
@@ -1044,34 +1044,8 @@
       }
     },
     {
-      "count": 20,
-      "avg_min": 48.5,
-      "p50_min": 55.2,
-      "p90_min": 58.0,
-      "max_min": 61.0,
-      "group": ":amd: (MI355) Quantization",
-      "hw": "mi355",
-      "workload": "vllm",
-      "fail_rate_pct": 15.0,
-      "fail_rate": 0.15,
-      "failures": 3,
-      "last_seen": "2026-08-24T16:24:55Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T16:24:55Z",
-        "pipeline": "amd-ci",
-        "build_number": 12349,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-        "build_url_source": "build.web_url",
-        "job_name": "mi355_1: :amd: (MI355) Quantization",
-        "job_id": "01a03450-547b-467e-a9c5-aed51b13dfa6",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-467e-a9c5-aed51b13dfa6",
-        "job_url_source": "job.web_url",
-        "state": "failed"
-      }
-    },
-    {
       "count": 19,
-      "avg_min": 81.4,
+      "avg_min": 81.5,
       "p50_min": 96.7,
       "p90_min": 106.0,
       "max_min": 110.0,
@@ -1081,44 +1055,18 @@
       "fail_rate_pct": 31.6,
       "fail_rate": 0.316,
       "failures": 6,
-      "last_seen": "2026-08-24T16:06:28Z",
+      "last_seen": "2026-08-24T17:11:27Z",
       "latest_evidence": {
-        "observed_at": "2026-08-24T16:06:28Z",
-        "pipeline": "amd-ci",
-        "build_number": 12348,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) Quantization",
-        "job_id": "01a0344e-47ce-463b-b675-2a5fcf757b29",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47ce-463b-b675-2a5fcf757b29",
-        "job_url_source": "job.web_url",
-        "state": "failed"
-      }
-    },
-    {
-      "count": 19,
-      "avg_min": 61.3,
-      "p50_min": 73.9,
-      "p90_min": 75.2,
-      "max_min": 76.5,
-      "group": ":amd: (MI300) Distributed Compile",
-      "hw": "mi300",
-      "workload": "vllm",
-      "fail_rate_pct": 5.3,
-      "fail_rate": 0.053,
-      "failures": 1,
-      "last_seen": "2026-08-24T16:45:24Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T16:45:24Z",
+        "observed_at": "2026-08-24T17:11:27Z",
         "pipeline": "amd-ci",
         "build_number": 12349,
         "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
         "build_url_source": "build.web_url",
-        "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-        "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+        "job_name": "mi300_1: :amd: (MI300) Quantization",
+        "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
         "job_url_source": "job.web_url",
-        "state": "passed"
+        "state": "failed"
       }
     },
     {
@@ -1149,6 +1097,32 @@
     },
     {
       "count": 19,
+      "avg_min": 48.2,
+      "p50_min": 55.2,
+      "p90_min": 58.0,
+      "max_min": 61.0,
+      "group": ":amd: (MI355) Quantization",
+      "hw": "mi355",
+      "workload": "vllm",
+      "fail_rate_pct": 15.8,
+      "fail_rate": 0.158,
+      "failures": 3,
+      "last_seen": "2026-08-24T16:24:55Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T16:24:55Z",
+        "pipeline": "amd-ci",
+        "build_number": 12349,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+        "build_url_source": "build.web_url",
+        "job_name": "mi355_1: :amd: (MI355) Quantization",
+        "job_id": "01a03450-547b-467e-a9c5-aed51b13dfa6",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-467e-a9c5-aed51b13dfa6",
+        "job_url_source": "job.web_url",
+        "state": "failed"
+      }
+    },
+    {
+      "count": 19,
       "avg_min": 26.7,
       "p50_min": 28.2,
       "p90_min": 29.3,
@@ -1174,16 +1148,42 @@
       }
     },
     {
-      "count": 19,
+      "count": 18,
+      "avg_min": 60.6,
+      "p50_min": 74.0,
+      "p90_min": 75.2,
+      "max_min": 76.5,
+      "group": ":amd: (MI300) Distributed Compile",
+      "hw": "mi300",
+      "workload": "vllm",
+      "fail_rate_pct": 5.6,
+      "fail_rate": 0.056,
+      "failures": 1,
+      "last_seen": "2026-08-24T16:45:24Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T16:45:24Z",
+        "pipeline": "amd-ci",
+        "build_number": 12349,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
+        "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 18,
       "avg_min": 19.8,
-      "p50_min": 20.0,
+      "p50_min": 20.1,
       "p90_min": 24.3,
       "max_min": 41.3,
       "group": ":amd: (MI300) Distributed Features",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 5.3,
-      "fail_rate": 0.053,
+      "fail_rate_pct": 5.6,
+      "fail_rate": 0.056,
       "failures": 1,
       "last_seen": "2026-08-24T09:25:26Z",
       "latest_evidence": {
@@ -1200,7 +1200,7 @@
       }
     },
     {
-      "count": 19,
+      "count": 18,
       "avg_min": 2.3,
       "p50_min": 2.3,
       "p90_min": 2.5,
@@ -1226,7 +1226,7 @@
       }
     },
     {
-      "count": 19,
+      "count": 18,
       "avg_min": 1.1,
       "p50_min": 1.1,
       "p90_min": 1.2,
@@ -1252,8 +1252,8 @@
       }
     },
     {
-      "count": 18,
-      "avg_min": 20.4,
+      "count": 17,
+      "avg_min": 20.3,
       "p50_min": 22.3,
       "p90_min": 25.3,
       "max_min": 25.9,
@@ -1278,17 +1278,17 @@
       }
     },
     {
-      "count": 18,
-      "avg_min": 19.0,
-      "p50_min": 21.3,
+      "count": 17,
+      "avg_min": 18.9,
+      "p50_min": 21.2,
       "p90_min": 22.3,
       "max_min": 22.3,
       "group": ":amd: (MI355) MoE Kernels Shard 3",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 33.3,
-      "fail_rate": 0.333,
-      "failures": 6,
+      "fail_rate_pct": 29.4,
+      "fail_rate": 0.294,
+      "failures": 5,
       "last_seen": "2026-08-24T09:25:40Z",
       "latest_evidence": {
         "observed_at": "2026-08-24T09:25:40Z",
@@ -1304,17 +1304,17 @@
       }
     },
     {
-      "count": 18,
-      "avg_min": 19.6,
-      "p50_min": 21.8,
+      "count": 17,
+      "avg_min": 19.4,
+      "p50_min": 21.7,
       "p90_min": 22.3,
       "max_min": 22.4,
       "group": ":amd: (MI355) MoE Kernels Shard 5",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 22.2,
-      "fail_rate": 0.222,
-      "failures": 4,
+      "fail_rate_pct": 17.6,
+      "fail_rate": 0.176,
+      "failures": 3,
       "last_seen": "2026-08-24T09:26:44Z",
       "latest_evidence": {
         "observed_at": "2026-08-24T09:26:44Z",
@@ -1330,7 +1330,7 @@
       }
     },
     {
-      "count": 18,
+      "count": 17,
       "avg_min": 18.8,
       "p50_min": 20.5,
       "p90_min": 21.9,
@@ -1356,16 +1356,16 @@
       }
     },
     {
-      "count": 18,
-      "avg_min": 18.2,
+      "count": 17,
+      "avg_min": 18.1,
       "p50_min": 19.7,
       "p90_min": 21.6,
       "max_min": 22.1,
       "group": ":amd: (MI355) MoE Kernels Shard 1",
       "hw": "mi355",
       "workload": "vllm",
-      "fail_rate_pct": 11.1,
-      "fail_rate": 0.111,
+      "fail_rate_pct": 11.8,
+      "fail_rate": 0.118,
       "failures": 2,
       "last_seen": "2026-08-24T09:23:28Z",
       "latest_evidence": {
@@ -1382,9 +1382,9 @@
       }
     },
     {
-      "count": 18,
-      "avg_min": 15.7,
-      "p50_min": 16.9,
+      "count": 17,
+      "avg_min": 15.5,
+      "p50_min": 16.4,
       "p90_min": 19.0,
       "max_min": 20.3,
       "group": ":amd: (MI355) FP8 MoE Kernels",
@@ -1408,7 +1408,7 @@
       }
     },
     {
-      "count": 18,
+      "count": 17,
       "avg_min": 2.6,
       "p50_min": 2.5,
       "p90_min": 3.0,
@@ -1434,7 +1434,7 @@
       }
     },
     {
-      "count": 18,
+      "count": 17,
       "avg_min": 2.0,
       "p50_min": 2.0,
       "p90_min": 2.1,
@@ -1460,9 +1460,9 @@
       }
     },
     {
-      "count": 17,
-      "avg_min": 34.0,
-      "p50_min": 38.1,
+      "count": 16,
+      "avg_min": 33.8,
+      "p50_min": 38.2,
       "p90_min": 39.9,
       "max_min": 40.0,
       "group": ":amd: (MI300) RayExecutorV2",
@@ -1486,9 +1486,9 @@
       }
     },
     {
-      "count": 17,
-      "avg_min": 31.3,
-      "p50_min": 35.0,
+      "count": 16,
+      "avg_min": 31.1,
+      "p50_min": 35.2,
       "p90_min": 36.3,
       "max_min": 36.8,
       "group": ":amd: (MI300) Distributed DP Extended",
@@ -1512,16 +1512,16 @@
       }
     },
     {
-      "count": 17,
-      "avg_min": 20.9,
-      "p50_min": 23.0,
+      "count": 16,
+      "avg_min": 20.8,
+      "p50_min": 23.2,
       "p90_min": 23.7,
       "max_min": 23.9,
       "group": ":amd: (MI300) Distributed Compile + Comm",
       "hw": "mi300",
       "workload": "vllm",
-      "fail_rate_pct": 5.9,
-      "fail_rate": 0.059,
+      "fail_rate_pct": 6.2,
+      "fail_rate": 0.062,
       "failures": 1,
       "last_seen": "2026-08-24T09:28:46Z",
       "latest_evidence": {
@@ -1538,8 +1538,8 @@
       }
     },
     {
-      "count": 17,
-      "avg_min": 19.0,
+      "count": 16,
+      "avg_min": 18.9,
       "p50_min": 20.9,
       "p90_min": 21.7,
       "max_min": 22.6,
@@ -1559,110 +1559,6 @@
         "job_name": "mi300_2: :amd: (MI300) Distributed Compile + RPC",
         "job_id": "01a032ff-dd38-4ee6-9c7f-798eea8a5f23",
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd38-4ee6-9c7f-798eea8a5f23",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 17,
-      "avg_min": 14.1,
-      "p50_min": 14.9,
-      "p90_min": 16.0,
-      "max_min": 18.8,
-      "group": ":amd: (MI300) Fusion E2E Config Sweep",
-      "hw": "mi300",
-      "workload": "vllm",
-      "fail_rate_pct": 0.0,
-      "fail_rate": 0.0,
-      "failures": 0,
-      "last_seen": "2026-08-24T09:20:17Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T09:20:17Z",
-        "pipeline": "amd-ci",
-        "build_number": 12347,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) Fusion E2E Config Sweep",
-        "job_id": "01a032ff-dd36-4a86-b626-47d8e2be2295",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd36-4a86-b626-47d8e2be2295",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 17,
-      "avg_min": 10.7,
-      "p50_min": 11.8,
-      "p90_min": 12.9,
-      "max_min": 13.8,
-      "group": ":amd: (MI300) Distributed Torchrun + Examples",
-      "hw": "mi300",
-      "workload": "vllm",
-      "fail_rate_pct": 5.9,
-      "fail_rate": 0.059,
-      "failures": 1,
-      "last_seen": "2026-08-24T09:16:43Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T09:16:43Z",
-        "pipeline": "amd-ci",
-        "build_number": 12347,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_4: :amd: (MI300) Distributed Torchrun + Examples",
-        "job_id": "01a032ff-dd3d-4b0d-ab22-c850d870c27b",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd3d-4b0d-ab22-c850d870c27b",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 17,
-      "avg_min": 11.0,
-      "p50_min": 11.7,
-      "p90_min": 12.8,
-      "max_min": 13.9,
-      "group": ":amd: (MI300) Distributed Torchrun + Shutdown",
-      "hw": "mi300",
-      "workload": "vllm",
-      "fail_rate_pct": 5.9,
-      "fail_rate": 0.059,
-      "failures": 1,
-      "last_seen": "2026-08-24T09:17:24Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T09:17:24Z",
-        "pipeline": "amd-ci",
-        "build_number": 12347,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_2: :amd: (MI300) Distributed Torchrun + Shutdown",
-        "job_id": "01a032ff-dd42-47b0-9af0-38779b1b037b",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd42-47b0-9af0-38779b1b037b",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 17,
-      "avg_min": 5.8,
-      "p50_min": 5.9,
-      "p90_min": 6.8,
-      "max_min": 7.8,
-      "group": ":amd: (MI300) Distributed Comm Ops",
-      "hw": "mi300",
-      "workload": "vllm",
-      "fail_rate_pct": 0.0,
-      "fail_rate": 0.0,
-      "failures": 0,
-      "last_seen": "2026-08-24T09:12:01Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T09:12:01Z",
-        "pipeline": "amd-ci",
-        "build_number": 12347,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_2: :amd: (MI300) Distributed Comm Ops",
-        "job_id": "01a032ff-dd38-4829-90b1-6e7c4aee965e",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd38-4829-90b1-6e7c4aee965e",
         "job_url_source": "job.web_url",
         "state": "passed"
       }
@@ -1799,6 +1695,32 @@
     },
     {
       "count": 16,
+      "avg_min": 14.1,
+      "p50_min": 15.0,
+      "p90_min": 16.0,
+      "max_min": 18.8,
+      "group": ":amd: (MI300) Fusion E2E Config Sweep",
+      "hw": "mi300",
+      "workload": "vllm",
+      "fail_rate_pct": 0.0,
+      "fail_rate": 0.0,
+      "failures": 0,
+      "last_seen": "2026-08-24T09:20:17Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T09:20:17Z",
+        "pipeline": "amd-ci",
+        "build_number": 12347,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_1: :amd: (MI300) Fusion E2E Config Sweep",
+        "job_id": "01a032ff-dd36-4a86-b626-47d8e2be2295",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd36-4a86-b626-47d8e2be2295",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 16,
       "avg_min": 13.6,
       "p50_min": 14.2,
       "p90_min": 15.8,
@@ -1819,6 +1741,84 @@
         "job_name": "mi300_1: :amd: (MI300) Core Operation Kernels Shard 1",
         "job_id": "01a03455-ae61-428f-b329-b0817cacf5d6",
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12350#01a03455-ae61-428f-b329-b0817cacf5d6",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 16,
+      "avg_min": 10.7,
+      "p50_min": 11.9,
+      "p90_min": 12.9,
+      "max_min": 13.8,
+      "group": ":amd: (MI300) Distributed Torchrun + Examples",
+      "hw": "mi300",
+      "workload": "vllm",
+      "fail_rate_pct": 6.2,
+      "fail_rate": 0.062,
+      "failures": 1,
+      "last_seen": "2026-08-24T09:16:43Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T09:16:43Z",
+        "pipeline": "amd-ci",
+        "build_number": 12347,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_4: :amd: (MI300) Distributed Torchrun + Examples",
+        "job_id": "01a032ff-dd3d-4b0d-ab22-c850d870c27b",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd3d-4b0d-ab22-c850d870c27b",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 16,
+      "avg_min": 11.0,
+      "p50_min": 11.8,
+      "p90_min": 12.8,
+      "max_min": 13.9,
+      "group": ":amd: (MI300) Distributed Torchrun + Shutdown",
+      "hw": "mi300",
+      "workload": "vllm",
+      "fail_rate_pct": 6.2,
+      "fail_rate": 0.062,
+      "failures": 1,
+      "last_seen": "2026-08-24T09:17:24Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T09:17:24Z",
+        "pipeline": "amd-ci",
+        "build_number": 12347,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_2: :amd: (MI300) Distributed Torchrun + Shutdown",
+        "job_id": "01a032ff-dd42-47b0-9af0-38779b1b037b",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd42-47b0-9af0-38779b1b037b",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 16,
+      "avg_min": 5.8,
+      "p50_min": 5.9,
+      "p90_min": 6.8,
+      "max_min": 7.8,
+      "group": ":amd: (MI300) Distributed Comm Ops",
+      "hw": "mi300",
+      "workload": "vllm",
+      "fail_rate_pct": 0.0,
+      "fail_rate": 0.0,
+      "failures": 0,
+      "last_seen": "2026-08-24T09:12:01Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T09:12:01Z",
+        "pipeline": "amd-ci",
+        "build_number": 12347,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_2: :amd: (MI300) Distributed Comm Ops",
+        "job_id": "01a032ff-dd38-4829-90b1-6e7c4aee965e",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd38-4829-90b1-6e7c4aee965e",
         "job_url_source": "job.web_url",
         "state": "passed"
       }
@@ -6246,9 +6246,9 @@
   ],
   "branches": [
     {
-      "count": 378,
-      "avg_min": 20.1,
-      "p50_min": 16.1,
+      "count": 312,
+      "avg_min": 20.2,
+      "p50_min": 15.6,
       "p90_min": 40.2,
       "max_min": 116.5,
       "branch": "lwilkinson/kv-layout/core-standardize-stacked",
@@ -6257,7 +6257,7 @@
       "source": "webhook",
       "workload": "vllm",
       "last_seen": "2026-08-22T00:38:05Z",
-      "builds": 7,
+      "builds": 5,
       "latest_evidence": {
         "observed_at": "2026-08-22T00:38:05Z",
         "pipeline": "amd-ci",
@@ -6269,32 +6269,6 @@
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12322#01a026da-04f7-4a25-add1-dc63aabc8c29",
         "job_url_source": "job.web_url",
         "state": "canceled"
-      }
-    },
-    {
-      "count": 88,
-      "avg_min": 18.7,
-      "p50_min": 18.4,
-      "p90_min": 39.0,
-      "max_min": 56.9,
-      "branch": "wyettzeng:gpt_oss_reload",
-      "commit": "3544fe5d8e98",
-      "fork_url": "https://github.com/wyettzeng/vllm.git",
-      "source": "webhook",
-      "workload": "vllm",
-      "last_seen": "2026-08-22T10:49:16Z",
-      "builds": 6,
-      "latest_evidence": {
-        "observed_at": "2026-08-22T10:49:16Z",
-        "pipeline": "amd-ci",
-        "build_number": 12335,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12335",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-        "job_id": "01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12335#01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
-        "job_url_source": "job.web_url",
-        "state": "passed"
       }
     },
     {
@@ -6321,6 +6295,32 @@
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12338#01a02c9c-2d6c-4ac6-b31d-b46554528888",
         "job_url_source": "job.web_url",
         "state": "failed"
+      }
+    },
+    {
+      "count": 80,
+      "avg_min": 20.3,
+      "p50_min": 19.6,
+      "p90_min": 39.2,
+      "max_min": 56.9,
+      "branch": "wyettzeng:gpt_oss_reload",
+      "commit": "3544fe5d8e98",
+      "fork_url": "https://github.com/wyettzeng/vllm.git",
+      "source": "webhook",
+      "workload": "vllm",
+      "last_seen": "2026-08-22T10:49:16Z",
+      "builds": 4,
+      "latest_evidence": {
+        "observed_at": "2026-08-22T10:49:16Z",
+        "pipeline": "amd-ci",
+        "build_number": 12335,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12335",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_1: :amd: (MI300) Quantized Models",
+        "job_id": "01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12335#01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
+        "job_url_source": "job.web_url",
+        "state": "passed"
       }
     },
     {
@@ -6585,6 +6585,32 @@
     },
     {
       "count": 40,
+      "avg_min": 28.0,
+      "p50_min": 30.1,
+      "p90_min": 55.7,
+      "max_min": 102.6,
+      "branch": "remove-fp8-online",
+      "commit": "2ecc266fcd08",
+      "fork_url": "https://github.com/fxmarty-amd/vllm.git",
+      "source": "api",
+      "workload": "vllm",
+      "last_seen": "2026-08-24T17:11:27Z",
+      "builds": 1,
+      "latest_evidence": {
+        "observed_at": "2026-08-24T17:11:27Z",
+        "pipeline": "amd-ci",
+        "build_number": 12349,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_1: :amd: (MI300) Quantization",
+        "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
+        "job_url_source": "job.web_url",
+        "state": "failed"
+      }
+    },
+    {
+      "count": 40,
       "avg_min": 26.0,
       "p50_min": 27.6,
       "p90_min": 54.9,
@@ -6607,32 +6633,6 @@
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12323#01a026fb-624f-4ba1-8188-5ae3fb3b0c51",
         "job_url_source": "job.web_url",
         "state": "failed"
-      }
-    },
-    {
-      "count": 39,
-      "avg_min": 26.1,
-      "p50_min": 27.7,
-      "p90_min": 55.7,
-      "max_min": 76.5,
-      "branch": "remove-fp8-online",
-      "commit": "2ecc266fcd08",
-      "fork_url": "https://github.com/fxmarty-amd/vllm.git",
-      "source": "api",
-      "workload": "vllm",
-      "last_seen": "2026-08-24T16:45:24Z",
-      "builds": 1,
-      "latest_evidence": {
-        "observed_at": "2026-08-24T16:45:24Z",
-        "pipeline": "amd-ci",
-        "build_number": 12349,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-        "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-        "job_url_source": "job.web_url",
-        "state": "passed"
       }
     },
     {
@@ -6820,30 +6820,30 @@
   ],
   "queues": [
     {
-      "count": 1717,
-      "avg_min": 28.6,
+      "count": 1697,
+      "avg_min": 28.7,
       "p50_min": 25.3,
-      "p90_min": 57.1,
+      "p90_min": 57.6,
       "max_min": 178.7,
       "queue": "amd_mi300_1",
-      "last_seen": "2026-08-24T16:24:31Z",
+      "last_seen": "2026-08-24T17:11:27Z",
       "latest_evidence": {
-        "observed_at": "2026-08-24T16:24:31Z",
+        "observed_at": "2026-08-24T17:11:27Z",
         "pipeline": "amd-ci",
         "build_number": 12349,
         "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
         "build_url_source": "build.web_url",
-        "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-        "job_id": "01a03450-543f-4dc7-8d23-41cec5edb52a",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543f-4dc7-8d23-41cec5edb52a",
+        "job_name": "mi300_1: :amd: (MI300) Quantization",
+        "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
         "job_url_source": "job.web_url",
-        "state": "passed"
+        "state": "failed"
       }
     },
     {
-      "count": 686,
+      "count": 666,
       "avg_min": 21.2,
-      "p50_min": 19.8,
+      "p50_min": 19.9,
       "p90_min": 35.4,
       "max_min": 181.0,
       "queue": "amd_mi355_1",
@@ -6862,28 +6862,7 @@
       }
     },
     {
-      "count": 327,
-      "avg_min": 17.5,
-      "p50_min": 11.1,
-      "p90_min": 33.8,
-      "max_min": 76.5,
-      "queue": "amd_mi300_2",
-      "last_seen": "2026-08-24T16:45:24Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T16:45:24Z",
-        "pipeline": "amd-ci",
-        "build_number": 12349,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-        "build_url_source": "build.web_url",
-        "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-        "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 322,
+      "count": 321,
       "avg_min": 28.5,
       "p50_min": 28.8,
       "p90_min": 42.2,
@@ -6904,10 +6883,31 @@
       }
     },
     {
-      "count": 293,
-      "avg_min": 20.1,
-      "p50_min": 19.0,
-      "p90_min": 38.1,
+      "count": 319,
+      "avg_min": 17.4,
+      "p50_min": 10.8,
+      "p90_min": 33.8,
+      "max_min": 76.5,
+      "queue": "amd_mi300_2",
+      "last_seen": "2026-08-24T16:45:24Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T16:45:24Z",
+        "pipeline": "amd-ci",
+        "build_number": 12349,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+        "build_url_source": "build.web_url",
+        "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
+        "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 289,
+      "avg_min": 20.0,
+      "p50_min": 18.8,
+      "p90_min": 38.2,
       "max_min": 42.0,
       "queue": "amd_mi300_4",
       "last_seen": "2026-08-24T09:45:18Z",
@@ -6925,30 +6925,9 @@
       }
     },
     {
-      "count": 162,
-      "avg_min": 4.9,
-      "p50_min": 0.3,
-      "p90_min": 10.6,
-      "max_min": 282.8,
-      "queue": "amd-cpu",
-      "last_seen": "2026-08-24T15:31:08Z",
-      "latest_evidence": {
-        "observed_at": "2026-08-24T15:31:08Z",
-        "pipeline": "amd-ci",
-        "build_number": 12351,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12351",
-        "build_url_source": "build.web_url",
-        "job_name": "AMD: :docker: build test image and artifacts",
-        "job_id": "01a03456-3df8-4f66-a858-22ea4f4bb258",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12351#01a03456-3df8-4f66-a858-22ea4f4bb258",
-        "job_url_source": "job.web_url",
-        "state": "passed"
-      }
-    },
-    {
-      "count": 158,
-      "avg_min": 11.4,
-      "p50_min": 7.0,
+      "count": 155,
+      "avg_min": 11.5,
+      "p50_min": 9.8,
       "p90_min": 21.5,
       "max_min": 46.0,
       "queue": "amd_mi355_2",
@@ -6962,6 +6941,27 @@
         "job_name": "mi355_2: :amd: (MI355) Weight Loading Multi-GPU",
         "job_id": "01a03450-547d-45e7-9221-df9f188156e8",
         "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547d-45e7-9221-df9f188156e8",
+        "job_url_source": "job.web_url",
+        "state": "passed"
+      }
+    },
+    {
+      "count": 146,
+      "avg_min": 5.2,
+      "p50_min": 0.3,
+      "p90_min": 11.7,
+      "max_min": 282.8,
+      "queue": "amd-cpu",
+      "last_seen": "2026-08-24T15:31:08Z",
+      "latest_evidence": {
+        "observed_at": "2026-08-24T15:31:08Z",
+        "pipeline": "amd-ci",
+        "build_number": 12351,
+        "build_url": "https://buildkite.com/vllm/amd-ci/builds/12351",
+        "build_url_source": "build.web_url",
+        "job_name": "AMD: :docker: build test image and artifacts",
+        "job_id": "01a03456-3df8-4f66-a858-22ea4f4bb258",
+        "job_url": "https://buildkite.com/vllm/amd-ci/builds/12351#01a03456-3df8-4f66-a858-22ea4f4bb258",
         "job_url_source": "job.web_url",
         "state": "passed"
       }
@@ -6988,10 +6988,10 @@
       }
     },
     {
-      "count": 21,
-      "avg_min": 50.8,
-      "p50_min": 54.4,
-      "p90_min": 59.8,
+      "count": 20,
+      "avg_min": 50.9,
+      "p50_min": 54.6,
+      "p90_min": 60.0,
       "max_min": 65.7,
       "queue": "amd_mi250_4",
       "last_seen": "2026-08-24T16:24:27Z",
@@ -7055,746 +7055,85 @@
     "1h": {
       "test_groups": [
         {
-          "count": 2,
-          "avg_min": 42.6,
-          "p50_min": 56.2,
-          "p90_min": 56.2,
-          "max_min": 56.2,
-          "group": ":amd: (MI355) Quantization",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 50.0,
-          "fail_rate": 0.5,
-          "failures": 1,
-          "last_seen": "2026-08-24T16:24:55Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:55Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Quantization",
-            "job_id": "01a03450-547b-467e-a9c5-aed51b13dfa6",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-467e-a9c5-aed51b13dfa6",
-            "job_url_source": "job.web_url",
-            "state": "failed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 50.0,
-          "p50_min": 51.4,
-          "p90_min": 51.4,
-          "max_min": 51.4,
-          "group": ":amd: (MI300) Multimodal Models (Standard) 4: other + whisper",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:20:14Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:20:14Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Multimodal Models (Standard) 4: other + whisper",
-            "job_id": "01a03450-543d-4e4d-95af-99cdaea269be",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543d-4e4d-95af-99cdaea269be",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 41.5,
-          "p50_min": 42.6,
-          "p90_min": 42.6,
-          "max_min": 42.6,
-          "group": ":amd: (MI355) Language Models (Extended Generation)",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:11:20Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:11:20Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Language Models (Extended Generation)",
-            "job_id": "01a03450-5476-47f4-8c95-e782857ad9a8",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5476-47f4-8c95-e782857ad9a8",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 39.8,
-          "p50_min": 42.1,
-          "p90_min": 42.1,
-          "max_min": 42.1,
-          "group": ":amd: (MI300) V1 Core + KV + Metrics",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:10:56Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:10:56Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) V1 Core + KV + Metrics",
-            "job_id": "01a03450-5450-4667-b2c5-c30c4b7508e5",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5450-4667-b2c5-c30c4b7508e5",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 35.3,
-          "p50_min": 36.3,
-          "p90_min": 36.3,
-          "max_min": 36.3,
-          "group": ":amd: (MI300) Basic Correctness",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:05:13Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:05:13Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Correctness",
-            "job_id": "01a03450-5404-47ff-bea3-69be8cffb972",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5404-47ff-bea3-69be8cffb972",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 35.7,
-          "p50_min": 36.1,
-          "p90_min": 36.1,
-          "max_min": 36.1,
-          "group": ":amd: (MI300) Entrypoints Integration (Speech to Text)",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:04:57Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:04:57Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Entrypoints Integration (Speech to Text)",
-            "job_id": "01a03450-541e-4024-8864-2ef3d9bb0ae3",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-541e-4024-8864-2ef3d9bb0ae3",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 32.4,
-          "p50_min": 34.4,
-          "p90_min": 34.4,
-          "max_min": 34.4,
-          "group": ":amd: (MI355) Entrypoints Integration (Pooling)",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:01:02Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:01:02Z",
-            "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Entrypoints Integration (Pooling)",
-            "job_id": "01a0344e-47e8-4e03-8dcb-2c3d7db3bc58",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47e8-4e03-8dcb-2c3d7db3bc58",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
           "count": 1,
-          "avg_min": 76.5,
-          "p50_min": 76.5,
-          "p90_min": 76.5,
-          "max_min": 76.5,
-          "group": ":amd: (MI300) Distributed Compile",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:45:24Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 55.7,
-          "p50_min": 55.7,
-          "p90_min": 55.7,
-          "max_min": 55.7,
-          "group": ":amd: (MI250) Pipeline + Context Parallelism",
-          "hw": "mi250",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:24:27Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:27Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi250_4: :amd: (MI250) Pipeline + Context Parallelism",
-            "job_id": "01a03450-53f7-4df7-9547-70bab6558a9a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-53f7-4df7-9547-70bab6558a9a",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 55.7,
-          "p50_min": 55.7,
-          "p90_min": 55.7,
-          "max_min": 55.7,
-          "group": ":amd: (MI300) Quantized Models",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:24:31Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:31Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-            "job_id": "01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 39.7,
-          "p50_min": 39.7,
-          "p90_min": 39.7,
-          "max_min": 39.7,
+          "avg_min": 102.6,
+          "p50_min": 102.6,
+          "p90_min": 102.6,
+          "max_min": 102.6,
           "group": ":amd: (MI300) Quantization",
           "hw": "mi300",
           "workload": "vllm",
           "fail_rate_pct": 100.0,
           "fail_rate": 1.0,
           "failures": 1,
-          "last_seen": "2026-08-24T16:06:28Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:06:28Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
             "job_name": "mi300_1: :amd: (MI300) Quantization",
-            "job_id": "01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47ce-463b-b675-2a5fcf757b29",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
             "state": "failed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 38.2,
-          "p50_min": 38.2,
-          "p90_min": 38.2,
-          "max_min": 38.2,
-          "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 3",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:07:01Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:07:01Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Models (Extra Initialization) Shard 3",
-            "job_id": "01a03450-5435-44b0-99a5-8f36def8db39",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5435-44b0-99a5-8f36def8db39",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 37.5,
-          "p50_min": 37.5,
-          "p90_min": 37.5,
-          "max_min": 37.5,
-          "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 5",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:06:18Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:06:18Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Models (Extra Initialization) Shard 5",
-            "job_id": "01a03450-5435-45f1-8719-175b273a83b6",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5435-45f1-8719-175b273a83b6",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 36.9,
-          "p50_min": 36.9,
-          "p90_min": 36.9,
-          "max_min": 36.9,
-          "group": ":amd: (MI355) Language Models (Standard)",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:03:34Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:03:34Z",
-            "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Language Models (Standard)",
-            "job_id": "01a0344e-47f8-4290-b494-b2a2e4e0402b",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47f8-4290-b494-b2a2e4e0402b",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 35.4,
-          "p50_min": 35.4,
-          "p90_min": 35.4,
-          "max_min": 35.4,
-          "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 1",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:04:13Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:04:13Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Models (Extra Initialization) Shard 1",
-            "job_id": "01a03450-5434-4dcb-930f-71a2d08cda1b",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5434-4dcb-930f-71a2d08cda1b",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 35.1,
-          "p50_min": 35.1,
-          "p90_min": 35.1,
-          "max_min": 35.1,
-          "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 6",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:03:55Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:03:55Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Models (Extra Initialization) Shard 6",
-            "job_id": "01a03450-5435-4104-8ab0-634e9dd25041",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5435-4104-8ab0-634e9dd25041",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 32.6,
-          "p50_min": 32.6,
-          "p90_min": 32.6,
-          "max_min": 32.6,
-          "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 4",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:01:25Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:01:25Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Models (Extra Initialization) Shard 4",
-            "job_id": "01a03450-5435-46f3-90b6-14520db5c87a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5435-46f3-90b6-14520db5c87a",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 32.3,
-          "p50_min": 32.3,
-          "p90_min": 32.3,
-          "max_min": 32.3,
-          "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 2",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T16:01:11Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:01:11Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Basic Models (Extra Initialization) Shard 2",
-            "job_id": "01a03450-5435-4961-8e45-7dc476dadcb2",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5435-4961-8e45-7dc476dadcb2",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 31.0,
-          "p50_min": 31.0,
-          "p90_min": 31.0,
-          "max_min": 31.0,
-          "group": ":amd: (MI300) LM Eval Small Models FP8 + Mixed",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T15:59:44Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T15:59:44Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) LM Eval Small Models FP8 + Mixed",
-            "job_id": "01a03450-5423-4ee0-90a5-ff35297d35ca",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5423-4ee0-90a5-ff35297d35ca",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 30.8,
-          "p50_min": 30.8,
-          "p90_min": 30.8,
-          "max_min": 30.8,
-          "group": ":amd: (MI355) Quantization Kernels",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T15:59:32Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T15:59:32Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Quantization Kernels",
-            "job_id": "01a03450-5475-4672-b0ba-b22d7f665b97",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5475-4672-b0ba-b22d7f665b97",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 30.1,
-          "p50_min": 30.1,
-          "p90_min": 30.1,
-          "max_min": 30.1,
-          "group": ":amd: (MI300) V1 Spec Decode",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T15:58:56Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T15:58:56Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) V1 Spec Decode",
-            "job_id": "01a03450-544e-4147-818a-b9dc0336bfac",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-544e-4147-818a-b9dc0336bfac",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 27.7,
-          "p50_min": 27.7,
-          "p90_min": 27.7,
-          "max_min": 27.7,
-          "group": ":amd: (MI355) Quantized Models",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T15:56:28Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T15:56:28Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Quantized Models",
-            "job_id": "01a03450-547b-4dd2-a7c9-31968d5747a6",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-4dd2-a7c9-31968d5747a6",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 27.1,
-          "p50_min": 27.1,
-          "p90_min": 27.1,
-          "max_min": 27.1,
-          "group": ":amd: (MI355) Entrypoints Integration (Speech to Text)",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T15:55:50Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T15:55:50Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Entrypoints Integration (Speech to Text)",
-            "job_id": "01a03450-5465-422a-bcc0-f0b71786ee02",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5465-422a-bcc0-f0b71786ee02",
-            "job_url_source": "job.web_url",
-            "state": "passed"
           }
         }
       ],
       "branches": [
         {
-          "count": 21,
-          "avg_min": 40.0,
-          "p50_min": 36.1,
-          "p90_min": 55.7,
-          "max_min": 76.5,
+          "count": 1,
+          "avg_min": 102.6,
+          "p50_min": 102.6,
+          "p90_min": 102.6,
+          "max_min": 102.6,
           "branch": "remove-fp8-online",
           "commit": "2ecc266fcd08",
           "fork_url": "https://github.com/fxmarty-amd/vllm.git",
           "source": "api",
           "workload": "vllm",
-          "last_seen": "2026-08-24T16:45:24Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "builds": 1,
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 9,
-          "avg_min": 37.3,
-          "p50_min": 36.9,
-          "p90_min": 48.6,
-          "max_min": 48.6,
-          "branch": "speed-up-quantization-tests",
-          "commit": "4ee280832afe",
-          "fork_url": "https://github.com/fxmarty-amd/vllm.git",
-          "source": "api",
-          "workload": "vllm",
-          "last_seen": "2026-08-24T16:15:18Z",
-          "builds": 1,
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:15:18Z",
-            "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Multimodal Models (Standard) 4: other + whisper",
-            "job_id": "01a0344e-47c3-435c-91fa-2b6388d32036",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47c3-435c-91fa-2b6388d32036",
-            "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         }
       ],
       "queues": [
         {
-          "count": 17,
-          "avg_min": 38.7,
-          "p50_min": 36.3,
-          "p90_min": 51.4,
-          "max_min": 55.7,
+          "count": 1,
+          "avg_min": 102.6,
+          "p50_min": 102.6,
+          "p90_min": 102.6,
+          "max_min": 102.6,
           "queue": "amd_mi300_1",
-          "last_seen": "2026-08-24T16:24:31Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:31Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-            "job_id": "01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 10,
-          "avg_min": 35.5,
-          "p50_min": 34.4,
-          "p90_min": 56.2,
-          "max_min": 56.2,
-          "queue": "amd_mi355_1",
-          "last_seen": "2026-08-24T16:24:55Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:55Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Quantization",
-            "job_id": "01a03450-547b-467e-a9c5-aed51b13dfa6",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-467e-a9c5-aed51b13dfa6",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
             "state": "failed"
-          }
-        },
-        {
-          "count": 2,
-          "avg_min": 53.7,
-          "p50_min": 76.5,
-          "p90_min": 76.5,
-          "max_min": 76.5,
-          "queue": "amd_mi300_2",
-          "last_seen": "2026-08-24T16:45:24Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 1,
-          "avg_min": 55.7,
-          "p50_min": 55.7,
-          "p90_min": 55.7,
-          "max_min": 55.7,
-          "queue": "amd_mi250_4",
-          "last_seen": "2026-08-24T16:24:27Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:27Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi250_4: :amd: (MI250) Pipeline + Context Parallelism",
-            "job_id": "01a03450-53f7-4df7-9547-70bab6558a9a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-53f7-4df7-9547-70bab6558a9a",
-            "job_url_source": "job.web_url",
-            "state": "passed"
           }
         }
       ],
       "window_hours": 1,
-      "jobs_in_window": 30
+      "jobs_in_window": 1
     },
     "3h": {
       "test_groups": [
@@ -7900,6 +7239,32 @@
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12351#01a03456-3df7-401a-9fd0-e46f2a96e257",
             "job_url_source": "job.web_url",
             "state": "passed"
+          }
+        },
+        {
+          "count": 2,
+          "avg_min": 71.1,
+          "p50_min": 102.6,
+          "p90_min": 102.6,
+          "max_min": 102.6,
+          "group": ":amd: (MI300) Quantization",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 100.0,
+          "fail_rate": 1.0,
+          "failures": 2,
+          "last_seen": "2026-08-24T17:11:27Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T17:11:27Z",
+            "pipeline": "amd-ci",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url_source": "job.web_url",
+            "state": "failed"
           }
         },
         {
@@ -8476,32 +7841,6 @@
         },
         {
           "count": 1,
-          "avg_min": 39.7,
-          "p50_min": 39.7,
-          "p90_min": 39.7,
-          "max_min": 39.7,
-          "group": ":amd: (MI300) Quantization",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 100.0,
-          "fail_rate": 1.0,
-          "failures": 1,
-          "last_seen": "2026-08-24T16:06:28Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:06:28Z",
-            "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantization",
-            "job_id": "01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url_source": "job.web_url",
-            "state": "failed"
-          }
-        },
-        {
-          "count": 1,
           "avg_min": 38.2,
           "p50_min": 38.2,
           "p90_min": 38.2,
@@ -9049,29 +8388,29 @@
       ],
       "branches": [
         {
-          "count": 39,
-          "avg_min": 26.1,
-          "p50_min": 27.7,
+          "count": 40,
+          "avg_min": 28.0,
+          "p50_min": 30.1,
           "p90_min": 55.7,
-          "max_min": 76.5,
+          "max_min": 102.6,
           "branch": "remove-fp8-online",
           "commit": "2ecc266fcd08",
           "fork_url": "https://github.com/fxmarty-amd/vllm.git",
           "source": "api",
           "workload": "vllm",
-          "last_seen": "2026-08-24T16:45:24Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "builds": 1,
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         },
         {
@@ -9155,24 +8494,24 @@
       ],
       "queues": [
         {
-          "count": 32,
-          "avg_min": 26.0,
+          "count": 33,
+          "avg_min": 28.3,
           "p50_min": 32.3,
-          "p90_min": 42.1,
-          "max_min": 55.7,
+          "p90_min": 48.6,
+          "max_min": 102.6,
           "queue": "amd_mi300_1",
-          "last_seen": "2026-08-24T16:24:31Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:31Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-            "job_id": "01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543f-4dc7-8d23-41cec5edb52a",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         },
         {
@@ -9303,7 +8642,7 @@
         }
       ],
       "window_hours": 3,
-      "jobs_in_window": 79
+      "jobs_in_window": 80
     },
     "24h": {
       "test_groups": [
@@ -9881,6 +9220,32 @@
         },
         {
           "count": 4,
+          "avg_min": 81.4,
+          "p50_min": 98.9,
+          "p90_min": 102.6,
+          "max_min": 102.6,
+          "group": ":amd: (MI300) Quantization",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 50.0,
+          "fail_rate": 0.5,
+          "failures": 2,
+          "last_seen": "2026-08-24T17:11:27Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T17:11:27Z",
+            "pipeline": "amd-ci",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url_source": "job.web_url",
+            "state": "failed"
+          }
+        },
+        {
+          "count": 4,
           "avg_min": 50.9,
           "p50_min": 57.4,
           "p90_min": 61.0,
@@ -10137,32 +9502,6 @@
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5467-4f27-a84a-a4ba9cc10f64",
             "job_url_source": "job.web_url",
             "state": "passed"
-          }
-        },
-        {
-          "count": 3,
-          "avg_min": 74.3,
-          "p50_min": 84.3,
-          "p90_min": 98.9,
-          "max_min": 98.9,
-          "group": ":amd: (MI300) Quantization",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 33.3,
-          "fail_rate": 0.333,
-          "failures": 1,
-          "last_seen": "2026-08-24T16:06:28Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:06:28Z",
-            "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantization",
-            "job_id": "01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url_source": "job.web_url",
-            "state": "failed"
           }
         },
         {
@@ -10525,32 +9864,6 @@
             "job_name": "mi355_1: :amd: (MI355) Core Operation Kernels Shard 2",
             "job_id": "01a03455-aeaa-40f8-bfd0-7cc55b719379",
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12350#01a03455-aeaa-40f8-bfd0-7cc55b719379",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 3,
-          "avg_min": 16.3,
-          "p50_min": 16.0,
-          "p90_min": 16.7,
-          "max_min": 16.7,
-          "group": ":amd: (MI300) V1 Engine",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T09:21:43Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T09:21:43Z",
-            "pipeline": "amd-ci",
-            "build_number": 12347,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
-            "job_id": "01a032ff-dd62-482e-9798-4a0a2274f0f5",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd62-482e-9798-4a0a2274f0f5",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -13911,6 +13224,32 @@
         },
         {
           "count": 2,
+          "avg_min": 16.4,
+          "p50_min": 16.7,
+          "p90_min": 16.7,
+          "max_min": 16.7,
+          "group": ":amd: (MI300) V1 Engine",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
+          "last_seen": "2026-08-24T09:21:43Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T09:21:43Z",
+            "pipeline": "amd-ci",
+            "build_number": 12347,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) V1 Engine",
+            "job_id": "01a032ff-dd62-482e-9798-4a0a2274f0f5",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd62-482e-9798-4a0a2274f0f5",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 2,
           "avg_min": 13.7,
           "p50_min": 16.4,
           "p90_min": 16.4,
@@ -15551,32 +14890,6 @@
       "branches": [
         {
           "count": 242,
-          "avg_min": 24.5,
-          "p50_min": 21.6,
-          "p90_min": 42.2,
-          "max_min": 109.6,
-          "branch": "main",
-          "commit": "0ecc284790e5",
-          "fork_url": "",
-          "source": "schedule",
-          "workload": "vllm",
-          "last_seen": "2026-08-24T10:55:18Z",
-          "builds": 2,
-          "latest_evidence": {
-            "observed_at": "2026-08-24T10:55:18Z",
-            "pipeline": "amd-ci",
-            "build_number": 12347,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 2",
-            "job_id": "01a032ff-dd5c-4d90-8d85-2ed9df990f15",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd5c-4d90-8d85-2ed9df990f15",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 242,
           "avg_min": 25.2,
           "p50_min": 21.0,
           "p90_min": 45.0,
@@ -15602,29 +14915,55 @@
           }
         },
         {
-          "count": 39,
-          "avg_min": 26.1,
-          "p50_min": 27.7,
+          "count": 241,
+          "avg_min": 24.5,
+          "p50_min": 21.6,
+          "p90_min": 42.2,
+          "max_min": 109.6,
+          "branch": "main",
+          "commit": "0ecc284790e5",
+          "fork_url": "",
+          "source": "schedule",
+          "workload": "vllm",
+          "last_seen": "2026-08-24T10:55:18Z",
+          "builds": 2,
+          "latest_evidence": {
+            "observed_at": "2026-08-24T10:55:18Z",
+            "pipeline": "amd-ci",
+            "build_number": 12347,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) Transformers Nightly Models (Processing) Shard 2",
+            "job_id": "01a032ff-dd5c-4d90-8d85-2ed9df990f15",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd5c-4d90-8d85-2ed9df990f15",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 40,
+          "avg_min": 28.0,
+          "p50_min": 30.1,
           "p90_min": 55.7,
-          "max_min": 76.5,
+          "max_min": 102.6,
           "branch": "remove-fp8-online",
           "commit": "2ecc266fcd08",
           "fork_url": "https://github.com/fxmarty-amd/vllm.git",
           "source": "api",
           "workload": "vllm",
-          "last_seen": "2026-08-24T16:45:24Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "builds": 1,
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         },
         {
@@ -15735,23 +15074,23 @@
       "queues": [
         {
           "count": 275,
-          "avg_min": 28.2,
-          "p50_min": 25.4,
-          "p90_min": 55.7,
+          "avg_min": 28.5,
+          "p50_min": 25.8,
+          "p90_min": 56.9,
           "max_min": 116.4,
           "queue": "amd_mi300_1",
-          "last_seen": "2026-08-24T16:24:31Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:31Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-            "job_id": "01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543f-4dc7-8d23-41cec5edb52a",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         },
         {
@@ -15971,7 +15310,7 @@
     "72h": {
       "test_groups": [
         {
-          "count": 44,
+          "count": 40,
           "avg_min": 0.6,
           "p50_min": 0.2,
           "p90_min": 1.4,
@@ -15979,8 +15318,8 @@
           "group": "bootstrap",
           "hw": "unknown",
           "workload": "vllm",
-          "fail_rate_pct": 2.3,
-          "fail_rate": 0.023,
+          "fail_rate_pct": 2.5,
+          "fail_rate": 0.025,
           "failures": 1,
           "last_seen": "2026-08-24T15:14:28Z",
           "latest_evidence": {
@@ -15997,10 +15336,10 @@
           }
         },
         {
-          "count": 43,
-          "avg_min": 8.6,
+          "count": 39,
+          "avg_min": 9.5,
           "p50_min": 0.1,
-          "p90_min": 1.5,
+          "p90_min": 2.8,
           "max_min": 282.8,
           "group": "AMD: :docker: refresh ROCm base",
           "hw": "unknown",
@@ -16023,16 +15362,16 @@
           }
         },
         {
-          "count": 38,
-          "avg_min": 1.3,
+          "count": 34,
+          "avg_min": 1.4,
           "p50_min": 0.2,
           "p90_min": 1.5,
           "max_min": 13.2,
           "group": "AMD: :docker: ensure ci_base",
           "hw": "unknown",
           "workload": "vllm",
-          "fail_rate_pct": 2.6,
-          "fail_rate": 0.026,
+          "fail_rate_pct": 2.9,
+          "fail_rate": 0.029,
           "failures": 1,
           "last_seen": "2026-08-24T15:17:18Z",
           "latest_evidence": {
@@ -16049,17 +15388,17 @@
           }
         },
         {
-          "count": 37,
-          "avg_min": 9.4,
+          "count": 33,
+          "avg_min": 9.8,
           "p50_min": 7.2,
           "p90_min": 17.6,
           "max_min": 24.6,
           "group": "AMD: :docker: build test image and artifacts",
           "hw": "unknown",
           "workload": "vllm",
-          "fail_rate_pct": 8.1,
-          "fail_rate": 0.081,
-          "failures": 3,
+          "fail_rate_pct": 6.1,
+          "fail_rate": 0.061,
+          "failures": 2,
           "last_seen": "2026-08-24T15:31:08Z",
           "latest_evidence": {
             "observed_at": "2026-08-24T15:31:08Z",
@@ -16075,16 +15414,16 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 46.5,
-          "p50_min": 47.7,
+          "p50_min": 48.4,
           "p90_min": 52.1,
           "max_min": 79.3,
           "group": ":amd: (MI300) Multimodal Models (Standard) 4: other + whisper",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 16.0,
-          "fail_rate": 0.16,
+          "fail_rate_pct": 16.7,
+          "fail_rate": 0.167,
           "failures": 4,
           "last_seen": "2026-08-24T16:20:14Z",
           "latest_evidence": {
@@ -16101,17 +15440,17 @@
           }
         },
         {
-          "count": 25,
-          "avg_min": 35.6,
+          "count": 24,
+          "avg_min": 36.9,
           "p50_min": 39.1,
           "p90_min": 43.5,
           "max_min": 46.8,
           "group": ":amd: (MI300) V1 Core + KV + Metrics",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 4.0,
-          "fail_rate": 0.04,
-          "failures": 1,
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
           "last_seen": "2026-08-24T16:10:56Z",
           "latest_evidence": {
             "observed_at": "2026-08-24T16:10:56Z",
@@ -16127,9 +15466,9 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 38.2,
-          "p50_min": 40.2,
+          "p50_min": 40.4,
           "p90_min": 43.2,
           "max_min": 53.1,
           "group": ":amd: (MI355) Language Models (Extended Generation)",
@@ -16153,16 +15492,16 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 34.2,
-          "p50_min": 34.5,
+          "p50_min": 34.7,
           "p90_min": 40.9,
           "max_min": 50.8,
           "group": ":amd: (MI300) Entrypoints Integration (Speech to Text)",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 8.0,
-          "fail_rate": 0.08,
+          "fail_rate_pct": 8.3,
+          "fail_rate": 0.083,
           "failures": 2,
           "last_seen": "2026-08-24T16:04:57Z",
           "latest_evidence": {
@@ -16179,8 +15518,8 @@
           }
         },
         {
-          "count": 25,
-          "avg_min": 30.8,
+          "count": 24,
+          "avg_min": 30.7,
           "p50_min": 33.4,
           "p90_min": 34.8,
           "max_min": 38.4,
@@ -16205,7 +15544,7 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 28.9,
           "p50_min": 30.3,
           "p90_min": 33.7,
@@ -16213,8 +15552,8 @@
           "group": ":amd: (MI355) Entrypoints Integration (Pooling)",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 8.0,
-          "fail_rate": 0.08,
+          "fail_rate_pct": 8.3,
+          "fail_rate": 0.083,
           "failures": 2,
           "last_seen": "2026-08-24T16:01:02Z",
           "latest_evidence": {
@@ -16231,8 +15570,8 @@
           }
         },
         {
-          "count": 25,
-          "avg_min": 26.1,
+          "count": 24,
+          "avg_min": 26.0,
           "p50_min": 27.9,
           "p90_min": 30.0,
           "max_min": 30.4,
@@ -16257,7 +15596,7 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 21.7,
           "p50_min": 22.5,
           "p90_min": 27.0,
@@ -16283,9 +15622,9 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 19.4,
-          "p50_min": 20.4,
+          "p50_min": 20.6,
           "p90_min": 21.9,
           "max_min": 22.1,
           "group": ":amd: (MI355) V1 Spec Decode",
@@ -16309,16 +15648,16 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 18.7,
-          "p50_min": 18.7,
+          "p50_min": 18.8,
           "p90_min": 20.8,
           "max_min": 43.5,
           "group": ":amd: (MI300) PyTorch Compilation Passes",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 8.0,
-          "fail_rate": 0.08,
+          "fail_rate_pct": 8.3,
+          "fail_rate": 0.083,
           "failures": 2,
           "last_seen": "2026-08-24T15:47:36Z",
           "latest_evidence": {
@@ -16335,7 +15674,7 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 17.8,
           "p50_min": 18.6,
           "p90_min": 19.4,
@@ -16343,8 +15682,8 @@
           "group": ":amd: (MI355) Entrypoints Integration (Multimodal)",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 20.0,
-          "fail_rate": 0.2,
+          "fail_rate_pct": 20.8,
+          "fail_rate": 0.208,
           "failures": 5,
           "last_seen": "2026-08-24T15:47:50Z",
           "latest_evidence": {
@@ -16361,16 +15700,16 @@
           }
         },
         {
-          "count": 25,
-          "avg_min": 16.8,
+          "count": 24,
+          "avg_min": 16.9,
           "p50_min": 16.4,
           "p90_min": 18.2,
           "max_min": 36.9,
           "group": ":amd: (MI355) Language Models (Standard)",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 8.0,
-          "fail_rate": 0.08,
+          "fail_rate_pct": 8.3,
+          "fail_rate": 0.083,
           "failures": 2,
           "last_seen": "2026-08-24T16:03:34Z",
           "latest_evidence": {
@@ -16387,7 +15726,7 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 9.2,
           "p50_min": 9.5,
           "p90_min": 10.1,
@@ -16413,9 +15752,9 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 6.7,
-          "p50_min": 6.7,
+          "p50_min": 6.9,
           "p90_min": 7.6,
           "max_min": 8.4,
           "group": ":amd: (MI300) Weight Loading Multi-GPU",
@@ -16439,9 +15778,9 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 4.8,
-          "p50_min": 4.7,
+          "p50_min": 4.8,
           "p90_min": 5.2,
           "max_min": 6.2,
           "group": ":amd: (MI355) Weight Loading Multi-GPU",
@@ -16465,8 +15804,8 @@
           }
         },
         {
-          "count": 25,
-          "avg_min": 3.9,
+          "count": 24,
+          "avg_min": 4.0,
           "p50_min": 3.8,
           "p90_min": 4.8,
           "max_min": 5.2,
@@ -16491,7 +15830,7 @@
           }
         },
         {
-          "count": 25,
+          "count": 24,
           "avg_min": 1.9,
           "p50_min": 1.8,
           "p90_min": 2.6,
@@ -16517,16 +15856,16 @@
           }
         },
         {
-          "count": 23,
+          "count": 22,
           "avg_min": 27.7,
-          "p50_min": 29.1,
+          "p50_min": 29.2,
           "p90_min": 32.2,
           "max_min": 34.2,
           "group": ":amd: (MI300) LM Eval Small Models FP8 + Mixed",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 4.3,
-          "fail_rate": 0.043,
+          "fail_rate_pct": 4.5,
+          "fail_rate": 0.045,
           "failures": 1,
           "last_seen": "2026-08-24T15:59:44Z",
           "latest_evidence": {
@@ -16543,9 +15882,9 @@
           }
         },
         {
-          "count": 23,
-          "avg_min": 22.8,
-          "p50_min": 22.8,
+          "count": 22,
+          "avg_min": 22.9,
+          "p50_min": 23.1,
           "p90_min": 27.9,
           "max_min": 33.9,
           "group": ":amd: (MI250) Language Models (PPL)",
@@ -16569,16 +15908,16 @@
           }
         },
         {
-          "count": 23,
+          "count": 22,
           "avg_min": 14.6,
-          "p50_min": 14.8,
+          "p50_min": 14.9,
           "p90_min": 17.0,
           "max_min": 19.9,
           "group": ":amd: (MI300) LM Eval Small Models",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 4.3,
-          "fail_rate": 0.043,
+          "fail_rate_pct": 4.5,
+          "fail_rate": 0.045,
           "failures": 1,
           "last_seen": "2026-08-24T15:44:03Z",
           "latest_evidence": {
@@ -16595,7 +15934,7 @@
           }
         },
         {
-          "count": 23,
+          "count": 22,
           "avg_min": 6.6,
           "p50_min": 6.5,
           "p90_min": 7.5,
@@ -16621,7 +15960,7 @@
           }
         },
         {
-          "count": 23,
+          "count": 22,
           "avg_min": 5.9,
           "p50_min": 5.7,
           "p90_min": 7.2,
@@ -16647,7 +15986,7 @@
           }
         },
         {
-          "count": 23,
+          "count": 22,
           "avg_min": 2.7,
           "p50_min": 2.6,
           "p90_min": 2.9,
@@ -16673,16 +16012,16 @@
           }
         },
         {
-          "count": 22,
-          "avg_min": 15.6,
-          "p50_min": 16.6,
+          "count": 21,
+          "avg_min": 15.5,
+          "p50_min": 16.5,
           "p90_min": 18.2,
           "max_min": 18.5,
           "group": ":amd: (MI355) Attention Kernels Shard 2",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 9.1,
-          "fail_rate": 0.091,
+          "fail_rate_pct": 9.5,
+          "fail_rate": 0.095,
           "failures": 2,
           "last_seen": "2026-08-24T15:48:07Z",
           "latest_evidence": {
@@ -16699,7 +16038,7 @@
           }
         },
         {
-          "count": 22,
+          "count": 21,
           "avg_min": 15.2,
           "p50_min": 16.3,
           "p90_min": 17.5,
@@ -16725,16 +16064,16 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 50.8,
-          "p50_min": 54.4,
-          "p90_min": 59.8,
+          "count": 20,
+          "avg_min": 50.9,
+          "p50_min": 54.6,
+          "p90_min": 60.0,
           "max_min": 65.7,
           "group": ":amd: (MI250) Pipeline + Context Parallelism",
           "hw": "mi250",
           "workload": "vllm",
-          "fail_rate_pct": 4.8,
-          "fail_rate": 0.048,
+          "fail_rate_pct": 5.0,
+          "fail_rate": 0.05,
           "failures": 1,
           "last_seen": "2026-08-24T16:24:27Z",
           "latest_evidence": {
@@ -16751,16 +16090,16 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 34.2,
-          "p50_min": 37.1,
-          "p90_min": 38.2,
+          "count": 20,
+          "avg_min": 34.1,
+          "p50_min": 37.2,
+          "p90_min": 38.3,
           "max_min": 40.2,
           "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 3",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 9.5,
-          "fail_rate": 0.095,
+          "fail_rate_pct": 10.0,
+          "fail_rate": 0.1,
           "failures": 2,
           "last_seen": "2026-08-24T16:07:01Z",
           "latest_evidence": {
@@ -16777,10 +16116,10 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 33.8,
-          "p50_min": 36.6,
-          "p90_min": 37.9,
+          "count": 20,
+          "avg_min": 33.7,
+          "p50_min": 36.8,
+          "p90_min": 38.0,
           "max_min": 40.0,
           "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 5",
           "hw": "mi300",
@@ -16803,10 +16142,10 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 31.7,
-          "p50_min": 34.1,
-          "p90_min": 35.4,
+          "count": 20,
+          "avg_min": 31.5,
+          "p50_min": 34.2,
+          "p90_min": 36.2,
           "max_min": 38.8,
           "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 1",
           "hw": "mi300",
@@ -16829,10 +16168,10 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 31.5,
-          "p50_min": 33.9,
-          "p90_min": 35.1,
+          "count": 20,
+          "avg_min": 31.4,
+          "p50_min": 34.1,
+          "p90_min": 35.3,
           "max_min": 37.2,
           "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 6",
           "hw": "mi300",
@@ -16855,10 +16194,10 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 29.7,
+          "count": 20,
+          "avg_min": 29.5,
           "p50_min": 31.8,
-          "p90_min": 34.0,
+          "p90_min": 34.4,
           "max_min": 35.0,
           "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 4",
           "hw": "mi300",
@@ -16881,16 +16220,16 @@
           }
         },
         {
-          "count": 21,
+          "count": 20,
           "avg_min": 29.6,
           "p50_min": 32.0,
-          "p90_min": 33.1,
+          "p90_min": 33.9,
           "max_min": 36.2,
           "group": ":amd: (MI300) Basic Models (Extra Initialization) Shard 2",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 4.8,
-          "fail_rate": 0.048,
+          "fail_rate_pct": 5.0,
+          "fail_rate": 0.05,
           "failures": 1,
           "last_seen": "2026-08-24T16:01:11Z",
           "latest_evidence": {
@@ -16907,8 +16246,8 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 26.8,
+          "count": 20,
+          "avg_min": 26.6,
           "p50_min": 28.2,
           "p90_min": 32.3,
           "max_min": 33.0,
@@ -16933,16 +16272,16 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 13.3,
+          "count": 20,
+          "avg_min": 13.4,
           "p50_min": 11.1,
-          "p90_min": 22.3,
+          "p90_min": 23.5,
           "max_min": 25.1,
           "group": ":amd: (MI355) V1 Attention Shard 1",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 9.5,
-          "fail_rate": 0.095,
+          "fail_rate_pct": 10.0,
+          "fail_rate": 0.1,
           "failures": 2,
           "last_seen": "2026-08-24T09:14:58Z",
           "latest_evidence": {
@@ -16959,16 +16298,16 @@
           }
         },
         {
-          "count": 21,
+          "count": 20,
           "avg_min": 14.3,
           "p50_min": 12.5,
-          "p90_min": 22.1,
+          "p90_min": 22.6,
           "max_min": 26.6,
           "group": ":amd: (MI355) V1 Attention Shard 2",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 4.8,
-          "fail_rate": 0.048,
+          "fail_rate_pct": 5.0,
+          "fail_rate": 0.05,
           "failures": 1,
           "last_seen": "2026-08-24T09:14:29Z",
           "latest_evidence": {
@@ -16985,10 +16324,10 @@
           }
         },
         {
-          "count": 21,
+          "count": 20,
           "avg_min": 5.9,
           "p50_min": 5.7,
-          "p90_min": 6.1,
+          "p90_min": 7.7,
           "max_min": 9.1,
           "group": ":amd: (MI300) Extract Hidden States Integration",
           "hw": "mi300",
@@ -17011,34 +16350,8 @@
           }
         },
         {
-          "count": 20,
-          "avg_min": 48.5,
-          "p50_min": 55.2,
-          "p90_min": 58.0,
-          "max_min": 61.0,
-          "group": ":amd: (MI355) Quantization",
-          "hw": "mi355",
-          "workload": "vllm",
-          "fail_rate_pct": 15.0,
-          "fail_rate": 0.15,
-          "failures": 3,
-          "last_seen": "2026-08-24T16:24:55Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:55Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi355_1: :amd: (MI355) Quantization",
-            "job_id": "01a03450-547b-467e-a9c5-aed51b13dfa6",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-467e-a9c5-aed51b13dfa6",
-            "job_url_source": "job.web_url",
-            "state": "failed"
-          }
-        },
-        {
           "count": 19,
-          "avg_min": 81.4,
+          "avg_min": 81.5,
           "p50_min": 96.7,
           "p90_min": 106.0,
           "max_min": 110.0,
@@ -17048,44 +16361,18 @@
           "fail_rate_pct": 31.6,
           "fail_rate": 0.316,
           "failures": 6,
-          "last_seen": "2026-08-24T16:06:28Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:06:28Z",
-            "pipeline": "amd-ci",
-            "build_number": 12348,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12348",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantization",
-            "job_id": "01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12348#01a0344e-47ce-463b-b675-2a5fcf757b29",
-            "job_url_source": "job.web_url",
-            "state": "failed"
-          }
-        },
-        {
-          "count": 19,
-          "avg_min": 61.3,
-          "p50_min": 73.9,
-          "p90_min": 75.2,
-          "max_min": 76.5,
-          "group": ":amd: (MI300) Distributed Compile",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 5.3,
-          "fail_rate": 0.053,
-          "failures": 1,
-          "last_seen": "2026-08-24T16:45:24Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         },
         {
@@ -17116,6 +16403,32 @@
         },
         {
           "count": 19,
+          "avg_min": 48.2,
+          "p50_min": 55.2,
+          "p90_min": 58.0,
+          "max_min": 61.0,
+          "group": ":amd: (MI355) Quantization",
+          "hw": "mi355",
+          "workload": "vllm",
+          "fail_rate_pct": 15.8,
+          "fail_rate": 0.158,
+          "failures": 3,
+          "last_seen": "2026-08-24T16:24:55Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T16:24:55Z",
+            "pipeline": "amd-ci",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+            "build_url_source": "build.web_url",
+            "job_name": "mi355_1: :amd: (MI355) Quantization",
+            "job_id": "01a03450-547b-467e-a9c5-aed51b13dfa6",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547b-467e-a9c5-aed51b13dfa6",
+            "job_url_source": "job.web_url",
+            "state": "failed"
+          }
+        },
+        {
+          "count": 19,
           "avg_min": 26.7,
           "p50_min": 28.2,
           "p90_min": 29.3,
@@ -17141,16 +16454,42 @@
           }
         },
         {
-          "count": 19,
+          "count": 18,
+          "avg_min": 60.6,
+          "p50_min": 74.0,
+          "p90_min": 75.2,
+          "max_min": 76.5,
+          "group": ":amd: (MI300) Distributed Compile",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 5.6,
+          "fail_rate": 0.056,
+          "failures": 1,
+          "last_seen": "2026-08-24T16:45:24Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T16:45:24Z",
+            "pipeline": "amd-ci",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
+            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 18,
           "avg_min": 19.8,
-          "p50_min": 20.0,
+          "p50_min": 20.1,
           "p90_min": 24.3,
           "max_min": 41.3,
           "group": ":amd: (MI300) Distributed Features",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 5.3,
-          "fail_rate": 0.053,
+          "fail_rate_pct": 5.6,
+          "fail_rate": 0.056,
           "failures": 1,
           "last_seen": "2026-08-24T09:25:26Z",
           "latest_evidence": {
@@ -17167,7 +16506,7 @@
           }
         },
         {
-          "count": 19,
+          "count": 18,
           "avg_min": 2.3,
           "p50_min": 2.3,
           "p90_min": 2.5,
@@ -17193,7 +16532,7 @@
           }
         },
         {
-          "count": 19,
+          "count": 18,
           "avg_min": 1.1,
           "p50_min": 1.1,
           "p90_min": 1.2,
@@ -17219,8 +16558,8 @@
           }
         },
         {
-          "count": 18,
-          "avg_min": 20.4,
+          "count": 17,
+          "avg_min": 20.3,
           "p50_min": 22.3,
           "p90_min": 25.3,
           "max_min": 25.9,
@@ -17245,17 +16584,17 @@
           }
         },
         {
-          "count": 18,
-          "avg_min": 19.0,
-          "p50_min": 21.3,
+          "count": 17,
+          "avg_min": 18.9,
+          "p50_min": 21.2,
           "p90_min": 22.3,
           "max_min": 22.3,
           "group": ":amd: (MI355) MoE Kernels Shard 3",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 33.3,
-          "fail_rate": 0.333,
-          "failures": 6,
+          "fail_rate_pct": 29.4,
+          "fail_rate": 0.294,
+          "failures": 5,
           "last_seen": "2026-08-24T09:25:40Z",
           "latest_evidence": {
             "observed_at": "2026-08-24T09:25:40Z",
@@ -17271,17 +16610,17 @@
           }
         },
         {
-          "count": 18,
-          "avg_min": 19.6,
-          "p50_min": 21.8,
+          "count": 17,
+          "avg_min": 19.4,
+          "p50_min": 21.7,
           "p90_min": 22.3,
           "max_min": 22.4,
           "group": ":amd: (MI355) MoE Kernels Shard 5",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 22.2,
-          "fail_rate": 0.222,
-          "failures": 4,
+          "fail_rate_pct": 17.6,
+          "fail_rate": 0.176,
+          "failures": 3,
           "last_seen": "2026-08-24T09:26:44Z",
           "latest_evidence": {
             "observed_at": "2026-08-24T09:26:44Z",
@@ -17297,7 +16636,7 @@
           }
         },
         {
-          "count": 18,
+          "count": 17,
           "avg_min": 18.8,
           "p50_min": 20.5,
           "p90_min": 21.9,
@@ -17323,16 +16662,16 @@
           }
         },
         {
-          "count": 18,
-          "avg_min": 18.2,
+          "count": 17,
+          "avg_min": 18.1,
           "p50_min": 19.7,
           "p90_min": 21.6,
           "max_min": 22.1,
           "group": ":amd: (MI355) MoE Kernels Shard 1",
           "hw": "mi355",
           "workload": "vllm",
-          "fail_rate_pct": 11.1,
-          "fail_rate": 0.111,
+          "fail_rate_pct": 11.8,
+          "fail_rate": 0.118,
           "failures": 2,
           "last_seen": "2026-08-24T09:23:28Z",
           "latest_evidence": {
@@ -17349,9 +16688,9 @@
           }
         },
         {
-          "count": 18,
-          "avg_min": 15.7,
-          "p50_min": 16.9,
+          "count": 17,
+          "avg_min": 15.5,
+          "p50_min": 16.4,
           "p90_min": 19.0,
           "max_min": 20.3,
           "group": ":amd: (MI355) FP8 MoE Kernels",
@@ -17375,7 +16714,7 @@
           }
         },
         {
-          "count": 18,
+          "count": 17,
           "avg_min": 2.6,
           "p50_min": 2.5,
           "p90_min": 3.0,
@@ -17401,7 +16740,7 @@
           }
         },
         {
-          "count": 18,
+          "count": 17,
           "avg_min": 2.0,
           "p50_min": 2.0,
           "p90_min": 2.1,
@@ -17427,9 +16766,9 @@
           }
         },
         {
-          "count": 17,
-          "avg_min": 34.0,
-          "p50_min": 38.1,
+          "count": 16,
+          "avg_min": 33.8,
+          "p50_min": 38.2,
           "p90_min": 39.9,
           "max_min": 40.0,
           "group": ":amd: (MI300) RayExecutorV2",
@@ -17453,9 +16792,9 @@
           }
         },
         {
-          "count": 17,
-          "avg_min": 31.3,
-          "p50_min": 35.0,
+          "count": 16,
+          "avg_min": 31.1,
+          "p50_min": 35.2,
           "p90_min": 36.3,
           "max_min": 36.8,
           "group": ":amd: (MI300) Distributed DP Extended",
@@ -17479,16 +16818,16 @@
           }
         },
         {
-          "count": 17,
-          "avg_min": 20.9,
-          "p50_min": 23.0,
+          "count": 16,
+          "avg_min": 20.8,
+          "p50_min": 23.2,
           "p90_min": 23.7,
           "max_min": 23.9,
           "group": ":amd: (MI300) Distributed Compile + Comm",
           "hw": "mi300",
           "workload": "vllm",
-          "fail_rate_pct": 5.9,
-          "fail_rate": 0.059,
+          "fail_rate_pct": 6.2,
+          "fail_rate": 0.062,
           "failures": 1,
           "last_seen": "2026-08-24T09:28:46Z",
           "latest_evidence": {
@@ -17505,8 +16844,8 @@
           }
         },
         {
-          "count": 17,
-          "avg_min": 19.0,
+          "count": 16,
+          "avg_min": 18.9,
           "p50_min": 20.9,
           "p90_min": 21.7,
           "max_min": 22.6,
@@ -17526,110 +16865,6 @@
             "job_name": "mi300_2: :amd: (MI300) Distributed Compile + RPC",
             "job_id": "01a032ff-dd38-4ee6-9c7f-798eea8a5f23",
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd38-4ee6-9c7f-798eea8a5f23",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 17,
-          "avg_min": 14.1,
-          "p50_min": 14.9,
-          "p90_min": 16.0,
-          "max_min": 18.8,
-          "group": ":amd: (MI300) Fusion E2E Config Sweep",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T09:20:17Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T09:20:17Z",
-            "pipeline": "amd-ci",
-            "build_number": 12347,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Fusion E2E Config Sweep",
-            "job_id": "01a032ff-dd36-4a86-b626-47d8e2be2295",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd36-4a86-b626-47d8e2be2295",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 17,
-          "avg_min": 10.7,
-          "p50_min": 11.8,
-          "p90_min": 12.9,
-          "max_min": 13.8,
-          "group": ":amd: (MI300) Distributed Torchrun + Examples",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 5.9,
-          "fail_rate": 0.059,
-          "failures": 1,
-          "last_seen": "2026-08-24T09:16:43Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T09:16:43Z",
-            "pipeline": "amd-ci",
-            "build_number": 12347,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_4: :amd: (MI300) Distributed Torchrun + Examples",
-            "job_id": "01a032ff-dd3d-4b0d-ab22-c850d870c27b",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd3d-4b0d-ab22-c850d870c27b",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 17,
-          "avg_min": 11.0,
-          "p50_min": 11.7,
-          "p90_min": 12.8,
-          "max_min": 13.9,
-          "group": ":amd: (MI300) Distributed Torchrun + Shutdown",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 5.9,
-          "fail_rate": 0.059,
-          "failures": 1,
-          "last_seen": "2026-08-24T09:17:24Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T09:17:24Z",
-            "pipeline": "amd-ci",
-            "build_number": 12347,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Torchrun + Shutdown",
-            "job_id": "01a032ff-dd42-47b0-9af0-38779b1b037b",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd42-47b0-9af0-38779b1b037b",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 17,
-          "avg_min": 5.8,
-          "p50_min": 5.9,
-          "p90_min": 6.8,
-          "max_min": 7.8,
-          "group": ":amd: (MI300) Distributed Comm Ops",
-          "hw": "mi300",
-          "workload": "vllm",
-          "fail_rate_pct": 0.0,
-          "fail_rate": 0.0,
-          "failures": 0,
-          "last_seen": "2026-08-24T09:12:01Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T09:12:01Z",
-            "pipeline": "amd-ci",
-            "build_number": 12347,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Comm Ops",
-            "job_id": "01a032ff-dd38-4829-90b1-6e7c4aee965e",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd38-4829-90b1-6e7c4aee965e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -17766,6 +17001,32 @@
         },
         {
           "count": 16,
+          "avg_min": 14.1,
+          "p50_min": 15.0,
+          "p90_min": 16.0,
+          "max_min": 18.8,
+          "group": ":amd: (MI300) Fusion E2E Config Sweep",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
+          "last_seen": "2026-08-24T09:20:17Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T09:20:17Z",
+            "pipeline": "amd-ci",
+            "build_number": 12347,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) Fusion E2E Config Sweep",
+            "job_id": "01a032ff-dd36-4a86-b626-47d8e2be2295",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd36-4a86-b626-47d8e2be2295",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 16,
           "avg_min": 13.6,
           "p50_min": 14.2,
           "p90_min": 15.8,
@@ -17786,6 +17047,84 @@
             "job_name": "mi300_1: :amd: (MI300) Core Operation Kernels Shard 1",
             "job_id": "01a03455-ae61-428f-b329-b0817cacf5d6",
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12350#01a03455-ae61-428f-b329-b0817cacf5d6",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 16,
+          "avg_min": 10.7,
+          "p50_min": 11.9,
+          "p90_min": 12.9,
+          "max_min": 13.8,
+          "group": ":amd: (MI300) Distributed Torchrun + Examples",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 6.2,
+          "fail_rate": 0.062,
+          "failures": 1,
+          "last_seen": "2026-08-24T09:16:43Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T09:16:43Z",
+            "pipeline": "amd-ci",
+            "build_number": 12347,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_4: :amd: (MI300) Distributed Torchrun + Examples",
+            "job_id": "01a032ff-dd3d-4b0d-ab22-c850d870c27b",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd3d-4b0d-ab22-c850d870c27b",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 16,
+          "avg_min": 11.0,
+          "p50_min": 11.8,
+          "p90_min": 12.8,
+          "max_min": 13.9,
+          "group": ":amd: (MI300) Distributed Torchrun + Shutdown",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 6.2,
+          "fail_rate": 0.062,
+          "failures": 1,
+          "last_seen": "2026-08-24T09:17:24Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T09:17:24Z",
+            "pipeline": "amd-ci",
+            "build_number": 12347,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_2: :amd: (MI300) Distributed Torchrun + Shutdown",
+            "job_id": "01a032ff-dd42-47b0-9af0-38779b1b037b",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd42-47b0-9af0-38779b1b037b",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 16,
+          "avg_min": 5.8,
+          "p50_min": 5.9,
+          "p90_min": 6.8,
+          "max_min": 7.8,
+          "group": ":amd: (MI300) Distributed Comm Ops",
+          "hw": "mi300",
+          "workload": "vllm",
+          "fail_rate_pct": 0.0,
+          "fail_rate": 0.0,
+          "failures": 0,
+          "last_seen": "2026-08-24T09:12:01Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T09:12:01Z",
+            "pipeline": "amd-ci",
+            "build_number": 12347,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12347",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_2: :amd: (MI300) Distributed Comm Ops",
+            "job_id": "01a032ff-dd38-4829-90b1-6e7c4aee965e",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12347#01a032ff-dd38-4829-90b1-6e7c4aee965e",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -22213,9 +21552,9 @@
       ],
       "branches": [
         {
-          "count": 378,
-          "avg_min": 20.1,
-          "p50_min": 16.1,
+          "count": 312,
+          "avg_min": 20.2,
+          "p50_min": 15.6,
           "p90_min": 40.2,
           "max_min": 116.5,
           "branch": "lwilkinson/kv-layout/core-standardize-stacked",
@@ -22224,7 +21563,7 @@
           "source": "webhook",
           "workload": "vllm",
           "last_seen": "2026-08-22T00:38:05Z",
-          "builds": 7,
+          "builds": 5,
           "latest_evidence": {
             "observed_at": "2026-08-22T00:38:05Z",
             "pipeline": "amd-ci",
@@ -22236,32 +21575,6 @@
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12322#01a026da-04f7-4a25-add1-dc63aabc8c29",
             "job_url_source": "job.web_url",
             "state": "canceled"
-          }
-        },
-        {
-          "count": 88,
-          "avg_min": 18.7,
-          "p50_min": 18.4,
-          "p90_min": 39.0,
-          "max_min": 56.9,
-          "branch": "wyettzeng:gpt_oss_reload",
-          "commit": "3544fe5d8e98",
-          "fork_url": "https://github.com/wyettzeng/vllm.git",
-          "source": "webhook",
-          "workload": "vllm",
-          "last_seen": "2026-08-22T10:49:16Z",
-          "builds": 6,
-          "latest_evidence": {
-            "observed_at": "2026-08-22T10:49:16Z",
-            "pipeline": "amd-ci",
-            "build_number": 12335,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12335",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-            "job_id": "01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12335#01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
-            "job_url_source": "job.web_url",
-            "state": "passed"
           }
         },
         {
@@ -22288,6 +21601,32 @@
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12338#01a02c9c-2d6c-4ac6-b31d-b46554528888",
             "job_url_source": "job.web_url",
             "state": "failed"
+          }
+        },
+        {
+          "count": 80,
+          "avg_min": 20.3,
+          "p50_min": 19.6,
+          "p90_min": 39.2,
+          "max_min": 56.9,
+          "branch": "wyettzeng:gpt_oss_reload",
+          "commit": "3544fe5d8e98",
+          "fork_url": "https://github.com/wyettzeng/vllm.git",
+          "source": "webhook",
+          "workload": "vllm",
+          "last_seen": "2026-08-22T10:49:16Z",
+          "builds": 4,
+          "latest_evidence": {
+            "observed_at": "2026-08-22T10:49:16Z",
+            "pipeline": "amd-ci",
+            "build_number": 12335,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12335",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
+            "job_id": "01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12335#01a028e0-8a0d-4ad2-805f-37c6b1bbe0b9",
+            "job_url_source": "job.web_url",
+            "state": "passed"
           }
         },
         {
@@ -22552,6 +21891,32 @@
         },
         {
           "count": 40,
+          "avg_min": 28.0,
+          "p50_min": 30.1,
+          "p90_min": 55.7,
+          "max_min": 102.6,
+          "branch": "remove-fp8-online",
+          "commit": "2ecc266fcd08",
+          "fork_url": "https://github.com/fxmarty-amd/vllm.git",
+          "source": "api",
+          "workload": "vllm",
+          "last_seen": "2026-08-24T17:11:27Z",
+          "builds": 1,
+          "latest_evidence": {
+            "observed_at": "2026-08-24T17:11:27Z",
+            "pipeline": "amd-ci",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url_source": "job.web_url",
+            "state": "failed"
+          }
+        },
+        {
+          "count": 40,
           "avg_min": 26.0,
           "p50_min": 27.6,
           "p90_min": 54.9,
@@ -22574,32 +21939,6 @@
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12323#01a026fb-624f-4ba1-8188-5ae3fb3b0c51",
             "job_url_source": "job.web_url",
             "state": "failed"
-          }
-        },
-        {
-          "count": 39,
-          "avg_min": 26.1,
-          "p50_min": 27.7,
-          "p90_min": 55.7,
-          "max_min": 76.5,
-          "branch": "remove-fp8-online",
-          "commit": "2ecc266fcd08",
-          "fork_url": "https://github.com/fxmarty-amd/vllm.git",
-          "source": "api",
-          "workload": "vllm",
-          "last_seen": "2026-08-24T16:45:24Z",
-          "builds": 1,
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url_source": "job.web_url",
-            "state": "passed"
           }
         },
         {
@@ -22787,30 +22126,30 @@
       ],
       "queues": [
         {
-          "count": 1717,
-          "avg_min": 28.6,
+          "count": 1697,
+          "avg_min": 28.7,
           "p50_min": 25.3,
-          "p90_min": 57.1,
+          "p90_min": 57.6,
           "max_min": 178.7,
           "queue": "amd_mi300_1",
-          "last_seen": "2026-08-24T16:24:31Z",
+          "last_seen": "2026-08-24T17:11:27Z",
           "latest_evidence": {
-            "observed_at": "2026-08-24T16:24:31Z",
+            "observed_at": "2026-08-24T17:11:27Z",
             "pipeline": "amd-ci",
             "build_number": 12349,
             "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
             "build_url_source": "build.web_url",
-            "job_name": "mi300_1: :amd: (MI300) Quantized Models",
-            "job_id": "01a03450-543f-4dc7-8d23-41cec5edb52a",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-543f-4dc7-8d23-41cec5edb52a",
+            "job_name": "mi300_1: :amd: (MI300) Quantization",
+            "job_id": "01a03450-5447-4f16-9959-d7bcb3a2609d",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-5447-4f16-9959-d7bcb3a2609d",
             "job_url_source": "job.web_url",
-            "state": "passed"
+            "state": "failed"
           }
         },
         {
-          "count": 686,
+          "count": 666,
           "avg_min": 21.2,
-          "p50_min": 19.8,
+          "p50_min": 19.9,
           "p90_min": 35.4,
           "max_min": 181.0,
           "queue": "amd_mi355_1",
@@ -22829,28 +22168,7 @@
           }
         },
         {
-          "count": 327,
-          "avg_min": 17.5,
-          "p50_min": 11.1,
-          "p90_min": 33.8,
-          "max_min": 76.5,
-          "queue": "amd_mi300_2",
-          "last_seen": "2026-08-24T16:45:24Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T16:45:24Z",
-            "pipeline": "amd-ci",
-            "build_number": 12349,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
-            "build_url_source": "build.web_url",
-            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
-            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 322,
+          "count": 321,
           "avg_min": 28.5,
           "p50_min": 28.8,
           "p90_min": 42.2,
@@ -22871,10 +22189,31 @@
           }
         },
         {
-          "count": 293,
-          "avg_min": 20.1,
-          "p50_min": 19.0,
-          "p90_min": 38.1,
+          "count": 319,
+          "avg_min": 17.4,
+          "p50_min": 10.8,
+          "p90_min": 33.8,
+          "max_min": 76.5,
+          "queue": "amd_mi300_2",
+          "last_seen": "2026-08-24T16:45:24Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T16:45:24Z",
+            "pipeline": "amd-ci",
+            "build_number": 12349,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12349",
+            "build_url_source": "build.web_url",
+            "job_name": "mi300_2: :amd: (MI300) Distributed Compile",
+            "job_id": "01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-540b-4ce7-bb41-8a781b6dfeb7",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 289,
+          "avg_min": 20.0,
+          "p50_min": 18.8,
+          "p90_min": 38.2,
           "max_min": 42.0,
           "queue": "amd_mi300_4",
           "last_seen": "2026-08-24T09:45:18Z",
@@ -22892,30 +22231,9 @@
           }
         },
         {
-          "count": 162,
-          "avg_min": 4.9,
-          "p50_min": 0.3,
-          "p90_min": 10.6,
-          "max_min": 282.8,
-          "queue": "amd-cpu",
-          "last_seen": "2026-08-24T15:31:08Z",
-          "latest_evidence": {
-            "observed_at": "2026-08-24T15:31:08Z",
-            "pipeline": "amd-ci",
-            "build_number": 12351,
-            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12351",
-            "build_url_source": "build.web_url",
-            "job_name": "AMD: :docker: build test image and artifacts",
-            "job_id": "01a03456-3df8-4f66-a858-22ea4f4bb258",
-            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12351#01a03456-3df8-4f66-a858-22ea4f4bb258",
-            "job_url_source": "job.web_url",
-            "state": "passed"
-          }
-        },
-        {
-          "count": 158,
-          "avg_min": 11.4,
-          "p50_min": 7.0,
+          "count": 155,
+          "avg_min": 11.5,
+          "p50_min": 9.8,
           "p90_min": 21.5,
           "max_min": 46.0,
           "queue": "amd_mi355_2",
@@ -22929,6 +22247,27 @@
             "job_name": "mi355_2: :amd: (MI355) Weight Loading Multi-GPU",
             "job_id": "01a03450-547d-45e7-9221-df9f188156e8",
             "job_url": "https://buildkite.com/vllm/amd-ci/builds/12349#01a03450-547d-45e7-9221-df9f188156e8",
+            "job_url_source": "job.web_url",
+            "state": "passed"
+          }
+        },
+        {
+          "count": 146,
+          "avg_min": 5.2,
+          "p50_min": 0.3,
+          "p90_min": 11.7,
+          "max_min": 282.8,
+          "queue": "amd-cpu",
+          "last_seen": "2026-08-24T15:31:08Z",
+          "latest_evidence": {
+            "observed_at": "2026-08-24T15:31:08Z",
+            "pipeline": "amd-ci",
+            "build_number": 12351,
+            "build_url": "https://buildkite.com/vllm/amd-ci/builds/12351",
+            "build_url_source": "build.web_url",
+            "job_name": "AMD: :docker: build test image and artifacts",
+            "job_id": "01a03456-3df8-4f66-a858-22ea4f4bb258",
+            "job_url": "https://buildkite.com/vllm/amd-ci/builds/12351#01a03456-3df8-4f66-a858-22ea4f4bb258",
             "job_url_source": "job.web_url",
             "state": "passed"
           }
@@ -22955,10 +22294,10 @@
           }
         },
         {
-          "count": 21,
-          "avg_min": 50.8,
-          "p50_min": 54.4,
-          "p90_min": 59.8,
+          "count": 20,
+          "avg_min": 50.9,
+          "p50_min": 54.6,
+          "p90_min": 60.0,
           "max_min": 65.7,
           "queue": "amd_mi250_4",
           "last_seen": "2026-08-24T16:24:27Z",
@@ -23019,7 +22358,7 @@
         }
       ],
       "window_hours": 72,
-      "jobs_in_window": 3751
+      "jobs_in_window": 3678
     }
   }
 }
