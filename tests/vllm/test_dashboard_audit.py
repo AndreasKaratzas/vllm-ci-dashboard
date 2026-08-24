@@ -1505,6 +1505,10 @@ def test_attested_split_fallback_allows_directional_build_skew(
     assert {
         finding.context["fallback_surface"] for finding in skew_warnings
     } == {fallback_surface}
+    assert {finding.context["pipeline"] for finding in skew_warnings} == {
+        "amd",
+        "upstream",
+    }
 
 
 @pytest.mark.parametrize("state_kind", ("missing", "tampered", "both"))
@@ -1542,6 +1546,14 @@ def test_split_build_mismatch_requires_valid_restore_attestation(
 
     assert error_codes.count("analytics-jsonl-build-mismatch") == 2
     assert error_codes.count("matrix-analytics-build") == 1
+    assert {
+        finding.context.get("pipeline")
+        for finding in audit.report.errors
+        if finding.code in {
+            "analytics-jsonl-build-mismatch",
+            "matrix-analytics-build",
+        }
+    } == {"amd", "upstream"}
     if state_kind == "tampered":
         assert "publication-fallback-manifest-mismatch" in error_codes
 

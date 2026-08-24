@@ -1440,11 +1440,10 @@ jobs:
             const publicationFindings = [...new Map(
               rawPublicationFindings.map(finding => [JSON.stringify(finding), finding]),
             ).values()];
-            // First-observation transient collector fallbacks remain useful
+            // First-observation transient publication fallbacks remain useful
             // diagnostic context, but another alertable condition must not
             // accidentally promote them into a new incident identity.
             const alertablePublicationFindings = publicationFindings.filter(finding => {
-              if (finding.code !== 'publication-collector-failed') return true;
               const context = finding && finding.context &&
                 typeof finding.context === 'object' ? finding.context : {};
               return context.alertable !== false;
@@ -1900,7 +1899,7 @@ jobs:
               !hasUnclassifiedWorkflowFailure;
             if (resetOnlyDegradation) {
               console.log(
-                'Transient collector fallback has not reached its alert threshold; ' +
+                'Transient publication fallback has not reached its alert threshold; ' +
                 'recovery streaks were reset without opening an incident.',
               );
               return;

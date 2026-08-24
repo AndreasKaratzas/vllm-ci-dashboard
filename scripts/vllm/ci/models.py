@@ -88,6 +88,7 @@ class BuildSummary:
     test_jobs_blocked: int = 0     # test steps that never ran because a dependency failed
     has_test_results: bool = False # at least one parsed test-result row exists
     is_running: bool = False       # True if build still has non-terminal jobs
+    active_retry: bool = False     # True only for an explicitly linked active retry attempt
     test_groups: int = 0           # number of JSONL entries (job-level groups)
     unique_test_groups: int = 0    # observed logical groups (HW routes/shards collapsed)
     test_groups_passing_or: int = 0  # groups passing on ANY hardware (OR logic)
@@ -144,6 +145,7 @@ class BuildSummary:
             "test_jobs_blocked": self.test_jobs_blocked,
             "has_test_results": self.has_test_results,
             "is_running": self.is_running,
+            "active_retry": self.active_retry,
             "test_groups": self.test_groups,
             "unique_test_groups": self.unique_test_groups,
             # Explicit alias for consumers that need to distinguish observed

@@ -81,6 +81,47 @@ def test_build_summary_counts_dependency_blocked_test_steps_only():
     assert summary.has_test_results is False
 
 
+def test_build_summary_does_not_infer_retry_from_an_ordinary_running_job():
+    running_job = _job("mi300_1: Group A", "running", "group-a")
+    running_job["id"] = "ordinary-running-job"
+    build = _build(
+        10881,
+        "2026-07-15T09:00:00Z",
+        "running",
+        [running_job],
+    )
+
+    summary = compute_build_summary(build, [], "amd")
+
+    assert summary.jobs_running == 1
+    assert summary.active_retry is False
+    assert summary.to_dict()["active_retry"] is False
+
+
+def test_build_summary_attests_explicit_active_retry_without_exposing_job_ids():
+    original = _job("mi300_1: Group A", "failed", "group-a")
+    original.update({
+        "id": "original-job-id",
+        "retried_in_job_id": "successor-job-id",
+    })
+    successor = _job("mi300_1: Group A", "waiting", "group-a")
+    successor["id"] = "successor-job-id"
+    build = _build(
+        10882,
+        "2026-07-15T09:00:00Z",
+        "running",
+        [original, successor],
+    )
+
+    summary = compute_build_summary(build, [], "amd")
+    serialized = summary.to_dict()
+
+    assert summary.active_retry is True
+    assert serialized["active_retry"] is True
+    assert "original-job-id" not in json.dumps(serialized)
+    assert "successor-job-id" not in json.dumps(serialized)
+
+
 def test_build_summary_counts_skip_only_groups_as_observed():
     build = _build(
         11005,

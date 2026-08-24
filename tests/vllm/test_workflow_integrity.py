@@ -972,6 +972,8 @@ class TestHourlyMasterWorkflow:
         ) in script
         assert "const alertablePublicationFindings" in script
         assert "return context.alertable !== false" in script
+        assert "finding.code !== 'publication-collector-failed'" not in script
+        assert "Transient publication fallback has not reached" in script
 
         identity = script[
             script.index("const publicationConditionCodes"):

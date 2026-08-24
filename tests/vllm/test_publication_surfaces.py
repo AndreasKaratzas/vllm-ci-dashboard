@@ -598,6 +598,400 @@ def test_selector_keeps_attested_analytics_core_build_skew_isolated(
     ]
 
 
+def test_selector_expands_fallback_until_retry_cohort_is_consistent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    relative_paths = {
+        "ci_core": "data/vllm/ci/amd_test_matrix.json",
+        "ci_analytics": "data/vllm/ci/analytics.json",
+    }
+    paths = {
+        surface: repo / relative
+        for surface, relative in relative_paths.items()
+    }
+    for surface, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"surface": surface, "build": 101}))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated retry cohort")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    for surface, path in paths.items():
+        path.write_text(json.dumps({"surface": surface, "build": 100}))
+
+    specs = {
+        surface: SurfaceSpec(required_paths=(relative_paths[surface],))
+        for surface in relative_paths
+    }
+    audit_runs: list[bool] = []
+
+    class RetryCohortAudit:
+        def __init__(self, *args, allow_publication_fallback: bool, **kwargs):
+            self._allow_fallback = allow_publication_fallback
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            audit_runs.append(self._allow_fallback)
+            if len(audit_runs) == 1:
+                errors = [
+                    Finding(
+                        "error",
+                        "operations-stale-source",
+                        "AMD test signal became stale while a retry was running",
+                        "data/vllm/ci/operations_v2.json",
+                        {"source": "amd_test_signal"},
+                    )
+                ]
+            elif len(audit_runs) == 2:
+                errors = [
+                    Finding(
+                        "error",
+                        "matrix-analytics-build",
+                        "restored matrix is newer than current analytics",
+                        relative_paths["ci_core"],
+                    ),
+                    Finding(
+                        "error",
+                        "analytics-jsonl-build-mismatch",
+                        "current analytics is older than the restored CI ledger",
+                        relative_paths["ci_analytics"],
+                    ),
+                ]
+            else:
+                errors = []
+            return SimpleNamespace(errors=errors, degradations=[])
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(surfaces_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", RetryCohortAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "data/vllm/ci/publication_state.json",
+    )
+
+    assert state["mode"] == "fallback"
+    assert state["fallback_surfaces"] == ["ci_analytics", "ci_core"]
+    assert state["final_errors"] == []
+    assert {
+        surface: json.loads(path.read_text())["build"]
+        for surface, path in paths.items()
+    } == {"ci_core": 101, "ci_analytics": 101}
+    assert audit_runs == [False, True, True]
+
+
+def test_selector_fails_closed_when_fallback_audit_cannot_make_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    relative = "data/vllm/ci/amd_test_matrix.json"
+    source = repo / relative
+    source.parent.mkdir(parents=True)
+    source.write_text('{"build":101}\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated core cohort")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('{"build":100}\n')
+
+    specs = {"ci_core": SurfaceSpec(required_paths=(relative,))}
+    audit_runs: list[bool] = []
+
+    class NoProgressAudit:
+        def __init__(self, *args, allow_publication_fallback: bool, **kwargs):
+            self._allow_fallback = allow_publication_fallback
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            audit_runs.append(self._allow_fallback)
+            if len(audit_runs) == 1:
+                error = Finding(
+                    "error",
+                    "operations-stale-source",
+                    "AMD test signal is stale",
+                    "data/vllm/ci/operations_v2.json",
+                    {"source": "amd_test_signal"},
+                )
+            else:
+                error = Finding(
+                    "error",
+                    "matrix-summary-mismatch",
+                    "restoring CI core did not repair its invariant",
+                    relative,
+                )
+            return SimpleNamespace(errors=[error], degradations=[])
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(surfaces_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", NoProgressAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    state_path = repo / "data/vllm/ci/publication_state.json"
+
+    with pytest.raises(
+        RuntimeError,
+        match="last-known-good surface selection still fails",
+    ):
+        selector_module.select_publication(repo, baseline, state_path)
+
+    state = json.loads(state_path.read_text())
+    assert state["mode"] == "blocked"
+    assert state["fallback_surfaces"] == ["ci_core"]
+    assert state["final_errors"][0]["code"] == "matrix-summary-mismatch"
+    assert json.loads(source.read_text())["build"] == 101
+    assert audit_runs == [False, True]
+
+
+def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    health_relative = "data/vllm/ci/ci_health.json"
+    analytics_relative = "data/vllm/ci/analytics.json"
+    health_path = repo / health_relative
+    analytics_path = repo / analytics_relative
+    health_path.parent.mkdir(parents=True)
+
+    def health_payload(
+        signal_build: int,
+        *,
+        active_retry: bool,
+    ) -> dict:
+        return {
+            "amd": {
+                "latest_build": {"build_number": signal_build},
+                "latest_test_signal_build": {"build_number": signal_build},
+                "latest_pipeline_build": {
+                    "build_number": 101,
+                    "active_retry": active_retry,
+                },
+            }
+        }
+
+    health_path.write_text(json.dumps(health_payload(101, active_retry=False)))
+    analytics_path.write_text(json.dumps({"build": 101}))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated completed retry build")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    health_path.write_text(json.dumps(health_payload(100, active_retry=True)))
+    analytics_path.write_text(json.dumps({"build": 100}))
+    specs = {
+        "ci_core": SurfaceSpec(required_paths=(health_relative,)),
+        "ci_analytics": SurfaceSpec(required_paths=(analytics_relative,)),
+    }
+    audit_runs = 0
+
+    class ActiveRetryAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            nonlocal audit_runs
+            audit_runs += 1
+            if audit_runs == 1:
+                errors = [
+                    Finding(
+                        "error",
+                        "matrix-analytics-build",
+                        "restored core is newer than analytics",
+                        health_relative,
+                        {"pipeline": "amd"},
+                    ),
+                    Finding(
+                        "error",
+                        "analytics-jsonl-build-mismatch",
+                        "analytics is older than restored JSONL evidence",
+                        analytics_relative,
+                        {"pipeline": "amd"},
+                    ),
+                ]
+            else:
+                errors = []
+            return SimpleNamespace(errors=errors, degradations=[])
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(surfaces_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", ActiveRetryAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    state_path = repo / "data/vllm/ci/publication_state.json"
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+    )
+
+    assert state["fallback_surfaces"] == ["ci_analytics", "ci_core"]
+    assert json.loads(health_path.read_text()) == health_payload(
+        101,
+        active_retry=False,
+    )
+    assert json.loads(analytics_path.read_text()) == {"build": 101}
+    assert state["incident_policy"]["alert"] is False
+    assert state["incident_policy"]["reason"] == (
+        "active-upstream-retry-first-observation"
+    )
+    assert audit_runs == 2
+    assert state["upstream_retry_observations"] == [{
+        "kind": "published-build-active-retry",
+        "surface": "ci_core",
+        "pipeline": "amd",
+        "build_number": 101,
+        "candidate_test_signal_build_number": 100,
+        "persistence_runs": 1,
+        "alertable": False,
+    }]
+    assert all(
+        finding["context"]["alertable"] is False
+        for finding in state["candidate_errors"]
+    )
+    assert "degraded=true" in output.read_text()
+    assert "blocked=false" in output.read_text()
+    assert "alertable_degradation=false" in output.read_text()
+    assert "transient_alert_suppressed=true" in output.read_text()
+
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "publish first retry fallback")
+    second_baseline = _git(repo, "rev-parse", "HEAD")
+    health_path.write_text(json.dumps(health_payload(100, active_retry=True)))
+    analytics_path.write_text(json.dumps({"build": 100}))
+    audit_runs = 0
+    output.write_text("")
+
+    second_state = selector_module.select_publication(
+        repo,
+        second_baseline,
+        state_path,
+    )
+
+    assert audit_runs == 2
+    assert second_state["incident_policy"]["alert"] is True
+    assert second_state["incident_policy"]["reason"] == (
+        "active-upstream-retry-persisted"
+    )
+    assert second_state["upstream_retry_observations"][0][
+        "persistence_runs"
+    ] == 2
+    assert "alertable_degradation=true" in output.read_text()
+    assert "transient_alert_suppressed=false" in output.read_text()
+
+
+def test_active_retry_alert_requires_two_consecutive_observations() -> None:
+    observation = {
+        "kind": "published-build-active-retry",
+        "surface": "ci_core",
+        "pipeline": "amd",
+        "build_number": 101,
+        "candidate_test_signal_build_number": 100,
+    }
+    first, first_streaks = selector_module._upstream_retry_incident_policy(
+        [observation], None
+    )
+    second, second_streaks = selector_module._upstream_retry_incident_policy(
+        [observation], {"upstream_retry_streaks": first_streaks}
+    )
+    recovered, recovered_streaks = selector_module._upstream_retry_incident_policy(
+        [], {"upstream_retry_streaks": second_streaks}
+    )
+    after_recovery, _ = selector_module._upstream_retry_incident_policy(
+        [observation], {"upstream_retry_streaks": recovered_streaks}
+    )
+
+    assert first["alert"] is False
+    assert first["max_observed_streak"] == 1
+    assert second["alert"] is True
+    assert second["max_observed_streak"] == 2
+    assert recovered["alert"] is False
+    assert recovered_streaks == {}
+    assert after_recovery["alert"] is False
+
+
+def test_active_retry_does_not_suppress_an_unrelated_publication_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = {
+        "mode": "fallback",
+        "degraded_surfaces": ["ci_core"],
+        "fallback_surfaces": ["ci_core"],
+        "collector_failures": [],
+        "incident_policy": {
+            "alert": True,
+            "reason": "non-collector-publication-finding",
+        },
+        "candidate_errors": [{
+            "severity": "error",
+            "code": "matrix-summary-mismatch",
+            "message": "matrix totals do not reconcile",
+            "path": "data/vllm/ci/amd_test_matrix.json",
+            "surfaces": ["ci_core"],
+        }],
+        "candidate_degradations": [],
+        "final_errors": [],
+        "final_degradations": [],
+    }
+    observation = {
+        "kind": "published-build-active-retry",
+        "surface": "ci_core",
+        "pipeline": "amd",
+        "build_number": 101,
+        "candidate_test_signal_build_number": 100,
+    }
+    policy = {
+        "alert": False,
+        "reason": "active-upstream-retry-first-observation",
+        "max_observed_streak": 1,
+    }
+    output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    selector_module._apply_upstream_retry_reporting_policy(
+        state,
+        [observation],
+        policy,
+        forced=set(),
+    )
+    selector_module._emit_outputs(state)
+
+    assert state["incident_policy"]["alert"] is True
+    assert "context" not in state["candidate_errors"][0]
+    assert "alertable_degradation=true" in output.read_text()
+    assert "transient_alert_suppressed=false" in output.read_text()
+
+
 def test_transient_collector_alert_requires_two_consecutive_fallbacks() -> None:
     failure = {
         "surface": "ci_analytics",
@@ -1044,6 +1438,14 @@ def test_clean_candidate_writes_schema_v2_current_state(
             "transient_persistence_runs_required": 2,
             "max_observed_streak": 0,
         },
+        "incident_policy": {
+            "alert": True,
+            "reason": "non-collector-publication-finding",
+            "transient_persistence_runs_required": 2,
+            "max_observed_streak": 0,
+        },
+        "upstream_retry_observations": [],
+        "upstream_retry_streaks": {},
         "candidate_errors": [],
         "candidate_degradations": [],
         "final_errors": [],

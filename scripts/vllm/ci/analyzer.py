@@ -1380,6 +1380,25 @@ def compute_build_summary(
     jobs = build.get("jobs", [])
     script_jobs = [j for j in jobs if j.get("type") == "script"]
 
+    # Attest an active retry only from Buildkite's explicit predecessor ->
+    # successor linkage.  A merely running build or job is not retry evidence.
+    # Keep the summary privacy-safe by publishing only the boolean, never the
+    # linked job identifiers used to derive it.
+    jobs_by_id = {
+        str(job.get("id")): job
+        for job in script_jobs
+        if job.get("id")
+    }
+    active_states = cfg.RUNNING_STATES | cfg.WAITING_STATES
+    active_retry = any(
+        str(jobs_by_id.get(str(job.get("retried_in_job_id")), {}).get("state") or "")
+        .strip()
+        .casefold()
+        in active_states
+        for job in script_jobs
+        if job.get("retried_in_job_id")
+    )
+
     # Filter out retried jobs (superseded by a retry) so we only count
     # the latest attempt per step.  Buildkite sets ``retried_in_job_id``
     # on the OLD job pointing to its replacement — so any job with this
@@ -1507,6 +1526,7 @@ def compute_build_summary(
         test_jobs_blocked=test_jobs_blocked,
         has_test_results=bool(test_results),
         is_running=is_running,
+        active_retry=active_retry,
         test_groups=test_groups,
         unique_test_groups=unique_test_groups,
         test_groups_passing_or=groups_passing_or,

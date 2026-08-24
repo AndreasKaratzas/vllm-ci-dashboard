@@ -62,6 +62,15 @@ TRANSIENT_COLLECTOR_REASONS = frozenset({
     "network",
 })
 TRANSIENT_ALERT_PERSISTENCE_RUNS = 2
+CI_HEALTH_PATH = "data/vllm/ci/ci_health.json"
+UPSTREAM_RETRY_ALERT_PERSISTENCE_RUNS = 2
+UPSTREAM_RETRY_FINDING_CODE = "publication-upstream-retry-provisional"
+UPSTREAM_RETRY_RECONCILIATION_CODES = frozenset({
+    "analytics-jsonl-build-mismatch",
+    "ci-health-jsonl-build-mismatch",
+    "matrix-analytics-build",
+    "matrix-health-build",
+})
 
 
 class FallbackExpiredError(RuntimeError):
@@ -251,6 +260,223 @@ def _collector_incident_policy(
         "transient_persistence_runs_required": TRANSIENT_ALERT_PERSISTENCE_RUNS,
         "max_observed_streak": max(streaks.values(), default=0),
     }, streaks)
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _test_signal_build_number(section: Mapping[str, Any]) -> int | None:
+    for key in ("latest_test_signal_build", "latest_build"):
+        row = section.get(key)
+        if not isinstance(row, Mapping):
+            continue
+        number = _positive_int(row.get("build_number") or row.get("number"))
+        if number is not None:
+            return number
+    return None
+
+
+def _load_candidate_json_object(root: Path, relative: str) -> dict | None:
+    try:
+        value = json.loads((root / relative).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _load_baseline_json_object(
+    root: Path,
+    baseline_ref: str,
+    relative: str,
+) -> dict | None:
+    try:
+        value = json.loads(_run_git(root, "show", f"{baseline_ref}:{relative}"))
+    except (subprocess.CalledProcessError, UnicodeError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _active_upstream_retry_observations(
+    root: Path,
+    baseline_ref: str,
+) -> list[dict[str, Any]]:
+    """Attest terminal-to-provisional retry transitions from collector output.
+
+    A newer in-progress nightly is routine and is deliberately ignored here.
+    The transition is classified only when the collector explicitly saw an
+    active retry on the exact build that the immutable baseline had already
+    published as complete test evidence, and the candidate signal retreated to
+    an older build as a result.
+    """
+    candidate = _load_candidate_json_object(root, CI_HEALTH_PATH)
+    baseline = _load_baseline_json_object(root, baseline_ref, CI_HEALTH_PATH)
+    if candidate is None or baseline is None:
+        return []
+
+    observations: list[dict[str, Any]] = []
+    for pipeline in ("amd", "upstream"):
+        candidate_section = candidate.get(pipeline)
+        baseline_section = baseline.get(pipeline)
+        if not isinstance(candidate_section, Mapping) or not isinstance(
+            baseline_section, Mapping
+        ):
+            continue
+        candidate_head = candidate_section.get("latest_pipeline_build")
+        baseline_head = baseline_section.get("latest_pipeline_build")
+        if not isinstance(candidate_head, Mapping) or not isinstance(
+            baseline_head, Mapping
+        ):
+            continue
+        candidate_number = _positive_int(
+            candidate_head.get("build_number") or candidate_head.get("number")
+        )
+        baseline_number = _positive_int(
+            baseline_head.get("build_number") or baseline_head.get("number")
+        )
+        candidate_signal = _test_signal_build_number(candidate_section)
+        baseline_signal = _test_signal_build_number(baseline_section)
+        if (
+            candidate_head.get("active_retry") is not True
+            or baseline_head.get("active_retry") is True
+            or candidate_number is None
+            or candidate_number != baseline_number
+            or baseline_signal != candidate_number
+            or candidate_signal is None
+            or candidate_signal >= candidate_number
+        ):
+            continue
+        observations.append({
+            "kind": "published-build-active-retry",
+            "surface": "ci_core",
+            "pipeline": pipeline,
+            "build_number": candidate_number,
+            "candidate_test_signal_build_number": candidate_signal,
+        })
+    return observations
+
+
+def _upstream_retry_identity(observation: Mapping[str, Any]) -> str:
+    source = "\n".join(
+        str(observation.get(key) or "")
+        for key in ("kind", "surface", "pipeline", "build_number")
+    )
+    return hashlib.sha256(source.encode()).hexdigest()[:20]
+
+
+def _upstream_retry_incident_policy(
+    observations: list[dict[str, Any]],
+    previous: dict | None,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    previous_streaks = (previous or {}).get("upstream_retry_streaks") or {}
+    if not isinstance(previous_streaks, dict):
+        previous_streaks = {}
+    streaks: dict[str, int] = {}
+    for observation in observations:
+        identity = _upstream_retry_identity(observation)
+        prior = previous_streaks.get(identity)
+        prior_count = prior if isinstance(prior, int) and prior > 0 else 0
+        streaks[identity] = max(streaks.get(identity, 0), prior_count + 1)
+    max_streak = max(streaks.values(), default=0)
+    alert = max_streak >= UPSTREAM_RETRY_ALERT_PERSISTENCE_RUNS
+    if alert:
+        reason = "active-upstream-retry-persisted"
+    elif observations:
+        reason = "active-upstream-retry-first-observation"
+    else:
+        reason = "no-active-upstream-retry"
+    return ({
+        "alert": alert,
+        "reason": reason,
+        "transient_persistence_runs_required": (
+            UPSTREAM_RETRY_ALERT_PERSISTENCE_RUNS
+        ),
+        "max_observed_streak": max_streak,
+    }, streaks)
+
+
+def _retry_reconciliation_finding(
+    record: Mapping[str, Any],
+    pipelines: set[str],
+) -> bool:
+    code = str(record.get("code") or "")
+    surfaces = {
+        str(surface)
+        for surface in (record.get("surfaces") or [])
+        if str(surface)
+    }
+    if not surfaces or not surfaces <= {"ci_core", "ci_analytics"}:
+        return False
+    context = record.get("context")
+    context = context if isinstance(context, Mapping) else {}
+    if code == UPSTREAM_RETRY_FINDING_CODE:
+        return context.get("pipeline") in pipelines
+    if code == "operations-stale-source":
+        return context.get("source") in {
+            f"{pipeline}_test_signal" for pipeline in pipelines
+        }
+    return (
+        code in UPSTREAM_RETRY_RECONCILIATION_CODES
+        and context.get("pipeline") in pipelines
+    )
+
+
+def _apply_upstream_retry_reporting_policy(
+    state: dict,
+    observations: list[dict[str, Any]],
+    policy: dict[str, Any],
+    *,
+    forced: set[str],
+) -> None:
+    """Debounce only a fully reconciled, collector-attested retry episode."""
+    records = [
+        record
+        for key in (
+            "candidate_errors",
+            "candidate_degradations",
+            "final_errors",
+            "final_degradations",
+        )
+        for record in (state.get(key) or [])
+        if isinstance(record, dict)
+    ]
+    pipelines = {
+        str(observation.get("pipeline") or "")
+        for observation in observations
+        if observation.get("pipeline")
+    }
+    fallback = set(state.get("fallback_surfaces") or [])
+    eligible = bool(
+        observations
+        and not forced
+        and state.get("mode") != "blocked"
+        and not state.get("final_errors")
+        and fallback
+        and "ci_core" in fallback
+        and fallback <= {"ci_core", "ci_analytics"}
+        and records
+        and all(_retry_reconciliation_finding(record, pipelines) for record in records)
+    )
+    if not eligible:
+        return
+
+    alertable = policy.get("alert", True) is not False
+    max_streak = int(policy.get("max_observed_streak") or 0)
+    for record in records:
+        context = record.get("context")
+        context = dict(context) if isinstance(context, Mapping) else {}
+        context.update({
+            "alertable": alertable,
+            "persistence_runs": max_streak,
+            "transient_reason": "active-upstream-retry-reconciliation",
+        })
+        record["context"] = context
+    state["incident_policy"] = {
+        **policy,
+        "source": "active-upstream-retry-reconciliation",
+    }
 
 
 def _utc_now() -> str:
@@ -1030,7 +1256,11 @@ def _emit_outputs(state: dict) -> None:
     output_path = os.getenv("GITHUB_OUTPUT", "").strip()
     degraded = bool(state.get("degraded_surfaces"))
     blocked = state.get("mode") == "blocked"
-    incident_policy = state.get("collector_incident_policy") or {}
+    incident_policy = (
+        state.get("incident_policy")
+        or state.get("collector_incident_policy")
+        or {}
+    )
     typed_surfaces = {
         str(record.get("surface") or "")
         for record in (state.get("collector_failures") or [])
@@ -1046,6 +1276,9 @@ def _emit_outputs(state: dict) -> None:
         for record in state.get(key) or []:
             if not isinstance(record, dict):
                 unexpected_finding = True
+                continue
+            context = record.get("context")
+            if isinstance(context, Mapping) and context.get("alertable") is False:
                 continue
             if record.get("code") == "publication-collector-failed":
                 continue
@@ -1139,11 +1372,16 @@ def select_publication(
     if unknown_forced:
         raise ValueError(f"unknown forced publication surfaces: {sorted(unknown_forced)}")
 
+    retry_observations = _active_upstream_retry_observations(root, baseline_ref)
+    retry_surfaces = {
+        str(observation["surface"])
+        for observation in retry_observations
+    }
     now = datetime.now(timezone.utc)
     candidate_errors: list[dict] = []
     candidate_degradations: list[dict] = []
     fresh_degraded: set[str] = set()
-    fallback: set[str] = _closed_fallback_surfaces(forced)
+    fallback: set[str] = _closed_fallback_surfaces(forced | retry_surfaces)
     restored: dict[str, list[str]] = {}
     state = {
         "schema_version": 2,
@@ -1167,6 +1405,16 @@ def select_publication(
             ),
             "max_observed_streak": 0,
         },
+        "incident_policy": {
+            "alert": True,
+            "reason": "non-collector-publication-finding",
+            "transient_persistence_runs_required": (
+                TRANSIENT_ALERT_PERSISTENCE_RUNS
+            ),
+            "max_observed_streak": 0,
+        },
+        "upstream_retry_observations": [],
+        "upstream_retry_streaks": {},
         "candidate_errors": candidate_errors,
         "candidate_degradations": candidate_degradations,
         "final_errors": [],
@@ -1176,7 +1424,7 @@ def select_publication(
     }
 
     try:
-        previous_for_policy = prior_state() if forced else None
+        previous_for_policy = prior_state() if forced or retry_observations else None
         incident_policy, collector_streaks = _collector_incident_policy(
             normalized_failures,
             previous_for_policy,
@@ -1184,7 +1432,41 @@ def select_publication(
         )
         if forced:
             state["collector_incident_policy"] = incident_policy
+            state["incident_policy"] = dict(incident_policy)
         state["collector_failure_streaks"] = collector_streaks
+        retry_policy, retry_streaks = _upstream_retry_incident_policy(
+            retry_observations,
+            previous_for_policy,
+        )
+        state["upstream_retry_streaks"] = retry_streaks
+        for observation in retry_observations:
+            persistence_runs = retry_streaks[
+                _upstream_retry_identity(observation)
+            ]
+            alertable = (
+                persistence_runs >= UPSTREAM_RETRY_ALERT_PERSISTENCE_RUNS
+            )
+            recorded_observation = {
+                **observation,
+                "persistence_runs": persistence_runs,
+                "alertable": alertable,
+            }
+            state["upstream_retry_observations"].append(recorded_observation)
+            candidate_errors.append({
+                "severity": "error",
+                "code": UPSTREAM_RETRY_FINDING_CODE,
+                "message": (
+                    f"{observation['pipeline']} build "
+                    f"#{observation['build_number']} returned to an active retry; "
+                    "CI core will retain its validated completed cohort"
+                ),
+                "path": CI_HEALTH_PATH,
+                "context": {
+                    **recorded_observation,
+                    "active_retry": True,
+                },
+                "surfaces": [observation["surface"]],
+            })
         for record in normalized_failures:
             persistence_runs = collector_streaks[
                 _collector_failure_persistence_identity(record)
@@ -1352,58 +1634,107 @@ def select_publication(
             return state
 
         _raise_if_fallback_expired(state["fallback_since"], now)
-        additional = fallback - set(restored)
-        preflight = {
-            surface: _baseline_payloads(root, baseline_ref, SURFACE_SPECS[surface])
-            for surface in sorted(additional)
-        }
-        for surface in sorted(additional):
-            restored[surface] = restore_surface(
-                root,
-                baseline_ref,
-                SURFACE_SPECS[surface],
-                preflight=preflight[surface],
-            )
-        state["restored_paths"] = restored
-        state["restored_manifest"] = _surface_manifest(root, restored)
-        # State must exist before the final audit so bounded stale-source
-        # handling applies only to the explicitly quarantined transactions.
-        _write_state(state_path, state)
-        _rebuild_operations(root)
-        final = DashboardAudit(
-            root,
-            allow_publication_fallback=True,
-            publication_state_path=state_path,
-        ).run()
-        state["final_errors"] = [
-            _finding_record(finding, finding_surfaces(finding))
-            for finding in final.errors
-        ]
-        final_degradations = [
-            _finding_record(finding, finding_surfaces(finding))
-            for finding in getattr(final, "degradations", [])
-        ]
-        state["final_degradations"] = final_degradations
-        unrouted_final_degradations = [
-            record for record in final_degradations if not record["surfaces"]
-        ]
-        for record in final_degradations:
-            fresh_degraded.update(record["surfaces"])
-        final_error_surfaces = {
-            surface
-            for record in state["final_errors"]
-            for surface in record["surfaces"]
-        }
-        # Hard errors are never represented as publishable fresh degradation.
-        fresh_degraded.difference_update(fallback | final_error_surfaces)
-        _apply_surface_state(state, fresh_degraded, fallback, previous, now)
-        if final.errors or unrouted_final_degradations:
-            state["mode"] = "blocked"
+        # Cross-surface invariants can reveal another transaction only after
+        # the first one has been restored. Reconcile to a fixed point, while
+        # requiring every failed pass to add at least one previously current
+        # surface. The fallback set grows monotonically, so this is bounded by
+        # the number of declared publication surfaces.
+        while True:
+            additional = fallback - set(restored)
+            preflight = {
+                surface: _baseline_payloads(
+                    root,
+                    baseline_ref,
+                    SURFACE_SPECS[surface],
+                )
+                for surface in sorted(additional)
+            }
+            for surface in sorted(additional):
+                restored[surface] = restore_surface(
+                    root,
+                    baseline_ref,
+                    SURFACE_SPECS[surface],
+                    preflight=preflight[surface],
+                )
+            state["restored_paths"] = dict(restored)
+            state["restored_manifest"] = _surface_manifest(root, restored)
+            # State must exist before each fallback-aware audit so bounded
+            # stale-source and cross-generation handling is authorized only
+            # for the transactions already restored and hash-attested here.
             _write_state(state_path, state)
-            _emit_outputs(state)
-            raise RuntimeError(
-                "last-known-good surface selection still fails the complete dashboard audit"
+            _rebuild_operations(root)
+            final = DashboardAudit(
+                root,
+                allow_publication_fallback=True,
+                publication_state_path=state_path,
+            ).run()
+            final_errors = [
+                _finding_record(finding, finding_surfaces(finding))
+                for finding in final.errors
+            ]
+            final_degradations = [
+                _finding_record(finding, finding_surfaces(finding))
+                for finding in getattr(final, "degradations", [])
+            ]
+            state["final_errors"] = final_errors
+            state["final_degradations"] = final_degradations
+            unrouted_final_errors = [
+                record for record in final_errors if not record["surfaces"]
+            ]
+            unrouted_final_degradations = [
+                record for record in final_degradations if not record["surfaces"]
+            ]
+            for record in final_degradations:
+                fresh_degraded.update(record["surfaces"])
+            final_error_surfaces = {
+                surface
+                for record in final_errors
+                for surface in record["surfaces"]
+            }
+            # Hard errors are never represented as publishable fresh
+            # degradation.
+            fresh_degraded.difference_update(fallback | final_error_surfaces)
+            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+
+            if not final.errors and not unrouted_final_degradations:
+                break
+
+            next_fallback = _closed_fallback_surfaces(
+                fallback | final_error_surfaces
             )
+            newly_implicated = next_fallback - set(restored)
+            if (
+                unrouted_final_errors
+                or unrouted_final_degradations
+                or not newly_implicated
+            ):
+                state["mode"] = "blocked"
+                _write_state(state_path, state)
+                _emit_outputs(state)
+                raise RuntimeError(
+                    "last-known-good surface selection still fails the complete "
+                    "dashboard audit"
+                )
+
+            # Preserve the intermediate evidence that justified widening the
+            # atomic fallback, but reserve final_* for the terminal audit pass.
+            candidate_errors.extend(final_errors)
+            candidate_degradations.extend(final_degradations)
+            state["candidate_errors"] = candidate_errors
+            state["candidate_degradations"] = candidate_degradations
+            state["final_errors"] = []
+            state["final_degradations"] = []
+            fallback = next_fallback
+            fresh_degraded.difference_update(fallback)
+            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+            _raise_if_fallback_expired(state["fallback_since"], now)
+
+        _apply_upstream_retry_reporting_policy(
+            state,
+            retry_observations,
+            retry_policy,
+            forced=forced,
+        )
     except Exception as exc:
         if state.get("mode") != "blocked":
             previous = previous_state if previous_state_loaded else None

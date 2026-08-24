@@ -935,6 +935,7 @@ class DashboardAudit:
         left_build: object,
         right_surface: str,
         right_build: object,
+        context: dict[str, Any] | None = None,
     ) -> None:
         """Allow only build skew proven by one directionally older LKG surface.
 
@@ -958,7 +959,7 @@ class DashboardAudit:
             )
         )
         if not expected_skew:
-            self.error(code, message, path)
+            self.error(code, message, path, context=context)
             return
 
         fallback_surface = left_surface if left_restored else right_surface
@@ -974,6 +975,7 @@ class DashboardAudit:
             ),
             path,
             context={
+                **(context or {}),
                 "fallback_surface": fallback_surface,
                 "fallback_build_number": fallback_build,
                 "current_surface": current_surface,
@@ -4222,6 +4224,7 @@ class DashboardAudit:
                     "ci-health-jsonl-build-mismatch",
                     f"{side} ci_health latest build #{build_number} does not match {path.name} build numbers {sorted(result_numbers)}",
                     "data/vllm/ci/ci_health.json",
+                    context={"pipeline": side},
                 )
             total = latest.get("total_tests", 0)
             counted = latest.get("passed", 0) + latest.get("failed", 0) + latest.get("skipped", 0)
@@ -4468,6 +4471,9 @@ class DashboardAudit:
                     left_build=latest.get("number"),
                     right_surface="ci_core",
                     right_build=max(result_numbers),
+                    context={
+                        "pipeline": "amd" if slug == "amd-ci" else "upstream"
+                    },
                 )
             if result_numbers and latest.get("source") != "test_results":
                 self.warning(
@@ -5722,12 +5728,14 @@ class DashboardAudit:
                 left_build=source_build,
                 right_surface="ci_analytics",
                 right_build=analytics_build,
+                context={"pipeline": "amd"},
             )
         if health_build and source_build != health_build:
             self.error(
                 "matrix-health-build",
                 f"matrix source build #{source_build} does not match ci_health AMD latest #{health_build}",
                 "data/vllm/ci/amd_test_matrix.json",
+                context={"pipeline": "amd"},
             )
 
         arch_counts = {a.get("id"): a for a in matrix.get("architectures") or []}
