@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-25T08:05:31Z",
+  "generated_at": "2026-08-25T09:06:04Z",
   "days": 30,
-  "total_changes": 116,
+  "total_changes": 117,
   "changes": [
     {
       "date": "2026-03-10",
@@ -5513,6 +5513,32 @@
         "title": "[CI] Report torch-nightly results to PyTorch CRCR",
         "url": "https://github.com/vllm-project/vllm/pull/51830",
         "author": "atalman"
+      }
+    },
+    {
+      "date": "2026-08-25",
+      "sha": "d9fbe526c078",
+      "message": "[ROCm][CI] Skip ModernBERT FP8 MTEB test when no FP8 ScaledMM kernel exists (#53589)",
+      "author": "djramic",
+      "added": [
+        ":amd: (MI300) Language Models (MTEB)"
+      ],
+      "removed": [
+        ":amd: (MI250) Language Models (MTEB)"
+      ],
+      "amd_added": [
+        ":amd: (MI300) Language Models (MTEB)"
+      ],
+      "amd_removed": [
+        ":amd: (MI250) Language Models (MTEB)"
+      ],
+      "upstream_added": [],
+      "upstream_removed": [],
+      "pr": {
+        "number": 53589,
+        "title": "[ROCm][CI] Skip ModernBERT FP8 MTEB test when no FP8 ScaledMM kernel exists",
+        "url": "https://github.com/vllm-project/vllm/pull/53589",
+        "author": "djramic"
       }
     }
   ],
