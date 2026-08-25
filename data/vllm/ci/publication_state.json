@@ -1,16 +1,16 @@
 {
-  "baseline_ref": "c14e451ceb04b9cda38a4bbdd407f473044af20e",
+  "baseline_ref": "df4b7f855ba7124ec83ae9ff008f5ffab75ae244",
   "candidate_degradations": [],
   "candidate_errors": [
     {
       "code": "publication-upstream-retry-provisional",
       "context": {
         "active_retry": true,
-        "alertable": false,
+        "alertable": true,
         "build_number": 85453,
         "candidate_test_signal_build_number": 85292,
         "kind": "published-build-active-retry",
-        "persistence_runs": 1,
+        "persistence_runs": 2,
         "pipeline": "upstream",
         "surface": "ci_core",
         "transient_reason": "active-upstream-retry-reconciliation"
@@ -25,8 +25,8 @@
     {
       "code": "analytics-jsonl-build-mismatch",
       "context": {
-        "alertable": false,
-        "persistence_runs": 1,
+        "alertable": true,
+        "persistence_runs": 2,
         "pipeline": "upstream",
         "transient_reason": "active-upstream-retry-reconciliation"
       },
@@ -66,11 +66,11 @@
   "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [],
-  "generated_at": "2026-08-25T19:05:02Z",
+  "generated_at": "2026-08-25T19:54:06Z",
   "incident_policy": {
-    "alert": false,
-    "max_observed_streak": 1,
-    "reason": "active-upstream-retry-first-observation",
+    "alert": true,
+    "max_observed_streak": 2,
+    "reason": "active-upstream-retry-persisted",
     "source": "active-upstream-retry-reconciliation",
     "transient_persistence_runs_required": 2
   },
@@ -481,16 +481,16 @@
   "surface_contract_version": 4,
   "upstream_retry_observations": [
     {
-      "alertable": false,
+      "alertable": true,
       "build_number": 85453,
       "candidate_test_signal_build_number": 85292,
       "kind": "published-build-active-retry",
-      "persistence_runs": 1,
+      "persistence_runs": 2,
       "pipeline": "upstream",
       "surface": "ci_core"
     }
   ],
   "upstream_retry_streaks": {
-    "e994cc5892f2856fdd05": 1
+    "e994cc5892f2856fdd05": 2
   }
 }
