@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-26T19:27:09Z",
+  "generated_at": "2026-08-26T23:39:13Z",
   "source": {
     "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
     "canonical_targets": "data/vllm/ci/gating_targets.json",
@@ -230,9 +230,9 @@
     {
       "label": "Batch Invariance",
       "canonical_key": "batch invariance",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc6-94cf-4db1-8484-db54a2ec3724&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c711-4da5-a68a-18dd13aab2d1&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 70,
@@ -302,9 +302,9 @@
     {
       "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
       "canonical_key": "crosslayer kv layout distributed nixlconnector pd accuracy",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_l4",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3cb-4490-83b9-1b5d25bcbd36&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c2b7-493e-a0e7-e429cd01486a&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 84,
@@ -347,9 +347,9 @@
     {
       "label": "DeepEP FP8 MoE Kernels",
       "canonical_key": "deepep fp8 moe kernels",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7bc7-4f93-b53e-9700dfc9ed1a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c92a-4515-a754-2e36e96b3072&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 24,
@@ -424,7 +424,7 @@
       "canonical_key": "distributed 2-node",
       "state": "failed",
       "queue": "nvidia_l4",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d6-462f-aa25-d2cd2526cba6&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c316-4d29-bda6-76d294f80a3a&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 45,
@@ -452,9 +452,9 @@
     {
       "label": "Distributed Compile",
       "canonical_key": "distributed compile",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7b44-4eb5-9db9-6a03bf1cce43&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c871-4140-b036-76ddf2d78c1c&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 48,
@@ -662,9 +662,9 @@
     {
       "label": "Elastic EP Scaling",
       "canonical_key": "elastic ep scaling",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc6-9211-413b-a5dd-2305b34d20b3&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c655-44fe-928f-2d76003e716c&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 21,
@@ -887,9 +887,9 @@
     {
       "label": "FP8 MoE Kernels",
       "canonical_key": "fp8 moe kernels",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7c60-4808-8970-f172d31c9f24&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c9dd-461d-ae2e-018d004df9bd&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 8,
@@ -977,9 +977,9 @@
     {
       "label": "Helion Kernels Shard %N",
       "canonical_key": "helion kernels shard %N",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7cdb-4dc2-827c-961f5e73fc10&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-ca48-4997-861d-f4c7fbb4daf6&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 92,
@@ -990,22 +990,22 @@
       "proposal_matches": [],
       "shard_count": 2,
       "shard_states": {
-        "failed": 2
+        "passed": 2
       },
       "runtime_shards": [
         {
           "label": "Helion Kernels Shard 1",
           "shard_index": 1,
-          "state": "failed",
+          "state": "passed",
           "queue": "nvidia_h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7cdb-4dc2-827c-961f5e73fc10&tab=output"
+          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-ca48-4997-861d-f4c7fbb4daf6&tab=output"
         },
         {
           "label": "Helion Kernels Shard 2",
           "shard_index": 2,
-          "state": "failed",
+          "state": "passed",
           "queue": "nvidia_h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7ba3-43a0-bd2d-1c4fbbe00711&tab=output"
+          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c8d2-428e-9b14-16000563d22a&tab=output"
         }
       ]
     },
@@ -1897,9 +1897,9 @@
     {
       "label": "V1 Attention Shard %N",
       "canonical_key": "v1 attention shard %N",
-      "state": "failed",
-      "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7afc-4e3f-88e1-c708e25ec990&tab=output",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b39f-4612-9398-5b46f3793456&tab=output",
       "exclusion_reasons": [],
       "decision": "canonical",
       "target_id": 103,
@@ -1910,22 +1910,22 @@
       "proposal_matches": [],
       "shard_count": 2,
       "shard_states": {
-        "failed": 2
+        "passed": 2
       },
       "runtime_shards": [
         {
           "label": "V1 Attention Shard 1",
           "shard_index": 1,
-          "state": "failed",
-          "queue": "nvidia_h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7afc-4e3f-88e1-c708e25ec990&tab=output"
+          "state": "passed",
+          "queue": "nvidia_b200",
+          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b39f-4612-9398-5b46f3793456&tab=output"
         },
         {
           "label": "V1 Attention Shard 2",
           "shard_index": 2,
-          "state": "failed",
-          "queue": "nvidia_h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7a4d-4fbc-b4c5-8e562a25b73c&tab=output"
+          "state": "passed",
+          "queue": "nvidia_b200",
+          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3a2-4ee0-bbd2-d6b7a45b0259&tab=output"
         }
       ]
     },
@@ -2265,9 +2265,9 @@
     {
       "label": "Fusion E2E TP2 AsyncTP Config Sweep",
       "canonical_key": "fusion e2e tp2 asynctp config sweep",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7c39-4312-8518-7454d307bbee&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c984-4065-a177-7d99e2a264f8&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2282,9 +2282,9 @@
     {
       "label": "Fusion E2E TP2 Quick",
       "canonical_key": "fusion e2e tp2 quick",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc6-94d9-4736-a2fc-5dfd09ce977a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c776-4905-92e1-03597b0e9c6c&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2301,7 +2301,7 @@
       "canonical_key": "gh200 test",
       "state": "soft_fail",
       "queue": "gh200_queue",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3ef-4262-92fa-c9b34de587af&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c4e9-4407-ab73-817519c08166&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2510,9 +2510,9 @@
     {
       "label": "LM Eval KV-Offload Large",
       "canonical_key": "lm eval kv-offload large",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7dc2-4572-99cd-aa1697dd9e09&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cb4e-402b-84b5-cbbc08591346&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -2527,9 +2527,9 @@
     {
       "label": "LM Eval KV-Offload Medium",
       "canonical_key": "lm eval kv-offload medium",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc6-93f8-44d5-adb2-0d7dcb1f9eff&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c6b2-4203-83d2-bae8c3bc2762&tab=output",
       "exclusion_reasons": [],
       "decision": "new_candidate",
       "source_signal": "red",
@@ -3163,9 +3163,9 @@
     {
       "label": ":satellite: Report nightly results to CRCR",
       "canonical_key": ":satellite: report nightly results to crcr",
-      "state": "soft_fail",
+      "state": "passed",
       "queue": "small_cpu_queue_premerge",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3b7-4ddb-af46-9d7fa7a7f3b9&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c1f2-41a4-8770-f4e1df9a9277&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3187,7 +3187,7 @@
       "canonical_key": "ascend npu test",
       "state": "soft_fail",
       "queue": "ascend",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3ec-413d-8ee8-ab03ca88f714&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c369-4775-9701-b42879fb8fa0&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3342,7 +3342,7 @@
       "canonical_key": "intel hpu test",
       "state": "soft_fail",
       "queue": "intel-hpu",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3f2-4a0c-a00c-7f73a4446963&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c540-4967-8509-a5bda951af66&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
@@ -3364,7 +3364,7 @@
       "canonical_key": "lm eval humming activation fp8/int8 temporary",
       "state": "failed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7d76-4894-986b-86f9fb7c093d&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-caf5-45e0-8e74-bb62b7bea0fa&tab=output",
       "exclusion_reasons": [
         "temporary"
       ],
@@ -3406,9 +3406,9 @@
     {
       "label": "LM Eval Humming FP16 TEMPORARY Shard 1",
       "canonical_key": "lm eval humming fp16 temporary shard 1",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7d44-4a1e-917a-945f39f8ce82&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-ca9d-4404-a5ed-5abe574f90e0&tab=output",
       "exclusion_reasons": [
         "temporary"
       ],
@@ -3428,9 +3428,9 @@
     {
       "label": "LM Eval Humming FP16 TEMPORARY Shard 2",
       "canonical_key": "lm eval humming fp16 temporary shard 2",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7e35-4999-a4a5-8d4b89a968f4&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cbbc-4ac8-a9a8-9b18bdb6d81e&tab=output",
       "exclusion_reasons": [
         "temporary"
       ],
@@ -3450,9 +3450,9 @@
     {
       "label": "LM Eval Humming FP16 TEMPORARY Shard 3",
       "canonical_key": "lm eval humming fp16 temporary shard 3",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7e8e-4d11-a12f-484e381ae2da&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cc17-46ff-a654-99a39ee88e52&tab=output",
       "exclusion_reasons": [
         "temporary"
       ],
@@ -3472,9 +3472,9 @@
     {
       "label": "Model Runner V2 Distributed",
       "canonical_key": "model runner v2 distributed",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_l4",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b456-423a-9b31-9f2d080b361a&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c5a5-4558-aa99-b1c3e59ab4f5&tab=output",
       "exclusion_reasons": [
         "experimental_model_runner_v2"
       ],
@@ -3527,9 +3527,9 @@
     {
       "label": "MoE Refactor Integration TEMPORARY",
       "canonical_key": "moe refactor integration temporary",
-      "state": "failed",
+      "state": "passed",
       "queue": "nvidia_h100",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc7-7eea-468f-934f-80ac3f870685&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cc77-4136-a552-8bb9b52e211d&tab=output",
       "exclusion_reasons": [
         "temporary"
       ],
@@ -3674,7 +3674,7 @@
       "canonical_key": "rust frontend openai coverage",
       "state": "failed",
       "queue": "nvidia_h200",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b475-4971-a761-c1ca0f0d2a76&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c5f9-4a9c-8279-a7092854d185&tab=output",
       "exclusion_reasons": [
         "rust_frontend_long_term"
       ],
@@ -3795,7 +3795,7 @@
       "canonical_key": "xpu v1 test",
       "state": "passed",
       "queue": "intel-gpu",
-      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cf6-df35-417a-a940-c4f6396d27cc&tab=output",
+      "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42f-4578-a9be-a1b2457f834d&tab=output",
       "exclusion_reasons": [
         "cpu_or_non_gpu"
       ],
