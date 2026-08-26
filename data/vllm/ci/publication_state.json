@@ -1,5 +1,5 @@
 {
-  "baseline_ref": "c8b69fc66cea190b6db7fe61005e92f686e4b3e5",
+  "baseline_ref": "e23cbe44ec92b395fe9bdcf247a83f306e992198",
   "candidate_degradations": [],
   "candidate_errors": [
     {
@@ -11,12 +11,12 @@
           "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
         },
         "exit_code": 1,
-        "persistence_runs": 2,
-        "reason_class": "timeout",
+        "persistence_runs": 3,
+        "reason_class": "rate-limit",
         "step": "AMD agent health",
         "surface": "agent_health"
       },
-      "message": "AMD agent health (collect_agent_health.py) failed with timeout; agent_health will use its validated baseline",
+      "message": "AMD agent health (collect_agent_health.py) failed with rate-limit; agent_health will use its validated baseline",
       "path": "",
       "severity": "error",
       "surfaces": [
@@ -25,7 +25,7 @@
     }
   ],
   "collector_failure_streaks": {
-    "bbe10dde8de59267c1cf": 2
+    "bbe10dde8de59267c1cf": 3
   },
   "collector_failures": [
     {
@@ -35,8 +35,8 @@
         "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
       },
       "exit_code": 1,
-      "persistence_runs": 2,
-      "reason_class": "timeout",
+      "persistence_runs": 3,
+      "reason_class": "rate-limit",
       "schema_version": 1,
       "step": "AMD agent health",
       "surface": "agent_health"
@@ -44,7 +44,7 @@
   ],
   "collector_incident_policy": {
     "alert": true,
-    "max_observed_streak": 2,
+    "max_observed_streak": 3,
     "reason": "transient-collector-failure-persisted",
     "transient_persistence_runs_required": 2
   },
@@ -64,10 +64,10 @@
   "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [],
-  "generated_at": "2026-08-26T09:12:34Z",
+  "generated_at": "2026-08-26T10:08:11Z",
   "incident_policy": {
     "alert": true,
-    "max_observed_streak": 2,
+    "max_observed_streak": 3,
     "reason": "transient-collector-failure-persisted",
     "transient_persistence_runs_required": 2
   },
