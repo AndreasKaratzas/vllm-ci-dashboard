@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-25T17:47:31Z",
+  "generated_at": "2026-08-26T05:51:52Z",
   "amd_date": "2026-08-25",
   "upstream_date": "2026-08-25",
   "parity_pct": 0.0,
@@ -601,6 +601,10 @@
       "parity_pct": 100.0,
       "upstream_only": 1
     },
+    ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
+    },
     ":nvidia: (DGX) Spark b12x Linear Kernels Nightly": {
       "parity_pct": 100.0,
       "upstream_only": 1
@@ -807,7 +811,7 @@
     },
     ":nvidia: (H200) Core Operation Kernels Shard 1": {
       "parity_pct": 100.0,
-      "upstream_only": 3
+      "upstream_only": 2
     },
     ":nvidia: (H200) Core Operation Kernels Shard 2": {
       "parity_pct": 100.0,
@@ -2676,7 +2680,7 @@
       "family_key": "attention kernels shard",
       "family_name": "attention kernels shard",
       "amd_job_name": "mi300_1: :amd: (MI300) Attention Kernels Shard 1",
-      "upstream_job_name": ":amd: (MI300) Attention Kernels Shard 2",
+      "upstream_job_name": ":amd: (MI300) Attention Kernels Shard 1",
       "amd": {
         "total": 13984,
         "passed": 11752,
@@ -2732,8 +2736,8 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-666d-4bcf-b467-389e86a85d72&tab=output",
-          "job_name": ":amd: (MI300) Attention Kernels Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-666d-49b9-9120-e7395c89bf67&tab=output",
+          "job_name": ":amd: (MI300) Attention Kernels Shard 1",
           "side": "upstream"
         },
         {
@@ -3157,15 +3161,15 @@
           "side": "upstream"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66a7-405a-ade6-06bc09da62b5&tab=output",
-          "job_name": ":nvidia: (H100) Batch Invariance",
-          "side": "upstream"
-        },
-        {
           "hw": "b200",
           "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66a6-46de-be59-2961ff9f435a&tab=output",
           "job_name": ":nvidia: (B200) Batch Invariance",
+          "side": "upstream"
+        },
+        {
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66a7-405a-ade6-06bc09da62b5&tab=output",
+          "job_name": ":nvidia: (H100) Batch Invariance",
           "side": "upstream"
         }
       ],
@@ -3256,7 +3260,7 @@
       "family_key": "core operation kernels shard",
       "family_name": "core operation kernels shard",
       "amd_job_name": "mi300_1: :amd: (MI300) Core Operation Kernels Shard 1",
-      "upstream_job_name": ":nvidia: (H200) Core Operation Kernels Shard 3",
+      "upstream_job_name": ":nvidia: (H200) Core Operation Kernels Shard 1",
       "amd": {
         "total": 6774,
         "passed": 6357,
@@ -3269,13 +3273,13 @@
       },
       "upstream": {
         "total": 3206,
-        "passed": 3166,
-        "failed": 3,
+        "passed": 3169,
+        "failed": 0,
         "skipped": 37,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3642.89
+        "duration": 3601.76
       },
       "amd_hardware": [
         "mi300",
@@ -3290,12 +3294,8 @@
         "mi355"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {
-        "h200": 3
-      },
-      "hw_failures": {
-        "h200": 3
-      },
+      "upstream_hw_failures": {},
+      "hw_failures": null,
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -3315,15 +3315,15 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6697-46ec-b407-7a97e4caf59f&tab=output",
-          "job_name": ":nvidia: (H200) Core Operation Kernels Shard 3",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03a41-a9d1-4a65-952f-282f61a09dd2&tab=output",
+          "job_name": ":nvidia: (H200) Core Operation Kernels Shard 1",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 3568,
-        "passed": 3191,
-        "failed": -3,
+        "passed": 3188,
+        "failed": 0,
         "skipped": 380
       },
       "status": "both",
@@ -3745,7 +3745,7 @@
       "family_key": "distributed (4 gpus)",
       "family_name": "distributed (4 gpus)",
       "amd_job_name": "mi300_4: :amd: (MI300) Distributed",
-      "upstream_job_name": ":nvidia: (B200) Distributed",
+      "upstream_job_name": ":nvidia: (A100) Distributed",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -3793,15 +3793,15 @@
           "side": "amd"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-662b-4abc-b892-5e9454291ef2&tab=output",
-          "job_name": ":nvidia: (B200) Distributed",
-          "side": "upstream"
-        },
-        {
           "hw": "a100",
           "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-662a-4b40-b4b5-0f1e4e66b2f0&tab=output",
           "job_name": ":nvidia: (A100) Distributed",
+          "side": "upstream"
+        },
+        {
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-662b-4abc-b892-5e9454291ef2&tab=output",
+          "job_name": ":nvidia: (B200) Distributed",
           "side": "upstream"
         }
       ],
@@ -7042,8 +7042,8 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66b3-4caf-961d-686b7c071c88&tab=output",
-          "job_name": ":nvidia: (H200) Language Models (Extra Standard) Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66b3-4239-aeb9-c270c9c4487d&tab=output",
+          "job_name": ":nvidia: (H200) Language Models (Extra Standard) Shard 2",
           "side": "upstream"
         }
       ],
@@ -7115,8 +7115,8 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66b3-44a5-b310-fcdb8924b18d&tab=output",
-          "job_name": ":nvidia: (H200) Language Models (Hybrid) Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66b3-4072-a390-f90c4f642b66&tab=output",
+          "job_name": ":nvidia: (H200) Language Models (Hybrid) Shard 2",
           "side": "upstream"
         }
       ],
@@ -7820,7 +7820,7 @@
       "family_key": "lora shard",
       "family_name": "lora shard",
       "amd_job_name": "mi300_1: :amd: (MI300) LoRA Shard 1",
-      "upstream_job_name": ":amd: (MI300) LoRA Shard 1",
+      "upstream_job_name": ":amd: (MI300) LoRA Shard 2",
       "amd": {
         "total": 6938,
         "passed": 6828,
@@ -7868,8 +7868,8 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6672-400c-82b5-5a2d6f582d43&tab=output",
-          "job_name": ":amd: (MI300) LoRA Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6673-4d1f-9092-046fd5ff0677&tab=output",
+          "job_name": ":amd: (MI300) LoRA Shard 2",
           "side": "upstream"
         },
         {
@@ -8445,14 +8445,14 @@
         "duration": 150.31
       },
       "upstream": {
-        "total": 19,
-        "passed": 19,
+        "total": 6,
+        "passed": 6,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 955.41
+        "duration": 296.46
       },
       "amd_hardware": [
         "mi300"
@@ -8480,14 +8480,14 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66ac-4465-8c85-67434f0465db&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03a41-aac2-4696-92a4-ca9983f4efa4&tab=output",
           "job_name": ":nvidia: (L4) Model Runner V2 Pipeline Parallelism",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -18,
-        "passed": -18,
+        "total": -5,
+        "passed": -5,
         "failed": 0,
         "skipped": 0
       },
@@ -8584,7 +8584,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8724.539999999999
+        "duration": 8724.54
       },
       "amd_hardware": [
         "mi300",
@@ -11931,7 +11931,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 9342.65
+        "duration": 9342.650000000001
       },
       "amd_hardware": [
         "mi300",
@@ -11976,14 +11976,14 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-65f3-48e2-9838-ee306bd70019&tab=output",
-          "job_name": ":nvidia: (B200) V1 Attention Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-65f7-4db6-b67a-cc4301e03ff9&tab=output",
+          "job_name": ":nvidia: (B200) V1 Attention Shard 2",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6654-49fb-ac66-7e74171092e3&tab=output",
-          "job_name": ":amd: (MI300) V1 Attention Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6657-4a22-a094-2408c73a1523&tab=output",
+          "job_name": ":amd: (MI300) V1 Attention Shard 2",
           "side": "upstream"
         }
       ],
@@ -12738,8 +12738,8 @@
       "amd": null,
       "upstream": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
@@ -12754,12 +12754,8 @@
         "h100"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {
-        "h100": 1
-      },
-      "hw_failures": {
-        "h100": 1
-      },
+      "upstream_hw_failures": {},
+      "hw_failures": null,
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -12767,7 +12763,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-660e-42e7-bd87-fd5ab9b494e0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03a41-a75d-4c45-b5f2-5446d14bd123&tab=output",
           "job_name": ":satellite: Report nightly results to CRCR",
           "side": "upstream"
         }
@@ -13041,7 +13037,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-662c-4dff-af54-474af40856a4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03a41-a88b-492e-8637-9ca40c24c3c8&tab=output",
           "job_name": ":nvidia: (L4) Distributed 2-Node",
           "side": "upstream"
         }
@@ -13558,7 +13554,7 @@
       "family_key": "helion kernels shard",
       "family_name": "helion kernels shard",
       "amd_job_name": null,
-      "upstream_job_name": ":nvidia: (H100) Helion Kernels Shard 1",
+      "upstream_job_name": ":nvidia: (H100) Helion Kernels Shard 2",
       "amd": null,
       "upstream": {
         "total": 1950,
@@ -13587,8 +13583,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6696-4531-b0ba-68ac61ad2794&tab=output",
-          "job_name": ":nvidia: (H100) Helion Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6696-41ce-9957-8981692da83f&tab=output",
+          "job_name": ":nvidia: (H100) Helion Kernels Shard 2",
           "side": "upstream"
         }
       ],
@@ -13989,8 +13985,8 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-669f-42d5-b58b-11c0656302e5&tab=output",
-          "job_name": ":nvidia: (H100) LM Eval Humming FP16 TEMPORARY Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-66a0-44f7-b586-c70636e0bacc&tab=output",
+          "job_name": ":nvidia: (H100) LM Eval Humming FP16 TEMPORARY Shard 3",
           "side": "upstream"
         }
       ],
@@ -14516,7 +14512,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4926.75
+        "duration": 4946.5
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14539,7 +14535,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-669e-45ac-b78f-6cb37e2e124c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03a41-aa29-4c18-849c-07e39ef54534&tab=output",
           "job_name": ":nvidia: (B200) MoE Refactor Integration TEMPORARY Shard 1",
           "side": "upstream"
         }
@@ -14552,7 +14548,7 @@
       "family_key": "multimodal models (extended generation 2) shard",
       "family_name": "multimodal models (extended generation 2) shard",
       "amd_job_name": null,
-      "upstream_job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 2",
+      "upstream_job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 1",
       "amd": null,
       "upstream": {
         "total": 86,
@@ -14583,8 +14579,8 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-667a-4a94-b9d3-eac4a370f68d&tab=output",
-          "job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-667a-4afc-a5c4-f3a9b1165ae8&tab=output",
+          "job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 1",
           "side": "upstream"
         },
         {
@@ -14899,8 +14895,8 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6699-4bb3-a554-3cfcaa9ff9d0&tab=output",
-          "job_name": ":nvidia: (L4) Quantization Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6699-4c7d-90e9-def10717c965&tab=output",
+          "job_name": ":nvidia: (L4) Quantization Kernels Shard 2",
           "side": "upstream"
         }
       ],
@@ -15153,6 +15149,48 @@
           "hw": "dgx",
           "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03782-6691-4490-882f-b50b92329c67&tab=output",
           "job_name": ":nvidia: (DGX) Spark b12x Linear Kernels Nightly",
+          "side": "upstream"
+        }
+      ],
+      "status": "upstream_only",
+      "backfilled": false
+    },
+    {
+      "name": "spark gpqa eval (gpt-oss)",
+      "family_key": "spark gpqa eval (gpt-oss)",
+      "family_name": "spark gpqa eval (gpt-oss)",
+      "amd_job_name": null,
+      "upstream_job_name": ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)",
+      "amd": null,
+      "upstream": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+        "error": 0,
+        "duration": 603.52
+      },
+      "amd_hardware": [],
+      "upstream_hardware": [
+        "dgx"
+      ],
+      "hardware": [
+        "dgx"
+      ],
+      "amd_hw_failures": {},
+      "upstream_hw_failures": {},
+      "hw_failures": null,
+      "amd_hw_canceled": {},
+      "upstream_hw_canceled": {},
+      "hw_canceled": null,
+      "failure_tests": [],
+      "job_links": [
+        {
+          "hw": "dgx",
+          "url": "https://buildkite.com/vllm/ci/builds/85453/steps/canvas?jid=01a03a41-aa71-4ae5-bd19-b8b9e627dc66&tab=output",
+          "job_name": ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)",
           "side": "upstream"
         }
       ],
@@ -15920,33 +15958,6 @@
       ],
       "status": "upstream_only",
       "backfilled": false
-    },
-    {
-      "name": "spark gpqa eval (gpt-oss)",
-      "family_key": "spark gpqa eval (gpt-oss)",
-      "family_name": "spark gpqa eval (gpt-oss)",
-      "amd_job_name": null,
-      "upstream_job_name": null,
-      "amd": null,
-      "upstream": null,
-      "amd_hardware": [],
-      "upstream_hardware": [
-        "dgx"
-      ],
-      "hardware": [
-        "dgx"
-      ],
-      "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
-      "amd_hw_canceled": {},
-      "upstream_hw_canceled": {},
-      "hw_canceled": null,
-      "failure_tests": [],
-      "job_links": [],
-      "delta": null,
-      "status": "upstream_only",
-      "backfilled": true
     }
   ],
   "details": [
@@ -17217,6 +17228,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)::__passed__",
+      "amd_status": "missing",
+      "upstream_status": "passed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": ":nvidia: (DGX) Spark b12x Linear Kernels Nightly::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -17634,12 +17651,6 @@
       "test_id": ":nvidia: (H200) Core Operation Kernels Shard 1::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": ":nvidia: (H200) Core Operation Kernels Shard 1::__unidentified_failures__",
-      "amd_status": "missing",
-      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -18797,7 +18808,7 @@
     {
       "test_id": ":satellite: Report nightly results to CRCR::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "failed",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
