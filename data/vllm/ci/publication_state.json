@@ -1,33 +1,100 @@
 {
-  "baseline_ref": "7d02bde65a181cc85810f4d79a8b892e848343a0",
+  "baseline_ref": "39651bff6c5fb07daa5b3142239b5fe84f877762",
   "candidate_degradations": [],
-  "candidate_errors": [],
-  "collector_failure_streaks": {},
-  "collector_failures": [],
+  "candidate_errors": [
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "alertable": false,
+        "collector": "collect_agent_health.py",
+        "details": {
+          "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
+        },
+        "exit_code": 1,
+        "persistence_runs": 1,
+        "reason_class": "timeout",
+        "step": "AMD agent health",
+        "surface": "agent_health"
+      },
+      "message": "AMD agent health (collect_agent_health.py) failed with timeout; agent_health will use its validated baseline",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "agent_health"
+      ]
+    }
+  ],
+  "collector_failure_streaks": {
+    "bbe10dde8de59267c1cf": 1
+  },
+  "collector_failures": [
+    {
+      "alertable": false,
+      "collector": "collect_agent_health.py",
+      "details": {
+        "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
+      },
+      "exit_code": 1,
+      "persistence_runs": 1,
+      "reason_class": "timeout",
+      "schema_version": 1,
+      "step": "AMD agent health",
+      "surface": "agent_health"
+    }
+  ],
   "collector_incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
-  "degraded_since": {},
-  "degraded_surfaces": [],
+  "degraded_since": {
+    "agent_health": "2026-08-26T08:11:18Z"
+  },
+  "degraded_surfaces": [
+    "agent_health"
+  ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {},
-  "fallback_surfaces": [],
+  "fallback_since": {
+    "agent_health": "2026-08-26T08:11:18Z"
+  },
+  "fallback_surfaces": [
+    "agent_health"
+  ],
   "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [],
-  "generated_at": "2026-08-26T07:16:04Z",
+  "generated_at": "2026-08-26T08:11:18Z",
   "incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
-  "mode": "current",
-  "restored_manifest": {},
-  "restored_paths": {},
+  "mode": "fallback",
+  "restored_manifest": {
+    "agent_health": {
+      "data/vllm/ci/agent_health.json": {
+        "bytes": 5116993,
+        "sha256": "bf417403a2dfd362f78ec1c3bc8bb77260ba25b5cc28a0fa18103df4e9831ab7"
+      },
+      "data/vllm/ci/agent_health/infra_failures.jsonl": {
+        "bytes": 5085131,
+        "sha256": "8a4563f5a6e645f85fbe0ba4bda083656fe57c518ac35f24d776ee394341f9eb"
+      },
+      "data/vllm/ci/agent_health/node_days.jsonl": {
+        "bytes": 571256,
+        "sha256": "29fe7bfd2c82eadcbfdbd8216ab36ddffefe4688c185b3948547e699654e8d1e"
+      }
+    }
+  },
+  "restored_paths": {
+    "agent_health": [
+      "data/vllm/ci/agent_health.json",
+      "data/vllm/ci/agent_health/infra_failures.jsonl",
+      "data/vllm/ci/agent_health/node_days.jsonl"
+    ]
+  },
   "schema_version": 2,
   "surface_contract_version": 4,
   "upstream_retry_observations": [],
