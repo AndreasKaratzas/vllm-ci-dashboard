@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-26T23:33:09Z",
+  "generated_at": "2026-08-27T09:46:32Z",
   "amd_date": "2026-08-26",
-  "upstream_date": "2026-08-26",
+  "upstream_date": "2026-08-27",
   "parity_pct": 0.0,
-  "total_tests": 840,
+  "total_tests": 841,
   "summary": {
-    "upstream_only": 503,
+    "upstream_only": 504,
     "amd_only": 337
   },
   "by_module": {
@@ -719,7 +719,7 @@
     },
     ":nvidia: (H100) LM Eval KV-Offload Large": {
       "parity_pct": 100.0,
-      "upstream_only": 1
+      "upstream_only": 2
     },
     ":nvidia: (H100) LM Eval KV-Offload Medium": {
       "parity_pct": 100.0,
@@ -1292,10 +1292,6 @@
     ":nvidia: (L4) MoE Kernels Shard 5": {
       "parity_pct": 100.0,
       "upstream_only": 2
-    },
-    ":nvidia: (L4) Model Runner V2 Distributed": {
-      "parity_pct": 100.0,
-      "upstream_only": 1
     },
     ":nvidia: (L4) Model Runner V2 Pipeline Parallelism": {
       "parity_pct": 100.0,
@@ -2404,6 +2400,10 @@
     "mi355_8: :amd: (MI355) LM Eval Large Models": {
       "parity_pct": 100.0,
       "amd_only": 1
+    },
+    "v1/e2e/spec_decode/test_sharded_sampling.py": {
+      "parity_pct": 100.0,
+      "upstream_only": 1
     }
   },
   "job_groups": [
@@ -2459,7 +2459,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44f-4437-8a98-d2bee86ec4d3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb3-4bf2-88e3-cdf1a17731ac&tab=output",
           "job_name": ":nvidia: (H200) Acceptance Length (Large Models)",
           "side": "upstream"
         }
@@ -2497,7 +2497,7 @@
         "xfailed": 2,
         "xpassed": 0,
         "error": 0,
-        "duration": 425.65999999999997
+        "duration": 381.93
       },
       "amd_hardware": [
         "mi300"
@@ -2527,13 +2527,13 @@
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b418-43cb-a1ea-df435c7a908a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7c-425c-9ed0-95bf4c081fba&tab=output",
           "job_name": ":amd: (MI355) Async Engine, Inputs, Utils, Worker",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44f-4fc2-b0aa-757a44ab9d9c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb4-4509-a893-690a74bf72e2&tab=output",
           "job_name": ":nvidia: (H200) Async Engine, Inputs, Utils, Worker",
           "side": "upstream"
         }
@@ -2571,7 +2571,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 355.41
+        "duration": 386.02
       },
       "amd_hardware": [
         "mi250"
@@ -2599,7 +2599,7 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44d-47e3-bd38-71bb08617973&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb2-49ef-b54a-3fa513b4e28a&tab=output",
           "job_name": ":computer: (CPU) Async Engine, Inputs, Utils, Worker, Config",
           "side": "upstream"
         }
@@ -2665,7 +2665,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3ab-4872-b9a5-f45422ff74b0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4ef5-4e7f-94d9-8bee3c17b971&tab=output",
           "job_name": ":nvidia: (B200) Attention Benchmark Smoke",
           "side": "upstream"
         }
@@ -2684,7 +2684,7 @@
       "family_key": "attention kernels shard",
       "family_name": "attention kernels shard",
       "amd_job_name": "mi300_1: :amd: (MI300) Attention Kernels Shard 1",
-      "upstream_job_name": ":amd: (MI300) Attention Kernels Shard 1",
+      "upstream_job_name": ":amd: (MI300) Attention Kernels Shard 2",
       "amd": {
         "total": 14036,
         "passed": 11752,
@@ -2696,14 +2696,14 @@
         "duration": 6717.55
       },
       "upstream": {
-        "total": 15288,
+        "total": 15302,
         "passed": 12123,
         "failed": 0,
-        "skipped": 3164,
+        "skipped": 3178,
         "xfailed": 1,
         "xpassed": 0,
         "error": 0,
-        "duration": 7831.49
+        "duration": 7304.46
       },
       "amd_hardware": [
         "mi300",
@@ -2740,22 +2740,22 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b411-4698-8e92-2059a106cf39&tab=output",
-          "job_name": ":amd: (MI300) Attention Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f74-42f7-b3e2-beb8a0963557&tab=output",
+          "job_name": ":amd: (MI300) Attention Kernels Shard 2",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43d-4c3c-9a3d-507ac6e00ad8&tab=output",
-          "job_name": ":nvidia: (L4) Attention Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa2-469b-b03b-4b16ebef2d39&tab=output",
+          "job_name": ":nvidia: (L4) Attention Kernels Shard 2",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -1252,
+        "total": -1266,
         "passed": -371,
         "failed": 0,
-        "skipped": -882
+        "skipped": -896
       },
       "status": "both",
       "backfilled": false
@@ -2777,14 +2777,14 @@
         "duration": 358.89
       },
       "upstream": {
-        "total": 12,
-        "passed": 12,
+        "total": 16,
+        "passed": 16,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 728.0799999999999
+        "duration": 924.77
       },
       "amd_hardware": [
         "mi300"
@@ -2813,20 +2813,20 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3a7-47b6-bc96-0e66832091e5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4ef1-421b-bc00-df017f5c35c4&tab=output",
           "job_name": ":nvidia: (H200) Basic Correctness",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3fe-4f2e-9834-7b550df12f80&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f5f-4ea1-b8b4-b0732ad67c6f&tab=output",
           "job_name": ":amd: (MI300) Basic Correctness",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -6,
-        "passed": -6,
+        "total": -10,
+        "passed": -10,
         "failed": 0,
         "skipped": 0
       },
@@ -2857,7 +2857,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10052.619999999999
+        "duration": 9624.18
       },
       "amd_hardware": [
         "mi300"
@@ -2885,7 +2885,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b458-465e-92b1-c4a4434d493f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbd-4905-9dc2-bb679a3f9f37&tab=output",
           "job_name": ":nvidia: (H200) Basic Models (Extra Initialization) Shard 1",
           "side": "upstream"
         }
@@ -2923,7 +2923,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 593.12
+        "duration": 490.65
       },
       "amd_hardware": [
         "mi300"
@@ -2951,7 +2951,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b459-420e-bed9-df6725d2c684&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbe-41c1-aab1-073c0fce590a&tab=output",
           "job_name": ":nvidia: (H200) Basic Models (Initialization)",
           "side": "upstream"
         }
@@ -2989,7 +2989,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3023.45
+        "duration": 3104.25
       },
       "amd_hardware": [
         "mi300"
@@ -3018,13 +3018,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41b-40f7-961a-0a1f7df96351&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7e-4ee6-a926-fb08ffb23b32&tab=output",
           "job_name": ":amd: (MI300) Basic Models (Other)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b459-40ae-9108-1d9a938b47cd&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbe-4be3-bb43-3e738dc14732&tab=output",
           "job_name": ":nvidia: (H200) Basic Models (Other)",
           "side": "upstream"
         }
@@ -3062,7 +3062,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 43.67
+        "duration": 44.92
       },
       "amd_hardware": [
         "mi250"
@@ -3090,7 +3090,7 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b457-419f-a50e-408c5a139bd5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbc-468c-9ffe-8cac3b3c1648&tab=output",
           "job_name": ":computer: (CPU) Basic Models Other",
           "side": "upstream"
         }
@@ -3128,7 +3128,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 791.26
+        "duration": 810.6400000000001
       },
       "amd_hardware": [
         "mi250"
@@ -3160,20 +3160,20 @@
         },
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44e-4096-bd4c-bf934a55672a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb2-41fd-b226-6d7b57956833&tab=output",
           "job_name": ":nvidia: (A100) Batch Invariance",
           "side": "upstream"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44e-4c3c-918f-3de40974cfd3&tab=output",
-          "job_name": ":nvidia: (B200) Batch Invariance",
+          "hw": "h100",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb3-41db-be71-ceb31496bb95&tab=output",
+          "job_name": ":nvidia: (H100) Batch Invariance",
           "side": "upstream"
         },
         {
-          "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c711-4da5-a68a-18dd13aab2d1&tab=output",
-          "job_name": ":nvidia: (H100) Batch Invariance",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb2-4c15-9188-76f58ed7cf0e&tab=output",
+          "job_name": ":nvidia: (B200) Batch Invariance",
           "side": "upstream"
         }
       ],
@@ -3210,7 +3210,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1651.0700000000002
+        "duration": 1615.62
       },
       "amd_hardware": [
         "mi300"
@@ -3239,13 +3239,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3ac-498e-8f4f-bd442628b842&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4ef6-42ed-9e56-90b41694f1f5&tab=output",
           "job_name": ":nvidia: (H200) Benchmarks CLI",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3ff-41f9-b74a-7d44f36178c7&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f5f-41b8-92bf-2135188ebe55&tab=output",
           "job_name": ":amd: (MI300) Benchmarks CLI",
           "side": "upstream"
         }
@@ -3283,7 +3283,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3483.12
+        "duration": 3377.92
       },
       "amd_hardware": [
         "mi300",
@@ -3319,7 +3319,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43c-489a-a50a-c975715bf42c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa1-4b6c-92e4-b5dd7e123709&tab=output",
           "job_name": ":nvidia: (H200) Core Operation Kernels Shard 1",
           "side": "upstream"
         }
@@ -3357,7 +3357,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 210.97
+        "duration": 210.4
       },
       "amd_hardware": [
         "mi300"
@@ -3386,13 +3386,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c2b7-493e-a0e7-e429cd01486a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f23-4511-a873-6c276d75643b&tab=output",
           "job_name": ":nvidia: (L4) CrossLayer KV layout Distributed NixlConnector PD accuracy",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b402-4678-8aed-387a23af6da3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f64-4984-8a01-94eaa8adcdb3&tab=output",
           "job_name": ":amd: (MI300) CrossLayer KV layout Distributed NixlConnector PD accuracy",
           "side": "upstream"
         }
@@ -3430,7 +3430,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10.85
+        "duration": 10.44
       },
       "amd_hardware": [
         "mi300"
@@ -3458,7 +3458,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3bc-4fbc-8c7b-cdc8e7ab3b32&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f06-4938-a7bb-80d65c729d24&tab=output",
           "job_name": ":nvidia: (H200) CUDA Platform",
           "side": "upstream"
         }
@@ -3496,7 +3496,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 20.93
+        "duration": 19.8
       },
       "amd_hardware": [
         "mi250"
@@ -3524,7 +3524,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3bc-4268-a3dd-a9cd2043c41d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f06-4190-9ca5-d9c41c7032c7&tab=output",
           "job_name": ":nvidia: (H200) CUDAGraph",
           "side": "upstream"
         }
@@ -3562,7 +3562,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1089.96
+        "duration": 1092.95
       },
       "amd_hardware": [
         "mi300",
@@ -3598,7 +3598,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c92a-4515-a754-2e36e96b3072&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9e-48bf-b240-81c3c4cb44b1&tab=output",
           "job_name": ":nvidia: (H100) DeepEP FP8 MoE Kernels",
           "side": "upstream"
         }
@@ -3664,7 +3664,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3df-41ed-938f-6f6df0692874&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3b-4477-8cca-e8a5a3fa1135&tab=output",
           "job_name": ":nvidia: (H100) DeepSeek V2-Lite Prefetch Offload Accuracy",
           "side": "upstream"
         }
@@ -3730,7 +3730,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3df-4203-bdc0-909d5ea47ab5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3b-4286-836f-02b3019b855e&tab=output",
           "job_name": ":nvidia: (H100) DeepSeek V2-Lite Sync EPLB Accuracy",
           "side": "upstream"
         }
@@ -3749,7 +3749,7 @@
       "family_key": "distributed (4 gpus)",
       "family_name": "distributed (4 gpus)",
       "amd_job_name": "mi300_4: :amd: (MI300) Distributed",
-      "upstream_job_name": ":nvidia: (A100) Distributed",
+      "upstream_job_name": ":nvidia: (B200) Distributed",
       "amd": {
         "total": 1,
         "passed": 1,
@@ -3768,7 +3768,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 175.21
+        "duration": 187.11
       },
       "amd_hardware": [
         "mi300"
@@ -3797,15 +3797,15 @@
           "side": "amd"
         },
         {
-          "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d4-443f-945d-03a639a30f19&tab=output",
-          "job_name": ":nvidia: (A100) Distributed",
+          "hw": "b200",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2e-494d-8887-e4458f2b716a&tab=output",
+          "job_name": ":nvidia: (B200) Distributed",
           "side": "upstream"
         },
         {
-          "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d4-4a11-9cb7-87579b699c01&tab=output",
-          "job_name": ":nvidia: (B200) Distributed",
+          "hw": "a100",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2e-47f4-8135-bf285068f978&tab=output",
+          "job_name": ":nvidia: (A100) Distributed",
           "side": "upstream"
         }
       ],
@@ -3842,7 +3842,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1.97
+        "duration": 1.99
       },
       "amd_hardware": [
         "mi300"
@@ -3870,7 +3870,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d6-4c6a-b557-2f20b82fc737&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f30-4822-9c8f-2911f01d10b5&tab=output",
           "job_name": ":nvidia: (L4) Distributed Comm Ops",
           "side": "upstream"
         }
@@ -3908,7 +3908,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1887.0
+        "duration": 1829.08
       },
       "amd_hardware": [
         "mi300"
@@ -3936,7 +3936,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c871-4140-b036-76ddf2d78c1c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0c-4fbe-b4a1-b542f6d75815&tab=output",
           "job_name": ":nvidia: (H100) Distributed Compile",
           "side": "upstream"
         }
@@ -3974,7 +3974,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 31.87
+        "duration": 29.6
       },
       "amd_hardware": [
         "mi300"
@@ -4002,7 +4002,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d6-4bee-b24c-5b0265fd3540&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f31-494b-ad49-1414b9077330&tab=output",
           "job_name": ":nvidia: (L4) Distributed Compile + Comm",
           "side": "upstream"
         }
@@ -4040,7 +4040,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10.13
+        "duration": 9.79
       },
       "amd_hardware": [
         "mi300"
@@ -4068,7 +4068,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d7-45bb-b0bc-a99584c59fda&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f31-4842-b814-29b49e65d3e0&tab=output",
           "job_name": ":nvidia: (L4) Distributed Compile + RPC",
           "side": "upstream"
         }
@@ -4134,7 +4134,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d5-45bb-817a-eb3eb781d746&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2e-419a-8d98-c00bbace8329&tab=output",
           "job_name": ":nvidia: (H100) Distributed DP + EP",
           "side": "upstream"
         }
@@ -4172,7 +4172,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 134.89
+        "duration": 135.86
       },
       "amd_hardware": [
         "mi300"
@@ -4201,13 +4201,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d7-44ac-a7b9-4970bf2ca954&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f31-4b1f-bfbf-c0afe4e370c2&tab=output",
           "job_name": ":nvidia: (L4) Distributed DP Basic",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b406-4b6e-bacb-4c4b8f64c495&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f68-4da4-af97-66be644460ab&tab=output",
           "job_name": ":amd: (MI300) Distributed DP Basic",
           "side": "upstream"
         }
@@ -4245,7 +4245,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 13.15
+        "duration": 10.25
       },
       "amd_hardware": [
         "mi300"
@@ -4273,7 +4273,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d7-4da8-9d09-a868d464d366&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f31-4771-8a41-86289382fb77&tab=output",
           "job_name": ":nvidia: (L4) Distributed DP Extended",
           "side": "upstream"
         }
@@ -4311,7 +4311,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 60.43
+        "duration": 59.51
       },
       "amd_hardware": [
         "mi300",
@@ -4347,7 +4347,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d6-4a2b-a3e7-61cd41882d44&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2f-4227-83c0-736f853087e4&tab=output",
           "job_name": ":nvidia: (H100) Distributed Features",
           "side": "upstream"
         }
@@ -4385,7 +4385,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 398.51
+        "duration": 392.14
       },
       "amd_hardware": [
         "mi300"
@@ -4414,13 +4414,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41b-49f8-87da-8abb63906755&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7f-499d-889a-b5b475e543d3&tab=output",
           "job_name": ":amd: (MI300) Distributed Models",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45b-43a7-9cb6-5ec3df6b04a6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbf-4796-bb96-9eafb038b114&tab=output",
           "job_name": ":nvidia: (L4) Distributed Models",
           "side": "upstream"
         }
@@ -4458,7 +4458,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 210.7
+        "duration": 206.8
       },
       "amd_hardware": [
         "mi300"
@@ -4487,13 +4487,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3cf-4386-a736-d95bbc7db231&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f28-4552-add3-9bb9d1993a46&tab=output",
           "job_name": ":nvidia: (L4) Distributed NixlConnector PD accuracy",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b406-4aac-ad30-d40c63fc7768&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f67-430d-a963-b7f6b7a8a8a4&tab=output",
           "job_name": ":amd: (MI300) Distributed NixlConnector PD accuracy",
           "side": "upstream"
         }
@@ -4559,7 +4559,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d7-40a4-b32c-4661a3ef90b7&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f32-4084-be3b-7c09b04e7c8c&tab=output",
           "job_name": ":nvidia: (L4) Distributed Torchrun + Examples",
           "side": "upstream"
         }
@@ -4597,7 +4597,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 26.27
+        "duration": 26.21
       },
       "amd_hardware": [
         "mi300"
@@ -4625,7 +4625,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d8-497f-912f-c78def358202&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f32-47b6-a6db-80d14ec25aab&tab=output",
           "job_name": ":nvidia: (L4) Distributed Torchrun + Shutdown",
           "side": "upstream"
         }
@@ -4663,7 +4663,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3.36
+        "duration": 3.21
       },
       "amd_hardware": [
         "mi250"
@@ -4695,7 +4695,7 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3dd-49b3-bc80-041935db135b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f35-4428-a8b2-8747e3c7a681&tab=output",
           "job_name": ":computer: (CPU) Docker Build Metadata",
           "side": "upstream"
         }
@@ -4733,7 +4733,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 236.32
+        "duration": 226.88
       },
       "amd_hardware": [
         "mi300"
@@ -4762,13 +4762,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3cf-4d60-bded-8b0a550953e2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f26-4b37-b93a-afaf4fb1c078&tab=output",
           "job_name": ":nvidia: (L4) DP EP Distributed NixlConnector PD accuracy",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b405-4522-8eeb-23e5eb53d142&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f67-470b-b36f-41f70232c588&tab=output",
           "job_name": ":amd: (MI300) DP EP Distributed NixlConnector PD accuracy",
           "side": "upstream"
         }
@@ -4806,7 +4806,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2657.11
+        "duration": 2629.86
       },
       "amd_hardware": [
         "mi250"
@@ -4835,13 +4835,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e2-4f93-96a4-3478377ff33f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3e-48c6-8d79-53f074ab5338&tab=output",
           "job_name": ":nvidia: (H200) E2E Core",
           "side": "upstream"
         },
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b407-41d4-b7f8-5a1674025d5d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f69-4a53-96d5-aca6c87c2a7d&tab=output",
           "job_name": ":amd: (MI250) E2E Core",
           "side": "upstream"
         }
@@ -4879,7 +4879,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2326.02
+        "duration": 2216.9300000000003
       },
       "amd_hardware": [
         "mi250",
@@ -4916,13 +4916,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e2-44df-abb0-187ebd0f491c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3e-4a2a-9a14-a0350fcb7209&tab=output",
           "job_name": ":nvidia: (H200) E2E Scheduling",
           "side": "upstream"
         },
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b409-46a4-8ed1-740cde55f07c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6c-4db5-b358-1c14501e22bf&tab=output",
           "job_name": ":amd: (MI250) E2E Scheduling",
           "side": "upstream"
         }
@@ -4960,7 +4960,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1331.24
+        "duration": 1277.22
       },
       "amd_hardware": [
         "mi300"
@@ -4988,7 +4988,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c655-44fe-928f-2d76003e716c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f47-46de-8976-76a1ec6a2deb&tab=output",
           "job_name": ":nvidia: (H100) Elastic EP Scaling",
           "side": "upstream"
         }
@@ -5019,14 +5019,14 @@
         "duration": 573.82
       },
       "upstream": {
-        "total": 740,
-        "passed": 729,
+        "total": 742,
+        "passed": 731,
         "failed": 0,
         "skipped": 11,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1316.08
+        "duration": 1238.45
       },
       "amd_hardware": [
         "mi300"
@@ -5055,20 +5055,20 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e2-4624-a0c8-2fab01e0d227&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3f-4078-b916-901eee35fd7e&tab=output",
           "job_name": ":nvidia: (H200) Engine Core",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40a-40de-b87b-eca9c19cb2c0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6c-44c1-86e9-77cac3b79c80&tab=output",
           "job_name": ":amd: (MI300) Engine Core",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -370,
-        "passed": -370,
+        "total": -372,
+        "passed": -372,
         "failed": 0,
         "skipped": 0
       },
@@ -5099,7 +5099,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 172.75
+        "duration": 167.26
       },
       "amd_hardware": [
         "mi300",
@@ -5136,13 +5136,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e4-4905-865c-6087978b6eaa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f41-45cd-8d9f-2110185e0d47&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (API Server Generate)",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40b-47e1-99a6-33b25e6e4d78&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6e-4528-83d4-95414c30664a&tab=output",
           "job_name": ":amd: (MI300) Entrypoints Integration (API Server Generate)",
           "side": "upstream"
         }
@@ -5180,7 +5180,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2223.24
+        "duration": 1868.06
       },
       "amd_hardware": [
         "mi300",
@@ -5217,13 +5217,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e5-4241-8ef9-61e5743790e1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f42-4620-803f-61cd0c0169d4&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (API Server OpenAI - Part 1)",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40c-46f3-8c0b-96739d2f7b2a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6e-47ae-b928-8dd022564873&tab=output",
           "job_name": ":amd: (MI300) Entrypoints Integration (API Server OpenAI - Part 1)",
           "side": "upstream"
         }
@@ -5261,7 +5261,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 580.74
+        "duration": 595.3900000000001
       },
       "amd_hardware": [
         "mi300",
@@ -5298,13 +5298,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e5-44be-b9d5-c18f08f5b80a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f42-4134-a9c5-23d5ff44b0f8&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (API Server OpenAI - Part 2)",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40c-47c5-bf2c-edfb097d46d5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6e-4a71-93ce-d82613fd0823&tab=output",
           "job_name": ":amd: (MI300) Entrypoints Integration (API Server OpenAI - Part 2)",
           "side": "upstream"
         }
@@ -5342,7 +5342,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1469.74
+        "duration": 1441.3000000000002
       },
       "amd_hardware": [
         "mi300",
@@ -5379,13 +5379,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e5-4883-8dde-708b1c6078df&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f42-4cf8-b9c0-31b1de94f93e&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (API Server)",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40c-4d34-bbf7-abb654da7614&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6f-42f3-8fab-199fa573f762&tab=output",
           "job_name": ":amd: (MI300) Entrypoints Integration (API Server)",
           "side": "upstream"
         }
@@ -5423,7 +5423,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 399.28
+        "duration": 434.33
       },
       "amd_hardware": [
         "mi300"
@@ -5452,13 +5452,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e6-4b80-90c1-b6bab294f01e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f43-41fa-b658-b7413cfa2ac5&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (LLM)",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40c-463e-8fb2-75f3a87a2c72&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6f-44a3-9a9c-b69dad8cf3cd&tab=output",
           "job_name": ":amd: (MI300) Entrypoints Integration (LLM)",
           "side": "upstream"
         }
@@ -5496,7 +5496,7 @@
         "xfailed": 2,
         "xpassed": 0,
         "error": 0,
-        "duration": 2757.49
+        "duration": 2284.21
       },
       "amd_hardware": [
         "mi300",
@@ -5533,13 +5533,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e6-4b3a-bddd-4047cb9bd6c5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f43-43af-99b2-14ad260a58e0&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (Multimodal)",
           "side": "upstream"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40d-4439-a2dd-4bdb4c7e6690&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6f-4c60-8df5-9008ffdf9694&tab=output",
           "job_name": ":amd: (MI355) Entrypoints Integration (Multimodal)",
           "side": "upstream"
         }
@@ -5577,7 +5577,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2110.87
+        "duration": 1974.91
       },
       "amd_hardware": [
         "mi300",
@@ -5613,7 +5613,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e6-4750-af2f-43a8091d9117&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f44-45fa-85d9-f6d3f75f5aa7&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (Pooling)",
           "side": "upstream"
         }
@@ -5651,7 +5651,7 @@
         "xfailed": 4,
         "xpassed": 0,
         "error": 0,
-        "duration": 2547.9300000000003
+        "duration": 2278.37
       },
       "amd_hardware": [
         "mi300"
@@ -5681,13 +5681,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e6-4c6f-85bd-c8dc1a58e1f6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f44-45df-a133-0b1ac2077ec4&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (Responses API)",
           "side": "upstream"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b410-46ea-a0cc-8934ae024d86&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f73-4b71-b2a0-faed93c4aad1&tab=output",
           "job_name": ":amd: (MI355) Entrypoints Integration (Responses API)",
           "side": "upstream"
         }
@@ -5725,7 +5725,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1472.22
+        "duration": 1463.16
       },
       "amd_hardware": [
         "mi300",
@@ -5761,7 +5761,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e6-4014-909b-2317d98570a4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f44-4fa0-9c88-b073ef266329&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Integration (Speech to Text)",
           "side": "upstream"
         }
@@ -5799,7 +5799,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2172.25
+        "duration": 2019.72
       },
       "amd_hardware": [
         "mi300"
@@ -5829,13 +5829,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e7-463d-9f59-3b81669686c9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f44-4d71-8100-ca338cca7945&tab=output",
           "job_name": ":nvidia: (H200) Entrypoints Unit",
           "side": "upstream"
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b410-40a3-bb75-1ee33ff86913&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f73-4f62-9a56-7e0fae505ce5&tab=output",
           "job_name": ":amd: (MI355) Entrypoints Unit",
           "side": "upstream"
         }
@@ -5873,7 +5873,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5.42
+        "duration": 5.04
       },
       "amd_hardware": [
         "mi300"
@@ -5902,13 +5902,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e9-42c4-a708-86ba69496c89&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f47-44c6-9746-8097ec35b962&tab=output",
           "job_name": ":nvidia: (H200) EPLB Algorithm",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b411-4c0d-a748-5514bb955a31&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f74-4e14-979f-b8d7e1ee005e&tab=output",
           "job_name": ":amd: (MI300) EPLB Algorithm",
           "side": "upstream"
         }
@@ -5946,7 +5946,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 349.51
+        "duration": 299.94
       },
       "amd_hardware": [
         "mi300"
@@ -5974,7 +5974,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e9-4c57-8828-e4f066af073d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f47-4a87-a97c-a0239c41bbba&tab=output",
           "job_name": ":nvidia: (L4) EPLB Execution",
           "side": "upstream"
         }
@@ -6049,13 +6049,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b418-42b0-a06e-5f7060cf79ad&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7c-406a-ab98-fa65bf34f530&tab=output",
           "job_name": ":amd: (MI300) Examples",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44f-4eb1-8325-3c88050f6790&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb4-4791-8fa4-0491cea32b30&tab=output",
           "job_name": ":nvidia: (H200) Examples",
           "side": "upstream"
         }
@@ -6093,7 +6093,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 254.93
+        "duration": 226.65000000000003
       },
       "amd_hardware": [
         "mi300"
@@ -6123,13 +6123,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b450-4b94-8e99-65b152d81f57&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb4-4fa7-b217-51949ed72f06&tab=output",
           "job_name": ":nvidia: (H200) Extract Hidden States Integration",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b452-4769-8010-28091155ebf1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb5-4a82-af24-162b45c1b3e2&tab=output",
           "job_name": ":nvidia: (L4) Extract Hidden States Integration",
           "side": "upstream"
         }
@@ -6167,7 +6167,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 17.76
+        "duration": 13.1
       },
       "amd_hardware": [
         "mi355"
@@ -6195,7 +6195,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c9dd-461d-ae2e-018d004df9bd&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9f-49f9-83b0-7c1f6548a484&tab=output",
           "job_name": ":nvidia: (H100) FP8 MoE Kernels",
           "side": "upstream"
         }
@@ -6233,7 +6233,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1109.25
+        "duration": 1049.17
       },
       "amd_hardware": [
         "mi355"
@@ -6263,13 +6263,13 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b434-4784-be57-e09489397f3b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f99-4b78-9d10-66e33bc16737&tab=output",
           "job_name": ":nvidia: (B200) FusedMoE Layer Kernels",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43a-47d9-b286-50b1b079e5c3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9f-4e47-bce9-d8edc4bb442c&tab=output",
           "job_name": ":nvidia: (H100) FusedMoE Layer Kernels",
           "side": "upstream"
         }
@@ -6307,7 +6307,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 945.82
+        "duration": 962.46
       },
       "amd_hardware": [
         "mi300"
@@ -6337,13 +6337,13 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c2-4502-af4f-45f25d9bbd5b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0c-426c-b4c0-50f0c37cd1db&tab=output",
           "job_name": ":nvidia: (H100) Fusion E2E Config Sweep",
           "side": "upstream"
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c1-4a27-aa79-bd5b028ff2fe&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0b-4111-bb06-aad2d21176c1&tab=output",
           "job_name": ":nvidia: (B200) Fusion E2E Config Sweep",
           "side": "upstream"
         }
@@ -6381,7 +6381,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 194.38
+        "duration": 188.88
       },
       "amd_hardware": [
         "mi300"
@@ -6409,7 +6409,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c3-4a9f-b9f4-3ca418dcf945&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0c-4a23-b9bc-1735d73868f4&tab=output",
           "job_name": ":nvidia: (H100) Fusion E2E Quick",
           "side": "upstream"
         }
@@ -6447,7 +6447,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 751.66
+        "duration": 602.89
       },
       "amd_hardware": [
         "mi300"
@@ -6475,7 +6475,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46a-45d8-8048-4073b1bab9fd&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcf-4226-af0d-5737956a7317&tab=output",
           "job_name": ":nvidia: (H200) GGUF Plugin",
           "side": "upstream"
         }
@@ -6513,7 +6513,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1465.6799999999998
+        "duration": 1412.3
       },
       "amd_hardware": [
         "mi300",
@@ -6551,13 +6551,13 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b441-4166-90c9-65e8fbc65fef&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa6-4c96-8e93-6c80c716f20c&tab=output",
           "job_name": ":nvidia: (B200) GPQA Eval (GPT-OSS)",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b446-4040-bd25-739c6f31a225&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4faa-460c-8388-299171c339e6&tab=output",
           "job_name": ":nvidia: (H100) GPQA Eval (GPT-OSS)",
           "side": "upstream"
         }
@@ -6637,7 +6637,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 415.89
+        "duration": 422.38
       },
       "amd_hardware": [
         "mi300"
@@ -6666,13 +6666,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d0-4ef2-876b-3015dd11649f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f28-4f22-82ce-34ba7c56da62&tab=output",
           "job_name": ":nvidia: (L4) Hybrid SSM NixlConnector PD accuracy",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b406-4eb8-943d-6010441f709f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f67-4f53-8d6a-76a3fe85d1c5&tab=output",
           "job_name": ":amd: (MI300) Hybrid SSM NixlConnector PD accuracy",
           "side": "upstream"
         }
@@ -6710,7 +6710,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10.38
+        "duration": 10.44
       },
       "amd_hardware": [
         "mi300"
@@ -6738,7 +6738,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d0-45c0-ac09-681b39898c0c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f28-411a-84d7-df6b162c4586&tab=output",
           "job_name": ":nvidia: (L4) Hybrid SSM NixlConnector PD prefix cache",
           "side": "upstream"
         }
@@ -6818,7 +6818,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 386.88
+        "duration": 397.43
       },
       "amd_hardware": [
         "mi355"
@@ -6846,7 +6846,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b434-4f42-a16e-10b7c0f41f72&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9a-4e42-9385-f02eec527adf&tab=output",
           "job_name": ":nvidia: (B200) Kernels",
           "side": "upstream"
         }
@@ -6884,7 +6884,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4490.08
+        "duration": 4203.75
       },
       "amd_hardware": [
         "mi300",
@@ -6921,13 +6921,13 @@
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41b-424d-bd6a-30c1ea0949dd&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7f-4e64-8798-c189ebb6ce7e&tab=output",
           "job_name": ":amd: (MI355) Language Models (Extended Generation)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45c-4616-a20b-5892ff11b29f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc1-4845-9643-4c9c5d158eb9&tab=output",
           "job_name": ":nvidia: (H200) Language Models (Extended Generation)",
           "side": "upstream"
         }
@@ -6996,7 +6996,7 @@
       "family_key": "language models (extra standard) shard",
       "family_name": "language models (extra standard) shard",
       "amd_job_name": "mi300_1: :amd: (MI300) Language Models (Extra Standard) Shard 1",
-      "upstream_job_name": ":amd: (MI300) Language Models (Extra Standard) Shard 1",
+      "upstream_job_name": ":amd: (MI300) Language Models (Extra Standard) Shard 2",
       "amd": {
         "total": 19,
         "passed": 13,
@@ -7015,7 +7015,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2372.38
+        "duration": 2356.69
       },
       "amd_hardware": [
         "mi300"
@@ -7044,13 +7044,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41d-43db-8047-2f786520f3f9&tab=output",
-          "job_name": ":amd: (MI300) Language Models (Extra Standard) Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f81-4c47-a7fc-275e3f93fb75&tab=output",
+          "job_name": ":amd: (MI300) Language Models (Extra Standard) Shard 2",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45d-41f2-b2ca-d8d95cd889b1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc3-4d62-ab38-dab0b00b916d&tab=output",
           "job_name": ":nvidia: (H200) Language Models (Extra Standard) Shard 1",
           "side": "upstream"
         }
@@ -7088,7 +7088,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6214.97
+        "duration": 6085.780000000001
       },
       "amd_hardware": [
         "mi300"
@@ -7117,13 +7117,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41d-44c5-a03d-c60edb391518&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f81-4f4a-bb0c-6a30eca4dd13&tab=output",
           "job_name": ":amd: (MI300) Language Models (Hybrid) Shard 1",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45e-4bb3-bc92-134589d2e604&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc3-4938-8b07-94744ff87796&tab=output",
           "job_name": ":nvidia: (H200) Language Models (Hybrid) Shard 1",
           "side": "upstream"
         }
@@ -7161,7 +7161,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1995.89
+        "duration": 2003.73
       },
       "amd_hardware": [
         "mi300"
@@ -7189,7 +7189,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45e-44c3-afe0-561a6fee6d56&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc4-491a-ac7b-cbb93b32bd9e&tab=output",
           "job_name": ":nvidia: (H200) Language Models (MTEB)",
           "side": "upstream"
         }
@@ -7227,7 +7227,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 936.44
+        "duration": 851.64
       },
       "amd_hardware": [
         "mi250",
@@ -7263,7 +7263,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45f-472a-8400-fe7f581645a8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc4-41ce-928e-d050cf51c276&tab=output",
           "job_name": ":nvidia: (H200) Language Models (PPL)",
           "side": "upstream"
         }
@@ -7301,7 +7301,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2199.53
+        "duration": 2176.42
       },
       "amd_hardware": [
         "mi300",
@@ -7338,13 +7338,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41e-4f3b-8cbf-f9193021115d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f82-4dea-9a60-29cc20137b81&tab=output",
           "job_name": ":amd: (MI300) Language Models (Standard)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45f-4c70-8f1b-17045d2a4c18&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc4-4a27-8021-2cdf5dbaf8c7&tab=output",
           "job_name": ":nvidia: (H200) Language Models (Standard)",
           "side": "upstream"
         }
@@ -7375,14 +7375,14 @@
         "duration": 1333.32
       },
       "upstream": {
-        "total": 15,
-        "passed": 10,
-        "failed": 0,
+        "total": 10,
+        "passed": 4,
+        "failed": 1,
         "skipped": 5,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4538.85
+        "duration": 2129.48
       },
       "amd_hardware": [
         "mi300",
@@ -7400,8 +7400,12 @@
         "mi355"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "h200": 1
+      },
+      "hw_failures": {
+        "h200": 1
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -7421,27 +7425,27 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b413-477a-afaf-b252bbeb0ddc&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f77-40d5-b419-67931db1cbfa&tab=output",
           "job_name": ":amd: (MI300) LM Eval Large Models",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-ccf8-44ab-bd73-c60a8a6c8a13&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fac-48b2-905f-0bd26bab8254&tab=output",
           "job_name": ":nvidia: (H100) LM Eval Large Models",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b449-4e81-a417-97e3bd9003bf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fad-439a-af9e-c8380f61c78d&tab=output",
           "job_name": ":nvidia: (H200) LM Eval Large Models",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": -7,
-        "passed": -7,
-        "failed": 0,
+        "total": -2,
+        "passed": -1,
+        "failed": -1,
         "skipped": 0
       },
       "status": "both",
@@ -7605,7 +7609,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1480.59
+        "duration": 1452.91
       },
       "amd_hardware": [
         "mi355"
@@ -7633,7 +7637,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b443-4b9e-8617-576226de5c14&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa8-4951-831b-2e7d641e90d5&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Qwen3.5 Models",
           "side": "upstream"
         }
@@ -7671,7 +7675,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3724.71
+        "duration": 3839.96
       },
       "amd_hardware": [
         "mi300",
@@ -7710,19 +7714,19 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b417-4e35-a342-08de992f785c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7a-4770-952a-53fb681ccce2&tab=output",
           "job_name": ":amd: (MI300) LM Eval Small Models",
           "side": "upstream"
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b443-42e8-a2b1-65c8495cbeff&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa8-4a85-97b4-430445f78ede&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Small Models",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b449-4afa-8f9c-e9c500e8711c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fad-46d2-876b-9f3262f265e5&tab=output",
           "job_name": ":nvidia: (H200) LM Eval Small Models",
           "side": "upstream"
         }
@@ -7844,7 +7848,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4926.05
+        "duration": 4641.0599999999995
       },
       "amd_hardware": [
         "mi300"
@@ -7873,14 +7877,14 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b417-4bfa-978c-1c735dda7a23&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7b-473c-b547-25daf6c5224b&tab=output",
           "job_name": ":amd: (MI300) LoRA Shard 3",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44b-4570-8930-e1970f21576d&tab=output",
-          "job_name": ":nvidia: (H200) LoRA Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb0-48d4-b6ee-5f94f06e8965&tab=output",
+          "job_name": ":nvidia: (H200) LoRA Shard 3",
           "side": "upstream"
         }
       ],
@@ -7917,7 +7921,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 846.48
+        "duration": 692.47
       },
       "amd_hardware": [
         "mi300"
@@ -7946,13 +7950,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b418-48d5-a53e-267795676722&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7c-44a8-ae59-821ca5f61d33&tab=output",
           "job_name": ":amd: (MI300) LoRA TP (Distributed)",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44c-4321-89cd-386440b219ed&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb0-4819-a457-ceda7d2e62cf&tab=output",
           "job_name": ":nvidia: (L4) LoRA TP (Distributed)",
           "side": "upstream"
         }
@@ -7990,7 +7994,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2318.35
+        "duration": 2143.94
       },
       "amd_hardware": [
         "mi300"
@@ -8018,7 +8022,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43c-4e16-bede-53170893b4ce&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa1-496e-a46a-dc81f189db02&tab=output",
           "job_name": ":nvidia: (H200) Mamba Kernels",
           "side": "upstream"
         }
@@ -8056,7 +8060,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 30.729999999999997
+        "duration": 30.82
       },
       "amd_hardware": [
         "mi300"
@@ -8085,13 +8089,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41a-4e25-be16-580c8bfc4609&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7e-4477-a227-6fb01971077d&tab=output",
           "job_name": ":amd: (MI300) Metrics, Tracing",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b452-4944-b324-319e84aa879e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb5-420e-bda7-9eda57e6a601&tab=output",
           "job_name": ":nvidia: (L4) Metrics, Tracing",
           "side": "upstream"
         }
@@ -8179,7 +8183,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 258.15999999999997
+        "duration": 261.51
       },
       "amd_hardware": [
         "mi300"
@@ -8208,13 +8212,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41a-4c14-82e3-502727a0256f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7e-4bfd-9bd7-5f45b76619b2&tab=output",
           "job_name": ":amd: (MI300) Model Executor",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b453-469e-954c-c4611597732f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb7-44a6-a9f5-81e5f21755ca&tab=output",
           "job_name": ":nvidia: (H200) Model Executor",
           "side": "upstream"
         }
@@ -8252,7 +8256,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 260.23
+        "duration": 234.21
       },
       "amd_hardware": [
         "mi300"
@@ -8280,7 +8284,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b455-47b9-abda-9e7f97d3043a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb9-4be7-942d-c127320aa990&tab=output",
           "job_name": ":nvidia: (H200) Model Runner V2 Core",
           "side": "upstream"
         }
@@ -8312,13 +8316,13 @@
       },
       "upstream": {
         "total": 2,
-        "passed": 2,
-        "failed": 0,
+        "passed": 1,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 305.3
+        "duration": 0.0
       },
       "amd_hardware": [
         "mi300"
@@ -8332,12 +8336,18 @@
         "mi300"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "l4": 1
+      },
+      "hw_failures": {
+        "l4": 1
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
-      "failure_tests": [],
+      "failure_tests": [
+        "test_mtp_sharded_sampling_equivalence"
+      ],
       "job_links": [
         {
           "hw": "mi300",
@@ -8347,21 +8357,21 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41a-4902-9000-ccc4b5a6a9a6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7e-4284-9ba9-3962a1c4c7bb&tab=output",
           "job_name": ":amd: (MI300) Model Runner V2 Distributed",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c5a5-4558-aa99-b1c3e59ab4f5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fba-4a82-b4a5-d3e7cbb63163&tab=output",
           "job_name": ":nvidia: (L4) Model Runner V2 Distributed",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": -1,
-        "passed": -1,
-        "failed": 0,
+        "passed": 0,
+        "failed": -1,
         "skipped": 0
       },
       "status": "both",
@@ -8419,7 +8429,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b455-4e53-a2ae-9029649bc4c3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb9-462a-83b4-5845806546df&tab=output",
           "job_name": ":nvidia: (H200) Model Runner V2 Examples",
           "side": "upstream"
         }
@@ -8457,7 +8467,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 265.44
+        "duration": 294.33
       },
       "amd_hardware": [
         "mi300"
@@ -8485,7 +8495,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b456-4aa3-adf2-005232ca1826&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fba-4404-a48a-448cc4303761&tab=output",
           "job_name": ":nvidia: (L4) Model Runner V2 Pipeline Parallelism",
           "side": "upstream"
         }
@@ -8523,7 +8533,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 205.06
+        "duration": 210.42
       },
       "amd_hardware": [
         "mi300"
@@ -8551,7 +8561,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b455-4afc-b56e-9320e41db79f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fba-4b80-b7d7-a4d69082a5a8&tab=output",
           "job_name": ":nvidia: (H200) Model Runner V2 Spec Decode",
           "side": "upstream"
         }
@@ -8570,7 +8580,7 @@
       "family_key": "moe kernels shard",
       "family_name": "moe kernels shard",
       "amd_job_name": "mi300_1: :amd: (MI300) MoE Kernels Shard 1",
-      "upstream_job_name": ":amd: (MI300) MoE Kernels Shard 2",
+      "upstream_job_name": ":amd: (MI300) MoE Kernels Shard 1",
       "amd": {
         "total": 42,
         "passed": 42,
@@ -8589,7 +8599,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8745.77
+        "duration": 8829.68
       },
       "amd_hardware": [
         "mi300",
@@ -8626,14 +8636,14 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b412-4c26-bca1-e2cefde1c5b0&tab=output",
-          "job_name": ":amd: (MI300) MoE Kernels Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f75-4d6d-a6a2-28adde73d3b4&tab=output",
+          "job_name": ":amd: (MI300) MoE Kernels Shard 1",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43d-4a70-97a3-553ea9d6c0ac&tab=output",
-          "job_name": ":nvidia: (L4) MoE Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa3-4822-9334-8657bbdd43b2&tab=output",
+          "job_name": ":nvidia: (L4) MoE Kernels Shard 2",
           "side": "upstream"
         }
       ],
@@ -8670,7 +8680,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 389.8
+        "duration": 353.61
       },
       "amd_hardware": [
         "mi300"
@@ -8698,7 +8708,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44a-41d6-9180-021e4d5d3c99&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fad-4ad3-ae58-62e7da86c61a&tab=output",
           "job_name": ":nvidia: (H200) MRCR Eval Small Models",
           "side": "upstream"
         }
@@ -8736,7 +8746,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 380.45
+        "duration": 379.39
       },
       "amd_hardware": [
         "mi300"
@@ -8764,7 +8774,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d0-4f1a-abb1-3abf7c4b3472&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f28-4846-bec8-45830f839580&tab=output",
           "job_name": ":nvidia: (L4) MultiConnector (Nixl+Offloading) PD accuracy",
           "side": "upstream"
         }
@@ -8802,7 +8812,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 56.03
+        "duration": 55.75
       },
       "amd_hardware": [
         "mi300"
@@ -8830,7 +8840,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d0-496e-be41-9b986ca68219&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f29-459d-ade2-5c93da705705&tab=output",
           "job_name": ":nvidia: (L4) MultiConnector (Nixl+Offloading) PD edge cases",
           "side": "upstream"
         }
@@ -8868,7 +8878,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1210.62
+        "duration": 1117.1499999999999
       },
       "amd_hardware": [
         "mi300"
@@ -8897,13 +8907,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41e-484a-8143-22c6c1b2286e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f82-47f7-ae7a-530c0cd1c758&tab=output",
           "job_name": ":amd: (MI300) Multimodal Accuracy Eval (Small Models)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b464-4a1f-8c74-69bd1aecf2f8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fca-4b67-80a1-3b51e602e5db&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Accuracy Eval (Small Models)",
           "side": "upstream"
         }
@@ -8941,7 +8951,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6.9399999999999995
+        "duration": 5.97
       },
       "amd_hardware": [
         "mi300",
@@ -8978,13 +8988,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41f-46f2-9c95-c05cc9fbefc1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f82-4d02-b6af-c0fed20211d0&tab=output",
           "job_name": ":amd: (MI300) Multimodal Models (Extended Generation 1)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b465-43f8-902f-a16e91ea3058&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fca-4b66-b2c0-6856581c240d&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Extended Generation 1)",
           "side": "upstream"
         }
@@ -9064,7 +9074,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2051.35
+        "duration": 1900.74
       },
       "amd_hardware": [
         "mi300",
@@ -9101,13 +9111,13 @@
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b420-4b0e-b9d1-8f1de7b15993&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a04210-4eac-4b6c-9912-d31a3e9d858d&tab=output",
           "job_name": ":amd: (MI355) Multimodal Models (Extended Generation 3)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b466-4867-a94f-350d082738fb&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcb-4c36-aaf0-81668223cb3b&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Extended Generation 3)",
           "side": "upstream"
         }
@@ -9145,7 +9155,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2617.29
+        "duration": 2212.43
       },
       "amd_hardware": [
         "mi300",
@@ -9182,13 +9192,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b420-4ebb-a8a1-a3d81f2bcda7&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f84-4b29-8c28-119ffddf685e&tab=output",
           "job_name": ":amd: (MI300) Multimodal Models (Extended Pooling)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b466-4e25-8331-48dfb561f08e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcb-4fde-a353-60a6c9ec8833&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Extended Pooling)",
           "side": "upstream"
         }
@@ -9226,7 +9236,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 570.42
+        "duration": 443.85
       },
       "amd_hardware": [
         "mi300",
@@ -9263,13 +9273,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b420-4621-87a6-2dbb260a987a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f85-4158-80a0-f142f5d9c96b&tab=output",
           "job_name": ":amd: (MI300) Multimodal Models (Standard) 1: qwen2",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b467-4538-9bae-d571f05a3a2e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcc-4821-bdaf-e560578ffaf0&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Standard) 1: qwen2",
           "side": "upstream"
         }
@@ -9307,7 +9317,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1487.1599999999999
+        "duration": 1213.62
       },
       "amd_hardware": [
         "mi300"
@@ -9336,13 +9346,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b421-4c35-9c18-aa539cec36cc&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f85-4509-804b-0d4928e73280&tab=output",
           "job_name": ":amd: (MI300) Multimodal Models (Standard) 2: qwen3 + gemma",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b467-4287-aa86-d43d021d8c57&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcc-4976-ac94-953cd9401db0&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Standard) 2: qwen3 + gemma",
           "side": "upstream"
         }
@@ -9380,7 +9390,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 413.76
+        "duration": 316.52
       },
       "amd_hardware": [
         "mi250",
@@ -9417,13 +9427,13 @@
         },
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b421-4e19-bfb6-79a314b3951b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f86-4903-8565-f26978e09bc3&tab=output",
           "job_name": ":amd: (MI250) Multimodal Models (Standard) 3: llava + qwen2_vl",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b468-4f0a-a58d-c8444b9443d1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcd-4f5e-b8c7-4a9881764f9e&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Standard) 3: llava + qwen2_vl",
           "side": "upstream"
         }
@@ -9461,7 +9471,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 536.7
+        "duration": 609.66
       },
       "amd_hardware": [
         "mi300",
@@ -9498,13 +9508,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b422-4551-a1ae-75a025b5660a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f86-479f-a8bf-bee1f45dd5d7&tab=output",
           "job_name": ":amd: (MI300) Multimodal Models (Standard) 4: other + whisper",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b468-41f3-be0d-9e51311ed028&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcd-4b01-992d-226e25c9e3ec&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (Standard) 4: other + whisper",
           "side": "upstream"
         }
@@ -9542,7 +9552,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5917.24
+        "duration": 5803.6
       },
       "amd_hardware": [
         "mi300"
@@ -9572,13 +9582,13 @@
         },
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b422-4640-a31a-ea3b02e6dcda&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f86-4c55-b344-d1487c5d42d2&tab=output",
           "job_name": ":amd: (MI355) Multimodal Processor",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b468-402f-9f43-ea3abcc91314&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcd-4442-89bd-3e980828b5f0&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Processor",
           "side": "upstream"
         }
@@ -9609,14 +9619,14 @@
         "duration": 7600.929999999999
       },
       "upstream": {
-        "total": 1225,
-        "passed": 1109,
+        "total": 1231,
+        "passed": 1115,
         "failed": 0,
         "skipped": 113,
         "xfailed": 3,
         "xpassed": 0,
         "error": 0,
-        "duration": 6201.41
+        "duration": 6235.88
       },
       "amd_hardware": [
         "mi250"
@@ -9644,14 +9654,14 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b460-4155-a515-05f0a11b95fa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc6-47c7-978a-515c6d11357e&tab=output",
           "job_name": ":computer: (CPU) Multimodal Processor Shard 1",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 3,
-        "passed": 3,
+        "total": -3,
+        "passed": -3,
         "failed": 0,
         "skipped": 0
       },
@@ -9682,7 +9692,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 688.5899999999999
+        "duration": 664.03
       },
       "amd_hardware": [
         "mi300"
@@ -9711,13 +9721,13 @@
         },
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c5-48df-b599-25f5a5942ccf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0f-4206-8b3f-257ab0217415&tab=output",
           "job_name": ":nvidia: (A100) NixlConnector PD + Spec Decode acceptance",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3ff-4c92-ae7a-e25bfa348988&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f60-4737-89ac-ef8705a05a58&tab=output",
           "job_name": ":amd: (MI300) NixlConnector PD + Spec Decode acceptance",
           "side": "upstream"
         }
@@ -9755,7 +9765,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 366.38
+        "duration": 332.13
       },
       "amd_hardware": [
         "mi300"
@@ -9784,13 +9794,13 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e7-4065-85d5-80f41a92f22d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f44-4e53-9ee0-9802fa5f6340&tab=output",
           "job_name": ":nvidia: (H200) OpenAI API Correctness",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b411-4302-903a-ddbc7623ffe6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f74-4be8-9824-c10bce794fcd&tab=output",
           "job_name": ":amd: (MI300) OpenAI API Correctness",
           "side": "upstream"
         }
@@ -9828,7 +9838,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1074.78
+        "duration": 1936.72
       },
       "amd_hardware": [
         "mi250"
@@ -9856,7 +9866,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d8-4e5d-bff9-681c6a533fd6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f33-4e29-8503-fde94b16edce&tab=output",
           "job_name": ":nvidia: (L4) Pipeline + Context Parallelism",
           "side": "upstream"
         }
@@ -9894,7 +9904,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8.54
+        "duration": 8.620000000000001
       },
       "amd_hardware": [
         "mi300"
@@ -9924,13 +9934,13 @@
         },
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b422-4d8f-b647-4de7f78f4a64&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f87-4b0c-bf73-859b98189428&tab=output",
           "job_name": ":amd: (MI250) Plugin Integration",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46a-40ba-be4d-fd38da6110a7&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd0-41dc-9d66-30bf146965ad&tab=output",
           "job_name": ":nvidia: (L4) Plugin Integration",
           "side": "upstream"
         }
@@ -9997,13 +10007,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b419-45c4-bf99-e4b4c7e2655f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7c-4c5e-b52a-73670355486f&tab=output",
           "job_name": ":amd: (MI300) Python-only Installation",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03cc5-bba1-4007-851e-a237e3c49cc0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041e9-754e-4c24-8397-5a581b0bfc9f&tab=output",
           "job_name": ":nvidia: (H200) Python-only Installation",
           "side": "upstream"
         }
@@ -10034,14 +10044,14 @@
         "duration": 238.37
       },
       "upstream": {
-        "total": 3,
-        "passed": 3,
+        "total": 15,
+        "passed": 15,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 16.62
+        "duration": 17.35
       },
       "amd_hardware": [
         "mi300"
@@ -10070,20 +10080,20 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b425-4ae1-94dc-e405ae8d7956&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8a-4d47-b95b-1f53a188eb96&tab=output",
           "job_name": ":amd: (MI300) PyTorch Compilation",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46c-4637-83c8-46c8c804aac2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd1-48ca-a0ca-401d89b5956f&tab=output",
           "job_name": ":nvidia: (H200) PyTorch Compilation",
           "side": "upstream"
         }
       ],
       "delta": {
-        "total": 23,
-        "passed": 22,
+        "total": 11,
+        "passed": 10,
         "failed": 0,
         "skipped": 1
       },
@@ -10114,7 +10124,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1340.33
+        "duration": 1334.89
       },
       "amd_hardware": [
         "mi300"
@@ -10142,7 +10152,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46d-413c-b897-0e9df9ddfa0f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd3-428f-80f9-9b1c5578abc3&tab=output",
           "job_name": ":nvidia: (L4) PyTorch Compilation Passes",
           "side": "upstream"
         }
@@ -10180,7 +10190,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 58.87
+        "duration": 64.57
       },
       "amd_hardware": [
         "mi300"
@@ -10208,7 +10218,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46d-488e-aead-41f0607823b3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd2-4b69-94c1-4dddf30e2bf0&tab=output",
           "job_name": ":nvidia: (H200) PyTorch Fullgraph",
           "side": "upstream"
         }
@@ -10317,13 +10327,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b425-408f-aaf1-e54226451415&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8b-4cc5-8abe-49b61f57ce5f&tab=output",
           "job_name": ":amd: (MI300) PyTorch Nightly Dependency Override Check",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46d-41c3-be00-4adbefce35ee&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd2-4014-8bc9-ed5bf5f9fc01&tab=output",
           "job_name": ":nvidia: (H200) PyTorch Nightly Dependency Override Check",
           "side": "upstream"
         }
@@ -10461,7 +10471,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1885.6
+        "duration": 1582.96
       },
       "amd_hardware": [
         "mi300",
@@ -10497,7 +10507,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b470-4542-93e0-7d018cabfbac&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd6-4e36-aa8d-ce184dfafdcc&tab=output",
           "job_name": ":nvidia: (H200) Quantized Models",
           "side": "upstream"
         }
@@ -10563,7 +10573,7 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3df-4275-a6a4-99bf07a3420a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3c-4b18-a9d2-2971da8521b2&tab=output",
           "job_name": ":nvidia: (H100) Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
           "side": "upstream"
         }
@@ -10639,13 +10649,13 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3de-4748-9a79-3ca2a38efd65&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3a-46c4-a1c0-27491e4cb12f&tab=output",
           "job_name": ":nvidia: (B200) Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e0-4eb6-995e-e271f61ff4f0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3c-4188-8782-22d849dfdedb&tab=output",
           "job_name": ":nvidia: (H100) Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
           "side": "upstream"
         }
@@ -10753,7 +10763,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b472-4278-b9dc-2e694a7229c3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd8-4a25-9d82-2a962a12af2d&tab=output",
           "job_name": ":nvidia: (H200) Ray Dependency Compatibility Check",
           "side": "upstream"
         }
@@ -10791,7 +10801,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 156.54
+        "duration": 152.92
       },
       "amd_hardware": [
         "mi300"
@@ -10819,7 +10829,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d8-4c17-a192-0712311bff70&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f34-460a-86af-cdc4ccbbbf2f&tab=output",
           "job_name": ":nvidia: (L4) RayExecutorV2",
           "side": "upstream"
         }
@@ -10857,7 +10867,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 210.11
+        "duration": 182.55
       },
       "amd_hardware": [
         "mi300",
@@ -10893,7 +10903,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b450-41db-87b8-e3cc5c6dbef0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb4-4ae6-b603-3202e56d1449&tab=output",
           "job_name": ":nvidia: (H200) Regression",
           "side": "upstream"
         }
@@ -10959,7 +10969,7 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b473-4471-86ef-b54b289ba984&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fda-402e-94fc-e90171a742b2&tab=output",
           "job_name": ":computer: (CPU) Rust Frontend Cargo",
           "side": "upstream"
         }
@@ -11025,7 +11035,7 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b473-4ef2-855d-bb5288262ca3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fda-47fa-9ea7-5cab67978a94&tab=output",
           "job_name": ":computer: (CPU) Rust Frontend Cargo Style + Clippy",
           "side": "upstream"
         }
@@ -11063,7 +11073,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 201.45
+        "duration": 186.79
       },
       "amd_hardware": [
         "mi300"
@@ -11091,7 +11101,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b475-48d6-8819-9b9f6407df58&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fdc-42c3-a17f-247572cc30a8&tab=output",
           "job_name": ":nvidia: (H200) Rust Frontend Core Correctness",
           "side": "upstream"
         }
@@ -11129,7 +11139,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 147.09
+        "duration": 135.71
       },
       "amd_hardware": [
         "mi300"
@@ -11157,7 +11167,7 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b476-40ec-879f-9690221f2758&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fdd-4f22-bd66-026dfa2c6919&tab=output",
           "job_name": ":nvidia: (L4) Rust Frontend Distributed",
           "side": "upstream"
         }
@@ -11189,13 +11199,13 @@
       },
       "upstream": {
         "total": 1,
-        "passed": 0,
-        "failed": 1,
+        "passed": 1,
+        "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 0.0
+        "duration": 73.82
       },
       "amd_hardware": [
         "mi300"
@@ -11210,12 +11220,9 @@
       "amd_hw_failures": {
         "mi300": 1
       },
-      "upstream_hw_failures": {
-        "h200": 1
-      },
+      "upstream_hw_failures": {},
       "hw_failures": {
-        "mi300": 1,
-        "h200": 1
+        "mi300": 1
       },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
@@ -11230,15 +11237,15 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c5f9-4a9c-8279-a7092854d185&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fdc-4139-95e2-0458c7bd3f01&tab=output",
           "job_name": ":nvidia: (H200) Rust Frontend OpenAI Coverage",
           "side": "upstream"
         }
       ],
       "delta": {
         "total": 0,
-        "passed": 0,
-        "failed": 0,
+        "passed": -1,
+        "failed": 1,
         "skipped": 0
       },
       "status": "both",
@@ -11268,7 +11275,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 50.26
+        "duration": 45.47
       },
       "amd_hardware": [
         "mi300"
@@ -11296,7 +11303,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b475-49c2-8e49-eda3521ed773&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fdc-4c25-ab82-54499d0825f9&tab=output",
           "job_name": ":nvidia: (H200) Rust Frontend Serve/Admin Coverage",
           "side": "upstream"
         }
@@ -11334,7 +11341,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 232.19
+        "duration": 223.39
       },
       "amd_hardware": [
         "mi300"
@@ -11362,7 +11369,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b475-41b6-9cd3-b0499da94264&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fdc-4b14-9ffc-289b96e10616&tab=output",
           "job_name": ":nvidia: (H200) Rust Frontend Tool Use",
           "side": "upstream"
         }
@@ -11400,7 +11407,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1142.1599999999999
+        "duration": 1122.3899999999999
       },
       "amd_hardware": [
         "mi300"
@@ -11430,13 +11437,13 @@
         },
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b426-4d1b-853c-f50c6144bbb5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8b-4e70-859f-b201edacfed9&tab=output",
           "job_name": ":amd: (MI250) Samplers",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b477-46f8-ad82-03b76714f317&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fde-445f-bab7-72f301408e51&tab=output",
           "job_name": ":nvidia: (H200) Samplers",
           "side": "upstream"
         }
@@ -11474,7 +11481,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3057.5299999999997
+        "duration": 3672.51
       },
       "amd_hardware": [
         "mi250",
@@ -11511,13 +11518,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b428-4cf9-a0cc-5dc6137498b2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8c-4ba7-8290-32ef201e2065&tab=output",
           "job_name": ":amd: (MI300) Spec Decode Draft Model",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47b-49ed-ba22-ec6bbc5e6337&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe3-41df-b087-7834a7cbed42&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode Draft Model",
           "side": "upstream"
         }
@@ -11555,7 +11562,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 533.33
+        "duration": 551.35
       },
       "amd_hardware": [
         "mi300"
@@ -11583,7 +11590,7 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b479-4642-b072-f167c7f5ddf1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe0-42f1-8640-0f3a734c66b7&tab=output",
           "job_name": ":nvidia: (B200) Spec Decode Eagle Nightly",
           "side": "upstream"
         }
@@ -11621,7 +11628,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 986.04
+        "duration": 882.46
       },
       "amd_hardware": [
         "mi300"
@@ -11650,13 +11657,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b429-42eb-b880-998a32f87024&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8e-4ae8-bd10-c8536f6d2a14&tab=output",
           "job_name": ":amd: (MI300) Spec Decode N-Gram + Suffix",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47c-40b3-aaa4-e42849be261f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe3-4e78-9929-8b2606d037f0&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode N-Gram + Suffix",
           "side": "upstream"
         }
@@ -11694,7 +11701,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2647.7200000000003
+        "duration": 2435.67
       },
       "amd_hardware": [
         "mi250",
@@ -11731,13 +11738,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42a-4e27-b25d-56ed95fc03f9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8e-4159-9622-684d334a3c5e&tab=output",
           "job_name": ":amd: (MI300) Spec Decode Speculators + MTP",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47c-4120-804f-fca5af90240d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe3-4d48-b0eb-9de2c8e2edcc&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode Speculators + MTP",
           "side": "upstream"
         }
@@ -11924,7 +11931,7 @@
       "family_key": "v1 attention shard",
       "family_name": "v1 attention shard",
       "amd_job_name": "mi300_1: :amd: (MI300) V1 Attention Shard 1",
-      "upstream_job_name": ":nvidia: (H100) V1 Attention Shard 1",
+      "upstream_job_name": ":nvidia: (H100) V1 Attention Shard 2",
       "amd": {
         "total": 2892,
         "passed": 1580,
@@ -11943,7 +11950,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 9469.01
+        "duration": 8728.56
       },
       "amd_hardware": [
         "mi300",
@@ -11982,19 +11989,19 @@
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c822-4ef2-8d34-d31df35ff751&tab=output",
-          "job_name": ":nvidia: (H100) V1 Attention Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4eef-4dfb-bd63-073698ecb960&tab=output",
+          "job_name": ":nvidia: (H100) V1 Attention Shard 2",
           "side": "upstream"
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b39f-4612-9398-5b46f3793456&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4ee9-4c46-a9c3-9195dcb42628&tab=output",
           "job_name": ":nvidia: (B200) V1 Attention Shard 1",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3fb-4ede-9952-a7aff6208bb9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f5c-4058-a802-49a2b7c4edbf&tab=output",
           "job_name": ":amd: (MI300) V1 Attention Shard 1",
           "side": "upstream"
         }
@@ -12032,7 +12039,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 264.40999999999997
+        "duration": 275.63
       },
       "amd_hardware": [
         "mi300",
@@ -12069,13 +12076,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b419-4dcc-a824-1b4a6b9a029a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7d-4cad-88db-bdbc772c3e0a&tab=output",
           "job_name": ":amd: (MI300) V1 Core + KV + Metrics",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b450-403c-b317-48aae80e8921&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb5-46bf-abf5-0c83c25ab5db&tab=output",
           "job_name": ":nvidia: (H200) V1 Core + KV + Metrics",
           "side": "upstream"
         }
@@ -12113,7 +12120,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 428.53999999999996
+        "duration": 403.48
       },
       "amd_hardware": [
         "mi300"
@@ -12142,13 +12149,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e2-45af-96d9-fc3d0f0cb151&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3f-4a50-9f1f-a5bfc90d2d3d&tab=output",
           "job_name": ":nvidia: (L4) V1 E2E",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40a-487f-bd38-6fc14e0ebc9b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6d-4821-8153-bb850962263c&tab=output",
           "job_name": ":amd: (MI300) V1 E2E",
           "side": "upstream"
         }
@@ -12186,7 +12193,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1052.6
+        "duration": 1038.98
       },
       "amd_hardware": [
         "mi300"
@@ -12215,13 +12222,13 @@
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e1-42a6-b461-2b75b0cf2398&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f3d-47fd-8234-dfbf96c68b8a&tab=output",
           "job_name": ":nvidia: (B200) V1 E2E Hybrid Chunked Prefill",
           "side": "upstream"
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b406-46bc-ac8c-a66fc0b04ab9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f69-4257-bb9e-6279b5644561&tab=output",
           "job_name": ":amd: (MI300) V1 E2E Hybrid Chunked Prefill",
           "side": "upstream"
         }
@@ -12259,7 +12266,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 97.62
+        "duration": 100.22999999999999
       },
       "amd_hardware": [
         "mi250",
@@ -12296,13 +12303,13 @@
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3e3-4f26-aed3-455157e1a970&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f40-4d5d-a592-1c7643d99bbe&tab=output",
           "job_name": ":nvidia: (L4) V1 Engine",
           "side": "upstream"
         },
         {
           "hw": "mi250",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b40a-41fe-86e6-b99defd2ce39&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f6e-4f59-96c3-2a2ab2c1cb0e&tab=output",
           "job_name": ":amd: (MI250) V1 Engine",
           "side": "upstream"
         }
@@ -12340,7 +12347,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3.22
+        "duration": 3.18
       },
       "amd_hardware": [
         "mi250"
@@ -12368,7 +12375,7 @@
         },
         {
           "hw": "cpu",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b44e-4c12-8cd7-bc6a0df0a6d9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb2-438b-be53-fb0062aed475&tab=output",
           "job_name": ":computer: (CPU) V1 Others",
           "side": "upstream"
         }
@@ -12406,7 +12413,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 10.63
+        "duration": 15.02
       },
       "amd_hardware": [
         "mi300",
@@ -12443,13 +12450,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41a-45d8-955b-d4fc38eacd31&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f7d-4dd7-90d5-a1e2c7bd77c3&tab=output",
           "job_name": ":amd: (MI300) V1 Sample + Logits",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b452-457f-adc4-c871e14d93d6&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fb5-4a21-b1b9-3a72312476ef&tab=output",
           "job_name": ":nvidia: (H200) V1 Sample + Logits",
           "side": "upstream"
         }
@@ -12487,7 +12494,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2853.18
+        "duration": 2890.54
       },
       "amd_hardware": [
         "mi300",
@@ -12524,13 +12531,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42a-4c6b-bf1a-cc5470e82b4f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8e-40d5-89c1-62c3b65c53c3&tab=output",
           "job_name": ":amd: (MI300) V1 Spec Decode",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47d-48c1-bcdb-b14557897cdf&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe4-467f-aa6f-1624fc3f02af&tab=output",
           "job_name": ":nvidia: (H200) V1 Spec Decode",
           "side": "upstream"
         }
@@ -12568,7 +12575,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 970.72
+        "duration": 897.54
       },
       "amd_hardware": [
         "mi300"
@@ -12596,7 +12603,7 @@
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43d-4818-a53a-e8bf1d41790f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa2-4032-9e6b-5ab4b6e8fe7f&tab=output",
           "job_name": ":nvidia: (H200) vLLM IR",
           "side": "upstream"
         }
@@ -12634,7 +12641,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 216.73
+        "duration": 213.24
       },
       "amd_hardware": [
         "mi300",
@@ -12671,13 +12678,13 @@
         },
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42a-4591-bfa9-fc6a0655c9d5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8e-4735-9d5c-7717e1746e72&tab=output",
           "job_name": ":amd: (MI300) Weight Loading Multi-GPU",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47f-4b3c-8646-ff6aa9c0a655&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe7-448d-b5cc-d58967c0b94d&tab=output",
           "job_name": ":nvidia: (L4) Weight Loading Multi-GPU",
           "side": "upstream"
         }
@@ -12775,7 +12782,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c1f2-41a4-8770-f4e1df9a9277&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f01-4f18-bb57-f2e13c5b4508&tab=output",
           "job_name": ":satellite: Report nightly results to CRCR",
           "side": "upstream"
         }
@@ -12798,7 +12805,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 555.62
+        "duration": 542.56
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -12817,7 +12824,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c0-4e2e-88d0-e44e935c4a49&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0a-4303-8ed9-0fbf86e30583&tab=output",
           "job_name": ":nvidia: (B200) AsyncTP Correctness",
           "side": "upstream"
         }
@@ -12840,7 +12847,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 25.48
+        "duration": 28.77
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -12859,7 +12866,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b439-47ea-b133-79ec4248f73f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9e-4308-a861-aa21fa385752&tab=output",
           "job_name": ":nvidia: (H100) Attention DiffKV Kernels",
           "side": "upstream"
         }
@@ -12872,7 +12879,7 @@
       "family_key": "bitsandbytes plugin",
       "family_name": "bitsandbytes plugin",
       "amd_job_name": null,
-      "upstream_job_name": ":nvidia: (H200) BitsAndBytes Plugin",
+      "upstream_job_name": ":nvidia: (L4) BitsAndBytes Plugin",
       "amd": null,
       "upstream": {
         "total": 15,
@@ -12882,7 +12889,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 880.6500000000001
+        "duration": 803.37
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -12902,15 +12909,15 @@
       "failure_tests": [],
       "job_links": [
         {
-          "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b469-489d-9dcf-519de416c778&tab=output",
-          "job_name": ":nvidia: (H200) BitsAndBytes Plugin",
+          "hw": "l4",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcf-4416-9e90-0ebc22759e5a&tab=output",
+          "job_name": ":nvidia: (L4) BitsAndBytes Plugin",
           "side": "upstream"
         },
         {
-          "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46a-4425-9c1d-7af6ceedc086&tab=output",
-          "job_name": ":nvidia: (L4) BitsAndBytes Plugin",
+          "hw": "h200",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcf-45ae-815c-281d00ddb143&tab=output",
+          "job_name": ":nvidia: (H200) BitsAndBytes Plugin",
           "side": "upstream"
         }
       ],
@@ -12932,7 +12939,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 54.47
+        "duration": 55.5
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -12951,7 +12958,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b439-41db-9958-f5be23d5bd6a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9f-4b77-8a47-90f0cf3ecdce&tab=output",
           "job_name": ":nvidia: (H100) DeepGEMM Kernels",
           "side": "upstream"
         }
@@ -12974,7 +12981,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 756.26
+        "duration": 736.91
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -12995,13 +13002,13 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b433-4c71-9ba4-14b0ce980db0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f99-4c5f-99fd-259b930000fc&tab=output",
           "job_name": ":nvidia: (B200) DeepSeek V4 Kernels",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b439-4fce-b34e-334e5dca3059&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9f-4b50-9b29-c91640fa9a23&tab=output",
           "job_name": ":nvidia: (H100) DeepSeek V4 Kernels",
           "side": "upstream"
         }
@@ -13049,7 +13056,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c316-4d29-bda6-76d294f80a3a&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2f-4c40-ad62-bf1cdec1a8e6&tab=output",
           "job_name": ":nvidia: (L4) Distributed 2-Node",
           "side": "upstream"
         }
@@ -13072,7 +13079,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 157.1
+        "duration": 156.81
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13091,7 +13098,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3cf-4c49-9b14-47c59ddb90d2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f26-4849-a18c-51730b745b66&tab=output",
           "job_name": ":nvidia: (L4) Distributed FlashInfer NixlConnector PD accuracy",
           "side": "upstream"
         }
@@ -13114,7 +13121,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 40.19
+        "duration": 42.17
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13133,7 +13140,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d3-4e44-89a0-a4dbc520abd0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2c-42ad-b2b7-65e5f3f399b3&tab=output",
           "job_name": ":nvidia: (B200) Distributed MooncakeConnector PD accuracy",
           "side": "upstream"
         }
@@ -13149,14 +13156,14 @@
       "upstream_job_name": ":nvidia: (H200) DSv4-Flash Disaggregated DP EP",
       "amd": null,
       "upstream": {
-        "total": 2,
-        "passed": 2,
-        "failed": 0,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 413.61
+        "duration": 0.0
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13166,8 +13173,12 @@
         "h200"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "h200": 1
+      },
+      "hw_failures": {
+        "h200": 1
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -13175,7 +13186,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c8-47ce-bb34-1ad3e2dad6fc&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f1f-4dbe-8304-7eb2b1145db5&tab=output",
           "job_name": ":nvidia: (H200) DSv4-Flash Disaggregated DP EP",
           "side": "upstream"
         }
@@ -13198,7 +13209,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 297.15
+        "duration": 281.42
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13217,7 +13228,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3eb-4feb-831d-dceffd95b316&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f49-4d45-8905-ceb3b06a791e&tab=output",
           "job_name": ":nvidia: (H100) Fault Tolerance E2E",
           "side": "upstream"
         }
@@ -13240,7 +13251,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 7.56
+        "duration": 7.66
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13259,7 +13270,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43a-47a6-8da5-2b1e3ee3d09b&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9f-425b-a175-45c9127bfb0e&tab=output",
           "job_name": ":nvidia: (H100) FlashMLA Kernels",
           "side": "upstream"
         }
@@ -13282,7 +13293,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 103.35
+        "duration": 103.85
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13301,7 +13312,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b434-4f6f-bac9-769bf4f87da0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f99-45b7-8515-089d434f1cfe&tab=output",
           "job_name": ":nvidia: (B200) FP4 MoE Kernels",
           "side": "upstream"
         }
@@ -13324,7 +13335,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6.16
+        "duration": 5.69
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13343,7 +13354,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c2-4a5c-9ed6-ccef59113350&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0b-4cd7-a3f4-f348c500a03e&tab=output",
           "job_name": ":nvidia: (B200) Fusion and Compile",
           "side": "upstream"
         }
@@ -13366,7 +13377,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 599.15
+        "duration": 582.81
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13385,7 +13396,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c1-48ef-8d84-81d39a83fd01&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0b-414f-81c6-38ca10f7e564&tab=output",
           "job_name": ":nvidia: (B200) Fusion E2E TP2",
           "side": "upstream"
         }
@@ -13408,7 +13419,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 654.99
+        "duration": 626.93
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13427,7 +13438,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c3-4297-b2e3-2b1bc88387d5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0d-4a02-958f-cc08d85edd94&tab=output",
           "job_name": ":nvidia: (H100) Fusion E2E TP2 AR-RMS Config Sweep",
           "side": "upstream"
         }
@@ -13450,7 +13461,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1399.83
+        "duration": 1403.6
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13469,7 +13480,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c984-4065-a177-7d99e2a264f8&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0d-42e2-a254-84cc56399a91&tab=output",
           "job_name": ":nvidia: (H100) Fusion E2E TP2 AsyncTP Config Sweep",
           "side": "upstream"
         }
@@ -13492,7 +13503,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 781.5
+        "duration": 660.31
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13511,7 +13522,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c776-4905-92e1-03597b0e9c6c&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0d-45db-bfd4-4dd0cf0e7d02&tab=output",
           "job_name": ":nvidia: (H100) Fusion E2E TP2 Quick",
           "side": "upstream"
         }
@@ -13534,7 +13545,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 220.27
+        "duration": 221.57
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13553,7 +13564,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45f-460c-a253-a00f91365a94&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc4-4f6e-b23b-71d725b023b9&tab=output",
           "job_name": ":nvidia: (L4) Granite Language Model Compatibility",
           "side": "upstream"
         }
@@ -13566,7 +13577,7 @@
       "family_key": "helion kernels shard",
       "family_name": "helion kernels shard",
       "amd_job_name": null,
-      "upstream_job_name": ":nvidia: (H100) Helion Kernels Shard 2",
+      "upstream_job_name": ":nvidia: (H100) Helion Kernels Shard 1",
       "amd": null,
       "upstream": {
         "total": 1950,
@@ -13576,7 +13587,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4154.04
+        "duration": 4157.17
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13595,8 +13606,8 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c8d2-428e-9b14-16000563d22a&tab=output",
-          "job_name": ":nvidia: (H100) Helion Kernels Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa0-415d-8c39-25309d708bdb&tab=output",
+          "job_name": ":nvidia: (H100) Helion Kernels Shard 1",
           "side": "upstream"
         }
       ],
@@ -13618,7 +13629,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 209.8
+        "duration": 189.61
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13637,7 +13648,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b457-4b77-925a-f7355db44335&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbc-4435-aaec-f99cbed57adc&tab=output",
           "job_name": ":nvidia: (B200) Inkling",
           "side": "upstream"
         }
@@ -13653,14 +13664,14 @@
       "upstream_job_name": ":nvidia: (B200) Kimi K3",
       "amd": null,
       "upstream": {
-        "total": 480,
-        "passed": 286,
+        "total": 484,
+        "passed": 288,
         "failed": 0,
-        "skipped": 194,
+        "skipped": 196,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 416.22
+        "duration": 477.39
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13679,7 +13690,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b458-4121-b4c7-4d613295bd7e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fbc-4860-937d-31e4530ab87b&tab=output",
           "job_name": ":nvidia: (B200) Kimi K3",
           "side": "upstream"
         }
@@ -13702,7 +13713,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 26.1
+        "duration": 25.39
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13721,7 +13732,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d5-42fc-86fb-173550cc8c34&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f2e-4413-b38e-cca173315fc6&tab=output",
           "job_name": ":nvidia: (B200) Kimi-K3 GEMM-RS/AR",
           "side": "upstream"
         }
@@ -13737,14 +13748,14 @@
       "upstream_job_name": ":nvidia: (H200) Kimi-Linear-48B-A3B Disaggregated DP EP",
       "amd": null,
       "upstream": {
-        "total": 2,
-        "passed": 2,
-        "failed": 0,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 250.99
+        "duration": 0.0
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13754,8 +13765,12 @@
         "h200"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "h200": 1
+      },
+      "hw_failures": {
+        "h200": 1
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -13763,7 +13778,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3cb-4866-9258-b20495d62aa0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f22-45e3-bfda-6347082a0686&tab=output",
           "job_name": ":nvidia: (H200) Kimi-Linear-48B-A3B Disaggregated DP EP",
           "side": "upstream"
         }
@@ -13776,7 +13791,7 @@
       "family_key": "language models (extended pooling) shard",
       "family_name": "language models (extended pooling) shard",
       "amd_job_name": null,
-      "upstream_job_name": ":amd: (MI300) Language Models (Extended Pooling) Shard 1",
+      "upstream_job_name": ":amd: (MI300) Language Models (Extended Pooling) Shard 2",
       "amd": null,
       "upstream": {
         "total": 230,
@@ -13786,7 +13801,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 9471.229999999998
+        "duration": 9093.35
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13807,13 +13822,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41b-4e93-ad38-485fd5e38328&tab=output",
-          "job_name": ":amd: (MI300) Language Models (Extended Pooling) Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f80-4125-a319-2d5e88752a65&tab=output",
+          "job_name": ":amd: (MI300) Language Models (Extended Pooling) Shard 2",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b45c-4703-bbc8-fb52c112560d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fc1-475d-9428-4b5999458039&tab=output",
           "job_name": ":nvidia: (H200) Language Models (Extended Pooling) Shard 1",
           "side": "upstream"
         }
@@ -13836,7 +13851,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3397.01
+        "duration": 3148.51
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13861,13 +13876,13 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b441-46ea-b209-b0bd84c570db&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa7-4065-b468-2454f1e7a029&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Humming Activation FP8/INT8 TEMPORARY",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-caf5-45e0-8e74-bb62b7bea0fa&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4faa-47d7-99b2-bf3f3ced2372&tab=output",
           "job_name": ":nvidia: (H100) LM Eval Humming Activation FP8/INT8 TEMPORARY",
           "side": "upstream"
         }
@@ -13890,7 +13905,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2037.54
+        "duration": 2014.43
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13909,7 +13924,7 @@
       "job_links": [
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b440-4ffe-aa05-e328d040dc2f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa5-47aa-ae2e-d77e2f2c667b&tab=output",
           "job_name": ":nvidia: (A100) LM Eval Humming Activation INT8 TEMPORARY",
           "side": "upstream"
         }
@@ -13932,7 +13947,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2099.94
+        "duration": 2092.24
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13951,7 +13966,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b441-4980-a5e1-c83d9f8deb49&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa7-4a47-9676-184d1203cc1a&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Humming FP16 TEMPORARY",
           "side": "upstream"
         }
@@ -13964,7 +13979,7 @@
       "family_key": "lm eval humming fp16 temporary shard",
       "family_name": "lm eval humming fp16 temporary shard",
       "amd_job_name": null,
-      "upstream_job_name": ":nvidia: (A100) LM Eval Humming FP16 TEMPORARY Shard 3",
+      "upstream_job_name": ":nvidia: (A100) LM Eval Humming FP16 TEMPORARY Shard 2",
       "amd": null,
       "upstream": {
         "total": 28,
@@ -13974,7 +13989,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 7926.889999999999
+        "duration": 7705.59
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -13995,14 +14010,14 @@
       "job_links": [
         {
           "hw": "a100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b441-48eb-a21b-692ae86269c1&tab=output",
-          "job_name": ":nvidia: (A100) LM Eval Humming FP16 TEMPORARY Shard 3",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa6-4e05-a0ec-c5f53d311df0&tab=output",
+          "job_name": ":nvidia: (A100) LM Eval Humming FP16 TEMPORARY Shard 2",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cc17-46ff-a654-99a39ee88e52&tab=output",
-          "job_name": ":nvidia: (H100) LM Eval Humming FP16 TEMPORARY Shard 3",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fab-462e-b2c9-70eeb4f19d4c&tab=output",
+          "job_name": ":nvidia: (H100) LM Eval Humming FP16 TEMPORARY Shard 2",
           "side": "upstream"
         }
       ],
@@ -14024,7 +14039,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 833.93
+        "duration": 763.93
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14043,7 +14058,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b448-4838-a092-fc46cc52980f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fac-4f2e-93e0-0509cf57609c&tab=output",
           "job_name": ":nvidia: (H200) LM Eval KV-Offload",
           "side": "upstream"
         }
@@ -14060,13 +14075,13 @@
       "amd": null,
       "upstream": {
         "total": 2,
-        "passed": 2,
-        "failed": 0,
+        "passed": 1,
+        "failed": 1,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1458.27
+        "duration": 1348.22
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14076,8 +14091,12 @@
         "h100"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "h100": 1
+      },
+      "hw_failures": {
+        "h100": 1
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -14085,7 +14104,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cb4e-402b-84b5-cbbc08591346&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fab-4925-89c7-8a8e372af8e2&tab=output",
           "job_name": ":nvidia: (H100) LM Eval KV-Offload Large",
           "side": "upstream"
         }
@@ -14108,7 +14127,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 780.13
+        "duration": 770.6
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14127,7 +14146,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-c6b2-4203-83d2-bae8c3bc2762&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fac-4234-a4ce-6103670bc102&tab=output",
           "job_name": ":nvidia: (H100) LM Eval KV-Offload Medium",
           "side": "upstream"
         }
@@ -14150,7 +14169,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1339.41
+        "duration": 1305.25
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14169,7 +14188,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b442-474c-a8e7-3e908fcaf7e0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa7-4264-bd88-5913c97e9ae6&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Large Models EP",
           "side": "upstream"
         }
@@ -14186,13 +14205,13 @@
       "amd": null,
       "upstream": {
         "total": 2,
-        "passed": 2,
-        "failed": 0,
+        "passed": 0,
+        "failed": 2,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 735.32
+        "duration": 0.0
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14202,8 +14221,12 @@
         "b200"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "b200": 2
+      },
+      "hw_failures": {
+        "b200": 2
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -14211,7 +14234,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b442-41ed-a6d2-313ab03db9ba&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa7-47af-872a-1791d387d013&tab=output",
           "job_name": ":nvidia: (B200) LM Eval PCP",
           "side": "upstream"
         }
@@ -14234,7 +14257,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 279.04
+        "duration": 246.07
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14253,7 +14276,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b443-44b3-b2ff-4ad6eb313431&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa8-4500-8144-16eb9b1431cb&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Small Models Distributed",
           "side": "upstream"
         }
@@ -14276,7 +14299,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1078.16
+        "duration": 1081.52
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14295,7 +14318,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b443-4666-8eba-cb4ff78d28f0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa8-4c55-88f9-29fac3a55987&tab=output",
           "job_name": ":nvidia: (B200) LM Eval Spec Decode",
           "side": "upstream"
         }
@@ -14318,7 +14341,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2351.52
+        "duration": 2335.36
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14337,7 +14360,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b449-401e-94a7-305bf827e3fc&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fad-474b-b711-b28fa94f9893&tab=output",
           "job_name": ":nvidia: (H200) LM Eval TurboQuant KV Cache",
           "side": "upstream"
         }
@@ -14360,7 +14383,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 157.6
+        "duration": 164.78
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14379,7 +14402,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43b-430a-9184-2c3a6c0cb678&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa1-4c00-b889-89cfae4a31d6&tab=output",
           "job_name": ":nvidia: (H100) MiniMax Reduce RMS Kernels",
           "side": "upstream"
         }
@@ -14395,14 +14418,14 @@
       "upstream_job_name": ":nvidia: (B200) Miscellaneous Kernels",
       "amd": null,
       "upstream": {
-        "total": 2681,
-        "passed": 2500,
+        "total": 2685,
+        "passed": 2502,
         "failed": 0,
-        "skipped": 181,
+        "skipped": 183,
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1320.1
+        "duration": 1122.18
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14421,7 +14444,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b434-4a02-bc5d-34ad2222e9ef&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9a-4355-9bfe-4c129b1c71d7&tab=output",
           "job_name": ":nvidia: (B200) Miscellaneous Kernels",
           "side": "upstream"
         }
@@ -14444,7 +14467,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2335.32
+        "duration": 2263.92
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14463,7 +14486,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b444-4b2d-ae61-6be8aeff0e39&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa9-42b9-835b-266ecc5ee306&tab=output",
           "job_name": ":nvidia: (B200) MoE Refactor DP Integration TEMPORARY",
           "side": "upstream"
         }
@@ -14486,7 +14509,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3152.8
+        "duration": 3002.65
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14505,7 +14528,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03feb-cc77-4136-a552-8bb9b52e211d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fac-4545-bd04-c1e52b9e4b9d&tab=output",
           "job_name": ":nvidia: (H100) MoE Refactor Integration TEMPORARY",
           "side": "upstream"
         }
@@ -14528,7 +14551,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 5304.780000000001
+        "duration": 5620.139999999999
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14547,7 +14570,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b444-4da3-a63d-d8ace2e4e384&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa9-44a4-bcf6-624437b633b6&tab=output",
           "job_name": ":nvidia: (B200) MoE Refactor Integration TEMPORARY Shard 1",
           "side": "upstream"
         }
@@ -14560,7 +14583,7 @@
       "family_key": "multimodal models (extended generation 2) shard",
       "family_name": "multimodal models (extended generation 2) shard",
       "amd_job_name": null,
-      "upstream_job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 2",
+      "upstream_job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 1",
       "amd": null,
       "upstream": {
         "total": 86,
@@ -14570,7 +14593,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4630.859999999999
+        "duration": 3904.8799999999997
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14591,14 +14614,14 @@
       "job_links": [
         {
           "hw": "mi355",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b41f-427b-a9d5-8c3feecd11e6&tab=output",
-          "job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f83-4445-851d-4d2d90f0bf01&tab=output",
+          "job_name": ":amd: (MI355) Multimodal Models (Extended Generation 2) Shard 1",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b465-448d-9607-1a0f35d85d1f&tab=output",
-          "job_name": ":nvidia: (H200) Multimodal Models (Extended Generation 2) Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcb-45a4-89ee-79ba08e0f0d4&tab=output",
+          "job_name": ":nvidia: (H200) Multimodal Models (Extended Generation 2) Shard 1",
           "side": "upstream"
         }
       ],
@@ -14620,7 +14643,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 648.12
+        "duration": 556.24
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14641,13 +14664,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b420-420b-bb72-cdc09d3b74a1&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f84-4793-af61-ecb141b75be8&tab=output",
           "job_name": ":amd: (MI300) Multimodal Models (PPL)",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b466-4413-ba96-50251a903d4d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fcc-4ed3-b1d9-715b1c80e50d&tab=output",
           "job_name": ":nvidia: (H200) Multimodal Models (PPL)",
           "side": "upstream"
         }
@@ -14670,7 +14693,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3.81
+        "duration": 3.45
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14689,7 +14712,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d1-4b23-8cd6-708695156f10&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f29-4fee-bf81-9b348523d006&tab=output",
           "job_name": ":nvidia: (L4) NixlConnector PD edge case",
           "side": "upstream"
         }
@@ -14731,7 +14754,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b432-41fe-9249-399f329a43a0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f97-4dbf-aef6-4b3f65bdee7d&tab=output",
           "job_name": ":nvidia: (H200) No Runtime JITs E2E",
           "side": "upstream"
         }
@@ -14754,7 +14777,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 130.14
+        "duration": 128.51
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14773,7 +14796,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d1-4607-b469-bfb8d3fc0fd2&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f29-4360-9d47-6f341983b04d&tab=output",
           "job_name": ":nvidia: (L4) Push NixlConnector PP prefill PD accuracy",
           "side": "upstream"
         }
@@ -14796,7 +14819,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 628.63
+        "duration": 630.23
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14815,7 +14838,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46c-4aee-9767-d1f37dc97a8d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd2-4356-9e1f-be37f59a4e3e&tab=output",
           "job_name": ":nvidia: (H200) PyTorch Compilation H100 Cases",
           "side": "upstream"
         }
@@ -14838,7 +14861,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 572.27
+        "duration": 567.48
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14857,7 +14880,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46e-4d57-9c08-9e5a729c163f&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd3-480d-bba7-aade7e846a6d&tab=output",
           "job_name": ":nvidia: (L4) PyTorch Fullgraph CUDAGraph Compatibility",
           "side": "upstream"
         }
@@ -14870,7 +14893,7 @@
       "family_key": "quantization kernels shard",
       "family_name": "quantization kernels shard",
       "amd_job_name": null,
-      "upstream_job_name": ":amd: (MI300) Quantization Kernels Shard 1",
+      "upstream_job_name": ":amd: (MI300) Quantization Kernels Shard 2",
       "amd": null,
       "upstream": {
         "total": 11193,
@@ -14880,7 +14903,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 6271.300000000001
+        "duration": 6308.43
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14901,14 +14924,14 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b413-4d22-9893-04e729a75482&tab=output",
-          "job_name": ":amd: (MI300) Quantization Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f76-41fa-824c-b227dee7d66a&tab=output",
+          "job_name": ":amd: (MI300) Quantization Kernels Shard 2",
           "side": "upstream"
         },
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b43f-4804-97df-29e7156229d7&tab=output",
-          "job_name": ":nvidia: (L4) Quantization Kernels Shard 1",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fa4-4f90-9d3e-63277d298d76&tab=output",
+          "job_name": ":nvidia: (L4) Quantization Kernels Shard 2",
           "side": "upstream"
         }
       ],
@@ -14920,7 +14943,7 @@
       "family_key": "quantization shard",
       "family_name": "quantization shard",
       "amd_job_name": null,
-      "upstream_job_name": ":nvidia: (H200) Quantization Shard 2",
+      "upstream_job_name": ":nvidia: (H200) Quantization Shard 1",
       "amd": null,
       "upstream": {
         "total": 602,
@@ -14930,7 +14953,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4160.17
+        "duration": 4105.719999999999
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14949,8 +14972,8 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46f-4a02-bec9-47612b395465&tab=output",
-          "job_name": ":nvidia: (H200) Quantization Shard 2",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd5-4721-abbd-42799331bb7c&tab=output",
+          "job_name": ":nvidia: (H200) Quantization Shard 1",
           "side": "upstream"
         }
       ],
@@ -14972,7 +14995,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 4.65
+        "duration": 4.64
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -14991,7 +15014,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b470-4d39-89fc-41ef494ada97&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd6-4a33-915a-58bb46e366b2&tab=output",
           "job_name": ":nvidia: (H200) Quantized Fusions",
           "side": "upstream"
         }
@@ -15014,7 +15037,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1819.49
+        "duration": 1789.3
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15033,7 +15056,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b46f-4a48-82e5-55e00c497a5d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fd4-45a7-91bb-2e51fe0d5cd6&tab=output",
           "job_name": ":nvidia: (B200) Quantized MoE",
           "side": "upstream"
         }
@@ -15056,7 +15079,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1453.25
+        "duration": 1465.27
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15075,7 +15098,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3c2-464e-abd2-d1d3a3d9df08&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f0c-44d5-a099-2b18cdef9358&tab=output",
           "job_name": ":nvidia: (B200) Sequence Parallel Correctness",
           "side": "upstream"
         }
@@ -15098,7 +15121,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 8.11
+        "duration": 8.02
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15117,7 +15140,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b3d9-4e33-b562-608781df4376&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f34-49c6-9fb5-54f63c82f49a&tab=output",
           "job_name": ":nvidia: (L4) Sharded RDT Weight Transfer",
           "side": "upstream"
         }
@@ -15140,7 +15163,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 40.48
+        "duration": 39.47
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15159,7 +15182,7 @@
       "job_links": [
         {
           "hw": "dgx",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b435-4cf0-93d5-bf10a661ffb3&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f9b-4b1f-aa85-996c47803bd2&tab=output",
           "job_name": ":nvidia: (DGX) Spark b12x Linear Kernels Nightly",
           "side": "upstream"
         }
@@ -15182,7 +15205,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 582.92
+        "duration": 590.22
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15201,7 +15224,7 @@
       "job_links": [
         {
           "hw": "dgx",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b445-4a6c-b3e7-e9fb0ce334e9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4faa-4c3f-b5f1-cea956c94206&tab=output",
           "job_name": ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)",
           "side": "upstream"
         }
@@ -15224,7 +15247,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 3696.37
+        "duration": 3472.04
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15245,13 +15268,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b427-434c-856b-de799307775d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8c-4e49-837a-c5d42d403238&tab=output",
           "job_name": ":amd: (MI300) Spec Decode AL DFlash Nightly",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47a-4728-904f-db3ef9202372&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe1-41d0-aa2a-03855af1cf2a&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode AL DFlash Nightly",
           "side": "upstream"
         }
@@ -15274,7 +15297,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1914.14
+        "duration": 1758.19
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15295,13 +15318,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b427-4b47-ac7a-b292d0e7aed5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8c-4e08-b2be-56a87d635777&tab=output",
           "job_name": ":amd: (MI300) Spec Decode AL DSpark Nightly",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47a-476c-9e97-177b4e88d1f4&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe2-4c78-962b-761165bbae84&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode AL DSpark Nightly",
           "side": "upstream"
         }
@@ -15317,14 +15340,14 @@
       "upstream_job_name": ":nvidia: (H200) Spec Decode AL MTP + Other Acceptance Nightly",
       "amd": null,
       "upstream": {
-        "total": 4,
-        "passed": 4,
+        "total": 1,
+        "passed": 0,
         "failed": 0,
         "skipped": 0,
         "xfailed": 0,
         "xpassed": 0,
-        "error": 0,
-        "duration": 2738.83
+        "error": 1,
+        "duration": 0.0
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15334,8 +15357,12 @@
         "h200"
       ],
       "amd_hw_failures": {},
-      "upstream_hw_failures": {},
-      "hw_failures": null,
+      "upstream_hw_failures": {
+        "h200": 1
+      },
+      "hw_failures": {
+        "h200": 1
+      },
       "amd_hw_canceled": {},
       "upstream_hw_canceled": {},
       "hw_canceled": null,
@@ -15343,7 +15370,7 @@
       "job_links": [
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47b-428d-a22a-a0b2670b9d4e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a0420d-f644-4b98-9148-34e22a05245e&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode AL MTP + Other Acceptance Nightly",
           "side": "upstream"
         }
@@ -15366,7 +15393,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1055.17
+        "duration": 1020.01
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15387,13 +15414,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b426-474b-9b2b-1d4a27990f64&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8c-4aef-9d62-542d97365212&tab=output",
           "job_name": ":amd: (MI300) Spec Decode DeepSeek MTP Parallel Load",
           "side": "upstream"
         },
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b479-460b-89e0-00588efd43dc&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe0-4135-a8ab-23f64e3e5277&tab=output",
           "job_name": ":nvidia: (B200) Spec Decode DeepSeek MTP Parallel Load",
           "side": "upstream"
         }
@@ -15416,7 +15443,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1290.3
+        "duration": 1300.98
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15435,7 +15462,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b479-4eff-b3df-7c853f6d60c9&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe0-4ba2-af40-9d977b73db70&tab=output",
           "job_name": ":nvidia: (B200) Spec Decode Draft Model Nightly",
           "side": "upstream"
         }
@@ -15458,7 +15485,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 2038.73
+        "duration": 1903.41
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15479,13 +15506,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b428-4c33-91af-83a4b7068697&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8d-434f-839e-5db3bcba927d&tab=output",
           "job_name": ":amd: (MI300) Spec Decode Eagle 1: DeepSeek + Qwen",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47c-4563-9ba0-6dd7bbd8e003&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe3-4cb2-82d7-1951410373fa&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode Eagle 1: DeepSeek + Qwen",
           "side": "upstream"
         }
@@ -15508,7 +15535,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1678.46
+        "duration": 1654.49
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15529,13 +15556,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b428-43cb-b150-e65825c5c433&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8d-4787-8577-8614d4badfe4&tab=output",
           "job_name": ":amd: (MI300) Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
           "side": "upstream"
         },
         {
           "hw": "h200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47c-41f0-b34f-49fcb397f21e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe3-4969-8eb1-2af60c311af0&tab=output",
           "job_name": ":nvidia: (H200) Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
           "side": "upstream"
         }
@@ -15558,7 +15585,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 601.55
+        "duration": 577.9
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15577,7 +15604,7 @@
       "job_links": [
         {
           "hw": "b200",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47a-4907-a608-b9e6999c5ef5&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe1-4c9b-97cc-22dcae0393ed&tab=output",
           "job_name": ":nvidia: (B200) Spec Decode Speculators + MTP Nightly",
           "side": "upstream"
         }
@@ -15600,7 +15627,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 1221.84
+        "duration": 1165.4299999999998
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15621,13 +15648,13 @@
       "job_links": [
         {
           "hw": "mi300",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b427-49e3-9524-b046f250013d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f8c-4361-ac14-cbc5367ef906&tab=output",
           "job_name": ":amd: (MI300) Speculators Correctness Nightly",
           "side": "upstream"
         },
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47a-4c7d-ad77-3cb56d29f179&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe1-448a-9640-2715c4d4c542&tab=output",
           "job_name": ":nvidia: (H100) Speculators Correctness Nightly",
           "side": "upstream"
         }
@@ -15669,7 +15696,7 @@
       "job_links": [
         {
           "hw": "l4",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b47e-4035-95ca-316241ec52f0&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4fe5-465e-b9f0-5334b9cd6080&tab=output",
           "job_name": ":nvidia: (L4) Torch Stable ABI Audit",
           "side": "upstream"
         }
@@ -15692,7 +15719,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 153.7
+        "duration": 155.61
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15711,7 +15738,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42f-44e2-ba1d-513d38cd7d04&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f95-4ed2-b7f0-5b39a1b40738&tab=output",
           "job_name": "XPU compressed tensors FP8 test",
           "side": "upstream"
         }
@@ -15753,7 +15780,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b430-48e1-b574-36db83551116&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f95-41c3-8588-cde20e6b6162&tab=output",
           "job_name": "XPU example Test",
           "side": "upstream"
         }
@@ -15795,7 +15822,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42c-43d0-a461-aae97272092e&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f90-4de9-82a9-60f006dc3c01&tab=output",
           "job_name": "XPU Graph",
           "side": "upstream"
         }
@@ -15818,7 +15845,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 550.09
+        "duration": 665.83
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15837,7 +15864,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b430-4fc0-8fff-3dcbeba5f967&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f96-4667-8155-5e5f4f344f43&tab=output",
           "job_name": "XPU quantization test",
           "side": "upstream"
         }
@@ -15860,7 +15887,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 361.59
+        "duration": 471.92
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15879,7 +15906,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b431-44ba-bf88-6088e8e24816&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f96-4fde-a569-7d492c0ea907&tab=output",
           "job_name": "XPU server test",
           "side": "upstream"
         }
@@ -15902,7 +15929,7 @@
         "xfailed": 0,
         "xpassed": 0,
         "error": 0,
-        "duration": 978.7
+        "duration": 1260.35
       },
       "amd_hardware": [],
       "upstream_hardware": [
@@ -15921,7 +15948,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42f-4578-a9be-a1b2457f834d&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f94-455b-8701-c0e2ce27c228&tab=output",
           "job_name": "XPU V1 test",
           "side": "upstream"
         }
@@ -15963,7 +15990,7 @@
       "job_links": [
         {
           "hw": "h100",
-          "url": "https://buildkite.com/vllm/ci/builds/85598/steps/canvas?jid=01a03ca8-b42f-4e7b-b61a-cc12316b8558&tab=output",
+          "url": "https://buildkite.com/vllm/ci/builds/85757/steps/canvas?jid=01a041cf-4f95-4848-9e15-ee5d551dc1a1&tab=output",
           "job_name": "XPU W8A8 FP8 Linear Examples",
           "side": "upstream"
         }
@@ -17060,9 +17087,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": ":nvidia: (B200) LM Eval PCP::__passed__",
+      "test_id": ":nvidia: (B200) LM Eval PCP::__unidentified_failures__",
       "amd_status": "missing",
-      "upstream_status": "passed",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -17486,6 +17513,12 @@
       "category": "upstream_only"
     },
     {
+      "test_id": ":nvidia: (H100) LM Eval KV-Offload Large::__unidentified_failures__",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
+    },
+    {
       "test_id": ":nvidia: (H100) LM Eval KV-Offload Medium::__passed__",
       "amd_status": "missing",
       "upstream_status": "passed",
@@ -17690,9 +17723,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": ":nvidia: (H200) DSv4-Flash Disaggregated DP EP::__passed__",
+      "test_id": ":nvidia: (H200) DSv4-Flash Disaggregated DP EP::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "passed",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -17858,9 +17891,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": ":nvidia: (H200) Kimi-Linear-48B-A3B Disaggregated DP EP::__passed__",
+      "test_id": ":nvidia: (H200) Kimi-Linear-48B-A3B Disaggregated DP EP::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "passed",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -17870,9 +17903,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": ":nvidia: (H200) LM Eval Large Models::__passed__",
+      "test_id": ":nvidia: (H200) LM Eval Large Models::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "passed",
+      "upstream_status": "failed",
       "category": "upstream_only"
     },
     {
@@ -18332,9 +18365,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": ":nvidia: (H200) Rust Frontend OpenAI Coverage::__unidentified_failures__",
+      "test_id": ":nvidia: (H200) Rust Frontend OpenAI Coverage::__passed__",
       "amd_status": "missing",
-      "upstream_status": "failed",
+      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -18374,9 +18407,9 @@
       "category": "upstream_only"
     },
     {
-      "test_id": ":nvidia: (H200) Spec Decode AL MTP + Other Acceptance Nightly::__passed__",
+      "test_id": ":nvidia: (H200) Spec Decode AL MTP + Other Acceptance Nightly::__job_level__",
       "amd_status": "missing",
-      "upstream_status": "passed",
+      "upstream_status": "error",
       "category": "upstream_only"
     },
     {
@@ -18677,12 +18710,6 @@
       "test_id": ":nvidia: (L4) MoE Kernels Shard 5::__skipped__",
       "amd_status": "missing",
       "upstream_status": "skipped",
-      "category": "upstream_only"
-    },
-    {
-      "test_id": ":nvidia: (L4) Model Runner V2 Distributed::__passed__",
-      "amd_status": "missing",
-      "upstream_status": "passed",
       "category": "upstream_only"
     },
     {
@@ -21012,8 +21039,14 @@
       "amd_status": "passed",
       "upstream_status": "missing",
       "category": "amd_only"
+    },
+    {
+      "test_id": "v1/e2e/spec_decode/test_sharded_sampling.py::test_mtp_sharded_sampling_equivalence",
+      "amd_status": "missing",
+      "upstream_status": "failed",
+      "category": "upstream_only"
     }
   ],
   "amd_build": 12380,
-  "upstream_build": 85598
+  "upstream_build": 85757
 }
