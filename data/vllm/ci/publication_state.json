@@ -1,9 +1,9 @@
 {
-  "baseline_ref": "84f6341666e9fdfcac4763a9687b06121ec4f0e7",
+  "baseline_ref": "fe63328f022db87e283dce2703ede4483d4a4866",
   "candidate_degradations": [
     {
       "code": "dns-health-stale",
-      "message": "DNS health source is 8.7h old; maximum is 3h",
+      "message": "DNS health source is 7.3h old; maximum is 3h",
       "path": "data/vllm/ci/dns_failures.json",
       "severity": "degradation",
       "surfaces": [
@@ -11,39 +11,114 @@
       ]
     }
   ],
-  "candidate_errors": [],
-  "collector_failure_streaks": {},
-  "collector_failures": [],
+  "candidate_errors": [
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "alertable": false,
+        "collector": "collect_agent_health.py",
+        "details": {
+          "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
+        },
+        "exit_code": 1,
+        "persistence_runs": 1,
+        "reason_class": "timeout",
+        "step": "AMD agent health",
+        "surface": "agent_health"
+      },
+      "message": "AMD agent health (collect_agent_health.py) failed with timeout; agent_health will use its validated baseline",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "agent_health"
+      ]
+    }
+  ],
+  "collector_failure_streaks": {
+    "bbe10dde8de59267c1cf": 1
+  },
+  "collector_failures": [
+    {
+      "alertable": false,
+      "collector": "collect_agent_health.py",
+      "details": {
+        "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
+      },
+      "exit_code": 1,
+      "persistence_runs": 1,
+      "reason_class": "timeout",
+      "schema_version": 1,
+      "step": "AMD agent health",
+      "surface": "agent_health"
+    }
+  ],
   "collector_incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
   "degraded_since": {
+    "agent_health": "2026-08-28T05:49:08Z",
     "dns_health": "2026-08-27T10:09:37Z"
   },
   "degraded_surfaces": [
+    "agent_health",
     "dns_health"
   ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {},
-  "fallback_surfaces": [],
-  "final_degradations": [],
+  "fallback_since": {
+    "agent_health": "2026-08-28T05:49:08Z"
+  },
+  "fallback_surfaces": [
+    "agent_health"
+  ],
+  "final_degradations": [
+    {
+      "code": "dns-health-stale",
+      "message": "DNS health source is 7.3h old; maximum is 3h",
+      "path": "data/vllm/ci/dns_failures.json",
+      "severity": "degradation",
+      "surfaces": [
+        "dns_health"
+      ]
+    }
+  ],
   "final_errors": [],
   "fresh_degraded_surfaces": [
     "dns_health"
   ],
-  "generated_at": "2026-08-27T20:38:43Z",
+  "generated_at": "2026-08-28T05:49:08Z",
   "incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
-  "mode": "degraded",
-  "restored_manifest": {},
-  "restored_paths": {},
+  "mode": "mixed",
+  "restored_manifest": {
+    "agent_health": {
+      "data/vllm/ci/agent_health.json": {
+        "bytes": 4972593,
+        "sha256": "ae2d6e321bb2f63938acc5698c204738e038c74e279cc45ba6331ed8f5d99e61"
+      },
+      "data/vllm/ci/agent_health/infra_failures.jsonl": {
+        "bytes": 4942274,
+        "sha256": "6b49389b8bb9ecc567062ebecd91333615bd2cd975ff1b784cc237951d546015"
+      },
+      "data/vllm/ci/agent_health/node_days.jsonl": {
+        "bytes": 554389,
+        "sha256": "4f71943fedd519573589387d5ce322934ca6b13cf43eac8337e5d32c86352605"
+      }
+    }
+  },
+  "restored_paths": {
+    "agent_health": [
+      "data/vllm/ci/agent_health.json",
+      "data/vllm/ci/agent_health/infra_failures.jsonl",
+      "data/vllm/ci/agent_health/node_days.jsonl"
+    ]
+  },
   "schema_version": 2,
   "surface_contract_version": 4,
   "upstream_retry_observations": [],
