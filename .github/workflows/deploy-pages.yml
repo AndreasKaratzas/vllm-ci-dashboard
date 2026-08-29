@@ -5,6 +5,7 @@ on:
 
 concurrency:
   group: gh-pages-deploy
+  queue: max
   cancel-in-progress: false
 
 permissions:
@@ -148,9 +149,22 @@ jobs:
             echo "::error::Published org_summary.json differs from the assembled site."
             exit 1
           }
-          echo "All data files clean."
+
+          DEPLOYED_OPERATIONS_MANIFEST="$RUNNER_TEMP/deployed-operations-manifest.json"
+          if ! git show \
+            origin/gh-pages:data/vllm/ci/operations_v2_manifest.json \
+            > "$DEPLOYED_OPERATIONS_MANIFEST" 2>/dev/null; then
+            echo "::error::Published Operations manifest is missing."
+            exit 1
+          fi
+          python scripts/vllm/verify_published_operations_bundle.py \
+            --assembled-manifest _site/data/vllm/ci/operations_v2_manifest.json \
+            --deployed-manifest "$DEPLOYED_OPERATIONS_MANIFEST" \
+            --git-ref origin/gh-pages
+          echo "All data files and publication bundles are clean."
 
       - name: Redeploy if corrupted
+        id: corruption-redeploy
         if: failure() && steps.post-deploy-validation.outcome == 'failure' && hashFiles('_site/index.html') != ''
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -159,3 +173,40 @@ jobs:
           publish_branch: gh-pages
           keep_files: false
           force_orphan: true
+
+      - name: Confirm corruption recovery
+        if: always() && steps.post-deploy-validation.outcome == 'failure' && steps.corruption-redeploy.outcome == 'success'
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1
+
+          CORRUPT=0
+          for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$' || true); do
+            CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)
+            if echo "$CONTENT" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
+              echo "CORRUPT after recovery: $f"
+              CORRUPT=$((CORRUPT + 1))
+            fi
+          done
+          if [ "$CORRUPT" -gt 0 ]; then
+            echo "::error::$CORRUPT data files remain corrupted after recovery deployment."
+            exit 1
+          fi
+
+          DEPLOYED_ORG_SUMMARY="$RUNNER_TEMP/recovered-org-summary.json"
+          git show origin/gh-pages:data/vllm/ci/org_summary.json \
+            > "$DEPLOYED_ORG_SUMMARY"
+          python -m json.tool "$DEPLOYED_ORG_SUMMARY" >/dev/null
+          cmp -s _site/data/vllm/ci/org_summary.json "$DEPLOYED_ORG_SUMMARY"
+
+          DEPLOYED_OPERATIONS_MANIFEST="$RUNNER_TEMP/recovered-operations-manifest.json"
+          git show \
+            origin/gh-pages:data/vllm/ci/operations_v2_manifest.json \
+            > "$DEPLOYED_OPERATIONS_MANIFEST"
+          python scripts/vllm/verify_published_operations_bundle.py \
+            --assembled-manifest _site/data/vllm/ci/operations_v2_manifest.json \
+            --deployed-manifest "$DEPLOYED_OPERATIONS_MANIFEST" \
+            --git-ref origin/gh-pages
+          echo "Confirmed clean JSON data and restored critical publication bundles."

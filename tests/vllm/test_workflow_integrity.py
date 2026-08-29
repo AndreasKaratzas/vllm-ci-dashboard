@@ -116,15 +116,20 @@ class TestWorkflowYAML:
             if isinstance(conc, dict):
                 group = conc.get("group")
                 cancel = conc.get("cancel-in-progress")
+                queue = conc.get("queue")
             else:
                 group = conc
                 cancel = None
+                queue = None
             assert group == "gh-pages-deploy", (
                 f"{f.name} writes to gh-pages but does not share the gh-pages-deploy "
                 "concurrency group"
             )
             assert cancel is False, (
                 f"{f.name} writes to gh-pages but still has cancel-in-progress enabled"
+            )
+            assert queue == "max", (
+                f"{f.name} writes to gh-pages but can replace an already-pending writer"
             )
 
     def test_repo_governance_workflow_exists_and_watches_issues_and_prs(self):
@@ -179,12 +184,26 @@ class TestWorkflowYAML:
                 assert "python -m json.tool" in validation_script
                 assert "_site/data/vllm/ci/org_summary.json" in validation_script
                 assert "cmp -s" in validation_script
+                assert (
+                    "origin/gh-pages:data/vllm/ci/operations_v2_manifest.json"
+                    in validation_script
+                )
+                assert (
+                    "_site/data/vllm/ci/operations_v2_manifest.json"
+                    in validation_script
+                )
+                assert (
+                    "scripts/vllm/verify_published_operations_bundle.py"
+                    in validation_script
+                )
+                assert "--git-ref origin/gh-pages" in validation_script
 
                 redeploy = next(
                     step
                     for step in steps
                     if step.get("name", "").startswith("Redeploy if corrupted")
                 )
+                assert redeploy.get("id") == "corruption-redeploy"
                 condition = str(redeploy.get("if", ""))
                 assert "steps.post-deploy-validation.outcome == 'failure'" in condition, (
                     f"{f.name} corruption redeploy must only run when post-deploy "
@@ -193,6 +212,38 @@ class TestWorkflowYAML:
                 assert "hashFiles('_site/index.html') != ''" in condition, (
                     f"{f.name} corruption redeploy must require an assembled site"
                 )
+
+                recovery = next(
+                    step
+                    for step in steps
+                    if step.get("name") == "Confirm corruption recovery"
+                )
+                recovery_condition = str(recovery.get("if", ""))
+                assert "always()" in recovery_condition
+                assert (
+                    "steps.post-deploy-validation.outcome == 'failure'"
+                    in recovery_condition
+                )
+                assert (
+                    "steps.corruption-redeploy.outcome == 'success'"
+                    in recovery_condition
+                )
+                recovery_script = recovery.get("run", "")
+                assert (
+                    "git ls-tree -r --name-only origin/gh-pages -- data/"
+                    in recovery_script
+                )
+                assert (
+                    "data files remain corrupted after recovery deployment"
+                    in recovery_script
+                )
+                assert "recovered-org-summary.json" in recovery_script
+                assert "recovered-operations-manifest.json" in recovery_script
+                assert (
+                    "scripts/vllm/verify_published_operations_bundle.py"
+                    in recovery_script
+                )
+                assert "--git-ref origin/gh-pages" in recovery_script
 
 
 class TestPrimaryCIWorkflow:
@@ -276,9 +327,85 @@ class TestHourlyMasterWorkflow:
         inputs = triggers["workflow_dispatch"]["inputs"]
 
         assert inputs["ci_days"]["default"] == "8"
+        assert inputs["dns_generation"]["default"] == ""
         assert 'github.event.inputs.ci_days || \'8\'' in _load_workflow_text(
             "hourly-master.yml"
         )
+
+    def test_dns_reconciliation_is_generation_acknowledged_and_idempotent(self):
+        workflow = _load_workflow("hourly-master.yml")
+        collect = workflow["jobs"]["collect-and-deploy"]
+        preflight = workflow["jobs"]["dns-reconcile-preflight"]
+
+        assert collect["needs"] == "dns-reconcile-preflight"
+        assert collect["timeout-minutes"] == 60
+        assert "always()" in collect["if"]
+        assert "!cancelled()" in collect["if"]
+        assert "needs.dns-reconcile-preflight.result != 'success'" in collect["if"]
+        assert "needs.dns-reconcile-preflight.outputs.required != 'false'" in (
+            collect["if"]
+        )
+        assert preflight["if"] == (
+            "github.event_name == 'workflow_dispatch' && inputs.dns_generation != ''"
+        )
+        assert preflight["permissions"] == {"contents": "read"}
+        assert preflight["outputs"] == {
+            "required": "${{ steps.target-check.outputs.required }}",
+            "reason": "${{ steps.target-check.outputs.reason }}",
+        }
+        target = next(
+            step
+            for step in preflight["steps"]
+            if step.get("name") == "Check whether the DNS generation is already canonical"
+        )
+        assert target["env"] == {
+            "TARGET_DNS_GENERATION": "${{ inputs.dns_generation }}"
+        }
+        for token in (
+            "origin/gh-pages:data/vllm/ci/publication_status.json",
+            "origin/gh-pages:data/vllm/ci/dns_failures.json",
+            "audit_dashboard_data.py",
+            '--dns-only --dns-path "$CANONICAL_DNS"',
+            "--canonical-dns-data",
+            "--target-dns-generation",
+            '--github-output "$GITHUB_OUTPUT"',
+        ):
+            assert token in target["run"]
+
+        perf = next(
+            step
+            for step in collect["steps"]
+            if step.get("name") == "Decide whether to regenerate perf-eval"
+        )
+        assert perf["env"] == {
+            "DNS_RECONCILE_GENERATION": "${{ inputs.dns_generation }}"
+        }
+        assert 'if [ -n "$DNS_RECONCILE_GENERATION" ]' in perf["run"]
+
+        confirmation = next(
+            step
+            for step in collect["steps"]
+            if step.get("name") == "Confirm targeted DNS reconciliation"
+        )
+        assert confirmation["id"] == "dns-target-confirmation"
+        assert "inputs.dns_generation != ''" in confirmation["if"]
+        assert "steps.pages-deploy.outcome == 'success'" in confirmation["if"]
+        assert "steps.post-deploy-validation.outcome == 'success'" in (
+            confirmation["if"]
+        )
+        assert confirmation["env"] == {
+            "TARGET_DNS_GENERATION": "${{ inputs.dns_generation }}"
+        }
+        for token in (
+            "origin/gh-pages:data/vllm/ci/publication_status.json",
+            "origin/gh-pages:data/vllm/ci/dns_failures.json",
+            "audit_dashboard_data.py",
+            '--dns-only --dns-path "$CANONICAL_DNS"',
+            "--canonical-dns-data",
+            "--target-dns-generation",
+            "--fail-if-required",
+        ):
+            assert token in confirmation["run"]
 
     def test_calls_collect_analytics_script(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1278,13 +1405,26 @@ class TestDnsHealthWorkflow:
         workflow, _ = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
         assert triggers["schedule"] == [{"cron": "39 * * * *"}]
+        assert triggers["repository_dispatch"] == {"types": ["dns_health_tick"]}
         assert "workflow_dispatch" in triggers
-        assert workflow["permissions"] == {"contents": "write"}
+        assert workflow["permissions"] == {}
         assert workflow["concurrency"] == {
             "group": "dns-health-data-publish",
             "cancel-in-progress": False,
         }
         assert workflow["jobs"]["collect"]["timeout-minutes"] == 34
+        assert workflow["jobs"]["collect"]["permissions"] == {"contents": "write"}
+        assert workflow["jobs"]["collect"]["outputs"] == {
+            "dns_generation": "${{ steps.dns-generation.outputs.generated_at }}"
+        }
+
+        reconcile = workflow["jobs"]["reconcile-publication"]
+        assert reconcile["needs"] == "collect"
+        assert reconcile["timeout-minutes"] == 5
+        assert reconcile["permissions"] == {
+            "actions": "write",
+            "contents": "read",
+        }
 
     def test_restores_exact_state_collects_and_validates_before_publish(self):
         _, steps = self._workflow()
@@ -1295,6 +1435,7 @@ class TestDnsHealthWorkflow:
         restore = restore_step["run"]
         collect = steps[names.index("Collect DNS failure observations")]
         validate = steps[names.index("Validate bounded DNS artifacts")]["run"]
+        generation_step = steps[names.index("Capture validated DNS generation")]
         encrypt_step = steps[names.index("Encrypt durable DNS scanner state")]
         encrypt = encrypt_step["run"]
         publish = steps[names.index("Publish durable DNS evidence")]["run"]
@@ -1304,6 +1445,8 @@ class TestDnsHealthWorkflow:
         ) < names.index("Resolve durable DNS scanner state") < names.index(
             "Collect DNS failure observations"
         ) < names.index("Validate bounded DNS artifacts") < names.index(
+            "Capture validated DNS generation"
+        ) < names.index(
             "Encrypt durable DNS scanner state"
         ) < names.index(
             "Publish durable DNS evidence"
@@ -1343,6 +1486,11 @@ class TestDnsHealthWorkflow:
         assert "python -S scripts/vllm/audit_dashboard_data.py --dns-only" in validate
         assert "gzip -t data/vllm/ci/dns_health/scan_state.json.gz" in validate
         assert "chmod 0600 data/vllm/ci/dns_health/scan_state.json.gz" in validate
+        assert generation_step["id"] == "dns-generation"
+        assert "DNS_GENERATED_AT=$(jq -er" in generation_step["run"]
+        assert 'echo "generated_at=$DNS_GENERATED_AT" >> "$GITHUB_OUTPUT"' in (
+            generation_step["run"]
+        )
 
         assert encrypt_step["env"] == {
             "DNS_STATE_ENCRYPTION_KEY": "${{ secrets.DNS_STATE_ENCRYPTION_KEY }}"
@@ -1362,6 +1510,42 @@ class TestDnsHealthWorkflow:
         assert "data/vllm/ci/dns_health/" in (
             REPO_ROOT / ".gitignore"
         ).read_text().splitlines()
+
+        workflow, _ = self._workflow()
+        reconcile = workflow["jobs"]["reconcile-publication"]
+        reconcile_steps = reconcile["steps"]
+        reconcile_names = [step.get("name") for step in reconcile_steps]
+        plan = reconcile_steps[
+            reconcile_names.index("Plan canonical publication reconciliation")
+        ]
+        dispatch = reconcile_steps[
+            reconcile_names.index("Dispatch canonical DNS reconciliation")
+        ]
+        assert reconcile_steps[0]["uses"] == "actions/checkout@v4"
+        assert reconcile_steps[0]["with"] == {
+            "ref": "main",
+            "persist-credentials": False,
+        }
+        assert reconcile_names.index(
+            "Plan canonical publication reconciliation"
+        ) < reconcile_names.index("Dispatch canonical DNS reconciliation")
+        assert plan["id"] == "publication-reconcile"
+        assert "origin/gh-pages:data/vllm/ci/publication_status.json" in plan["run"]
+        assert "plan_dns_publication_reconcile.py" in plan["run"]
+        assert '--github-output "$GITHUB_OUTPUT"' in plan["run"]
+        assert dispatch["if"] == (
+            "steps.publication-reconcile.outputs.required == 'true'"
+        )
+        assert dispatch["env"] == {
+            "GH_TOKEN": "${{ github.token }}",
+            "RECONCILE_REASON": "${{ steps.publication-reconcile.outputs.reason }}",
+            "TARGET_DNS_GENERATION": "${{ needs.collect.outputs.dns_generation }}",
+        }
+        assert "PENDING_RUNS" not in dispatch["run"]
+        assert "workflow_runs" not in dispatch["run"]
+        assert "hourly-master.yml/dispatches" in dispatch["run"]
+        assert "inputs: {dns_generation: $dns_generation}" in dispatch["run"]
+        assert "--input -" in dispatch["run"]
 
     def test_canonical_workflows_import_only_the_validated_public_aggregate(self):
         hourly = _load_workflow("hourly-master.yml")

@@ -8,6 +8,7 @@ concurrency:
   # Shares the same lock as root-site deploys because previews still mutate
   # the shared gh-pages branch under pr-preview/pr-<N>.
   group: gh-pages-deploy
+  queue: max
   cancel-in-progress: false
 
 permissions:

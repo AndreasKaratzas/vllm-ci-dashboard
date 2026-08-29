@@ -40,7 +40,7 @@ operational data are published by the scheduled/dispatch
 
 ## Data Collection
 
-The main data path is `.github/workflows/hourly-master.yml`, which runs every 30 minutes. Queue evidence is also collected independently every 10 minutes by `.github/workflows/queue-monitor.yml` and published to the dedicated `queue-data` branch; the Queue UI reads the freshest of that live feed and the canonical Pages snapshot. Unrelated dashboard audits and full-site deployment locks therefore cannot discard or delay queue observations.
+The main data path is `.github/workflows/hourly-master.yml`, which targets an hourly cadence. Queue evidence is collected independently on a best-effort 10-minute GitHub Actions schedule and published to the dedicated `queue-data` branch; the Queue UI reads the freshest of that live feed and the canonical Pages snapshot. Unrelated dashboard audits and full-site deployment locks therefore cannot discard or delay queue observations.
 
 Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles reconstructed from the separately fetched scheduled-job population are retained and charted with their own labels and n/N coverage; they never silently replace native values.
 

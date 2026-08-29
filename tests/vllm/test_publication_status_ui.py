@@ -20,7 +20,7 @@ def test_publication_status_banner_is_global_accessible_and_cache_busted() -> No
     assert INDEX.index(banner) < INDEX.index('id="tab-projects"')
     assert 'aria-live="polite"' in INDEX
     assert 'aria-atomic="true"' in INDEX
-    assert "assets/js/publication-status.js?v=2" in INDEX
+    assert "assets/js/publication-status.js?v=3" in INDEX
 
 
 def test_publication_status_script_handles_every_nonhealthy_mode() -> None:
@@ -63,6 +63,51 @@ assert.equal(viewFor({
 """
     result = subprocess.run(
         [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "publication-status.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_old_noncurrent_publication_escalates_to_stale_snapshot() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {},
+  document: {readyState: 'loading', addEventListener: function () {}},
+  Date: Date,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const viewFor = sandbox.window.PublicationStatusBanner.viewFor;
+const now = Date.parse('2026-08-20T16:00:00Z');
+for (const mode of ['degraded', 'fallback', 'mixed']) {
+  assert.equal(viewFor({
+    mode: mode,
+    status: 'degraded',
+    generated_at: '2026-08-20T12:00:00Z',
+  }, now).title, 'Dashboard snapshot is stale');
+}
+assert.equal(viewFor({
+  mode: 'blocked',
+  status: 'blocked',
+  generated_at: '2026-08-20T12:00:00Z',
+}, now).title, 'Latest dashboard refresh blocked');
+"""
+    result = subprocess.run(
+        [
+            node,
+            "-e",
+            script,
+            str(ROOT / "docs" / "assets" / "js" / "publication-status.js"),
+        ],
         text=True,
         capture_output=True,
         check=False,

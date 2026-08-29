@@ -38,11 +38,17 @@
 
   function viewFor(payload, nowMs) {
     if (!payload || typeof payload !== 'object') return MODE_VIEWS.unavailable;
+    // A blocked publication is the highest-priority state. Every other mode
+    // must still obey the snapshot freshness SLO: an old degraded/fallback
+    // record means reconciliation itself stopped running.
+    if (payload.mode === 'blocked') return MODE_VIEWS.blocked;
+    const generatedAt = safeTimestamp(payload.generated_at);
+    if (!generatedAt) return MODE_VIEWS.unavailable;
+    const current = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+    if (current - Date.parse(generatedAt) > HEALTHY_MAX_AGE_MS) {
+      return MODE_VIEWS.stale;
+    }
     if (payload.mode === 'current' && payload.status === 'healthy') {
-      const generatedAt = safeTimestamp(payload.generated_at);
-      if (!generatedAt) return MODE_VIEWS.unavailable;
-      const current = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
-      if (current - Date.parse(generatedAt) > HEALTHY_MAX_AGE_MS) return MODE_VIEWS.stale;
       return null;
     }
     if (payload.mode === 'current' && payload.status === 'degraded') {

@@ -26,9 +26,14 @@ on:
         description: 'One-time: wipe the perf-eval event log and backfill from Buildkite artifacts'
         required: false
         default: 'false'
+      dns_generation:
+        description: 'Internal: DNS generation that must reach the canonical site'
+        required: false
+        default: ''
 
 concurrency:
   group: gh-pages-deploy
+  queue: max
   cancel-in-progress: false
 
 permissions:
@@ -37,7 +42,14 @@ permissions:
 
 jobs:
   collect-and-deploy:
+    needs: dns-reconcile-preflight
+    if: >-
+      always() && !cancelled() && (
+        needs.dns-reconcile-preflight.result != 'success' ||
+        needs.dns-reconcile-preflight.outputs.required != 'false'
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -739,9 +751,13 @@ jobs:
       # a scheduled run only regenerates in the 00/08/16 UTC hour windows.
       - name: Decide whether to regenerate perf-eval
         id: perf_decide
+        env:
+          DNS_RECONCILE_GENERATION: ${{ inputs.dns_generation }}
         run: |
           RUN=false
-          if [ "${{ github.event_name }}" != "schedule" ]; then
+          if [ -n "$DNS_RECONCILE_GENERATION" ]; then
+            echo "DNS reconciliation does not force unrelated perf-eval regeneration."
+          elif [ "${{ github.event_name }}" != "schedule" ]; then
             RUN=true
           else
             case "$(date -u +%H)" in 00|08|16) RUN=true ;; esac
@@ -1257,12 +1273,27 @@ jobs:
             CORRUPT=$((CORRUPT + 1))
           fi
 
+          DEPLOYED_OPERATIONS_MANIFEST="$RUNNER_TEMP/deployed-operations-manifest.json"
+          if ! git show \
+            origin/gh-pages:data/vllm/ci/operations_v2_manifest.json \
+            > "$DEPLOYED_OPERATIONS_MANIFEST" 2>/dev/null; then
+            echo "::error::Published Operations manifest is missing."
+            CORRUPT=$((CORRUPT + 1))
+          elif ! python scripts/vllm/verify_published_operations_bundle.py \
+            --assembled-manifest _site/data/vllm/ci/operations_v2_manifest.json \
+            --deployed-manifest "$DEPLOYED_OPERATIONS_MANIFEST" \
+            --git-ref origin/gh-pages; then
+            echo "::error::Published Operations bundle is incomplete or inconsistent."
+            CORRUPT=$((CORRUPT + 1))
+          fi
+
           if [ "$CORRUPT" -gt 0 ]; then
             exit 1
           fi
-          echo "All data files are clean and org_summary.json matches the assembled site."
+          echo "All data files are clean and publication bundles match the assembled site."
 
       - name: Redeploy if corrupted
+        id: corruption-redeploy
         if: failure() && steps.post-deploy-validation.outcome == 'failure' && hashFiles('_site/index.html') != ''
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -1271,6 +1302,70 @@ jobs:
           publish_branch: gh-pages
           keep_files: false
           force_orphan: true
+
+      - name: Confirm corruption recovery
+        if: always() && steps.post-deploy-validation.outcome == 'failure' && steps.corruption-redeploy.outcome == 'success'
+        run: |
+          set -euo pipefail
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1
+
+          CORRUPT=0
+          for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$' || true); do
+            CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)
+            if echo "$CONTENT" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
+              echo "CORRUPT after recovery: $f"
+              CORRUPT=$((CORRUPT + 1))
+            fi
+          done
+          if [ "$CORRUPT" -gt 0 ]; then
+            echo "::error::$CORRUPT data files remain corrupted after recovery deployment."
+            exit 1
+          fi
+
+          DEPLOYED_ORG_SUMMARY="$RUNNER_TEMP/recovered-org-summary.json"
+          git show origin/gh-pages:data/vllm/ci/org_summary.json \
+            > "$DEPLOYED_ORG_SUMMARY"
+          python -m json.tool "$DEPLOYED_ORG_SUMMARY" >/dev/null
+          cmp -s _site/data/vllm/ci/org_summary.json "$DEPLOYED_ORG_SUMMARY"
+
+          DEPLOYED_OPERATIONS_MANIFEST="$RUNNER_TEMP/recovered-operations-manifest.json"
+          git show \
+            origin/gh-pages:data/vllm/ci/operations_v2_manifest.json \
+            > "$DEPLOYED_OPERATIONS_MANIFEST"
+          python scripts/vllm/verify_published_operations_bundle.py \
+            --assembled-manifest _site/data/vllm/ci/operations_v2_manifest.json \
+            --deployed-manifest "$DEPLOYED_OPERATIONS_MANIFEST" \
+            --git-ref origin/gh-pages
+          echo "Confirmed clean JSON data and restored critical publication bundles."
+
+      - name: Confirm targeted DNS reconciliation
+        id: dns-target-confirmation
+        if: inputs.dns_generation != '' && steps.pages-deploy.outcome == 'success' && steps.post-deploy-validation.outcome == 'success'
+        env:
+          TARGET_DNS_GENERATION: ${{ inputs.dns_generation }}
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/confirmed-publication-status.json"
+          CANONICAL_DNS="$RUNNER_TEMP/confirmed-dns-failures.json"
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1
+          git show \
+            origin/gh-pages:data/vllm/ci/publication_status.json \
+            > "$PUBLICATION_STATUS"
+          git show \
+            origin/gh-pages:data/vllm/ci/dns_failures.json \
+            > "$CANONICAL_DNS"
+          python -S scripts/vllm/audit_dashboard_data.py \
+            --dns-only --dns-path "$CANONICAL_DNS"
+          python scripts/vllm/plan_dns_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --canonical-dns-data "$CANONICAL_DNS" \
+            --target-dns-generation "$TARGET_DNS_GENERATION" \
+            --fail-if-required
+          echo "Confirmed canonical DNS generation $TARGET_DNS_GENERATION."
 
       # ── Phase 6: Hourly publication incident management ──
       - name: Create hourly validation incident
@@ -2108,3 +2203,48 @@ jobs:
           DATA_URL="$SITE_URL/data/vllm/ci/queue_timeseries.jsonl"
           QUEUE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$DATA_URL")
           echo "Queue data: HTTP $QUEUE_STATUS"
+
+  dns-reconcile-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.dns_generation != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      required: ${{ steps.target-check.outputs.required }}
+      reason: ${{ steps.target-check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Check whether the DNS generation is already canonical
+        id: target-check
+        env:
+          TARGET_DNS_GENERATION: ${{ inputs.dns_generation }}
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication_status.json"
+          CANONICAL_DNS="$RUNNER_TEMP/canonical_dns_failures.json"
+          if ! git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1; then
+            echo "::warning::Canonical branch is unavailable; retaining reconciliation."
+          fi
+          git show \
+            origin/gh-pages:data/vllm/ci/publication_status.json \
+            > "$PUBLICATION_STATUS" 2>/dev/null || rm -f "$PUBLICATION_STATUS"
+          git show \
+            origin/gh-pages:data/vllm/ci/dns_failures.json \
+            > "$CANONICAL_DNS" 2>/dev/null || rm -f "$CANONICAL_DNS"
+          if [ -f "$CANONICAL_DNS" ] && ! python -S scripts/vllm/audit_dashboard_data.py \
+            --dns-only --dns-path "$CANONICAL_DNS"; then
+            echo "::warning::Canonical DNS data is invalid; retaining reconciliation."
+            rm -f "$CANONICAL_DNS"
+          fi
+          python scripts/vllm/plan_dns_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --canonical-dns-data "$CANONICAL_DNS" \
+            --target-dns-generation "$TARGET_DNS_GENERATION" \
+            --github-output "$GITHUB_OUTPUT"

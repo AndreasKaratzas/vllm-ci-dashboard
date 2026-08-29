@@ -223,7 +223,7 @@ Six workflows divide canonical publication from focused manual/event collectors:
 | `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
-| `dns-health.yml` | Hourly + manual | Incremental full-log DNS classification with an isolated durable state branch |
+| `dns-health.yml` | Hourly + external tick + manual | Incremental full-log DNS classification with an isolated durable state branch and conditional canonical reconciliation |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
 
@@ -295,9 +295,31 @@ The configured 30-day value remains the target retention horizon. Until enough
 contiguous observations accrue, longer windows are explicitly partial and the
 UI renders their values as lower bounds. This expected, explicitly quantified
 partial coverage is a DNS-panel warning rather than a site-wide publication
-degradation. A DNS dataset that is stale, not collected, malformed, or
-internally inconsistent still takes the stricter degradation or fail-closed
-publication path.
+degradation. After three hours the DNS panel labels the observations stale and
+the publication audit declares the DNS surface degraded site-wide. A DNS
+dataset that is not collected, malformed, or internally inconsistent takes the
+same strict degradation or fail-closed publication path.
+
+GitHub Actions schedules are best-effort and may be delayed or dropped. The
+workflow therefore also accepts the dedicated `dns_health_tick`
+`repository_dispatch` event for a scheduler outside GitHub Actions. After a
+successful durable DNS publish, a separate least-privileged reconciliation job
+checks the public canonical status. It dispatches `hourly-master.yml` only when
+DNS remains affected or the canonical snapshot is older than three hours, so a
+fresh producer clears stale publication state without duplicating healthy
+hourly collections. The dispatch carries the exact DNS generation. A lightweight
+preflight skips queued work only once Pages contains that generation, its full
+DNS contract validates, DNS is no longer affected, and the publication is still
+inside the three-hour freshness window. Every required generation is queued;
+the generation-aware preflight safely deduplicates it after a newer canonical
+run succeeds. A targeted master verifies the same postcondition after deployment
+and fails visibly if Pages did not acknowledge it. Every workflow that writes
+`gh-pages` uses the shared `queue: max`
+lock, so a later preview or manual deploy cannot replace an already-pending DNS
+reconciliation. A strict three-hour producer SLA requires configuring that
+external tick; an in-repository GitHub cron cannot guarantee its own recovery.
+The canonical collector has a 60-minute timeout so a hung run cannot retain the
+shared deployment lock indefinitely.
 
 Each scheduled run gives the whole collection a 25-minute budget with a
 separate finalization reserve. Unvisited log work remains pending for the next

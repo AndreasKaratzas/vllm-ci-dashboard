@@ -11,6 +11,7 @@ on:
 concurrency:
   # Serialize its main-branch data commit with the canonical collector.
   group: gh-pages-deploy
+  queue: max
   cancel-in-progress: false
 
 permissions:
