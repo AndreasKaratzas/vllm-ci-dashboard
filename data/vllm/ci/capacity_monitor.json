@@ -1,14 +1,14 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-08-30T10:59:17Z",
+  "generated_at": "2026-08-30T12:34:48Z",
   "source": {
     "kind": "github_archive",
     "github_repo": "vllm-project/vllm",
     "ref": "main",
     "branch": "main",
-    "requested_ref": "8c51b92654100aa1d698aeef862cad09c8cc5df8",
-    "commit_sha": "8c51b92654100aa1d698aeef862cad09c8cc5df8",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/8c51b92654100aa1d698aeef862cad09c8cc5df8",
+    "requested_ref": "5e71a11eb2b595ede15ecc39c7dddca38e03deb5",
+    "commit_sha": "5e71a11eb2b595ede15ecc39c7dddca38e03deb5",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/5e71a11eb2b595ede15ecc39c7dddca38e03deb5",
     "test_areas_path": ".buildkite/test_areas",
     "capacity_config_path": "config/vllm_amd_queue_capacity.json",
     "capacity_config_schema_version": 1
@@ -520,7 +520,7 @@
     },
     {
       "key": "basic-correctness",
-      "label": ":nvidia: (H200) Basic Correctness",
+      "label": ":nvidia: (H200 MIG 18GB) Basic Correctness",
       "area": "Basic Correctness",
       "yaml_file": ".buildkite/test_areas/basic_correctness.yaml",
       "yaml_index": 0,
@@ -547,7 +547,7 @@
     },
     {
       "key": "benchmarks-cli-test",
-      "label": ":nvidia: (H200) Benchmarks CLI",
+      "label": ":nvidia: (H200 MIG 18GB) Benchmarks CLI",
       "area": "Benchmarks",
       "yaml_file": ".buildkite/test_areas/benchmarks.yaml",
       "yaml_index": 0,
@@ -623,7 +623,7 @@
     },
     {
       "key": "platform-tests",
-      "label": ":nvidia: (H200) CUDA Platform",
+      "label": ":nvidia: (H200 MIG 18GB) CUDA Platform",
       "area": "CUDA",
       "yaml_file": ".buildkite/test_areas/cuda.yaml",
       "yaml_index": 0,
@@ -643,7 +643,7 @@
     },
     {
       "key": "cudagraph",
-      "label": ":nvidia: (H200) CUDAGraph",
+      "label": ":nvidia: (H200 MIG 35GB) CUDAGraph",
       "area": "CUDA",
       "yaml_file": ".buildkite/test_areas/cuda.yaml",
       "yaml_index": 1,
@@ -862,7 +862,7 @@
     },
     {
       "key": "engine",
-      "label": ":nvidia: (H200) Engine Core",
+      "label": ":nvidia: (H200 MIG 18GB) Engine Core",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 0,
@@ -925,7 +925,7 @@
     },
     {
       "key": "e2e-scheduling-1-gpu",
-      "label": ":nvidia: (H200) E2E Scheduling",
+      "label": ":nvidia: (H200 MIG 18GB) E2E Scheduling",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 2,
@@ -945,7 +945,7 @@
     },
     {
       "key": "e2e-core-1-gpu",
-      "label": ":nvidia: (H200) E2E Core",
+      "label": ":nvidia: (H200 MIG 35GB) E2E Core",
       "area": "Engine",
       "yaml_file": ".buildkite/test_areas/engine.yaml",
       "yaml_index": 3,
@@ -1027,7 +1027,7 @@
     },
     {
       "key": "entrypoints-unit-tests",
-      "label": ":nvidia: (H200) Entrypoints Unit",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Unit",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 0,
@@ -1049,7 +1049,7 @@
     },
     {
       "key": "entrypoints-integration-llm",
-      "label": ":nvidia: (H200) Entrypoints Integration (LLM)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (LLM)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 1,
@@ -1072,7 +1072,7 @@
     },
     {
       "key": "entrypoints-integration-api-server",
-      "label": ":nvidia: (H200) Entrypoints Integration (API Server)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 2,
@@ -1096,7 +1096,7 @@
     },
     {
       "key": "entrypoints-integration-api-server-openai-part-1",
-      "label": ":nvidia: (H200) Entrypoints Integration (API Server OpenAI - Part 1)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server OpenAI - Part 1)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 3,
@@ -1121,7 +1121,7 @@
     },
     {
       "key": "entrypoints-integration-api-server-openai-part-2",
-      "label": ":nvidia: (H200) Entrypoints Integration (API Server OpenAI - Part 2)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server OpenAI - Part 2)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 4,
@@ -1146,7 +1146,7 @@
     },
     {
       "key": "entrypoints-integration-api-server-generate",
-      "label": ":nvidia: (H200) Entrypoints Integration (API Server Generate)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server Generate)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 5,
@@ -1172,7 +1172,7 @@
     },
     {
       "key": "entrypoints-integration-responses-api",
-      "label": ":nvidia: (H200) Entrypoints Integration (Responses API)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Responses API)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 6,
@@ -1195,7 +1195,7 @@
     },
     {
       "key": "entrypoints-integration-multimodal",
-      "label": ":nvidia: (H200) Entrypoints Integration (Multimodal)",
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Multimodal)",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 8,
@@ -1218,7 +1218,7 @@
     },
     {
       "key": "openai-api-correctness",
-      "label": ":nvidia: (H200) OpenAI API Correctness",
+      "label": ":nvidia: (H200 MIG 18GB) OpenAI API Correctness",
       "area": "Entrypoints",
       "yaml_file": ".buildkite/test_areas/entrypoints.yaml",
       "yaml_index": 10,
@@ -1244,7 +1244,7 @@
     },
     {
       "key": "eplb-algorithm",
-      "label": ":nvidia: (H200) EPLB Algorithm",
+      "label": ":nvidia: (H200 MIG 18GB) EPLB Algorithm",
       "area": "Expert Parallelism",
       "yaml_file": ".buildkite/test_areas/expert_parallelism.yaml",
       "yaml_index": 0,
@@ -1347,7 +1347,7 @@
     },
     {
       "key": "kernels-mamba-test",
-      "label": ":nvidia: (H200) Mamba Kernels",
+      "label": ":nvidia: (H200 MIG 35GB) Mamba Kernels",
       "area": "Kernels",
       "yaml_file": ".buildkite/test_areas/kernels.yaml",
       "yaml_index": 11,
@@ -1390,7 +1390,7 @@
     },
     {
       "key": "lm-eval-small-models",
-      "label": ":nvidia: (H200) LM Eval Small Models",
+      "label": ":nvidia: (H200 MIG 35GB) LM Eval Small Models",
       "area": "LM Eval",
       "yaml_file": ".buildkite/test_areas/lm_eval.yaml",
       "yaml_index": 0,
@@ -1432,8 +1432,8 @@
       "missing_dependencies": []
     },
     {
-      "key": "nvidia-h200-mrcr-eval-small-models",
-      "label": ":nvidia: (H200) MRCR Eval Small Models",
+      "key": "nvidia-h200-mig-35gb-mrcr-eval-small-models",
+      "label": ":nvidia: (H200 MIG 35GB) MRCR Eval Small Models",
       "area": "LM Eval",
       "yaml_file": ".buildkite/test_areas/lm_eval.yaml",
       "yaml_index": 25,
@@ -1458,7 +1458,7 @@
     },
     {
       "key": "lora",
-      "label": ":nvidia: (H200) LoRA Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) LoRA Shard %N",
       "area": "LoRA",
       "yaml_file": ".buildkite/test_areas/lora.yaml",
       "yaml_index": 0,
@@ -1501,7 +1501,7 @@
     },
     {
       "key": "v1-sample-logits",
-      "label": ":nvidia: (H200) V1 Sample + Logits",
+      "label": ":nvidia: (H200 MIG 18GB) V1 Sample + Logits",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 0,
@@ -1538,7 +1538,7 @@
     },
     {
       "key": "v1-core-kv-metrics",
-      "label": ":nvidia: (H200) V1 Core + KV + Metrics",
+      "label": ":nvidia: (H200 MIG 35GB) V1 Core + KV + Metrics",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 1,
@@ -1586,7 +1586,7 @@
     },
     {
       "key": "examples",
-      "label": ":nvidia: (H200) Examples",
+      "label": ":nvidia: (H200 MIG 35GB) Examples",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 6,
@@ -1643,7 +1643,7 @@
     },
     {
       "key": "python-only-installation",
-      "label": ":nvidia: (H200) Python-only Installation",
+      "label": ":nvidia: (H200 MIG 18GB) Python-only Installation",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 8,
@@ -1664,7 +1664,7 @@
     },
     {
       "key": "async-engine-inputs-utils-worker",
-      "label": ":nvidia: (H200) Async Engine, Inputs, Utils, Worker",
+      "label": ":nvidia: (H200 MIG 35GB) Async Engine, Inputs, Utils, Worker",
       "area": "Miscellaneous",
       "yaml_file": ".buildkite/test_areas/misc.yaml",
       "yaml_index": 9,
@@ -1701,7 +1701,7 @@
     },
     {
       "key": "model-executor",
-      "label": ":nvidia: (H200) Model Executor",
+      "label": ":nvidia: (H200 MIG 35GB) Model Executor",
       "area": "Model Executor",
       "yaml_file": ".buildkite/test_areas/model_executor.yaml",
       "yaml_index": 0,
@@ -1752,7 +1752,7 @@
     },
     {
       "key": "model-runner-v2-spec-decode",
-      "label": ":nvidia: (H200) Model Runner V2 Spec Decode",
+      "label": ":nvidia: (H200 MIG 35GB) Model Runner V2 Spec Decode",
       "area": "Model Runner V2",
       "yaml_file": ".buildkite/test_areas/model_runner_v2.yaml",
       "yaml_index": 4,
@@ -1777,7 +1777,7 @@
     },
     {
       "key": "basic-models-tests-initialization",
-      "label": ":nvidia: (H200) Basic Models (Initialization)",
+      "label": ":nvidia: (H200 MIG 18GB) Basic Models (Initialization)",
       "area": "Models - Basic",
       "yaml_file": ".buildkite/test_areas/models_basic.yaml",
       "yaml_index": 0,
@@ -1801,7 +1801,7 @@
     },
     {
       "key": "basic-models-tests-other",
-      "label": ":nvidia: (H200) Basic Models (Other)",
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Other)",
       "area": "Models - Basic",
       "yaml_file": ".buildkite/test_areas/models_basic.yaml",
       "yaml_index": 2,
@@ -1854,7 +1854,7 @@
     },
     {
       "key": "language-models-tests-standard",
-      "label": ":nvidia: (H200) Language Models (Standard)",
+      "label": ":nvidia: (H200 MIG 18GB) Language Models (Standard)",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 0,
@@ -1877,7 +1877,7 @@
     },
     {
       "key": "language-models-tests-extra-standard",
-      "label": ":nvidia: (H200) Language Models (Extra Standard) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extra Standard) Shard %N",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 1,
@@ -1905,7 +1905,7 @@
     },
     {
       "key": "language-models-tests-hybrid",
-      "label": ":nvidia: (H200) Language Models (Hybrid) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Hybrid) Shard %N",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 2,
@@ -1928,7 +1928,7 @@
     },
     {
       "key": "language-models-test-extended-generation",
-      "label": ":nvidia: (H200) Language Models (Extended Generation)",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Generation)",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 4,
@@ -1951,7 +1951,7 @@
     },
     {
       "key": "language-models-test-ppl",
-      "label": ":nvidia: (H200) Language Models (PPL)",
+      "label": ":nvidia: (H200 MIG 18GB) Language Models (PPL)",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 5,
@@ -1989,7 +1989,7 @@
     },
     {
       "key": "language-models-test-extended-pooling",
-      "label": ":nvidia: (H200) Language Models (Extended Pooling) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Pooling) Shard %N",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 6,
@@ -2012,7 +2012,7 @@
     },
     {
       "key": "language-models-test-mteb",
-      "label": ":nvidia: (H200) Language Models (MTEB)",
+      "label": ":nvidia: (H200 MIG 18GB) Language Models (MTEB)",
       "area": "Models - Language",
       "yaml_file": ".buildkite/test_areas/models_language.yaml",
       "yaml_index": 7,
@@ -2035,7 +2035,7 @@
     },
     {
       "key": "multi-modal-models-standard-1-qwen2",
-      "label": ":nvidia: (H200) Multimodal Models (Standard) 1: qwen2",
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Models (Standard) 1: qwen2",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 0,
@@ -2058,7 +2058,7 @@
     },
     {
       "key": "multi-modal-models-standard-2-qwen3-gemma",
-      "label": ":nvidia: (H200) Multimodal Models (Standard) 2: qwen3 + gemma",
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Models (Standard) 2: qwen3 + gemma",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 1,
@@ -2081,7 +2081,7 @@
     },
     {
       "key": "multi-modal-models-standard-3-llava-qwen2-vl",
-      "label": ":nvidia: (H200) Multimodal Models (Standard) 3: llava + qwen2_vl",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Standard) 3: llava + qwen2_vl",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 2,
@@ -2104,7 +2104,7 @@
     },
     {
       "key": "multi-modal-models-standard-4-other-whisper",
-      "label": ":nvidia: (H200) Multimodal Models (Standard) 4: other + whisper",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Standard) 4: other + whisper",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 3,
@@ -2127,7 +2127,7 @@
     },
     {
       "key": "multi-modal-processor",
-      "label": ":nvidia: (H200) Multimodal Processor",
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Processor",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 5,
@@ -2151,7 +2151,7 @@
     },
     {
       "key": "multi-modal-accuracy-eval-small-models",
-      "label": ":nvidia: (H200) Multimodal Accuracy Eval (Small Models)",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Accuracy Eval (Small Models)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 6,
@@ -2174,7 +2174,7 @@
     },
     {
       "key": "multi-modal-models-extended-generation-1",
-      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 1)",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 1)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 7,
@@ -2198,7 +2198,7 @@
     },
     {
       "key": "multi-modal-models-extended-ppl",
-      "label": ":nvidia: (H200) Multimodal Models (PPL)",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (PPL)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 8,
@@ -2218,7 +2218,7 @@
     },
     {
       "key": "multi-modal-models-extended-generation-2",
-      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 2) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 2) Shard %N",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 9,
@@ -2241,7 +2241,7 @@
     },
     {
       "key": "multi-modal-models-extended-generation-3",
-      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 3)",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 3)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 10,
@@ -2264,7 +2264,7 @@
     },
     {
       "key": "multi-modal-models-extended-pooling",
-      "label": ":nvidia: (H200) Multimodal Models (Extended Pooling)",
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Models (Extended Pooling)",
       "area": "Models - Multimodal",
       "yaml_file": ".buildkite/test_areas/models_multimodal.yaml",
       "yaml_index": 11,
@@ -2308,7 +2308,7 @@
     },
     {
       "key": "pytorch-compilation-unit-tests",
-      "label": ":nvidia: (H200) PyTorch Compilation",
+      "label": ":nvidia: (H200 MIG 35GB) PyTorch Compilation",
       "area": "PyTorch",
       "yaml_file": ".buildkite/test_areas/pytorch.yaml",
       "yaml_index": 0,
@@ -2328,7 +2328,7 @@
     },
     {
       "key": "pytorch-nightly-dependency-override-check",
-      "label": ":nvidia: (H200) PyTorch Nightly Dependency Override Check",
+      "label": ":nvidia: (H200 MIG 18GB) PyTorch Nightly Dependency Override Check",
       "area": "PyTorch",
       "yaml_file": ".buildkite/test_areas/pytorch.yaml",
       "yaml_index": 5,
@@ -2347,8 +2347,8 @@
       "missing_dependencies": []
     },
     {
-      "key": "nvidia-h200-rust-frontend-openai-coverage",
-      "label": ":nvidia: (H200) Rust Frontend OpenAI Coverage",
+      "key": "nvidia-h200-mig-18gb-rust-frontend-openai-coverage",
+      "label": ":nvidia: (H200 MIG 18GB) Rust Frontend OpenAI Coverage",
       "area": "Rust Frontend E2E",
       "yaml_file": ".buildkite/test_areas/rust_frontend.yaml",
       "yaml_index": 0,
@@ -2382,8 +2382,8 @@
       ]
     },
     {
-      "key": "nvidia-h200-rust-frontend-serve-admin-coverage",
-      "label": ":nvidia: (H200) Rust Frontend Serve/Admin Coverage",
+      "key": "nvidia-h200-mig-18gb-rust-frontend-serve-admin-coverage",
+      "label": ":nvidia: (H200 MIG 18GB) Rust Frontend Serve/Admin Coverage",
       "area": "Rust Frontend E2E",
       "yaml_file": ".buildkite/test_areas/rust_frontend.yaml",
       "yaml_index": 1,
@@ -2412,7 +2412,7 @@
     },
     {
       "key": "samplers-test",
-      "label": ":nvidia: (H200) Samplers",
+      "label": ":nvidia: (H200 MIG 35GB) Samplers",
       "area": "Samplers",
       "yaml_file": ".buildkite/test_areas/samplers.yaml",
       "yaml_index": 0,
@@ -2440,7 +2440,7 @@
     },
     {
       "key": "v1-spec-decode",
-      "label": ":nvidia: (H200) V1 Spec Decode",
+      "label": ":nvidia: (H200 MIG 35GB) V1 Spec Decode",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 0,
@@ -2468,7 +2468,7 @@
     },
     {
       "key": "spec-decode-eagle-1-deepseek-qwen",
-      "label": ":nvidia: (H200) Spec Decode Eagle 1: DeepSeek + Qwen",
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode Eagle 1: DeepSeek + Qwen",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 1,
@@ -2493,7 +2493,7 @@
     },
     {
       "key": "spec-decode-eagle-2-llama3-qwen-vl-other",
-      "label": ":nvidia: (H200) Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 2,
@@ -2518,7 +2518,7 @@
     },
     {
       "key": "spec-decode-speculators-mtp",
-      "label": ":nvidia: (H200) Spec Decode Speculators + MTP",
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode Speculators + MTP",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 4,
@@ -2544,7 +2544,7 @@
     },
     {
       "key": "spec-decode-ngram-suffix",
-      "label": ":nvidia: (H200) Spec Decode N-Gram + Suffix",
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode N-Gram + Suffix",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 6,
@@ -2569,7 +2569,7 @@
     },
     {
       "key": "spec-decode-draft-model",
-      "label": ":nvidia: (H200) Spec Decode Draft Model",
+      "label": ":nvidia: (H200 MIG 18GB) Spec Decode Draft Model",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 7,
@@ -2646,7 +2646,7 @@
     },
     {
       "key": "spec-decode-dflash-nightly",
-      "label": ":nvidia: (H200) Spec Decode AL DFlash Nightly",
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode AL DFlash Nightly",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 11,
@@ -2677,7 +2677,7 @@
     },
     {
       "key": "spec-decode-dspark-nightly",
-      "label": ":nvidia: (H200) Spec Decode AL DSpark Nightly",
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode AL DSpark Nightly",
       "area": "Spec Decode",
       "yaml_file": ".buildkite/test_areas/spec_decode.yaml",
       "yaml_index": 12,
