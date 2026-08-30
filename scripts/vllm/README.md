@@ -22,6 +22,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Hourly via `hourly-master.yml` + local debugging |
 | `check_site_health.py` | Probes the deployed shell and bounded publication-status contract, emitting JSON and Markdown evidence | Hourly at :57 UTC-minute plus manual `health-check.yml` runs |
 | `plan_dns_publication_reconcile.py` | Decides whether a successful live DNS publish must wake the canonical publisher and verifies that queued work still has an unacknowledged DNS generation | After every successful `dns-health.yml` collection and before a DNS-targeted canonical run |
+| `plan_publication_watchdog.py` | Plans proactive canonical recovery, suppresses active/recent duplicates, and verifies generation/cadence preflights under the publication lock | `publication-watchdog.yml` and watchdog/schedule-targeted canonical runs |
 | `verify_published_operations_bundle.py` | Verifies that every deployed Operations shard exists and matches the public manifest byte contract | After every canonical or manual Pages deployment |
 | `select_publication_surfaces.py` | Validates collected source transactions, restores only failed surfaces from the captured main baseline, then rebuilds and re-audits the combined snapshot | Every canonical `hourly-master.yml` run before tests |
 | `config_parity.py` | Compares AMD vs NVIDIA CI config (commands, test lists) | Part of `collect_ci.py` |

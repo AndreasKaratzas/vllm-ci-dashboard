@@ -30,6 +30,10 @@ on:
         description: 'Internal: DNS generation that must reach the canonical site'
         required: false
         default: ''
+      watchdog_generation:
+        description: 'Internal: publication generation observed by the recovery watchdog'
+        required: false
+        default: ''
 
 concurrency:
   group: gh-pages-deploy
@@ -42,11 +46,22 @@ permissions:
 
 jobs:
   collect-and-deploy:
-    needs: dns-reconcile-preflight
+    needs: [cadence-preflight, dns-reconcile-preflight, publication-watchdog-preflight]
     if: >-
       always() && !cancelled() && (
-        needs.dns-reconcile-preflight.result != 'success' ||
-        needs.dns-reconcile-preflight.outputs.required != 'false'
+        (inputs.dns_generation == '' && inputs.watchdog_generation == '' && (
+          github.event_name != 'schedule' ||
+          needs.cadence-preflight.result != 'success' ||
+          needs.cadence-preflight.outputs.required != 'false'
+        )) ||
+        (inputs.dns_generation != '' && (
+          needs.dns-reconcile-preflight.result != 'success' ||
+          needs.dns-reconcile-preflight.outputs.required != 'false'
+        )) ||
+        (inputs.watchdog_generation != '' && (
+          needs.publication-watchdog-preflight.result != 'success' ||
+          needs.publication-watchdog-preflight.outputs.required != 'false'
+        ))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -2247,4 +2262,80 @@ jobs:
             --status "$PUBLICATION_STATUS" \
             --canonical-dns-data "$CANONICAL_DNS" \
             --target-dns-generation "$TARGET_DNS_GENERATION" \
+            --github-output "$GITHUB_OUTPUT"
+
+  publication-watchdog-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.watchdog_generation != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      required: ${{ steps.generation-check.outputs.required }}
+      reason: ${{ steps.generation-check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Check whether watchdog recovery is still required
+        id: generation-check
+        env:
+          EXPECTED_GENERATION: ${{ inputs.watchdog_generation }}
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication-status.json"
+          if git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 \
+            && git show \
+              origin/gh-pages:data/vllm/ci/publication_status.json \
+              > "$PUBLICATION_STATUS"; then
+            echo "Loaded canonical publication status for watchdog preflight."
+          else
+            rm -f "$PUBLICATION_STATUS"
+            echo "::warning::Canonical status is unavailable; retaining watchdog recovery."
+          fi
+          python scripts/vllm/plan_publication_watchdog.py \
+            --status "$PUBLICATION_STATUS" \
+            --expected-generation "$EXPECTED_GENERATION" \
+            --max-age-minutes 45 \
+            --github-output "$GITHUB_OUTPUT"
+
+  cadence-preflight:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      required: ${{ steps.cadence-check.outputs.required }}
+      reason: ${{ steps.cadence-check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Coalesce a schedule queued behind a recent publication
+        id: cadence-check
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication-status.json"
+          if git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 \
+            && git show \
+              origin/gh-pages:data/vllm/ci/publication_status.json \
+              > "$PUBLICATION_STATUS"; then
+            echo "Loaded canonical publication status for cadence preflight."
+          else
+            rm -f "$PUBLICATION_STATUS"
+            echo "::warning::Canonical status is unavailable; retaining scheduled collection."
+          fi
+          python scripts/vllm/plan_publication_watchdog.py \
+            --status "$PUBLICATION_STATUS" \
+            --cadence-preflight \
+            --max-age-minutes 30 \
             --github-output "$GITHUB_OUTPUT"

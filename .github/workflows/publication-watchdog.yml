@@ -1,0 +1,94 @@
+name: Publication Recovery Watchdog
+
+on:
+  # This cron is an additional opportunity, not the only recovery source.
+  # workflow_run events and the external dispatch stay independent of it.
+  schedule:
+    - cron: '25 * * * *'
+  repository_dispatch:
+    types: [publication_watchdog_tick]
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Queue Monitor (10 minute)
+      - Queue Lifecycle Monitor (hourly)
+      - DNS Health Monitor
+      - Site Health Check
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: publication-watchdog
+  cancel-in-progress: false
+
+# A workflow_run job receives a privileged token even when its producer does
+# not. Deny everything by default and grant only the two APIs used below.
+permissions: {}
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # Never execute the triggering workflow's checkout or artifacts. The
+      # planner always comes from the trusted default branch.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Read canonical publication and collection state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication-status.json"
+          WORKFLOW_RUNS="$RUNNER_TEMP/data-collection-runs.json"
+          if gh api \
+            -H "Accept: application/vnd.github.raw+json" \
+            "repos/$GITHUB_REPOSITORY/contents/data/vllm/ci/publication_status.json?ref=gh-pages" \
+            > "$PUBLICATION_STATUS"; then
+            echo "Loaded canonical publication status."
+          else
+            rm -f "$PUBLICATION_STATUS"
+            echo "::warning::Canonical publication status is unavailable; recovery will fail open."
+          fi
+          # This query must fail closed. Dispatching without knowing whether a
+          # collection is already queued or running would create a retry storm.
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/runs?per_page=100" \
+            > "$WORKFLOW_RUNS"
+
+      - name: Plan proactive publication recovery
+        id: recovery-plan
+        run: |
+          set -euo pipefail
+          python scripts/vllm/plan_publication_watchdog.py \
+            --status "$RUNNER_TEMP/publication-status.json" \
+            --workflow-runs "$RUNNER_TEMP/data-collection-runs.json" \
+            --max-age-minutes 45 \
+            --retry-cooldown-minutes 30 \
+            --active-run-max-age-minutes 75 \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Dispatch stale publication recovery
+        if: steps.recovery-plan.outputs.required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_REASON: ${{ steps.recovery-plan.outputs.reason }}
+          OBSERVED_GENERATION: ${{ steps.recovery-plan.outputs.observed_generation }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg ref main \
+            --arg watchdog_generation "$OBSERVED_GENERATION" \
+            '{ref: $ref, inputs: {watchdog_generation: $watchdog_generation}}' | \
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            --input -
+          echo "Requested canonical recovery: $RECOVERY_REASON ($OBSERVED_GENERATION)"

@@ -3,6 +3,11 @@
 
   const STATUS_URL = 'data/vllm/ci/publication_status.json';
   const HEALTHY_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+  const FUTURE_SKEW_MS = 5 * 60 * 1000;
+  const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+  const REQUEST_TIMEOUT_MS = 30 * 1000;
+  let requestSerial = 0;
+  let started = false;
   const MODE_VIEWS = Object.freeze({
     stale: Object.freeze({
       tone: 'is-critical',
@@ -45,11 +50,13 @@
     const generatedAt = safeTimestamp(payload.generated_at);
     if (!generatedAt) return MODE_VIEWS.unavailable;
     const current = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
-    if (current - Date.parse(generatedAt) > HEALTHY_MAX_AGE_MS) {
+    const generatedMs = Date.parse(generatedAt);
+    if (generatedMs - current > FUTURE_SKEW_MS) return MODE_VIEWS.unavailable;
+    if (current - generatedMs > HEALTHY_MAX_AGE_MS) {
       return MODE_VIEWS.stale;
     }
     if (payload.mode === 'current' && payload.status === 'healthy') {
-      return null;
+      return hasHealthyCurrentContract(payload) ? null : MODE_VIEWS.unavailable;
     }
     if (payload.mode === 'current' && payload.status === 'degraded') {
       return MODE_VIEWS.degraded;
@@ -59,7 +66,23 @@
 
   function safeTimestamp(value) {
     if (typeof value !== 'string' || !value || value.length > 64) return '';
-    return Number.isNaN(Date.parse(value)) ? '' : value;
+    const zonedIso = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+    if (!zonedIso.test(value) || Number.isNaN(Date.parse(value))) return '';
+    return value;
+  }
+
+  function hasHealthyCurrentContract(payload) {
+    return payload.schema_version === 1
+      && payload.mode === 'current'
+      && payload.status === 'healthy'
+      && payload.degraded_since === null
+      && payload.publication_blocked === false
+      && payload.uses_fallback === false
+      && Array.isArray(payload.affected_surfaces)
+      && payload.affected_surfaces.length === 0
+      && payload.affected_surface_count === 0
+      && payload.fallback_surface_count === 0
+      && payload.fresh_degraded_surface_count === 0;
   }
 
   function affectedAreas(payload) {
@@ -104,20 +127,54 @@
     banner.hidden = false;
   }
 
+  function statusUrl(nowMs) {
+    const current = Number.isFinite(Number(nowMs)) ? Number(nowMs) : Date.now();
+    return `${STATUS_URL}?v=${Math.floor(current / (60 * 1000))}`;
+  }
+
   async function load() {
+    const request = ++requestSerial;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeout = controller && typeof window.setTimeout === 'function'
+      ? window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+      : null;
     try {
-      const response = await fetch(STATUS_URL, {cache: 'no-store'});
+      const options = {cache: 'no-store'};
+      if (controller) options.signal = controller.signal;
+      const response = await fetch(statusUrl(), options);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      render(await response.json());
+      const payload = await response.json();
+      if (request === requestSerial) render(payload);
     } catch (_error) {
-      render({mode: 'unavailable', status: 'unknown'});
+      if (request === requestSerial) render({mode: 'unavailable', status: 'unknown'});
+    } finally {
+      if (timeout !== null && typeof window.clearTimeout === 'function') {
+        window.clearTimeout(timeout);
+      }
     }
   }
 
-  window.PublicationStatusBanner = Object.freeze({load, render, viewFor});
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', load, {once: true});
-  } else {
+  function refreshWhenVisible() {
+    if (document.visibilityState !== 'hidden') load();
+  }
+
+  function start() {
+    if (started) return;
+    started = true;
     load();
+    if (typeof window.setInterval === 'function') {
+      window.setInterval(load, REFRESH_INTERVAL_MS);
+    }
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    if (typeof window.addEventListener === 'function') {
+      window.addEventListener('pageshow', load);
+    }
+  }
+
+  window.PublicationStatusBanner = Object.freeze({load, render, start, statusUrl, viewFor});
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, {once: true});
+  } else {
+    start();
   }
 })();

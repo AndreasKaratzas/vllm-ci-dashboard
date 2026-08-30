@@ -42,6 +42,8 @@ operational data are published by the scheduled/dispatch
 
 The main data path is `.github/workflows/hourly-master.yml`, which targets an hourly cadence. Queue evidence is collected independently on a best-effort 10-minute GitHub Actions schedule and published to the dedicated `queue-data` branch; the Queue UI reads the freshest of that live feed and the canonical Pages snapshot. Unrelated dashboard audits and full-site deployment locks therefore cannot discard or delay queue observations.
 
+Because GitHub schedules can be delayed or dropped, `publication-watchdog.yml` also checks freshness after each independent Queue, Lifecycle, DNS, or Site Health workflow completion. At 45 minutes it wakes the canonical collector unless a run is active or inside its retry cooldown. Generation and cadence preflights under the shared publication lock turn racing wake-ups into no-ops. A strict three-hour freshness SLO additionally requires an external scheduler to send `publication_watchdog_tick` at least every 15 minutes; the operator contract is documented in `scripts/vllm/ci/README.md`.
+
 Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles reconstructed from the separately fetched scheduled-job population are retained and charted with their own labels and n/N coverage; they never silently replace native values.
 
 | Script | Purpose |

@@ -214,7 +214,7 @@ Quarantined tests are still collected and tracked, but excluded from failure cou
 
 ## GitHub Actions Integration
 
-Six workflows divide canonical publication from focused manual/event collectors:
+Seven workflows divide canonical publication from focused manual/event collectors:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
@@ -224,6 +224,7 @@ Six workflows divide canonical publication from focused manual/event collectors:
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 | `dns-health.yml` | Hourly + external tick + manual | Incremental full-log DNS classification with an isolated durable state branch and conditional canonical reconciliation |
+| `publication-watchdog.yml` | Workflow completions + hourly + external tick + manual | Proactive freshness recovery with active-run, cooldown, generation, and schedule-coalescing guards |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
 
@@ -301,25 +302,43 @@ dataset that is not collected, malformed, or internally inconsistent takes the
 same strict degradation or fail-closed publication path.
 
 GitHub Actions schedules are best-effort and may be delayed or dropped. The
-workflow therefore also accepts the dedicated `dns_health_tick`
-`repository_dispatch` event for a scheduler outside GitHub Actions. After a
-successful durable DNS publish, a separate least-privileged reconciliation job
-checks the public canonical status. It dispatches `hourly-master.yml` only when
-DNS remains affected or the canonical snapshot is older than three hours, so a
-fresh producer clears stale publication state without duplicating healthy
-hourly collections. The dispatch carries the exact DNS generation. A lightweight
-preflight skips queued work only once Pages contains that generation, its full
-DNS contract validates, DNS is no longer affected, and the publication is still
-inside the three-hour freshness window. Every required generation is queued;
-the generation-aware preflight safely deduplicates it after a newer canonical
-run succeeds. A targeted master verifies the same postcondition after deployment
-and fails visibly if Pages did not acknowledge it. Every workflow that writes
-`gh-pages` uses the shared `queue: max`
-lock, so a later preview or manual deploy cannot replace an already-pending DNS
-reconciliation. A strict three-hour producer SLA requires configuring that
-external tick; an in-repository GitHub cron cannot guarantee its own recovery.
-The canonical collector has a 60-minute timeout so a hung run cannot retain the
-shared deployment lock indefinitely.
+DNS workflow therefore accepts `dns_health_tick`, while the dedicated
+publication watchdog accepts `publication_watchdog_tick` from a scheduler
+outside GitHub Actions. The watchdog also runs after each trusted Queue,
+Lifecycle, DNS, or Site Health workflow completes, regardless of its conclusion,
+and has an off-minute cron as one more best-effort opportunity. It requests a
+canonical refresh once the public generation is 45 minutes old, unless a
+collection is already queued/running or an attempt completed within the
+30-minute retry cooldown.
+
+A watchdog dispatch carries the exact generation it observed. After the run
+acquires the shared `gh-pages-deploy` lock, a preflight skips it if another run
+already advanced Pages. A separate 30-minute schedule preflight coalesces an
+ordinary cron that arrived behind a just-finished watchdog recovery. DNS keeps
+its stronger generation acknowledgement: a targeted run is skipped only once
+Pages contains that DNS generation, its full contract validates, DNS is no
+longer affected, and publication remains fresh. The canonical collector has a
+60-minute timeout so a hung run cannot retain the lock indefinitely.
+
+Declaring a `repository_dispatch` trigger is not an independent scheduler. To
+make the three-hour freshness SLO enforceable, configure a scheduler outside
+GitHub Actions to POST the following event every 15 minutes (60 minutes is the
+absolute budget with no retry margin):
+
+```http
+POST https://api.github.com/repos/AndreasKaratzas/vllm-ci-dashboard/dispatches
+Accept: application/vnd.github+json
+Authorization: Bearer <external-heartbeat-token>
+
+{"event_type":"publication_watchdog_tick"}
+```
+
+Use a dedicated fine-grained token restricted to this repository with
+**Contents: write**, store it only in the external scheduler, and rotate it
+normally. Monitor the `Publication Recovery Watchdog` run history and alert if
+no `repository_dispatch` event arrives for 30 minutes. In-repository cron and
+`workflow_run` triggers materially improve recovery odds but cannot guarantee
+recovery from their own scheduler failure domain.
 
 Each scheduled run gives the whole collection a 25-minute budget with a
 separate finalization reserve. Unvisited log work remains pending for the next

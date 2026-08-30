@@ -328,6 +328,7 @@ class TestHourlyMasterWorkflow:
 
         assert inputs["ci_days"]["default"] == "8"
         assert inputs["dns_generation"]["default"] == ""
+        assert inputs["watchdog_generation"]["default"] == ""
         assert 'github.event.inputs.ci_days || \'8\'' in _load_workflow_text(
             "hourly-master.yml"
         )
@@ -336,8 +337,14 @@ class TestHourlyMasterWorkflow:
         workflow = _load_workflow("hourly-master.yml")
         collect = workflow["jobs"]["collect-and-deploy"]
         preflight = workflow["jobs"]["dns-reconcile-preflight"]
+        watchdog_preflight = workflow["jobs"]["publication-watchdog-preflight"]
+        cadence_preflight = workflow["jobs"]["cadence-preflight"]
 
-        assert collect["needs"] == "dns-reconcile-preflight"
+        assert collect["needs"] == [
+            "cadence-preflight",
+            "dns-reconcile-preflight",
+            "publication-watchdog-preflight",
+        ]
         assert collect["timeout-minutes"] == 60
         assert "always()" in collect["if"]
         assert "!cancelled()" in collect["if"]
@@ -345,6 +352,13 @@ class TestHourlyMasterWorkflow:
         assert "needs.dns-reconcile-preflight.outputs.required != 'false'" in (
             collect["if"]
         )
+        assert "needs.publication-watchdog-preflight.result != 'success'" in collect["if"]
+        assert "needs.publication-watchdog-preflight.outputs.required != 'false'" in (
+            collect["if"]
+        )
+        assert "needs.cadence-preflight.result != 'success'" in collect["if"]
+        assert "needs.cadence-preflight.outputs.required != 'false'" in collect["if"]
+        assert "github.event_name != 'schedule'" in collect["if"]
         assert preflight["if"] == (
             "github.event_name == 'workflow_dispatch' && inputs.dns_generation != ''"
         )
@@ -371,6 +385,44 @@ class TestHourlyMasterWorkflow:
             '--github-output "$GITHUB_OUTPUT"',
         ):
             assert token in target["run"]
+
+        assert watchdog_preflight["if"] == (
+            "github.event_name == 'workflow_dispatch' && "
+            "inputs.watchdog_generation != ''"
+        )
+        assert watchdog_preflight["permissions"] == {"contents": "read"}
+        generation_check = next(
+            step
+            for step in watchdog_preflight["steps"]
+            if step.get("id") == "generation-check"
+        )
+        assert generation_check["env"] == {
+            "EXPECTED_GENERATION": "${{ inputs.watchdog_generation }}"
+        }
+        for token in (
+            "origin/gh-pages:data/vllm/ci/publication_status.json",
+            "plan_publication_watchdog.py",
+            "--expected-generation",
+            "--max-age-minutes 45",
+            '--github-output "$GITHUB_OUTPUT"',
+        ):
+            assert token in generation_check["run"]
+
+        assert cadence_preflight["if"] == "github.event_name == 'schedule'"
+        assert cadence_preflight["permissions"] == {"contents": "read"}
+        cadence_check = next(
+            step
+            for step in cadence_preflight["steps"]
+            if step.get("id") == "cadence-check"
+        )
+        for token in (
+            "origin/gh-pages:data/vllm/ci/publication_status.json",
+            "plan_publication_watchdog.py",
+            "--cadence-preflight",
+            "--max-age-minutes 30",
+            '--github-output "$GITHUB_OUTPUT"',
+        ):
+            assert token in cadence_check["run"]
 
         perf = next(
             step
@@ -1382,6 +1434,7 @@ class TestNoOrphanedCronSchedules:
             "dns-health.yml",
             "queue-monitor.yml",
             "queue-lifecycle.yml",
+            "publication-watchdog.yml",
         }
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
@@ -1394,6 +1447,96 @@ class TestNoOrphanedCronSchedules:
                     f"{f.name} has a cron schedule but should not — "
                     f"all scheduled runs should be in one of {sorted(allowed)}"
                 )
+
+
+class TestPublicationWatchdogWorkflow:
+    def _workflow(self):
+        workflow = _load_workflow("publication-watchdog.yml")
+        return workflow, workflow["jobs"]["recover"]["steps"]
+
+    def test_has_redundant_trusted_triggers_and_minimal_permissions(self):
+        workflow, _ = self._workflow()
+        triggers = workflow.get(True, workflow.get("on", {}))
+        assert triggers["schedule"] == [{"cron": "25 * * * *"}]
+        assert triggers["repository_dispatch"] == {
+            "types": ["publication_watchdog_tick"]
+        }
+        assert "workflow_dispatch" in triggers
+        assert triggers["workflow_run"] == {
+            "workflows": [
+                "Queue Monitor (10 minute)",
+                "Queue Lifecycle Monitor (hourly)",
+                "DNS Health Monitor",
+                "Site Health Check",
+            ],
+            "types": ["completed"],
+            "branches": ["main"],
+        }
+        assert workflow["permissions"] == {}
+        assert workflow["concurrency"] == {
+            "group": "publication-watchdog",
+            "cancel-in-progress": False,
+        }
+        job = workflow["jobs"]["recover"]
+        assert job["timeout-minutes"] == 5
+        assert job["permissions"] == {"actions": "write", "contents": "read"}
+
+    def test_uses_trusted_main_and_bounded_canonical_state(self):
+        _, steps = self._workflow()
+        checkout = steps[0]
+        assert checkout["uses"] == "actions/checkout@v4"
+        assert checkout["with"] == {"ref": "main", "persist-credentials": False}
+        names = [step.get("name") for step in steps]
+        read = steps[names.index("Read canonical publication and collection state")]
+        plan = steps[names.index("Plan proactive publication recovery")]
+        dispatch = steps[names.index("Dispatch stale publication recovery")]
+        assert names.index(read["name"]) < names.index(plan["name"]) < names.index(
+            dispatch["name"]
+        )
+        assert "contents/data/vllm/ci/publication_status.json?ref=gh-pages" in read["run"]
+        assert "application/vnd.github.raw+json" in read["run"]
+        assert "actions/workflows/hourly-master.yml/runs?per_page=100" in read["run"]
+        assert "plan_publication_watchdog.py" in plan["run"]
+        assert "--workflow-runs" in plan["run"]
+        assert "--max-age-minutes 45" in plan["run"]
+        assert "--retry-cooldown-minutes 30" in plan["run"]
+        assert "--active-run-max-age-minutes 75" in plan["run"]
+        assert '--github-output "$GITHUB_OUTPUT"' in plan["run"]
+        text = _load_workflow_text("publication-watchdog.yml")
+        assert "github.event.workflow_run.head_sha" not in text
+        assert "download-artifact" not in text
+        assert "client_payload" not in text
+
+    def test_dispatches_only_planned_fixed_main_generation(self):
+        _, steps = self._workflow()
+        dispatch = next(
+            step
+            for step in steps
+            if step.get("name") == "Dispatch stale publication recovery"
+        )
+        assert dispatch["if"] == "steps.recovery-plan.outputs.required == 'true'"
+        assert dispatch["env"] == {
+            "GH_TOKEN": "${{ github.token }}",
+            "RECOVERY_REASON": "${{ steps.recovery-plan.outputs.reason }}",
+            "OBSERVED_GENERATION": (
+                "${{ steps.recovery-plan.outputs.observed_generation }}"
+            ),
+        }
+        assert "hourly-master.yml/dispatches" in dispatch["run"]
+        assert "inputs: {watchdog_generation: $watchdog_generation}" in dispatch["run"]
+        assert "--arg ref main" in dispatch["run"]
+
+    def test_is_not_a_pages_main_or_data_writer(self):
+        text = _load_workflow_text("publication-watchdog.yml")
+        for forbidden in (
+            "peaceiris/actions-gh-pages",
+            "publish_branch:",
+            "git push",
+            "git commit",
+            "git add",
+            "contents: write",
+        ):
+            assert forbidden not in text
 
 
 class TestDnsHealthWorkflow:
