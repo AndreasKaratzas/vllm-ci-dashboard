@@ -1,16 +1,6 @@
 {
-  "baseline_ref": "ccd24450873d7c1114b132638f0500a3ce1cb3b0",
-  "candidate_degradations": [
-    {
-      "code": "dns-health-stale",
-      "message": "DNS health source is 3.2h old; maximum is 3h",
-      "path": "data/vllm/ci/dns_failures.json",
-      "severity": "degradation",
-      "surfaces": [
-        "dns_health"
-      ]
-    }
-  ],
+  "baseline_ref": "424493c67400a6007bde78791d5d5aa51969af49",
+  "candidate_degradations": [],
   "candidate_errors": [],
   "collector_failure_streaks": {},
   "collector_failures": [],
@@ -20,28 +10,22 @@
     "reason": "non-collector-publication-finding",
     "transient_persistence_runs_required": 2
   },
-  "degraded_since": {
-    "dns_health": "2026-08-30T20:09:25Z"
-  },
-  "degraded_surfaces": [
-    "dns_health"
-  ],
+  "degraded_since": {},
+  "degraded_surfaces": [],
   "fallback_max_age_hours": 36,
   "fallback_since": {},
   "fallback_surfaces": [],
   "final_degradations": [],
   "final_errors": [],
-  "fresh_degraded_surfaces": [
-    "dns_health"
-  ],
-  "generated_at": "2026-08-30T20:09:25Z",
+  "fresh_degraded_surfaces": [],
+  "generated_at": "2026-08-30T20:30:01Z",
   "incident_policy": {
     "alert": true,
     "max_observed_streak": 0,
     "reason": "non-collector-publication-finding",
     "transient_persistence_runs_required": 2
   },
-  "mode": "degraded",
+  "mode": "current",
   "restored_manifest": {},
   "restored_paths": {},
   "schema_version": 2,
