@@ -641,7 +641,7 @@ class TestUpstreamHardwareTracking:
             without_queue = queue_prefix.sub("", job_name, count=1)
             match = nvidia_decorator.match(without_queue)
             hardware = (
-                match.group(1).strip().casefold()
+                " ".join(match.group(1).split()).casefold()
                 if match
                 else _extract_hardware(job_name)
             )
@@ -710,6 +710,12 @@ class TestExtractHardwareFunction:
         assert _extract_hardware(":nvidia: (GH200) Some Test") == "gh200"
         assert _extract_hardware(":nvidia: (MITHRIL) Some Test") == "mithril"
         assert _extract_hardware(
+            ":nvidia: (H200 MIG 18GB) Basic Correctness"
+        ) == "h200 mig 18gb"
+        assert _extract_hardware(
+            "gpu_1: :nvidia: (H200 MIG 35GB) Basic Correctness"
+        ) == "h200 mig 35gb"
+        assert _extract_hardware(
             "gpu_1: :nvidia: (H200) Basic Correctness"
         ) == "h200"
 
@@ -750,6 +756,56 @@ class TestExtractHardwareFunction:
         assert _extract_hardware("Test (4xH100)") == "h100"
 
 
+def test_multiword_nvidia_decorators_keep_distinct_hardware_buckets():
+    from vllm.ci import analyzer
+    from vllm.ci.models import TestResult
+
+    job_names = (
+        ":nvidia: (H100) Basic Correctness",
+        ":nvidia: (H200 MIG 18GB) Basic Correctness",
+        "gpu_1: :nvidia: (H200 MIG 35GB) Basic Correctness",
+    )
+    results = [
+        TestResult(
+            test_id=f"group-{index}",
+            name="__passed__ (1)",
+            classname="group",
+            status="passed",
+            duration_secs=1,
+            failure_message="",
+            job_name=job_name,
+            job_id=f"job-{index}",
+            step_id=f"step-{index}",
+            build_number=500,
+            pipeline="ci",
+            date="2026-08-31",
+        )
+        for index, job_name in enumerate(job_names, 1)
+    ]
+
+    summary = analyzer.compute_build_summary(
+        {
+            "number": 500,
+            "state": "passed",
+            "jobs": [
+                {"name": job_name, "state": "passed"}
+                for job_name in job_names
+            ],
+        },
+        results,
+        "upstream",
+    )
+
+    assert {
+        hardware: row["groups"]
+        for hardware, row in summary.by_hardware.items()
+    } == {
+        "h100": 1,
+        "h200 mig 18gb": 1,
+        "h200 mig 35gb": 1,
+    }
+
+
 def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch):
     from vllm.ci import analyzer
     from vllm.ci.models import TestResult
@@ -770,6 +826,9 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
     ) == "attention kernels shard"
     assert analyzer._normalize_job_name(
         "gpu_1: :nvidia: (H200) Attention Kernels Shard 1"
+    ) == "attention kernels shard"
+    assert analyzer._normalize_job_name(
+        "gpu_1: :nvidia: (H200 MIG 35GB) Attention Kernels Shard 1"
     ) == "attention kernels shard"
     assert analyzer._normalize_job_name(
         ":nvidia: (L4) Attention Kernels Shard %N"

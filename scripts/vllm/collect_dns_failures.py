@@ -54,16 +54,29 @@ from vllm.ci.dns_failures import (  # noqa: E402
     write_public_output,
     write_state,
 )
+from vllm.ci.dns_classification_cache import (  # noqa: E402
+    DnsClassificationCache,
+    load_optional_dns_classification_cache,
+)
+from vllm.constants import BK_CLUSTER_UUID, TRACKED_QUEUES  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STATE = ROOT / "data" / "vllm" / "ci" / "dns_health" / "scan_state.json.gz"
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci" / "dns_failures.json"
+DEFAULT_CLASSIFICATION_CACHE = (
+    ROOT / "data" / "vllm" / "ci" / ".cache" / "dns-classifications-v1"
+)
 STATE_GIT_PATH = "data/vllm/ci/dns_health/scan_state.json.gz"
 BUILDKITE_API = "https://api.buildkite.com/v2"
+BUILDKITE_GRAPHQL_API = "https://graphql.buildkite.com/v1"
 BUILDKITE_ORGANIZATION = "vllm"
 DEFAULT_DISCOVER_DAYS = 30
 DEFAULT_MAX_LOGS = 500
+# Keep direct/manual invocations bounded even when the caller omits the CLI
+# flag. Production passes the same value explicitly so the workflow contract
+# remains visible and independently testable.
+DEFAULT_MAX_REQUESTS = 110
 DEFAULT_TIME_BUDGET_SECONDS = 0
 FINALIZATION_RESERVE_SECONDS = 30
 BOOTSTRAP_DISCOVERY_HOURS = 24
@@ -71,6 +84,8 @@ INCREMENTAL_DISCOVERY_OVERLAP_HOURS = 2
 MAX_INCREMENTAL_DISCOVERY_GAP_HOURS = 24
 MAX_DISCOVER_DAYS = RETENTION_HOURS // 24
 MAX_DISCOVERY_PAGES = 1000
+MAX_GRAPHQL_JOB_PAGES = 1000
+GRAPHQL_ELIGIBLE_JOB_STATES = ("FINISHED", "TIMED_OUT", "BROKEN", "EXPIRED")
 PAGE_SIZE = 100
 MAX_REQUEST_ATTEMPTS = 5
 MAX_RETRY_SLEEP_SECONDS = 60
@@ -84,7 +99,11 @@ REQUEST_INTERVAL_SECONDS = 60 / REQUESTS_PER_MINUTE
 MAX_CONCURRENT_LOG_FETCHES = 8
 MAX_IN_FLIGHT_RAW_LOG_BYTES = MAX_CONCURRENT_LOG_FETCHES * MAX_LOG_BYTES
 SHARED_QUOTA_RESERVE = 10
-ACTIVE_DISCOVERY_SLICE_HOURS = 24
+# Start with week-wide exhaustive probes instead of issuing one request for
+# every day in the 30-day active-parent horizon. ``_active_slice_builds`` never
+# accepts an ambiguous full page: dense intervals are recursively bisected
+# until every leaf contains fewer than PAGE_SIZE builds, preserving coverage.
+ACTIVE_DISCOVERY_SLICE_HOURS = 7 * 24
 MAX_CONCURRENT_ACTIVE_SLICES = 3
 ACTIVE_BUILD_STATES = (
     "creating",
@@ -93,6 +112,9 @@ ACTIVE_BUILD_STATES = (
     "failing",
     "blocked",
     "canceling",
+)
+AMD_DISCOVERY_QUEUES = tuple(
+    sorted(queue for queue in TRACKED_QUEUES if queue_hardware(queue))
 )
 
 _QUEUE_RULE_RE = re.compile(r"^queue=(.+)$", re.IGNORECASE)
@@ -127,6 +149,10 @@ class BudgetExhausted(CollectionError):
 
     def __init__(self) -> None:
         super().__init__("budget_exhausted")
+
+
+class RequestBudgetExhausted(BudgetExhausted):
+    """The hard request-start allowance has been consumed."""
 
 
 class OversizeLog(CollectionError):
@@ -202,12 +228,20 @@ class BuildkiteClient:
         self,
         token: str,
         *,
+        max_request_starts: int = DEFAULT_MAX_REQUESTS,
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         if not token:
             raise CollectionError("authentication")
+        if (
+            isinstance(max_request_starts, bool)
+            or not isinstance(max_request_starts, int)
+            or max_request_starts < 0
+        ):
+            raise ValueError("max_request_starts must be a non-negative integer")
+        self.max_request_starts = max_request_starts
         self._authorization = {"Authorization": f"Bearer {token}"}
         self._injected_session = session
         self._thread_sessions = threading.local()
@@ -230,7 +264,7 @@ class BuildkiteClient:
         self._admission_lock = threading.Lock()
         self._quota_lock = threading.Lock()
         self._metrics_lock = threading.Lock()
-        self._request_starts = {"build_page": 0, "job_log": 0}
+        self._request_starts = {"build_page": 0, "graphql": 0, "job_log": 0}
         self._metrics = {
             "pacing_wait_seconds": 0.0,
             "quota_wait_seconds": 0.0,
@@ -345,12 +379,17 @@ class BuildkiteClient:
         path: str,
         *,
         params: dict | None = None,
+        json_body: dict | None = None,
         stream: bool = False,
         accept: str = "application/json",
+        base_url: str = BUILDKITE_API,
+        request_kind: str | None = None,
         deadline: float | None = None,
     ) -> requests.Response:
-        url = f"{BUILDKITE_API}{path}"
-        request_kind = "job_log" if path.endswith("/log") else "build_page"
+        url = f"{base_url}{path}"
+        kind = request_kind or ("job_log" if path.endswith("/log") else "build_page")
+        if kind not in self._request_starts:
+            raise ValueError("request_kind is invalid")
         for attempt in range(MAX_REQUEST_ATTEMPTS):
             self._throttle(deadline)
             remaining = deadline - self.monotonic() if deadline is not None else None
@@ -369,7 +408,10 @@ class BuildkiteClient:
                 )
             try:
                 with self._metrics_lock:
-                    self._request_starts[request_kind] += 1
+                    starts = sum(self._request_starts.values())
+                    if self.max_request_starts and starts >= self.max_request_starts:
+                        raise RequestBudgetExhausted()
+                    self._request_starts[kind] += 1
                 if attempt:
                     self._add_metric("retry_requests")
                 network_started = self.monotonic()
@@ -377,6 +419,7 @@ class BuildkiteClient:
                     method,
                     url,
                     params=params,
+                    json=json_body,
                     headers={"Accept": accept},
                     timeout=timeout,
                     stream=stream,
@@ -482,6 +525,288 @@ class BuildkiteClient:
         if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
             raise CollectionError("invalid_response")
         return payload
+
+    def _graphql(self, query: str, variables: dict, *, deadline: float | None) -> dict:
+        """Execute one bounded GraphQL metadata query through the shared budget."""
+        response = self._request(
+            "POST",
+            "",
+            json_body={"query": query, "variables": variables},
+            base_url=BUILDKITE_GRAPHQL_API,
+            request_kind="graphql",
+            deadline=deadline,
+        )
+        try:
+            payload = response.json()
+        except (requests.exceptions.JSONDecodeError, json.JSONDecodeError, ValueError):
+            raise CollectionError("invalid_response") from None
+        finally:
+            response.close()
+        if (
+            not isinstance(payload, dict)
+            or payload.get("errors")
+            or not isinstance(payload.get("data"), dict)
+        ):
+            raise CollectionError("invalid_response")
+        return payload["data"]
+
+    @staticmethod
+    def _cluster_queues_query() -> str:
+        return """
+        query DNSClusterQueues($org: ID!, $cluster: ID!, $first: Int!) {
+          organization(slug: $org) {
+            cluster(id: $cluster) {
+              queues(first: $first) {
+                edges { node { id key } }
+                pageInfo { hasNextPage endCursor }
+              }
+            }
+          }
+        }
+        """
+
+    def _amd_cluster_queue_ids(self, *, deadline: float | None) -> tuple[str, ...]:
+        """Resolve the tracked queue keys once for the organization job query."""
+        data = self._graphql(
+            self._cluster_queues_query(),
+            {
+                "org": BUILDKITE_ORGANIZATION,
+                "cluster": BK_CLUSTER_UUID,
+                "first": PAGE_SIZE,
+            },
+            deadline=deadline,
+        )
+        organization = data.get("organization")
+        cluster = organization.get("cluster") if isinstance(organization, dict) else None
+        connection = cluster.get("queues") if isinstance(cluster, dict) else None
+        if not isinstance(connection, dict):
+            raise CollectionError("invalid_response")
+        edges = connection.get("edges")
+        page_info = connection.get("pageInfo")
+        if not isinstance(edges, list) or not isinstance(page_info, dict):
+            raise CollectionError("invalid_response")
+        if page_info.get("hasNextPage") is not False:
+            # A partial queue catalog could silently omit a tracked queue.
+            raise CollectionError("invalid_response")
+
+        ids_by_key: dict[str, str] = {}
+        for edge in edges:
+            node = edge.get("node") if isinstance(edge, dict) else None
+            if not isinstance(node, dict):
+                raise CollectionError("invalid_response")
+            queue_id = node.get("id")
+            key = node.get("key")
+            if not isinstance(queue_id, str) or not queue_id or not isinstance(key, str):
+                raise CollectionError("invalid_response")
+            if key not in AMD_DISCOVERY_QUEUES:
+                continue
+            if key in ids_by_key and ids_by_key[key] != queue_id:
+                raise CollectionError("invalid_response")
+            ids_by_key[key] = queue_id
+        return tuple(ids_by_key[key] for key in AMD_DISCOVERY_QUEUES if key in ids_by_key)
+
+    @staticmethod
+    def _organization_jobs_query() -> str:
+        return """
+        query DNSRecentJobs(
+          $org: ID!,
+          $first: Int!,
+          $after: String,
+          $queues: [ID!]!,
+          $from: DateTime!
+        ) {
+          organization(slug: $org) {
+            jobs(
+              first: $first,
+              after: $after,
+              clustered: true,
+              clusterQueue: $queues,
+              createdAtFrom: $from,
+              state: [FINISHED, TIMED_OUT, BROKEN, EXPIRED],
+              type: [COMMAND],
+              order: RECENTLY_CREATED
+            ) {
+              edges {
+                node {
+                  ... on JobTypeCommand {
+                    uuid
+                    createdAt
+                    startedAt
+                    finishedAt
+                    state
+                    passed
+                    softFailed
+                    agent { metaData }
+                    clusterQueue { id key }
+                    build { number pipeline { slug } }
+                  }
+                }
+              }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+        """
+
+    def _organization_recent_job_metadata(
+        self,
+        *,
+        queue_ids: tuple[str, ...],
+        created_from: datetime,
+        deadline: float | None,
+    ) -> list[dict]:
+        """Page one server-filtered stream of recent AMD jobs for both pipelines."""
+        if not queue_ids:
+            return []
+        discovered: dict[tuple[str, str], dict] = {}
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+
+        for _page in range(MAX_GRAPHQL_JOB_PAGES):
+            data = self._graphql(
+                self._organization_jobs_query(),
+                {
+                    "org": BUILDKITE_ORGANIZATION,
+                    "first": PAGE_SIZE,
+                    "after": cursor,
+                    "queues": list(queue_ids),
+                    "from": iso_timestamp(created_from),
+                },
+                deadline=deadline,
+            )
+            organization = data.get("organization")
+            connection = (
+                organization.get("jobs") if isinstance(organization, dict) else None
+            )
+            if not isinstance(connection, dict):
+                raise CollectionError("invalid_response")
+            edges = connection.get("edges")
+            page_info = connection.get("pageInfo")
+            if not isinstance(edges, list) or not isinstance(page_info, dict):
+                raise CollectionError("invalid_response")
+
+            crossed_cutoff = False
+            for edge in edges:
+                node = edge.get("node") if isinstance(edge, dict) else None
+                if not isinstance(node, dict):
+                    raise CollectionError("invalid_response")
+                try:
+                    created_at = parse_timestamp(node.get("createdAt"), "createdAt")
+                except StateValidationError:
+                    raise CollectionError("invalid_response") from None
+                if created_at < created_from:
+                    # Buildkite's indexed connection can include a small
+                    # boundary spill around ``createdAtFrom``. Never widen our
+                    # durable interval because of those rows.
+                    crossed_cutoff = True
+                    continue
+                build = node.get("build")
+                pipeline_payload = (
+                    build.get("pipeline") if isinstance(build, dict) else None
+                )
+                pipeline = (
+                    pipeline_payload.get("slug")
+                    if isinstance(pipeline_payload, dict)
+                    else None
+                )
+                if pipeline not in PIPELINES:
+                    continue
+
+                cluster_queue = node.get("clusterQueue")
+                queue_id = (
+                    cluster_queue.get("id")
+                    if isinstance(cluster_queue, dict)
+                    else None
+                )
+                queue = (
+                    cluster_queue.get("key")
+                    if isinstance(cluster_queue, dict)
+                    else None
+                )
+                if queue_id not in queue_ids or queue not in AMD_DISCOVERY_QUEUES:
+                    raise CollectionError("invalid_response")
+
+                graphql_state = node.get("state")
+                passed = node.get("passed")
+                soft_failed = node.get("softFailed")
+                if (
+                    graphql_state not in GRAPHQL_ELIGIBLE_JOB_STATES
+                    or not isinstance(passed, bool)
+                    or not isinstance(soft_failed, bool)
+                ):
+                    raise CollectionError("invalid_response")
+                rest_state = {
+                    "FINISHED": "passed" if passed else "failed",
+                    "TIMED_OUT": "timed_out",
+                    "BROKEN": "broken",
+                    "EXPIRED": "expired",
+                }[graphql_state]
+                agent = node.get("agent")
+                rest_job = {
+                    "id": node.get("uuid"),
+                    "type": "script",
+                    "state": rest_state,
+                    "soft_failed": soft_failed,
+                    "started_at": node.get("startedAt"),
+                    "finished_at": node.get("finishedAt"),
+                    "agent_query_rules": [f"queue={queue}"],
+                    "agent": {
+                        "meta_data": (
+                            agent.get("metaData")
+                            if isinstance(agent, dict)
+                            and isinstance(agent.get("metaData"), list)
+                            else []
+                        )
+                    },
+                }
+                metadata = job_metadata(pipeline, build, rest_job)
+                if metadata is None or metadata["queue"] != queue:
+                    raise CollectionError("invalid_response")
+                discovered[(pipeline, metadata["job_id"])] = metadata
+
+            has_next_page = page_info.get("hasNextPage")
+            if not isinstance(has_next_page, bool):
+                raise CollectionError("invalid_response")
+            if crossed_cutoff or not has_next_page:
+                return sort_state_jobs(discovered.values())
+            next_cursor = page_info.get("endCursor")
+            if (
+                not isinstance(next_cursor, str)
+                or not next_cursor
+                or next_cursor in seen_cursors
+            ):
+                raise CollectionError("invalid_response")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        raise CollectionError("invalid_response")
+
+    def discover_incremental_job_metadata(
+        self,
+        *,
+        created_from: str,
+        finished_from: str,
+        deadline: float | None = None,
+    ) -> list[dict]:
+        """Discover recent jobs once for the org, then reconcile finished builds."""
+        cutoff = parse_timestamp(created_from, "created_from")
+        queue_ids = self._amd_cluster_queue_ids(deadline=deadline)
+        discovered = {
+            (metadata["pipeline"], metadata["job_id"]): metadata
+            for metadata in self._organization_recent_job_metadata(
+                queue_ids=queue_ids,
+                created_from=cutoff,
+                deadline=deadline,
+            )
+        }
+        for pipeline in PIPELINES:
+            finished_builds = self._paginate_builds(
+                pipeline,
+                filters={"finished_from": finished_from},
+                deadline=deadline,
+            )
+            for metadata in discover_job_metadata({pipeline: finished_builds}):
+                discovered[(pipeline, metadata["job_id"])] = metadata
+        return sort_state_jobs(discovered.values())
 
     def _paginate_builds(
         self,
@@ -1062,30 +1387,85 @@ def _discovery_window(
     return query_start, coverage_start
 
 
-def _fair_pending_order(rows: Iterable[dict]) -> list[dict]:
-    """Interleave oldest and newest pending rows, starting with backfill.
+def _needs_full_active_reconciliation(
+    prior_states: Iterable[dict],
+    *,
+    clock: datetime,
+) -> bool:
+    """Run the expensive active-parent sweep at most once per UTC day."""
+    generated = [
+        parse_timestamp(state["generated_at"], "generated_at")
+        for state in prior_states
+    ]
+    if not generated:
+        return True
+    latest = max(generated)
+    return (
+        clock - latest > timedelta(hours=MAX_INCREMENTAL_DISCOVERY_GAP_HOURS)
+        or latest.date() != clock.date()
+    )
 
-    The durable state is sorted newest-first. Always taking that prefix lets a
-    sustained arrival rate monopolize the bounded request budget and strand
-    older jobs. Alternating the two ends advances the oldest backlog on every
-    other request while retaining equally frequent samples from fresh jobs.
-    Starting at the old end also guarantees that a deadline-shortened run that
-    completes at least one request still makes backfill progress.
+
+def _coordinate_round_robin(rows: Iterable[dict]) -> list[dict]:
+    """Keep each coordinate fresh while preventing one fleet from dominating."""
+    buckets: dict[tuple[str, str, str], list[dict]] = {}
+    for row in rows:
+        coordinate = (row["pipeline"], row["queue"], row["node"])
+        buckets.setdefault(coordinate, []).append(row)
+
+    # ``rows`` is already newest-first. Dict insertion order therefore starts
+    # each round with the coordinate whose next sample is freshest.
+    positions = {coordinate: 0 for coordinate in buckets}
+    ordered: list[dict] = []
+    total = sum(len(bucket) for bucket in buckets.values())
+    while len(ordered) < total:
+        for coordinate, bucket in buckets.items():
+            position = positions[coordinate]
+            if position < len(bucket):
+                ordered.append(bucket[position])
+                positions[coordinate] = position + 1
+    return ordered
+
+
+def _fair_pending_order(rows: Iterable[dict]) -> list[dict]:
+    """Return a prefix-stable, fresh, state-and-coordinate-stratified order.
+
+    A hard request cap can stop at any prefix, so terminal states are rotated
+    before taking another sample from one state. This explicitly retains
+    passed jobs (where DNS incidents can still occur), while each state also
+    round-robins pipeline/queue/node coordinates. Rows and coordinate rounds
+    remain newest-first; unlike the old oldest/newest alternation, a small
+    budget does not spend half its requests on stale backlog.
     """
-    ordered = list(rows)
-    fair: list[dict] = []
-    newest = 0
-    oldest = len(ordered) - 1
-    take_oldest = True
-    while newest <= oldest:
-        if take_oldest:
-            fair.append(ordered[oldest])
-            oldest -= 1
-        else:
-            fair.append(ordered[newest])
-            newest += 1
-        take_oldest = not take_oldest
-    return fair
+    newest_first = sort_state_jobs(rows)
+    by_outcome: dict[str, list[dict]] = {"passed": [], "nonpassing": []}
+    for row in newest_first:
+        outcome = "passed" if row["state"] == "passed" else "nonpassing"
+        by_outcome[outcome].append(row)
+
+    outcome_rows = {
+        outcome: _coordinate_round_robin(outcome_group)
+        for outcome, outcome_group in by_outcome.items()
+    }
+    positions = {outcome: 0 for outcome in outcome_rows}
+    # Preserve the dominant passed-job population without letting a limited
+    # prefix become passed-only: every five-slot cycle targets 60% passed and
+    # 40% hard/soft-failed jobs. An exhausted stratum simply yields its slots
+    # to the other, so no eligible work is discarded.
+    cycle = ("passed", "nonpassing", "passed", "nonpassing", "passed")
+    ordered: list[dict] = []
+    while len(ordered) < len(newest_first):
+        added = False
+        for outcome in cycle:
+            outcome_group = outcome_rows[outcome]
+            position = positions[outcome]
+            if position < len(outcome_group):
+                ordered.append(outcome_group[position])
+                positions[outcome] = position + 1
+                added = True
+        if not added:
+            break
+    return ordered
 
 
 def _scan_candidate(
@@ -1148,12 +1528,38 @@ def scan_records(
     client: BuildkiteClient,
     attempted_at: str,
     max_logs: int,
+    classification_cache: DnsClassificationCache | None = None,
     deadline: float | None = None,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> list[dict]:
     """Scan fairly ordered new backlog before bounded unavailable retries."""
     ordered = sort_state_jobs(rows)
     by_identity = {(row["pipeline"], row["job_id"]): row for row in ordered}
+    cache_hits = 0
+    if classification_cache is not None:
+        for row in ordered:
+            if row["status"] not in {"pending", "unavailable"}:
+                continue
+            # The privacy-minimized cache deliberately does not retain host
+            # names. An unidentified discovery row therefore still needs the
+            # bounded log read so _scan_candidate can recover its node banner;
+            # consuming a cached classification here would permanently lose
+            # per-node attribution.
+            if row.get("node") == "unidentified":
+                continue
+            classification = classification_cache.classification_for(row)
+            if classification is None:
+                continue
+            cached = scan_record(
+                row,
+                classification,
+                attempted_at=attempted_at,
+                previous_attempts=int(row.get("attempts") or 0),
+            )
+            by_identity[(cached["pipeline"], cached["job_id"])] = cached
+            cache_hits += 1
+        ordered = sort_state_jobs(by_identity.values())
+    log.info("DNS shared classification cache: hits=%d", cache_hits)
     pending = _fair_pending_order(
         row for row in ordered if row["status"] == "pending"
     )
@@ -1234,6 +1640,8 @@ def collect(
     merge_state_git_ref: str | None = None,
     dry_run: bool = False,
     time_budget_seconds: int = DEFAULT_TIME_BUDGET_SECONDS,
+    minimum_interval_hours: int = 0,
+    classification_cache_path: Path | None = None,
     now: datetime | None = None,
     repo_root: Path = ROOT,
     monotonic: Callable[[], float] = time.monotonic,
@@ -1245,6 +1653,12 @@ def collect(
         raise ValueError("max_logs must be positive")
     if time_budget_seconds < 0:
         raise ValueError("time_budget_seconds cannot be negative")
+    if (
+        isinstance(minimum_interval_hours, bool)
+        or not isinstance(minimum_interval_hours, int)
+        or minimum_interval_hours < 0
+    ):
+        raise ValueError("minimum_interval_hours must be a non-negative integer")
     started_monotonic = monotonic()
     deadline = (
         started_monotonic
@@ -1262,15 +1676,58 @@ def collect(
         if merge_state_git_ref
         else None
     )
+    available_states = [
+        state for state in (local_state, ref_state) if state is not None
+    ]
+    if available_states:
+        latest_state = max(
+            available_states,
+            key=lambda state: parse_timestamp(state["generated_at"], "generated_at"),
+        )
+        latest_generated = parse_timestamp(
+            latest_state["generated_at"], "generated_at"
+        )
+        if latest_generated > clock:
+            raise StateValidationError("prior state generated_at is in the future")
+        if (
+            minimum_interval_hours
+            and clock - latest_generated
+            < timedelta(hours=minimum_interval_hours)
+        ):
+            output = build_public_output(latest_state)
+            if not dry_run:
+                write_state(state_path, latest_state)
+                write_public_output(output_path, output)
+            log.info(
+                "DNS collection skipped: prior generation is inside the %dh minimum interval",
+                minimum_interval_hours,
+            )
+            return output
+    classification_cache = None
+    if classification_cache_path is not None:
+        classification_cache, cache_was_reset = load_optional_dns_classification_cache(
+            classification_cache_path,
+            now=clock,
+        )
+        if cache_was_reset:
+            log.warning(
+                "Discarded invalid private DNS classification cache; "
+                "continuing with cache misses"
+            )
     old_rows = merge_state_jobs(
         local_state["jobs"] if local_state else [],
         ref_state["jobs"] if ref_state else [],
     )
 
+    prior_states = available_states
     query_start, coverage_start = _discovery_window(
-        [state for state in (local_state, ref_state) if state is not None],
+        prior_states,
         clock=clock,
         target_start=target_start,
+    )
+    full_active_reconciliation = (
+        not isinstance(client, BuildkiteClient)
+        or _needs_full_active_reconciliation(prior_states, clock=clock)
     )
     finished_from = iso_timestamp(query_start)
     active_created_from = iso_timestamp(target_start)
@@ -1281,18 +1738,32 @@ def collect(
     requests_before_discovery = (
         client.request_starts()
         if isinstance(client, BuildkiteClient)
-        else {"build_page": 0, "job_log": 0}
+        else {"build_page": 0, "graphql": 0, "job_log": 0}
     )
-    for pipeline in PIPELINES:
-        builds = client.discover_builds(
-            pipeline,
-            finished_from=finished_from,
-            active_created_from=active_created_from,
-            active_created_to=active_created_to,
-            deadline=deadline,
+    if full_active_reconciliation:
+        for pipeline in PIPELINES:
+            builds = client.discover_builds(
+                pipeline,
+                finished_from=finished_from,
+                active_created_from=active_created_from,
+                active_created_to=active_created_to,
+                deadline=deadline,
+            )
+            discovered_builds += len(builds)
+            discovered.extend(discover_job_metadata({pipeline: builds}))
+    else:
+        discovered.extend(
+            client.discover_incremental_job_metadata(
+                created_from=finished_from,
+                finished_from=finished_from,
+                deadline=deadline,
+            )
         )
-        discovered_builds += len(builds)
-        discovered.extend(discover_job_metadata({pipeline: builds}))
+    if not full_active_reconciliation:
+        # Direct recent-job discovery deliberately defers the rare case of a
+        # newly-finished job in an old, still-active parent to the daily sweep.
+        # Keep the public completeness flag conservative between sweeps.
+        coverage_start = clock - timedelta(seconds=1)
     requests_after_discovery = (
         client.request_starts()
         if isinstance(client, BuildkiteClient)
@@ -1300,12 +1771,16 @@ def collect(
     )
     log.info(
         "DNS collection phase complete: phase=discovery elapsed_seconds=%.3f "
-        "builds=%d eligible_job_rows=%d build_page_requests=%d",
+        "mode=%s builds=%d eligible_job_rows=%d build_page_requests=%d "
+        "graphql_requests=%d",
         max(0.0, monotonic() - discovery_started),
+        "full-active" if full_active_reconciliation else "incremental-jobs",
         discovered_builds,
         len(discovered),
         requests_after_discovery["build_page"]
         - requests_before_discovery["build_page"],
+        requests_after_discovery["graphql"]
+        - requests_before_discovery["graphql"],
     )
     rows = _prepare_records(
         old_rows,
@@ -1320,6 +1795,7 @@ def collect(
         client=client,
         attempted_at=iso_timestamp(clock),
         max_logs=max_logs,
+        classification_cache=classification_cache,
         deadline=deadline,
         monotonic=monotonic,
     )
@@ -1337,13 +1813,15 @@ def collect(
     if isinstance(client, BuildkiteClient):
         telemetry = client.telemetry()
         log.info(
-            "DNS request telemetry: build_page_requests=%d job_log_requests=%d "
+            "DNS request telemetry: build_page_requests=%d graphql_requests=%d "
+            "job_log_requests=%d "
             "pacing_wait_seconds=%.3f quota_wait_seconds=%.3f "
             "retry_sleep_worker_seconds=%.3f network_worker_seconds=%.3f "
             "network_max_seconds=%.3f stream_worker_seconds=%.3f "
             "stream_max_seconds=%.3f retry_requests=%d "
             "rate_limited_responses=%d",
             telemetry["build_page"],
+            telemetry["graphql"],
             telemetry["job_log"],
             telemetry["pacing_wait_seconds"],
             telemetry["quota_wait_seconds"],
@@ -1391,12 +1869,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--max-logs", type=int, default=DEFAULT_MAX_LOGS)
     parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=DEFAULT_MAX_REQUESTS,
+        help="Hard cap on all Buildkite request starts, including retries (0 disables).",
+    )
+    parser.add_argument(
         "--time-budget-seconds",
         type=int,
         default=DEFAULT_TIME_BUDGET_SECONDS,
         help="Stop starting new log requests after this monotonic budget (0 disables).",
     )
+    parser.add_argument(
+        "--minimum-interval-hours",
+        type=int,
+        default=0,
+        help="Reuse the prior validated generation without Buildkite I/O when newer than this.",
+    )
     parser.add_argument("--merge-state-git-ref")
+    parser.add_argument(
+        "--classification-cache",
+        type=Path,
+        default=DEFAULT_CLASSIFICATION_CACHE,
+        help="Private daily DNS classifications produced by core CI log parsing.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     token = os.environ.get("BUILDKITE_TOKEN", "")
@@ -1405,12 +1901,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         payload = collect(
-            client=BuildkiteClient(token),
+            client=BuildkiteClient(
+                token,
+                max_request_starts=args.max_requests,
+            ),
             state_path=args.state,
             output_path=args.output,
             discover_days=args.discover_days,
             max_logs=args.max_logs,
             time_budget_seconds=args.time_budget_seconds,
+            minimum_interval_hours=args.minimum_interval_hours,
+            classification_cache_path=args.classification_cache,
             merge_state_git_ref=args.merge_state_git_ref,
             dry_run=args.dry_run,
         )

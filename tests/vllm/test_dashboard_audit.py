@@ -809,8 +809,21 @@ def test_dns_audit_rejects_sensitive_unknown_and_unreconciled_data(tmp_path):
     } <= codes
 
 
+def test_dns_audit_tolerates_one_missed_three_hour_interval(tmp_path):
+    recent = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=5))
+    _write_dns_audit_payload(tmp_path, recent)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert audit_module.DNS_MAX_FRESH_AGE_HOURS == 6
+    assert "dns-health-stale" not in {
+        finding.code for finding in audit.report.degradations
+    }
+
+
 def test_dns_audit_rejects_false_complete_and_degrades_stale_partial_data(tmp_path):
-    stale = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=4))
+    stale = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=7))
     coverage_blocks = [stale["coverage"]] + [
         window["coverage"] for window in stale["windows"].values()
     ]
@@ -3110,8 +3123,11 @@ def test_workflow_audit_enforces_private_analytics_cache_boundary(tmp_path):
     assert not cache_codes & {finding.code for finding in valid.report.errors}
 
     hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly_text = hourly.read_text()
+    analytics_key_index = hourly_text.index("Prepare private analytics cache key")
     hourly.write_text(
-        hourly.read_text().replace(
+        hourly_text[:analytics_key_index]
+        + hourly_text[analytics_key_index:].replace(
             "CACHE_DAY=$(date -u +%Y-%m-%d)",
             "CACHE_DAY=$(date +%Y-%m-%d)",
             1,

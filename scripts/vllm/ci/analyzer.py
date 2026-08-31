@@ -67,7 +67,8 @@ _JOB_PREFIX_RE = re.compile(
 # fit the older H/A/B/L numeric families.
 _STANDARD_JOB_DECORATOR_RE = re.compile(
     r'^:(?P<platform>amd|nvidia|computer):\s*'
-    r'\(\s*(?P<hardware>[a-z0-9][a-z0-9._-]*)\s*\)\s*',
+    r'\(\s*(?P<hardware>[a-z0-9][a-z0-9._-]*'
+    r'(?: +[a-z0-9][a-z0-9._-]*)*)\s*\)\s*',
     re.IGNORECASE,
 )
 
@@ -87,7 +88,7 @@ def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
     return (
         label[match.end():],
         match.group('platform').lower(),
-        match.group('hardware').lower(),
+        ' '.join(match.group('hardware').lower().split()),
     )
 
 

@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_MAX_BYTES = 90 * 1024 * 1024
+# Keep a deliberate cushion below the dashboard's 90 MB sync ceiling.  Using
+# 85 MiB also stays below 90,000,000 decimal bytes, so the guard is safe no
+# matter which unit a hosting/sync layer uses when it reports "90 MB".
+DEFAULT_MAX_BYTES = 85 * 1024 * 1024
 
 
 @dataclass(frozen=True)

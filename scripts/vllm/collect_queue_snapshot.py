@@ -192,6 +192,7 @@ query QueueJobs($org: ID!, $queue: [ID!]!, $states: [JobStates!], $first: Int!, 
 """
 
 GRAPHQL_PAGE_SIZE = 100
+GRAPHQL_PAGINATION_SAFETY_CAP = 100
 GRAPHQL_WAITING_STATES = frozenset({"SCHEDULED"})
 GRAPHQL_RUNNING_STATES = frozenset({"ASSIGNED", "ACCEPTED", "RUNNING", "CANCELING", "TIMING_OUT"})
 GRAPHQL_ACTIVE_STATES = tuple(sorted(GRAPHQL_WAITING_STATES | GRAPHQL_RUNNING_STATES))
@@ -1508,7 +1509,8 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
     """Fetch queue-native counts from Buildkite cluster metrics."""
     metrics: dict[str, dict] = {}
     after = None
-    while True:
+    seen_cursors: set[str] = set()
+    for page_number in range(1, GRAPHQL_PAGINATION_SAFETY_CAP + 1):
         data = bk_graphql(
             GRAPHQL_QUEUE_METRICS_Q,
             token,
@@ -1545,7 +1547,19 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
         page = queues.get("pageInfo") or {}
         if not page.get("hasNextPage"):
             return metrics
-        after = page.get("endCursor")
+        next_cursor = str(page.get("endCursor") or "")
+        if not next_cursor or next_cursor in seen_cursors:
+            raise RuntimeError(
+                "Buildkite GraphQL queue metrics pagination returned an invalid cursor"
+            )
+        if page_number == GRAPHQL_PAGINATION_SAFETY_CAP:
+            raise RuntimeError(
+                "Buildkite GraphQL queue metrics pagination safety cap reached "
+                f"after {GRAPHQL_PAGINATION_SAFETY_CAP} pages"
+            )
+        seen_cursors.add(next_cursor)
+        after = next_cursor
+    raise AssertionError("unreachable")
 
 
 def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
@@ -1622,7 +1636,8 @@ def _fetch_graphql_jobs(
 ) -> list[dict]:
     jobs: list[dict] = []
     after = None
-    while True:
+    seen_cursors: set[str] = set()
+    for page_number in range(1, GRAPHQL_PAGINATION_SAFETY_CAP + 1):
         page_vars = dict(variables)
         page_vars["after"] = after
         data = bk_graphql(
@@ -1639,39 +1654,34 @@ def _fetch_graphql_jobs(
         page = conn.get("pageInfo") or {}
         if not page.get("hasNextPage"):
             return jobs
-        after = page.get("endCursor")
+        next_cursor = str(page.get("endCursor") or "")
+        if not next_cursor or next_cursor in seen_cursors:
+            raise RuntimeError("Buildkite GraphQL jobs pagination returned an invalid cursor")
+        if page_number == GRAPHQL_PAGINATION_SAFETY_CAP:
+            raise RuntimeError(
+                "Buildkite GraphQL jobs pagination safety cap reached "
+                f"after {GRAPHQL_PAGINATION_SAFETY_CAP} pages"
+            )
+        seen_cursors.add(next_cursor)
+        after = next_cursor
+    raise AssertionError("unreachable")
 
 
 def fetch_active_cluster_jobs(
     token: str, queue_ids_by_key: dict[str, str] | None = None
 ) -> list[dict]:
-    """Fetch active command jobs via GraphQL.
+    """Fetch active command jobs in one organization-wide GraphQL scan.
 
-    Buildkite's queue metrics API accepts a cluster UUID, but the jobs API
-    expects a GraphQL cluster-queue ID. Querying active jobs per queue keeps
-    wait samples aligned with the queue-native backlog counts.
+    ``queue_ids_by_key`` is now a local selection map, not a request fan-out
+    instruction. Buildkite can return every clustered active command job for
+    the organization in one paginated connection, including each job's queue
+    key. Filtering that result locally avoids one GraphQL request per active
+    queue while preserving the exact same selected population.
+
+    The map values remain accepted for compatibility and for the explicit
+    per-queue fallback in :func:`_fetch_active_cluster_jobs_by_queue`.
     """
-    if queue_ids_by_key:
-        jobs: list[dict] = []
-        for queue, queue_id in sorted(queue_ids_by_key.items()):
-            if not queue_id or is_excluded_queue(queue):
-                continue
-            jobs.extend(
-                _fetch_graphql_jobs(
-                    token,
-                    query=GRAPHQL_QUEUE_JOBS_Q,
-                    variables={
-                        "org": BK_ORG,
-                        "queue": [queue_id],
-                        "states": list(GRAPHQL_ACTIVE_STATES),
-                        "first": GRAPHQL_PAGE_SIZE,
-                    },
-                    fallback_queue=queue,
-                )
-            )
-        return jobs
-
-    return _fetch_graphql_jobs(
+    jobs = _fetch_graphql_jobs(
         token,
         query=GRAPHQL_ACTIVE_JOBS_Q,
         variables={
@@ -1680,6 +1690,50 @@ def fetch_active_cluster_jobs(
             "first": GRAPHQL_PAGE_SIZE,
         },
     )
+    if not queue_ids_by_key:
+        return jobs
+
+    selected_by_key = {
+        str(queue).casefold(): str(queue)
+        for queue in queue_ids_by_key
+        if queue and not is_excluded_queue(queue)
+    }
+    selected: list[dict] = []
+    for job in jobs:
+        canonical_queue = selected_by_key.get(str(job.get("queue") or "").casefold())
+        if canonical_queue:
+            selected.append({**job, "queue": canonical_queue})
+    return selected
+
+
+def _fetch_active_cluster_jobs_by_queue(
+    token: str, queue_ids_by_key: dict[str, str]
+) -> list[dict]:
+    """Fallback to queue-scoped GraphQL reads when the org scan is unavailable.
+
+    This retains the older, more expensive request pattern strictly as a
+    compatibility fallback. Callers must only use it when every queue whose
+    population is required has a GraphQL queue ID; otherwise the REST build
+    scan is the only safe exhaustive fallback.
+    """
+    jobs: list[dict] = []
+    for queue, queue_id in sorted(queue_ids_by_key.items()):
+        if not queue_id or is_excluded_queue(queue):
+            continue
+        jobs.extend(
+            _fetch_graphql_jobs(
+                token,
+                query=GRAPHQL_QUEUE_JOBS_Q,
+                variables={
+                    "org": BK_ORG,
+                    "queue": [queue_id],
+                    "states": list(GRAPHQL_ACTIVE_STATES),
+                    "first": GRAPHQL_PAGE_SIZE,
+                },
+                fallback_queue=queue,
+            )
+        )
+    return _deduplicate_active_jobs(jobs)
 
 
 def _collect_legacy_active_jobs(token: str) -> list[dict]:
@@ -1899,12 +1953,11 @@ def collect_snapshot(token: str) -> dict:
             "Buildkite cluster metrics unavailable, falling back to active job counts: %s", exc
         )
 
-    active_queue_ids = {
+    active_metric_queues = {
         queue: str(meta.get("graphql_id") or "")
         for queue, meta in metrics_by_queue.items()
         if (
             not is_excluded_queue(queue)
-            and meta.get("graphql_id")
             and (
                 not meta.get("counts_available", True)
                 or _as_count(meta.get("waiting"))
@@ -1912,37 +1965,65 @@ def collect_snapshot(token: str) -> dict:
             )
         )
     }
-    metrics_queue_keys = {
-        queue.casefold() for queue in metrics_by_queue if not is_excluded_queue(queue)
-    }
-    missing_metrics_queues = {
-        queue
-        for queue in TRACKED_QUEUES
-        if not is_excluded_queue(queue) and queue.casefold() not in metrics_queue_keys
+    metrics_by_key = {
+        queue.casefold(): meta
+        for queue, meta in metrics_by_queue.items()
+        if not is_excluded_queue(queue)
     }
 
+    # One organization-wide active-job connection replaces the old N+1 path
+    # (one request per active queue plus another org request for missing queue
+    # metrics). Select every configured queue locally, including queues whose
+    # earlier metrics read was zero: a job can become runnable between the two
+    # observations. Active dynamically discovered queues remain in scope too.
+    # Queue IDs are retained solely for the compatibility fallback.
+    requested_job_queues = {
+        queue: str((metrics_by_key.get(queue.casefold()) or {}).get("graphql_id") or "")
+        for queue in TRACKED_QUEUES
+        if not is_excluded_queue(queue)
+    }
+    for queue, queue_id in active_metric_queues.items():
+        requested_job_queues.setdefault(queue, queue_id)
+    # If queue metrics are wholly unavailable, keep the org scan unfiltered so
+    # active untracked queues remain visible just as they were historically.
+    local_queue_filter = requested_job_queues if metrics_by_queue else None
+
     try:
-        if active_queue_ids and missing_metrics_queues:
-            active_jobs = fetch_active_cluster_jobs(token, active_queue_ids)
-            organization_jobs = fetch_active_cluster_jobs(token, None)
-            missing_by_key = {queue.casefold(): queue for queue in missing_metrics_queues}
-            for job in organization_jobs:
-                canonical_queue = missing_by_key.get(str(job.get("queue") or "").casefold())
-                if canonical_queue:
-                    active_jobs.append({**job, "queue": canonical_queue})
-            active_jobs_source = "cluster_queue_and_organization_jobs_graphql"
-            sampled_queues = set(active_queue_ids) | missing_metrics_queues
+        active_jobs = fetch_active_cluster_jobs(token, local_queue_filter)
+        active_jobs_source = "organization_jobs_graphql"
+        sampled_queues = set(local_queue_filter) if local_queue_filter is not None else None
+    except Exception as org_exc:
+        # A scoped GraphQL fallback is complete only when queue metrics covered
+        # every configured queue and supplied IDs for every queue we need to
+        # sample. Otherwise fail over to the exhaustive REST build scan.
+        if requested_job_queues and all(requested_job_queues.values()):
+            try:
+                log.warning(
+                    "Buildkite organization active-job scan unavailable; "
+                    "falling back to %d queue-scoped GraphQL scans: %s",
+                    len(requested_job_queues),
+                    org_exc,
+                )
+                active_jobs = _fetch_active_cluster_jobs_by_queue(token, requested_job_queues)
+                active_jobs_source = "cluster_queue_graphql_fallback"
+                sampled_queues = set(requested_job_queues)
+            except Exception as scoped_exc:
+                log.warning(
+                    "Buildkite queue-scoped GraphQL fallback unavailable, "
+                    "falling back to build scan: %s",
+                    scoped_exc,
+                )
+                active_jobs = _collect_legacy_active_jobs(token)
+                active_jobs_source = "legacy_build_scan"
+                sampled_queues = None
         else:
-            active_jobs = fetch_active_cluster_jobs(token, active_queue_ids or None)
-            active_jobs_source = (
-                "cluster_queue_graphql" if active_queue_ids else "organization_jobs_graphql"
+            log.warning(
+                "Buildkite GraphQL active jobs unavailable, falling back to build scan: %s",
+                org_exc,
             )
-            sampled_queues = set(active_queue_ids) if active_queue_ids else None
-    except Exception as exc:
-        log.warning(
-            "Buildkite GraphQL active jobs unavailable, falling back to build scan: %s", exc
-        )
-        active_jobs = _collect_legacy_active_jobs(token)
+            active_jobs = _collect_legacy_active_jobs(token)
+            active_jobs_source = "legacy_build_scan"
+            sampled_queues = None
     active_jobs = _deduplicate_active_jobs(active_jobs)
 
     trusted_count_queues = {

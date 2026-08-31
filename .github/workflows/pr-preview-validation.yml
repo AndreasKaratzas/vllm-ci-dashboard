@@ -1,0 +1,45 @@
+name: PR Preview Validation
+
+# PR-owned generation code belongs on the ordinary pull_request boundary:
+# fork runs receive a read-only token, no repository secrets, and the normal
+# fork approval controls. This job never uploads or publishes its output.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-preview-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate-preview:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request merge for unprivileged validation
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Rebuild v2 operations snapshot from PR code
+        run: >-
+          python scripts/vllm/build_operations_snapshot.py
+          --input-dir data/vllm/ci
+          --output data/vllm/ci/operations_v2.json
+
+      - name: Generate site data from PR code
+        run: python scripts/render.py
+
+      - name: Assemble site from PR code
+        run: python scripts/build_site.py --cache-bust-index

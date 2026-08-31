@@ -27,6 +27,9 @@ PUBLIC_DATA_MANIFEST = ROOT / "config" / "public_data_manifest.json"
 CACHE_BUST_RE = re.compile(r"\?v=\d+")
 PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
 PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
+SITE_FILE_MAX_BYTES = 85 * 1024 * 1024
+SITE_TOTAL_MAX_BYTES = 384 * 1024 * 1024
+SITE_MAX_FILES = 10_000
 PROJECTOR_SERIALIZERS: dict[str, Callable[[object], str]] = {
     PUBLIC_ANALYTICS_PROJECTOR_ID: compact_public_analytics_json,
 }
@@ -47,13 +50,20 @@ PUBLICATION_SURFACE_LABELS = {
 
 
 def copy_tree_contents(src: Path, dest: Path) -> None:
+    """Copy a publication tree without following symlinks or special files."""
+    if not src.is_dir() or src.is_symlink():
+        raise ValueError(f"Site shell source must be a real directory: {src}")
     dest.mkdir(parents=True, exist_ok=True)
     for child in src.iterdir():
         target = dest / child.name
+        if child.is_symlink():
+            raise ValueError(f"Site shell source cannot contain symlinks: {child}")
         if child.is_dir():
-            shutil.copytree(child, target, dirs_exist_ok=True)
-        else:
+            copy_tree_contents(child, target)
+        elif child.is_file():
             shutil.copy2(child, target)
+        else:
+            raise ValueError(f"Site shell source must be a regular file: {child}")
 
 
 def cache_bust_index(index_path: Path, stamp: str) -> None:
@@ -446,6 +456,46 @@ def validate_public_data(
         raise RuntimeError(f"Site assembly emitted blocked data files: {blocked}")
 
 
+def validate_site_file_sizes(
+    output_dir: Path,
+    *,
+    max_bytes: int = SITE_FILE_MAX_BYTES,
+    max_total_bytes: int = SITE_TOTAL_MAX_BYTES,
+    max_files: int = SITE_MAX_FILES,
+) -> None:
+    """Reject an oversized or pathological tree before Pages can commit it."""
+    if max_bytes <= 0 or max_total_bytes <= 0 or max_files <= 0:
+        raise ValueError("site size and file-count limits must be positive")
+    files = [
+        path
+        for path in output_dir.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    ]
+    if len(files) > max_files:
+        raise RuntimeError(
+            f"Site assembly has {len(files)} files (max {max_files})"
+        )
+    total_bytes = sum(path.stat().st_size for path in files)
+    if total_bytes > max_total_bytes:
+        raise RuntimeError(
+            "Site assembly exceeds the aggregate publication budget: "
+            f"{total_bytes} bytes (max {max_total_bytes})"
+        )
+    oversized = sorted(
+        (
+            (path.relative_to(output_dir).as_posix(), path.stat().st_size)
+            for path in files
+            if path.stat().st_size > max_bytes
+        ),
+        key=lambda row: (-row[1], row[0]),
+    )
+    if oversized:
+        details = ", ".join(f"{path} ({size} bytes)" for path, size in oversized)
+        raise RuntimeError(
+            f"Site assembly exceeds the {max_bytes}-byte per-file budget: {details}"
+        )
+
+
 def build_site(output_dir: Path, cache_bust: bool) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -460,6 +510,7 @@ def build_site(output_dir: Path, cache_bust: bool) -> None:
     (output_dir / ".nojekyll").write_text("")
     if cache_bust:
         cache_bust_index(output_dir / "index.html", str(int(time.time())))
+    validate_site_file_sizes(output_dir)
 
 
 def parse_args() -> argparse.Namespace:

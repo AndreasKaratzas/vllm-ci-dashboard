@@ -2,9 +2,10 @@ name: DNS Health Monitor
 
 on:
   schedule:
-    # Keep full-log scanning independent from the canonical Pages build and the
-    # queue collectors. The durable branch makes delayed runs idempotent.
-    - cron: '39 * * * *'
+    # Eight runs per day at 110 request starts each cap scheduled Buildkite
+    # traffic at 880 requests/day. The durable branch makes delayed runs
+    # idempotent and the collector coalesces invocations inside this interval.
+    - cron: '39 */3 * * *'
   # GitHub documents that scheduled events can be delayed or dropped. An
   # independent scheduler can use this dedicated event without sharing the
   # manual workflow-dispatch surface.
@@ -25,6 +26,7 @@ jobs:
     outputs:
       dns_generation: ${{ steps.dns-generation.outputs.generated_at }}
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +39,30 @@ jobs:
 
       - name: Install dependencies
         run: pip install requests cryptography
+
+      - name: Prepare private DNS classification cache key
+        id: dns-classification-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="dns-classifications-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private DNS classification cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: data/vllm/ci/.cache/dns-classifications-v1
+          key: ${{ steps.dns-classification-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}
+            ${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}
 
       - name: Preflight DNS-only validator
         run: |
@@ -95,7 +121,10 @@ jobs:
             --output data/vllm/ci/dns_failures.json
             --discover-days 30
             --max-logs 500
-            --time-budget-seconds 1500
+            --max-requests 110
+            --minimum-interval-hours 3
+            --time-budget-seconds 600
+            --classification-cache data/vllm/ci/.cache/dns-classifications-v1
           )
           python scripts/vllm/collect_dns_failures.py "${ARGS[@]}"
 
@@ -154,6 +183,7 @@ jobs:
           git -C "$LIVE_ROOT" add \
             data/vllm/ci/dns_failures.json \
             data/vllm/ci/dns_health/scan_state.fernet
+          python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "dns: health observations $(date -u +%Y-%m-%dT%H:%M)"
           git -C "$LIVE_ROOT" push --force origin HEAD:dns-health-data
 

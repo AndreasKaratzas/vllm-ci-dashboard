@@ -430,7 +430,7 @@ def test_scan_cache_skips_final_positive_negative_and_oversize_records():
     }
 
 
-def test_pending_scan_interleaves_oldest_and_newest_with_a_hard_limit():
+def test_pending_scan_prioritizes_the_freshest_prefix_with_a_hard_limit():
     pending = [
         dns.pending_record(_metadata(index, finished_hours=-index / 10))
         for index in range(1, 7)
@@ -446,9 +446,69 @@ def test_pending_scan_interleaves_oldest_and_newest_with_a_hard_limit():
         max_logs=4,
     )
 
-    assert set(client.calls) == {_uuid(6), _uuid(1), _uuid(5), _uuid(2)}
+    assert client.calls == [_uuid(1), _uuid(2), _uuid(3), _uuid(4)]
     assert [row["status"] for row in rows].count("negative") == 4
     assert [row["status"] for row in rows].count("pending") == 2
+
+
+def test_pending_order_has_a_stratified_60_40_prefix_and_rotates_coordinates():
+    pending = [
+        dns.pending_record(
+            _metadata(1, finished_hours=-0.01, state="passed")
+        ),
+        dns.pending_record(
+            _metadata(2, finished_hours=-0.02, state="hard")
+        ),
+        dns.pending_record(
+            _metadata(3, finished_hours=-0.03, state="passed")
+        ),
+        dns.pending_record(
+            _metadata(
+                4,
+                finished_hours=-0.04,
+                state="soft",
+                queue="amd_mi300_1",
+                node="crsuse2-m2m-296",
+            )
+        ),
+        dns.pending_record(
+            _metadata(
+                5,
+                pipeline="ci",
+                finished_hours=-0.05,
+                state="passed",
+                queue="amd_mi325_1",
+                node="crsuse2-m2m-297",
+            )
+        ),
+        dns.pending_record(
+            _metadata(
+                6,
+                finished_hours=-0.06,
+                state="hard",
+                queue="amd_mi300_1",
+                node="crsuse2-m2m-296",
+            )
+        ),
+    ]
+
+    ordered = collector._fair_pending_order(pending)
+
+    assert [row["job_id"] for row in ordered[:5]] == [
+        _uuid(1),
+        _uuid(2),
+        _uuid(5),
+        _uuid(4),
+        _uuid(3),
+    ]
+    assert [row["state"] for row in ordered[:5]] == [
+        "passed",
+        "hard",
+        "passed",
+        "soft",
+        "passed",
+    ]
+    assert sum(row["state"] == "passed" for row in ordered[:5]) == 3
 
 
 def test_scan_uses_the_configured_bounded_rolling_fetch_window():
@@ -733,7 +793,7 @@ def test_budget_exhaustion_never_starts_a_candidate_beyond_the_active_window():
     assert [row["status"] for row in rows].count("pending") >= 4
 
 
-def test_deadline_shortened_scan_starts_with_oldest_backfill():
+def test_deadline_shortened_scan_starts_with_freshest_work():
     pending = [
         dns.pending_record(_metadata(index, finished_hours=-index / 10))
         for index in range(1, 5)
@@ -764,7 +824,7 @@ def test_deadline_shortened_scan_starts_with_oldest_backfill():
         monotonic=lambda: elapsed[0],
     )
 
-    assert client.calls == [_uuid(4), _uuid(1)]
+    assert client.calls == [_uuid(1), _uuid(2)]
 
 
 def test_unavailable_is_retried_after_new_pending_work():
@@ -1117,7 +1177,268 @@ def test_build_discovery_is_all_branch_and_includes_retried_jobs():
     assert params["exclude_pipeline"] == "true"
     assert "branch" not in params
     assert params["per_page"] == 100
-    assert client.request_starts() == {"build_page": 1, "job_log": 0}
+    assert client.request_starts() == {
+        "build_page": 1,
+        "graphql": 0,
+        "job_log": 0,
+    }
+
+
+def test_hard_request_cap_counts_retries_before_the_network_start():
+    session = _FakeSession([_FakeResponse(429, headers={"Retry-After": "0"})])
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        max_request_starts=1,
+        session=session,
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(collector.RequestBudgetExhausted):
+        client.build_page(
+            "amd-ci",
+            filters={"finished_from": _timestamp(hours=-1)},
+            page=1,
+        )
+
+    assert len(session.calls) == 1
+    assert client.request_starts() == {
+        "build_page": 1,
+        "graphql": 0,
+        "job_log": 0,
+    }
+
+
+def test_direct_client_uses_the_bounded_production_request_default():
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=_FakeSession([]),
+        sleep=lambda _: None,
+    )
+
+    assert collector.DEFAULT_MAX_REQUESTS == 110
+    assert client.max_request_starts == 110
+
+
+def test_hard_request_cap_is_shared_across_rest_graphql_and_logs():
+    session = _FakeSession(
+        [
+            _FakeResponse(200, json_payload=[]),
+            _FakeResponse(200, json_payload={"data": {}}),
+            _FakeResponse(
+                200,
+                body=b"ordinary output",
+                headers={"Content-Type": "text/plain"},
+            ),
+        ]
+    )
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        max_request_starts=3,
+        session=session,
+        sleep=lambda _: None,
+    )
+
+    assert client.build_page(
+        "amd-ci",
+        filters={"finished_from": _timestamp(hours=-1)},
+        page=1,
+    ) == []
+    assert client._graphql("query Probe { viewer { id } }", {}, deadline=None) == {}
+    assert client.fetch_job_log(_metadata(1))[0] == "ordinary output"
+    with pytest.raises(collector.RequestBudgetExhausted):
+        client.fetch_job_log(_metadata(2))
+
+    assert len(session.calls) == 3
+    assert client.request_starts() == {
+        "build_page": 1,
+        "graphql": 1,
+        "job_log": 1,
+    }
+
+
+def test_hard_request_cap_is_thread_safe_for_concurrent_log_workers():
+    session = _FakeSession(
+        [
+            _FakeResponse(
+                200,
+                body=b"ordinary output",
+                headers={"Content-Type": "text/plain"},
+            )
+            for _ in range(3)
+        ]
+    )
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        max_request_starts=3,
+        session=session,
+        sleep=lambda _: None,
+    )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [
+            pool.submit(client.fetch_job_log, _metadata(index))
+            for index in range(1, 9)
+        ]
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append(future.result()[0])
+            except collector.RequestBudgetExhausted:
+                outcomes.append("request-budget-exhausted")
+
+    assert outcomes.count("ordinary output") == 3
+    assert outcomes.count("request-budget-exhausted") == 5
+    assert len(session.calls) == 3
+    assert client.request_starts() == {
+        "build_page": 0,
+        "graphql": 0,
+        "job_log": 3,
+    }
+
+
+def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
+    queue = "amd_mi355_1"
+    queue_id = "Q2x1c3RlclF1ZXVlLS0x"
+
+    def node(
+        index: int,
+        state: str,
+        *,
+        passed: bool,
+        soft_failed: bool,
+        pipeline: str = "amd-ci",
+    ) -> dict:
+        return {
+            "uuid": _uuid(index),
+            "createdAt": _timestamp(hours=-0.75 + index / 100),
+            "startedAt": _timestamp(hours=-0.5),
+            "finishedAt": _timestamp(hours=-0.1),
+            "state": state,
+            "passed": passed,
+            "softFailed": soft_failed,
+            "agent": {
+                "metaData": [f"queue={queue}", "k8s:node=crsuse2-m2m-295"]
+            },
+            "clusterQueue": {"id": queue_id, "key": queue},
+            "build": {
+                "number": 13000 + index,
+                "pipeline": {"slug": pipeline},
+            },
+        }
+
+    queue_payload = {
+        "data": {
+            "organization": {
+                "cluster": {
+                    "queues": {
+                        "edges": [
+                            {"node": {"id": queue_id, "key": queue}},
+                            {"node": {"id": "ignored", "key": "default"}},
+                        ],
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    }
+                }
+            }
+        }
+    }
+    jobs_payload = {
+        "data": {
+            "organization": {
+                "jobs": {
+                    "edges": [
+                        {"node": node(1, "FINISHED", passed=True, soft_failed=False)},
+                        {"node": node(2, "FINISHED", passed=True, soft_failed=True)},
+                    ],
+                    "pageInfo": {"hasNextPage": True, "endCursor": "jobs-page-2"},
+                }
+            }
+        }
+    }
+    jobs_page_2_payload = {
+        "data": {
+            "organization": {
+                "jobs": {
+                    "edges": [
+                        {"node": node(3, "TIMED_OUT", passed=False, soft_failed=False)},
+                        {"node": node(4, "BROKEN", passed=False, soft_failed=False)},
+                        {"node": node(5, "EXPIRED", passed=False, soft_failed=False)},
+                        {
+                            "node": node(
+                                6,
+                                "FINISHED",
+                                passed=True,
+                                soft_failed=False,
+                                pipeline="unrelated-pipeline",
+                            )
+                        },
+                        {
+                            "node": node(
+                                7,
+                                "FINISHED",
+                                passed=True,
+                                soft_failed=False,
+                            )
+                            | {"createdAt": _timestamp(hours=-3)}
+                        },
+                    ],
+                    # Indexed connections may advertise another page while
+                    # spilling rows just below createdAtFrom. The collector
+                    # must stop locally at that ordered boundary.
+                    "pageInfo": {
+                        "hasNextPage": True,
+                        "endCursor": "must-not-be-requested",
+                    },
+                }
+            }
+        }
+    }
+    session = _FakeSession(
+        [
+            _FakeResponse(200, json_payload=queue_payload),
+            _FakeResponse(200, json_payload=jobs_payload),
+            _FakeResponse(200, json_payload=jobs_page_2_payload),
+            _FakeResponse(200, json_payload=[]),
+            _FakeResponse(200, json_payload=[]),
+        ]
+    )
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        session=session,
+        sleep=lambda _: None,
+    )
+
+    rows = client.discover_incremental_job_metadata(
+        created_from=_timestamp(hours=-2),
+        finished_from=_timestamp(hours=-2),
+    )
+
+    assert {row["job_id"]: row["state"] for row in rows} == {
+        _uuid(1): "passed",
+        _uuid(2): "soft",
+        _uuid(3): "hard",
+        _uuid(4): "hard",
+        _uuid(5): "hard",
+    }
+    queue_call, jobs_call, jobs_page_2_call, amd_rest_call, ci_rest_call = session.calls
+    assert queue_call["method"] == jobs_call["method"] == "POST"
+    assert queue_call["url"] == jobs_call["url"] == collector.BUILDKITE_GRAPHQL_API
+    assert "$org: ID!" in queue_call["json"]["query"]
+    assert "$org: ID!" in jobs_call["json"]["query"]
+    assert queue_call["json"]["variables"]["cluster"] == collector.BK_CLUSTER_UUID
+    assert jobs_call["json"]["variables"]["queues"] == [queue_id]
+    assert jobs_call["json"]["variables"]["from"] == _timestamp(hours=-2)
+    assert jobs_call["json"]["variables"]["after"] is None
+    assert jobs_page_2_call["json"]["variables"]["after"] == "jobs-page-2"
+    assert "createdAtFrom: $from" in jobs_call["json"]["query"]
+    assert "clusterQueue: $queues" in jobs_call["json"]["query"]
+    assert "FINISHED, TIMED_OUT, BROKEN, EXPIRED" in jobs_call["json"]["query"]
+    assert amd_rest_call["params"]["finished_from"] == _timestamp(hours=-2)
+    assert ci_rest_call["params"]["finished_from"] == _timestamp(hours=-2)
+    assert client.request_starts() == {
+        "build_page": 2,
+        "graphql": 3,
+        "job_log": 0,
+    }
 
 
 def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
@@ -1164,6 +1485,9 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
 
 
 def test_active_discovery_uses_bounded_slices_and_deterministic_dedupe():
+    slice_hours = collector.ACTIVE_DISCOVERY_SLICE_HOURS
+    assert slice_hours == 7 * 24
+
     class SlicedClient(collector.BuildkiteClient):
         def __init__(self):
             super().__init__(
@@ -1216,7 +1540,7 @@ def test_active_discovery_uses_bounded_slices_and_deterministic_dedupe():
     builds = client.discover_builds(
         "amd-ci",
         finished_from=_timestamp(hours=-2),
-        active_created_from=_timestamp(hours=-73),
+        active_created_from=_timestamp(hours=-(slice_hours * 3 + 1)),
         active_created_to=_timestamp(),
     )
 
@@ -1226,10 +1550,16 @@ def test_active_discovery_uses_bounded_slices_and_deterministic_dedupe():
         (call["created_from"], call["created_to"])
         for call in client.slice_calls
     } == {
-        (_timestamp(hours=-24), _timestamp()),
-        (_timestamp(hours=-48), _timestamp(hours=-24)),
-        (_timestamp(hours=-72), _timestamp(hours=-48)),
-        (_timestamp(hours=-73), _timestamp(hours=-72)),
+        (_timestamp(hours=-slice_hours), _timestamp()),
+        (_timestamp(hours=-(slice_hours * 2)), _timestamp(hours=-slice_hours)),
+        (
+            _timestamp(hours=-(slice_hours * 3)),
+            _timestamp(hours=-(slice_hours * 2)),
+        ),
+        (
+            _timestamp(hours=-(slice_hours * 3 + 1)),
+            _timestamp(hours=-(slice_hours * 3)),
+        ),
     }
     assert {build["number"] for build in builds} == {1, 2, 3, 4, 777, 999}
 
@@ -1378,6 +1708,8 @@ def test_full_active_probe_fails_closed_when_timestamp_cannot_split():
 
 
 def test_active_discovery_slice_failure_starts_no_fourth_slice():
+    slice_hours = collector.ACTIVE_DISCOVERY_SLICE_HOURS
+
     class FailingClient(collector.BuildkiteClient):
         def __init__(self):
             super().__init__(
@@ -1423,7 +1755,7 @@ def test_active_discovery_slice_failure_starts_no_fourth_slice():
         client.discover_builds(
             "amd-ci",
             finished_from=_timestamp(hours=-2),
-            active_created_from=_timestamp(hours=-96),
+            active_created_from=_timestamp(hours=-(slice_hours * 3 + 1)),
             active_created_to=_timestamp(),
         )
 
@@ -1576,7 +1908,11 @@ def test_log_fetch_reads_complete_stream_and_json_envelope():
     assert text.endswith("final line")
     assert size == len(text.encode())
     assert all(call["headers"]["Accept"] == "text/plain" for call in session.calls)
-    assert client.request_starts() == {"build_page": 0, "job_log": 2}
+    assert client.request_starts() == {
+        "build_page": 0,
+        "graphql": 0,
+        "job_log": 2,
+    }
     assert all(
         isinstance(value, (int, float)) and not isinstance(value, bool)
         for value in client.telemetry().values()
@@ -1602,6 +1938,141 @@ def test_log_fetch_marks_declared_and_streamed_oversize_without_partial_scan(mon
     with pytest.raises(collector.OversizeLog) as streamed_error:
         client.fetch_job_log(_metadata(2))
     assert streamed_error.value.log_bytes == 11
+
+
+def test_same_day_incremental_discovery_stays_conservatively_partial(tmp_path: Path):
+    prior_end = NOW - timedelta(hours=1)
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    dns.write_state(
+        state_path,
+        dns.empty_state(prior_end, NOW - timedelta(days=10)),
+    )
+
+    class IncrementalClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.incremental_calls: list[tuple[str, str]] = []
+
+        def discover_incremental_job_metadata(
+            self,
+            *,
+            created_from: str,
+            finished_from: str,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            self.incremental_calls.append((created_from, finished_from))
+            return []
+
+        def discover_builds(self, *args, **kwargs):
+            raise AssertionError("same-day runs must use incremental job discovery")
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            raise AssertionError("empty discovery has no logs")
+
+    client = IncrementalClient()
+    output = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=tmp_path / "dns_failures.json",
+        now=NOW,
+    )
+
+    overlap_start = dns.iso_timestamp(
+        prior_end - timedelta(hours=collector.INCREMENTAL_DISCOVERY_OVERLAP_HOURS)
+    )
+    assert client.incremental_calls == [(overlap_start, overlap_start)]
+    state = dns.load_state(state_path)
+    assert state is not None
+    assert state["discovery"]["start"] == _timestamp(seconds=-1)
+    assert output["coverage"]["discovery_complete"] is False
+    assert output["windows"]["1h"]["coverage"]["discovery_complete"] is False
+
+
+def test_new_utc_day_runs_the_full_active_reconciliation(tmp_path: Path):
+    prior_end = NOW - timedelta(hours=13)
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    dns.write_state(
+        state_path,
+        dns.empty_state(prior_end, NOW - timedelta(days=10)),
+    )
+
+    class ReconciliationClient(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token",
+                session=_FakeSession([]),
+                sleep=lambda _: None,
+            )
+            self.full_calls: list[str] = []
+
+        def discover_builds(
+            self,
+            pipeline: str,
+            *,
+            finished_from: str,
+            active_created_from: str | None = None,
+            active_created_to: str | None = None,
+            deadline: float | None = None,
+        ) -> list[dict]:
+            self.full_calls.append(pipeline)
+            return []
+
+        def discover_incremental_job_metadata(self, *args, **kwargs):
+            raise AssertionError("a new UTC day requires full reconciliation")
+
+        def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
+            raise AssertionError("empty discovery has no logs")
+
+    client = ReconciliationClient()
+    collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=tmp_path / "dns_failures.json",
+        now=NOW,
+    )
+
+    assert client.full_calls == ["amd-ci", "ci"]
+
+
+def test_minimum_interval_republishes_validated_state_without_buildkite_io(
+    tmp_path: Path,
+):
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    prior = _state([_negative_record(1)])
+    dns.write_state(state_path, prior)
+    dns.write_public_output(output_path, dns.build_public_output(prior))
+    state_before = state_path.read_bytes()
+    output_before = output_path.read_bytes()
+    session = _FakeSession([])
+    client = collector.BuildkiteClient(
+        "memory-only-token",
+        max_request_starts=1,
+        session=session,
+        sleep=lambda _: None,
+    )
+
+    output = collector.collect(
+        client=client,
+        state_path=state_path,
+        output_path=output_path,
+        minimum_interval_hours=3,
+        now=NOW + timedelta(hours=2),
+    )
+
+    assert output["generated_at"] == _timestamp()
+    assert session.calls == []
+    assert client.request_starts() == {
+        "build_page": 0,
+        "graphql": 0,
+        "job_log": 0,
+    }
+    assert state_path.read_bytes() == state_before
+    assert output_path.read_bytes() == output_before
 
 
 class _EmptyDiscoveryClient:
@@ -1815,7 +2286,7 @@ def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Pat
         monotonic=lambda: clock["value"],
     )
 
-    assert client.calls == [_uuid(3)]
+    assert client.calls == [_uuid(1)]
     assert state_path.is_file() and output_path.is_file()
     state = dns.load_state(state_path)
     assert state is not None
@@ -1961,7 +2432,10 @@ def test_cli_contract_has_no_token_flag_and_exposes_budget(capsys):
     assert "--output" in help_text
     assert "--discover-days" in help_text
     assert "--max-logs" in help_text
+    assert "--max-requests" in help_text
     assert "--time-budget-seconds" in help_text
+    assert "--minimum-interval-hours" in help_text
+    assert "--classification-cache" in help_text
     assert "--merge-state-git-ref" in help_text
     assert "--dry-run" in help_text
     assert "--token" not in help_text

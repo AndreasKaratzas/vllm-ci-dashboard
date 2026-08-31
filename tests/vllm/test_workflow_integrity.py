@@ -430,9 +430,13 @@ class TestHourlyMasterWorkflow:
             if step.get("name") == "Decide whether to regenerate perf-eval"
         )
         assert perf["env"] == {
-            "DNS_RECONCILE_GENERATION": "${{ inputs.dns_generation }}"
+            "DNS_RECONCILE_GENERATION": "${{ inputs.dns_generation }}",
+            "WATCHDOG_GENERATION": "${{ inputs.watchdog_generation }}",
+            "DISPATCH_TYPE": "${{ github.event.action }}",
         }
         assert 'if [ -n "$DNS_RECONCILE_GENERATION" ]' in perf["run"]
+        assert 'elif [ -n "$WATCHDOG_GENERATION" ]' in perf["run"]
+        assert 'if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]' in perf["run"]
 
         confirmation = next(
             step
@@ -463,9 +467,13 @@ class TestHourlyMasterWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_analytics.py" in text
 
-    def test_calls_collect_queue_snapshot(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_queue_snapshot.py" in text
+    def test_hourly_consumes_queue_snapshot_without_refetching_buildkite(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        assert "Sync queue data from durable live branch" in names
+        assert "Normalize and prune queue history" in names
+        assert "Collect queue snapshot" not in names
 
     def test_workload_mapping_is_seeded_and_collected_before_operations_builds(self):
         data = _load_workflow("hourly-master.yml")
@@ -649,7 +657,6 @@ class TestHourlyMasterWorkflow:
             ("Sync queue data from durable live branch", "queue"),
             ("Sync issue automation state from gh-pages", "queue"),
             ("Normalize and prune queue history", "queue"),
-            ("Collect queue snapshot", "queue"),
             ("Refresh Omni surge heuristic", "queue"),
             ("Collect CI data", "ci_core"),
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
@@ -805,7 +812,116 @@ class TestHourlyMasterWorkflow:
         assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
         assert "analytics.json" not in commands
 
-    def test_private_analytics_cache_is_daily_and_one_way(self):
+    def test_private_ci_roster_cache_is_rolling_sharded_and_one_way(self):
+        cache_path = "data/vllm/ci/.cache/nightly-rosters-v2"
+        workflow = _load_workflow("hourly-master.yml")
+        steps = next(iter(workflow["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        key_index = names.index("Prepare private CI roster cache key")
+        restore_index = names.index("Restore private CI roster cache")
+        collect_index = names.index("Collect CI data")
+        save_index = names.index("Save private CI roster cache")
+        assert key_index < restore_index < collect_index < save_index
+
+        key_script = steps[key_index]["run"]
+        assert 'CACHE_NAMESPACE="nightly-rosters-v2-${{ runner.os }}"' in key_script
+        assert "github.run_id" in key_script
+        assert "github.run_attempt" in key_script
+        restore = steps[restore_index]
+        assert restore["uses"] == "actions/cache/restore@v4"
+        assert restore["with"]["path"] == cache_path
+        assert "current_day_prefix" in restore["with"]["restore-keys"]
+        assert "prior_day_prefix" in restore["with"]["restore-keys"]
+        collect = steps[collect_index]
+        assert collect["id"] == "collect-ci"
+        assert '--github-output "$GITHUB_OUTPUT"' in collect["run"]
+        assert 'echo "cache_save=true"' in collect["run"]
+        save = steps[save_index]
+        assert save["uses"] == "actions/cache/save@v4"
+        assert save["if"] == (
+            "steps.collect-ci.outputs.cache_save == 'true' && "
+            "steps.collect-ci.outputs.roster_cache_save == 'true'"
+        )
+        assert save["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.ci-roster-cache-key.outputs.key }}",
+        }
+        assert "data/vllm/ci/.cache/" in {
+            line.strip()
+            for line in (REPO_ROOT / ".gitignore").read_text().splitlines()
+        }
+
+    def test_private_dns_classification_cache_is_shared_and_one_way(self):
+        cache_path = "data/vllm/ci/.cache/dns-classifications-v1"
+        master = _load_workflow("hourly-master.yml")
+        master_steps = next(iter(master["jobs"].values())).get("steps", [])
+        master_names = [step.get("name") for step in master_steps]
+        key_index = master_names.index(
+            "Prepare private DNS classification cache key"
+        )
+        restore_index = master_names.index(
+            "Restore private DNS classification cache"
+        )
+        collect_index = master_names.index("Collect CI data")
+        save_index = master_names.index("Save private DNS classification cache")
+        assert key_index < restore_index < collect_index < save_index
+
+        key_script = master_steps[key_index]["run"]
+        assert 'CACHE_NAMESPACE="dns-classifications-v1-${{ runner.os }}"' in key_script
+        assert "github.run_id" in key_script
+        assert "github.run_attempt" in key_script
+        master_restore = master_steps[restore_index]
+        assert master_restore["uses"] == "actions/cache/restore@v4"
+        assert master_restore["continue-on-error"] is True
+        assert master_restore["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.dns-classification-cache-key.outputs.key }}",
+            "restore-keys": (
+                "${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}\n"
+                "${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}\n"
+            ),
+        }
+        master_save = master_steps[save_index]
+        assert master_save["uses"] == "actions/cache/save@v4"
+        assert master_save["if"] == (
+            "steps.collect-ci.outputs.cache_save == 'true' && "
+            "steps.collect-ci.outputs.dns_cache_save == 'true'"
+        )
+        assert master_save["with"] == {
+            "path": cache_path,
+            "key": "${{ steps.dns-classification-cache-key.outputs.key }}",
+        }
+
+        dns = _load_workflow("dns-health.yml")
+        dns_job = dns["jobs"]["collect"]
+        assert dns_job["permissions"] == {"actions": "read", "contents": "write"}
+        dns_steps = dns_job["steps"]
+        dns_names = [step.get("name") for step in dns_steps]
+        dns_key_index = dns_names.index(
+            "Prepare private DNS classification cache key"
+        )
+        dns_restore_index = dns_names.index(
+            "Restore private DNS classification cache"
+        )
+        dns_collect_index = dns_names.index("Collect DNS failure observations")
+        assert dns_key_index < dns_restore_index < dns_collect_index
+        dns_restore = dns_steps[dns_restore_index]
+        assert dns_restore["uses"] == "actions/cache/restore@v4"
+        assert dns_restore["with"]["path"] == cache_path
+        assert "current_day_prefix" in dns_restore["with"]["restore-keys"]
+        assert "prior_day_prefix" in dns_restore["with"]["restore-keys"]
+        dns_collect = dns_steps[dns_collect_index]["run"]
+        assert f"--classification-cache {cache_path}" in dns_collect
+        assert not any(
+            step.get("uses") == "actions/cache/save@v4" for step in dns_steps
+        )
+
+        assert "data/vllm/ci/.cache/" in {
+            line.strip()
+            for line in (REPO_ROOT / ".gitignore").read_text().splitlines()
+        }
+
+    def test_private_analytics_cache_is_rolling_bounded_and_one_way(self):
         cache_path = "data/vllm/ci/.cache/analytics-builds-v1"
         manifest_cache_path = "vllm/ci/.cache/analytics-builds-v1"
         cache_sample = f"{manifest_cache_path}/amd-ci.json"
@@ -824,13 +940,17 @@ class TestHourlyMasterWorkflow:
         assert "CACHE_DAY=$(date -u +%Y-%m-%d)" in key_script
         assert "PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)" in key_script
         assert 'CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"' in key_script
-        assert 'echo "key=$CACHE_NAMESPACE-$CACHE_DAY"' in key_script
         assert (
-            'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"'
+            'echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-'
+            '${{ github.run_attempt }}"' in key_script
+        )
+        assert 'echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"' in key_script
+        assert (
+            'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"'
             in key_script
         )
-        assert "github.run_id" not in key_script
-        assert "github.run_attempt" not in key_script
+        assert "github.run_id" in key_script
+        assert "github.run_attempt" in key_script
 
         restore = steps[restore_index]
         assert restore["uses"] == "actions/cache/restore@v4"
@@ -838,7 +958,10 @@ class TestHourlyMasterWorkflow:
         assert restore["with"] == {
             "path": cache_path,
             "key": "${{ steps.analytics-cache-key.outputs.key }}",
-            "restore-keys": "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}\n",
+            "restore-keys": (
+                "${{ steps.analytics-cache-key.outputs.current_day_prefix }}\n"
+                "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}\n"
+            ),
         }
 
         collect = steps[collect_index]
@@ -853,6 +976,7 @@ class TestHourlyMasterWorkflow:
             'mirror_surface_failure \\\n    ci_analytics ci_gating "CI gating nightly evidence"'
             in collect["run"]
         )
+        assert '--github-output "$GITHUB_OUTPUT"' in collect["run"]
         assert 'echo "cache_save=true"' in collect["run"]
         assert 'echo "cache_save=false"' in collect["run"]
 
@@ -861,9 +985,10 @@ class TestHourlyMasterWorkflow:
         assert save["continue-on-error"] is True
         assert "steps.collect-analytics.outputs.cache_save == 'true'" in save["if"]
         assert (
-            "steps.analytics-cache-restore.outputs.cache-hit != 'true'"
+            "steps.collect-analytics.outputs.analytics_cache_save == 'true'"
             in save["if"]
         )
+        assert "analytics-cache-restore.outputs.cache-hit" not in save["if"]
         assert save["with"] == {
             "path": cache_path,
             "key": "${{ steps.analytics-cache-key.outputs.key }}",
@@ -914,6 +1039,48 @@ class TestHourlyMasterWorkflow:
         assert any(
             PurePosixPath(cache_sample).match(pattern)
             for pattern in manifest["never_publish_patterns"]
+        )
+
+    def test_private_actions_caches_are_explicitly_pruned(self):
+        workflow = _load_workflow("hourly-master.yml")
+        job = next(iter(workflow["jobs"].values()))
+        steps = job.get("steps", [])
+        prune = next(
+            step
+            for step in steps
+            if step.get("name") == "Prune superseded private Actions caches"
+        )
+
+        assert workflow["permissions"]["actions"] == "write"
+        assert prune["continue-on-error"] is True
+        assert prune["env"] == {"GH_TOKEN": "${{ github.token }}"}
+        script = prune["run"]
+        assert "nightly-rosters-v2-${{ runner.os }}-" in script
+        assert '--key "nightly-rosters-v1-${{ runner.os }}-"' in script
+        assert "--jq '.[].id'" in script
+        assert "analytics-builds-v1-${{ runner.os }}-" in script
+        assert "dns-classifications-v1-${{ runner.os }}-" in script
+        assert "--ref \"refs/heads/$GITHUB_REF_NAME\"" in script
+        assert "--sort created_at" in script
+        assert "--order desc" in script
+        assert "--jq '.[8:] | .[].id'" in script
+        assert 'gh cache delete "$CACHE_ID"' in script
+
+    def test_hourly_refuses_to_commit_or_push_tracked_private_caches(self):
+        workflow = _load_workflow("hourly-master.yml")
+        steps = next(iter(workflow["jobs"].values())).get("steps", [])
+        script = next(
+            step["run"] for step in steps if step.get("name") == "Commit and push"
+        )
+
+        guard = "git ls-files -- ':(glob)**/.cache/**'"
+        assert guard in script
+        assert script.count("assert_no_tracked_private_cache") == 3
+        assert script.index("assert_no_tracked_private_cache\n") < script.index(
+            "git add data/ dashboards/ README.md"
+        )
+        assert script.rindex("assert_no_tracked_private_cache") < script.index(
+            "git push origin HEAD:main"
         )
 
     def test_selection_precedes_side_effects_render_and_tests(self):
@@ -1362,6 +1529,126 @@ class TestHourlyMasterWorkflow:
         initial_commit = script.index("git commit -m", initial_budget)
         assert initial_stage < initial_budget < initial_commit < pull
 
+    def test_every_direct_git_publisher_checks_staged_blob_budget(self):
+        daily = _load_workflow("daily-update.yml")
+        daily_steps = next(iter(daily["jobs"].values())).get("steps", [])
+        daily_publish = next(
+            step for step in daily_steps if step.get("name") == "Commit and push"
+        )["run"]
+        assert daily_publish.index("git add data/") < daily_publish.index(
+            "python scripts/vllm/check_git_blob_sizes.py"
+        ) < daily_publish.index("git commit")
+
+        for workflow_name, publish_name in (
+            ("dns-health.yml", "Publish durable DNS evidence"),
+            ("queue-monitor.yml", "Publish durable live queue evidence"),
+            ("queue-lifecycle.yml", "Publish durable lifecycle evidence"),
+        ):
+            workflow = _load_workflow(workflow_name)
+            steps = next(iter(workflow["jobs"].values())).get("steps", [])
+            script = next(
+                step["run"] for step in steps if step.get("name") == publish_name
+            )
+            stage = script.index('git -C "$LIVE_ROOT" add')
+            guard = script.index('check_git_blob_sizes.py" --root "$LIVE_ROOT"')
+            commit = script.index('git -C "$LIVE_ROOT" commit')
+            assert stage < guard < commit
+
+        preview = _load_workflow("pr-preview.yml")
+        cleanup = preview["jobs"]["cleanup-preview"]["steps"]
+        script = next(
+            step["run"] for step in cleanup if step.get("name") == "Remove preview"
+        )
+        assert script.index("git add -A") < script.index(
+            'python "$GUARD_SCRIPT"'
+        ) < script.index("git commit")
+
+    def test_pr_preview_separates_untrusted_validation_from_privileged_publish(self):
+        preview = _load_workflow("pr-preview.yml")
+        trigger = preview.get("on") or preview.get(True)
+        assert set(trigger) == {"pull_request_target"}
+        assert preview["permissions"] == {"contents": "read"}
+
+        validation_workflow = _load_workflow("pr-preview-validation.yml")
+        validation_trigger = validation_workflow.get("on") or validation_workflow.get(True)
+        assert set(validation_trigger) == {"pull_request"}
+        assert validation_workflow["permissions"] == {"contents": "read"}
+        assert set(validation_workflow["jobs"]) == {"validate-preview"}
+        validation = validation_workflow["jobs"]["validate-preview"]
+        assert validation["permissions"] == {"contents": "read"}
+        validation_checkout = next(
+            step for step in validation["steps"]
+            if step.get("name")
+            == "Checkout pull request merge for unprivileged validation"
+        )
+        assert validation_checkout["with"]["persist-credentials"] is False
+        assert any(
+            "scripts/vllm/build_operations_snapshot.py" in str(step.get("run", ""))
+            for step in validation["steps"]
+        )
+        assert not any("actions-gh-pages" in str(step) for step in validation["steps"])
+
+        deploy = preview["jobs"]["deploy-preview"]
+        assert "validate-preview" not in preview["jobs"]
+        assert "needs" not in deploy
+        assert "OWNER" in deploy["if"]
+        assert "MEMBER" in deploy["if"]
+        assert "COLLABORATOR" in deploy["if"]
+        assert "author_association" in deploy["if"]
+        assert deploy["permissions"] == {
+            "contents": "write",
+            "pull-requests": "write",
+        }
+        steps = deploy["steps"]
+        trusted_checkout = next(
+            step for step in steps
+            if step.get("name") == "Checkout immutable trusted base"
+        )
+        assert trusted_checkout["with"]["ref"] == (
+            "${{ github.event.pull_request.base.sha }}"
+        )
+        assert trusted_checkout["with"]["path"] == "trusted-base"
+        assert trusted_checkout["with"]["persist-credentials"] is False
+        assert "scripts" in trusted_checkout["with"]["sparse-checkout"]
+        assert "config" in trusted_checkout["with"]["sparse-checkout"]
+
+        static_checkout = next(
+            step for step in steps
+            if step.get("name") == "Checkout pull request as static input"
+        )
+        assert static_checkout["with"]["path"] == "pr-input"
+        assert static_checkout["with"]["persist-credentials"] is False
+
+        copy = next(
+            step for step in steps
+            if step.get("name") == "Validate and copy static pull-request inputs"
+        )["run"]
+        assert "find pr-input/docs pr-input/data -type l" in copy
+        assert "trusted-base/scripts/vllm/check_git_blob_sizes.py" in copy
+        assert "--root pr-input" in copy
+        assert "10_000" in copy
+        assert "384 * 1024 * 1024" in copy
+        assert "cp -a pr-input/docs trusted-base/docs" in copy
+        assert "cp -a pr-input/data trusted-base/data" in copy
+
+        privileged_commands = "\n".join(
+            str(step.get("run", "")) for step in steps
+        )
+        assert "pr-input/scripts" not in privileged_commands
+        assert "python scripts/" not in privileged_commands
+        assert "python -P trusted-base/scripts/" in privileged_commands
+
+        assemble = next(
+            index for index, step in enumerate(steps)
+            if step.get("name") == "Assemble site"
+        )
+        publish = next(
+            index for index, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("peaceiris/actions-gh-pages@")
+        )
+        assert assemble < publish
+        assert steps[publish]["with"]["publish_dir"] == "./trusted-base/_site"
+
     def test_has_buildkite_token(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "BUILDKITE_TOKEN" in text
@@ -1544,10 +1831,10 @@ class TestDnsHealthWorkflow:
         workflow = _load_workflow("dns-health.yml")
         return workflow, workflow["jobs"]["collect"]["steps"]
 
-    def test_is_hourly_isolated_and_minimally_privileged(self):
+    def test_is_three_hourly_isolated_and_minimally_privileged(self):
         workflow, _ = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "39 * * * *"}]
+        assert triggers["schedule"] == [{"cron": "39 */3 * * *"}]
         assert triggers["repository_dispatch"] == {"types": ["dns_health_tick"]}
         assert "workflow_dispatch" in triggers
         assert workflow["permissions"] == {}
@@ -1556,7 +1843,10 @@ class TestDnsHealthWorkflow:
             "cancel-in-progress": False,
         }
         assert workflow["jobs"]["collect"]["timeout-minutes"] == 34
-        assert workflow["jobs"]["collect"]["permissions"] == {"contents": "write"}
+        assert workflow["jobs"]["collect"]["permissions"] == {
+            "actions": "read",
+            "contents": "write",
+        }
         assert workflow["jobs"]["collect"]["outputs"] == {
             "dns_generation": "${{ steps.dns-generation.outputs.generated_at }}"
         }
@@ -1619,11 +1909,18 @@ class TestDnsHealthWorkflow:
         script = collect["run"]
         assert "scripts/vllm/collect_dns_failures.py" in script
         assert "--merge-state-git-ref" not in script
-        assert "--state data/vllm/ci/dns_health/scan_state.json.gz" in script
-        assert "--output data/vllm/ci/dns_failures.json" in script
-        assert "--discover-days 30" in script
-        assert "--max-logs 500" in script
-        assert "--time-budget-seconds 1500" in script
+        argument_lines = {line.strip() for line in script.splitlines()}
+        assert "--state data/vllm/ci/dns_health/scan_state.json.gz" in argument_lines
+        assert "--output data/vllm/ci/dns_failures.json" in argument_lines
+        assert "--discover-days 30" in argument_lines
+        assert "--max-logs 500" in argument_lines
+        assert "--max-requests 110" in argument_lines
+        assert "--minimum-interval-hours 3" in argument_lines
+        assert "--time-budget-seconds 600" in argument_lines
+        assert (
+            "--classification-cache data/vllm/ci/.cache/dns-classifications-v1"
+            in argument_lines
+        )
 
         assert "python -m json.tool data/vllm/ci/dns_failures.json" in validate
         assert "python -S scripts/vllm/audit_dashboard_data.py --dns-only" in validate
@@ -2140,16 +2437,6 @@ class TestCronSchedules:
             m1, wf1 = hourly_minutes[i]
             m2, wf2 = hourly_minutes[i + 1]
             gap = m2 - m1
-            # DNS collection stops starting log requests after 25 minutes and
-            # publishes to its own orphan branch. Its :39 slot intentionally
-            # leaves the main :13 collector clear while ending shortly before
-            # the isolated :47 lifecycle collector begins.
-            if {wf1, wf2} == {"dns-health.yml", "queue-lifecycle.yml"}:
-                assert gap >= 8, (
-                    f"Only {gap} minutes between {wf1} (:{m1:02d}) and "
-                    f"{wf2} (:{m2:02d}); this isolated pair requires 8 minutes."
-                )
-                continue
             assert gap >= 10, (
                 f"Only {gap} minutes between {wf1} (:{m1:02d}) and {wf2} (:{m2:02d}). "
                 "Hourly workflows should be at least 10 minutes apart."
@@ -2217,15 +2504,14 @@ class TestDeployDataFreshness:
             run = step.get("run", "") or ""
             assert "git show origin/gh-pages:data/vllm/ci/hotness.json" not in run
 
-    def test_hourly_history_sync_precedes_prune_and_collection(self):
+    def test_hourly_history_sync_precedes_prune_without_api_collection(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name", "") for step in steps]
-        assert (
-            names.index("Sync queue data from durable live branch")
-            < names.index("Normalize and prune queue history")
-            < names.index("Collect queue snapshot")
+        assert names.index("Sync queue data from durable live branch") < names.index(
+            "Normalize and prune queue history"
         )
+        assert "Collect queue snapshot" not in names
         lifecycle_step = next(
             step for step in steps if step.get("name") == "Sync validated queue lifecycle aggregate"
         )

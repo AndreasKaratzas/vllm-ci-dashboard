@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -18,7 +19,9 @@ NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
 
 
 def test_private_cache_retains_an_enforced_production_scale_cap():
-    assert cache._MAX_CACHE_BYTES == 256 * 1024 * 1024
+    assert cache._MAX_CACHE_BYTES == 64 * 1024 * 1024
+    assert cache._MAX_CACHE_TOTAL_BYTES == 256 * 1024 * 1024
+    assert cache._MAX_CACHE_BYTES < 90_000_000
 
 
 @pytest.mark.parametrize(
@@ -135,6 +138,31 @@ def _reseal(payload):
     payload["integrity"] = {
         "algorithm": "sha256",
         "canonical_sha256": hashlib.sha256(canonical).hexdigest(),
+    }
+
+
+def _large_builds(count=6):
+    builds = []
+    for index in range(count):
+        build = _build(
+            200 + index,
+            created_at=NOW - timedelta(hours=index + 1),
+        )
+        build["jobs"][0]["name"] = f"GPU test {index} " + ("x" * 900)
+        builds.append(build)
+    return builds
+
+
+def _force_small_shards(monkeypatch):
+    monkeypatch.setattr(cache, "_MAX_CACHE_BYTES", 2_500)
+    monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 40_000)
+
+
+def _cache_file_snapshot(cache_dir):
+    return {
+        path.relative_to(cache_dir).as_posix(): path.read_bytes()
+        for path in cache_dir.rglob("*")
+        if path.is_file() and not path.is_symlink()
     }
 
 
@@ -315,6 +343,307 @@ def test_merge_is_fresh_wins_deduplicated_sorted_and_pruned():
     assert merged[1]["state"] == "passed"
 
 
+def test_write_prunes_builds_outside_requested_window(tmp_path):
+    outside = _build(1, created_at=NOW - timedelta(days=31))
+    boundary = _build(2, created_at=NOW - timedelta(days=30))
+    recent = _build(3, created_at=NOW - timedelta(days=1))
+
+    path = _write(
+        tmp_path,
+        builds=[outside, boundary, recent],
+        complete_from=NOW - timedelta(days=60),
+    )
+    payload = json.loads(path.read_text())
+
+    assert payload["complete_from"] == (NOW - timedelta(days=30)).isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert [build["number"] for build in payload["builds"]] == [3, 2]
+
+
+def test_oversized_projection_uses_deterministic_bounded_shards(
+    monkeypatch, tmp_path
+):
+    builds = _large_builds()
+    _force_small_shards(monkeypatch)
+
+    path = _write(tmp_path, builds=builds)
+    manifest = json.loads(path.read_text())
+    generation_dir = path.parent / "ci.shards" / manifest["generation"]
+    first_files = {
+        shard["name"]: (generation_dir / shard["name"]).read_bytes()
+        for shard in manifest["shards"]
+    }
+
+    assert manifest["cache_kind"] == cache.CACHE_MANIFEST_KIND
+    assert len(manifest["shards"]) > 1
+    assert path.stat().st_size < cache._MAX_CACHE_BYTES
+    assert all(
+        shard["bytes"] == (generation_dir / shard["name"]).stat().st_size
+        < cache._MAX_CACHE_BYTES
+        for shard in manifest["shards"]
+    )
+    assert path.stat().st_size + sum(
+        shard["bytes"] for shard in manifest["shards"]
+    ) <= cache._MAX_CACHE_TOTAL_BYTES
+    assert [build["number"] for build in _load(tmp_path).builds] == [
+        build["number"] for build in cache.sanitize_builds(builds, "ci")
+    ]
+
+    # The content-derived generation and greedy partition are stable across
+    # an identical rewrite, and the prior generation is pruned.
+    _write(tmp_path, builds=builds)
+    rewritten = json.loads(path.read_text())
+    assert rewritten == manifest
+    assert {
+        shard["name"]: (generation_dir / shard["name"]).read_bytes()
+        for shard in rewritten["shards"]
+    } == first_files
+    assert [child.name for child in (path.parent / "ci.shards").iterdir()] == [
+        manifest["generation"]
+    ]
+
+
+def test_legacy_monolith_is_readable_then_safely_migrated_to_shards(
+    monkeypatch, tmp_path
+):
+    builds = _large_builds()
+    path = _write(tmp_path, builds=builds)
+    legacy = json.loads(path.read_text())
+    assert legacy["cache_kind"] == cache.CACHE_KIND
+
+    _force_small_shards(monkeypatch)
+    assert path.stat().st_size > cache._MAX_CACHE_BYTES
+    assert _load(tmp_path).valid is True
+
+    _write(tmp_path, builds=builds)
+    manifest = json.loads(path.read_text())
+    assert manifest["cache_kind"] == cache.CACHE_MANIFEST_KIND
+    assert _load(tmp_path).valid is True
+
+
+def test_fully_resealed_shard_tamper_is_rejected_by_generation_identity(
+    monkeypatch, tmp_path
+):
+    _force_small_shards(monkeypatch)
+    path = _write(tmp_path, builds=_large_builds())
+    manifest = json.loads(path.read_text())
+    descriptor = manifest["shards"][0]
+    shard_path = (
+        path.parent / "ci.shards" / manifest["generation"] / descriptor["name"]
+    )
+    shard = json.loads(shard_path.read_text())
+    shard["builds"][0]["state"] = "failed"
+    _reseal(shard)
+    shard_raw = json.dumps(
+        shard,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode() + b"\n"
+    shard_path.write_bytes(shard_raw)
+    descriptor["bytes"] = len(shard_raw)
+    descriptor["file_sha256"] = hashlib.sha256(shard_raw).hexdigest()
+    _reseal(manifest)
+    path.write_text(json.dumps(manifest))
+
+    loaded = _load(tmp_path)
+    assert loaded.valid is False
+    assert loaded.reason == "generation_mismatch"
+    assert loaded.builds == []
+
+
+def test_aggregate_directory_cap_counts_other_pipeline_and_preserves_cache(
+    monkeypatch, tmp_path
+):
+    ci_path = _write(tmp_path)
+    original = ci_path.read_bytes()
+    amd_path = cache.write_build_cache(
+        _cache_dir(tmp_path),
+        "amd-ci",
+        builds=[_build(301)],
+        watermark=NOW,
+        window_days=30,
+        last_full_at=NOW,
+        updated_at=NOW,
+        complete_from=NOW - timedelta(days=30),
+    )
+    monkeypatch.setattr(
+        cache,
+        "_MAX_CACHE_TOTAL_BYTES",
+        amd_path.stat().st_size + 100,
+    )
+
+    with pytest.raises(cache.CacheValidationError) as exc_info:
+        _write(tmp_path, builds=[_build(302)])
+
+    assert exc_info.value.reason == "oversize"
+    assert ci_path.read_bytes() == original
+
+
+def test_sharded_manifest_replace_failure_keeps_legacy_cache_readable(
+    monkeypatch, tmp_path
+):
+    builds = _large_builds()
+    path = _write(tmp_path, builds=builds)
+    original = path.read_bytes()
+    _force_small_shards(monkeypatch)
+    real_replace = cache.os.replace
+
+    def fail_manifest_replace(source, target):
+        if target == path:
+            raise OSError("simulated manifest replace failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(cache.os, "replace", fail_manifest_replace)
+    with pytest.raises(OSError, match="simulated manifest"):
+        _write(tmp_path, builds=builds)
+
+    assert path.read_bytes() == original
+    assert _load(tmp_path).valid is True
+    assert list(path.parent.rglob(".*.tmp")) == []
+    assert not (path.parent / "ci.shards").exists()
+
+
+@pytest.mark.parametrize("failure_point", ["shard", "manifest"])
+def test_failed_sharded_refresh_rolls_back_only_uncommitted_generation(
+    monkeypatch, tmp_path, failure_point
+):
+    _force_small_shards(monkeypatch)
+    path = _write(tmp_path, builds=_large_builds())
+    manifest = json.loads(path.read_text())
+    old_generation = manifest["generation"]
+    cache_dir = path.parent
+    before = _cache_file_snapshot(cache_dir)
+    before_bytes = sum(len(payload) for payload in before.values())
+    stale_generation = "0" * 64 if old_generation != "0" * 64 else "1" * 64
+    stale_dir = cache_dir / "ci.shards" / stale_generation
+    stale_dir.mkdir()
+    (stale_dir / "0000.json").write_bytes(b"unreferenced" * 1_000)
+    assert sum(
+        len(payload) for payload in _cache_file_snapshot(cache_dir).values()
+    ) > before_bytes
+    real_replace = cache.os.replace
+
+    def fail_late_replace(source, target):
+        target = Path(target)
+        is_new_generation_shard = (
+            target.parent.parent.name == "ci.shards"
+            and target.parent.name != old_generation
+            and target.name == "0001.json"
+        )
+        should_fail = (
+            is_new_generation_shard if failure_point == "shard" else target == path
+        )
+        if should_fail:
+            raise OSError(f"simulated {failure_point} replace failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(cache.os, "replace", fail_late_replace)
+    next_now = NOW + timedelta(minutes=5)
+    with pytest.raises(OSError, match=f"simulated {failure_point}"):
+        _write(
+            tmp_path,
+            builds=_large_builds(),
+            watermark=next_now,
+            last_full_at=next_now,
+            updated_at=next_now,
+        )
+
+    after = _cache_file_snapshot(cache_dir)
+    assert after == before
+    assert sum(len(payload) for payload in after.values()) == before_bytes
+    assert before_bytes <= cache._MAX_CACHE_TOTAL_BYTES
+    assert [child.name for child in (cache_dir / "ci.shards").iterdir()] == [
+        old_generation
+    ]
+    assert _load(tmp_path).valid is True
+    assert list(cache_dir.rglob(".*.tmp")) == []
+
+
+def test_failed_same_generation_rewrite_never_deletes_active_generation(
+    monkeypatch, tmp_path
+):
+    _force_small_shards(monkeypatch)
+    path = _write(tmp_path, builds=_large_builds())
+    manifest = json.loads(path.read_text())
+    generation_dir = path.parent / "ci.shards" / manifest["generation"]
+    before = _cache_file_snapshot(path.parent)
+    real_replace = cache.os.replace
+
+    def fail_active_shard_replace(source, target):
+        target = Path(target)
+        if target == generation_dir / "0000.json":
+            raise OSError("simulated active shard replace failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr(cache.os, "replace", fail_active_shard_replace)
+    with pytest.raises(OSError, match="simulated active shard"):
+        _write(tmp_path, builds=_large_builds())
+
+    assert _cache_file_snapshot(path.parent) == before
+    assert generation_dir.is_dir()
+    assert _load(tmp_path).valid is True
+    assert list(path.parent.rglob(".*.tmp")) == []
+
+
+def test_post_commit_cleanup_failure_propagates_to_disable_actions_cache_save(
+    monkeypatch, tmp_path
+):
+    _force_small_shards(monkeypatch)
+    path = _write(tmp_path, builds=_large_builds())
+    old_generation = json.loads(path.read_text())["generation"]
+    real_cleanup = cache._cleanup_pipeline_shards
+    cleanup_calls = 0
+
+    def fail_post_commit_cleanup(*args, **kwargs):
+        nonlocal cleanup_calls
+        cleanup_calls += 1
+        if cleanup_calls == 2:
+            raise OSError("simulated post-commit cleanup failure")
+        return real_cleanup(*args, **kwargs)
+
+    monkeypatch.setattr(cache, "_cleanup_pipeline_shards", fail_post_commit_cleanup)
+    next_now = NOW + timedelta(minutes=5)
+    with pytest.raises(OSError, match="post-commit cleanup"):
+        _write(
+            tmp_path,
+            builds=_large_builds(),
+            watermark=next_now,
+            last_full_at=next_now,
+            updated_at=next_now,
+        )
+
+    new_generation = json.loads(path.read_text())["generation"]
+    assert new_generation != old_generation
+    assert cleanup_calls == 2
+    assert {child.name for child in (path.parent / "ci.shards").iterdir()} == {
+        old_generation,
+        new_generation,
+    }
+    # The exception is intentional: the collector converts it to
+    # cache_written=false, and the workflow refuses to save this local tree.
+    assert _load(
+        tmp_path,
+        ref_now=next_now,
+        cutoff=next_now - timedelta(days=30),
+    ).valid is True
+
+
+def test_write_rejects_shard_over_size_cap_without_replacing_cache(
+    monkeypatch, tmp_path
+):
+    path = _write(tmp_path)
+    original = path.read_bytes()
+    monkeypatch.setattr(cache, "_MAX_CACHE_BYTES", 128)
+
+    with pytest.raises(cache.CacheValidationError) as exc_info:
+        _write(tmp_path, builds=[_build(202)])
+
+    assert exc_info.value.reason == "oversize"
+    assert path.read_bytes() == original
+
+
 def test_nonterminal_or_unknown_build_and_job_states_need_direct_refresh():
     terminal = cache.sanitize_builds([_build(1)], "ci")[0]
     running_build = cache.sanitize_builds(
@@ -335,6 +664,14 @@ def test_blocked_job_is_terminal_and_does_not_force_direct_refresh():
     blocked = cache.sanitize_builds([row], "ci")[0]
 
     assert cache.builds_needing_refresh([blocked]) == []
+
+
+def test_waiting_failed_job_is_terminal_and_does_not_force_direct_refresh():
+    row = _build(1, build_state="failed", job_state="waiting_failed")
+    row["jobs"][0]["finished_at"] = None
+    waiting_failed = cache.sanitize_builds([row], "ci")[0]
+
+    assert cache.builds_needing_refresh([waiting_failed]) == []
 
 
 def test_terminal_build_without_finished_at_still_needs_direct_refresh():

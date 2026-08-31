@@ -9,6 +9,10 @@ parsing, AMD-only filtering, and dedup identity. No network is touched.
 from __future__ import annotations
 
 import importlib
+import json
+
+import pytest
+import requests
 
 art = importlib.import_module("vllm.collect_perf_eval_artifacts")
 
@@ -90,6 +94,69 @@ def test_commit_falls_back_to_image_tag():
              "env": {"VLLM_IMAGE": "vllm/vllm-openai-rocm:nightly-deadbeef1234"}}
     info = art.nightly_info(build)
     assert info["vllm_commit"] == "deadbeef1234"
+
+
+# ── Buildkite request / pagination resilience ──────────────────────────────
+
+class _Response:
+    def __init__(self, status_code, payload=None, headers=None):
+        self.status_code = status_code
+        self._payload = [] if payload is None else payload
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._payload
+
+
+def test_bk_get_retries_429_then_returns_complete_page(monkeypatch):
+    responses = iter(
+        [
+            _Response(429, headers={"Retry-After": "0"}),
+            _Response(200, [{"number": 501}]),
+        ]
+    )
+    sleeps = []
+    monkeypatch.setattr(art.requests, "get", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(art.time, "sleep", sleeps.append)
+
+    assert art._bk_get("/builds", "fake-token") == [{"number": 501}]
+    assert sleeps == [0]
+
+
+def test_bk_get_429_retry_exhaustion_raises_instead_of_empty_page(monkeypatch):
+    calls = []
+
+    def rate_limited(*args, **kwargs):
+        calls.append(1)
+        return _Response(429, headers={"Retry-After": "0"})
+
+    monkeypatch.setattr(art, "BK_GET_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(art.requests, "get", rate_limited)
+    monkeypatch.setattr(art.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(requests.HTTPError, match="429"):
+        art._bk_get("/builds", "fake-token")
+
+    assert len(calls) == 2
+
+
+def test_bk_paginate_fails_closed_when_last_allowed_page_is_full(monkeypatch):
+    requested_pages = []
+
+    def full_page(path, token, params=None):
+        requested_pages.append(params["page"])
+        return [{"number": params["page"]}] * 100
+
+    monkeypatch.setattr(art, "_bk_get", full_page)
+
+    with pytest.raises(RuntimeError, match="pagination safety cap"):
+        art._bk_paginate("/builds", "fake-token", max_pages=2)
+
+    assert requested_pages == [1, 2]
 
 
 # ── artifact classification ────────────────────────────────────────────────
@@ -231,3 +298,149 @@ def test_event_key_perf_vs_accuracy_differ():
         workload="m-mi355x", task="gsm8k", entry=entry, identity=_IDENTITY,
     )
     assert art.event_key(p)[0] == "perf" and art.event_key(a)[0] == "accuracy"
+
+
+# ── pre-download artifact dedup ──────────────────────────────────────────────────
+
+_BUILD = {
+    "number": 501,
+    "branch": "main",
+    "message": "Nightly run 2026-06-30: commit 93d8f834dd8a",
+    "created_at": "2026-06-30T02:00:00Z",
+    "finished_at": "2026-06-30T03:00:00Z",
+    "commit": "1111111111ab",
+    "web_url": "https://buildkite.com/vllm/perf-eval/builds/501",
+    "env": {"VLLM_IMAGE": "vllm/vllm-openai-rocm:nightly-93d8f834dd8a"},
+}
+_ENTRY = {
+    "name": "m-mi355x",
+    "device": "mi355x",
+    "tp": 1,
+    "precision": "bf16",
+    "model": "m",
+}
+_CONFIGS = {"8-in-8-out-conc-1": {"isl": 8, "osl": 8, "conc": 1}}
+
+
+def _stub_collection(monkeypatch, artifacts, downloads):
+    monkeypatch.setattr(
+        art,
+        "fetch_workload_map",
+        lambda _token: {"m-mi355x": (_ENTRY, _CONFIGS)},
+    )
+
+    def paginate(path, _token, params=None, max_pages=10):
+        if path.endswith("/builds"):
+            return [_BUILD]
+        if path.endswith("/builds/501/artifacts"):
+            return artifacts
+        raise AssertionError(path)
+
+    monkeypatch.setattr(art, "_bk_paginate", paginate)
+
+    def download(url, _token):
+        downloads.append(url)
+        return {
+            "model_id": "m",
+            "total_token_throughput": 10.0,
+            "output_throughput": 1.0,
+        }
+
+    monkeypatch.setattr(art, "_bk_download_json", download)
+
+
+def test_collect_skips_known_artifacts_before_download(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    known = [
+        {
+            "event": "perf_result",
+            "build_number": 501,
+            "buildkite_artifact_id": "artifact-perf",
+        },
+        {
+            "event": art.ARTIFACT_MARKER_EVENT,
+            "build_number": 501,
+            "buildkite_artifact_id": "artifact-accuracy",
+        },
+    ]
+    store.write_text("".join(json.dumps(row) + "\n" for row in known))
+    artifacts = [
+        {
+            "id": "artifact-perf",
+            "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json",
+            "download_url": "https://example.test/perf",
+        },
+        {
+            "id": "artifact-accuracy",
+            "path": "results/m-mi355x/gsm8k/results_2026-06-30.json",
+            "download_url": "https://example.test/accuracy",
+        },
+    ]
+    downloads = []
+    _stub_collection(monkeypatch, artifacts, downloads)
+
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert downloads == []
+
+
+def test_new_event_carries_artifact_identity_and_next_run_skips_download(
+    tmp_path, monkeypatch
+):
+    store = tmp_path / "events.jsonl"
+    artifacts = [
+        {
+            "id": "artifact-perf",
+            "job_id": "job-1",
+            "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json",
+            "sha1sum": "ABC123",
+            "download_url": "https://example.test/perf",
+        }
+    ]
+    downloads = []
+    _stub_collection(monkeypatch, artifacts, downloads)
+
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 1
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert downloads == ["https://example.test/perf"]
+    result = json.loads(store.read_text().splitlines()[0])
+    assert result["buildkite_artifact_id"] == "artifact-perf"
+    assert result["buildkite_artifact_job_id"] == "job-1"
+    assert result["buildkite_artifact_path"] == (
+        "results/m-mi355x/bench-8-in-8-out-conc-1.json"
+    )
+    assert result["buildkite_artifact_sha1"] == "abc123"
+
+
+def test_legacy_duplicate_gets_marker_then_skips_future_downloads(
+    tmp_path, monkeypatch
+):
+    store = tmp_path / "events.jsonl"
+    legacy = {
+        "event": "perf_result",
+        "build_number": 501,
+        "model": "m",
+        "device": "mi355x",
+        "isl": 8,
+        "osl": 8,
+        "conc": 1,
+    }
+    store.write_text(json.dumps(legacy) + "\n")
+    artifacts = [
+        {
+            "id": "artifact-perf",
+            "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json",
+            "download_url": "https://example.test/perf",
+        }
+    ]
+    downloads = []
+    _stub_collection(monkeypatch, artifacts, downloads)
+
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert downloads == ["https://example.test/perf"]
+    rows = [json.loads(line) for line in store.read_text().splitlines()]
+    assert [row["event"] for row in rows] == [
+        "perf_result",
+        art.ARTIFACT_MARKER_EVENT,
+    ]
+    assert rows[1]["buildkite_artifact_id"] == "artifact-perf"

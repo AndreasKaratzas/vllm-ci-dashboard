@@ -7,6 +7,11 @@ import pytest
 from vllm import check_git_blob_sizes as blob_sizes
 
 
+def test_default_budget_stays_below_ninety_decimal_megabytes():
+    assert blob_sizes.DEFAULT_MAX_BYTES == 85 * 1024 * 1024
+    assert blob_sizes.DEFAULT_MAX_BYTES < 90_000_000
+
+
 def _git(root, *args: str) -> None:
     subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
 

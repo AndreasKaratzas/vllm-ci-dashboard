@@ -272,7 +272,70 @@ class TestGraphqlQueueMetrics:
         assert row["jobs_passed"] == 0
         assert row["jobs_failed"] is None
 
-    def test_fetches_jobs_by_cluster_queue_graphql_id(self, monkeypatch):
+    @staticmethod
+    def _queue_metrics_page(*, has_next, cursor):
+        return {
+            "organization": {
+                "cluster": {
+                    "queues": {
+                        "edges": [],
+                        "pageInfo": {
+                            "hasNextPage": has_next,
+                            "endCursor": cursor,
+                        },
+                    }
+                }
+            }
+        }
+
+    def test_queue_metrics_pagination_rejects_missing_cursor(self, monkeypatch):
+        monkeypatch.setattr(
+            cqs,
+            "bk_graphql",
+            lambda query, token, variables: self._queue_metrics_page(
+                has_next=True,
+                cursor=None,
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match="queue metrics.*invalid cursor"):
+            cqs.fetch_cluster_queue_metrics("fake-token")
+
+    def test_queue_metrics_pagination_rejects_repeated_cursor(self, monkeypatch):
+        calls = []
+
+        def fake_graphql(query, token, variables):
+            calls.append(dict(variables))
+            return self._queue_metrics_page(has_next=True, cursor="same-cursor")
+
+        monkeypatch.setattr(cqs, "bk_graphql", fake_graphql)
+
+        with pytest.raises(RuntimeError, match="queue metrics.*invalid cursor"):
+            cqs.fetch_cluster_queue_metrics("fake-token")
+
+        assert [call["after"] for call in calls] == [None, "same-cursor"]
+
+    def test_queue_metrics_pagination_fails_closed_at_safety_cap(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(cqs, "GRAPHQL_PAGINATION_SAFETY_CAP", 2)
+        calls = []
+
+        def fake_graphql(query, token, variables):
+            calls.append(dict(variables))
+            return self._queue_metrics_page(
+                has_next=True,
+                cursor=f"cursor-{len(calls)}",
+            )
+
+        monkeypatch.setattr(cqs, "bk_graphql", fake_graphql)
+
+        with pytest.raises(RuntimeError, match="queue metrics pagination safety cap"):
+            cqs.fetch_cluster_queue_metrics("fake-token")
+
+        assert [call["after"] for call in calls] == [None, "cursor-1"]
+
+    def test_fetches_one_organization_job_scan_and_filters_queues_locally(self, monkeypatch):
         calls = []
 
         def fake_graphql(query, token, variables):
@@ -300,7 +363,20 @@ class TestGraphqlQueueMetrics:
                                     },
                                     "pipeline": {"slug": "amd-ci"},
                                 }
-                            }
+                            },
+                            {
+                                "node": {
+                                    "uuid": "ignored-job",
+                                    "state": "RUNNING",
+                                    "label": "other queue",
+                                    "clusterQueue": {"key": "gpu_1_queue"},
+                                    "build": {
+                                        "number": 124,
+                                        "url": "https://buildkite.com/vllm/ci/builds/124",
+                                    },
+                                    "pipeline": {"slug": "ci"},
+                                }
+                            },
                         ],
                         "pageInfo": {"hasNextPage": False, "endCursor": None},
                     }
@@ -311,12 +387,80 @@ class TestGraphqlQueueMetrics:
 
         jobs = cqs.fetch_active_cluster_jobs("fake-token", {"amd_mi355_1": "ClusterQueueID"})
 
-        assert calls[0][0] == cqs.GRAPHQL_QUEUE_JOBS_Q
-        assert "$queue: [ID!]!" in calls[0][0]
-        assert "clusterQueue: $queue" in calls[0][0]
-        assert calls[0][1]["queue"] == ["ClusterQueueID"]
+        assert len(calls) == 1
+        assert calls[0][0] == cqs.GRAPHQL_ACTIVE_JOBS_Q
+        assert "clustered: true" in calls[0][0]
+        assert "queue" not in calls[0][1]
+        assert len(jobs) == 1
         assert jobs[0]["queue"] == "amd_mi355_1"
         assert jobs[0]["state"] == "SCHEDULED"
+
+    def test_organization_job_scan_paginates_once_for_multiple_selected_queues(
+        self, monkeypatch
+    ):
+        calls = []
+
+        def node(uuid, queue):
+            return {
+                "uuid": uuid,
+                "state": "SCHEDULED",
+                "label": uuid,
+                "clusterQueue": {"key": queue},
+                "build": {"number": 1, "url": "https://buildkite.com/vllm/ci/builds/1"},
+                "pipeline": {"slug": "ci"},
+            }
+
+        def fake_graphql(query, token, variables):
+            calls.append((query, dict(variables)))
+            after = variables.get("after")
+            return {
+                "organization": {
+                    "jobs": {
+                        "edges": [
+                            {"node": node("job-a", "amd_mi250_1")},
+                            {"node": node("ignored", "gpu_1_queue")},
+                        ]
+                        if after is None
+                        else [{"node": node("job-b", "AMD_MI300_1")}],
+                        "pageInfo": {
+                            "hasNextPage": after is None,
+                            "endCursor": "next" if after is None else None,
+                        },
+                    }
+                }
+            }
+
+        monkeypatch.setattr(cqs, "bk_graphql", fake_graphql)
+
+        jobs = cqs.fetch_active_cluster_jobs(
+            "fake-token",
+            {"amd_mi250_1": "queue-a", "amd_mi300_1": "queue-b"},
+        )
+
+        assert [call[0] for call in calls] == [
+            cqs.GRAPHQL_ACTIVE_JOBS_Q,
+            cqs.GRAPHQL_ACTIVE_JOBS_Q,
+        ]
+        assert [call[1]["after"] for call in calls] == [None, "next"]
+        assert [job["job_uuid"] for job in jobs] == ["job-a", "job-b"]
+        assert [job["queue"] for job in jobs] == ["amd_mi250_1", "amd_mi300_1"]
+
+    def test_organization_job_scan_rejects_non_advancing_pagination(self, monkeypatch):
+        monkeypatch.setattr(
+            cqs,
+            "bk_graphql",
+            lambda query, token, variables: {
+                "organization": {
+                    "jobs": {
+                        "edges": [],
+                        "pageInfo": {"hasNextPage": True, "endCursor": None},
+                    }
+                }
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="invalid cursor"):
+            cqs.fetch_active_cluster_jobs("fake-token")
 
 
 class TestQueueExclusions:
@@ -919,15 +1063,11 @@ class TestCollectSnapshot:
 
         def fake_fetch(token, queue_ids_by_key=None):
             captured_queue_ids.append(None if queue_ids_by_key is None else dict(queue_ids_by_key))
-            if queue_ids_by_key is None:
-                missing = _active_job("amd_mi250_2", "SCHEDULED")
-                missing["job_uuid"] = "missing-queue-job"
-                duplicate = _active_job("amd_mi300_1", "SCHEDULED")
-                duplicate["job_uuid"] = "native-missing-counts-job"
-                return [missing, duplicate]
+            missing = _active_job("amd_mi250_2", "SCHEDULED")
+            missing["job_uuid"] = "missing-queue-job"
             scoped = _active_job("amd_mi300_1", "SCHEDULED")
             scoped["job_uuid"] = "native-missing-counts-job"
-            return [scoped]
+            return [missing, scoped]
 
         monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", fake_fetch)
 
@@ -935,10 +1075,11 @@ class TestCollectSnapshot:
 
         assert captured_queue_ids == [
             {
+                "amd_mi250_1": "native-zero-id",
+                "amd_mi250_2": "",
                 "amd_mi300_1": "missing-counts-id",
                 "amd_mi355_1": "native-active-id",
-            },
-            None,
+            }
         ]
         assert snapshot["queues"]["amd_mi300_1"]["waiting"] == 1
         assert snapshot["queues"]["amd_mi300_1"]["count_source"] == "active_job_scan"
@@ -946,6 +1087,217 @@ class TestCollectSnapshot:
         assert snapshot["queues"]["amd_mi250_1"]["count_source"] == "cluster_metrics"
         assert snapshot["queues"]["amd_mi250_2"]["waiting"] == 1
         assert snapshot["queues"]["amd_mi250_2"]["sample_wait"]["available"] is True
+
+    def test_org_job_scan_keeps_job_that_appears_after_zero_queue_metric(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
+        monkeypatch.setattr(
+            cqs,
+            "TRACKED_QUEUES",
+            frozenset({"amd_mi250_1", "amd_mi300_1"}),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_cluster_queue_metrics",
+            lambda token: {
+                "amd_mi250_1": {
+                    "graphql_id": "active-queue-id",
+                    "counts_available": True,
+                    "waiting": 1,
+                    "running": 0,
+                },
+                "amd_mi300_1": {
+                    "graphql_id": "zero-queue-id",
+                    "counts_available": True,
+                    "waiting": 0,
+                    "running": 0,
+                },
+            },
+        )
+        captured_queue_ids = []
+
+        def fake_fetch(token, queue_ids_by_key=None):
+            captured_queue_ids.append(dict(queue_ids_by_key or {}))
+            return [
+                _active_job(
+                    "amd_mi300_1",
+                    "SCHEDULED",
+                    runnable_at="2026-08-31T11:59:00Z",
+                    name="appeared after metrics",
+                    job_uuid="appeared-after-metrics",
+                )
+            ]
+
+        monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", fake_fetch)
+
+        with patch("vllm.collect_queue_snapshot.datetime") as dt_mock:
+            dt_mock.now.return_value = datetime(2026, 8, 31, 12, 0, 0, tzinfo=timezone.utc)
+            dt_mock.fromisoformat = datetime.fromisoformat
+            snapshot = cqs.collect_snapshot("fake-token")
+
+        assert captured_queue_ids == [
+            {
+                "amd_mi250_1": "active-queue-id",
+                "amd_mi300_1": "zero-queue-id",
+            }
+        ]
+        # The independent job read must retain the new job without replacing
+        # the earlier authoritative native count.
+        row = snapshot["queues"]["amd_mi300_1"]
+        assert row["waiting"] == 0
+        assert row["count_source"] == "cluster_metrics"
+        assert row["sample_wait"]["available"] is True
+        assert row["sample_wait"]["count"] == 1
+        assert row["wait_sample_reconciliation"]["reason"] == (
+            "scheduled_job_scan_above_reference_count"
+        )
+        jobs = json.loads((tmp_path / "queue_jobs.json").read_text())
+        assert [job["queue"] for job in jobs["pending"]] == ["amd_mi300_1"]
+        assert jobs["pending"][0]["name"] == "appeared after metrics"
+
+    def test_org_job_scan_failure_uses_scoped_graphql_when_queue_coverage_is_complete(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
+        monkeypatch.setattr(cqs, "TRACKED_QUEUES", frozenset({"amd_mi250_1"}))
+        monkeypatch.setattr(
+            cqs,
+            "fetch_cluster_queue_metrics",
+            lambda token: {
+                "amd_mi250_1": {
+                    "graphql_id": "queue-id",
+                    "counts_available": True,
+                    "waiting": 1,
+                    "running": 0,
+                }
+            },
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_active_cluster_jobs",
+            lambda token, queue_ids_by_key=None: (_ for _ in ()).throw(
+                RuntimeError("organization jobs unsupported")
+            ),
+        )
+        scoped_calls = []
+
+        def scoped_fetch(token, queue_ids_by_key):
+            scoped_calls.append(dict(queue_ids_by_key))
+            return [_active_job("amd_mi250_1", "SCHEDULED")]
+
+        monkeypatch.setattr(cqs, "_fetch_active_cluster_jobs_by_queue", scoped_fetch)
+
+        snapshot = cqs.collect_snapshot("fake-token")
+
+        assert scoped_calls == [{"amd_mi250_1": "queue-id"}]
+        assert snapshot["sources"]["active_jobs"] == "cluster_queue_graphql_fallback"
+        assert snapshot["queues"]["amd_mi250_1"]["waiting"] == 1
+
+    def test_org_job_scan_failure_uses_rest_when_a_configured_queue_lacks_metrics(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
+        monkeypatch.setattr(
+            cqs,
+            "TRACKED_QUEUES",
+            frozenset({"amd_mi250_1", "amd_mi300_1"}),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_cluster_queue_metrics",
+            lambda token: {
+                "amd_mi250_1": {
+                    "graphql_id": "queue-id",
+                    "counts_available": True,
+                    "waiting": 1,
+                    "running": 0,
+                }
+            },
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_active_cluster_jobs",
+            lambda token, queue_ids_by_key=None: (_ for _ in ()).throw(
+                RuntimeError("organization jobs unsupported")
+            ),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "_fetch_active_cluster_jobs_by_queue",
+            lambda *args, **kwargs: pytest.fail("incomplete scoped fallback must not run"),
+        )
+        rest_calls = []
+
+        def legacy_fetch(token):
+            rest_calls.append(token)
+            return [_active_job("amd_mi300_1", "SCHEDULED")]
+
+        monkeypatch.setattr(cqs, "_collect_legacy_active_jobs", legacy_fetch)
+
+        snapshot = cqs.collect_snapshot("fake-token")
+
+        assert rest_calls == ["fake-token"]
+        assert snapshot["sources"]["active_jobs"] == "legacy_build_scan"
+        assert snapshot["queues"]["amd_mi300_1"]["waiting"] == 1
+
+    def test_scoped_graphql_failure_resets_rest_sampling_provenance(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
+        monkeypatch.setattr(
+            cqs,
+            "TRACKED_QUEUES",
+            frozenset({"amd_mi250_1", "amd_mi300_1"}),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_cluster_queue_metrics",
+            lambda token: {
+                "amd_mi250_1": {
+                    "graphql_id": "mi250-id",
+                    "counts_available": True,
+                    "waiting": 1,
+                    "running": 0,
+                },
+                "amd_mi300_1": {
+                    "graphql_id": "mi300-id",
+                    "counts_available": True,
+                    "waiting": 0,
+                    "running": 0,
+                },
+            },
+        )
+        monkeypatch.setattr(
+            cqs,
+            "fetch_active_cluster_jobs",
+            lambda token, queue_ids_by_key=None: (_ for _ in ()).throw(
+                RuntimeError("organization jobs unsupported")
+            ),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "_fetch_active_cluster_jobs_by_queue",
+            lambda token, queue_ids_by_key: (_ for _ in ()).throw(
+                RuntimeError("queue jobs unsupported")
+            ),
+        )
+        monkeypatch.setattr(
+            cqs,
+            "_collect_legacy_active_jobs",
+            lambda token: [_active_job("amd_mi300_1", "SCHEDULED")],
+        )
+
+        snapshot = cqs.collect_snapshot("fake-token")
+
+        assert snapshot["sources"]["active_jobs"] == "legacy_build_scan"
+        # sampled_queues=None on the exhaustive REST fallback makes every
+        # observed/configured queue explicitly sampled, including native-zero.
+        assert snapshot["queues"]["amd_mi250_1"]["sample_wait"]["available"] is True
+        assert snapshot["queues"]["amd_mi300_1"]["sample_wait"]["available"] is True
+        assert snapshot["queues"]["amd_mi300_1"]["sample_wait_source"] == (
+            "legacy_build_scan"
+        )
 
     def test_excluded_queues_never_reach_rows_jobs_or_totals(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)

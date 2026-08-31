@@ -633,6 +633,14 @@ class TestCanonicalResultPublication:
             "name": "Public Buildkite Name",
             "email": "private@example.invalid",
         }
+        detail["env"] = {"BUILD_SECRET": "do-not-cache"}
+        detail["meta_data"] = {"tenant": "do-not-cache"}
+        detail["jobs"][0].update({
+            "agent": {"name": "private-agent", "meta_data": ["host=private"]},
+            "command": "export JOB_SECRET=do-not-cache",
+            "env": {"JOB_SECRET": "do-not-cache"},
+            "future_api_field": {"private": True},
+        })
 
         with (
             patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
@@ -641,9 +649,33 @@ class TestCanonicalResultPublication:
         ):
             collect_pipeline("upstream", 8, tmp_path)
 
-        cache = json.loads((tmp_path / ".cache" / "builds_upstream.json").read_text())
-        assert cache[0]["jobs"] == detail["jobs"]
-        assert "email" not in cache[0]["creator"]
+        cache_path = (
+            tmp_path
+            / ".cache"
+            / "nightly-rosters-v2"
+            / "upstream"
+            / "2026-08-17_84160.json"
+        )
+        payload = json.loads(cache_path.read_text())
+        assert payload == {
+            "schema_version": 2,
+            "build": {
+                "number": 84160,
+                "created_at": "2026-08-17T06:00:00Z",
+                "jobs": [{
+                    "type": "script",
+                    "id": "job-1",
+                    "name": "H100: Engine tests",
+                    "state": "passed",
+                }],
+            },
+        }
+        serialized = cache_path.read_text()
+        for forbidden in (
+            "creator", "email", "env", "meta_data", "agent", "command",
+            "future_api_field", "do-not-cache", "private-agent",
+        ):
+            assert forbidden not in serialized
         parse_results.assert_not_called()
 
     def test_latest_terminal_summary_hydrates_before_cache_coverage(self, tmp_path):

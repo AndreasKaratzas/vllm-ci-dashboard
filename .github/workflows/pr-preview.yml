@@ -1,7 +1,10 @@
 name: PR Preview
 
 on:
-  pull_request:
+  # This privileged workflow always comes from the trusted base branch.
+  # Untrusted pull-request code is exercised by pr-preview-validation.yml,
+  # which uses the ordinary read-only pull_request security boundary.
+  pull_request_target:
     types: [opened, synchronize, reopened, closed]
 
 concurrency:
@@ -12,15 +15,45 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   deploy-preview:
-    if: github.event.action != 'closed'
+    # GitHub Pages serves every preview from the canonical site origin. Never
+    # publish active HTML/JS from an untrusted fork; external contributors get
+    # the separate read-only validation workflow instead. These associations
+    # are limited to principals already trusted to collaborate on the repo.
+    if: >-
+      github.event.action != 'closed' &&
+      contains(
+        fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+        github.event.pull_request.author_association
+      )
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      TRUSTED_PYTHONPATH: ${{ github.workspace }}/trusted-base/scripts
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout immutable trusted base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
+          persist-credentials: false
+          sparse-checkout: |
+            config
+            scripts
+
+      # This checkout is data-only. No command in this privileged job executes
+      # a script, action, dependency, or configuration from this directory.
+      - name: Checkout pull request as static input
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          path: pr-input
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -29,19 +62,66 @@ jobs:
       - name: Install dependencies
         run: pip install pyyaml
 
+      - name: Validate and copy static pull-request inputs
+        run: |
+          set -euo pipefail
+          if [ ! -d pr-input/docs ] || [ ! -d pr-input/data ] || \
+             [ ! -f pr-input/docs/index.html ]; then
+            echo "::error::Pull request is missing the static docs/data inputs"
+            exit 1
+          fi
+          UNSAFE_PATH=$(find pr-input/docs pr-input/data -type l -print -quit)
+          if [ -n "$UNSAFE_PATH" ]; then
+            echo "::error::Static preview inputs cannot contain symlinks: $UNSAFE_PATH"
+            exit 1
+          fi
+          python -I trusted-base/scripts/vllm/check_git_blob_sizes.py \
+            --root pr-input
+          python -I - <<'PY'
+          from pathlib import Path
+
+          roots = (Path("pr-input/docs"), Path("pr-input/data"))
+          files = [
+              path
+              for root in roots
+              for path in root.rglob("*")
+              if path.is_file()
+          ]
+          total = sum(path.stat().st_size for path in files)
+          if len(files) > 10_000:
+              raise SystemExit(
+                  f"static preview input has {len(files)} files (max 10000)"
+              )
+          if total > 384 * 1024 * 1024:
+              raise SystemExit(
+                  f"static preview input is {total} bytes (max {384 * 1024 * 1024})"
+              )
+          print(f"Static preview input: {len(files)} files, {total} bytes")
+          PY
+          cp -a pr-input/docs trusted-base/docs
+          cp -a pr-input/data trusted-base/data
+
       - name: Rebuild v2 operations snapshot
-        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+        run: >-
+          PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
+          trusted-base/scripts/vllm/build_operations_snapshot.py
+          --input-dir trusted-base/data/vllm/ci
+          --output trusted-base/data/vllm/ci/operations_v2.json
 
       - name: Generate site data
-        run: python scripts/render.py
+        run: >-
+          PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
+          trusted-base/scripts/render.py
 
       - name: Assemble site
-        run: python scripts/build_site.py --cache-bust-index
+        run: >-
+          PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
+          trusted-base/scripts/build_site.py --cache-bust-index
 
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./_site
+          publish_dir: ./trusted-base/_site
           publish_branch: gh-pages
           destination_dir: pr-preview/pr-${{ github.event.pull_request.number }}
 
@@ -71,6 +151,8 @@ jobs:
   cleanup-preview:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,9 +160,13 @@ jobs:
 
       - name: Remove preview
         run: |
+          GUARD_SCRIPT="$RUNNER_TEMP/check_git_blob_sizes.py"
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:scripts/vllm/check_git_blob_sizes.py > "$GUARD_SCRIPT"
           rm -rf pr-preview/pr-${{ github.event.pull_request.number }}
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
+          python "$GUARD_SCRIPT"
           git diff --staged --quiet || git commit -m "clean up pr-${{ github.event.pull_request.number }} preview"
           git push

@@ -11,7 +11,7 @@ Extracts:
 
 import logging
 import re
-from typing import Optional
+from typing import Callable, Optional
 
 import requests
 
@@ -345,6 +345,7 @@ def parse_job_results(
     pipeline: str,
     date: str,
     log_text: Optional[str] = None,
+    dns_classification_sink: Callable[..., object] | None = None,
 ) -> list[TestResult]:
     """Parse test results from a single Buildkite job.
 
@@ -356,6 +357,8 @@ def parse_job_results(
         pipeline: Pipeline slug
         date: ISO date
         log_text: Pre-fetched log text (if None, will be fetched)
+        dns_classification_sink: Optional privacy-safe observer for a log that
+            this parser already has in memory. It must never retain raw text.
 
     Returns:
         List of TestResult objects
@@ -367,6 +370,23 @@ def parse_job_results(
 
     if log_text is None:
         log_text = fetch_job_log(job)
+    if log_text is not None and dns_classification_sink is not None:
+        try:
+            dns_classification_sink(
+                job=job,
+                pipeline=pipeline,
+                build_number=build_number,
+                log_text=log_text,
+            )
+        except Exception as exc:
+            # Reuse is strictly optional. A cache/classifier defect must never
+            # turn a successfully downloaded CI log into a core collection
+            # failure (and never include raw log data in this diagnostic).
+            log.warning(
+                "Optional DNS classification sink failed (%s); "
+                "continuing with normal test parsing",
+                type(exc).__name__,
+            )
 
     # Physical CI agent hostname, stamped onto every result this job produces so
     # downstream per-agent analytics can join test groups to the box that ran

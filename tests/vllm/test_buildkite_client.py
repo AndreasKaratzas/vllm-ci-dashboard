@@ -13,6 +13,7 @@ per-build filtering logic. These tests mock ``requests.get`` to verify:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -209,6 +210,103 @@ class TestPaginate:
         assert seen_params[0] == {"per_page": 100}
         assert seen_params[1] is None  # follow-up pages use the Link URL verbatim
 
+    def test_rejects_repeated_next_url_without_refetching_it(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo"
+        response = _fake_response(
+            200,
+            json_body=[{"id": 1}],
+            links={"next": {"url": start_url}},
+        )
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return response
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+
+        with pytest.raises(RuntimeError, match="repeated next URL"):
+            bk._paginate(start_url)
+
+        assert calls == [start_url]
+
+    def test_rejects_cross_origin_next_url_before_sending_token(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo"
+        response = _fake_response(
+            200,
+            json_body=[{"id": 1}],
+            links={"next": {"url": "https://attacker.example/steal"}},
+        )
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return response
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+
+        with pytest.raises(RuntimeError, match="cross-origin"):
+            bk._paginate(start_url)
+
+        assert calls == [start_url]
+
+    def test_rejects_same_origin_different_path_before_sending_token(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo"
+        response = _fake_response(
+            200,
+            json_body=[{"id": 1}],
+            links={"next": {"url": "https://api.buildkite.com/v2/other?page=2"}},
+        )
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return response
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+
+        with pytest.raises(RuntimeError, match="different endpoint path"):
+            bk._paginate(start_url)
+
+        assert calls == [start_url]
+
+    def test_fails_closed_when_page_cap_still_has_next_link(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo"
+        page1 = _fake_response(
+            200,
+            json_body=[{"id": 1}],
+            links={"next": {"url": f"{start_url}?page=2"}},
+        )
+        page2 = _fake_response(
+            200,
+            json_body=[{"id": 2}],
+            links={"next": {"url": f"{start_url}?page=3"}},
+        )
+        responses = iter([page1, page2])
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return next(responses)
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+
+        with pytest.raises(RuntimeError, match="2-page safety cap"):
+            bk._paginate(start_url, max_pages=2)
+
+        assert calls == [start_url, f"{start_url}?page=2"]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [pytest.param({"id": 1}, id="object"), pytest.param("bad", id="string")],
+    )
+    def test_fails_closed_on_malformed_non_list_page(self, monkeypatch, payload):
+        response = _fake_response(200, json_body=payload)
+        monkeypatch.setattr(bk.requests, "get", lambda *args, **kwargs: response)
+
+        with pytest.raises(RuntimeError, match="expected each page to be a JSON list"):
+            bk._paginate("https://api.buildkite.com/v2/foo")
+
 
 class TestFetchBuildJobs:
     def test_filters_type_script_only(self):
@@ -328,20 +426,20 @@ class TestFetchNightlyBuilds:
     def test_terminal_cache_keeps_jobs_but_live_metadata_wins(
         self, monkeypatch, fake_cfg, tmp_path
     ):
-        cache_file = tmp_path / "builds_amd.json"
         cached_build = {
             "number": 42, "message": "nightly cached", "state": "running",
             "created_at": "2026-04-18T00:00:00Z",
             "jobs": [{"type": "script", "name": "late job", "state": "running"}],
         }
-        cache_file.write_text(json.dumps([cached_build]))
+        now = datetime(2026, 4, 18, 12, tzinfo=timezone.utc)
+        bk.write_nightly_build_cache("amd", [cached_build], tmp_path, now=now)
 
         api_build = {
             "number": 42, "message": "nightly api", "state": "passed",
             "created_at": "2026-04-18T00:00:00Z", "finished_at": "2026-04-18T08:00:00Z",
         }
         monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [api_build])
-        out = bk.fetch_nightly_builds("amd", cache_dir=tmp_path)
+        out = bk.fetch_nightly_builds("amd", cache_dir=tmp_path, now=now)
         assert len(out) == 1
         assert out[0]["state"] == "passed"
         assert out[0]["message"] == "nightly api"
@@ -365,10 +463,280 @@ class TestFetchNightlyBuilds:
     def test_cache_written_on_exit(self, monkeypatch, fake_cfg, tmp_path):
         build = {"number": 1, "message": "nightly", "state": "passed", "created_at": "2026-04-18T00:00:00Z"}
         monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [build])
-        bk.fetch_nightly_builds("amd", cache_dir=tmp_path)
-        cache_file = tmp_path / "builds_amd.json"
+        bk.fetch_nightly_builds(
+            "amd",
+            cache_dir=tmp_path,
+            now=datetime(2026, 4, 18, 12, tzinfo=timezone.utc),
+        )
+        cache_file = tmp_path / "nightly-rosters-v2" / "amd" / "2026-04-18_1.json"
         assert cache_file.exists()
-        assert json.loads(cache_file.read_text())[0]["number"] == 1
+        payload = json.loads(cache_file.read_text())
+        assert payload == {
+            "schema_version": 2,
+            "build": {
+                "number": 1,
+                "created_at": "2026-04-18T00:00:00Z",
+                "jobs": [],
+            },
+        }
+        assert not (tmp_path / "builds_amd.json").exists()
+
+    def test_sharded_terminal_roster_is_restored_without_detail_fetch(
+        self, monkeypatch, fake_cfg, tmp_path
+    ):
+        cached = {
+            "number": 42,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-04-18T00:00:00Z",
+            "jobs": [{
+                "type": "script",
+                "id": "job-42",
+                "name": "cached job",
+                "state": "failed",
+                "soft_failed": True,
+                "step_key": "cached-step",
+            }],
+        }
+        now = datetime(2026, 4, 18, 12, tzinfo=timezone.utc)
+        bk.write_nightly_build_cache("amd", [cached], tmp_path, now=now)
+        summary = {key: value for key, value in cached.items() if key != "jobs"}
+        monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [summary])
+
+        [restored] = bk.fetch_nightly_builds(
+            "amd", cache_dir=tmp_path, now=now
+        )
+
+        assert restored["jobs"] == cached["jobs"]
+
+    def test_sharded_cache_prunes_builds_older_than_retention(self, tmp_path):
+        old = {
+            "number": 1,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-03-01T00:00:00Z",
+            "jobs": [],
+        }
+        current = {
+            "number": 2,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-04-18T00:00:00Z",
+            "jobs": [],
+        }
+
+        shard_dir = bk.write_nightly_build_cache(
+            "amd",
+            [old, current],
+            tmp_path,
+            now=datetime(2026, 4, 18, 12, tzinfo=timezone.utc),
+        )
+
+        assert [path.name for path in shard_dir.glob("*.json")] == [
+            "2026-04-18_2.json"
+        ]
+        assert all(
+            path.stat().st_size <= bk.NIGHTLY_ROSTER_MAX_SHARD_BYTES
+            for path in shard_dir.glob("*.json")
+        )
+
+    def test_roster_repair_removes_unexpected_and_unapproved_restored_state(
+        self, tmp_path
+    ):
+        now = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
+        root = tmp_path / bk.NIGHTLY_ROSTER_CACHE_DIR
+        shard_dir = root / "amd"
+        shard_dir.mkdir(parents=True)
+        unexpected = shard_dir / "unvalidated.bin"
+        unexpected.write_bytes(b"private restored bytes")
+        poisoned = shard_dir / "2026-08-20_999.json"
+        poisoned.write_text('{"unapproved_secret":"must-not-survive"}\n')
+        nested = root / "unexpected-pipeline" / "nested"
+        nested.mkdir(parents=True)
+        (nested / "large.bin").write_bytes(b"x" * 1024)
+
+        bk.write_nightly_build_cache(
+            "amd",
+            [{
+                "number": 1,
+                "created_at": now.isoformat(),
+                "jobs": [],
+            }],
+            tmp_path,
+            now=now,
+        )
+
+        assert not unexpected.exists()
+        assert not poisoned.exists()
+        assert not (root / "unexpected-pipeline").exists()
+        assert {path.name for path in shard_dir.iterdir()} == {
+            "2026-08-20_1.json"
+        }
+        assert bk.validate_nightly_roster_cache(tmp_path, now=now) == {
+            "shards": 1,
+            "bytes": (shard_dir / "2026-08-20_1.json").stat().st_size,
+        }
+
+    def test_roster_aggregate_cap_is_global_across_both_pipelines(
+        self, monkeypatch, tmp_path
+    ):
+        now = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
+        amd = {
+            "number": 1,
+            "created_at": (now - timedelta(days=1)).isoformat(),
+            "jobs": [{"type": "script", "state": "passed", "name": "a" * 500}],
+        }
+        upstream = {
+            "number": 2,
+            "created_at": now.isoformat(),
+            "jobs": [{"type": "script", "state": "passed", "name": "b" * 500}],
+        }
+        bk.write_nightly_build_cache("amd", [amd], tmp_path, now=now)
+        bk.write_nightly_build_cache("upstream", [upstream], tmp_path, now=now)
+        root = tmp_path / bk.NIGHTLY_ROSTER_CACHE_DIR
+        sizes = [path.stat().st_size for path in root.glob("*/*.json")]
+        assert len(sizes) == 2
+        monkeypatch.setattr(bk, "NIGHTLY_ROSTER_MAX_TOTAL_BYTES", max(sizes))
+
+        bk.write_nightly_build_cache("upstream", [upstream], tmp_path, now=now)
+
+        remaining = list(root.glob("*/*.json"))
+        assert sum(path.stat().st_size for path in remaining) <= max(sizes)
+        assert [path.name for path in remaining] == ["2026-08-20_2.json"]
+        stats = bk.validate_nightly_roster_cache(tmp_path, now=now)
+        assert stats["bytes"] <= bk.NIGHTLY_ROSTER_MAX_TOTAL_BYTES
+
+    def test_roster_retention_keeps_exactly_sixteen_calendar_days(self, tmp_path):
+        now = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
+        builds = [
+            {
+                "number": index + 1,
+                "created_at": (now - timedelta(days=index)).isoformat(),
+                "jobs": [],
+            }
+            for index in range(17)
+        ]
+
+        shard_dir = bk.write_nightly_build_cache("amd", builds, tmp_path, now=now)
+
+        assert len(list(shard_dir.glob("*.json"))) == 16
+        assert not (shard_dir / "2026-08-04_17.json").exists()
+        assert (shard_dir / "2026-08-05_16.json").exists()
+
+    def test_writer_skips_future_api_timestamp_without_evicting_valid_state(
+        self, tmp_path
+    ):
+        now = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
+        current = now - timedelta(hours=1)
+        future = now + timedelta(hours=1)
+        bk.write_nightly_build_cache(
+            "amd",
+            [{"number": 1, "created_at": current.isoformat(), "jobs": []}],
+            tmp_path,
+            now=now,
+        )
+        bk.write_nightly_build_cache(
+            "amd",
+            [{"number": 2, "created_at": future.isoformat(), "jobs": []}],
+            tmp_path,
+            now=now,
+        )
+
+        shards = list(
+            (tmp_path / bk.NIGHTLY_ROSTER_CACHE_DIR / "amd").glob("*.json")
+        )
+        assert [path.name for path in shards] == ["2026-08-20_1.json"]
+        assert bk.validate_nightly_roster_cache(tmp_path, now=now)["shards"] == 1
+
+    def test_strict_validator_rejects_restored_same_day_future_timestamp(
+        self, tmp_path
+    ):
+        now = datetime(2026, 8, 20, 12, tzinfo=timezone.utc)
+        future = now + timedelta(hours=1)
+        bk.write_nightly_build_cache(
+            "amd",
+            [{"number": 1, "created_at": future.isoformat(), "jobs": []}],
+            tmp_path,
+            now=future,
+        )
+
+        with pytest.raises(bk.NightlyRosterCacheError, match="invalid shard"):
+            bk.validate_nightly_roster_cache(tmp_path, now=now)
+
+    def test_strict_validator_rejects_broken_roster_root_symlink(self, tmp_path):
+        root = tmp_path / bk.NIGHTLY_ROSTER_CACHE_DIR
+        root.symlink_to(tmp_path / "missing-roster-root", target_is_directory=True)
+
+        with pytest.raises(bk.NightlyRosterCacheError, match="not a directory"):
+            bk.validate_nightly_roster_cache(
+                tmp_path,
+                now=datetime(2026, 8, 20, 12, tzinfo=timezone.utc),
+            )
+
+    def test_legacy_caches_are_ignored_and_safely_removed_on_write(
+        self, monkeypatch, fake_cfg, tmp_path
+    ):
+        legacy_monolith = tmp_path / "builds_amd.json"
+        legacy_monolith.write_text(json.dumps([{
+            "number": 42,
+            "created_at": "2026-04-18T00:00:00Z",
+            "jobs": [{"type": "script", "name": "legacy", "state": "passed"}],
+        }]))
+        legacy_shard = (
+            tmp_path / "nightly-rosters-v1" / "amd" / "2026-04-18_42.json"
+        )
+        legacy_shard.parent.mkdir(parents=True)
+        legacy_shard.write_text(legacy_monolith.read_text())
+        unexpected = legacy_shard.parent / "keep-me.txt"
+        unexpected.write_text("not a recognized roster shard")
+
+        api_build = {
+            "number": 42,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-04-18T00:00:00Z",
+        }
+        monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [api_build])
+
+        [restored] = bk.fetch_nightly_builds("amd", cache_dir=tmp_path)
+
+        assert "jobs" not in restored
+        assert not legacy_monolith.exists()
+        assert not legacy_shard.exists()
+        assert unexpected.exists()
+
+    def test_v2_shard_with_unapproved_field_is_rejected(
+        self, monkeypatch, fake_cfg, tmp_path
+    ):
+        build = {
+            "number": 42,
+            "created_at": "2026-04-18T00:00:00Z",
+            "jobs": [{
+                "type": "script",
+                "id": "job-1",
+                "name": "cached job",
+                "state": "passed",
+            }],
+        }
+        now = datetime(2026, 4, 18, 12, tzinfo=timezone.utc)
+        shard_dir = bk.write_nightly_build_cache("amd", [build], tmp_path, now=now)
+        shard = shard_dir / "2026-04-18_42.json"
+        payload = json.loads(shard.read_text())
+        payload["build"]["jobs"][0]["command"] = "export SECRET=leak"
+        shard.write_text(json.dumps(payload))
+        summary = {
+            "number": 42,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-04-18T00:00:00Z",
+        }
+        monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [summary])
+
+        [restored] = bk.fetch_nightly_builds(
+            "amd", cache_dir=tmp_path, now=now
+        )
+
+        assert "jobs" not in restored
 
     def test_corrupt_cache_is_ignored(self, monkeypatch, fake_cfg, tmp_path):
         cache_file = tmp_path / "builds_amd.json"

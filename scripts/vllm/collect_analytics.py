@@ -92,7 +92,7 @@ GITHUB_BLOB_MAX_BYTES = 100 * 1024 * 1024
 # candidate monoliths are compacted to (or rejected above) this operating
 # target before they can replace the baseline.
 PRIVATE_ANALYTICS_TARGET_BYTES = 64 * 1024 * 1024
-PRIVATE_ANALYTICS_MAX_BYTES = 90 * 1024 * 1024
+PRIVATE_ANALYTICS_MAX_BYTES = 85 * 1024 * 1024
 # Evidence is newest-first. These deterministic levels preserve recent popup
 # history while giving the writer progressively stronger ways to stay inside
 # the normal budget if upstream cardinality grows unexpectedly.
@@ -341,8 +341,7 @@ def bk_get(path, token, params=None):
             continue
 
         resp.raise_for_status()
-        payload = resp.json()
-        return payload if isinstance(payload, list) else [payload]
+        return resp.json()
     return []
 
 
@@ -370,10 +369,11 @@ def queue_from_result_job_name(name):
         return match.group(1).lower()
 
     _, platform, hardware = _parse_job_execution_label(name)
+    hardware_slug = hardware.replace(" ", "_")
     if platform == "amd" and hardware:
-        return "amd_" + hardware
+        return "amd_" + hardware_slug
     if platform == "nvidia" and hardware:
-        return "nvidia_" + hardware
+        return "nvidia_" + hardware_slug
     return None
 
 
@@ -953,10 +953,14 @@ def validate_retry_analysis(
 def _safe_build_number(build: Any) -> int:
     if not isinstance(build, dict):
         return 0
+    value = build.get("number")
+    if isinstance(value, bool):
+        return 0
     try:
-        return int(build.get("number") or 0)
+        number = int(value or 0)
     except (TypeError, ValueError):
         return 0
+    return number if number > 0 else 0
 
 
 def _fetched_build_rank(build: dict) -> tuple:
@@ -999,22 +1003,29 @@ def _fetch_pipeline_build_leg(
                 "include_retried_jobs": "true",
             },
         )
+        if not isinstance(rows, list):
+            raise RuntimeError(
+                f"Malformed Buildkite builds page for {pipeline_slug}: "
+                "expected a JSON list"
+            )
         if not rows:
             termination_reason = "empty_page"
             exhaustive = True
             break
         novel_numbers = 0
-        for build in rows:
-            if not isinstance(build, dict):
-                continue
+        for row_index, build in enumerate(rows, start=1):
             number = _safe_build_number(build)
-            if number:
-                existing = by_number.get(number)
-                if existing is None:
-                    by_number[number] = build
-                    novel_numbers += 1
-                elif _fetched_build_rank(build) > _fetched_build_rank(existing):
-                    by_number[number] = build
+            if not isinstance(build, dict) or not number:
+                raise RuntimeError(
+                    f"Malformed Buildkite builds page for {pipeline_slug}: "
+                    f"invalid row {row_index} on page {page}"
+                )
+            existing = by_number.get(number)
+            if existing is None:
+                by_number[number] = build
+                novel_numbers += 1
+            elif _fetched_build_rank(build) > _fetched_build_rank(existing):
+                by_number[number] = build
         if len(rows) < BUILD_FETCH_PAGE_SIZE:
             termination_reason = "short_page"
             exhaustive = True
@@ -1098,6 +1109,35 @@ def _cache_diagnostics(
         ),
         "ref_now": ref_now.isoformat(),
     }
+
+
+def _mark_cache_write_disabled(
+    diagnostics: dict,
+    pipeline_slug: str,
+    exc: Exception,
+) -> None:
+    """Record a bounded public diagnostic while retaining detailed CI logs."""
+    reason = getattr(exc, "reason", None)
+    if not isinstance(reason, str) or not re.fullmatch(r"[a-z0-9_]{1,64}", reason):
+        reason = type(exc).__name__
+    diagnostics.update({
+        "cache_written": False,
+        "cache_disabled": True,
+        "cache_disabled_reason": f"write_{reason}",
+    })
+    log.warning(
+        "  private analytics cache disabled for %s; continuing with fetched "
+        "builds (%s: %s)",
+        pipeline_slug,
+        type(exc).__name__,
+        exc,
+    )
+
+
+def _append_cache_save_output(path: Path, *, enabled: bool) -> None:
+    """Expose one fail-closed boolean to the later Actions cache-save step."""
+    with Path(path).open("a", encoding="utf-8") as handle:
+        handle.write(f"analytics_cache_save={'true' if enabled else 'false'}\n")
 
 
 def _reliability_builds_with_cache_aliases(
@@ -1202,18 +1242,22 @@ def _full_cached_fetch(
         )
 
     builds = merge_builds([], rows, cutoff=cutoff)
-    write_build_cache(
-        cache_dir,
-        pipeline_slug,
-        builds=builds,
-        watermark=ref_now,
-        window_days=days,
-        last_full_at=ref_now,
-        updated_at=ref_now,
-        complete_from=cutoff,
-    )
+    try:
+        write_build_cache(
+            cache_dir,
+            pipeline_slug,
+            builds=builds,
+            watermark=ref_now,
+            window_days=days,
+            last_full_at=ref_now,
+            updated_at=ref_now,
+            complete_from=cutoff,
+        )
+    except Exception as exc:
+        _mark_cache_write_disabled(diagnostics, pipeline_slug, exc)
+    else:
+        diagnostics["cache_written"] = True
     diagnostics["returned_builds"] = len(builds)
-    diagnostics["cache_written"] = True
     diagnostics["watermark"] = ref_now.isoformat()
     diagnostics["last_full_at"] = ref_now.isoformat()
     diagnostics["complete_from"] = cutoff.isoformat()
@@ -1229,14 +1273,13 @@ def _fetch_individual_build(
         f"/organizations/{BK_ORG}/pipelines/{pipeline_slug}/builds/"
         f"{build_number}"
     )
-    rows = bk_get(path, token, {"include_retried_jobs": "true"})
-    for row in rows:
-        if isinstance(row, dict) and _safe_build_number(row) == build_number:
-            return row
-    raise RuntimeError(
-        f"Individual Buildkite refresh for {pipeline_slug} build {build_number} "
-        "returned no matching build"
-    )
+    build = bk_get(path, token, {"include_retried_jobs": "true"})
+    if not isinstance(build, dict) or _safe_build_number(build) != build_number:
+        raise RuntimeError(
+            f"Individual Buildkite refresh for {pipeline_slug} build {build_number} "
+            "did not return a matching JSON build object"
+        )
+    return build
 
 
 def _incremental_cached_fetch(
@@ -1354,16 +1397,21 @@ def _incremental_cached_fetch(
             # existing one-shot exhaustive fallback and only then replaces the
             # validated cache.
             return None, diagnostics
-        write_build_cache(
-            cache_dir,
-            pipeline_slug,
-            builds=builds,
-            watermark=ref_now,
-            window_days=days,
-            last_full_at=last_full_at,
-            updated_at=ref_now,
-            complete_from=cutoff,
-        )
+        cache_written = True
+        try:
+            write_build_cache(
+                cache_dir,
+                pipeline_slug,
+                builds=builds,
+                watermark=ref_now,
+                window_days=days,
+                last_full_at=last_full_at,
+                updated_at=ref_now,
+                complete_from=cutoff,
+            )
+        except Exception as exc:
+            cache_written = False
+            _mark_cache_write_disabled(diagnostics, pipeline_slug, exc)
     except Exception as exc:
         diagnostics["failure"] = f"{type(exc).__name__}: {exc}"
         return None, diagnostics
@@ -1376,7 +1424,7 @@ def _incremental_cached_fetch(
             "refresh_build_numbers": refresh_numbers,
             "fresh_builds": len(fresh),
             "returned_builds": len(builds),
-            "cache_written": True,
+            "cache_written": cache_written,
             "watermark": ref_now.isoformat(),
         }
     )
@@ -2342,6 +2390,11 @@ def main():
     parser.add_argument("--days", type=int, default=90, help="Days of history (default: 90)")
     parser.add_argument("--pipeline", choices=["amd-ci", "ci", "both"], default="both")
     parser.add_argument("--output", type=str, default=str(OUTPUT))
+    parser.add_argument(
+        "--github-output",
+        type=Path,
+        help="append the private-cache save decision to this GitHub output file",
+    )
     args = parser.parse_args()
 
     token = os.getenv("BUILDKITE_TOKEN")
@@ -2370,6 +2423,7 @@ def main():
     ref_now = datetime.now(timezone.utc)
     generated_at = ref_now.strftime("%Y-%m-%dT%H:%M:%SZ")
     cache_dir = output / ".cache" / CACHE_DIR_NAME
+    analytics_cache_save = bool(token)
 
     for slug in pipelines:
         log.info("=== %s ===", PIPELINES.get(slug, slug))
@@ -2395,6 +2449,12 @@ def main():
                 )
             finally:
                 _FETCH_CONTEXT.reset(context_token)
+        cache_diagnostics = collection_provenance.get("cache")
+        if (
+            not isinstance(cache_diagnostics, dict)
+            or cache_diagnostics.get("cache_written") is not True
+        ):
+            analytics_cache_save = False
         reliability_raw_builds = _reliability_builds_with_cache_aliases(
             raw_builds,
             slug,
@@ -2530,6 +2590,11 @@ def main():
     write_gating_nightlies(output, all_data, generated_at)
     write_analytics(out_path, all_data)
     log.info("Wrote %s", out_path)
+    if args.github_output:
+        _append_cache_save_output(
+            args.github_output,
+            enabled=analytics_cache_save,
+        )
 
     # Print summary
     for slug, d in all_data.items():

@@ -105,6 +105,29 @@ def _observation(index: int = 1, **overrides) -> dict:
     return row
 
 
+def _write_previous_generation(
+    jobs_path: Path,
+    summary_path: Path,
+    *,
+    provenance: dict,
+) -> None:
+    segments, ledger = lifecycle.encode_job_segments(
+        [_observation()], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    jobs_path.mkdir()
+    for name, payload in segments.items():
+        (jobs_path / name).write_bytes(payload)
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "scope": {"queues": list(AMD_METRIC_TARGET_QUEUES)},
+                "provenance": {**provenance, "ledger": ledger},
+            }
+        )
+    )
+
+
 def test_canonical_scope_is_only_requested_families_and_widths():
     assert AMD_METRIC_TARGET_QUEUES == tuple(
         f"amd_mi{family}_{width}" for family in (250, 300, 355) for width in (1, 2, 4, 8)
@@ -204,6 +227,37 @@ def test_rest_org_cohort_pagination_cap_fails_closed():
             max_pages=2,
             page_fetcher=lambda path, token, params: full_page,
         )
+
+
+def test_incremental_event_window_retains_full_active_parent_horizon():
+    calls = []
+    event_start = NOW - timedelta(hours=7)
+    active_parent_start = NOW - timedelta(
+        days=lifecycle.RETENTION_DAYS + lifecycle.PARENT_BUILD_LOOKBACK_DAYS
+    )
+
+    def fetch(path, token, params):
+        calls.append(dict(params))
+        return []
+
+    _, coverage = lifecycle.fetch_rest_lifecycle_jobs(
+        "secret",
+        query_start=event_start,
+        query_end=NOW,
+        active_created_from=active_parent_start,
+        queue_by_id=_queue_by_id(),
+        page_fetcher=fetch,
+    )
+
+    created = next(params for params in calls if "created_from" in params and "state[]" not in params)
+    active = next(params for params in calls if "state[]" in params)
+    finished = next(params for params in calls if "finished_from" in params)
+    assert created["created_from"] == lifecycle._utc_iso(event_start)
+    assert finished["finished_from"] == lifecycle._utc_iso(event_start)
+    assert active["created_from"] == lifecycle._utc_iso(active_parent_start)
+    assert active["created_to"] == lifecycle._utc_iso(NOW)
+    assert coverage["event_cohort_query_start"] == lifecycle._utc_iso(event_start)
+    assert coverage["active_parent_query_start"] == lifecycle._utc_iso(active_parent_start)
 
 
 def test_rest_active_cohort_is_time_bounded_and_fails_closed_at_cap():
@@ -578,15 +632,125 @@ def test_local_segments_enforce_cumulative_uncompressed_limit(monkeypatch, tmp_p
         lifecycle.read_job_directory(jobs_path)
 
 
-def test_live_collection_always_scans_retention_plus_parent_lookback(monkeypatch, tmp_path):
+def test_current_full_document_migrates_to_incremental_window_with_overlap(
+    monkeypatch, tmp_path
+):
     jobs_path = tmp_path / "jobs"
     summary_path = tmp_path / "summary.json"
+    prior_end = NOW - timedelta(hours=1)
+    _write_previous_generation(
+        jobs_path,
+        summary_path,
+        provenance={
+            "last_successful_query_start": "2026-08-01T19:00:00Z",
+            "last_successful_query_end": lifecycle._utc_iso(prior_end),
+            # Current published documents do not yet have a dedicated
+            # last-full field. Their existing mode makes migration unambiguous.
+            "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
+        },
+    )
+    observed = {}
+    monkeypatch.setattr(
+        lifecycle,
+        "fetch_rest_target_queues",
+        lambda token: (_queue_by_id(), {"complete": True, "pages": 1}),
+    )
+
+    def fetch_jobs(
+        token, *, query_start, query_end, active_created_from, queue_by_id
+    ):
+        observed.update(
+            start=query_start,
+            active_start=active_created_from,
+            end=query_end,
+            queues=queue_by_id,
+        )
+        return {}, {"complete": True, "cohorts": {}}
+
+    monkeypatch.setattr(lifecycle, "fetch_rest_lifecycle_jobs", fetch_jobs)
+    summary = lifecycle.collect_lifecycle(
+        "token", jobs_path=jobs_path, summary_path=summary_path, now=NOW
+    )
+    assert observed == {
+        "start": prior_end - timedelta(hours=lifecycle.INCREMENTAL_OVERLAP_HOURS),
+        "active_start": NOW - timedelta(
+            days=lifecycle.RETENTION_DAYS + lifecycle.PARENT_BUILD_LOOKBACK_DAYS
+        ),
+        "end": NOW,
+        "queues": _queue_by_id(),
+    }
+    provenance = summary["provenance"]
+    assert provenance["last_successful_query_mode"] == lifecycle.INCREMENTAL_QUERY_MODE
+    assert provenance["last_full_reconciliation_end"] == lifecycle._utc_iso(prior_end)
+    assert provenance["collection"]["watermark_before"] == lifecycle._utc_iso(prior_end)
+    assert provenance["collection"]["incremental_overlap_hours"] == 6
+    assert provenance["collection"]["active_parent_query_start"] == lifecycle._utc_iso(
+        NOW - timedelta(days=lifecycle.RETENTION_DAYS + lifecycle.PARENT_BUILD_LOOKBACK_DAYS)
+    )
+
+
+def test_periodic_full_reconciliation_replaces_incremental_window(monkeypatch, tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    _write_previous_generation(
+        jobs_path,
+        summary_path,
+        provenance={
+            "last_successful_query_start": lifecycle._utc_iso(NOW - timedelta(hours=7)),
+            "last_successful_query_end": lifecycle._utc_iso(NOW - timedelta(hours=1)),
+            "last_successful_query_mode": lifecycle.INCREMENTAL_QUERY_MODE,
+            "last_full_reconciliation_end": lifecycle._utc_iso(
+                NOW - timedelta(hours=lifecycle.FULL_RECONCILIATION_INTERVAL_HOURS)
+            ),
+        },
+    )
+    observed = {}
+    monkeypatch.setattr(
+        lifecycle,
+        "fetch_rest_target_queues",
+        lambda token: (_queue_by_id(), {"complete": True, "pages": 1}),
+    )
+
+    def fetch_jobs(
+        token, *, query_start, query_end, active_created_from, queue_by_id
+    ):
+        observed.update(
+            start=query_start,
+            active_start=active_created_from,
+            end=query_end,
+            queues=queue_by_id,
+        )
+        return {}, {"complete": True, "cohorts": {}}
+
+    monkeypatch.setattr(lifecycle, "fetch_rest_lifecycle_jobs", fetch_jobs)
+    summary = lifecycle.collect_lifecycle(
+        "token", jobs_path=jobs_path, summary_path=summary_path, now=NOW
+    )
+
+    assert observed["start"] == NOW - timedelta(
+        days=lifecycle.RETENTION_DAYS + lifecycle.PARENT_BUILD_LOOKBACK_DAYS
+    )
+    assert observed["active_start"] == observed["start"]
+    provenance = summary["provenance"]
+    assert provenance["last_successful_query_mode"] == lifecycle.FULL_QUERY_MODE
+    assert provenance["last_full_reconciliation_end"] == lifecycle._utc_iso(NOW)
+    assert provenance["collection"]["selection_reason"] == "periodic_full_reconciliation"
+
+
+def test_unbound_legacy_watermark_falls_back_to_full_reconciliation(monkeypatch, tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    # A summary without its exact ledger generation is not safe incremental
+    # state, even if it contains a syntactically valid legacy query end.
     summary_path.write_text(
         json.dumps(
             {
                 "schema_version": 1,
                 "scope": {"queues": list(AMD_METRIC_TARGET_QUEUES)},
-                "provenance": {"last_successful_query_end": "2026-08-11T19:59:00Z"},
+                "provenance": {
+                    "last_successful_query_end": "2026-08-11T19:59:00Z",
+                    "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
+                },
             }
         )
     )
@@ -597,21 +761,31 @@ def test_live_collection_always_scans_retention_plus_parent_lookback(monkeypatch
         lambda token: (_queue_by_id(), {"complete": True, "pages": 1}),
     )
 
-    def fetch_jobs(token, *, query_start, query_end, queue_by_id):
-        observed.update(start=query_start, end=query_end, queues=queue_by_id)
+    def fetch_jobs(
+        token, *, query_start, query_end, active_created_from, queue_by_id
+    ):
+        observed.update(
+            start=query_start,
+            active_start=active_created_from,
+            end=query_end,
+            queues=queue_by_id,
+        )
         return {}, {"complete": True, "cohorts": {}}
 
     monkeypatch.setattr(lifecycle, "fetch_rest_lifecycle_jobs", fetch_jobs)
     summary = lifecycle.collect_lifecycle(
         "token", jobs_path=jobs_path, summary_path=summary_path, now=NOW
     )
-    assert observed == {
-        "start": NOW
-        - timedelta(days=lifecycle.RETENTION_DAYS + lifecycle.PARENT_BUILD_LOOKBACK_DAYS),
-        "end": NOW,
-        "queues": _queue_by_id(),
-    }
-    assert summary["provenance"]["last_successful_query_mode"] == ("full_retention_cohort_union")
+
+    assert observed["start"] == NOW - timedelta(
+        days=lifecycle.RETENTION_DAYS + lifecycle.PARENT_BUILD_LOOKBACK_DAYS
+    )
+    assert observed["active_start"] == observed["start"]
+    assert summary["provenance"]["last_successful_query_mode"] == lifecycle.FULL_QUERY_MODE
+    assert (
+        summary["provenance"]["collection"]["selection_reason"]
+        == "missing_or_invalid_watermark"
+    )
 
 
 def test_git_ref_absence_is_noop_but_unreadable_established_ledger_fails(monkeypatch):

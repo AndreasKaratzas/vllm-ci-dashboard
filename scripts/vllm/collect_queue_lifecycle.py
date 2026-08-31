@@ -12,7 +12,9 @@ timestamps instead.  It deliberately keeps the three concepts separate:
 The compact daily gzip job segments are published atomically after a stable-ID
 merge and seven-day prune. Publishing is fail-closed: incomplete pagination,
 unresolved target queues, missing job UUIDs, or malformed retained history
-abort before either output is replaced.
+abort before either output is replaced. Successful runs advance a durable
+query watermark; hourly scans re-read a bounded overlap and a periodic full
+retention scan reconciles jobs attached to older parent builds.
 """
 
 from __future__ import annotations
@@ -64,6 +66,15 @@ SCHEMA_VERSION = 1
 RETENTION_DAYS = 7
 ROLLING_WINDOW_HOURS = 2
 PARENT_BUILD_LOOKBACK_DAYS = 3
+# Successful live collections normally resume from their prior exclusive
+# query horizon. Re-reading a bounded overlap absorbs delayed Buildkite index
+# visibility and page-number drift without paying for the full retained window
+# on every hourly run. A daily full reconciliation remains the backstop for
+# jobs dynamically added to older parent builds and for legacy/invalid state.
+INCREMENTAL_OVERLAP_HOURS = 6
+FULL_RECONCILIATION_INTERVAL_HOURS = 24
+FULL_QUERY_MODE = "full_retention_cohort_union"
+INCREMENTAL_QUERY_MODE = "incremental_overlap_cohort_union"
 # Ten thousand organization builds per cohort is already far beyond the
 # expected retained volume. Reaching this bound is an incomplete collection,
 # never a reason to publish a truncated series.
@@ -298,11 +309,15 @@ def fetch_rest_lifecycle_jobs(
     *,
     query_start: datetime,
     query_end: datetime,
+    active_created_from: datetime | None = None,
     queue_by_id: dict[str, str],
     max_pages: int = REST_PAGE_SAFETY_CAP,
     page_fetcher=None,
 ) -> tuple[dict[str, dict], dict]:
     """Union newly-created, active, and closing-finished organization cohorts."""
+    active_parent_start = active_created_from or query_start
+    if active_parent_start > query_start:
+        raise ValueError("active parent horizon cannot be narrower than the event query")
     fetch_page = page_fetcher or _request_build_page
     path = f"/organizations/{BK_ORG}/builds"
     common = {
@@ -321,12 +336,12 @@ def fetch_rest_lifecycle_jobs(
             "active",
             # Requests encodes a list-valued parameter as repeated state[]
             # values, matching the documented organization Builds API. Keep
-            # this cohort inside the same parent-build horizon as the created
-            # cohort: an unbounded active scan can exhaust the pagination cap
-            # on organizations with a large historical blocked-build backlog.
+            # this cohort bounded, but independent from the incremental
+            # event watermark. A build created before the overlap can remain
+            # active and acquire runnable/started/finished job transitions now.
             {
                 "state[]": list(active_states),
-                "created_from": _utc_iso(query_start),
+                "created_from": _utc_iso(active_parent_start),
                 "created_to": _utc_iso(query_end),
             },
         ),
@@ -379,7 +394,9 @@ def fetch_rest_lifecycle_jobs(
         "organization_wide": True,
         "cohorts": cohort_coverage,
         "active_build_states": list(active_states),
-        "parent_build_query_start": _utc_iso(query_start),
+        "parent_build_query_start": _utc_iso(active_parent_start),
+        "event_cohort_query_start": _utc_iso(query_start),
+        "active_parent_query_start": _utc_iso(active_parent_start),
         "query_horizon_exclusive": _utc_iso(query_end),
         "raw_builds": raw_builds,
         "raw_command_jobs": raw_command_jobs,
@@ -1155,6 +1172,81 @@ def _safe_previous_provenance(path: Path, *, jobs_path: Path | None = None) -> d
     return provenance
 
 
+def _provenance_datetime(value: object) -> datetime | None:
+    """Return a trustworthy UTC provenance timestamp, or ``None``.
+
+    Watermarks are control-plane state, so unlike Buildkite payload timestamps
+    a timezone-less value is not safe to interpret using the runner's locale.
+    Invalid state selects a full reconciliation rather than narrowing a query.
+    """
+    parsed = parse_iso(value if isinstance(value, str) else None)
+    if parsed is None or parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _previous_full_reconciliation(previous_provenance: dict) -> datetime | None:
+    """Read the full-reconciliation watermark, including schema-v1 migration.
+
+    Existing published documents predate ``last_full_reconciliation_end`` but
+    identify their last successful query as ``full_retention_cohort_union``.
+    Treat that query end as the initial full-reconciliation watermark. This is
+    safe only after ``_safe_previous_provenance`` has bound the summary to the
+    exact retained ledger generation.
+    """
+    if "last_full_reconciliation_end" in previous_provenance:
+        # Once the additive field exists, malformed or missing content is not a
+        # legacy document and must fail safe to a new full reconciliation.
+        return _provenance_datetime(
+            previous_provenance.get("last_full_reconciliation_end")
+        )
+    if previous_provenance.get("last_successful_query_mode") == FULL_QUERY_MODE:
+        return _provenance_datetime(previous_provenance.get("last_successful_query_end"))
+    return None
+
+
+def _collection_query_plan(previous_provenance: dict, *, now: datetime) -> dict:
+    """Choose an incremental overlap or fail-safe full reconciliation."""
+    full_start = now - timedelta(
+        days=RETENTION_DAYS + PARENT_BUILD_LOOKBACK_DAYS
+    )
+    watermark = _provenance_datetime(
+        previous_provenance.get("last_successful_query_end")
+    )
+    last_full = _previous_full_reconciliation(previous_provenance)
+    reason = "incremental_watermark"
+
+    if watermark is None:
+        reason = "missing_or_invalid_watermark"
+    elif watermark > now:
+        reason = "future_watermark"
+    elif last_full is None:
+        reason = "missing_or_invalid_full_reconciliation_watermark"
+    elif last_full > now or watermark < last_full:
+        reason = "inconsistent_reconciliation_watermark"
+    elif now - last_full >= timedelta(hours=FULL_RECONCILIATION_INTERVAL_HOURS):
+        reason = "periodic_full_reconciliation"
+    else:
+        return {
+            "query_start": max(
+                full_start,
+                watermark - timedelta(hours=INCREMENTAL_OVERLAP_HOURS),
+            ),
+            "query_mode": INCREMENTAL_QUERY_MODE,
+            "selection_reason": reason,
+            "watermark_before": _utc_iso(watermark),
+            "last_full_reconciliation_end": _utc_iso(last_full),
+        }
+
+    return {
+        "query_start": full_start,
+        "query_mode": FULL_QUERY_MODE,
+        "selection_reason": reason,
+        "watermark_before": _utc_iso(watermark) if watermark is not None else None,
+        "last_full_reconciliation_end": _utc_iso(now),
+    }
+
+
 def build_summary(
     observations: list[dict],
     *,
@@ -1182,6 +1274,15 @@ def build_summary(
         if collection
         else previous_provenance.get("last_successful_query_mode")
     )
+    previous_full_reconciliation = _previous_full_reconciliation(previous_provenance)
+    if collection and query_mode == FULL_QUERY_MODE:
+        last_full_reconciliation = _provenance_datetime(last_query_end)
+    elif collection:
+        last_full_reconciliation = _provenance_datetime(
+            collection.get("last_full_reconciliation_end")
+        ) or previous_full_reconciliation
+    else:
+        last_full_reconciliation = previous_full_reconciliation
     query_start_dt = parse_iso(str(query_start or ""))
     query_end_dt = parse_iso(str(last_query_end or ""))
     query_covers_window = bool(
@@ -1314,6 +1415,11 @@ def build_summary(
             "last_successful_query_start": query_start,
             "last_successful_query_end": last_query_end,
             "last_successful_query_mode": query_mode,
+            "last_full_reconciliation_end": (
+                _utc_iso(last_full_reconciliation)
+                if last_full_reconciliation is not None
+                else None
+            ),
             "ledger": ledger or {},
             "collection": collection,
         },
@@ -1345,16 +1451,27 @@ def collect_lifecycle(
     retention_start = current - timedelta(days=RETENTION_DAYS)
     existing = read_job_directory(jobs_path)
     previous = _safe_previous_provenance(summary_path, jobs_path=jobs_path)
-    # Re-scan the retained event window plus a small parent-build lookback.
-    # This catches ordinary dynamic-pipeline delay without claiming that REST
-    # parent-build filters can discover jobs added to arbitrarily old builds.
-    query_start = retention_start - timedelta(days=PARENT_BUILD_LOOKBACK_DAYS)
-    query_mode = "full_retention_cohort_union"
+    query_plan = _collection_query_plan(previous, now=current)
+    query_start = query_plan["query_start"]
+    active_parent_query_start = current - timedelta(
+        days=RETENTION_DAYS + PARENT_BUILD_LOOKBACK_DAYS
+    )
+    query_mode = query_plan["query_mode"]
+    log.info(
+        "Lifecycle query mode=%s event_start=%s active_parent_start=%s "
+        "watermark=%s reason=%s",
+        query_mode,
+        _utc_iso(query_start),
+        _utc_iso(active_parent_query_start),
+        query_plan["watermark_before"],
+        query_plan["selection_reason"],
+    )
     queue_by_id, queue_discovery = fetch_rest_target_queues(token)
     jobs, source_coverage = fetch_rest_lifecycle_jobs(
         token,
         query_start=query_start,
         query_end=current,
+        active_created_from=active_parent_query_start,
         queue_by_id=queue_by_id,
     )
     unique_job_count = len(jobs)
@@ -1380,11 +1497,19 @@ def collect_lifecycle(
         "complete": True,
         "query_mode": query_mode,
         "query_start": _utc_iso(query_start),
+        "active_parent_query_start": _utc_iso(active_parent_query_start),
         "query_end_exclusive": _utc_iso(current),
         "queue_discovery": queue_discovery,
         "source_coverage": source_coverage,
         "organization_wide": True,
         "parent_build_lookback_days": PARENT_BUILD_LOOKBACK_DAYS,
+        "incremental_overlap_hours": INCREMENTAL_OVERLAP_HOURS,
+        "full_reconciliation_interval_hours": FULL_RECONCILIATION_INTERVAL_HOURS,
+        "selection_reason": query_plan["selection_reason"],
+        "watermark_before": query_plan["watermark_before"],
+        "last_full_reconciliation_end": query_plan[
+            "last_full_reconciliation_end"
+        ],
         "unique_jobs": unique_job_count,
         "timestamp_coverage": timestamp_coverage,
         "target_queues": list(AMD_METRIC_TARGET_QUEUES),

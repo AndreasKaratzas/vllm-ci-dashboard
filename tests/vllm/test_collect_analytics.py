@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from vllm import collect_analytics as ca
+from vllm.ci.analytics_cache import CacheValidationError
 
 
 NOW = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
@@ -41,6 +42,12 @@ def test_standardized_platform_labels_normalize_and_preserve_queue_family():
     assert ca.queue_from_result_job_name(
         ":nvidia: (L4) Distributed Models"
     ) == "nvidia_l4"
+    assert ca.normalize_job(
+        "gpu_1: :nvidia: (H200 MIG 18GB) Basic Correctness"
+    ) == "Basic Correctness"
+    assert ca.queue_from_result_job_name(
+        "gpu_1: :nvidia: (H200 MIG 18GB) Basic Correctness"
+    ) == "nvidia_h200_mig_18gb"
 
 
 def test_analytics_writer_uses_compact_json(tmp_path):
@@ -99,7 +106,8 @@ def test_analytics_writer_rejects_over_budget_payload_without_replacing_baseline
 
 def test_private_analytics_budget_has_github_headroom():
     assert ca.PRIVATE_ANALYTICS_TARGET_BYTES == 64 * 1024 * 1024
-    assert ca.PRIVATE_ANALYTICS_MAX_BYTES == 90 * 1024 * 1024
+    assert ca.PRIVATE_ANALYTICS_MAX_BYTES == 85 * 1024 * 1024
+    assert ca.PRIVATE_ANALYTICS_MAX_BYTES < 90_000_000
     assert ca.PRIVATE_ANALYTICS_TARGET_BYTES < ca.PRIVATE_ANALYTICS_MAX_BYTES
     assert ca.PRIVATE_ANALYTICS_MAX_BYTES < ca.GITHUB_BLOB_MAX_BYTES
 
@@ -538,6 +546,15 @@ def test_bk_get_retries_transport_errors_with_exponential_backoff(monkeypatch, e
     assert timeouts == [(10, 30), (10, 45), (10, 60)]
 
 
+def test_bk_get_preserves_single_object_response_shape(monkeypatch):
+    success = ca.requests.Response()
+    success.status_code = 200
+    success._content = b'{"number": 42}'
+    monkeypatch.setattr(ca.requests, "get", lambda *args, **kwargs: success)
+
+    assert ca.bk_get("/builds/42", "fake-token") == {"number": 42}
+
+
 def test_bk_get_read_timeout_growth_is_capped():
     assert ca._request_timeout(0) == (10, 30)
     assert ca._request_timeout(1) == (10, 45)
@@ -723,21 +740,45 @@ class TestWindowedAnalytics:
         assert provenance["exhaustive"] is True
         assert provenance["termination_reason"] == "short_page"
 
-    def test_fetch_pipeline_builds_ignores_malformed_rows(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "invalid_row",
+        [
+            pytest.param(None, id="not-an-object"),
+            pytest.param({"number": "not-a-number"}, id="invalid-number"),
+            pytest.param({"number": 0}, id="non-positive-number"),
+            pytest.param({"number": True}, id="boolean-number"),
+        ],
+    )
+    def test_fetch_pipeline_builds_fails_closed_on_invalid_rows(
+        self, monkeypatch, invalid_row
+    ):
         monkeypatch.setattr(
             ca,
             "bk_get",
             lambda path, token, params=None: [
-                None,
-                {"number": "not-a-number"},
+                invalid_row,
                 {"number": 42, "created_at": "2026-07-12T09:00:00Z"},
             ],
         )
 
-        builds, provenance = ca.fetch_pipeline_builds("ci", "fake-token", 30)
+        with pytest.raises(RuntimeError, match="invalid row 1 on page 1"):
+            ca.fetch_pipeline_builds("ci", "fake-token", 30)
 
-        assert [build["number"] for build in builds] == [42]
-        assert provenance["exhaustive"] is True
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(None, id="null"),
+            pytest.param({}, id="object"),
+            pytest.param("not-a-list", id="string"),
+        ],
+    )
+    def test_fetch_pipeline_builds_fails_closed_on_non_list_page(
+        self, monkeypatch, payload
+    ):
+        monkeypatch.setattr(ca, "bk_get", lambda path, token, params=None: payload)
+
+        with pytest.raises(RuntimeError, match="expected a JSON list"):
+            ca.fetch_pipeline_builds("ci", "fake-token", 30)
 
     def test_cached_aliases_preserve_nightly_filter_and_queue(self):
         cached = _raw_api_build(42)
@@ -909,6 +950,68 @@ class TestIncrementalAnalyticsCache:
         assert _iso_or_datetime(reloaded.watermark) == NOW
         assert _iso_or_datetime(reloaded.complete_from) == NOW - timedelta(days=30)
 
+    def test_incremental_cache_write_pressure_keeps_fetched_builds_without_full_refetch(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        cache_dir = _write_test_build_cache(
+            tmp_path,
+            builds=[_raw_api_build(1)],
+        )
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return []
+
+        def reject_cache_write(*args, **kwargs):
+            raise CacheValidationError("oversize")
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        monkeypatch.setattr(ca, "write_build_cache", reject_cache_write)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        assert [build["number"] for build in builds] == [1]
+        assert provenance["fetch_mode"] == "incremental"
+        assert provenance["exhaustive"] is True
+        assert provenance["cache"]["cache_written"] is False
+        assert provenance["cache"]["cache_disabled"] is True
+        assert provenance["cache"]["cache_disabled_reason"] == "write_oversize"
+        assert len(calls) == 2
+        assert "continuing with fetched builds" in caplog.text
+
+    def test_full_fetch_cache_write_pressure_keeps_complete_builds(
+        self, monkeypatch, tmp_path, caplog
+    ):
+        cache_dir = tmp_path / ca.CACHE_DIR_NAME
+        full = _raw_api_build(22, marker="cache-disabled")
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return [full]
+
+        def reject_cache_write(*args, **kwargs):
+            raise CacheValidationError("oversize")
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        monkeypatch.setattr(ca, "write_build_cache", reject_cache_write)
+
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW
+        )
+
+        assert [build["number"] for build in builds] == [22]
+        assert provenance["fetch_mode"] == "full"
+        assert provenance["exhaustive"] is True
+        assert provenance["cache"]["cache_written"] is False
+        assert provenance["cache"]["cache_disabled"] is True
+        assert provenance["cache"]["cache_disabled_reason"] == "write_oversize"
+        assert len(calls) == 1
+        assert "continuing with fetched builds" in caplog.text
+
     def test_running_cached_job_is_refreshed_from_individual_endpoint(
         self, monkeypatch, tmp_path
     ):
@@ -922,7 +1025,7 @@ class TestIncrementalAnalyticsCache:
             if path.endswith("/builds"):
                 return []
             if path.endswith("/builds/7"):
-                return [completed]
+                return completed
             raise AssertionError(path)
 
         monkeypatch.setattr(ca, "bk_get", fake_get)
@@ -934,9 +1037,27 @@ class TestIncrementalAnalyticsCache:
         assert builds[0]["state"] == "passed"
         assert builds[0]["jobs"][0]["state"] == "passed"
         assert builds[0]["commit"].endswith("-complete")
+        assert provenance["fetch_mode"] == "incremental"
         assert provenance["cache"]["refresh_build_numbers"] == [7]
         individual = next(call for call in calls if call[0].endswith("/builds/7"))
         assert individual[1] == {"include_retried_jobs": "true"}
+        assert len(calls) == 3
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param([{"number": 7}], id="list-wrapper"),
+            pytest.param({"number": 8}, id="wrong-build"),
+            pytest.param(None, id="null"),
+        ],
+    )
+    def test_individual_build_refresh_requires_matching_object(
+        self, monkeypatch, payload
+    ):
+        monkeypatch.setattr(ca, "bk_get", lambda path, token, params=None: payload)
+
+        with pytest.raises(RuntimeError, match="matching JSON build object"):
+            ca._fetch_individual_build("ci", "fake-token", 7)
 
     def test_finished_leg_recovers_build_created_before_overlap(
         self, monkeypatch, tmp_path
@@ -1311,6 +1432,42 @@ class TestIncrementalAnalyticsCache:
         assert {block["generated_at"] for block in payload.values()} == {
             "2026-04-20T12:00:00Z"
         }
+
+    @pytest.mark.parametrize("cache_written", [True, False])
+    def test_main_emits_fail_closed_actions_cache_save_decision(
+        self, monkeypatch, tmp_path, cache_written
+    ):
+        github_output = tmp_path / "github-output.txt"
+
+        def fake_fetch(_pipeline_slug, _token, _days):
+            return [], {
+                "exhaustive": True,
+                "cache": {"cache_written": cache_written},
+            }
+
+        monkeypatch.setenv("BUILDKITE_TOKEN", "fake-token")
+        monkeypatch.setattr(ca, "fetch_pipeline_builds", fake_fetch)
+        monkeypatch.setattr(ca, "load_test_result_builds", lambda *args, **kwargs: [])
+        monkeypatch.setattr(
+            ca.sys,
+            "argv",
+            [
+                "collect_analytics.py",
+                "--days",
+                "30",
+                "--pipeline",
+                "ci",
+                "--output",
+                str(tmp_path),
+                "--github-output",
+                str(github_output),
+            ],
+        )
+
+        ca.main()
+
+        expected = "true" if cache_written else "false"
+        assert github_output.read_text() == f"analytics_cache_save={expected}\n"
 
 
 def _iso_or_datetime(value) -> datetime | None:

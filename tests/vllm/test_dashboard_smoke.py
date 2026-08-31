@@ -281,7 +281,11 @@ class TestSiteBuildAssembly:
             ".github/workflows/pr-preview.yml",
         ):
             text = (ROOT / rel).read_text()
-            assert "python scripts/build_site.py --cache-bust-index" in text, (
+            commands = (
+                "python scripts/build_site.py --cache-bust-index",
+                "trusted-base/scripts/build_site.py --cache-bust-index",
+            )
+            assert any(command in text for command in commands), (
                 f"{rel} should assemble the published site via scripts/build_site.py"
             )
 

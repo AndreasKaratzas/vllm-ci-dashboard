@@ -235,7 +235,7 @@ def _assemble_fixture(
     # These represent each sensitive or retired data class that collectors
     # keep locally but the static site must never expose.
     for relative in (
-        "vllm/ci/.cache/builds_amd.json",
+        "vllm/ci/.cache/nightly-rosters-v2/amd/2026-01-01_1.json",
         "vllm/ci/test_results/2026-01-01_amd.jsonl",
         "vllm/ci/agent_health/node_days.jsonl",
         "private-reports/example/results.jsonl",
@@ -332,6 +332,54 @@ def test_site_assembly_excludes_private_raw_state_and_retired_artifacts(
     for relative in private_sources:
         assert not (output / "data" / relative).exists(), relative
     assert not (output / "data" / PUBLICATION_STATE_INPUT).exists()
+
+
+def test_site_assembly_enforces_sub_ninety_mb_file_budget(tmp_path: Path) -> None:
+    assert BUILD_SITE.SITE_FILE_MAX_BYTES == 85 * 1024 * 1024
+    assert BUILD_SITE.SITE_FILE_MAX_BYTES < 90_000_000
+    assert BUILD_SITE.SITE_TOTAL_MAX_BYTES == 384 * 1024 * 1024
+    assert BUILD_SITE.SITE_MAX_FILES == 10_000
+    (tmp_path / "small.json").write_bytes(b"x" * 8)
+    BUILD_SITE.validate_site_file_sizes(tmp_path, max_bytes=8)
+    (tmp_path / "large.json").write_bytes(b"x" * 9)
+
+    with pytest.raises(RuntimeError, match="large.json"):
+        BUILD_SITE.validate_site_file_sizes(tmp_path, max_bytes=8)
+
+
+def test_site_assembly_enforces_aggregate_and_file_count_budgets(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "one.json").write_bytes(b"x" * 5)
+    (tmp_path / "two.json").write_bytes(b"x" * 4)
+
+    with pytest.raises(RuntimeError, match="aggregate publication budget"):
+        BUILD_SITE.validate_site_file_sizes(
+            tmp_path,
+            max_bytes=8,
+            max_total_bytes=8,
+            max_files=2,
+        )
+
+    with pytest.raises(RuntimeError, match=r"2 files \(max 1\)"):
+        BUILD_SITE.validate_site_file_sizes(
+            tmp_path,
+            max_bytes=8,
+            max_total_bytes=9,
+            max_files=1,
+        )
+
+
+def test_site_shell_copy_rejects_symlinks(tmp_path: Path) -> None:
+    source = tmp_path / "docs"
+    source.mkdir()
+    (source / "index.html").write_text("public")
+    private = tmp_path / "private.txt"
+    private.write_text("must not be followed")
+    (source / "leak.txt").symlink_to(private)
+
+    with pytest.raises(ValueError, match="cannot contain symlinks"):
+        BUILD_SITE.copy_tree_contents(source, tmp_path / "site")
 
 
 @pytest.mark.parametrize(
@@ -649,7 +697,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/kill_auth.enc.json",
         "vllm/ci/gating_proposals.json",
         "vllm/ci/ready_tickets.json",
-        "vllm/ci/.cache/builds_amd.json",
+        "vllm/ci/.cache/nightly-rosters-v2/amd/2026-01-01_1.json",
         "vllm/ci/agent_health/node_days.jsonl",
         "vllm/ci/dns_health/scan_state.json.gz",
         "vllm/ci/dns_health/scan_state.fernet",

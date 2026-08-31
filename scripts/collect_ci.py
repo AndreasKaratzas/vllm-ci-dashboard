@@ -26,9 +26,14 @@ from vllm.ci.buildkite_client import (
     fetch_build_detail,
     fetch_build_jobs,
     fetch_nightly_builds,
+    validate_nightly_roster_cache,
     write_nightly_build_cache,
 )
 from vllm.ci.log_parser import parse_job_results
+from vllm.ci.dns_classification_cache import (
+    DnsClassificationCache,
+    load_optional_dns_classification_cache,
+)
 from vllm.ci.analyzer import (
     _EXCLUDE_PATTERNS,
     apply_quarantine,
@@ -61,6 +66,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
 QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
 AMD_NIGHTLY_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
+DNS_CLASSIFICATION_CACHE = Path(".cache") / "dns-classifications-v1"
 COMPLETE_JOB_STATES = frozenset(
     set(cfg.TERMINAL_STATES)
     | set(cfg.BLOCKED_JOB_STATES)
@@ -422,9 +428,10 @@ def _cache_covers_all_jobs(
     attempts are excluded by ``_nightly_test_jobs``.
     """
     # Need the full build detail (with ``jobs`` populated) to enumerate
-    # current jobs. The nightly list endpoint may return builds with only a
-    # summary, so fetch detail when jobs is missing/empty.
-    if "jobs" not in build or not build.get("jobs"):
+    # current jobs. The metadata-only nightly list omits ``jobs``; an explicit
+    # empty list, however, is a complete roster whose cache coverage is
+    # vacuously satisfied and must not trigger a second detail request.
+    if "jobs" not in build or not isinstance(build.get("jobs"), list):
         try:
             detail = fetch_build_detail(pipeline_key, build_num)
             # Keep this exact response on the shared build object. Downstream
@@ -442,6 +449,10 @@ def _cache_covers_all_jobs(
             )
             return True
 
+    roster_jobs = _nightly_test_jobs(build)
+    if not roster_jobs:
+        return True
+
     if not _is_complete_nightly_build(build):
         log.info(
             "  Build #%d: current roster is provisional; cache cannot be reused",
@@ -449,7 +460,6 @@ def _cache_covers_all_jobs(
         )
         return False
 
-    roster_jobs = _nightly_test_jobs(build)
     current_roster_ids = {
         str(job.get("id") or "").strip()
         for job in roster_jobs
@@ -506,6 +516,8 @@ def collect_pipeline(
     days: int,
     output_dir: Path,
     dry_run: bool = False,
+    dns_classification_cache: DnsClassificationCache | None = None,
+    roster_cache_errors: list[str] | None = None,
 ) -> tuple[list[dict], dict[int, list[TestResult]]]:
     """Collect test data for a single pipeline.
 
@@ -515,7 +527,12 @@ def collect_pipeline(
     log.info("=== Collecting %s pipeline ===", pipeline_key)
 
     cache_dir = output_dir / ".cache"
-    builds = fetch_nightly_builds(pipeline_key, days=days, cache_dir=cache_dir)
+    builds = fetch_nightly_builds(
+        pipeline_key,
+        days=days,
+        cache_dir=cache_dir,
+        cache_errors=roster_cache_errors,
+    )
 
     if not builds:
         log.warning("No nightly builds found for %s in the last %d days", pipeline_key, days)
@@ -558,6 +575,7 @@ def collect_pipeline(
         created = build.get("created_at", "")
         date = nightly_date(created)
         state = build.get("state", "")
+        detail_hydrated_from_api = False
 
         verify_candidate = _should_verify_cache_coverage(
             build_num,
@@ -575,6 +593,7 @@ def collect_pipeline(
                 detail = fetch_build_detail(pipeline_key, build_num)
                 build.clear()
                 build.update(detail)
+                detail_hydrated_from_api = True
                 state = build.get("state", state)
             except Exception as exc:
                 log.warning(
@@ -635,14 +654,35 @@ def collect_pipeline(
         log.info("  Build #%d (%s): fetching test results...%s",
                  build_num, date, f" (build still {state})" if is_running else "")
 
-        # Fetch full build detail if jobs not included or build still running
-        if "jobs" not in build or not build["jobs"] or is_running:
+        # The persistent roster cache deliberately contains no log URLs,
+        # commands, agent metadata, or other execution details. It is enough
+        # to validate an existing canonical JSONL, but a build whose logs must
+        # be parsed needs a fresh detail response rather than using that
+        # privacy-minimized projection as if it were a complete API object.
+        needs_log_hydration = any(
+            job.get("type") == "script"
+            and not job.get("retried_in_job_id")
+            and str(job.get("state") or "").casefold() in cfg.TERMINAL_STATES
+            and str(job.get("state") or "").casefold() not in cfg.BLOCKED_JOB_STATES
+            and not job.get("raw_log_url")
+            for job in build.get("jobs") or []
+            if isinstance(job, dict)
+        )
+        # Fetch full build detail if jobs are absent, provisional, or only a
+        # persistent roster projection without the ephemeral log location.
+        if (
+            "jobs" not in build
+            or not build["jobs"]
+            or is_running
+            or (needs_log_hydration and not detail_hydrated_from_api)
+        ):
             detail = fetch_build_detail(pipeline_key, build_num)
             # Keep the fetched detail in ``builds`` as well as this loop
             # variable. Later reporting must be able to see blocked jobs even
             # when there are no test-result rows for the build.
             build.clear()
             build.update(detail)
+            detail_hydrated_from_api = True
 
         if not _is_complete_nightly_build(build):
             jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
@@ -679,7 +719,15 @@ def collect_pipeline(
         # Parallelize log fetching — each job log is an independent HTTP request
         from concurrent.futures import ThreadPoolExecutor, as_completed
         def _parse_one(job):
-            return parse_job_results(job, build_num, slug, date)
+            if dns_classification_cache is None:
+                return parse_job_results(job, build_num, slug, date)
+            return parse_job_results(
+                job,
+                build_num,
+                slug,
+                date,
+                dns_classification_sink=dns_classification_cache.observe_job_log,
+            )
 
         with ThreadPoolExecutor(max_workers=10) as pool:
             futures = {pool.submit(_parse_one, job): job for job in test_jobs}
@@ -705,7 +753,16 @@ def collect_pipeline(
     # ``fetch_nightly_builds`` now performs a lightweight metadata-only list
     # query. Persist the rosters hydrated above so historical nightly summaries
     # keep their exact jobs without downloading them again on the next run.
-    write_nightly_build_cache(pipeline_key, builds, cache_dir)
+    try:
+        write_nightly_build_cache(pipeline_key, builds, cache_dir)
+    except (OSError, ValueError) as exc:
+        if roster_cache_errors is not None:
+            roster_cache_errors.append(f"write_{type(exc).__name__}")
+        log.warning(
+            "Could not finalize optional private nightly roster cache for %s (%s)",
+            pipeline_key,
+            type(exc).__name__,
+        )
 
     return builds, results_by_build
 
@@ -961,6 +1018,20 @@ def write_amd_nightly_snapshot(build: dict, output_dir: Path) -> Path:
     return path
 
 
+def _append_private_cache_outputs(
+    path: Path,
+    *,
+    roster_cache_save: bool,
+    dns_cache_save: bool,
+) -> None:
+    """Emit fail-closed upload decisions for the two optional private caches."""
+    with Path(path).open("a", encoding="utf-8") as handle:
+        handle.write(
+            f"roster_cache_save={'true' if roster_cache_save else 'false'}\n"
+        )
+        handle.write(f"dns_cache_save={'true' if dns_cache_save else 'false'}\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collect vLLM CI test data from Buildkite")
     parser.add_argument("--days", type=int, default=8, help="Days of history (8 = covers collection lag and retries)")
@@ -972,21 +1043,102 @@ def main():
                         help="Skip analysis, only collect raw data")
     parser.add_argument("--skip-config-parity", action="store_true",
                         help="Skip YAML config parity analysis")
+    parser.add_argument(
+        "--dns-classification-cache",
+        type=Path,
+        help="Private DNS classification shard directory (defaults under --output/.cache)",
+    )
+    parser.add_argument(
+        "--github-output",
+        type=Path,
+        help="append private-cache save decisions to this GitHub output file",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output)
     results_dir = output_dir / "test_results"
+    cache_dir = output_dir / ".cache"
+    dns_cache_path = args.dns_classification_cache or output_dir / DNS_CLASSIFICATION_CACHE
+    dns_classification_cache = None
+    cache_was_reset = False
+    if not args.dry_run:
+        dns_classification_cache, cache_was_reset = load_optional_dns_classification_cache(
+            dns_cache_path
+        )
+    if cache_was_reset:
+        log.warning(
+            "Discarded invalid private DNS classification cache; continuing with cache misses"
+        )
 
     pipelines = ["amd", "upstream"] if args.pipeline == "both" else [args.pipeline]
 
     # Phase 1: Collect data from Buildkite
     all_builds: dict[str, list[dict]] = {}
     all_results: dict[str, dict[int, list[TestResult]]] = {}
+    roster_cache_errors: list[str] = []
 
     for pk in pipelines:
-        builds, results = collect_pipeline(pk, args.days, output_dir, args.dry_run)
+        builds, results = collect_pipeline(
+            pk,
+            args.days,
+            output_dir,
+            args.dry_run,
+            dns_classification_cache=dns_classification_cache,
+            roster_cache_errors=roster_cache_errors,
+        )
         all_builds[pk] = builds
         all_results[pk] = results
+
+    roster_cache_save = not roster_cache_errors and not args.dry_run
+    if roster_cache_save:
+        try:
+            validate_nightly_roster_cache(cache_dir)
+        except (OSError, ValueError):
+            roster_cache_save = False
+            log.warning(
+                "Private nightly roster cache failed final validation; "
+                "disabling its Actions upload"
+            )
+
+    dns_cache_save = False
+    if dns_classification_cache is not None:
+        # Freeze a fresh wall clock at the upload boundary. A long-running
+        # collection must not use its start time to legitimize future-dated
+        # restored rows, while observations made during the run remain valid.
+        cache_validation_clock = datetime.now(timezone.utc).replace(microsecond=0)
+        try:
+            cache_stats = dns_classification_cache.flush(now=cache_validation_clock)
+        except (OSError, ValueError):
+            log.warning(
+                "Could not write optional private DNS classification cache; "
+                "core CI collection is unaffected"
+            )
+        else:
+            log.info(
+                "Wrote private DNS classification cache: %d classifications in %d shards (%d bytes)",
+                cache_stats["classifications"],
+                cache_stats["shards"],
+                cache_stats["compressed_bytes"],
+            )
+            try:
+                DnsClassificationCache(
+                    dns_cache_path,
+                    now=cache_validation_clock,
+                )
+            except (OSError, ValueError):
+                log.warning(
+                    "Private DNS classification cache failed final validation; "
+                    "disabling its Actions upload"
+                )
+            else:
+                dns_cache_save = True
+
+    if args.github_output:
+        _append_private_cache_outputs(
+            args.github_output,
+            roster_cache_save=roster_cache_save,
+            dns_cache_save=dns_cache_save,
+        )
 
     if args.dry_run:
         log.info("Dry run complete.")

@@ -35,6 +35,7 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -65,6 +66,13 @@ PIPELINE_SLUG = "perf-eval"
 WORKLOAD_REPO = "vllm-project/perf-eval"
 AMD_IMAGE_REPO = "vllm/vllm-openai-rocm"
 
+# Keep transient retries bounded. Exhaustion is an error: returning an empty
+# page after a 429/5xx would make a partial Buildkite observation look complete
+# and could postpone ingestion until the next scheduled run.
+BK_GET_MAX_ATTEMPTS = 3
+BK_GET_RETRYABLE_STATUS_CODES = frozenset({429, 502, 503, 504, 520, 522, 524})
+BK_GET_RETRY_BACKOFF_SECONDS = 2
+
 # "Nightly run 2026-06-30: commit 93d8f834dd8acf33eb0e2a75b2711b628cb6e226".
 # The date + commit make this the least brittle nightly signal and give us the
 # exact vLLM commit for provenance for free.
@@ -78,6 +86,19 @@ _NIGHTLY_WORD_RE = re.compile(r"\bnightly\b", re.IGNORECASE)
 # ``results/<workload>/<task>/results_*.json`` (accuracy).
 _PERF_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/bench-(?P<cfg>.+)\.json$")
 _ACC_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/(?P<task>[^/]+)/results_.*\.json$")
+
+# Result events retain the exact Buildkite artifact that produced them.  Legacy
+# result rows predate these fields, so once such a row is encountered again we
+# append a metadata-only marker after confirming the downloaded payload maps to
+# an already-known canonical event.  ``collect_perf_eval.aggregate`` ignores
+# marker events, while future ingestion runs can avoid the artifact download.
+ARTIFACT_MARKER_EVENT = "buildkite_artifact_ingested"
+_ARTIFACT_PROVENANCE_FIELDS = (
+    "buildkite_artifact_id",
+    "buildkite_artifact_job_id",
+    "buildkite_artifact_path",
+    "buildkite_artifact_sha1",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -349,37 +370,122 @@ def event_key(event: dict) -> tuple:
     )
 
 
+def artifact_provenance(artifact: dict, build_number: Any) -> dict:
+    """Return the stable, non-secret fields that identify one artifact.
+
+    Buildkite artifact IDs are globally stable and preferred.  The remaining
+    fields provide a conservative fallback for older/fixture responses without
+    an ID; download URLs are intentionally excluded because their signatures
+    expire and must never be persisted.
+    """
+    return {
+        "build_number": build_number,
+        "buildkite_artifact_id": str(artifact.get("id") or "").strip(),
+        "buildkite_artifact_job_id": str(artifact.get("job_id") or "").strip(),
+        "buildkite_artifact_path": str(artifact.get("path") or "").strip().lstrip("./"),
+        "buildkite_artifact_sha1": str(artifact.get("sha1sum") or "").strip().lower(),
+    }
+
+
+def artifact_key(record: dict) -> Optional[tuple]:
+    """Return an exact artifact identity from API metadata or a stored event."""
+    artifact_id = str(record.get("buildkite_artifact_id") or "").strip()
+    if artifact_id:
+        return "id", artifact_id
+
+    build_number = record.get("build_number")
+    job_id = str(record.get("buildkite_artifact_job_id") or "").strip()
+    path = str(record.get("buildkite_artifact_path") or "").strip().lstrip("./")
+    sha1 = str(record.get("buildkite_artifact_sha1") or "").strip().lower()
+    if build_number is not None and job_id and path and sha1:
+        return "metadata", build_number, job_id, path, sha1
+    return None
+
+
+def artifact_marker(provenance: dict) -> dict:
+    """Build an append-only marker for a legacy event's confirmed artifact."""
+    return {
+        "event": ARTIFACT_MARKER_EVENT,
+        "received_at": utcnow_iso(),
+        **provenance,
+    }
+
+
 # ---------------------------------------------------------------------------
 # I/O — Buildkite REST + GitHub raw
 # ---------------------------------------------------------------------------
 
 def _bk_get(path: str, token: str, params: Optional[dict] = None):
-    resp = requests.get(
-        f"{BK_API_BASE}{path}",
-        headers={"Authorization": f"Bearer {token}"},
-        params=params,
-        timeout=30,
-    )
-    if resp.status_code == 429:
-        log.warning("Buildkite rate limited on %s", path)
-        return []
-    resp.raise_for_status()
-    return resp.json()
+    url = f"{BK_API_BASE}{path}"
+    headers = {"Authorization": f"Bearer {token}"}
+    for attempt in range(1, BK_GET_MAX_ATTEMPTS + 1):
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=30)
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ):
+            if attempt == BK_GET_MAX_ATTEMPTS:
+                raise
+            wait = BK_GET_RETRY_BACKOFF_SECONDS * attempt
+            log.warning(
+                "Buildkite request failed on %s, retry %d/%d in %ds",
+                path,
+                attempt,
+                BK_GET_MAX_ATTEMPTS,
+                wait,
+            )
+            time.sleep(wait)
+            continue
+
+        if resp.status_code in BK_GET_RETRYABLE_STATUS_CODES:
+            if attempt == BK_GET_MAX_ATTEMPTS:
+                # Fail closed after retry exhaustion; in particular, never
+                # translate a 429 into an apparently complete empty page.
+                resp.raise_for_status()
+            try:
+                retry_after = max(0, int(float(resp.headers.get("Retry-After", ""))))
+            except (TypeError, ValueError):
+                retry_after = BK_GET_RETRY_BACKOFF_SECONDS * attempt
+            log.warning(
+                "Buildkite returned HTTP %d on %s, retry %d/%d in %ds",
+                resp.status_code,
+                path,
+                attempt,
+                BK_GET_MAX_ATTEMPTS,
+                retry_after,
+            )
+            time.sleep(retry_after)
+            continue
+
+        resp.raise_for_status()
+        return resp.json()
+    raise AssertionError("unreachable")
 
 
 def _bk_paginate(path: str, token: str, params: Optional[dict] = None, max_pages: int = 10):
+    if max_pages < 1:
+        raise ValueError("max_pages must be positive")
     params = dict(params or {})
     params.setdefault("per_page", 100)
     out: list = []
     for page in range(1, max_pages + 1):
         params["page"] = page
         items = _bk_get(path, token, params)
-        if not isinstance(items, list) or not items:
-            break
+        if not isinstance(items, list):
+            raise RuntimeError(f"Buildkite returned a non-list page for {path}")
+        if not items:
+            return out
         out.extend(items)
         if len(items) < params["per_page"]:
-            break
-    return out
+            return out
+        if page == max_pages:
+            raise RuntimeError(
+                f"Buildkite pagination safety cap reached for {path} "
+                f"after {max_pages} full pages"
+            )
+    raise AssertionError("unreachable")
 
 
 def _bk_download_json(download_url: str, token: str) -> Optional[dict]:
@@ -439,7 +545,16 @@ def fetch_workload_map(gh_token: str) -> dict[str, tuple[dict, dict]]:
 def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int:
     """Pull nightly perf-eval artifacts and append new canonical events."""
     existing = read_events(store_path)
-    seen = {event_key(e) for e in existing}
+    seen = {
+        event_key(e)
+        for e in existing
+        if e.get("event") in {"perf_result", "accuracy_result"}
+    }
+    known_artifacts = {
+        key
+        for event in existing
+        if (key := artifact_key(event)) is not None
+    }
     before = len(existing)
 
     workloads = fetch_workload_map(gh_token)
@@ -453,6 +568,7 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
     log.info("Examining %d finished perf-eval builds since %s", len(builds), cutoff)
 
     appended = 0
+    markers_appended = 0
     for build in builds:
         night = nightly_info(build)
         if night is None:
@@ -474,6 +590,10 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
         for art in artifacts:
             kind = classify_artifact(art.get("path") or "")
             if kind is None:
+                continue
+            provenance = artifact_provenance(art, number)
+            source_key = artifact_key(provenance)
+            if source_key is not None and source_key in known_artifacts:
                 continue
             _, workload, tail = kind
             if not is_amd_workload(workload=workload):
@@ -497,13 +617,33 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
             if event is None:
                 continue
             key = event_key(event)
-            if key in seen:
-                continue
-            append_event(store_path, event)
-            seen.add(key)
-            appended += 1
+            if key not in seen:
+                event.update(
+                    {
+                        field: provenance[field]
+                        for field in _ARTIFACT_PROVENANCE_FIELDS
+                    }
+                )
+                append_event(store_path, event)
+                seen.add(key)
+                appended += 1
+            elif source_key is not None:
+                # The canonical result was ingested before artifact provenance
+                # was recorded. Persist only the exact source identity now that
+                # the payload has proved the association; aggregation ignores
+                # this marker event.
+                append_event(store_path, artifact_marker(provenance))
+                markers_appended += 1
+            if source_key is not None:
+                known_artifacts.add(source_key)
 
-    log.info("Appended %d new events (%d -> %d total)", appended, before, before + appended)
+    log.info(
+        "Appended %d new result events and %d artifact markers "
+        "(%d existing records)",
+        appended,
+        markers_appended,
+        before,
+    )
     return appended
 
 

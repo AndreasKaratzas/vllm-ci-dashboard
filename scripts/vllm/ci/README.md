@@ -223,7 +223,7 @@ Seven workflows divide canonical publication from focused manual/event collector
 | `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
-| `dns-health.yml` | Hourly + external tick + manual | Incremental full-log DNS classification with an isolated durable state branch and conditional canonical reconciliation |
+| `dns-health.yml` | Every 3 hours + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch and conditional canonical reconciliation |
 | `publication-watchdog.yml` | Workflow completions + hourly + external tick + manual | Proactive freshness recovery with active-run, cooldown, generation, and schedule-coalescing guards |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
@@ -288,16 +288,20 @@ logs, or dashboard URLs.
 
 `collect_dns_failures.py` discovers terminal script-job attempts across the
 `amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
-new bounded log for strong DNS signatures. The first successful collection
-exhaustively bootstraps a 24-hour discovery horizon so it fits the shared API
-quota. Each later run re-queries a two-hour overlap and extends the contiguous
-coverage start; a gap longer than 24 hours resets to a fresh 24-hour bootstrap.
-The configured 30-day value remains the target retention horizon. Until enough
-contiguous observations accrue, longer windows are explicitly partial and the
-UI renders their values as lower bounds. This expected, explicitly quantified
-partial coverage is a DNS-panel warning rather than a site-wide publication
-degradation. After three hours the DNS panel labels the observations stale and
-the publication audit declares the DNS surface degraded site-wide. A DNS
+bounded log sample for strong DNS signatures. Collection runs every three hours
+and starts at most 110 Buildkite requests per eligible run; the 500-log limit
+remains a secondary safety bound. Eight scheduled runs therefore have a hard
+ceiling of 880 request starts per day, including discovery, log reads, and
+retries. A three-hour minimum interval coalesces closely spaced external or
+manual invocations instead of spending another API budget immediately.
+
+The configured 30-day value is the target retention horizon, not a claim of an
+exhaustive census. Unvisited jobs remain explicitly pending, longer windows stay
+partial, and the UI renders observed values as lower bounds. This expected,
+quantified partial coverage is a DNS-panel warning rather than a site-wide
+publication degradation. The DNS panel continues to label observations older
+than three hours as stale; the publication audit tolerates one missed scheduled
+interval and declares the DNS surface degraded site-wide after six hours. A DNS
 dataset that is not collected, malformed, or internally inconsistent takes the
 same strict degradation or fail-closed publication path.
 
@@ -340,16 +344,23 @@ no `repository_dispatch` event arrives for 30 minutes. In-repository cron and
 `workflow_run` triggers materially improve recovery odds but cannot guarantee
 recovery from their own scheduler failure domain.
 
-Each scheduled run gives the whole collection a 25-minute budget with a
-separate finalization reserve. Unvisited log work remains pending for the next
-overlap instead of being reported as a complete zero. Pending work is scanned
-in a deterministic oldest/newest alternation, starting with the oldest job, so
-a steady stream of new jobs cannot monopolize the bounded request budget while
-every other request still samples the freshest observations. Its public
+Each eligible run gives collection a 10-minute budget with a separate
+finalization reserve. Unvisited log work remains pending for a later sample
+instead of being reported as a complete zero. Pending work is ordered newest
+first, round-robined across pipeline/queue/node coordinates, and allocated in
+a prefix-stable 60/40 passed/non-passing mix. That preserves the passing-job
+signals that outcome-only filtering would miss without letting one busy fleet
+consume the bounded request budget. Its public
 `dns_failures.json` dataset covers the trailing 720 observed hours. “Observed”
 is deliberate: API, rate-limit, oversized-log, and pending-job gaps remain
 explicit in each window's coverage block, so an incomplete scan cannot be
 displayed as a complete zero.
+
+This request cap is transitional. The lossless target is agent-side
+classification: scan the already-local job log in a Buildkite lifecycle hook
+and emit only a compact, privacy-safe positive DNS record. Consuming those
+records from job-finished events or filtered build metadata removes the need to
+download every negative job log while retaining passing-job observations.
 
 The primary histogram count is the number of distinct affected Buildkite job
 attempts. Retries have different job UUIDs and therefore count independently.

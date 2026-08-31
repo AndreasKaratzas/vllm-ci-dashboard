@@ -41,6 +41,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   issues: write
 
@@ -373,7 +374,7 @@ jobs:
             record_surface_failure queue "vLLM config snapshot" "$STATUS"
           fi
 
-      # ── Phase 1: Queue snapshot (fast, ~15s) ──
+      # ── Phase 1: Consume the independently collected queue snapshot ──
       - name: Sync queue data from durable live branch
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -473,15 +474,6 @@ jobs:
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue "queue history normalization" \
             python scripts/vllm/collect_queue_snapshot.py --prune-only
-
-      - name: Collect queue snapshot
-        env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector queue "queue snapshot" \
-            python scripts/vllm/collect_queue_snapshot.py
 
       - name: Collect queue capacity monitor
         env:
@@ -588,20 +580,101 @@ jobs:
           run_surface_collector queue "Omni surge heuristic" \
             python scripts/vllm/omni_surge_watcher.py --heuristic-only
 
+      - name: Prepare private CI roster cache key
+        id: ci-roster-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="nightly-rosters-v2-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private CI roster cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: data/vllm/ci/.cache/nightly-rosters-v2
+          key: ${{ steps.ci-roster-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.ci-roster-cache-key.outputs.current_day_prefix }}
+            ${{ steps.ci-roster-cache-key.outputs.prior_day_prefix }}
+
+      # Core CI already downloads test logs. Preserve only its bounded,
+      # privacy-minimized DNS classifications so the isolated DNS collector
+      # can avoid downloading the same logs on a different runner.
+      - name: Prepare private DNS classification cache key
+        id: dns-classification-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="dns-classifications-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private DNS classification cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: data/vllm/ci/.cache/dns-classifications-v1
+          key: ${{ steps.dns-classification-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}
+            ${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}
+
       - name: Collect CI data
+        id: collect-ci
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS="${{ github.event.inputs.ci_days || '8' }}"
           run_surface_collector ci_core "CI data" \
-            python scripts/collect_ci.py --days "$DAYS" --pipeline both --output data/vllm/ci/
+            python scripts/collect_ci.py \
+              --days "$DAYS" \
+              --pipeline both \
+              --output data/vllm/ci/ \
+              --github-output "$GITHUB_OUTPUT"
+          if surface_is_current ci_core; then
+            echo "cache_save=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cache_save=false" >> "$GITHUB_OUTPUT"
+          fi
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Save private CI roster cache
+        if: >-
+          steps.collect-ci.outputs.cache_save == 'true' &&
+          steps.collect-ci.outputs.roster_cache_save == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data/vllm/ci/.cache/nightly-rosters-v2
+          key: ${{ steps.ci-roster-cache-key.outputs.key }}
+
+      - name: Save private DNS classification cache
+        if: >-
+          steps.collect-ci.outputs.cache_save == 'true' &&
+          steps.collect-ci.outputs.dns_cache_save == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data/vllm/ci/.cache/dns-classifications-v1
+          key: ${{ steps.dns-classification-cache-key.outputs.key }}
+
       # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
       # GitHub Actions cache storage. It is never seeded from gh-pages, staged
-      # in git, or included in the public site manifest. Keys are immutable;
-      # the collector fully reconciles the first snapshot saved each UTC day.
+      # in git, or included in the public site manifest. Every successful run
+      # saves a unique immutable key; the next run restores the newest prefix.
       - name: Prepare private analytics cache key
         id: analytics-cache-key
         shell: bash
@@ -611,8 +684,9 @@ jobs:
           PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
           CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"
           {
-            echo "key=$CACHE_NAMESPACE-$CACHE_DAY"
-            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore private analytics build cache
@@ -623,6 +697,7 @@ jobs:
           path: data/vllm/ci/.cache/analytics-builds-v1
           key: ${{ steps.analytics-cache-key.outputs.key }}
           restore-keys: |
+            ${{ steps.analytics-cache-key.outputs.current_day_prefix }}
             ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
 
       - name: Collect CI analytics
@@ -640,7 +715,10 @@ jobs:
           }
           GATING_NIGHTLIES_BEFORE=$(gating_nightlies_digest)
           run_surface_collector ci_analytics "CI analytics" \
-            python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
+            python scripts/vllm/collect_analytics.py \
+              --days 30 \
+              --output data/vllm/ci/ \
+              --github-output "$GITHUB_OUTPUT"
           GATING_NIGHTLIES_AFTER=$(gating_nightlies_digest)
           if ! surface_is_current ci_analytics && \
              surface_is_current ci_gating && \
@@ -657,12 +735,60 @@ jobs:
       - name: Save private analytics build cache
         if: >-
           steps.collect-analytics.outputs.cache_save == 'true' &&
-          steps.analytics-cache-restore.outputs.cache-hit != 'true'
+          steps.collect-analytics.outputs.analytics_cache_save == 'true'
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
           path: data/vllm/ci/.cache/analytics-builds-v1
           key: ${{ steps.analytics-cache-key.outputs.key }}
+
+      - name: Prune superseded private Actions caches
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Actions cache keys are immutable, so retain only the eight newest
+          # rolling snapshots in each tightly scoped private namespace.
+          for CACHE_PREFIX in \
+            "nightly-rosters-v2-${{ runner.os }}-" \
+            "analytics-builds-v1-${{ runner.os }}-" \
+            "dns-classifications-v1-${{ runner.os }}-"; do
+            CACHE_IDS="$RUNNER_TEMP/private-cache-ids.txt"
+            gh cache list \
+              --repo "$GITHUB_REPOSITORY" \
+              --ref "refs/heads/$GITHUB_REF_NAME" \
+              --key "$CACHE_PREFIX" \
+              --sort created_at \
+              --order desc \
+              --limit 100 \
+              --json id \
+              --jq '.[8:] | .[].id' > "$CACHE_IDS"
+            while IFS= read -r CACHE_ID; do
+              if [[ "$CACHE_ID" =~ ^[0-9]+$ ]]; then
+                gh cache delete "$CACHE_ID" --repo "$GITHUB_REPOSITORY"
+              fi
+            done < "$CACHE_IDS"
+          done
+
+          # v1 retained arbitrary Buildkite response fields. It is never
+          # restored into v2; delete all snapshots under that exact legacy
+          # namespace instead of carrying them through a migration.
+          LEGACY_CACHE_IDS="$RUNNER_TEMP/legacy-roster-cache-ids.txt"
+          gh cache list \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "refs/heads/$GITHUB_REF_NAME" \
+            --key "nightly-rosters-v1-${{ runner.os }}-" \
+            --sort created_at \
+            --order desc \
+            --limit 100 \
+            --json id \
+            --jq '.[].id' > "$LEGACY_CACHE_IDS"
+          while IFS= read -r CACHE_ID; do
+            if [[ "$CACHE_ID" =~ ^[0-9]+$ ]]; then
+              gh cache delete "$CACHE_ID" --repo "$GITHUB_REPOSITORY"
+            fi
+          done < "$LEGACY_CACHE_IDS"
 
       - name: Collect AMD agent health (all builds, all branches)
         # Walks every build on AMD GPU hardware (not just main nightlies) and
@@ -768,13 +894,19 @@ jobs:
         id: perf_decide
         env:
           DNS_RECONCILE_GENERATION: ${{ inputs.dns_generation }}
+          WATCHDOG_GENERATION: ${{ inputs.watchdog_generation }}
+          DISPATCH_TYPE: ${{ github.event.action }}
         run: |
           RUN=false
           if [ -n "$DNS_RECONCILE_GENERATION" ]; then
             echo "DNS reconciliation does not force unrelated perf-eval regeneration."
-          elif [ "${{ github.event_name }}" != "schedule" ]; then
+          elif [ -n "$WATCHDOG_GENERATION" ]; then
+            echo "Publication watchdog recovery does not force unrelated perf-eval regeneration."
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]; then RUN=true; fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             RUN=true
-          else
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
             case "$(date -u +%H)" in 00|08|16) RUN=true ;; esac
           fi
           echo "run_perf=$RUN" >> "$GITHUB_OUTPUT"
@@ -1183,8 +1315,17 @@ jobs:
       - name: Commit and push
         id: publication-commit
         run: |
+          assert_no_tracked_private_cache() {
+            if [ -n "$(git ls-files -- ':(glob)**/.cache/**')" ]; then
+              echo "::error::A private .cache path is tracked; refusing to commit or push."
+              exit 1
+            fi
+          }
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # .gitignore protects newly created caches, but it does not protect a
+          # path that was accidentally tracked in an earlier revision.
+          assert_no_tracked_private_cache
           # Always update liveness timestamp so commits prove the cron is running
           date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
           git add data/ dashboards/ README.md
@@ -1197,6 +1338,7 @@ jobs:
               echo "::error::Collected data conflicts with the latest main branch; refusing to deploy unpublished output"
               exit 1
             fi
+            assert_no_tracked_private_cache
             # A successful rebase can change source inputs underneath derived
             # Operations/Markdown output. Rebuild and re-audit on every retry so
             # the commit that is pushed—not merely the pre-race candidate—is the

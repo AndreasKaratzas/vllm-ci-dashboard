@@ -14,7 +14,7 @@ from typing import Any
 
 
 MAX_MANIFEST_BYTES = 1024 * 1024
-MAX_ASSET_BYTES = 100 * 1024 * 1024
+MAX_ASSET_BYTES = 85 * 1024 * 1024
 MAX_SECTIONS = 64
 GIT_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 SECTION_LABEL_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")

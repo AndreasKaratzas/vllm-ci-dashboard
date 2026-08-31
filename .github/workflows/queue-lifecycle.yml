@@ -86,5 +86,6 @@ jobs:
           git -C "$LIVE_ROOT" add \
             data/vllm/ci/queue_lifecycle.json \
             data/vllm/ci/queue_lifecycle_jobs
+          python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "queue: lifecycle observations $(date -u +%Y-%m-%dT%H:%M)"
           git -C "$LIVE_ROOT" push --force origin HEAD:queue-lifecycle-data

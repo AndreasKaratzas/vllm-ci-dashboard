@@ -95,15 +95,15 @@ SHARD_TERMINAL_BUILD_STATES = frozenset({
     "blocked",
 })
 SHARD_RESULT_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}_amd\.jsonl")
-PUBLIC_FILE_WARN_BYTES = 90 * 1024 * 1024
-PUBLIC_FILE_HARD_BYTES = 100 * 1024 * 1024
+PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
+PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
 DNS_FAILURES_MAX_BYTES = 8 * 1024 * 1024
 OPERATIONS_COMPARISON_MAX_BYTES = 1_500_000
 OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES = 6_000_000
 DNS_EVIDENCE_MAX_ITEMS = 5000
-DNS_MAX_FRESH_AGE_HOURS = 3
+DNS_MAX_FRESH_AGE_HOURS = 6
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
 DNS_WINDOW_OPTIONS = (
     ("1h", "Last hour", 1),
@@ -7710,6 +7710,13 @@ class DashboardAudit:
     def audit_workflows(self) -> None:
         workflows = sorted((self.root / ".github/workflows").glob("*.yml"))
         gh_pages_workflows: list[str] = []
+        cache_busting_build_commands = (
+            "python scripts/build_site.py --cache-bust-index",
+            # The privileged PR preview runs the same trusted base-branch
+            # assembler from an isolated checkout instead of executing the
+            # pull request's copy of the script.
+            "trusted-base/scripts/build_site.py --cache-bust-index",
+        )
         for path in workflows:
             text = path.read_text(errors="ignore")
             if "peaceiris/actions-gh-pages" not in text:
@@ -7727,7 +7734,7 @@ class DashboardAudit:
                     f"{path.name} deploys to gh-pages without cancel-in-progress: false",
                     self.rel(path),
                 )
-            if "python scripts/build_site.py --cache-bust-index" not in text:
+            if not any(command in text for command in cache_busting_build_commands):
                 self.error(
                     "workflow-cache-bust",
                     f"{path.name} deploys Pages without cache-busting index.html",
@@ -7958,16 +7965,18 @@ class DashboardAudit:
                 "CACHE_DAY=$(date -u +%Y-%m-%d)",
                 "PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)",
                 f'CACHE_NAMESPACE="{PRIVATE_ANALYTICS_CACHE_VERSION}-${{{{ runner.os }}}}"',
-                'echo "key=$CACHE_NAMESPACE-$CACHE_DAY"',
-                'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY"',
+                'echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-'
+                '${{ github.run_attempt }}"',
+                'echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"',
+                'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"',
             )
         )
         if not cache_key_ok:
             self.error(
                 "workflow-private-analytics-cache-key",
                 (
-                    "private analytics cache needs one immutable versioned key per "
-                    "UTC day and an explicit prior-day restore prefix"
+                    "private analytics cache needs a unique immutable key per "
+                    "successful run plus current/prior UTC-day restore prefixes"
                 ),
                 ".github/workflows/hourly-master.yml",
             )
@@ -7980,6 +7989,7 @@ class DashboardAudit:
                 "uses: actions/cache/restore@v4",
                 f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
                 "key: ${{ steps.analytics-cache-key.outputs.key }}",
+                "${{ steps.analytics-cache-key.outputs.current_day_prefix }}",
                 "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}",
             )
         )
@@ -7988,7 +7998,7 @@ class DashboardAudit:
                 "workflow-private-analytics-cache-restore",
                 (
                     "private analytics cache restore must use actions/cache@v4, "
-                    "the exact private path, and the prior UTC-day prefix"
+                    "the exact private path, and current/prior UTC-day prefixes"
                 ),
                 ".github/workflows/hourly-master.yml",
             )
@@ -8006,7 +8016,6 @@ class DashboardAudit:
             token in cache_save
             for token in (
                 "steps.collect-analytics.outputs.cache_save == 'true'",
-                "steps.analytics-cache-restore.outputs.cache-hit != 'true'",
                 "continue-on-error: true",
                 "uses: actions/cache/save@v4",
                 f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
@@ -8018,7 +8027,7 @@ class DashboardAudit:
                 "workflow-private-analytics-cache-save",
                 (
                     "private analytics cache may be saved only after successful "
-                    "analytics collection and only when today's immutable key missed"
+                    "analytics collection under that run's unique immutable key"
                 ),
                 ".github/workflows/hourly-master.yml",
             )

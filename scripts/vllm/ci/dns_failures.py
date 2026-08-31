@@ -195,6 +195,19 @@ _STATE_STATUS_KEYS = {
     "unavailable": frozenset({"unavailable_reason"}),
     "oversize": frozenset({"log_bytes"}),
 }
+_CLASSIFICATION_KEYS = frozenset(
+    {
+        "match_count",
+        "episode_times",
+        "episode_metrics",
+        "signature_ids",
+        "target_categories",
+        "time_basis",
+    }
+)
+_CLASSIFICATION_METRIC_KEYS = frozenset(
+    {"at", "match_count", "signature_ids", "target_categories"}
+)
 
 
 class StateValidationError(ValueError):
@@ -422,6 +435,175 @@ def classify_dns_log(
         time_basis=time_basis,
         episode_metrics=episode_metrics,
     )
+
+
+def classification_from_payload(payload: object) -> DnsClassification:
+    """Validate one privacy-minimized serialized classifier result.
+
+    This is intentionally stricter than accepting an arbitrary dataclass. The
+    private shared cache can suppress a future log request, so every count,
+    timestamp, and fixed enum must reconcile before the result is trusted.
+    """
+    if not isinstance(payload, dict):
+        raise StateValidationError("DNS classification must be an object")
+    _validate_exact_keys(payload, _CLASSIFICATION_KEYS, "DNS classification")
+    match_count = payload.get("match_count")
+    if isinstance(match_count, bool) or not isinstance(match_count, int) or match_count < 0:
+        raise StateValidationError("DNS classification match_count is invalid")
+    time_basis = payload.get("time_basis")
+    if time_basis not in TIME_BASES:
+        raise StateValidationError("DNS classification time_basis is invalid")
+
+    episode_times = payload.get("episode_times")
+    signature_ids = payload.get("signature_ids")
+    target_categories = payload.get("target_categories")
+    episode_metrics = payload.get("episode_metrics")
+    if not all(
+        isinstance(value, list)
+        for value in (episode_times, signature_ids, target_categories, episode_metrics)
+    ):
+        raise StateValidationError("DNS classification vectors must be arrays")
+
+    normalized_times: list[str] = []
+    previous_time: datetime | None = None
+    for raw_time in episode_times:
+        parsed = parse_timestamp(raw_time, "classification episode time")
+        canonical = iso_timestamp(parsed.replace(microsecond=0))
+        if raw_time != canonical or (previous_time is not None and parsed <= previous_time):
+            raise StateValidationError("DNS classification episode_times are invalid")
+        normalized_times.append(canonical)
+        previous_time = parsed
+    if (
+        not all(isinstance(value, str) for value in signature_ids)
+        or not all(isinstance(value, str) for value in target_categories)
+        or signature_ids != sorted(set(signature_ids))
+        or not set(signature_ids) <= set(SIGNATURE_IDS)
+        or target_categories
+        != [value for value in TARGET_CATEGORIES if value in set(target_categories)]
+        or not set(target_categories) <= set(TARGET_CATEGORIES)
+    ):
+        raise StateValidationError("DNS classification enums are invalid")
+
+    metrics: list[DnsEpisodeMetric] = []
+    metric_count = 0
+    metric_signatures: set[str] = set()
+    metric_targets: set[str] = set()
+    for index, raw_metric in enumerate(episode_metrics):
+        if not isinstance(raw_metric, dict):
+            raise StateValidationError("DNS classification episode metric is invalid")
+        _validate_exact_keys(
+            raw_metric,
+            _CLASSIFICATION_METRIC_KEYS,
+            "DNS classification episode metric",
+        )
+        at = raw_metric.get("at")
+        if index >= len(normalized_times) or at != normalized_times[index]:
+            raise StateValidationError("DNS classification episode metrics are misaligned")
+        count = raw_metric.get("match_count")
+        metric_signature_ids = raw_metric.get("signature_ids")
+        metric_target_categories = raw_metric.get("target_categories")
+        if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+            raise StateValidationError("DNS classification episode count is invalid")
+        if (
+            not isinstance(metric_signature_ids, list)
+            or not metric_signature_ids
+            or not all(isinstance(value, str) for value in metric_signature_ids)
+            or metric_signature_ids != sorted(set(metric_signature_ids))
+            or not set(metric_signature_ids) <= set(SIGNATURE_IDS)
+            or not isinstance(metric_target_categories, list)
+            or not metric_target_categories
+            or not all(isinstance(value, str) for value in metric_target_categories)
+            or metric_target_categories
+            != [
+                value
+                for value in TARGET_CATEGORIES
+                if value in set(metric_target_categories)
+            ]
+            or not set(metric_target_categories) <= set(TARGET_CATEGORIES)
+        ):
+            raise StateValidationError("DNS classification episode enums are invalid")
+        metric_count += count
+        metric_signatures.update(metric_signature_ids)
+        metric_targets.update(metric_target_categories)
+        metrics.append(
+            DnsEpisodeMetric(
+                at=at,
+                match_count=count,
+                signature_ids=tuple(metric_signature_ids),
+                target_categories=tuple(metric_target_categories),
+            )
+        )
+
+    positive_contract = bool(
+        match_count > 0
+        and normalized_times
+        and len(metrics) == len(normalized_times)
+        and metric_count == match_count
+        and signature_ids == sorted(metric_signatures)
+        and target_categories
+        == [value for value in TARGET_CATEGORIES if value in metric_targets]
+    )
+    negative_contract = bool(
+        match_count == 0
+        and not normalized_times
+        and not metrics
+        and not signature_ids
+        and not target_categories
+        and time_basis == "job_finished_at"
+    )
+    if not (positive_contract or negative_contract):
+        raise StateValidationError("DNS classification fields do not reconcile")
+    return DnsClassification(
+        match_count=match_count,
+        episode_times=tuple(normalized_times),
+        signature_ids=tuple(signature_ids),
+        target_categories=tuple(target_categories),
+        time_basis=time_basis,
+        episode_metrics=tuple(metrics),
+    )
+
+
+def classification_payload(classification: DnsClassification) -> dict:
+    """Return the strict JSON-safe representation of a classification."""
+    if not isinstance(classification, DnsClassification):
+        raise StateValidationError("DNS classification has an invalid type")
+    metrics = classification.episode_metrics
+    if classification.positive and not metrics:
+        if classification.match_count < len(classification.episode_times):
+            raise StateValidationError("DNS classification has fewer matches than episodes")
+        metrics = tuple(
+            DnsEpisodeMetric(
+                at=at,
+                match_count=(
+                    classification.match_count - len(classification.episode_times) + 1
+                    if index == 0
+                    else 1
+                ),
+                signature_ids=classification.signature_ids,
+                target_categories=classification.target_categories,
+            )
+            for index, at in enumerate(classification.episode_times)
+        )
+    payload = {
+        "match_count": classification.match_count,
+        "episode_times": list(classification.episode_times),
+        "episode_metrics": [
+            {
+                "at": metric.at,
+                "match_count": metric.match_count,
+                "signature_ids": list(metric.signature_ids),
+                "target_categories": list(metric.target_categories),
+            }
+            for metric in metrics
+        ],
+        "signature_ids": list(classification.signature_ids),
+        "target_categories": list(classification.target_categories),
+        "time_basis": classification.time_basis,
+    }
+    # Round-trip through the strict reader so writers can never persist a shape
+    # that consumers would reject.
+    classification_from_payload(payload)
+    return payload
 
 
 def evidence_id(pipeline: str, job_id: str) -> str:
