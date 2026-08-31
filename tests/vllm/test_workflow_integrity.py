@@ -475,6 +475,32 @@ class TestHourlyMasterWorkflow:
         assert "Normalize and prune queue history" in names
         assert "Collect queue snapshot" not in names
 
+    def test_hourly_queue_sync_installs_valid_non_regressing_jobs_snapshot(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        script = next(
+            step["run"]
+            for step in steps
+            if step.get("name") == "Sync queue data from durable live branch"
+        )
+
+        remote_read = "git show origin/queue-data:data/vllm/ci/queue_jobs.json"
+        validation = "remote_timestamp < local_timestamp"
+        install = 'install -m 0644 "$LIVE_QUEUE_JOBS"'
+        assert remote_read in script
+        assert 'payload.get("ts")' in script
+        assert 'for key in ("pending", "running")' in script
+        assert "datetime.fromisoformat" in script
+        assert validation in script
+        assert "would regress the embedded timestamp" in script
+        assert install in script
+        assert "data/vllm/ci/queue_jobs.json || return $?" in script
+        assert (
+            script.index(remote_read)
+            < script.index(validation)
+            < script.index(install)
+        )
+
     def test_workload_mapping_is_seeded_and_collected_before_operations_builds(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])

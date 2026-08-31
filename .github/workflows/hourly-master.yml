@@ -378,7 +378,7 @@ jobs:
       - name: Sync queue data from durable live branch
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_queue_history() {
+          sync_queue_data() {
             git fetch origin \
               +refs/heads/queue-data:refs/remotes/origin/queue-data \
               --depth=1 || true
@@ -388,13 +388,69 @@ jobs:
             if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
               python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data \
                 || return $?
+              LIVE_QUEUE_JOBS="$RUNNER_TEMP/queue_jobs.json"
+              if ! git show origin/queue-data:data/vllm/ci/queue_jobs.json \
+                > "$LIVE_QUEUE_JOBS"; then
+                echo "::error::Durable queue-data branch has no queue_jobs.json snapshot."
+                return 1
+              fi
+              python - "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json <<'PY' \
+                || return $?
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def load_snapshot(path: str, label: str) -> datetime:
+              with open(path, encoding="utf-8") as handle:
+                  payload = json.load(handle)
+              if not isinstance(payload, dict):
+                  raise SystemExit(f"{label} queue_jobs.json must be an object")
+              for key in ("pending", "running"):
+                  if not isinstance(payload.get(key), list):
+                      raise SystemExit(
+                          f"{label} queue_jobs.json field {key!r} must be a list"
+                      )
+              raw_timestamp = payload.get("ts")
+              if not isinstance(raw_timestamp, str) or not raw_timestamp.strip():
+                  raise SystemExit(f"{label} queue_jobs.json has no embedded timestamp")
+              try:
+                  parsed = datetime.fromisoformat(
+                      raw_timestamp.strip().replace("Z", "+00:00")
+                  )
+              except ValueError as exc:
+                  raise SystemExit(
+                      f"{label} queue_jobs.json has an invalid embedded timestamp"
+                  ) from exc
+              if parsed.tzinfo is None:
+                  raise SystemExit(
+                      f"{label} queue_jobs.json embedded timestamp must include a timezone"
+                  )
+              return parsed.astimezone(timezone.utc)
+
+
+          remote_timestamp = load_snapshot(sys.argv[1], "durable")
+          local_timestamp = load_snapshot(sys.argv[2], "local")
+          if remote_timestamp < local_timestamp:
+              raise SystemExit(
+                  "durable queue_jobs.json would regress the embedded timestamp: "
+                  f"{remote_timestamp.isoformat()} < {local_timestamp.isoformat()}"
+              )
+          print(
+              "Validated non-regressing durable queue_jobs.json: "
+              f"{remote_timestamp.isoformat()} >= {local_timestamp.isoformat()}"
+          )
+          PY
+              install -m 0644 "$LIVE_QUEUE_JOBS" \
+                data/vllm/ci/queue_jobs.json || return $?
+              rm -f "$LIVE_QUEUE_JOBS" || return $?
             fi
             if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
               python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages \
                 || return $?
             fi
           }
-          run_surface_collector queue "durable queue history seed" sync_queue_history
+          run_surface_collector queue "durable queue data seed" sync_queue_data
 
       - name: Sync validated queue lifecycle aggregate
         run: |
