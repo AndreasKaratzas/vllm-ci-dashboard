@@ -1,17 +1,17 @@
 {
-  "baseline_ref": "fbf938a5a209c4d6f48b42188fd3b6f713febfb2",
+  "baseline_ref": "3cc0dd697e54e4eb5a96ad22af3e6528b47b041d",
   "candidate_degradations": [],
   "candidate_errors": [
     {
       "code": "publication-collector-failed",
       "context": {
-        "alertable": false,
+        "alertable": true,
         "collector": "collect_agent_health.py",
         "details": {
           "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
         },
         "exit_code": 1,
-        "persistence_runs": 1,
+        "persistence_runs": 2,
         "reason_class": "timeout",
         "step": "AMD agent health",
         "surface": "agent_health"
@@ -28,7 +28,7 @@
       "context": {
         "source": "queue_jobs"
       },
-      "message": "operations source queue_jobs is 8.3h older than the snapshot; maximum is 6h",
+      "message": "operations source queue_jobs is 8.7h older than the snapshot; maximum is 6h",
       "path": "data/vllm/ci/operations_v2.json",
       "severity": "error",
       "surfaces": [
@@ -37,17 +37,17 @@
     }
   ],
   "collector_failure_streaks": {
-    "bbe10dde8de59267c1cf": 1
+    "bbe10dde8de59267c1cf": 2
   },
   "collector_failures": [
     {
-      "alertable": false,
+      "alertable": true,
       "collector": "collect_agent_health.py",
       "details": {
         "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
       },
       "exit_code": 1,
-      "persistence_runs": 1,
+      "persistence_runs": 2,
       "reason_class": "timeout",
       "schema_version": 1,
       "step": "AMD agent health",
@@ -55,9 +55,9 @@
     }
   ],
   "collector_incident_policy": {
-    "alert": false,
-    "max_observed_streak": 1,
-    "reason": "transient-collector-failure-first-observation",
+    "alert": true,
+    "max_observed_streak": 2,
+    "reason": "transient-collector-failure-persisted",
     "transient_persistence_runs_required": 2
   },
   "degraded_since": {
@@ -80,11 +80,11 @@
   "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [],
-  "generated_at": "2026-08-31T17:16:07Z",
+  "generated_at": "2026-08-31T17:40:43Z",
   "incident_policy": {
-    "alert": false,
-    "max_observed_streak": 1,
-    "reason": "transient-collector-failure-first-observation",
+    "alert": true,
+    "max_observed_streak": 2,
+    "reason": "transient-collector-failure-persisted",
     "transient_persistence_runs_required": 2
   },
   "mode": "fallback",
