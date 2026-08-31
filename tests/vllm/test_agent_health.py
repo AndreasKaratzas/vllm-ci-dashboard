@@ -308,6 +308,38 @@ def test_long_backfill_keeps_single_paginated_query(monkeypatch):
     }]
 
 
+def test_upstream_incremental_bounds_page_payload_without_extra_slices(monkeypatch):
+    calls = []
+
+    def paginate(_url, params):
+        calls.append(dict(params))
+        return []
+
+    monkeypatch.setattr(ah, "_paginate", paginate)
+    assert ah._fetch_pipeline_observations(
+        "ci",
+        3,
+        query_time=NOW,
+    ) == []
+
+    # Preserve the three exact daily slice roots (the request ceiling before
+    # Link pagination) while halving only the response-heavy upstream pages.
+    assert len(calls) == 3
+    assert {params["per_page"] for params in calls} == {
+        ah.UPSTREAM_INCREMENTAL_PER_PAGE
+    }
+    assert ah.UPSTREAM_INCREMENTAL_PER_PAGE == 50
+    assert all(params["exclude_pipeline"] == "true" for params in calls)
+    assert sorted(
+        (params["created_from"], params["created_to"])
+        for params in calls
+    ) == [
+        ("2026-07-11T12:00:00+00:00", "2026-07-12T12:00:00+00:00"),
+        ("2026-07-12T12:00:00+00:00", "2026-07-13T12:00:00+00:00"),
+        ("2026-07-13T12:00:00+00:00", "2026-07-14T12:00:00+00:00"),
+    ]
+
+
 def test_incremental_slice_failure_is_fail_closed(monkeypatch):
     barrier = threading.Barrier(ah.MAX_INCREMENTAL_SLICE_WORKERS)
 

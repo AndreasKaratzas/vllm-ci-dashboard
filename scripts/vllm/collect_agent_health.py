@@ -97,6 +97,12 @@ INFRA_SUSPECT_MIN_SAMPLES = 3
 # Keeping the long backfill path unchanged avoids multiplying its API quota.
 MAX_INCREMENTAL_SLICE_DAYS = 3
 MAX_INCREMENTAL_SLICE_WORKERS = 3
+# The upstream ``ci`` pipeline embeds substantially larger job rosters than
+# ``amd-ci``.  At 100 builds per page, a current 24-hour response can approach
+# 200 MB and repeatedly exceed Buildkite's 30-second read window.  Fifty keeps
+# the same exact pagination contract while bounding each upstream response;
+# long backfills retain 100/page so their request count does not double.
+UPSTREAM_INCREMENTAL_PER_PAGE = 50
 
 # AMD-relevant pipeline slugs to walk.
 AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
@@ -205,6 +211,8 @@ def _fetch_pipeline_builds(
     created_from: datetime,
     created_to: datetime,
     days: int,
+    *,
+    incremental_per_page: int = 100,
 ) -> list[dict]:
     """Fetch one pipeline's build/job payloads with bounded incremental fan-out.
 
@@ -223,6 +231,10 @@ def _fetch_pipeline_builds(
             {**base_params, "created_from": created_from.isoformat()},
         )
 
+    incremental_params = {
+        **base_params,
+        "per_page": incremental_per_page,
+    }
     ranges = _incremental_slices(created_from, created_to)
     results: list[list[dict] | None] = [None] * len(ranges)
     with ThreadPoolExecutor(
@@ -234,7 +246,7 @@ def _fetch_pipeline_builds(
                 _paginate,
                 url,
                 {
-                    **base_params,
+                    **incremental_params,
                     "created_from": start.isoformat(),
                     "created_to": end.isoformat(),
                 },
@@ -274,7 +286,15 @@ def _fetch_pipeline_observations(
     # inline makes pages huge and the endpoint time out. The latest attempt per
     # job still carries the node tag + terminal state, which is what node-health
     # needs, and this keeps both the backfill and the hourly incremental fast.
-    builds = _fetch_pipeline_builds(url, created_from, query_time, days)
+    builds = _fetch_pipeline_builds(
+        url,
+        created_from,
+        query_time,
+        days,
+        incremental_per_page=(
+            UPSTREAM_INCREMENTAL_PER_PAGE if slug == "ci" else 100
+        ),
+    )
     nightly_re = None
     pattern = NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug)
     if pattern:
