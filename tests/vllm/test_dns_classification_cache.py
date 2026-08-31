@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+# cspell:ignore crsuse
+
 import gzip
 import json
 import sys

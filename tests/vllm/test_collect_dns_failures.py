@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-# cspell:ignore crsuse gaierror xoxb
+# cspell:ignore crsuse gaierror Rlcl xoxb
 
 import gzip
 import json
