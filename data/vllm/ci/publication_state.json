@@ -1,7 +1,27 @@
 {
-  "baseline_ref": "b8ed2be73020a6a761a56db6edd5329a94ed6224",
-  "candidate_degradations": [],
-  "candidate_errors": [],
+  "baseline_ref": "2e4c4bea4b137fdc08bb8081e1146f9ae2556d95",
+  "candidate_degradations": [
+    {
+      "code": "dns-health-stale",
+      "message": "DNS health source is 6.0h old; maximum is 6h",
+      "path": "data/vllm/ci/dns_failures.json",
+      "severity": "degradation",
+      "surfaces": [
+        "dns_health"
+      ]
+    }
+  ],
+  "candidate_errors": [
+    {
+      "code": "queue-lifecycle-daily-waits-total",
+      "message": "daily wait samples exceed observed served events",
+      "path": "data/vllm/ci/queue_lifecycle.json",
+      "severity": "error",
+      "surfaces": [
+        "queue_lifecycle"
+      ]
+    }
+  ],
   "collector_failure_streaks": {},
   "collector_failures": [],
   "collector_incident_policy": {
@@ -10,24 +30,57 @@
     "reason": "non-collector-publication-finding",
     "transient_persistence_runs_required": 2
   },
-  "degraded_since": {},
-  "degraded_surfaces": [],
+  "degraded_since": {
+    "dns_health": "2026-08-31T21:22:07Z",
+    "queue_lifecycle": "2026-08-31T21:22:07Z"
+  },
+  "degraded_surfaces": [
+    "dns_health",
+    "queue_lifecycle"
+  ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {},
-  "fallback_surfaces": [],
-  "final_degradations": [],
+  "fallback_since": {
+    "queue_lifecycle": "2026-08-31T21:22:07Z"
+  },
+  "fallback_surfaces": [
+    "queue_lifecycle"
+  ],
+  "final_degradations": [
+    {
+      "code": "dns-health-stale",
+      "message": "DNS health source is 6.0h old; maximum is 6h",
+      "path": "data/vllm/ci/dns_failures.json",
+      "severity": "degradation",
+      "surfaces": [
+        "dns_health"
+      ]
+    }
+  ],
   "final_errors": [],
-  "fresh_degraded_surfaces": [],
-  "generated_at": "2026-08-31T20:10:09Z",
+  "fresh_degraded_surfaces": [
+    "dns_health"
+  ],
+  "generated_at": "2026-08-31T21:22:07Z",
   "incident_policy": {
     "alert": true,
     "max_observed_streak": 0,
     "reason": "non-collector-publication-finding",
     "transient_persistence_runs_required": 2
   },
-  "mode": "current",
-  "restored_manifest": {},
-  "restored_paths": {},
+  "mode": "mixed",
+  "restored_manifest": {
+    "queue_lifecycle": {
+      "data/vllm/ci/queue_lifecycle.json": {
+        "bytes": 406939,
+        "sha256": "5731e228870f2de3f9aea404f0f1bebf59d900f0916e4b648792d828208ab307"
+      }
+    }
+  },
+  "restored_paths": {
+    "queue_lifecycle": [
+      "data/vllm/ci/queue_lifecycle.json"
+    ]
+  },
   "schema_version": 2,
   "surface_contract_version": 4,
   "upstream_retry_observations": [],
