@@ -458,9 +458,11 @@ def classification_from_payload(payload: object) -> DnsClassification:
     signature_ids = payload.get("signature_ids")
     target_categories = payload.get("target_categories")
     episode_metrics = payload.get("episode_metrics")
-    if not all(
-        isinstance(value, list)
-        for value in (episode_times, signature_ids, target_categories, episode_metrics)
+    if (
+        not isinstance(episode_times, list)
+        or not isinstance(signature_ids, list)
+        or not isinstance(target_categories, list)
+        or not isinstance(episode_metrics, list)
     ):
         raise StateValidationError("DNS classification vectors must be arrays")
 
