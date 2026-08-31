@@ -3,11 +3,11 @@
   "source": {
     "repository": "vllm-project/vllm",
     "branch": "main",
-    "commit_sha": "2c7d7dd64a2eaba0feedf42cab2f527486d7479c",
-    "commit_url": "https://github.com/vllm-project/vllm/commit/2c7d7dd64a2eaba0feedf42cab2f527486d7479c",
-    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/2c7d7dd64a2eaba0feedf42cab2f527486d7479c/.buildkite/test-amd.yaml",
-    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/2c7d7dd64a2eaba0feedf42cab2f527486d7479c/.buildkite/test_areas",
-    "fetched_at": "2026-08-31T09:00:20Z",
+    "commit_sha": "5bfd76372d66507d014895376458fd507e124e66",
+    "commit_url": "https://github.com/vllm-project/vllm/commit/5bfd76372d66507d014895376458fd507e124e66",
+    "amd_definition_url": "https://github.com/vllm-project/vllm/blob/5bfd76372d66507d014895376458fd507e124e66/.buildkite/test-amd.yaml",
+    "upstream_definitions_url": "https://github.com/vllm-project/vllm/tree/5bfd76372d66507d014895376458fd507e124e66/.buildkite/test_areas",
+    "fetched_at": "2026-08-31T16:54:01Z",
     "matching_rules": [
       "Retain provenance for every parsed YAML definition and report the physical AMD count separately.",
       "Coalesce only AMD architecture replicas with the same matrix canonical title, execution fingerprint, projected reference hardware, and GPU count; preserve every member definition ID, label, group, and agent pool.",
@@ -227,7 +227,7 @@
     {
       "base": "basic models (extra initialization) shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Basic Models (Extra Initialization) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard %N",
       "source_file": ".buildkite/test_areas/models_basic.yaml",
       "definition_id": ".buildkite/test_areas/models_basic.yaml#basic-models-tests-extra-initialization",
       "parallelism": 4,
@@ -236,7 +236,7 @@
     {
       "base": "core operation kernels shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Core Operation Kernels Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Core Operation Kernels Shard %N",
       "source_file": ".buildkite/test_areas/kernels.yaml",
       "definition_id": ".buildkite/test_areas/kernels.yaml#kernels-core-operation-test",
       "parallelism": 3,
@@ -254,7 +254,7 @@
     {
       "base": "language models (extended pooling) shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Language Models (Extended Pooling) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Pooling) Shard %N",
       "source_file": ".buildkite/test_areas/models_language.yaml",
       "definition_id": ".buildkite/test_areas/models_language.yaml#language-models-test-extended-pooling",
       "parallelism": 4,
@@ -263,7 +263,7 @@
     {
       "base": "language models (extra standard) shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Language Models (Extra Standard) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extra Standard) Shard %N",
       "source_file": ".buildkite/test_areas/models_language.yaml",
       "definition_id": ".buildkite/test_areas/models_language.yaml#language-models-tests-extra-standard",
       "parallelism": 2,
@@ -272,7 +272,7 @@
     {
       "base": "language models (hybrid) shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Language Models (Hybrid) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Hybrid) Shard %N",
       "source_file": ".buildkite/test_areas/models_language.yaml",
       "definition_id": ".buildkite/test_areas/models_language.yaml#language-models-tests-hybrid",
       "parallelism": 2,
@@ -299,7 +299,7 @@
     {
       "base": "lora shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) LoRA Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) LoRA Shard %N",
       "source_file": ".buildkite/test_areas/lora.yaml",
       "definition_id": ".buildkite/test_areas/lora.yaml#lora",
       "parallelism": 4,
@@ -326,7 +326,7 @@
     {
       "base": "multimodal models (extended generation 2) shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Multimodal Models (Extended Generation 2) Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 2) Shard %N",
       "source_file": ".buildkite/test_areas/models_multimodal.yaml",
       "definition_id": ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-2",
       "parallelism": 4,
@@ -353,7 +353,7 @@
     {
       "base": "quantization shard",
       "pipeline": "upstream",
-      "label": ":nvidia: (H200) Quantization Shard %N",
+      "label": ":nvidia: (H200 MIG 35GB) Quantization Shard %N",
       "source_file": ".buildkite/test_areas/quantization.yaml",
       "definition_id": ".buildkite/test_areas/quantization.yaml#quantization",
       "parallelism": 4,
@@ -380,11 +380,11 @@
   ],
   "evidence": {
     "pipeline": "amd",
-    "build_number": 12447,
-    "build_commit": "2c7d7dd64a2eaba0feedf42cab2f527486d7479c",
+    "build_number": 12460,
+    "build_commit": "5bfd76372d66507d014895376458fd507e124e66",
     "build_state": "passed",
     "roster_complete": true,
-    "result_file": "2026-08-30_amd.jsonl",
+    "result_file": "2026-08-31_amd.jsonl",
     "job_names": [
       "mi250_1: :amd: (MI250) Batch Invariance",
       "mi250_1: :amd: (MI250) CUDAGraph",

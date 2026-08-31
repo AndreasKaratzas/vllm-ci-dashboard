@@ -1,33 +1,160 @@
 {
-  "baseline_ref": "17cee26183a9a07b347f3335d74581956be91094",
+  "baseline_ref": "fbf938a5a209c4d6f48b42188fd3b6f713febfb2",
   "candidate_degradations": [],
-  "candidate_errors": [],
-  "collector_failure_streaks": {},
-  "collector_failures": [],
+  "candidate_errors": [
+    {
+      "code": "publication-collector-failed",
+      "context": {
+        "alertable": false,
+        "collector": "collect_agent_health.py",
+        "details": {
+          "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
+        },
+        "exit_code": 1,
+        "persistence_runs": 1,
+        "reason_class": "timeout",
+        "step": "AMD agent health",
+        "surface": "agent_health"
+      },
+      "message": "AMD agent health (collect_agent_health.py) failed with timeout; agent_health will use its validated baseline",
+      "path": "",
+      "severity": "error",
+      "surfaces": [
+        "agent_health"
+      ]
+    },
+    {
+      "code": "operations-stale-source",
+      "context": {
+        "source": "queue_jobs"
+      },
+      "message": "operations source queue_jobs is 8.3h older than the snapshot; maximum is 6h",
+      "path": "data/vllm/ci/operations_v2.json",
+      "severity": "error",
+      "surfaces": [
+        "queue"
+      ]
+    }
+  ],
+  "collector_failure_streaks": {
+    "bbe10dde8de59267c1cf": 1
+  },
+  "collector_failures": [
+    {
+      "alertable": false,
+      "collector": "collect_agent_health.py",
+      "details": {
+        "summary": "resp = requests.get(url, headers=headers, params=params, timeout=30) | raise ReadTimeout(e, request=request) | requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out. (read timeout=30)"
+      },
+      "exit_code": 1,
+      "persistence_runs": 1,
+      "reason_class": "timeout",
+      "schema_version": 1,
+      "step": "AMD agent health",
+      "surface": "agent_health"
+    }
+  ],
   "collector_incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
-  "degraded_since": {},
-  "degraded_surfaces": [],
+  "degraded_since": {
+    "agent_health": "2026-08-31T17:16:07Z",
+    "queue": "2026-08-31T17:16:07Z"
+  },
+  "degraded_surfaces": [
+    "agent_health",
+    "queue"
+  ],
   "fallback_max_age_hours": 36,
-  "fallback_since": {},
-  "fallback_surfaces": [],
+  "fallback_since": {
+    "agent_health": "2026-08-31T17:16:07Z",
+    "queue": "2026-08-31T17:16:07Z"
+  },
+  "fallback_surfaces": [
+    "agent_health",
+    "queue"
+  ],
   "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [],
-  "generated_at": "2026-08-31T09:09:51Z",
+  "generated_at": "2026-08-31T17:16:07Z",
   "incident_policy": {
-    "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "alert": false,
+    "max_observed_streak": 1,
+    "reason": "transient-collector-failure-first-observation",
     "transient_persistence_runs_required": 2
   },
-  "mode": "current",
-  "restored_manifest": {},
-  "restored_paths": {},
+  "mode": "fallback",
+  "restored_manifest": {
+    "agent_health": {
+      "data/vllm/ci/agent_health.json": {
+        "bytes": 3634348,
+        "sha256": "d12268487c3258fb5d3b42f98685d1b62021a2b0a0f8b542bca64a78eebdac02"
+      },
+      "data/vllm/ci/agent_health/infra_failures.jsonl": {
+        "bytes": 3519797,
+        "sha256": "66600c41c48c9865bca9c475858c0f95b94d0be8017fd443fd4e725cea232d4b"
+      },
+      "data/vllm/ci/agent_health/node_days.jsonl": {
+        "bytes": 504711,
+        "sha256": "e602515f8d86d86249bc5b41aed8edd3f67ce4c1f4775b507fe1e5dd6ebd1455"
+      }
+    },
+    "queue": {
+      "data/vllm/ci/capacity_monitor.json": {
+        "bytes": 100722,
+        "sha256": "8d0c748c0aca8cfac64b58fcfcb517efca8cb450b70052bce55c1bd9a0d51743"
+      },
+      "data/vllm/ci/omni_surge_heuristic.json": {
+        "bytes": 640,
+        "sha256": "ee52c2a9a0ccf648ac4f100ca85d47db595fb94c33dbb3080de5463a546a934e"
+      },
+      "data/vllm/ci/open_omni_surge_issues.json": {
+        "bytes": 127,
+        "sha256": "2c2f954abd25941ab43e03952e38382fa28077e1596e9bc96e34707bee3c4035"
+      },
+      "data/vllm/ci/open_queue_issues.json": {
+        "bytes": 74,
+        "sha256": "3af9152296d4c6ab1a8bcb0a006c8b6e16bbf64bd42a1633b63f5da8638af006"
+      },
+      "data/vllm/ci/open_queue_zombie_issues.json": {
+        "bytes": 54,
+        "sha256": "3011a1c9b5fdb9eee2de065ef2d0ef2a6ddd967d9b766a55694c4572623a3150"
+      },
+      "data/vllm/ci/queue_jobs.json": {
+        "bytes": 478634,
+        "sha256": "0207f292ce01682293030d44932facb6e378156a0956c1bad8a8cf60caa50bce"
+      },
+      "data/vllm/ci/queue_timeseries.jsonl": {
+        "bytes": 46296832,
+        "sha256": "527c83d283da5a08ec33155ac580435be88187aa2c3cbc4c114a0ef23c239e8d"
+      },
+      "data/vllm/ci/workload_mapping.json": {
+        "bytes": 1111325,
+        "sha256": "ed5ce9332f368493badd862d5dfd435d1bbc8d5ef1003e6afab199c125316d7f"
+      }
+    }
+  },
+  "restored_paths": {
+    "agent_health": [
+      "data/vllm/ci/agent_health.json",
+      "data/vllm/ci/agent_health/infra_failures.jsonl",
+      "data/vllm/ci/agent_health/node_days.jsonl"
+    ],
+    "queue": [
+      "data/vllm/ci/capacity_monitor.json",
+      "data/vllm/ci/omni_surge_heuristic.json",
+      "data/vllm/ci/open_omni_surge_issues.json",
+      "data/vllm/ci/open_queue_issues.json",
+      "data/vllm/ci/open_queue_zombie_issues.json",
+      "data/vllm/ci/queue_jobs.json",
+      "data/vllm/ci/queue_timeseries.jsonl",
+      "data/vllm/ci/workload_mapping.json"
+    ]
+  },
   "schema_version": 2,
   "surface_contract_version": 4,
   "upstream_retry_observations": [],
