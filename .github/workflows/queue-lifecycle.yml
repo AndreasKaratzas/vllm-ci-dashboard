@@ -6,6 +6,10 @@ on:
     # metrics. Keep them independent from both the 10-minute queue poll and
     # the canonical Pages build so a transient API failure cannot stale either.
     - cron: '47 */2 * * *'
+  repository_dispatch:
+    # Optional external wake-up; the durable attempt ledger still enforces the
+    # two-hour cadence and rolling Buildkite request ceiling.
+    types: [queue_lifecycle_tick]
   workflow_dispatch:
 
 concurrency:

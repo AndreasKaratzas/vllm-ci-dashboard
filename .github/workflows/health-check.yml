@@ -5,6 +5,8 @@ on:
     # Run after the :13 canonical collection/deploy window, without sharing
     # its gh-pages lock or becoming a Pages writer.
     - cron: '57 * * * *'
+  repository_dispatch:
+    types: [site_health_tick]
   workflow_dispatch:
 
 concurrency:
@@ -763,18 +765,6 @@ jobs:
               throw new Error('site-health body file is missing ownership/state placeholders');
             }
 
-            try {
-              await github.rest.issues.getLabel({ ...context.repo, name: labelName });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              await github.rest.issues.createLabel({
-                ...context.repo,
-                name: labelName,
-                color: 'b60205',
-                description: 'Synthetic dashboard availability incidents',
-              });
-            }
-
             // Identity comes from the exact body marker, while the automation-
             // repaired label is the durable bounded index. One bounded recent
             // page also recovers a newly removed label without making lookup
@@ -791,25 +781,60 @@ jobs:
             if (labeledResponse.data.length >= 100) {
               throw new Error('site-health label lookup reached its bounded ambiguity limit');
             }
-            const recentResponse = await github.rest.issues.listForRepo({
-              ...context.repo,
-              state: 'all',
-              sort: 'created',
-              direction: 'desc',
-              per_page: 100,
-              page: 1,
-            });
-            const candidates = new Map();
-            for (const issue of [...labeledResponse.data, ...recentResponse.data]) {
-              candidates.set(issue.number, issue);
-            }
-            const owned = [...candidates.values()]
+            let indexedOwned = labeledResponse.data
               .filter(issue => !issue.pull_request &&
                 hasExactMarker(issue.body))
               .sort((left, right) => right.number - left.number);
+            // The durable label normally resolves identity by itself. Consult
+            // the bounded recent recovery index only when no exact owner was
+            // found, which also keeps the common path at one list request.
+            if (indexedOwned.length === 0) {
+              const recentResponse = await github.rest.issues.listForRepo({
+                ...context.repo,
+                state: 'all',
+                sort: 'updated',
+                direction: 'desc',
+                per_page: 100,
+                page: 1,
+              });
+              const recovered = recentResponse.data
+                .filter(issue => !issue.pull_request &&
+                  hasExactMarker(issue.body))
+                .sort((left, right) => right.number - left.number);
+              if (recentResponse.data.length >= 100 && recovered.length === 0) {
+                if (healthy) {
+                  core.info('Confirmed healthy quorum with no indexed incident; no mutation is needed.');
+                  core.setOutput('reconciled', 'true');
+                  return;
+                }
+                throw new Error('site-health recent recovery lookup reached its bounded ambiguity limit');
+              }
+              indexedOwned = recovered;
+            }
+            const owned = indexedOwned;
             // The newest exact-marker issue is authoritative even when manually
             // closed. Otherwise an older open duplicate could bypass suppression.
             const existing = owned[0] || null;
+
+            if (healthy && !existing) {
+              core.info('Confirmed healthy quorum with no owned incident; nothing to close.');
+              core.setOutput('reconciled', 'true');
+              return;
+            }
+
+            // Complete identity discovery before the first mutation. This
+            // keeps API errors and capped recovery pages byte-for-byte safe.
+            try {
+              await github.rest.issues.getLabel({ ...context.repo, name: labelName });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: labelName,
+                color: 'b60205',
+                description: 'Synthetic dashboard availability incidents',
+              });
+            }
 
             // A historical automation race must not leave two open incidents.
             for (const duplicate of owned) {
@@ -820,12 +845,6 @@ jobs:
                   state: 'closed',
                 });
               }
-            }
-
-            if (healthy && !existing) {
-              core.info('Confirmed healthy quorum with no owned incident; nothing to close.');
-              core.setOutput('reconciled', 'true');
-              return;
             }
 
             const state = healthy ? 'closed' : 'open';

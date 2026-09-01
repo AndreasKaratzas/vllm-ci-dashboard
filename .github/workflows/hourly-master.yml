@@ -33,6 +33,10 @@ on:
         description: 'Internal: DNS generation that must reach the canonical site'
         required: false
         default: ''
+      queue_generation:
+        description: 'Internal: queue generation that must reach the canonical site'
+        required: false
+        default: ''
       watchdog_generation:
         description: 'Internal: publication generation observed by the recovery watchdog'
         required: false
@@ -47,7 +51,8 @@ permissions:
   contents: write
   issues: write
 
-# Coalesce routine, DNS-recovery, and publication-recovery wakeups independently
+# Coalesce routine, DNS-recovery, queue-recovery, and publication-recovery wakeups
+# independently
 # before they can occupy the Pages writer queue. A routine burst therefore
 # cannot replace a pending targeted repair. The job-level lock below then
 # queues each surviving Data workflow without replacing another Pages writer.
@@ -55,6 +60,7 @@ concurrency:
   group: >-
     ${{
       inputs.dns_generation != '' && 'data-collection-dns-recovery' ||
+      inputs.queue_generation != '' && 'data-collection-queue-recovery' ||
       inputs.watchdog_generation != '' && 'data-collection-watchdog-recovery' ||
       'data-collection-routine'
     }}
@@ -62,10 +68,14 @@ concurrency:
 
 jobs:
   collect-and-deploy:
-    needs: [cadence-preflight, dns-reconcile-preflight, publication-watchdog-preflight]
+    needs: [cadence-preflight, dns-reconcile-preflight, queue-reconcile-preflight, publication-watchdog-preflight]
     if: >-
       always() && !cancelled() && (
-        (inputs.dns_generation == '' && inputs.watchdog_generation == '' && (
+        (inputs.dns_generation != '' && inputs.queue_generation != '') ||
+        (inputs.dns_generation != '' && inputs.watchdog_generation != '') ||
+        (inputs.queue_generation != '' && inputs.watchdog_generation != '') ||
+        (inputs.dns_generation == '' && inputs.queue_generation == '' &&
+         inputs.watchdog_generation == '' && (
           github.event_name == 'workflow_dispatch' ||
           github.event_name == 'schedule' ||
           (github.event_name == 'repository_dispatch' &&
@@ -76,6 +86,10 @@ jobs:
         (inputs.dns_generation != '' && (
           needs.dns-reconcile-preflight.result != 'success' ||
           needs.dns-reconcile-preflight.outputs.required != 'false'
+        )) ||
+        (inputs.queue_generation != '' && (
+          needs.queue-reconcile-preflight.result != 'success' ||
+          needs.queue-reconcile-preflight.outputs.required != 'false'
         )) ||
         (inputs.watchdog_generation != '' &&
           needs.publication-watchdog-preflight.result == 'success' &&
@@ -110,6 +124,7 @@ jobs:
           RAW_SKIP_TESTS: ${{ inputs.skip_tests }}
           RAW_RESET_PERF_EVAL: ${{ inputs.reset_perf_eval }}
           RAW_DNS_GENERATION: ${{ inputs.dns_generation }}
+          RAW_QUEUE_GENERATION: ${{ inputs.queue_generation }}
           RAW_WATCHDOG_GENERATION: ${{ inputs.watchdog_generation }}
           RAW_RECOVERY_KEY: ${{ inputs.recovery_key }}
         run: |
@@ -156,6 +171,7 @@ jobs:
               "HOURLY_SKIP_TESTS": boolean("RAW_SKIP_TESTS"),
               "HOURLY_RESET_PERF_EVAL": boolean("RAW_RESET_PERF_EVAL"),
               "HOURLY_DNS_GENERATION_INPUT": timestamp("RAW_DNS_GENERATION"),
+              "HOURLY_QUEUE_GENERATION_INPUT": timestamp("RAW_QUEUE_GENERATION"),
               "HOURLY_WATCHDOG_GENERATION_INPUT": timestamp(
                   "RAW_WATCHDOG_GENERATION", unavailable=True
               ),
@@ -164,6 +180,23 @@ jobs:
           if recovery_key and re.fullmatch(r"[0-9a-f]{64}", recovery_key) is None:
               raise SystemExit("RAW_RECOVERY_KEY must be empty or 64 lowercase hex")
           normalized["HOURLY_RECOVERY_KEY"] = recovery_key
+          active_targets = [
+              name
+              for name, value in (
+                  ("dns_generation", normalized["HOURLY_DNS_GENERATION_INPUT"]),
+                  ("queue_generation", normalized["HOURLY_QUEUE_GENERATION_INPUT"]),
+                  (
+                      "watchdog_generation",
+                      normalized["HOURLY_WATCHDOG_GENERATION_INPUT"],
+                  ),
+              )
+              if value
+          ]
+          if len(active_targets) > 1:
+              raise SystemExit(
+                  "targeted publication inputs are mutually exclusive: "
+                  + ", ".join(active_targets)
+              )
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
               for key, value in normalized.items():
                   handle.write(f"{key}={value}\n")
@@ -171,6 +204,24 @@ jobs:
 
       - name: Install dependencies
         run: pip install -c constraints.txt requests pyyaml pytest cryptography
+
+      - name: Install deny-all queue reconciliation request guard
+        id: queue-zero-request-guard
+        if: inputs.queue_generation != ''
+        env:
+          ATTEMPT_ID: queue-reconcile-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          GUARD_FILE="$RUNNER_TEMP/queue-reconcile-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance 0
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=0"
+          } >> "$GITHUB_ENV"
 
       - name: Capture immutable main code
         id: publication-baseline
@@ -897,7 +948,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Resolve immutable vLLM config snapshot
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -935,6 +986,7 @@ jobs:
 
       # ── Phase 1: Consume the independently collected queue snapshot ──
       - name: Sync queue data from durable live branch
+        id: queue-data-sync
         if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -948,6 +1000,51 @@ jobs:
             if ! git rev-parse --verify --quiet origin/queue-data >/dev/null; then
               echo "::error::The mandatory durable queue-data ref did not resolve."
               return 1
+            fi
+            QUEUE_SOURCE_SHA=$(git rev-parse --verify 'origin/queue-data^{commit}')
+            if [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ]; then
+              # A targeted repair must validate and publish one exact durable
+              # generation. Stage every queue-owned file from the same commit
+              # before installing any of them; never merge main/local history
+              # into a candidate attributed to QUEUE_SOURCE_SHA.
+              QUEUE_STAGE_DIR=$(mktemp -d "$RUNNER_TEMP/queue-data-target.XXXXXX")
+              EXPECTED_QUEUE_PATHS="$QUEUE_STAGE_DIR/expected-paths"
+              ACTUAL_QUEUE_PATHS="$QUEUE_STAGE_DIR/actual-paths"
+              cat > "$EXPECTED_QUEUE_PATHS" <<'EOF'
+          data/vllm/ci/operations_v2/queue.json
+          data/vllm/ci/queue_history_chart.json
+          data/vllm/ci/queue_jobs.json
+          data/vllm/ci/queue_timeseries.jsonl
+          EOF
+              git ls-tree -r --name-only "$QUEUE_SOURCE_SHA" \
+                > "$ACTUAL_QUEUE_PATHS" || {
+                rm -rf "$QUEUE_STAGE_DIR"
+                return 1
+              }
+              if ! diff -u "$EXPECTED_QUEUE_PATHS" "$ACTUAL_QUEUE_PATHS"; then
+                echo "::error::Durable queue-data commit has an unexpected file set."
+                rm -rf "$QUEUE_STAGE_DIR"
+                return 1
+              fi
+              while IFS= read -r QUEUE_PATH; do
+                mkdir -p "$QUEUE_STAGE_DIR/$(dirname "$QUEUE_PATH")"
+                if ! git show "$QUEUE_SOURCE_SHA:$QUEUE_PATH" \
+                  > "$QUEUE_STAGE_DIR/$QUEUE_PATH"; then
+                  echo "::error::Could not extract $QUEUE_PATH from $QUEUE_SOURCE_SHA."
+                  rm -rf "$QUEUE_STAGE_DIR"
+                  return 1
+                fi
+              done < "$EXPECTED_QUEUE_PATHS"
+              while IFS= read -r QUEUE_PATH; do
+                install -D -m 0644 "$QUEUE_STAGE_DIR/$QUEUE_PATH" "$QUEUE_PATH" \
+                  || {
+                    rm -rf "$QUEUE_STAGE_DIR"
+                    return 1
+                  }
+              done < "$EXPECTED_QUEUE_PATHS"
+              rm -rf "$QUEUE_STAGE_DIR"
+              echo "Hydrated the exact four-file queue projection from $QUEUE_SOURCE_SHA."
+              return 0
             fi
             python scripts/vllm/collect_queue_snapshot.py \
               --merge-history-git-ref origin/queue-data \
@@ -1010,10 +1107,113 @@ jobs:
               data/vllm/ci/queue_jobs.json || return $?
             rm -f "$LIVE_QUEUE_JOBS" || return $?
           }
-          run_surface_collector queue "durable queue data seed" sync_queue_data
+          if [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ]; then
+            sync_queue_data
+          else
+            run_surface_collector queue "durable queue data seed" sync_queue_data
+          fi
+          if git rev-parse --verify --quiet 'origin/queue-data^{commit}' >/dev/null; then
+            QUEUE_SOURCE_SHA=$(git rev-parse --verify 'origin/queue-data^{commit}')
+            echo "source_sha=$QUEUE_SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          elif [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ]; then
+            echo "::error::Targeted queue reconciliation has no exact source commit."
+            exit 1
+          fi
+
+      - name: Validate targeted queue candidate generation
+        if: inputs.queue_generation != ''
+        run: |
+          set -euo pipefail
+          python -S scripts/vllm/audit_dashboard_data.py --queue-only
+          python - "$HOURLY_QUEUE_GENERATION_INPUT" \
+            data/vllm/ci/queue_jobs.json \
+            data/vllm/ci/queue_timeseries.jsonl <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def timestamp(raw: object, label: str) -> datetime:
+              if not isinstance(raw, str):
+                  raise SystemExit(f"{label} must be a string")
+              try:
+                  parsed = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(
+                      tzinfo=timezone.utc
+                  )
+              except ValueError as exc:
+                  raise SystemExit(
+                      f"{label} must be a canonical whole-second UTC timestamp"
+                  ) from exc
+              if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != raw:
+                  raise SystemExit(f"{label} is not canonical")
+              return parsed
+
+
+          target = timestamp(sys.argv[1], "requested queue generation")
+          with open(sys.argv[2], encoding="utf-8") as handle:
+              jobs = json.load(handle)
+          if not isinstance(jobs, dict):
+              raise SystemExit("candidate queue_jobs.json must be an object")
+          candidate = timestamp(
+              jobs.get("metrics_observed_at")
+              if "metrics_observed_at" in jobs
+              else jobs.get("ts"),
+              "candidate queue metrics generation",
+          )
+          with open(sys.argv[3], encoding="utf-8") as handle:
+              observations = [line for line in handle if line.strip()]
+          if not observations:
+              raise SystemExit("candidate queue timeseries must not be empty")
+          latest = json.loads(observations[-1])
+          if not isinstance(latest, dict):
+              raise SystemExit("latest queue observation must be an object")
+          latest_generation = timestamp(
+              latest.get("metrics_observed_at")
+              if "metrics_observed_at" in latest
+              else latest.get("ts"),
+              "latest queue timeseries metrics generation",
+          )
+          if latest_generation != candidate:
+              raise SystemExit(
+                  "candidate queue_jobs metrics generation must equal the "
+                  "latest queue_timeseries metrics generation"
+              )
+          if candidate < target:
+              raise SystemExit(
+                  "candidate queue generation does not acknowledge the request: "
+                  f"{candidate.isoformat()} < {target.isoformat()}"
+              )
+          print(
+              "Validated targeted queue candidate generation: "
+              f"{candidate.isoformat()} >= {target.isoformat()}"
+          )
+          PY
+
+      - name: Restore baseline queue projections after targeted validation
+        if: inputs.dns_generation == '' && inputs.queue_generation != ''
+        run: |
+          set -euo pipefail
+          # The audit above proves that all four durable files belong to one
+          # exact generation. The publication selector owns the queue source
+          # files and rebuilds these two projections after selection, so keep
+          # them at the validated publication baseline until that point.
+          QUEUE_RESTORE_DIR=$(mktemp -d "$RUNNER_TEMP/queue-projection-restore.XXXXXX")
+          for QUEUE_PATH in \
+            data/vllm/ci/operations_v2/queue.json \
+            data/vllm/ci/queue_history_chart.json; do
+            mkdir -p "$QUEUE_RESTORE_DIR/$(dirname "$QUEUE_PATH")"
+            git show "$PUBLICATION_BASELINE_REF:$QUEUE_PATH" \
+              > "$QUEUE_RESTORE_DIR/$QUEUE_PATH"
+          done
+          for QUEUE_PATH in \
+            data/vllm/ci/operations_v2/queue.json \
+            data/vllm/ci/queue_history_chart.json; do
+            install -D -m 0644 "$QUEUE_RESTORE_DIR/$QUEUE_PATH" "$QUEUE_PATH"
+          done
+          rm -rf "$QUEUE_RESTORE_DIR"
 
       - name: Sync validated queue lifecycle aggregate
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           # Lifecycle collection owns an independent branch. A missing or
@@ -1079,6 +1279,7 @@ jobs:
           fi
 
       - name: Sync validated DNS health aggregate
+        if: inputs.queue_generation == ''
         run: |
           sync_dns_health() {
             LIVE_DNS_FAILURES="$RUNNER_TEMP/dns_failures.json"
@@ -1157,14 +1358,14 @@ jobs:
           PY
 
       - name: Normalize and prune queue history
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue "queue history normalization" \
             python scripts/vllm/collect_queue_snapshot.py --prune-only
 
       - name: Collect queue capacity monitor
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -1177,7 +1378,7 @@ jobs:
 
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
       - name: Collect AMD gating target list
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector ci_gating "AMD gating target list" \
@@ -1185,7 +1386,7 @@ jobs:
 
       - name: Reserve guarded Data Collection attempt
         id: request-attempt
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           ATTEMPT_ID: data-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
@@ -1222,7 +1423,7 @@ jobs:
 
       - name: Report bounded request gate
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode != 'reserved'
         run: >-
           echo "Data collection made zero Buildkite requests:
@@ -1231,7 +1432,7 @@ jobs:
 
       - name: Collect AMD hotness (3d window)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
@@ -1242,7 +1443,7 @@ jobs:
 
       - name: Collect vLLM/Omni AMD workload mappings
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
@@ -1253,7 +1454,7 @@ jobs:
             --output data/vllm/ci/workload_mapping.json
 
       - name: Refresh Omni surge heuristic
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue "Omni surge heuristic" \
@@ -1262,7 +1463,7 @@ jobs:
       - name: Prepare private CI roster cache key
         id: ci-roster-cache-key
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         shell: bash
         run: |
@@ -1279,7 +1480,7 @@ jobs:
 
       - name: Restore private CI roster cache
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -1294,7 +1495,7 @@ jobs:
       - name: Prepare private CI backfill checkpoint key
         id: ci-backfill-cache-key
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -1310,7 +1511,7 @@ jobs:
 
       - name: Restore private CI backfill checkpoint
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -1328,7 +1529,7 @@ jobs:
       - name: Prepare private DNS classification cache key
         id: dns-classification-cache-key
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         shell: bash
         run: |
@@ -1345,7 +1546,7 @@ jobs:
 
       - name: Restore private DNS classification cache
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -1360,7 +1561,7 @@ jobs:
       - name: Collect CI data
         id: collect-ci
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -1382,7 +1583,7 @@ jobs:
 
       - name: Save private CI roster cache
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.roster_cache_save == 'true'
         continue-on-error: true
@@ -1393,7 +1594,7 @@ jobs:
 
       - name: Save private DNS classification cache
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.dns_cache_save == 'true'
         continue-on-error: true
@@ -1405,7 +1606,7 @@ jobs:
       - name: Validate resumable CI backfill checkpoint
         id: ci-backfill-cache-decision
         if: >-
-          always() && inputs.dns_generation == '' &&
+          always() && inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -1420,7 +1621,7 @@ jobs:
 
       - name: Save resumable CI backfill checkpoint
         if: >-
-          always() && inputs.dns_generation == '' &&
+          always() && inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.ci-backfill-cache-decision.outputs.cache_save == 'true'
         continue-on-error: true
@@ -1435,7 +1636,7 @@ jobs:
       # saves a unique immutable key; the next run restores the newest prefix.
       - name: Prepare private analytics cache key
         id: analytics-cache-key
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -1451,7 +1652,7 @@ jobs:
 
       - name: Restore private analytics build cache
         id: analytics-cache-restore
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         continue-on-error: true
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
@@ -1465,7 +1666,7 @@ jobs:
       - name: Collect CI analytics
         id: collect-analytics
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
@@ -1499,7 +1700,7 @@ jobs:
 
       - name: Save private analytics build cache
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.collect-analytics.outputs.cache_save == 'true' &&
           steps.collect-analytics.outputs.analytics_cache_save == 'true'
         continue-on-error: true
@@ -1509,7 +1710,7 @@ jobs:
           key: ${{ steps.analytics-cache-key.outputs.key }}
 
       - name: Prune superseded private Actions caches
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1560,7 +1761,7 @@ jobs:
 
       - name: Collect AMD agent health (all builds, all branches)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         # Walks every build on AMD GPU hardware (not just main nightlies) and
         # merges the last few days into the 60-day node_days / infra_failures
@@ -1574,7 +1775,7 @@ jobs:
             --days 3 --pipeline both --output data/vllm/ci/
 
       - name: Collect test group changes
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -1583,7 +1784,7 @@ jobs:
             python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD test matrix
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -1593,7 +1794,7 @@ jobs:
             --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
 
       - name: Collect build-pinned CI ownership parity
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -1603,7 +1804,7 @@ jobs:
             --input-dir data/vllm/ci --output data/vllm/ci
 
       - name: Collect AMD gating proposals
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -1612,7 +1813,7 @@ jobs:
             python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 
       - name: Collect AMD gating target candidate audit
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector ci_gating "AMD gating target candidate audit" \
@@ -1629,7 +1830,7 @@ jobs:
       # below rebuilds it from scratch.
       - name: Validate private perf-eval event store
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           github.event.inputs.reset_perf_eval != 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -1649,7 +1850,7 @@ jobs:
       # derived payload is included in the full-site deployment.
       - name: Reset perf-eval event log (one-time backfill)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           github.event.inputs.reset_perf_eval == 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -1665,7 +1866,7 @@ jobs:
       # a scheduled run only regenerates in the 00/08/16 UTC hour windows.
       - name: Decide whether to regenerate perf-eval
         id: perf_decide
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           DISPATCH_TYPE: ${{ github.event.action }}
         run: |
@@ -1691,7 +1892,7 @@ jobs:
       # uses a wider window to backfill several past nightlies at once.
       - name: Ingest perf-eval artifacts from Buildkite
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.perf_decide.outputs.run_perf == 'true'
         env:
@@ -1706,7 +1907,7 @@ jobs:
 
       - name: Collect perf-eval (AMD nightly perf + accuracy)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.perf_decide.outputs.run_perf == 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -1716,7 +1917,7 @@ jobs:
       # ── Phase 3: GitHub data (PRs, issues, activity, ~1min) ──
       - name: Check GitHub data freshness
         id: freshness
-        if: inputs.dns_generation == ''
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           python3 - <<'PY'
           import datetime
@@ -1765,7 +1966,7 @@ jobs:
 
       - name: Collect GitHub data
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.freshness.outputs.stale == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1782,6 +1983,7 @@ jobs:
         id: publication-selector
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           MAX_DATA_AGE_HOURS: "36"
@@ -1797,6 +1999,9 @@ jobs:
           if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]; then
             SELECTOR_ARGS+=(--refresh-only-surface dns_health)
             echo "Refreshing only DNS health; preserving all other publication state."
+          elif [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ]; then
+            SELECTOR_ARGS+=(--refresh-only-surface queue)
+            echo "Refreshing only queue health; preserving all other publication state."
           fi
           python scripts/vllm/select_publication_surfaces.py \
             --baseline-ref "$PUBLICATION_BASELINE_REF" \
@@ -1809,7 +2014,7 @@ jobs:
       # rejected candidate or a restored last-known-good transaction.
       - name: Ensure CI Operations issue labels
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success'
         env:
@@ -1819,7 +2024,7 @@ jobs:
 
       - name: Watch queue latency (open/close issues)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
@@ -1831,7 +2036,7 @@ jobs:
 
       - name: Watch zombie queue jobs (open/close issues)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
@@ -1843,7 +2048,7 @@ jobs:
 
       - name: Watch Omni workload surge (open/close issues)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
@@ -1855,7 +2060,7 @@ jobs:
 
       - name: Watch AMD main test-group failures (open/close issue)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
@@ -1867,7 +2072,7 @@ jobs:
 
       - name: Watch upstream CI main test-group failures (open/close issue)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
@@ -1879,7 +2084,7 @@ jobs:
 
       - name: Watch AMD main duration regressions (open/close issue)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
@@ -1891,7 +2096,7 @@ jobs:
 
       - name: Watch AMD CI agent health (open/close issue)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',agent_health,')
@@ -1903,7 +2108,7 @@ jobs:
 
       - name: Stage managed alert issue state
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success'
         run: |
@@ -1915,7 +2120,7 @@ jobs:
 
       - name: Watch AMD CI test-area regressions (ranked owners)
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
@@ -1927,7 +2132,7 @@ jobs:
 
       - name: Sync managed issues to AMD CI Operations project
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
@@ -1942,7 +2147,7 @@ jobs:
 
       - name: Stage CI ownership issue state
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
@@ -1951,19 +2156,21 @@ jobs:
 
       - name: Advance canonical collector clock
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
 
       - name: Rebuild v2 operations snapshot with selected issue state
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json.gz
 
       - name: Render dashboards after publication selection
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: python scripts/render.py
 
@@ -1971,6 +2178,7 @@ jobs:
         id: state-candidate
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           PUBLICATION_GENERATED_AT: ${{ steps.publication-selector.outputs.generated_at }}
@@ -1996,6 +2204,7 @@ jobs:
             SOURCE_REF_ARGS+=(--source-ref "$source_ref")
           done < <(python - <<'PY'
           import json
+          import os
           import re
           import subprocess
           from pathlib import Path
@@ -2018,7 +2227,17 @@ jobs:
               and isinstance(sha, str)
               and full_sha.fullmatch(sha)
           }
-          for branch in ("queue-data", "queue-lifecycle-data", "dns-health-data"):
+          if os.environ.get("HOURLY_QUEUE_GENERATION_INPUT"):
+              candidate_branches = ("queue-data",)
+          elif os.environ.get("HOURLY_DNS_GENERATION_INPUT"):
+              candidate_branches = ("dns-health-data",)
+          else:
+              candidate_branches = (
+                  "queue-data",
+                  "queue-lifecycle-data",
+                  "dns-health-data",
+              )
+          for branch in candidate_branches:
               result = subprocess.run(
                   ["git", "rev-parse", "--verify", f"refs/remotes/origin/{branch}^{{commit}}"],
                   check=False,
@@ -2052,6 +2271,7 @@ jobs:
         if: >-
           always() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success'
         continue-on-error: true
@@ -2157,6 +2377,7 @@ jobs:
         if: >-
           always() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success'
         continue-on-error: true
@@ -2167,13 +2388,16 @@ jobs:
             live-publication-audit.json
             live-publication-audit-output.txt
           if-no-files-found: warn
+          retention-days: 7
 
       # ── Phase 4: Deterministic tests ──
       - name: Run test suite
         if: >-
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            github.event.inputs.skip_tests != 'true')
         id: run-tests
         env:
@@ -2236,6 +2460,7 @@ jobs:
         if: >-
           always() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success' && (
             steps.live-data-audit.outcome != 'success' ||
@@ -2243,6 +2468,7 @@ jobs:
             (
               (
                 inputs.dns_generation != '' ||
+                inputs.queue_generation != '' ||
                 github.event.inputs.skip_tests != 'true'
               ) &&
               steps.run-tests.outputs.exit_code != '0'
@@ -2256,6 +2482,7 @@ jobs:
             FAILED=1
           fi
           if { [ -n "$HOURLY_DNS_GENERATION_INPUT" ] || \
+               [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ] || \
                [ "$HOURLY_SKIP_TESTS" != "true" ]; } && \
              [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
             echo "::error::Deterministic dashboard tests failed; refusing to publish an unvalidated site."
@@ -2268,6 +2495,7 @@ jobs:
         id: site-assembly
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: >-
           python scripts/build_site.py --cache-bust-index
@@ -2276,6 +2504,7 @@ jobs:
       - name: Bind exact public projection into dashboard state
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -2291,6 +2520,7 @@ jobs:
         id: publication-candidate
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -2323,6 +2553,7 @@ jobs:
       - name: Write state publication marker
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -2338,6 +2569,7 @@ jobs:
       - name: Verify exact local public projection
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -2358,10 +2590,26 @@ jobs:
             --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Confirm zero queue reconciliation Buildkite requests
+        id: queue-request-guard-report
+        if: inputs.queue_generation != ''
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance 0 \
+            --github-output "$GITHUB_OUTPUT"
+          if [ "${{ steps.queue-zero-request-guard.outcome }}" != "success" ]; then
+            echo "::error::The queue reconciliation deny-all guard was not initialized."
+            exit 1
+          fi
+
       - name: Publish validated dashboard state
         id: publication-commit
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
@@ -2409,6 +2657,7 @@ jobs:
         id: preview-preservation
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2484,6 +2733,7 @@ jobs:
         if: >-
           steps.preview-preservation.outcome == 'success' &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved')
         uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
@@ -2499,6 +2749,7 @@ jobs:
         id: post-deploy-validation
         if: >-
           inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
         env:
@@ -2565,6 +2816,7 @@ jobs:
         if: >-
           always() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.post-deploy-validation.outcome == 'failure' &&
           steps.post-deploy-validation.outputs.state_unchanged == 'true' &&
@@ -2584,6 +2836,7 @@ jobs:
         if: >-
           always() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.post-deploy-validation.outcome == 'failure' &&
           steps.post-deploy-validation.outputs.corruption_confirmed == 'true' &&
@@ -2625,6 +2878,7 @@ jobs:
         if: >-
           always() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved')
         env:
           PAGES_DEPLOY_OUTCOME: ${{ steps.pages-deploy.outcome }}
@@ -2682,10 +2936,67 @@ jobs:
             --fail-if-required
           echo "Confirmed canonical DNS generation $HOURLY_DNS_GENERATION_INPUT."
 
+      - name: Confirm targeted queue reconciliation
+        id: queue-target-confirmation
+        if: >-
+          inputs.queue_generation != '' &&
+          steps.pages-deploy.outcome == 'success' &&
+          steps.final-deploy-validation.outcome == 'success'
+        env:
+          EXPECTED_QUEUE_SOURCE_SHA: ${{ steps.queue-data-sync.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/confirmed-publication-status.json"
+          CANONICAL_QUEUE="$RUNNER_TEMP/confirmed-queue-jobs.json"
+          CANONICAL_STATE="$RUNNER_TEMP/confirmed-dashboard-state.json"
+          git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1
+          git show \
+            origin/gh-pages:data/vllm/ci/publication_status.json \
+            > "$PUBLICATION_STATUS"
+          git show \
+            origin/gh-pages:data/vllm/ci/queue_jobs.json \
+            > "$CANONICAL_QUEUE"
+          git show \
+            origin/gh-pages:data/vllm/ci/dashboard_state.json \
+            > "$CANONICAL_STATE"
+          python scripts/vllm/plan_queue_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --canonical-queue-data "$CANONICAL_QUEUE" \
+            --target-queue-generation "$HOURLY_QUEUE_GENERATION_INPUT" \
+            --fail-if-required
+          python - "$CANONICAL_STATE" "$EXPECTED_QUEUE_SOURCE_SHA" <<'PY'
+          import json
+          import re
+          import sys
+
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              state = json.load(handle)
+          expected = sys.argv[2]
+          if re.fullmatch(r"[0-9a-f]{40}", expected) is None:
+              raise SystemExit("targeted queue source SHA is unavailable or invalid")
+          actual = (
+              state.get("source_refs", {}).get("queue-data")
+              if isinstance(state, dict)
+              and isinstance(state.get("source_refs"), dict)
+              else None
+          )
+          if actual != expected:
+              raise SystemExit(
+                  "canonical queue-data source ref does not match the validated input: "
+                  f"{actual!r} != {expected!r}"
+              )
+          print(f"Confirmed exact canonical queue-data source ref {actual}.")
+          PY
+          echo "Confirmed canonical queue generation $HOURLY_QUEUE_GENERATION_INPUT."
+
       - name: Establish publication recovery validation
         id: publication-recovery-validation
         if: >-
           (inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved') &&
           success() &&
           steps.publication-selector.outcome == 'success' &&
@@ -2694,8 +3005,9 @@ jobs:
           steps.live-data-audit.outputs.exit_code == '0' &&
           steps.pages-deploy.outcome == 'success' &&
           steps.final-deploy-validation.outcome == 'success' && (
-            inputs.dns_generation == '' ||
-            steps.dns-target-confirmation.outcome == 'success'
+            (inputs.dns_generation == '' && inputs.queue_generation == '') ||
+            steps.dns-target-confirmation.outcome == 'success' ||
+            steps.queue-target-confirmation.outcome == 'success'
           )
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
@@ -2714,6 +3026,8 @@ jobs:
               (process.env.HOURLY_SKIP_TESTS || '') === 'true';
             const targetedDns =
               (process.env.HOURLY_DNS_GENERATION_INPUT || '') !== '';
+            const targetedQueue =
+              (process.env.HOURLY_QUEUE_GENERATION_INPUT || '') !== '';
             const setValidation = (eligible, source, codeSha = '', runUrl = '') => {
               core.setOutput('eligible', eligible ? 'true' : 'false');
               core.setOutput('source', source);
@@ -2735,6 +3049,25 @@ jobs:
               setValidation(true, 'targeted-dns', publicationSha, '');
               console.log(
                 'Recovery is eligible: the requested DNS generation was ' +
+                'validated in the exact fully healthy canonical publication.',
+              );
+              return;
+            }
+
+            if (targetedQueue) {
+              const localTestsPassed =
+                testOutcome === 'success' && testExitCode === '0';
+              if (!localTestsPassed) {
+                setValidation(false, 'targeted-queue-tests-not-successful');
+                core.warning(
+                  'Targeted queue recovery is ineligible because the exact ' +
+                  'published code did not pass deterministic tests.',
+                );
+                return;
+              }
+              setValidation(true, 'targeted-queue', publicationSha, '');
+              console.log(
+                'Recovery is eligible: the requested queue generation was ' +
                 'validated in the exact fully healthy canonical publication.',
               );
               return;
@@ -2841,7 +3174,7 @@ jobs:
       # ── Phase 6: Hourly publication incident management ──
       - name: Create hourly validation incident
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           always() && (
             failure() ||
@@ -2966,6 +3299,7 @@ jobs:
             const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
             const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
             const dnsOnlyIncidentMarker = '<!-- hourly-ci-dns-only:v1 -->';
+            const queueOnlyIncidentMarker = '<!-- hourly-ci-queue-only:v1 -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const {
               RECOVERED_MARKER: recoveredMarker,
@@ -3151,6 +3485,12 @@ jobs:
               !hasDeploymentFailure && !hasUnclassifiedWorkflowFailure &&
               selectedPublicationSurfaces.length === 1 &&
               selectedPublicationSurfaces[0] === 'dns_health';
+            const isQueueOnlyIncident =
+              selectorOutcome === 'success' && selectorDegraded &&
+              !hasTestFailure && !hasLiveAuditFailure &&
+              !hasDeploymentFailure && !hasUnclassifiedWorkflowFailure &&
+              selectedPublicationSurfaces.length === 1 &&
+              selectedPublicationSurfaces[0] === 'queue';
             const report = [
               `## ${incidentKind} — ${date}`,
               '',
@@ -3219,22 +3559,73 @@ jobs:
               contentMarker,
               recoveryMarker,
               ...(isDnsOnlyIncident ? [dnsOnlyIncidentMarker] : []),
+              ...(isQueueOnlyIncident ? [queueOnlyIncidentMarker] : []),
               '',
               report,
             ].join('\n');
             const desiredIssueBody = `${body}\n\nGitHub assignee: ${context.repo.owner}.`;
 
-            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'all', per_page: 100,
-            });
+            const hourlyOwnerLabel = 'automation:hourly-master';
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: hourlyOwnerLabel,
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  name: hourlyOwnerLabel,
+                  color: '5319e7',
+                  description: 'Single incident slot owned by hourly-master',
+                });
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+              }
+            }
             const hasExactMarker = (body, marker) =>
               String(body || '').split(/\r?\n/).includes(marker);
-            const ownedIssues = allIssues.filter(issue => {
+            const isOwnedIssue = issue => {
               if (issue.pull_request) return false;
               const issueBody = issue.body || '';
               return hasExactMarker(issueBody, ownershipMarker) ||
                 issueBody.includes(legacySignature);
+            };
+            const exactOwnerResponse = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'all', labels: hourlyOwnerLabel,
+              sort: 'updated', direction: 'desc', per_page: 100, page: 1,
+            });
+            const exactOwnerPage = exactOwnerResponse.data || [];
+            if (exactOwnerPage.length >= 100) {
+              core.setFailed('Hourly incident owner-label lookup is ambiguous.');
+              return;
+            }
+            let allIssues = [...exactOwnerPage];
+            const hasIndexedCurrent = exactOwnerPage.some(issue =>
+              isOwnedIssue(issue) &&
+              hasExactMarker(issue.body || '', currentIncidentMarker),
+            );
+            if (!hasIndexedCurrent) {
+              const migrationResponse = await github.rest.issues.listForRepo({
+                owner: context.repo.owner, repo: context.repo.repo,
+                state: 'all',
+                labels: 'ci-failure,automated,workstream:dashboard-ci',
+                sort: 'updated', direction: 'desc', per_page: 100, page: 1,
+              });
+              const migrationPage = migrationResponse.data || [];
+              if (migrationPage.length >= 100) {
+                core.setFailed('Hourly incident migration lookup is ambiguous.');
+                return;
+              }
+              const byNumber = new Map(
+                [...allIssues, ...migrationPage].map(issue => [issue.number, issue]),
+              );
+              allIssues = [...byNumber.values()];
+            }
+            const ownedIssues = allIssues.filter(issue => {
+              return isOwnedIssue(issue);
             });
             const newestFirst = (left, right) =>
               Date.parse(right.updated_at || right.created_at || 0) -
@@ -3263,6 +3654,14 @@ jobs:
             // users are already watching remains authoritative.
             let existing = currentIssues[0] || openOwnedIssues[0] ||
               exactIssues[0] || recoveredIssues[0] || null;
+            if (existing && !(existing.labels || []).some(label =>
+              (typeof label === 'string' ? label : label.name) === hourlyOwnerLabel
+            )) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.number, labels: [hourlyOwnerLabel],
+              });
+            }
 
             const markCurrent = issueBody => {
               let nextBody = issueBody || '';
@@ -3347,7 +3746,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: existing.number,
-                labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
+                labels: ['ci-failure', 'automated', 'workstream:dashboard-ci', hourlyOwnerLabel],
               });
               const incidentTransition = classifyFailureTransition(
                 existing.body || '', existing.state, fingerprintMarker,
@@ -3428,7 +3827,7 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo,
                 title,
                 body: desiredIssueBody,
-                labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
+                labels: ['ci-failure', 'automated', 'workstream:dashboard-ci', hourlyOwnerLabel],
                 assignees: [context.repo.owner],
               });
               await supersedeOtherIssues(created.data.number);
@@ -3438,6 +3837,7 @@ jobs:
         if: >-
           success() &&
           (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success' &&
           steps.publication-selector.outputs.degraded == 'false' &&
@@ -3456,10 +3856,12 @@ jobs:
             const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
             const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
             const dnsOnlyIncidentMarker = '<!-- hourly-ci-dns-only:v1 -->';
+            const queueOnlyIncidentMarker = '<!-- hourly-ci-queue-only:v1 -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const {
               RECOVERED_MARKER: recoveredMarker,
               advanceRecoveryStreak,
+              isStrictLegacySurfaceOnlyIncident,
             } = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
             );
@@ -3470,17 +3872,67 @@ jobs:
             const validationCiUrl =
               process.env.HOURLY_RECOVERY_CI_URL || '';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'all', per_page: 100,
-            });
+            const hourlyOwnerLabel = 'automation:hourly-master';
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: hourlyOwnerLabel,
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  name: hourlyOwnerLabel,
+                  color: '5319e7',
+                  description: 'Single incident slot owned by hourly-master',
+                });
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+              }
+            }
             const hasExactMarker = (body, marker) =>
               String(body || '').split(/\r?\n/).includes(marker);
-            const ownedIssues = issues.filter(issue => {
+            const isOwnedIssue = issue => {
               if (issue.pull_request) return false;
               const body = issue.body || '';
               return hasExactMarker(body, ownershipMarker) ||
                 body.includes(legacySignature);
+            };
+            const exactOwnerResponse = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'all', labels: hourlyOwnerLabel,
+              sort: 'updated', direction: 'desc', per_page: 100, page: 1,
+            });
+            const exactOwnerPage = exactOwnerResponse.data || [];
+            if (exactOwnerPage.length >= 100) {
+              core.setFailed('Hourly incident owner-label lookup is ambiguous.');
+              return;
+            }
+            let issues = [...exactOwnerPage];
+            const hasIndexedCurrent = exactOwnerPage.some(issue =>
+              isOwnedIssue(issue) &&
+              hasExactMarker(issue.body || '', currentIncidentMarker),
+            );
+            if (!hasIndexedCurrent) {
+              const migrationResponse = await github.rest.issues.listForRepo({
+                owner: context.repo.owner, repo: context.repo.repo,
+                state: 'all',
+                labels: 'ci-failure,automated,workstream:dashboard-ci',
+                sort: 'updated', direction: 'desc', per_page: 100, page: 1,
+              });
+              const migrationPage = migrationResponse.data || [];
+              if (migrationPage.length >= 100) {
+                core.setFailed('Hourly incident migration lookup is ambiguous.');
+                return;
+              }
+              const byNumber = new Map(
+                [...issues, ...migrationPage].map(issue => [issue.number, issue]),
+              );
+              issues = [...byNumber.values()];
+            }
+            const ownedIssues = issues.filter(issue => {
+              return isOwnedIssue(issue);
             });
             const newestFirst = (left, right) =>
               Date.parse(right.updated_at || right.created_at || 0) -
@@ -3503,27 +3955,32 @@ jobs:
               console.log('No current hourly incident needs recovery tracking.');
               return;
             }
+            if (!(currentIssue.labels || []).some(label =>
+              (typeof label === 'string' ? label : label.name) === hourlyOwnerLabel
+            )) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: currentIssue.number, labels: [hourlyOwnerLabel],
+              });
+            }
             const currentIssueBody = currentIssue.body || '';
             const isMarkedDnsOnly = hasExactMarker(
               currentIssueBody, dnsOnlyIncidentMarker,
             );
-            // Adopt only the exact legacy shape produced for the current DNS-only
-            // incident before the ownership marker existed. Do not infer DNS-only
-            // from a title or an arbitrary mention of DNS.
-            const legacyLines = currentIssueBody.split(/\r?\n/);
-            const isStrictLegacyDnsOnly =
-              legacyLines.some(line => /^## Degraded Publication — \d{4}-\d{2}-\d{2}$/.test(line)) &&
-              legacyLines.includes('**Degraded surfaces:** dns_health') &&
-              legacyLines.some(line =>
-                line.startsWith('**Publication selector:** outcome=`success`, mode=`degraded`'),
-              ) &&
-              legacyLines.some(line =>
-                line.startsWith('**Live publication audit:** outcome=`success`,'),
-              ) &&
-              !currentIssueBody.includes('**Failing deterministic tests:**') &&
-              !currentIssueBody.includes('deployment failed:') &&
-              !currentIssueBody.includes('workflow step failed before publication completed');
+            const isMarkedQueueOnly = hasExactMarker(
+              currentIssueBody, queueOnlyIncidentMarker,
+            );
+            // Adopt only the exact legacy single-surface shapes produced before
+            // the dedicated ownership markers existed. Titles and arbitrary
+            // mentions of a surface never authorize one-run recovery.
+            const isStrictLegacyDnsOnly = isStrictLegacySurfaceOnlyIncident(
+              currentIssueBody, 'dns_health',
+            );
+            const isStrictLegacyQueueOnly = isStrictLegacySurfaceOnlyIncident(
+              currentIssueBody, 'queue',
+            );
             const targetedDnsRecovery = validationSource === 'targeted-dns';
+            const targetedQueueRecovery = validationSource === 'targeted-queue';
             if (targetedDnsRecovery && !isMarkedDnsOnly && !isStrictLegacyDnsOnly) {
               console.log(
                 `Targeted DNS publication will not advance non-DNS-only incident ` +
@@ -3531,15 +3988,24 @@ jobs:
               );
               return;
             }
+            if (targetedQueueRecovery &&
+                !isMarkedQueueOnly && !isStrictLegacyQueueOnly) {
+              console.log(
+                `Targeted queue publication will not advance non-queue-only incident ` +
+                `#${currentIssue.number}.`,
+              );
+              return;
+            }
             // General incidents retain the six-publication anti-flap window. A
             // strictly identified DNS-only incident can be closed by the exact
             // targeted publication that made the canonical status fully healthy.
-            const requiredRecoveryRuns = targetedDnsRecovery ? 1 : 6;
+            const requiredRecoveryRuns =
+              targetedDnsRecovery || targetedQueueRecovery ? 1 : 6;
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: currentIssue.number,
-              labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
+              labels: ['ci-failure', 'automated', 'workstream:dashboard-ci', hourlyOwnerLabel],
             });
 
             const supersedeOtherIssues = async canonicalNumber => {
@@ -3593,6 +4059,10 @@ jobs:
             if (targetedDnsRecovery && !currentBody.includes(dnsOnlyIncidentMarker)) {
               currentBody = `${dnsOnlyIncidentMarker}\n${currentBody}`;
             }
+            if (targetedQueueRecovery &&
+                !currentBody.includes(queueOnlyIncidentMarker)) {
+              currentBody = `${queueOnlyIncidentMarker}\n${currentBody}`;
+            }
             if (currentIssue.state === 'closed' &&
                 currentBody.includes(recoveredMarker)) {
               if (currentBody !== (currentIssue.body || '')) {
@@ -3645,35 +4115,80 @@ jobs:
             const validationEvidence = validationSource === 'targeted-dns'
               ? `The targeted DNS generation was validated in the exact fully ` +
                 `healthy canonical publication for code \`${validationCodeSha}\`.`
+              : validationSource === 'targeted-queue'
+                ? `The targeted queue generation was validated in the exact fully ` +
+                  `healthy canonical publication for code \`${validationCodeSha}\`.`
               : validationSource === 'separate-ci'
                 ? `Separate CI validated code SHA \`${validationCodeSha}\`` +
                   (validationCiUrl ? ` ([run](${validationCiUrl})).` : '.')
                 : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: currentIssue.number,
-              body: [
-                `The active hourly publication incident was absent in ` +
-                  `${requiredRecoveryRuns} consecutive eligible healthy ` +
-                  'publication runs. Closing this single current ticket.',
-                '',
-                validationEvidence,
-                `**Publication run:** ${runUrl}`,
-              ].join('\n'),
-            });
-            await github.rest.issues.update({
+            const closePayload = {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: currentIssue.number,
               body: recoveredBody,
               state: 'closed',
-            });
+            };
+            const transientWriteStatuses = new Set([409, 429, 500, 502, 503, 504]);
+            let closeError = null;
+            for (let attempt = 1; attempt <= 2; attempt += 1) {
+              try {
+                await github.rest.issues.update(closePayload);
+                closeError = null;
+                break;
+              } catch (error) {
+                closeError = error;
+                if (attempt >= 2 || !transientWriteStatuses.has(error.status)) {
+                  break;
+                }
+                core.warning(
+                  `Transient close failure for hourly issue #${currentIssue.number}; ` +
+                  'retrying once.',
+                );
+              }
+            }
+            if (closeError) {
+              // A lost response can report failure after GitHub committed the
+              // idempotent close.  Exact readback distinguishes that success
+              // from a genuinely stranded incident before the step returns.
+              const readback = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: currentIssue.number,
+              });
+              if (readback.data.state !== 'closed' ||
+                  !hasExactMarker(readback.data.body || '', recoveredMarker)) {
+                throw closeError;
+              }
+            }
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: currentIssue.number,
+                body: [
+                  `The active hourly publication incident was absent in ` +
+                    `${requiredRecoveryRuns} consecutive eligible healthy ` +
+                    'publication runs. This single current ticket is now closed.',
+                  '',
+                  validationEvidence,
+                  `**Publication run:** ${runUrl}`,
+                ].join('\n'),
+              });
+            } catch (error) {
+              // Closure is the durable state transition; a comment transport
+              // failure must not turn a recovered dashboard back into an open
+              // incident or falsely fail the successful publication run.
+              core.warning(
+                `Closed hourly issue #${currentIssue.number}, but could not add ` +
+                `the recovery comment: ${String(error.message || error)}`,
+              );
+            }
 
       # ── Phase 7: Health check ──
       - name: Health check
         if: >-
-          inputs.dns_generation == '' &&
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           SITE_URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/"
@@ -3735,6 +4250,50 @@ jobs:
             --status "$PUBLICATION_STATUS" \
             --canonical-dns-data "$CANONICAL_DNS" \
             --target-dns-generation "$TARGET_DNS_GENERATION" \
+            --github-output "$GITHUB_OUTPUT"
+
+  queue-reconcile-preflight:
+    if: github.event_name == 'workflow_dispatch' && inputs.queue_generation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      required: ${{ steps.target-check.outputs.required }}
+      reason: ${{ steps.target-check.outputs.reason }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Check whether the queue generation is already canonical
+        id: target-check
+        env:
+          TARGET_QUEUE_GENERATION: ${{ inputs.queue_generation }}
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication_status.json"
+          CANONICAL_QUEUE="$RUNNER_TEMP/canonical_queue_jobs.json"
+          if ! git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1; then
+            echo "::warning::Canonical branch is unavailable; retaining queue reconciliation."
+          fi
+          git show \
+            origin/gh-pages:data/vllm/ci/publication_status.json \
+            > "$PUBLICATION_STATUS" 2>/dev/null || rm -f "$PUBLICATION_STATUS"
+          git show \
+            origin/gh-pages:data/vllm/ci/queue_jobs.json \
+            > "$CANONICAL_QUEUE" 2>/dev/null || rm -f "$CANONICAL_QUEUE"
+          python scripts/vllm/plan_queue_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --canonical-queue-data "$CANONICAL_QUEUE" \
+            --target-queue-generation "$TARGET_QUEUE_GENERATION" \
             --github-output "$GITHUB_OUTPUT"
 
   publication-watchdog-preflight:

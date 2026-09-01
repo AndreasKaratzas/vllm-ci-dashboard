@@ -11,7 +11,9 @@ on:
 
 concurrency:
   group: nightly-ci
-  cancel-in-progress: true
+  # Issue reconciliation is a bounded transaction.  Let an older run finish
+  # closing/migrating its durable incident slot before a newer run starts.
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -119,6 +121,7 @@ jobs:
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const date = new Date().toISOString().slice(0, 10);
             const ownershipMarker = '<!-- ci-failure-owner:nightly-ci -->';
+            const ownershipLabel = 'automation:nightly-ci';
             const legacySignature = '*This issue was created automatically by the nightly CI workflow.*';
 
             // Parse failure details
@@ -156,47 +159,129 @@ jobs:
             ].join('\n');
 
             const title = `Nightly CI failure — ${date}`;
-            const labels = ['ci-failure', 'automated', 'workstream:dashboard-ci'];
+            const labels = [
+              'ci-failure',
+              'automated',
+              'workstream:dashboard-ci',
+              ownershipLabel,
+            ];
 
-            // Update only the issue owned by this workflow. Hourly CI uses the
-            // same broad label but has an independent incident lifecycle.
-            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+            try {
+              await github.rest.issues.getLabel({
+                ...context.repo,
+                name: ownershipLabel,
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: ownershipLabel,
+                color: '5319e7',
+                description: 'Canonical incident owned by nightly CI automation',
+              });
+            }
+
+            // The exact ownership label is a single-entry durable index. One
+            // recent page performs bounded legacy adoption only when the index
+            // has no valid owner; historical duplicates never retain the
+            // ownership label.
+            const labeledResponse = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              state: 'open',
+              state: 'all',
+              labels: ownershipLabel,
+              sort: 'updated',
+              direction: 'desc',
               per_page: 100,
+              page: 1,
             });
+            const hasNextPage = response =>
+              /(?:^|,)\s*<[^>]+>;\s*rel="next"(?:\s*[,;]|$)/i.test(
+                String((response.headers || {}).link || ''),
+              );
+            if (hasNextPage(labeledResponse)) {
+              throw new Error('nightly CI ownership lookup reached its bounded ambiguity limit');
+            }
+            const recentRequest = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            };
             const hasExactMarker = (body, marker) =>
               String(body || '').split(/\r?\n/).includes(marker);
-            const ownedIssues = openIssues.filter(issue => {
+            const isOwned = issue => {
               if (issue.pull_request) return false;
               const issueBody = issue.body || '';
               return hasExactMarker(issueBody, ownershipMarker) ||
                 issueBody.includes(legacySignature);
-            }).sort((left, right) =>
-              Date.parse(right.updated_at || right.created_at || 0) -
-                Date.parse(left.updated_at || left.created_at || 0) ||
+            };
+            const candidates = new Map();
+            for (const issue of labeledResponse.data) {
+              candidates.set(issue.number, issue);
+            }
+            if (![...candidates.values()].some(isOwned)) {
+              const recentResponse = await github.rest.issues.listForRepo(recentRequest);
+              for (const issue of recentResponse.data) {
+                candidates.set(issue.number, issue);
+              }
+              if (hasNextPage(recentResponse)) {
+                throw new Error('nightly CI legacy adoption reached its bounded ambiguity limit');
+              }
+            }
+            const ownedIssues = [...candidates.values()].filter(isOwned).sort((left, right) =>
+              Number(hasExactMarker(right.body, ownershipMarker)) -
+                Number(hasExactMarker(left.body, ownershipMarker)) ||
               right.number - left.number,
             );
             const existing = ownedIssues[0] || null;
+            const labelName = label => typeof label === 'string' ? label : label.name;
+            let canonicalNumber = null;
 
             if (existing) {
-              // Update existing issue with new failure info
+              // Keep one re-openable canonical incident instead of creating a
+              // new issue for each failure/recovery cycle.
               const issue = existing;
-              if (!hasExactMarker(issue.body, ownershipMarker)) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                title,
+                body,
+                state: 'open',
+              });
+              for (const duplicate of ownedIssues.slice(1)) {
+                if (duplicate.state !== 'open') continue;
                 await github.rest.issues.update({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issue_number: issue.number,
-                  body: `${ownershipMarker}\n${issue.body || ''}`,
+                  issue_number: duplicate.number,
+                  state: 'closed',
                 });
+                try {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: duplicate.number,
+                    body: `Superseded by #${issue.number}, the canonical nightly CI incident. This duplicate is closed.\n\n**Run:** ${runUrl}`,
+                  });
+                } catch (error) {
+                  core.warning(`Closed duplicate #${duplicate.number} but could not comment.`);
+                }
               }
+              // Establish the durable index only after every legacy duplicate
+              // is closed.  If this run dies earlier, the next run repeats the
+              // bounded migration instead of forgetting an unlabelled issue.
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
                 labels,
               });
+              canonicalNumber = issue.number;
               try {
                 await github.rest.issues.addAssignees({
                   owner: context.repo.owner,
@@ -215,27 +300,12 @@ jobs:
                 '',
                 failureList,
               ].join('\n');
-
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
                 body: comment,
               });
-              for (const duplicate of ownedIssues.slice(1)) {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: duplicate.number,
-                  body: `Superseded by #${issue.number}, the canonical nightly CI incident. Closing this duplicate.\n\n**Run:** ${runUrl}`,
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: duplicate.number,
-                  state: 'closed',
-                });
-              }
               console.log(`Updated existing issue #${issue.number}`);
             } else {
               // Create new issue
@@ -247,7 +317,24 @@ jobs:
                 labels,
                 assignees: [context.repo.owner],
               });
+              canonicalNumber = created.data.number;
               console.log(`Created issue #${created.data.number}`);
+            }
+            // Remove stale index labels last.  Every prior canonical candidate
+            // has already been closed, while canonicalNumber is discoverable.
+            for (const issue of labeledResponse.data) {
+              if (issue.number === canonicalNumber) continue;
+              const issueLabels = new Set((issue.labels || []).map(labelName));
+              if (!issueLabels.has(ownershipLabel)) continue;
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  name: ownershipLabel,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
             }
 
   close-issue-on-success:
@@ -262,34 +349,119 @@ jobs:
         with:
           script: |
             const ownershipMarker = '<!-- ci-failure-owner:nightly-ci -->';
+            const ownershipLabel = 'automation:nightly-ci';
             const legacySignature = '*This issue was created automatically by the nightly CI workflow.*';
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
+
+            try {
+              await github.rest.issues.getLabel({
+                ...context.repo,
+                name: ownershipLabel,
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: ownershipLabel,
+                color: '5319e7',
+                description: 'Canonical incident owned by nightly CI automation',
+              });
+            }
+
+            const labeledResponse = await github.rest.issues.listForRepo({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              state: 'open',
+              state: 'all',
+              labels: ownershipLabel,
+              sort: 'updated',
+              direction: 'desc',
               per_page: 100,
+              page: 1,
             });
+            const hasNextPage = response =>
+              /(?:^|,)\s*<[^>]+>;\s*rel="next"(?:\s*[,;]|$)/i.test(
+                String((response.headers || {}).link || ''),
+              );
+            if (hasNextPage(labeledResponse)) {
+              throw new Error('nightly CI ownership lookup reached its bounded ambiguity limit');
+            }
+            const recentRequest = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            };
 
             const hasExactMarker = (body, marker) =>
               String(body || '').split(/\r?\n/).includes(marker);
-            const ownedIssues = issues.filter(issue => {
+            const isOwned = issue => {
               if (issue.pull_request) return false;
               const body = issue.body || '';
               return hasExactMarker(body, ownershipMarker) ||
                 body.includes(legacySignature);
-            });
+            };
+            const candidates = new Map();
+            for (const issue of labeledResponse.data) {
+              candidates.set(issue.number, issue);
+            }
+            if (![...candidates.values()].some(isOwned)) {
+              const recentResponse = await github.rest.issues.listForRepo(recentRequest);
+              for (const issue of recentResponse.data) {
+                candidates.set(issue.number, issue);
+              }
+              if (hasNextPage(recentResponse)) {
+                throw new Error('nightly CI legacy adoption reached its bounded ambiguity limit');
+              }
+            }
+            const ownedIssues = [...candidates.values()].filter(isOwned).sort((left, right) =>
+              Number(hasExactMarker(right.body, ownershipMarker)) -
+                Number(hasExactMarker(left.body, ownershipMarker)) ||
+              right.number - left.number,
+            );
+            const existing = ownedIssues[0] || null;
+            const labelName = label => typeof label === 'string' ? label : label.name;
             for (const issue of ownedIssues) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                body: `Nightly CI is passing again. Closing automatically.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              });
+              if (issue.state !== 'open') continue;
               await github.rest.issues.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
                 state: 'closed',
               });
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `Nightly CI is passing again. Closed automatically.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                });
+              } catch (error) {
+                core.warning(`Closed nightly CI issue #${issue.number} but could not comment.`);
+              }
               console.log(`Closed issue #${issue.number}`);
+            }
+            // The canonical closed issue is the durable slot for the next
+            // failure.  Install its index only after legacy duplicates close.
+            if (existing) {
+              await github.rest.issues.addLabels({
+                ...context.repo,
+                issue_number: existing.number,
+                labels: [ownershipLabel],
+              });
+            }
+            for (const issue of labeledResponse.data) {
+              if (existing && issue.number === existing.number) continue;
+              const issueLabels = new Set((issue.labels || []).map(labelName));
+              if (!issueLabels.has(ownershipLabel)) continue;
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  name: ownershipLabel,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
             }

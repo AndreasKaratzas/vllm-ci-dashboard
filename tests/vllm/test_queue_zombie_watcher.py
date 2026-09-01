@@ -79,7 +79,7 @@ class _Recorder:
     def assign(self, token, repo, number):
         self.assigned.append(number)
 
-    def list_owned(self, token, repo):
+    def list_owned(self, token, repo, **_kwargs):
         self.lookups += 1
         return list(self.owned) if self.lookup_ok else None
 
@@ -89,6 +89,7 @@ def _owned_remote(queue, number, *, legacy=False, created_at="2026-04-20T20:00:0
         "number": number,
         "queue": queue,
         "created_at": created_at,
+        "labels": [{"name": name} for name in qzw.OWNED_LABELS],
         "legacy": legacy,
     }
 
@@ -130,6 +131,34 @@ def _raw_issue(
         ),
         "created_at": "2026-04-20T20:00:00Z",
     }
+
+
+def test_tracked_issue_lookup_uses_direct_number_and_zero_list_calls(monkeypatch):
+    calls = []
+    issue = {**_raw_issue(number=77), "state": "open"}
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return issue
+
+    def get(url, *, headers, timeout):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr(qzw.requests, "get", get)
+
+    rows = qzw._list_owned_open_issues(
+        "token",
+        qzw.DASHBOARD_REPO,
+        include_recovery=False,
+        tracked_numbers=(77,),
+    )
+
+    assert [row["number"] for row in rows] == [77]
+    assert calls == [f"{qzw.GH_API}/repos/{qzw.DASHBOARD_REPO}/issues/77"]
 
 
 @pytest.fixture
@@ -422,6 +451,7 @@ def test_owned_issue_requires_exact_marker_or_strict_legacy_identity():
         "number": 77,
         "queue": "amd_mi250_1",
         "created_at": "2026-04-20T20:00:00Z",
+        "labels": [],
         "legacy": False,
     }
 
@@ -446,11 +476,11 @@ def test_owned_issue_requires_exact_marker_or_strict_legacy_identity():
     assert qzw._owned_queue_issue(embedded_marker) is None
 
 
-def test_owned_issue_lookup_is_unfiltered_and_paginated(monkeypatch):
+def test_owned_issue_lookup_fails_closed_at_owner_label_page_cap(monkeypatch):
     calls = []
-    pages = [
-        [{"number": number, "title": "foreign", "body": ""} for number in range(1, 101)],
-        [_raw_issue(number=222)],
+    page = [
+        {"number": number, "title": "foreign", "body": ""}
+        for number in range(1, 101)
     ]
 
     class Response:
@@ -464,21 +494,21 @@ def test_owned_issue_lookup_is_unfiltered_and_paginated(monkeypatch):
 
     def fake_get(url, *, headers, params, timeout):
         calls.append(params)
-        return Response(pages[params["page"] - 1])
+        return Response(page)
 
     monkeypatch.setattr(qzw.requests, "get", fake_get)
 
-    assert qzw._list_owned_open_issues("token", qzw.DASHBOARD_REPO) == [
+    assert qzw._list_owned_open_issues("token", qzw.DASHBOARD_REPO) is None
+    assert calls == [
         {
-            "number": 222,
-            "queue": "amd_mi250_1",
-            "created_at": "2026-04-20T20:00:00Z",
-            "legacy": False,
+            "state": "open",
+            "labels": qzw.LABEL,
+            "sort": "updated",
+            "direction": "desc",
+            "per_page": 100,
+            "page": 1,
         }
     ]
-    assert [call["page"] for call in calls] == [1, 2]
-    assert all(call == {"state": "open", "per_page": 100, "page": index}
-               for index, call in enumerate(calls, 1))
 
 
 def test_state_write_uses_atomic_replace(isolated_state, monkeypatch):

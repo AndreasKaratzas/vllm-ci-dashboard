@@ -42,6 +42,9 @@ ALLOWED_WORKSTREAMS = {
     "workstream:dashboard-ci",
     "workstream:dev",
 }
+ISSUE_PAGE_SIZE = 100
+ISSUE_MEMBERSHIP_BATCH_SIZE = 50
+MAX_ELIGIBLE_ISSUES = (ISSUE_PAGE_SIZE - 1) * len(ALLOWED_WORKSTREAMS)
 EXPECTED_PROJECT = {
     "id": "PVT_kwHOAofB1M4BepHY",
     "owner": "AndreasKaratzas",
@@ -50,8 +53,8 @@ EXPECTED_PROJECT = {
     "url": "https://github.com/users/AndreasKaratzas/projects/2",
 }
 
-PROJECT_ITEMS_QUERY = """
-query($projectId: ID!, $cursor: String) {
+PROJECT_METADATA_QUERY = """
+query($projectId: ID!) {
   node(id: $projectId) {
     ... on ProjectV2 {
       id
@@ -70,18 +73,22 @@ query($projectId: ID!, $cursor: String) {
         totalCount
         nodes { nameWithOwner }
       }
-      items(first: 100, after: $cursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes {
-          content {
-            __typename
-            ... on Issue {
-              id
-              number
-              repository { nameWithOwner }
-            }
-          }
-        }
+    }
+  }
+}
+"""
+
+ISSUE_PROJECT_MEMBERSHIP_QUERY = """
+query($issueIds: [ID!]!) {
+  nodes(ids: $issueIds) {
+    __typename
+    ... on Issue {
+      id
+      number
+      repository { nameWithOwner }
+      projectItems(first: 10, includeArchived: true) {
+        pageInfo { hasNextPage }
+        nodes { project { id } }
       }
     }
   }
@@ -158,29 +165,34 @@ def eligible_issue(issue: Any) -> bool:
 def fetch_eligible_issues(token: str, repo: str) -> list[dict]:
     validate_target_repo(repo)
     rows_by_id: dict[str, dict] = {}
-    page = 1
-    while True:
+    # Three exact label intersections keep request count independent of every
+    # unrelated open issue and PR in the repository.
+    for workstream in sorted(ALLOWED_WORKSTREAMS):
         response = requests.get(
             f"{GH_API}/repos/{repo}/issues",
             headers=_headers(token),
             params={
                 "state": "open",
-                "labels": AUTOMATED_LABEL,
-                "per_page": 100,
-                "page": page,
+                "labels": f"{AUTOMATED_LABEL},{workstream}",
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": ISSUE_PAGE_SIZE,
+                "page": 1,
             },
             timeout=30,
         )
         response.raise_for_status()
-        payload = response.json() or []
+        payload = response.json()
         if not isinstance(payload, list):
             raise RuntimeError("GitHub issues response was not a list")
+        if len(payload) >= ISSUE_PAGE_SIZE:
+            raise RuntimeError(
+                f"Eligible issue lookup for {workstream} reached its bounded "
+                "ambiguity limit"
+            )
         for issue in payload:
             if eligible_issue(issue):
                 rows_by_id[str(issue["node_id"])] = issue
-        if len(payload) < 100:
-            break
-        page += 1
     rows = list(rows_by_id.values())
     rows.sort(key=lambda issue: int(issue.get("number") or 0))
     return rows
@@ -217,34 +229,81 @@ def validate_project(project: Any, project_id: str, repo: str) -> dict:
     return project
 
 
-def fetch_project_issue_ids(token: str, project_id: str, repo: str) -> set[str]:
+def fetch_project_metadata(token: str, project_id: str, repo: str) -> dict:
+    """Validate the fixed Project without traversing its lifetime item list."""
     validate_target_repo(repo)
-    ids: set[str] = set()
-    cursor: str | None = None
-    while True:
+    data = _graphql(
+        token,
+        PROJECT_METADATA_QUERY,
+        {"projectId": project_id},
+    )
+    return validate_project(data.get("node"), project_id, repo)
+
+
+def fetch_project_issue_ids(
+    token: str,
+    project_id: str,
+    repo: str,
+    issue_ids: list[str],
+) -> set[str]:
+    """Return eligible Issue IDs already attached to the configured Project."""
+    validate_target_repo(repo)
+    normalized_ids = sorted(
+        {
+            str(issue_id or "").strip()
+            for issue_id in issue_ids
+            if str(issue_id or "").strip()
+        }
+    )
+    if len(normalized_ids) > MAX_ELIGIBLE_ISSUES:
+        raise RuntimeError(
+            "Eligible Issue membership set exceeded its finite REST proof bound"
+        )
+    existing: set[str] = set()
+    for offset in range(0, len(normalized_ids), ISSUE_MEMBERSHIP_BATCH_SIZE):
+        batch = normalized_ids[offset : offset + ISSUE_MEMBERSHIP_BATCH_SIZE]
         data = _graphql(
             token,
-            PROJECT_ITEMS_QUERY,
-            {"projectId": project_id, "cursor": cursor},
+            ISSUE_PROJECT_MEMBERSHIP_QUERY,
+            {"issueIds": batch},
         )
-        project = validate_project(data.get("node"), project_id, repo)
-        connection = project.get("items") or {}
-        for item in connection.get("nodes") or []:
-            content = item.get("content") if isinstance(item, dict) else None
-            if not isinstance(content, dict) or content.get("__typename") != "Issue":
-                continue
-            repository = content.get("repository") or {}
+        nodes = data.get("nodes")
+        if not isinstance(nodes, list) or len(nodes) != len(batch):
+            raise RuntimeError("GitHub issue membership response was incomplete")
+        seen_batch: set[str] = set()
+        for issue in nodes:
+            if not isinstance(issue, dict) or issue.get("__typename") != "Issue":
+                raise RuntimeError("Project membership lookup returned a non-Issue node")
+            issue_id = str(issue.get("id") or "").strip()
+            if issue_id not in batch or issue_id in seen_batch:
+                raise RuntimeError("Project membership lookup returned an unexpected Issue")
+            seen_batch.add(issue_id)
+            repository = issue.get("repository") or {}
             if str(repository.get("nameWithOwner") or "").casefold() != repo.casefold():
-                continue
-            issue_id = str(content.get("id") or "").strip()
-            if issue_id:
-                ids.add(issue_id)
-        page_info = connection.get("pageInfo") or {}
-        if not page_info.get("hasNextPage"):
-            return ids
-        cursor = str(page_info.get("endCursor") or "").strip() or None
-        if cursor is None:
-            raise RuntimeError("Project pagination stopped without an end cursor")
+                raise RuntimeError("Project membership lookup crossed repository scope")
+            connection = issue.get("projectItems")
+            if not isinstance(connection, dict):
+                raise RuntimeError("Issue Project membership connection is missing")
+            items = connection.get("nodes")
+            page_info = connection.get("pageInfo")
+            if not isinstance(items, list) or not isinstance(page_info, dict):
+                raise RuntimeError("Issue Project membership connection is invalid")
+            project_ids = {
+                str((item.get("project") or {}).get("id") or "").strip()
+                for item in items
+                if isinstance(item, dict)
+            }
+            if project_id in project_ids:
+                existing.add(issue_id)
+            elif page_info.get("hasNextPage") is True:
+                # The target could be outside the ten-item proof window. Never
+                # add speculatively, because that can duplicate an archived item.
+                raise RuntimeError(
+                    f"Issue {issue_id} Project membership is ambiguous"
+                )
+        if seen_batch != set(batch):
+            raise RuntimeError("GitHub issue membership response omitted an Issue")
+    return existing
 
 
 def add_project_item(token: str, project_id: str, content_id: str) -> None:
@@ -297,7 +356,17 @@ def run() -> int:
         _write_step_summary("Skipped safely because `GITHUB_TOKEN` is not configured.")
         return 0
     issues = fetch_eligible_issues(repo_token, repo)
-    existing = fetch_project_issue_ids(project_token, project["id"], repo)
+    # Complete every read-side proof before the first mutation. A capped REST
+    # page, malformed node batch, or ambiguous Project connection therefore
+    # leaves the board byte-for-byte untouched.
+    fetch_project_metadata(project_token, project["id"], repo)
+    issue_ids = [str(issue["node_id"]) for issue in issues]
+    existing = fetch_project_issue_ids(
+        project_token,
+        project["id"],
+        repo,
+        issue_ids,
+    )
     missing = [issue for issue in issues if str(issue["node_id"]) not in existing]
     for issue in missing:
         add_project_item(project_token, project["id"], str(issue["node_id"]))

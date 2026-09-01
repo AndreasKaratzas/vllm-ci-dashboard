@@ -49,6 +49,46 @@ def test_ops_v2_javascript_has_valid_syntax():
     assert result.returncode == 0, result.stderr
 
 
+def test_home_workbench_marks_bounded_populations_as_lower_bounds():
+    assert "Issues (' + observedCountLabel(" in OPS_JS
+    assert "PRs (' + observedCountLabel(" in OPS_JS
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+const helpers = sandbox.window.OpsV2Test;
+
+assert.equal(helpers.populationSemantics({count_semantics: 'complete'}), 'complete');
+assert.equal(helpers.populationSemantics({count_semantics: 'lower_bound'}), 'lower_bound');
+assert.equal(helpers.populationSemantics({
+  source_coverage: {authoritative_complete: false},
+}), 'lower_bound');
+assert.equal(helpers.populationSemantics({}), 'complete');
+assert.equal(helpers.observedCountLabel(12, 'complete'), '12');
+assert.equal(helpers.observedCountLabel(12, 'lower_bound'), '≥12');
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_queue_ui_distinguishes_current_metrics_from_retained_job_details():
     assert "jobs.details_status || snapshot.details_status" in OPS_JS
     assert "retained_due_to_page_cap" in OPS_JS
@@ -1822,6 +1862,10 @@ def test_queue_history_refreshes_and_exposes_collection_gaps_and_timezone():
     assert "queueHistoryFallback: 'data/vllm/ci/queue_timeseries.jsonl'" in OPS_JS
     assert "queueTimestamp(a.generated_at) - queueTimestamp(b.generated_at)" in OPS_JS
     assert "entry.name === 'queue'" in OPS_JS
+    assert (
+        "candidates.sort(function (a, b) { return queueSectionTimestamp(b) - "
+        "queueSectionTimestamp(a); })[0]"
+    ) in OPS_JS
     assert "async function refreshQueueData" in OPS_JS
     assert "cache.delete(SOURCE_ASSETS.queueSection)" in OPS_JS
     assert "cache.delete(resolveOperationSectionPath(descriptor.path))" in OPS_JS

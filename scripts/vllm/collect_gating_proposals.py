@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +46,10 @@ TRACKED_AUTHORS = (
 )
 
 DEFAULT_LOOKBACK_DAYS = 35
+MAX_SEARCH_REQUESTS = 24
+MAX_SEARCH_PAGES_PER_AUTHOR = 2
+MAX_PR_FILE_PAGES = 10
+MAX_OUTPUT_BYTES = 80 * 1024 * 1024
 MULTISPACE_RE = re.compile(r"\s+")
 
 
@@ -59,6 +64,24 @@ class MirrorStep:
     device: str
     timeout_in_minutes: int | None
     source_file_dependencies: tuple[str, ...]
+
+
+@dataclass
+class SearchRequestBudget:
+    """One collector-wide ceiling below GitHub Search's 30/minute bucket."""
+
+    limit: int = MAX_SEARCH_REQUESTS
+    used: int = 0
+
+    def reserve(self) -> bool:
+        if self.used >= self.limit:
+            return False
+        self.used += 1
+        return True
+
+
+class GitHubCoverageError(RuntimeError):
+    """A finite GitHub read whose complete result could not be proven."""
 
 
 def _github_headers() -> dict[str, str]:
@@ -224,7 +247,9 @@ def search_pr_candidates_with_errors(
     *,
     since_date: str | None = None,
     state: str | None = None,
+    budget: SearchRequestBudget | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    budget = budget or SearchRequestBudget()
     candidates: dict[int, dict[str, Any]] = {}
     errors: list[dict[str, Any]] = []
     for author in authors:
@@ -235,7 +260,25 @@ def search_pr_candidates_with_errors(
         if since_date:
             parts.append(f"created:>={since_date}")
         query = " ".join(parts)
-        for page in range(1, 11):
+        author_candidates: dict[int, dict[str, Any]] = {}
+        author_errors: list[dict[str, Any]] = []
+        observed_items = 0
+        complete = False
+        total_count: int | None = None
+        for page in range(1, MAX_SEARCH_PAGES_PER_AUTHOR + 1):
+            if not budget.reserve():
+                error = GitHubCoverageError(
+                    f"global Search request ceiling {budget.limit} reached"
+                )
+                author_errors.append(
+                    collection_error(
+                        "search_budget",
+                        error,
+                        author=author,
+                        page=page,
+                    )
+                )
+                break
             try:
                 payload = client.get_json(
                     "https://api.github.com/search/issues",
@@ -243,17 +286,112 @@ def search_pr_candidates_with_errors(
                 )
             except requests.RequestException as exc:
                 log.warning("GitHub search failed for author %s page %s: %s", author, page, exc)
-                errors.append(collection_error("search", exc, author=author, page=page))
+                author_errors.append(
+                    collection_error("search", exc, author=author, page=page)
+                )
                 break
-            items = payload.get("items") or []
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                author_errors.append(
+                    collection_error(
+                        "search_coverage",
+                        GitHubCoverageError("Search response did not contain an items list"),
+                        author=author,
+                        page=page,
+                    )
+                )
+                break
+            incomplete_results = payload.get("incomplete_results")
+            if incomplete_results is True:
+                author_errors.append(
+                    collection_error(
+                        "search_coverage",
+                        GitHubCoverageError("GitHub reported incomplete Search results"),
+                        author=author,
+                        page=page,
+                    )
+                )
+                break
+            if incomplete_results is not None and incomplete_results is not False:
+                author_errors.append(
+                    collection_error(
+                        "search_coverage",
+                        GitHubCoverageError(
+                            "Search response contained an invalid incomplete_results flag"
+                        ),
+                        author=author,
+                        page=page,
+                    )
+                )
+                break
+            raw_total = payload.get("total_count")
+            if isinstance(raw_total, int) and not isinstance(raw_total, bool) and raw_total >= 0:
+                total_count = raw_total
+            elif raw_total is not None:
+                author_errors.append(
+                    collection_error(
+                        "search_coverage",
+                        GitHubCoverageError(
+                            "Search response contained an invalid total_count"
+                        ),
+                        author=author,
+                        page=page,
+                    )
+                )
+                break
+            items = payload["items"]
+            observed_items += len(items)
             for item in items:
                 if not isinstance(item, dict):
                     continue
                 candidate = _candidate_from_search_item(item)
                 if candidate:
-                    candidates[candidate["number"]] = candidate
-            if len(items) < 100:
+                    author_candidates[candidate["number"]] = candidate
+            if total_count is not None and observed_items > total_count:
+                author_errors.append(
+                    collection_error(
+                        "search_coverage",
+                        GitHubCoverageError(
+                            "Search item count exceeded total_count"
+                        ),
+                        author=author,
+                        page=page,
+                    )
+                )
                 break
+            if total_count is not None and observed_items >= total_count:
+                complete = True
+                break
+            if len(items) < 100:
+                if total_count is not None and observed_items < total_count:
+                    author_errors.append(
+                        collection_error(
+                            "search_coverage",
+                            GitHubCoverageError(
+                                "Search short page disagreed with total_count"
+                            ),
+                            author=author,
+                            page=page,
+                        )
+                    )
+                else:
+                    complete = True
+                break
+        if not complete and not author_errors:
+            author_errors.append(
+                collection_error(
+                    "search_coverage",
+                    GitHubCoverageError(
+                        "tracked-author Search exceeded its bounded page window"
+                    ),
+                    author=author,
+                    page=MAX_SEARCH_PAGES_PER_AUTHOR,
+                )
+            )
+        if author_errors:
+            # Never accept a prefix as the author's authoritative current set.
+            errors.extend(author_errors)
+        else:
+            candidates.update(author_candidates)
     rows = sorted(candidates.values(), key=lambda row: (row.get("updated_at") or "", row["number"]), reverse=True)
     return rows, errors
 
@@ -276,17 +414,21 @@ def raw_url(repo: str, sha: str, path: str) -> str:
 
 def paged_pr_files(client: GitHubClient, repo: str, number: int) -> list[dict[str, Any]]:
     files: list[dict[str, Any]] = []
-    for page in range(1, 11):
+    for page in range(1, MAX_PR_FILE_PAGES + 1):
         page_rows = client.get_json(
             f"https://api.github.com/repos/{repo}/pulls/{number}/files",
             params={"per_page": 100, "page": page},
         )
         if not isinstance(page_rows, list):
-            break
+            raise GitHubCoverageError(
+                f"PR #{number} changed-file lookup returned a non-list page"
+            )
         files.extend(row for row in page_rows if isinstance(row, dict))
         if len(page_rows) < 100:
-            break
-    return files
+            return files
+    raise GitHubCoverageError(
+        f"PR #{number} changed-file lookup exceeded {MAX_PR_FILE_PAGES} pages"
+    )
 
 
 def collect_pr(
@@ -402,6 +544,34 @@ def load_previous_payload(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def write_payload_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """Publish one complete sub-90-MiB snapshot without an in-place tear."""
+    encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
+    if len(encoded) > MAX_OUTPUT_BYTES:
+        raise RuntimeError(
+            f"Gating proposal payload is {len(encoded)} bytes; "
+            f"refusing the {MAX_OUTPUT_BYTES}-byte publication limit"
+        )
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def previous_candidate_rows(previous: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(previous, dict):
         return []
@@ -498,19 +668,21 @@ def collect_gating_proposals(
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if since_date is None:
         since_date = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    search_budget = SearchRequestBudget()
     fresh_candidates, errors = search_pr_candidates_with_errors(
         client,
         repo,
         authors,
         since_date=since_date,
         state="open",
+        budget=search_budget,
     )
     allowed_authors = {clean_text(author).casefold() for author in authors}
     allowed_authors.discard("")
     errored_authors = {
         clean_text(error.get("author")).casefold()
         for error in errors
-        if error.get("scope") == "search"
+        if str(error.get("scope") or "").startswith("search")
     }
     errored_authors.discard("")
     previous_candidates = [
@@ -526,7 +698,7 @@ def collect_gating_proposals(
         number = int(candidate["number"])
         try:
             pr = collect_pr(client, repo, number, candidate=candidate)
-        except requests.RequestException as exc:
+        except (requests.RequestException, GitHubCoverageError) as exc:
             log.warning("Skipping PR #%s after GitHub error: %s", number, exc)
             failed_pr_numbers.add(number)
             error = collection_error("pull_request", exc, number=number)
@@ -565,6 +737,8 @@ def collect_gating_proposals(
             "lookback_days": lookback_days,
             "since_date": since_date,
             "fresh_candidate_count": len(fresh_candidates),
+            "search_request_count": search_budget.used,
+            "search_request_limit": search_budget.limit,
             "candidate_cache": {
                 "generated_at": generated_at,
                 "pr_count": len(candidate_cache),
@@ -596,7 +770,11 @@ def main() -> None:
     out_path = output / "gating_proposals.json"
     previous = load_previous_payload(out_path)
     payload = collect_gating_proposals(args.repo, authors, previous=previous, lookback_days=args.lookback_days)
-    out_path.write_text(json.dumps(payload, indent=2, default=str) + "\n")
+    if payload.get("collection", {}).get("complete") is not True:
+        raise RuntimeError(
+            "Gating proposal collection was incomplete; preserving the prior output"
+        )
+    write_payload_atomic(out_path, payload)
     log.info(
         "Wrote %s with %d PRs and %d proposed mirrors",
         out_path,

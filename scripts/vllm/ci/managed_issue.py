@@ -8,6 +8,7 @@ A manually closed issue stays suppressed until the signal recovers or changes.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
@@ -16,8 +17,60 @@ import requests
 
 GH_API = "https://api.github.com"
 DASHBOARD_REPO = "AndreasKaratzas/vllm-ci-dashboard"
+ISSUE_LOOKUP_PAGE_SIZE = 100
+MAX_DIRECT_ISSUE_LOOKUPS = 100
 
 log = logging.getLogger(__name__)
+
+
+class IssueLookupError(RuntimeError):
+    """A bounded GitHub issue lookup that cannot prove a complete result."""
+
+
+def fetch_open_issue_candidate(
+    token: str,
+    repo: str,
+    number: int,
+    *,
+    request_get=None,
+) -> dict[str, Any] | None:
+    """Read one durable issue number; ``None`` authoritatively means not open."""
+    validate_target_repo(repo)
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        raise ValueError("issue number must be a positive integer")
+    get = request_get or requests.get
+    try:
+        response = get(
+            f"{GH_API}/repos/{repo}/issues/{number}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=30,
+        )
+    except requests.RequestException as error:
+        raise IssueLookupError(f"read issue #{number} failed") from error
+    if response.status_code == 404:
+        return None
+    if response.status_code >= 300:
+        raise IssueLookupError(
+            f"read issue #{number} failed: HTTP {response.status_code}"
+        )
+    try:
+        issue = response.json()
+    except ValueError as error:
+        raise IssueLookupError(f"read issue #{number} returned invalid JSON") from error
+    if not isinstance(issue, dict) or issue.get("number") != number:
+        raise IssueLookupError(f"read issue #{number} returned an invalid object")
+    if "pull_request" in issue:
+        raise IssueLookupError(f"tracked issue #{number} resolved to a pull request")
+    state = str(issue.get("state") or "").casefold()
+    if state == "closed":
+        return None
+    if state != "open":
+        raise IssueLookupError(f"tracked issue #{number} returned an unknown state")
+    return issue
 
 
 def _html_ownership_markers(body: str) -> set[str]:
@@ -36,6 +89,135 @@ def validate_target_repo(repo: str) -> None:
 def repo_owner(repo: str) -> str:
     owner = repo.split("/", 1)[0] if "/" in repo else repo
     return (owner or "AndreasKaratzas").strip() or "AndreasKaratzas"
+
+
+def bounded_open_issue_candidates(
+    token: str,
+    repo: str,
+    *,
+    durable_label: str,
+    recovery_labels: tuple[str, ...] = (),
+    include_recovery: bool = True,
+    exact_candidate: Callable[[dict[str, Any]], bool] | None = None,
+    request_get=None,
+) -> list[dict[str, Any]]:
+    """Return a finite candidate set without treating a capped page as complete.
+
+    The watcher-specific label is the primary durable index. The optional
+    recent page exists only for recovery after local state and that label were
+    both lost. Exact body-marker checks remain the caller's authority.
+    """
+    validate_target_repo(repo)
+    label = str(durable_label or "").strip()
+    if not label:
+        raise ValueError("durable_label must not be empty")
+    get = request_get or requests.get
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    def page(labels: tuple[str, ...], purpose: str) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "state": "open",
+            "labels": ",".join(labels),
+            "sort": "updated",
+            "direction": "desc",
+            "per_page": ISSUE_LOOKUP_PAGE_SIZE,
+            "page": 1,
+        }
+        try:
+            response = get(
+                f"{GH_API}/repos/{repo}/issues",
+                headers=headers,
+                params=params,
+                timeout=30,
+            )
+        except requests.RequestException as error:
+            raise IssueLookupError(f"{purpose} lookup failed") from error
+        if response.status_code >= 300:
+            raise IssueLookupError(
+                f"{purpose} lookup failed: HTTP {response.status_code}"
+            )
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise IssueLookupError(f"{purpose} lookup returned invalid JSON") from error
+        if not isinstance(payload, list):
+            raise IssueLookupError(f"{purpose} lookup returned a non-list payload")
+        if len(payload) >= ISSUE_LOOKUP_PAGE_SIZE:
+            raise IssueLookupError(
+                f"{purpose} lookup reached its bounded ambiguity limit"
+            )
+        return [
+            issue
+            for issue in payload
+            if isinstance(issue, dict) and "pull_request" not in issue
+        ]
+
+    candidates = page((label,), "managed-issue owner-label")
+    owner_index_resolved = exact_candidate is not None and any(
+        exact_candidate(issue) for issue in candidates
+    )
+    if include_recovery and not owner_index_resolved:
+        normalized_recovery = tuple(
+            dict.fromkeys(
+                str(value or "").strip()
+                for value in recovery_labels
+                if str(value or "").strip()
+                and str(value or "").strip() != label
+            )
+        )
+        if not normalized_recovery:
+            raise ValueError(
+                "bounded managed-issue recovery requires at least one shared label"
+            )
+        candidates.extend(page(normalized_recovery, "managed-issue recent recovery"))
+
+    by_number: dict[int, dict[str, Any]] = {}
+    for issue in candidates:
+        number = issue.get("number")
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0:
+            by_number[number] = issue
+    return [by_number[number] for number in sorted(by_number)]
+
+
+def repair_issue_labels(
+    token: str,
+    repo: str,
+    issue: dict[str, Any],
+    required_labels: set[str] | frozenset[str],
+    *,
+    request_post=None,
+) -> bool:
+    """Idempotently restore missing durable labels on an exact-owned issue."""
+    validate_target_repo(repo)
+    number = issue.get("number")
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        return False
+    existing = {
+        str(label.get("name") if isinstance(label, dict) else label).strip()
+        for label in issue.get("labels") or []
+    }
+    missing = sorted(str(label) for label in required_labels if label not in existing)
+    if not missing:
+        return True
+    post = request_post or requests.post
+    try:
+        response = post(
+            f"{GH_API}/repos/{repo}/issues/{number}/labels",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={"labels": missing},
+            timeout=30,
+        )
+    except requests.RequestException:
+        return False
+    return response.status_code < 300
 
 
 def normalize_managed_state(state: Any) -> dict:
@@ -85,7 +267,9 @@ class GitHubIssueClient:
         self.token = token
         self.repo = repo
         self.owner = repo_owner(repo)
-        self._open_issues_by_marker: dict[str, list[int]] | None = None
+        self._open_issues_by_lookup: dict[
+            tuple[str, str, tuple[str, ...]], list[int]
+        ] = {}
 
     @property
     def headers(self) -> dict[str, str]:
@@ -103,72 +287,83 @@ class GitHubIssueClient:
                 timeout=30,
             )
         except requests.RequestException as error:
-            log.warning("Read issue #%d failed: %s", number, error)
-            return None
+            raise IssueLookupError(f"read managed issue #{number} failed") from error
         if response.status_code == 404:
             return "closed"
         if response.status_code >= 300:
-            log.warning("Read issue #%d failed: %d", number, response.status_code)
-            return None
+            raise IssueLookupError(
+                f"read managed issue #{number} failed: HTTP {response.status_code}"
+            )
         try:
             payload = response.json() or {}
-        except ValueError:
-            log.warning("Read issue #%d returned invalid JSON", number)
-            return None
+        except ValueError as error:
+            raise IssueLookupError(
+                f"read managed issue #{number} returned invalid JSON"
+            ) from error
         if not isinstance(payload, dict):
-            log.warning("Read issue #%d returned a non-object payload", number)
-            return None
+            raise IssueLookupError(
+                f"read managed issue #{number} returned a non-object payload"
+            )
+        if "pull_request" in payload:
+            log.error("Tracked issue #%d resolved to a pull request", number)
+            return "foreign"
         if ownership_marker not in _html_ownership_markers(str(payload.get("body") or "")):
             log.error("Issue #%d lacks the expected ownership marker", number)
             return "foreign"
         state = str(payload.get("state") or "").lower()
-        return state if state in {"open", "closed"} else None
+        if state not in {"open", "closed"}:
+            raise IssueLookupError(
+                f"read managed issue #{number} returned an unknown state"
+            )
+        return state
 
-    def find_open_issues(self, ownership_marker: str) -> list[int]:
-        """Find all open issues containing the exact marker on its own line."""
-        if self._open_issues_by_marker is None:
-            issues_by_marker: dict[str, list[int]] = {}
-            page = 1
-            while True:
-                try:
-                    response = requests.get(
-                        f"{GH_API}/repos/{self.repo}/issues",
-                        headers=self.headers,
-                        params={"state": "open", "per_page": 100, "page": page},
-                        timeout=30,
-                    )
-                except requests.RequestException as error:
-                    raise RuntimeError("Open managed-issue recovery lookup failed") from error
-                if response.status_code >= 300:
-                    raise RuntimeError(
-                        f"Open managed-issue recovery lookup failed: HTTP {response.status_code}"
-                    )
-                try:
-                    payload = response.json()
-                except ValueError as error:
-                    raise RuntimeError(
-                        "Open managed-issue recovery lookup returned invalid JSON"
-                    ) from error
-                if not isinstance(payload, list):
-                    raise RuntimeError("Open managed-issue recovery lookup returned invalid JSON")
-                for issue in payload:
-                    if not isinstance(issue, dict) or issue.get("pull_request"):
-                        continue
-                    number = issue.get("number")
-                    if not isinstance(number, int) or isinstance(number, bool):
-                        continue
-                    for marker in _html_ownership_markers(str(issue.get("body") or "")):
-                        issues_by_marker.setdefault(marker, []).append(number)
-                if len(payload) < 100:
-                    break
-                page += 1
-            self._open_issues_by_marker = issues_by_marker
+    def find_open_issues(
+        self,
+        ownership_marker: str,
+        *,
+        durable_label: str,
+        recovery_labels: tuple[str, ...] = (),
+    ) -> list[int]:
+        """Find exact-marker issues through two bounded durable indexes."""
+        key = (ownership_marker, durable_label, tuple(recovery_labels))
+        if key not in self._open_issues_by_lookup:
+            candidates = bounded_open_issue_candidates(
+                self.token,
+                self.repo,
+                durable_label=durable_label,
+                recovery_labels=tuple(recovery_labels),
+                exact_candidate=lambda issue: ownership_marker
+                in _html_ownership_markers(str(issue.get("body") or "")),
+            )
+            matches: list[int] = []
+            for issue in candidates:
+                number = issue.get("number")
+                if ownership_marker not in _html_ownership_markers(
+                    str(issue.get("body") or "")
+                ):
+                    continue
+                if (
+                    isinstance(number, int)
+                    and not isinstance(number, bool)
+                    and number > 0
+                ):
+                    matches.append(number)
+            self._open_issues_by_lookup[key] = sorted(set(matches))
+        return list(self._open_issues_by_lookup[key])
 
-        return sorted(set(self._open_issues_by_marker.get(ownership_marker, [])))
-
-    def find_open_issue(self, ownership_marker: str) -> int | None:
+    def find_open_issue(
+        self,
+        ownership_marker: str,
+        *,
+        durable_label: str,
+        recovery_labels: tuple[str, ...] = (),
+    ) -> int | None:
         """Find the oldest open issue containing the exact marker on its own line."""
-        matches = self.find_open_issues(ownership_marker)
+        matches = self.find_open_issues(
+            ownership_marker,
+            durable_label=durable_label,
+            recovery_labels=recovery_labels,
+        )
         if len(matches) > 1:
             log.error(
                 "Found %d open issues with ownership marker %s; recovering the oldest",
@@ -254,9 +449,10 @@ class GitHubIssueClient:
         number = (response.json() or {}).get("number")
         if not isinstance(number, int) or isinstance(number, bool):
             return None
-        if self._open_issues_by_marker is not None:
-            for marker in _html_ownership_markers(body):
-                self._open_issues_by_marker.setdefault(marker, []).append(number)
+        # Creation changes every recovery lookup that could contain the new
+        # marker, so invalidate the small per-run cache rather than maintaining
+        # stale marker/label combinations.
+        self._open_issues_by_lookup.clear()
         return int(number)
 
     def update_issue(
@@ -381,6 +577,8 @@ def _close_verified_open_siblings(
         try:
             sibling_state = client.issue_state(sibling_number, ownership_marker)
         except Exception as error:
+            if isinstance(client, GitHubIssueClient):
+                raise
             log.warning(
                 "Verify managed sibling #%d failed; refusing further mutation: %s",
                 sibling_number,
@@ -431,6 +629,8 @@ def reconcile_managed_issue(
     label_specs: list[tuple[str, str, str]],
     client: GitHubIssueClient,
     assignees: list[str] | None = None,
+    discovery_label: str | None = None,
+    recovery_labels: tuple[str, ...] | None = None,
 ) -> dict:
     """Reconcile one state-owned umbrella issue with an alert signal.
 
@@ -455,6 +655,8 @@ def reconcile_managed_issue(
         try:
             remote_state = client.issue_state(number, ownership_marker)
         except Exception as error:
+            if isinstance(client, GitHubIssueClient):
+                raise
             log.warning("Read managed issue #%d failed; preserving local state: %s", number, error)
             return normalized
         if remote_state in {None, "foreign"}:
@@ -468,19 +670,6 @@ def reconcile_managed_issue(
                 normalized["suppressed_fingerprint"] = normalized["last_fingerprint"] or fingerprint
                 log.info("Issue was manually closed; suppressing until the signal recovers")
 
-    open_marker_numbers: list[int] | None = None
-    find_open_issues = getattr(client, "find_open_issues", None)
-    if callable(find_open_issues):
-        try:
-            raw_open_numbers = find_open_issues(ownership_marker)
-        except Exception as error:
-            log.warning("Managed-issue recovery lookup failed; refusing mutation: %s", error)
-            return normalized
-        open_marker_numbers = _normalized_issue_numbers(raw_open_numbers)
-        if open_marker_numbers is None:
-            log.warning("Managed-issue recovery lookup returned invalid issue numbers")
-            return normalized
-
     if active:
         if normalized["suppressed"]:
             suppressed_fingerprint = normalized["suppressed_fingerprint"]
@@ -489,14 +678,65 @@ def reconcile_managed_issue(
                 normalized["suppressed_fingerprint"] = ""
                 log.info("Managed signal changed; clearing manual-close suppression")
             else:
-                if open_marker_numbers is not None and not _close_verified_open_siblings(
-                    client,
-                    ownership_marker,
-                    open_marker_numbers,
-                    0,
-                ):
-                    return normalized
                 normalized["last_run"] = observed_at
+                return normalized
+
+    names = [str(spec[0] or "").strip() for spec in label_specs if spec]
+    durable_label = str(discovery_label or "").strip()
+    if not durable_label:
+        durable_label = next(
+            (
+                name
+                for name in names
+                if name
+                and name != "automated"
+                and not name.startswith("workstream:")
+            ),
+            names[0] if names else "",
+        )
+    if recovery_labels is None:
+        recovery_labels = tuple(
+            name
+            for name in names
+            if name
+            and name != durable_label
+            and (name == "automated" or name.startswith("workstream:"))
+        )
+
+    # A verified state-owned number is authoritative and avoids every list
+    # request. Recovery discovery is needed only when no canonical number is
+    # durably known: the crash window in which remote issue creation may have
+    # succeeded before the state file was published.
+    open_marker_numbers: list[int] | None = None
+    if not number and not normalized["suppressed"]:
+        find_open_issues = getattr(client, "find_open_issues", None)
+        if callable(find_open_issues):
+            try:
+                if isinstance(client, GitHubIssueClient):
+                    if not durable_label:
+                        raise ValueError(
+                            "managed issue recovery requires a durable discovery label"
+                        )
+                    raw_open_numbers = find_open_issues(
+                        ownership_marker,
+                        durable_label=durable_label,
+                        recovery_labels=tuple(recovery_labels),
+                    )
+                else:
+                    # Preserve the minimal fake/dry-run client protocol. Real
+                    # API clients always use the bounded method above.
+                    raw_open_numbers = find_open_issues(ownership_marker)
+            except Exception as error:
+                if isinstance(client, GitHubIssueClient):
+                    raise
+                log.warning(
+                    "Managed-issue recovery lookup failed; refusing mutation: %s",
+                    error,
+                )
+                return normalized
+            open_marker_numbers = _normalized_issue_numbers(raw_open_numbers)
+            if open_marker_numbers is None:
+                log.warning("Managed-issue recovery lookup returned invalid issue numbers")
                 return normalized
 
     if not number and not normalized["suppressed"]:
@@ -507,8 +747,17 @@ def reconcile_managed_issue(
             recovered_number = None
             if callable(find_open_issue):
                 try:
-                    recovered_number = find_open_issue(ownership_marker)
+                    if isinstance(client, GitHubIssueClient):
+                        recovered_number = find_open_issue(
+                            ownership_marker,
+                            durable_label=durable_label,
+                            recovery_labels=tuple(recovery_labels),
+                        )
+                    else:
+                        recovered_number = find_open_issue(ownership_marker)
                 except Exception as error:
+                    if isinstance(client, GitHubIssueClient):
+                        raise
                     log.warning("Managed-issue recovery lookup failed; refusing mutation: %s", error)
                     return normalized
         if isinstance(recovered_number, int) and not isinstance(recovered_number, bool):
@@ -536,7 +785,12 @@ def reconcile_managed_issue(
         if number:
             ensure_issue_labels = getattr(client, "ensure_issue_labels", None)
             if callable(ensure_issue_labels):
-                ensure_issue_labels(number, label_specs)
+                if not ensure_issue_labels(number, label_specs):
+                    log.warning(
+                        "Managed issue #%d labels could not be verified; preserving state",
+                        number,
+                    )
+                    return normalized
             if assignees is None:
                 client.ensure_owner_assigned(number)
             else:
@@ -584,7 +838,12 @@ def reconcile_managed_issue(
         if number:
             ensure_issue_labels = getattr(client, "ensure_issue_labels", None)
             if callable(ensure_issue_labels):
-                ensure_issue_labels(number, label_specs)
+                if not ensure_issue_labels(number, label_specs):
+                    log.warning(
+                        "Managed issue #%d labels could not be verified; preserving state",
+                        number,
+                    )
+                    return normalized
             if assignees is None:
                 client.ensure_owner_assigned(number)
             else:

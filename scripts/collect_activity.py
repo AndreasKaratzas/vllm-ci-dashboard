@@ -35,43 +35,254 @@ WORKFLOW_IDS = {
     },
 }
 
+REST_PAGE_SIZE = 100
+MAX_ACTIVITY_PAGES = 5
+GH_TRANSIENT_ATTEMPTS = 2
 
-def gh_api(endpoint, method="GET"):
-    """Call GitHub API via gh CLI."""
+
+class GitHubAPIError(RuntimeError):
+    """A GitHub failure that must not be represented as an empty population."""
+
+
+_SOURCE_QUERY_COVERAGE = []
+_WORKFLOW_RUNS_CACHE = {}
+
+
+def _transient_gh_failure(stderr):
+    message = str(stderr or "").lower()
+    return any(
+        token in message
+        for token in (
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "connection reset",
+            "temporary failure",
+            "timed out",
+            "timeout",
+            "unexpected eof",
+        )
+    )
+
+
+def gh_api(endpoint, method="GET", *, fail_closed=False):
+    """Call GitHub API via gh CLI with one bounded transient retry."""
     cmd = ["gh", "api", endpoint, "--method", method]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return json.loads(result.stdout) if result.stdout.strip() else {}
-    except subprocess.CalledProcessError as e:
-        print(
-            f"  WARNING: gh api {endpoint} failed: {e.stderr.strip()}", file=sys.stderr
-        )
-        return {}
-    except json.JSONDecodeError:
-        print(f"  WARNING: could not parse response for {endpoint}", file=sys.stderr)
-        return {}
+    for attempt in range(1, GH_TRANSIENT_ATTEMPTS + 1):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as e:
+            if attempt < GH_TRANSIENT_ATTEMPTS and _transient_gh_failure(e.stderr):
+                print(
+                    f"  WARNING: transient gh api failure for {endpoint}; "
+                    "retrying once",
+                    file=sys.stderr,
+                )
+                continue
+            detail = str(e.stderr or "").strip()
+            print(f"  WARNING: gh api {endpoint} failed: {detail}", file=sys.stderr)
+            if fail_closed:
+                raise GitHubAPIError(f"GitHub API request failed: {endpoint}") from e
+            return {}
+        try:
+            if not result.stdout.strip():
+                raise json.JSONDecodeError("empty GitHub response", "", 0)
+            return json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            if attempt < GH_TRANSIENT_ATTEMPTS:
+                print(
+                    f"  WARNING: invalid gh api response for {endpoint}; "
+                    "retrying once",
+                    file=sys.stderr,
+                )
+                continue
+            print(
+                f"  WARNING: could not parse response for {endpoint}", file=sys.stderr
+            )
+            if fail_closed:
+                raise GitHubAPIError(
+                    f"GitHub API returned invalid JSON: {endpoint}"
+                ) from e
+            return {}
+    raise AssertionError("bounded GitHub retry loop exhausted unexpectedly")
 
 
-def gh_api_list(endpoint):
-    """Call GitHub API and handle paginated list responses."""
-    cmd = ["gh", "api", endpoint, "--method", "GET", "--paginate"]
+def _reset_source_coverage():
+    _SOURCE_QUERY_COVERAGE.clear()
+    _WORKFLOW_RUNS_CACHE.clear()
+
+
+def _page_endpoint(endpoint, page):
+    if "?page=" in endpoint or "&page=" in endpoint:
+        raise ValueError("bounded GitHub endpoint must not supply its own page")
+    if "per_page=" not in endpoint:
+        endpoint += ("&" if "?" in endpoint else "?") + "per_page=100"
+    return endpoint + f"&page={page}"
+
+
+def gh_api_list(
+    endpoint,
+    *,
+    query_name,
+    scope,
+    max_pages,
+    stop_when=None,
+    allow_partial=False,
+):
+    """Fetch a finite list, proving time-window completion where possible."""
+    if not isinstance(max_pages, int) or max_pages <= 0:
+        raise ValueError("max_pages must be a positive integer")
+
+    items = []
+    complete = False
+    pages_fetched = 0
+    completion_reason = "page_cap"
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        raw = result.stdout.strip()
-        if not raw:
-            return []
-        # --paginate can return concatenated JSON arrays
-        if raw.startswith("[") and "][" in raw:
-            raw = raw.replace("][", ",")
-        return json.loads(raw)
-    except subprocess.CalledProcessError as e:
-        print(
-            f"  WARNING: gh api {endpoint} failed: {e.stderr.strip()}", file=sys.stderr
+        for page in range(1, max_pages + 1):
+            page_items = gh_api(
+                _page_endpoint(endpoint, page),
+                fail_closed=True,
+            )
+            pages_fetched += 1
+            if not isinstance(page_items, list):
+                raise GitHubAPIError(
+                    f"GitHub {query_name} response was not a list"
+                )
+            items.extend(page_items)
+            if stop_when is not None and any(stop_when(item) for item in page_items):
+                complete = True
+                completion_reason = "scope_boundary"
+                break
+            if len(page_items) < REST_PAGE_SIZE:
+                complete = True
+                completion_reason = "short_page"
+                break
+    except GitHubAPIError:
+        _SOURCE_QUERY_COVERAGE.append(
+            {
+                "name": query_name,
+                "scope": scope,
+                "complete": False,
+                "truncated": False,
+                "error": True,
+                "pages_fetched": pages_fetched,
+                "max_pages": max_pages,
+                "page_size": REST_PAGE_SIZE,
+                "items_observed": len(items),
+                "completion_reason": "api_error",
+            }
         )
-        return []
-    except json.JSONDecodeError:
-        print(f"  WARNING: could not parse response for {endpoint}", file=sys.stderr)
-        return []
+        raise
+
+    _SOURCE_QUERY_COVERAGE.append(
+        {
+            "name": query_name,
+            "scope": scope,
+            "complete": complete,
+            "truncated": not complete,
+            "error": False,
+            "pages_fetched": pages_fetched,
+            "max_pages": max_pages,
+            "page_size": REST_PAGE_SIZE,
+            "items_observed": len(items),
+            "completion_reason": completion_reason,
+        }
+    )
+    if not complete and not allow_partial:
+        raise GitHubAPIError(
+            f"GitHub {query_name} reached its authoritative {max_pages}-page cap"
+        )
+    return items
+
+
+def _input_coverage():
+    inputs = {}
+    for name in ("prs", "issues"):
+        path = DATA / _current_project_name / f"{name}.json"
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            inputs[name] = {
+                "complete": False,
+                "truncated": False,
+                "reason": "input_missing_or_invalid",
+            }
+            continue
+        coverage = payload.get("source_coverage")
+        if isinstance(coverage, dict):
+            inputs[name] = coverage
+        else:
+            inputs[name] = {
+                "complete": False,
+                "truncated": False,
+                "reason": "input_coverage_missing",
+            }
+    return inputs
+
+
+def _source_coverage_snapshot():
+    queries = [dict(query) for query in _SOURCE_QUERY_COVERAGE]
+    inputs = _input_coverage()
+    inputs_complete = all(
+        coverage.get("authoritative_complete", coverage.get("complete")) is True
+        for coverage in inputs.values()
+    )
+    complete = all(query.get("complete") is True for query in queries) and inputs_complete
+    return {
+        "complete": complete,
+        "authoritative_complete": complete,
+        "population_semantics": "complete" if complete else "lower_bound",
+        "truncated": any(query.get("truncated") is True for query in queries)
+        or any(coverage.get("truncated") is True for coverage in inputs.values()),
+        "queries": queries,
+        "inputs": inputs,
+    }
+
+
+def _search_total_count(endpoint, *, query_name, scope):
+    """Return GitHub Search's count without hiding an incomplete response."""
+    response = gh_api(endpoint, fail_closed=True)
+    if (
+        not isinstance(response, dict)
+        or not isinstance(response.get("total_count"), int)
+        or response["total_count"] < 0
+        or type(response.get("incomplete_results")) is not bool
+    ):
+        _SOURCE_QUERY_COVERAGE.append(
+            {
+                "name": query_name,
+                "scope": scope,
+                "complete": False,
+                "truncated": False,
+                "error": True,
+                "pages_fetched": 1,
+                "max_pages": 1,
+                "page_size": 1,
+                "items_observed": 0,
+                "completion_reason": "invalid_shape",
+            }
+        )
+        raise GitHubAPIError(f"GitHub {query_name} response had an invalid shape")
+    incomplete = response["incomplete_results"]
+    _SOURCE_QUERY_COVERAGE.append(
+        {
+            "name": query_name,
+            "scope": scope,
+            "complete": not incomplete,
+            "truncated": incomplete,
+            "error": False,
+            "pages_fetched": 1,
+            "max_pages": 1,
+            "page_size": 1,
+            "items_observed": response["total_count"],
+            "completion_reason": (
+                "provider_incomplete" if incomplete else "reported_total"
+            ),
+        }
+    )
+    return response["total_count"]
 
 
 def now_iso():
@@ -116,7 +327,15 @@ def collect_pr_velocity(repo, role, is_filtered=True):
     if role == "active_dev":
         # Recently updated PRs (covers opened, merged, closed in last 2 weeks)
         prs = gh_api_list(
-            f"/repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100"
+            f"/repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100",
+            query_name="recent_pr_velocity",
+            scope="PRs updated within the last 14 days",
+            max_pages=MAX_ACTIVITY_PAGES,
+            stop_when=lambda pr: (
+                (updated := parse_iso(pr.get("updated_at"))) is not None
+                and updated < two_weeks_ago
+            ),
+            allow_partial=True,
         )
         # Filter to those updated in last 2 weeks
         recent_prs = []
@@ -195,7 +414,15 @@ def collect_pr_velocity(repo, role, is_filtered=True):
     # Stale PRs: open PRs with no update in 30 days
     if role == "active_dev":
         open_prs = gh_api_list(
-            f"/repos/{repo}/pulls?state=open&sort=updated&direction=asc&per_page=100"
+            f"/repos/{repo}/pulls?state=open&sort=updated&direction=asc&per_page=100",
+            query_name="stale_open_prs",
+            scope="open PRs last updated more than 30 days ago",
+            max_pages=MAX_ACTIVITY_PAGES,
+            stop_when=lambda pr: (
+                (updated := parse_iso(pr.get("updated_at"))) is not None
+                and updated >= thirty_days_ago
+            ),
+            allow_partial=True,
         )
         for pr in open_prs:
             updated = parse_iso(pr.get("updated_at"))
@@ -256,7 +483,13 @@ def collect_contributors(repo, role):
     if role == "active_dev":
         # Get recent commits for contributor analysis
         since = month_ago.strftime("%Y-%m-%dT%H:%M:%SZ")
-        commits = gh_api_list(f"/repos/{repo}/commits?since={since}&per_page=100")
+        commits = gh_api_list(
+            f"/repos/{repo}/commits?since={since}&per_page=100",
+            query_name="recent_contributor_commits",
+            scope="commits authored within the last 30 days",
+            max_pages=MAX_ACTIVITY_PAGES,
+            allow_partial=True,
+        )
     else:
         commits = []
 
@@ -383,10 +616,11 @@ def collect_issue_health(repo, role):
 
     # Closed issues this week — search API
     week_ago_str = week_ago.strftime("%Y-%m-%d")
-    closed_search = gh_api(
-        f"/search/issues?q=repo:{repo}+is:issue+is:closed+closed:>{week_ago_str}&per_page=1"
+    closed_this_week = _search_total_count(
+        f"/search/issues?q=repo:{repo}+is:issue+is:closed+closed:>{week_ago_str}&per_page=1",
+        query_name="issues_closed_this_week",
+        scope=f"issues in {repo} closed since {week_ago_str}",
     )
-    closed_this_week = closed_search.get("total_count", 0)
 
     return {
         "total_open": total_open,
@@ -401,6 +635,23 @@ def collect_issue_health(repo, role):
 # ---------------------------------------------------------------------------
 
 
+def _completed_workflow_runs(repo, workflow_id):
+    key = (repo, int(workflow_id))
+    if key not in _WORKFLOW_RUNS_CACHE:
+        data = gh_api(
+            f"/repos/{repo}/actions/workflows/{workflow_id}/runs?per_page=20&status=completed",
+            fail_closed=True,
+        )
+        if not isinstance(data, dict) or not isinstance(
+            data.get("workflow_runs"), list
+        ):
+            raise GitHubAPIError(
+                f"GitHub workflow-runs response had an invalid shape: {workflow_id}"
+            )
+        _WORKFLOW_RUNS_CACHE[key] = data["workflow_runs"]
+    return _WORKFLOW_RUNS_CACHE[key]
+
+
 def collect_ci_health(repo, project_name):
     """Collect CI build success rate from recent workflow runs."""
     if project_name not in WORKFLOW_IDS:
@@ -408,10 +659,7 @@ def collect_ci_health(repo, project_name):
 
     results = {}
     for platform, wf_id in WORKFLOW_IDS[project_name].items():
-        data = gh_api(
-            f"/repos/{repo}/actions/workflows/{wf_id}/runs?per_page=20&status=completed"
-        )
-        runs = data.get("workflow_runs", [])
+        runs = _completed_workflow_runs(repo, wf_id)
         if not runs:
             results[platform] = None
             continue
@@ -444,10 +692,7 @@ def collect_ci_signal_time(repo, project_name):
 
     results = {}
     for platform, wf_id in WORKFLOW_IDS[project_name].items():
-        data = gh_api(
-            f"/repos/{repo}/actions/workflows/{wf_id}/runs?per_page=20&status=completed"
-        )
-        runs = data.get("workflow_runs", [])
+        runs = _completed_workflow_runs(repo, wf_id)
         if not runs:
             results[platform] = None
             continue
@@ -710,6 +955,7 @@ def collect_project_activity(name, cfg):
     """Collect all activity metrics for a single project."""
     global _current_project_name
     _current_project_name = name
+    _reset_source_coverage()
 
     repo = cfg["repo"]
     role = cfg.get("role", "upstream_watch")
@@ -748,6 +994,13 @@ def collect_project_activity(name, cfg):
     print(f"  Release cadence...")
     activity["release_cadence"] = collect_release_cadence(repo)
 
+    # Consumers can distinguish exact metrics from lower bounds when a finite
+    # GitHub working-set cap was reached in this collector or its PR/issue
+    # inputs.  Existing UI fields remain backward compatible.
+    source_coverage = _source_coverage_snapshot()
+    activity["source_coverage"] = source_coverage
+    activity["count_semantics"] = source_coverage["population_semantics"]
+
     return activity
 
 
@@ -755,6 +1008,7 @@ def main():
     with open(CONFIG) as f:
         config = yaml.safe_load(f)
 
+    failed_projects = []
     for name, cfg in config["projects"].items():
         if name != "vllm":
             print(f"Skipping {name} (test-parity only)")
@@ -775,11 +1029,16 @@ def main():
                 f"Stale: {pv.get('stale_prs', 0)}"
             )
         except Exception as e:
+            failed_projects.append(name)
             print(f"  ERROR collecting activity for {name}: {e}", file=sys.stderr)
             import traceback
 
             traceback.print_exc()
 
+    if failed_projects:
+        raise SystemExit(
+            "Activity collection failed closed for: " + ", ".join(failed_projects)
+        )
     print("Activity collection complete.")
 
 

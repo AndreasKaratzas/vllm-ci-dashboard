@@ -93,6 +93,53 @@ function classifyFailureTransition(body, issueState, fingerprintMarker) {
   return signalChanged ? 'changed' : 'unchanged';
 }
 
+function isStrictLegacySurfaceOnlyIncident(body, surface) {
+  const allowedModes = {
+    dns_health: new Set(['degraded']),
+    queue: new Set(['degraded', 'fallback']),
+  };
+  const modes = allowedModes[surface];
+  if (!modes) return false;
+  const source = bodyText(body);
+  const lines = source.split(/\r?\n/);
+  const selectorPrefix = '**Publication selector:** outcome=`success`, mode=`';
+  const selectorLines = lines.filter(line => line.startsWith(selectorPrefix));
+  const selectorLine = selectorLines.length === 1 ? selectorLines[0] : '';
+  const modeMatch = selectorLine.match(/mode=`([^`]+)`/);
+  const headerLines = lines.filter(line =>
+    /^## Degraded Publication — \d{4}-\d{2}-\d{2}$/.test(line),
+  );
+  const surfaceLines = lines.filter(line =>
+    line === `**Degraded surfaces:** ${surface}`,
+  );
+  const liveAuditLines = lines.filter(line =>
+    line.startsWith('**Live publication audit:** outcome=`success`,'),
+  );
+  const workflowStatusLines = lines.filter(line =>
+    line.startsWith('**Workflow status before incident handling:**'),
+  );
+  const deploymentLines = lines.filter(line => line.startsWith('**Deployment:**'));
+  const workflowSucceeded = workflowStatusLines.length === 1 &&
+    workflowStatusLines[0] ===
+      '**Workflow status before incident handling:** `success`';
+  const deploymentSucceeded = deploymentLines.length === 1 &&
+    deploymentLines[0] ===
+      '**Deployment:** commit=`success`, site_assembly=`success`, ' +
+      'deploy=`success`, post_deploy_validation=`success`';
+  return (
+    headerLines.length === 1 &&
+    surfaceLines.length === 1 &&
+    selectorLines.length === 1 &&
+    Boolean(modeMatch && modes.has(modeMatch[1])) &&
+    liveAuditLines.length === 1 &&
+    workflowSucceeded &&
+    deploymentSucceeded &&
+    !source.includes('**Failing deterministic tests:**') &&
+    !source.includes('deployment failed:') &&
+    !source.includes('workflow step failed before publication completed')
+  );
+}
+
 function advanceRecoveryStreak(body) {
   const previousStreak = parseRecoveryStreak(body);
   const streak = previousStreak + 1;
@@ -111,6 +158,7 @@ module.exports = Object.freeze({
   ZERO_RECOVERY_MARKER,
   advanceRecoveryStreak,
   classifyFailureTransition,
+  isStrictLegacySurfaceOnlyIncident,
   parseRecoveryStreak,
   recoveryMarker,
   resetRecoveryStreak,

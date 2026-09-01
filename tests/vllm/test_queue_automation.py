@@ -9,6 +9,7 @@ Validates that:
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -233,6 +234,39 @@ class TestQueueMonitorWorkflow:
         crons = [row.get("cron") for row in triggers.get("schedule", [])]
         assert "2,12,22,32,42,52 * * * *" in crons
 
+    def test_watchdog_wakeup_cannot_form_an_indirect_failed_data_cycle(
+        self, workflow
+    ):
+        triggers = workflow.get(True, {})
+        assert triggers["workflow_run"] == {
+            "workflows": ["Publication Recovery Watchdog"],
+            "types": ["completed"],
+            "branches": ["main"],
+        }
+        watchdog = yaml.safe_load(
+            (WORKFLOWS / "publication-watchdog.yml").read_text()
+        )
+        watchdog_triggers = watchdog.get(True, {})
+        assert "Queue Monitor (10 minute)" not in (
+            watchdog_triggers["workflow_run"]["workflows"]
+        )
+        snapshot_steps = workflow["jobs"]["snapshot"]["steps"]
+        generation = next(
+            step
+            for step in snapshot_steps
+            if step.get("name") == "Capture exact validated queue generation"
+        )
+        condition = generation["if"]
+        assert "github.event_name != 'workflow_run'" in condition
+        gated_segment = condition[condition.index("github.event_name != 'workflow_run'") :]
+        assert "interval_gated" in gated_segment
+        assert "capacity_gated" in gated_segment
+        # A watchdog wake that acquired a real metrics permit may still repair
+        # Queue, but an immediate coalesced zero-request wake cannot redispatch
+        # the Data workflow that just woke the watchdog.
+        assert "request_mode == 'metrics'" in condition
+        assert "request_mode == 'metrics_and_details'" in condition
+
     def test_does_not_publish_a_partial_root_site(self, workflow):
         """The queue collector must not overwrite unrelated live dashboard data."""
         steps = workflow["jobs"]["snapshot"]["steps"]
@@ -252,7 +286,10 @@ class TestQueueMonitorWorkflow:
             step for step in steps if step.get("name") == "Publish durable live queue evidence"
         )
         script = publish.get("run", "")
-        assert "git -C \"$LIVE_ROOT\" push --force origin HEAD:queue-data" in script
+        assert "--force-with-lease=\"refs/heads/queue-data:$OBSERVED_QUEUE_SHA\"" in (
+            script
+        )
+        assert "push --force origin HEAD:queue-data" not in script
         assert "data/vllm/ci/queue_timeseries.jsonl" in script
         assert "data/vllm/ci/queue_jobs.json" in script
         assert "data/vllm/ci/queue_history_chart.json" in script
@@ -260,6 +297,278 @@ class TestQueueMonitorWorkflow:
         assert "queue_lifecycle" not in script
         assert "data/vllm/ci/operations_v2_manifest.json" not in script
         assert "peaceiris/actions-gh-pages" not in script
+
+        sync = next(
+            step
+            for step in steps
+            if step.get("name") == "Sync durable queue history"
+        )["run"]
+        assert "QUEUE_DATA_BASELINE_SHA=\"\"" in sync
+        assert (
+            "QUEUE_DATA_BASELINE_SHA=$(git rev-parse --verify "
+            "'origin/queue-data^{commit}')"
+        ) in sync
+        assert 'echo "QUEUE_DATA_BASELINE_SHA=$QUEUE_DATA_BASELINE_SHA"' in sync
+
+    def test_queue_publish_stale_lease_rejects_racing_writer(self, tmp_path):
+        """The exact observed-SHA lease must preserve a newer remote commit."""
+
+        remote = tmp_path / "remote.git"
+        seed = tmp_path / "seed"
+        writer_a = tmp_path / "writer-a"
+        writer_b = tmp_path / "writer-b"
+
+        def git(*args, cwd=None, check=True):
+            return subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                check=check,
+                capture_output=True,
+                text=True,
+            )
+
+        git("init", "--bare", str(remote))
+        git("init", str(seed))
+        git("config", "user.name", "queue-test", cwd=seed)
+        git("config", "user.email", "queue-test@example.invalid", cwd=seed)
+        git("config", "commit.gpgsign", "false", cwd=seed)
+        (seed / "queue.txt").write_text("initial\n", encoding="utf-8")
+        git("add", "queue.txt", cwd=seed)
+        git("commit", "-m", "initial queue generation", cwd=seed)
+        git("remote", "add", "origin", str(remote), cwd=seed)
+        git("push", "origin", "HEAD:queue-data", cwd=seed)
+
+        observed = git(
+            "ls-remote", "--refs", str(remote), "refs/heads/queue-data"
+        ).stdout.split()[0]
+        assert re.fullmatch(r"[0-9a-f]{40}", observed)
+        git("clone", "--branch", "queue-data", str(remote), str(writer_a))
+        git("clone", "--branch", "queue-data", str(remote), str(writer_b))
+        for writer in (writer_a, writer_b):
+            git("config", "user.name", "queue-test", cwd=writer)
+            git("config", "user.email", "queue-test@example.invalid", cwd=writer)
+            git("config", "commit.gpgsign", "false", cwd=writer)
+
+        (writer_b / "queue.txt").write_text("racing generation\n", encoding="utf-8")
+        git("add", "queue.txt", cwd=writer_b)
+        git("commit", "-m", "racing queue generation", cwd=writer_b)
+        git("push", "origin", "HEAD:queue-data", cwd=writer_b)
+        raced_sha = git("rev-parse", "HEAD", cwd=writer_b).stdout.strip()
+
+        (writer_a / "queue.txt").write_text("stale writer\n", encoding="utf-8")
+        git("add", "queue.txt", cwd=writer_a)
+        git("commit", "-m", "stale queue generation", cwd=writer_a)
+        rejected = git(
+            "push",
+            f"--force-with-lease=refs/heads/queue-data:{observed}",
+            "origin",
+            "HEAD:queue-data",
+            cwd=writer_a,
+            check=False,
+        )
+        assert rejected.returncode != 0
+        actual_remote = git(
+            "ls-remote", "--refs", str(remote), "refs/heads/queue-data"
+        ).stdout.split()[0]
+        assert actual_remote == raced_sha
+
+    def test_hourly_target_replaces_all_stale_queue_files_from_one_commit(
+        self, tmp_path
+    ):
+        """Execute the target sync with stale local source and derived files."""
+
+        remote = tmp_path / "remote.git"
+        seed = tmp_path / "seed"
+        checkout = tmp_path / "checkout"
+        runner_temp = tmp_path / "runner-temp"
+        runner_temp.mkdir()
+
+        def git(*args, cwd=None):
+            return subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        git("init", "--bare", str(remote))
+        git("init", str(seed))
+        git("config", "user.name", "queue-test", cwd=seed)
+        git("config", "user.email", "queue-test@example.invalid", cwd=seed)
+        git("config", "commit.gpgsign", "false", cwd=seed)
+        fresh = {
+            "data/vllm/ci/operations_v2/queue.json": '{"fresh":"operations"}\n',
+            "data/vllm/ci/queue_history_chart.json": '{"fresh":"history"}\n',
+            "data/vllm/ci/queue_jobs.json": (
+                '{"ts":"2026-09-01T00:00:00Z","pending":[],"running":[]}\n'
+            ),
+            "data/vllm/ci/queue_timeseries.jsonl": (
+                '{"ts":"2026-09-01T00:00:00Z","queues":{},'
+                '"total_waiting":0,"total_running":0}\n'
+            ),
+        }
+        for relative, content in fresh.items():
+            destination = seed / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(content, encoding="utf-8")
+        git("add", ".", cwd=seed)
+        git("commit", "-m", "exact queue projection", cwd=seed)
+        source_sha = git("rev-parse", "HEAD", cwd=seed).stdout.strip()
+        git("remote", "add", "origin", str(remote), cwd=seed)
+        git("push", "origin", "HEAD:queue-data", cwd=seed)
+        git("clone", "--branch", "queue-data", str(remote), str(checkout))
+
+        for relative in fresh:
+            (checkout / relative).write_text("stale-local-data\n", encoding="utf-8")
+        helper = tmp_path / "collector-helpers.sh"
+        helper.write_text("# target sync does not call routine helpers\n", encoding="utf-8")
+        github_output = tmp_path / "github-output"
+        hourly = yaml.safe_load((WORKFLOWS / "hourly-master.yml").read_text())
+        sync = next(
+            step
+            for step in hourly["jobs"]["collect-and-deploy"]["steps"]
+            if step.get("name") == "Sync queue data from durable live branch"
+        )
+        env = {
+            **os.environ,
+            "PUBLICATION_COLLECTOR_HELPERS": str(helper),
+            "HOURLY_QUEUE_GENERATION_INPUT": "2026-09-01T00:00:00Z",
+            "RUNNER_TEMP": str(runner_temp),
+            "GITHUB_OUTPUT": str(github_output),
+        }
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", sync["run"]],
+            cwd=checkout,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        for relative, content in fresh.items():
+            assert (checkout / relative).read_text(encoding="utf-8") == content
+        assert github_output.read_text(encoding="utf-8") == (
+            f"source_sha={source_sha}\n"
+        )
+
+    def test_hourly_target_accepts_retained_details_with_current_metrics(
+        self, tmp_path
+    ):
+        """A normal metrics-only poll must remain a valid repair generation."""
+
+        jobs_path = tmp_path / "queue_jobs.json"
+        timeseries_path = tmp_path / "queue_timeseries.jsonl"
+        jobs_path.write_text(
+            json.dumps(
+                {
+                    "ts": "2026-09-01T00:00:00Z",
+                    "metrics_observed_at": "2026-09-01T00:10:00Z",
+                    "details_observed_at": "2026-09-01T00:00:00Z",
+                    "details_status": "retained_not_refreshed",
+                    "pending": [],
+                    "running": [],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        timeseries_path.write_text(
+            json.dumps(
+                {
+                    "ts": "2026-09-01T00:10:00Z",
+                    "metrics_observed_at": "2026-09-01T00:10:00Z",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        hourly = yaml.safe_load((WORKFLOWS / "hourly-master.yml").read_text())
+        step = next(
+            step
+            for step in hourly["jobs"]["collect-and-deploy"]["steps"]
+            if step.get("name") == "Validate targeted queue candidate generation"
+        )
+        python_block = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-",
+                "2026-09-01T00:10:00Z",
+                str(jobs_path),
+                str(timeseries_path),
+            ],
+            input=python_block,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Validated targeted queue candidate generation" in result.stdout
+
+        jobs = json.loads(jobs_path.read_text(encoding="utf-8"))
+        jobs["metrics_observed_at"] = "2026-09-01T00:09:00Z"
+        jobs_path.write_text(json.dumps(jobs) + "\n", encoding="utf-8")
+        mismatch = subprocess.run(
+            [
+                sys.executable,
+                "-",
+                "2026-09-01T00:10:00Z",
+                str(jobs_path),
+                str(timeseries_path),
+            ],
+            input=python_block,
+            capture_output=True,
+            text=True,
+        )
+        assert mismatch.returncode != 0
+        assert "metrics generation must equal" in mismatch.stderr
+
+    def test_queue_monitor_emits_metrics_generation_for_retained_details(
+        self, workflow, tmp_path
+    ):
+        data_dir = tmp_path / "data" / "vllm" / "ci"
+        data_dir.mkdir(parents=True)
+        (data_dir / "queue_jobs.json").write_text(
+            json.dumps(
+                {
+                    "ts": "2026-09-01T00:00:00Z",
+                    "metrics_observed_at": "2026-09-01T00:10:00Z",
+                    "details_observed_at": "2026-09-01T00:00:00Z",
+                    "details_status": "retained_not_refreshed",
+                    "pending": [],
+                    "running": [],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (data_dir / "queue_timeseries.jsonl").write_text(
+            json.dumps(
+                {
+                    "ts": "2026-09-01T00:10:00Z",
+                    "metrics_observed_at": "2026-09-01T00:10:00Z",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        step = next(
+            step
+            for step in workflow["jobs"]["snapshot"]["steps"]
+            if step.get("name") == "Capture exact validated queue generation"
+        )
+        python_block = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        output = tmp_path / "github-output"
+        result = subprocess.run(
+            [sys.executable, "-", "metrics", str(output)],
+            cwd=tmp_path,
+            input=python_block,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert output.read_text(encoding="utf-8") == (
+            "generated_at=2026-09-01T00:10:00Z\n"
+        )
 
     def test_semantic_validation_runs_after_build_and_before_force_publish(self, workflow):
         steps = workflow["jobs"]["snapshot"]["steps"]
@@ -285,8 +594,99 @@ class TestQueueMonitorWorkflow:
         )
 
     def test_workflow_has_contents_write_permission(self, workflow):
-        perms = workflow.get("permissions", {})
-        assert perms.get("contents") == "write", "queue-monitor needs contents:write to push data"
+        assert workflow.get("permissions") == {}
+        perms = workflow["jobs"]["snapshot"].get("permissions", {})
+        assert perms == {"contents": "write"}, (
+            "only the queue snapshot job needs contents:write to push data"
+        )
+
+    def test_validated_generation_requires_exact_publish_or_safe_durable_retry(
+        self, workflow
+    ):
+        snapshot = workflow["jobs"]["snapshot"]
+        steps = snapshot["steps"]
+        names = [step.get("name") for step in steps]
+        generation = steps[names.index("Capture exact validated queue generation")]
+        publish = steps[names.index("Publish durable live queue evidence")]
+        assert names.index("Validate live queue evidence") < names.index(
+            "Capture exact validated queue generation"
+        ) < names.index("Publish durable live queue evidence")
+        assert generation["id"] == "queue-generation"
+        assert 'datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")' in generation["run"]
+        assert "queue_jobs metrics_observed_at must equal the latest" in generation["run"]
+        assert 'if "metrics_observed_at" in jobs' in generation["run"]
+        assert 'if "metrics_observed_at" in latest' in generation["run"]
+        assert publish["id"] == "queue-publish"
+        assert 'OBSERVED_QUEUE_SHA="${QUEUE_DATA_BASELINE_SHA:-}"' in publish["run"]
+        assert "--force-with-lease=\"refs/heads/queue-data:$OBSERVED_QUEUE_SHA\"" in (
+            publish["run"]
+        )
+        assert "push --force origin HEAD:queue-data" not in publish["run"]
+        assert "QUEUE_SOURCE_SHA=$(git -C \"$LIVE_ROOT\" rev-parse" in publish["run"]
+        assert "git ls-remote --refs origin refs/heads/queue-data" in publish["run"]
+        assert 'if [ "$REMOTE_QUEUE_SHA" != "$QUEUE_SOURCE_SHA" ]' in publish["run"]
+        assert 'echo "queue_generation=${{ steps.queue-generation.outputs.generated_at }}"' in publish[
+            "run"
+        ]
+        assert snapshot["outputs"] == {
+            "queue_generation": "${{ steps.queue-generation.outputs.generated_at }}",
+        }
+        assert "queue_source_sha" not in str(snapshot["outputs"])
+
+        mode = generation["env"]["REQUEST_MODE"]
+        assert mode == "${{ steps.queue-request-budget.outputs.request_mode }}"
+        assert "interval_gated" in generation["if"]
+        assert "capacity_gated" in generation["if"]
+        assert "github.event_name != 'workflow_run'" in generation["if"]
+        assert "audit_dashboard_data.py --queue-only" in generation["run"]
+        assert "generation must not be future-dated" in generation["run"]
+        assert "timedelta(hours=5)" in generation["run"]
+        assert "skipping a zero-request retry" in generation["run"]
+
+        hydrate = steps[
+            names.index("Hydrate exact durable queue projection for zero-request retry")
+        ]
+        assert names.index(
+            "Reserve durable rolling queue request budget"
+        ) < names.index(hydrate["name"]) < names.index(
+            "Capture exact validated queue generation"
+        )
+        assert "interval_gated" in hydrate["if"]
+        assert "capacity_gated" in hydrate["if"]
+        assert "QUEUE_SOURCE_SHA=$(git rev-parse --verify 'origin/queue-data^{commit}')" in (
+            hydrate["run"]
+        )
+        for relative in (
+            "data/vllm/ci/queue_timeseries.jsonl",
+            "data/vllm/ci/queue_jobs.json",
+            "data/vllm/ci/queue_history_chart.json",
+            "data/vllm/ci/operations_v2/queue.json",
+        ):
+            assert relative in hydrate["run"]
+        assert 'git show "$QUEUE_SOURCE_SHA:$path"' in hydrate["run"]
+
+    def test_queue_reconciliation_is_conditional_and_least_privilege(self, workflow):
+        reconcile = workflow["jobs"]["reconcile-publication"]
+        assert reconcile["needs"] == "snapshot"
+        assert "needs.snapshot.result == 'success'" in reconcile["if"]
+        assert "needs.snapshot.outputs.queue_generation != ''" in reconcile["if"]
+        assert reconcile["permissions"] == {"actions": "write", "contents": "read"}
+        steps = reconcile["steps"]
+        names = [step.get("name") for step in steps]
+        plan = steps[names.index("Plan canonical queue publication reconciliation")]
+        dispatch = steps[names.index("Dispatch canonical queue reconciliation")]
+        assert plan["id"] == "publication-reconcile"
+        assert "plan_queue_publication_reconcile.py" in plan["run"]
+        assert "--max-age-hours" not in plan["run"]
+        assert dispatch["if"] == (
+            "steps.publication-reconcile.outputs.required == 'true'"
+        )
+        assert dispatch["env"]["TARGET_QUEUE_GENERATION"] == (
+            "${{ needs.snapshot.outputs.queue_generation }}"
+        )
+        assert "inputs: {queue_generation: $queue_generation}" in dispatch["run"]
+        assert "workflow_runs" not in dispatch["run"]
+        assert "BUILDKITE_TOKEN" not in str(reconcile)
 
     def test_does_not_race_the_canonical_main_or_pages_writers(self):
         path = WORKFLOWS / "queue-monitor.yml"
@@ -308,9 +708,21 @@ class TestQueueMonitorWorkflow:
         assert "--merge-history-git-ref origin/queue-data" in content
         assert "--require-merge-history" in content
         assert "origin/gh-pages" in content  # first-run migration fallback
-        assert "git ls-remote --exit-code origin refs/heads/queue-data" in content
+        assert "git ls-remote --exit-code --refs origin refs/heads/queue-data" in content
         assert "+refs/heads/queue-data:refs/remotes/origin/queue-data" in content
         assert "Could not determine durable queue-data branch state" in content
+        assert "git ls-remote --exit-code --refs origin refs/heads/gh-pages" in content
+        assert "Could not determine legacy gh-pages state" in content
+        assert "GH_PAGES_FETCHED_SHA" in content
+        assert "GH_PAGES_REMOTE_SHA" in content
+        assert "--merge-history-git-ref origin/gh-pages" in content
+        assert content.count("--require-merge-history") >= 2
+        migration = content[
+            content.index('elif [ "$QUEUE_DATA_STATUS" -eq 2 ]') :
+            content.index("echo \"QUEUE_DATA_BASELINE_SHA", content.index('elif [ "$QUEUE_DATA_STATUS" -eq 2 ]'))
+        ]
+        assert "--depth=1 || true" not in migration
+        assert "> data/vllm/ci/queue_jobs.json 2>/dev/null || true" not in migration
 
     def test_deploy_pages_replays_exact_state_without_queue_mutation(self):
         """Deploy-only replays the state that already merged durable producers."""

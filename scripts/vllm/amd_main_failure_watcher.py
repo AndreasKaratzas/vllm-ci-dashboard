@@ -876,6 +876,8 @@ def run_watcher(config: WatcherConfig) -> int:
         observed_at=observed_at,
         label_specs=list(config.label_specs),
         client=client,
+        discovery_label=config.label_specs[0][0],
+        recovery_labels=("automated", "workstream:dev"),
     )
     reconciled["schema_version"] = 2
     reconciled["signal_fingerprint_version"] = 2

@@ -39,6 +39,13 @@ from vllm.constants import (  # noqa: E402
     QUEUE_P90_HEALTHY_MIN,
     QUEUE_P90_TRIGGER_MIN,
 )
+from vllm.ci.managed_issue import (  # noqa: E402
+    IssueLookupError,
+    MAX_DIRECT_ISSUE_LOOKUPS,
+    bounded_open_issue_candidates,
+    fetch_open_issue_candidate,
+    repair_issue_labels,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -105,7 +112,7 @@ def _owned_queue_issue(issue: object) -> dict | None:
     repair lost local state without granting a broad label query authority over
     unrelated issues.
     """
-    if not isinstance(issue, dict) or issue.get("pull_request"):
+    if not isinstance(issue, dict) or "pull_request" in issue:
         return None
     number = issue.get("number")
     if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
@@ -145,51 +152,68 @@ def _owned_queue_issue(issue: object) -> dict | None:
         "queue": queue,
         "created_at": str(issue.get("created_at") or ""),
         "body": body,
+        "labels": issue.get("labels") or [],
         "legacy": not has_marker,
     }
 
 
-def _list_owned_open_issues(token: str, repo: str) -> list[dict] | None:
-    """List every open issue that can be proven to belong to this watcher.
+def _list_owned_open_issues(
+    token: str,
+    repo: str,
+    *,
+    include_recovery: bool = True,
+    tracked_numbers: tuple[int, ...] = (),
+) -> list[dict] | None:
+    """List a bounded set of issues proven to belong to this watcher.
 
     ``None`` means the GitHub lookup was incomplete. Callers must distinguish
     that from an authoritative empty list and avoid opening possible duplicates.
     """
-    owned: list[dict] = []
-    page = 1
-    while True:
-        try:
-            resp = requests.get(
-                f"{GH_API}/repos/{repo}/issues",
-                headers=_gh_headers(token),
-                params={
-                    "state": "open",
-                    "per_page": 100,
-                    "page": page,
-                },
-                timeout=30,
+    owned_by_number: dict[int, dict] = {}
+    tracked = sorted(set(tracked_numbers))
+    if len(tracked) > MAX_DIRECT_ISSUE_LOOKUPS:
+        log.warning(
+            "Queue issue reconciliation has %d tracked numbers; refusing the "
+            "bounded direct-lookup limit of %d",
+            len(tracked),
+            MAX_DIRECT_ISSUE_LOOKUPS,
+        )
+        return None
+    try:
+        for number in tracked:
+            issue = fetch_open_issue_candidate(
+                token,
+                repo,
+                number,
+                request_get=requests.get,
             )
-        except requests.RequestException as error:
-            log.warning("Queue issue reconciliation lookup failed: %s", error)
-            return None
-        if resp.status_code >= 300:
-            log.warning("Queue issue reconciliation lookup failed: HTTP %d", resp.status_code)
-            return None
-        try:
-            payload = resp.json()
-        except ValueError:
-            log.warning("Queue issue reconciliation lookup returned invalid JSON")
-            return None
-        if not isinstance(payload, list):
-            log.warning("Queue issue reconciliation lookup returned a non-list payload")
-            return None
-        for issue in payload:
+            if issue is None:
+                continue
             normalized = _owned_queue_issue(issue)
-            if normalized is not None:
-                owned.append(normalized)
-        if len(payload) < 100:
-            return owned
-        page += 1
+            if normalized is None:
+                raise IssueLookupError(
+                    f"tracked queue issue #{number} lost its exact ownership"
+                )
+            owned_by_number[number] = normalized
+        if tracked_numbers and not include_recovery:
+            return [owned_by_number[number] for number in sorted(owned_by_number)]
+        candidates = bounded_open_issue_candidates(
+            token,
+            repo,
+            durable_label=LABEL,
+            recovery_labels=(AUTOMATED_LABEL, WORKSTREAM_LABEL),
+            include_recovery=include_recovery,
+            exact_candidate=lambda issue: _owned_queue_issue(issue) is not None,
+            request_get=requests.get,
+        )
+    except (IssueLookupError, ValueError) as error:
+        log.warning("Queue issue reconciliation lookup failed: %s", error)
+        return None
+    for issue in candidates:
+        normalized = _owned_queue_issue(issue)
+        if normalized is not None:
+            owned_by_number[normalized["number"]] = normalized
+    return [owned_by_number[number] for number in sorted(owned_by_number)]
 
 
 def _repo_owner(repo: str) -> str:
@@ -467,7 +491,23 @@ def _reconcile_owned_open_issues(
     suppressed queue keeps no open issue. ``False`` means discovery failed and
     callers must not open a new issue whose prior state may merely be missing.
     """
-    discovered = _list_owned_open_issues(token, repo)
+    recovery_needed = not open_map or any(
+        queue.startswith(AMD_QUEUE_PREFIX)
+        and queue not in open_map
+        and float((stats or {}).get("p90_wait") or 0) >= P90_THRESHOLD_MIN
+        and int((stats or {}).get("waiting") or 0) >= MIN_WAITING_SAMPLES
+        for queue, stats in queues.items()
+    )
+    discovered = _list_owned_open_issues(
+        token,
+        repo,
+        include_recovery=recovery_needed,
+        tracked_numbers=tuple(
+            int(entry.get("number") or 0)
+            for entry in open_map.values()
+            if int(entry.get("number") or 0) > 0
+        ),
+    )
     if discovered is None:
         return False
 
@@ -512,6 +552,18 @@ def _reconcile_owned_open_issues(
                 (issue for issue in issues if issue["number"] == tracked_number),
                 issues[0],
             )
+            if not repair_issue_labels(
+                token,
+                repo,
+                keeper,
+                OWNED_LABELS,
+                request_post=requests.post,
+            ):
+                log.warning(
+                    "Could not repair durable labels on queue issue #%d",
+                    keeper["number"],
+                )
+                return False
             if keeper.get("legacy") and not _adopt_legacy_issue(
                 token, repo, keeper
             ):

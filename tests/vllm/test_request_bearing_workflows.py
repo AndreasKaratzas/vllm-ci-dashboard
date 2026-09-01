@@ -102,8 +102,10 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
     workflow_group = workflow_concurrency["group"]
     assert "data-collection-routine" in workflow_group
     assert "data-collection-dns-recovery" in workflow_group
+    assert "data-collection-queue-recovery" in workflow_group
     assert "data-collection-watchdog-recovery" in workflow_group
     assert "inputs.dns_generation != ''" in workflow_group
+    assert "inputs.queue_generation != ''" in workflow_group
     assert "inputs.watchdog_generation != ''" in workflow_group
     assert job["concurrency"] == {
         "group": "gh-pages-deploy",
@@ -137,6 +139,8 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
         assert "steps.request-attempt.outputs.request_mode == 'reserved'" in str(
             step.get("if", "")
         )
+        assert "inputs.queue_generation == ''" in str(step.get("if", ""))
+    assert "inputs.queue_generation == ''" in reserve["if"]
     amd_matrix = next(step for step in steps if step.get("name") == "Collect AMD test matrix")
     assert "BUILDKITE_TOKEN" not in (amd_matrix.get("env") or {})
 
@@ -161,15 +165,18 @@ def test_gated_wakeups_cannot_publish_or_advance_buildkite_clock() -> None:
     )
     for step in steps[selector_index:]:
         condition = str(step.get("if", ""))
-        assert "request-attempt" in condition or "dns_generation" in condition, step.get(
-            "name"
-        )
+        assert (
+            "request-attempt" in condition
+            or "dns_generation" in condition
+            or "queue_generation" in condition
+        ), step.get("name")
 
     clock = next(
         step for step in steps if step.get("name") == "Advance canonical collector clock"
     )
     assert "request_mode == 'reserved'" in clock["if"]
     assert "dns_generation == ''" in clock["if"]
+    assert "queue_generation == ''" in clock["if"]
     assert "success_gated" not in workflow["jobs"]["collect-and-deploy"].get("if", "")
     text = (WORKFLOWS / "hourly-master.yml").read_text(encoding="utf-8")
     assert "Data collection made zero Buildkite requests" in text
@@ -185,9 +192,11 @@ def test_candidate_is_locally_bound_before_rotation_and_success_accounting() -> 
     projection = names.index("Verify exact local public projection")
     rotation = names.index("Publish validated dashboard state")
     report = names.index("Read exact guarded Buildkite request total")
+    queue_report = names.index("Confirm zero queue reconciliation Buildkite requests")
     success = names.index("Mark durable Data Collection success")
     pages = names.index("Preserve only bounded PR previews")
     assert candidate < marker < projection < report < rotation < success < pages
+    assert candidate < marker < projection < queue_report < rotation
     assert "steps.publication-commit.outputs.state_sha" in steps[success]["if"]
     assert '--durable-ref "$DURABLE_STATE_SHA"' in steps[success]["run"]
 

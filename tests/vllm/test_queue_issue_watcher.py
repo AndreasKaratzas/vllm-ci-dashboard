@@ -77,7 +77,9 @@ def api(monkeypatch):
     monkeypatch.setattr(qiw, "_close_issue", rec.close_issue)
     monkeypatch.setattr(qiw, "_comment_issue", rec.comment)
     monkeypatch.setattr(qiw, "_ensure_owner_assigned", rec.assign)
-    def tracked_open_issues(token, repo):
+    def tracked_open_issues(
+        token, repo, *, include_recovery=True, tracked_numbers=()
+    ):
         state = qiw._read_state()
         return [
             _discovered_issue(
@@ -95,7 +97,12 @@ def api(monkeypatch):
 
 
 def _discovered_issue(number: int, queue: str, created_at: str) -> dict:
-    return {"number": number, "queue": queue, "created_at": created_at}
+    return {
+        "number": number,
+        "queue": queue,
+        "created_at": created_at,
+        "labels": [{"name": name} for name in qiw.OWNED_LABELS],
+    }
 
 
 def _github_issue(number: int, queue: str) -> dict:
@@ -112,6 +119,49 @@ def _github_issue(number: int, queue: str) -> dict:
         "labels": [{"name": name} for name in qiw.OWNED_LABELS],
         "created_at": "2026-04-18T11:00:00Z",
     }
+
+
+def test_tracked_issue_lookup_uses_direct_number_and_zero_list_calls(monkeypatch):
+    calls = []
+    issue = {**_github_issue(77, "amd_mi250_1"), "state": "open"}
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return issue
+
+    def get(url, *, headers, timeout):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr(qiw.requests, "get", get)
+
+    rows = qiw._list_owned_open_issues(
+        "token",
+        qiw.DASHBOARD_REPO,
+        include_recovery=False,
+        tracked_numbers=(77,),
+    )
+
+    assert [row["number"] for row in rows] == [77]
+    assert calls == [f"{qiw.GH_API}/repos/{qiw.DASHBOARD_REPO}/issues/77"]
+
+
+def test_tracked_issue_lookup_fails_before_requests_above_direct_cap(monkeypatch):
+    monkeypatch.setattr(
+        qiw.requests,
+        "get",
+        lambda *_args, **_kwargs: pytest.fail("capped state must not reach GitHub"),
+    )
+
+    assert qiw._list_owned_open_issues(
+        "token",
+        qiw.DASHBOARD_REPO,
+        include_recovery=False,
+        tracked_numbers=tuple(range(1, qiw.MAX_DIRECT_ISSUE_LOOKUPS + 2)),
+    ) is None
 
 
 class TestReadLastSnapshot:
@@ -301,7 +351,7 @@ class TestRun:
         monkeypatch.setattr(
             qiw,
             "_list_owned_open_issues",
-            lambda token, repo: [
+            lambda token, repo, **_kwargs: [
                 _discovered_issue(531, "amd_mi325_1", "2026-04-18T11:00:00Z")
             ],
         )
@@ -327,7 +377,7 @@ class TestRun:
         monkeypatch.setattr(
             qiw,
             "_list_owned_open_issues",
-            lambda token, repo: [
+            lambda token, repo, **_kwargs: [
                 _discovered_issue(531, "amd_mi325_1", "2026-04-17T11:00:00Z")
             ],
         )
@@ -354,7 +404,7 @@ class TestRun:
         monkeypatch.setattr(
             qiw,
             "_list_owned_open_issues",
-            lambda token, repo: [
+            lambda token, repo, **_kwargs: [
                 _discovered_issue(531, "amd_mi325_1", "2026-04-18T10:00:00Z"),
                 _discovered_issue(600, "amd_mi325_1", "2026-04-18T11:00:00Z"),
             ],
@@ -375,7 +425,9 @@ class TestRun:
         _write_snapshot(snaps, {
             "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
         })
-        monkeypatch.setattr(qiw, "_list_owned_open_issues", lambda token, repo: None)
+        monkeypatch.setattr(
+            qiw, "_list_owned_open_issues", lambda token, repo, **_kwargs: None
+        )
 
         assert qiw.run() == 0
         assert api.opened == []
@@ -399,7 +451,9 @@ class TestRun:
         _write_snapshot(snaps, {
             "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
         })
-        monkeypatch.setattr(qiw, "_list_owned_open_issues", lambda token, repo: None)
+        monkeypatch.setattr(
+            qiw, "_list_owned_open_issues", lambda token, repo, **_kwargs: None
+        )
 
         assert qiw.run() == 0
         assert api.opened == []
@@ -425,7 +479,9 @@ class TestRun:
         _write_snapshot(snaps, {
             "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
         })
-        monkeypatch.setattr(qiw, "_list_owned_open_issues", lambda token, repo: [])
+        monkeypatch.setattr(
+            qiw, "_list_owned_open_issues", lambda token, repo, **_kwargs: []
+        )
 
         assert qiw.run() == 0
         assert api.opened == []

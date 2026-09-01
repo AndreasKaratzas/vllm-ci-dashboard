@@ -767,7 +767,14 @@ def _retire_area_issue(
         log.warning("Cannot verify retired area %s without marker-owned issue lookup", area_key)
         return False
     try:
-        raw_open_numbers = find_open_issues(marker)
+        if isinstance(client, GitHubIssueClient):
+            raw_open_numbers = find_open_issues(
+                marker,
+                durable_label=f"test-area:{area_key}",
+                recovery_labels=("automated", "workstream:dev"),
+            )
+        else:
+            raw_open_numbers = find_open_issues(marker)
     except Exception as error:
         log.warning("Retired area %s issue lookup failed: %s", area_key, error)
         return False
@@ -1008,6 +1015,8 @@ def run() -> int:
             ],
             client=client,
             assignees=assignees,
+            discovery_label=f"test-area:{area_key}",
+            recovery_labels=("automated", "workstream:dev"),
         )
         reconciled["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
         reconciled["signals"] = next_signals.get(area_key) or {}

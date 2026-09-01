@@ -380,6 +380,8 @@ def run() -> int:
         observed_at=observed_at,
         label_specs=LABEL_SPECS,
         client=client,
+        discovery_label="ci-agent-health",
+        recovery_labels=("automated", "workstream:infra"),
     )
     _write_state(reconciled)
     log.info(

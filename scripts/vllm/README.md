@@ -24,6 +24,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Every two hours via `hourly-master.yml` + local debugging |
 | `check_site_health.py` | Probes the deployed shell and bounded publication-status contract, emitting JSON and Markdown evidence | Hourly at :57 UTC-minute plus manual `health-check.yml` runs |
 | `plan_dns_publication_reconcile.py` | Decides whether a successful live DNS publish must wake the canonical publisher and verifies that queued work still has an unacknowledged DNS generation | After every successful `dns-health.yml` collection and before a DNS-targeted canonical run |
+| `plan_queue_publication_reconcile.py` | Wakes the canonical publisher only for an invalid status or an affected Queue surface, then verifies that the requested queue generation reached Pages; the workflow separately confirms its exact durable source ref | After validated queue publication or a fresh zero-request durable retry, and before a queue-targeted canonical run |
 | `dns_request_budget.py` | Validates the parentless DNS request ledger and durably reserves a complete per-scan allowance for 25 hours before any Buildkite call, bounding actual starts below 1,000 per rolling day | Every `dns-health.yml` run, plus controlled one-time ledger initialization |
 | `request_bearing_attempt_budget.py` | Gates full Data Collection and Queue Lifecycle through independent parentless 25-hour attempt ledgers, including start-to-start success cadence, bounded failure retry, migration overlap, and read-only webhook/watchdog observation | Before every possible full-collector token exposure, plus controlled one-time initialization |
 | `buildkite_request_guard.py` | Enforces the fixed per-attempt allowance across processes by charging every exact Buildkite `requests.Session.send` before transport and rejecting hidden adapter retries | Automatically in every permitted token-bearing Python process through `scripts/sitecustomize.py` |
@@ -69,6 +70,21 @@ while preserving the newest live snapshot and each retained bucket's exact
 peak envelopes; it never makes another Buildkite request to compact storage.
 
 The frequent collector force-publishes a single-commit `queue-data` branch containing only queue-owned evidence and a compact chart feed. The browser compares its current snapshot with the canonical Pages shard, uses the newer one, and falls back to the Pages history if the dedicated feed becomes stale. The verbose JSONL remains available as drill-down evidence but is not reparsed on every chart refresh.
+
+When canonical Queue health is affected, the monitor dispatches a dedicated
+`queue_generation` repair. That lane imports only `queue-data`, refreshes only
+the Queue publication transaction, preserves Queue Lifecycle and every other
+surface, and installs a deny-all Buildkite guard with an exact zero-request
+report. Interval- or capacity-gated monitor runs may retry a lost dispatch from
+all four files of one durable queue commit, but only while its generation is
+less than five hours old. A normal healthy queue poll never triggers a Pages
+rebuild. Operational queue degradation and recovery do not need that rebuild:
+the browser fetches both the live queue section and its Pages fallback every
+five minutes and selects the newer embedded snapshot timestamp. The targeted
+planner therefore treats `Queue health` in `publication_status.json` strictly
+as publication-integrity state; ordinary live queue pressure remains on the
+ten-minute branch feed, while the canonical fallback keeps the normal
+two-hour Data Collection cadence.
 
 Every queue trigger, including webhooks and manual dispatch, first acquires an
 exact lease on the parentless one-file `queue-request-budget` branch. Metrics

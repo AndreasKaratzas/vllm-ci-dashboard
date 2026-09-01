@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from vllm.ci import managed_issue
 from vllm.ci.managed_issue import (
     DASHBOARD_REPO,
@@ -48,15 +50,11 @@ def _reconcile(
     )
 
 
-def test_client_finds_exact_marker_across_paginated_open_issues(monkeypatch):
-    first_page = [
-        {
-            "number": index + 1,
-            "body": f"not an exact marker: {MARKER}",
-        }
-        for index in range(100)
+def test_client_uses_bounded_owner_and_recent_indexes(monkeypatch):
+    owner_page = [
+        {"number": 10, "body": f"not an exact marker: {MARKER}"},
     ]
-    second_page = [
+    recovery_page = [
         {"number": 222, "body": f"heading\n{MARKER}\nbody"},
         {
             "number": 111,
@@ -72,24 +70,92 @@ def test_client_finds_exact_marker_across_paginated_open_issues(monkeypatch):
 
     def fake_get(url, *, headers, params, timeout):
         calls.append((url, params))
-        payload = first_page if params["page"] == 1 else second_page
+        payload = owner_page if params["labels"] == "managed-alert" else recovery_page
         return _Response(200, payload)
 
     monkeypatch.setattr(managed_issue.requests, "get", fake_get)
     client = GitHubIssueClient("token", DASHBOARD_REPO)
 
-    assert client.find_open_issues(MARKER) == [111, 222]
-    assert client.find_open_issue(MARKER) == 111
-    assert client.find_open_issue(MARKER) == 111
-    assert [params["page"] for _, params in calls] == [1, 2]
+    lookup = {
+        "durable_label": "managed-alert",
+        "recovery_labels": ("automated", "workstream:dev"),
+    }
+    assert client.find_open_issues(MARKER, **lookup) == [111, 222]
+    assert client.find_open_issue(MARKER, **lookup) == 111
+    assert client.find_open_issue(MARKER, **lookup) == 111
+    assert [params["labels"] for _, params in calls] == [
+        "managed-alert",
+        "automated,workstream:dev",
+    ]
     assert all(params["state"] == "open" for _, params in calls)
     assert all(params["per_page"] == 100 for _, params in calls)
+    assert all(params["page"] == 1 for _, params in calls)
+
+
+def test_client_owner_exact_match_skips_recent_recovery(monkeypatch):
+    calls = []
+
+    def fake_get(url, *, headers, params, timeout):
+        calls.append(params)
+        return _Response(200, [{"number": 42, "body": MARKER}])
+
+    monkeypatch.setattr(managed_issue.requests, "get", fake_get)
+    client = GitHubIssueClient("token", DASHBOARD_REPO)
+
+    assert client.find_open_issues(
+        MARKER,
+        durable_label="managed-alert",
+        recovery_labels=("automated", "workstream:dev"),
+    ) == [42]
+    assert len(calls) == 1
+    assert calls[0]["labels"] == "managed-alert"
+
+
+def test_client_fails_closed_when_owner_label_page_hits_cap(monkeypatch):
+    def fake_get(url, *, headers, params, timeout):
+        return _Response(
+            200,
+            [{"number": index + 1, "body": MARKER} for index in range(100)],
+        )
+
+    monkeypatch.setattr(managed_issue.requests, "get", fake_get)
+    client = GitHubIssueClient("token", DASHBOARD_REPO)
+
+    with pytest.raises(managed_issue.IssueLookupError, match="ambiguity limit"):
+        client.find_open_issues(MARKER, durable_label="managed-alert")
+
+
+def test_tracked_real_client_fast_path_makes_no_list_request(monkeypatch):
+    calls = []
+
+    def fake_get(url, *, headers, timeout):
+        calls.append(url)
+        return _Response(200, {"state": "open", "body": MARKER})
+
+    monkeypatch.setattr(managed_issue.requests, "get", fake_get)
+    client = GitHubIssueClient("token", DASHBOARD_REPO)
+    monkeypatch.setattr(client, "ensure_issue_labels", lambda *_args: True)
+    monkeypatch.setattr(client, "ensure_owner_assigned", lambda *_args: True)
+
+    reconciled = _reconcile(
+        {
+            "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
+            "last_fingerprint": "fingerprint",
+        },
+        client,
+    )
+
+    assert reconciled["issue"]["number"] == 7
+    assert calls == [
+        f"{managed_issue.GH_API}/repos/{DASHBOARD_REPO}/issues/7"
+    ]
 
 
 def test_client_issue_state_requires_marker_on_its_own_line(monkeypatch):
     payloads = [
         {"state": "open", "body": f"prose containing {MARKER} is not ownership"},
         {"state": "open", "body": f"heading\n{MARKER}\nbody"},
+        {"state": "open", "body": MARKER, "pull_request": {}},
     ]
 
     def fake_get(url, *, headers, timeout):
@@ -100,6 +166,7 @@ def test_client_issue_state_requires_marker_on_its_own_line(monkeypatch):
 
     assert client.issue_state(41, MARKER) == "foreign"
     assert client.issue_state(42, MARKER) == "open"
+    assert client.issue_state(43, MARKER) == "foreign"
 
 
 def test_client_adds_managed_labels_without_replacing_existing_labels(monkeypatch):
@@ -227,7 +294,7 @@ def test_reconcile_adds_label_specs_to_unchanged_tracked_issue():
     assert client.updated == []
 
 
-def test_reconcile_preserves_tracked_canonical_and_closes_verified_siblings():
+def test_reconcile_tracked_canonical_skips_every_list_and_sibling_scan():
     client = _SiblingAwareClient([4, 7, 9])
     state = {
         "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
@@ -237,8 +304,8 @@ def test_reconcile_preserves_tracked_canonical_and_closes_verified_siblings():
     reconciled = _reconcile(state, client)
 
     assert reconciled["issue"]["number"] == 7
-    assert client.closed == [4, 9]
-    assert client.state_reads == [7, 4, 9]
+    assert client.closed == []
+    assert client.state_reads == [7]
     assert client.labels == [(7, LABEL_SPECS)]
     assert client.opened == []
 
@@ -255,7 +322,7 @@ def test_reconcile_recovers_oldest_canonical_and_closes_newer_sibling():
     assert client.opened == []
 
 
-def test_reconcile_never_closes_sibling_that_lost_exact_marker():
+def test_tracked_reconcile_does_not_consult_or_mutate_discovered_siblings():
     client = _SiblingAwareClient([7, 8], states={8: "foreign"})
     state = {
         "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
@@ -266,10 +333,10 @@ def test_reconcile_never_closes_sibling_that_lost_exact_marker():
 
     assert reconciled["issue"]["number"] == 7
     assert client.closed == []
-    assert client.state_reads == [7, 8]
+    assert client.state_reads == [7]
 
 
-def test_tracked_reconcile_fails_closed_when_sibling_lookup_fails():
+def test_tracked_reconcile_never_calls_failing_recovery_lookup():
     client = _FailedSiblingLookupClient([])
     state = {
         "issue": {"number": 7, "opened_at": "2026-07-28T10:00:00Z"},
@@ -279,8 +346,8 @@ def test_tracked_reconcile_fails_closed_when_sibling_lookup_fails():
     reconciled = _reconcile(state, client)
 
     assert reconciled["issue"]["number"] == 7
-    assert reconciled["last_run"] == ""
-    assert client.labels == []
+    assert reconciled["last_run"] == "2026-07-28T12:00:00Z"
+    assert client.labels == [(7, LABEL_SPECS)]
     assert client.updated == []
     assert client.closed == []
 

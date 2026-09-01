@@ -11,6 +11,13 @@ on:
     # This is only a wake-up. It cannot bypass the durable cadence or budget.
     types: [buildkite_queue_changed]
   workflow_dispatch:
+  workflow_run:
+    # The publication watchdog has an independent 15-minute schedule. Its
+    # completion is a redundant wake-up when GitHub delays or drops this
+    # workflow's own cron; the durable ten-minute gate prevents extra requests.
+    workflows: [Publication Recovery Watchdog]
+    types: [completed]
+    branches: [main]
 
 concurrency:
   # Queue evidence has a dedicated branch, so it can keep polling while the
@@ -18,8 +25,7 @@ concurrency:
   group: queue-data-publish
   cancel-in-progress: false
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   snapshot:
@@ -33,6 +39,14 @@ jobs:
       # reservation initializes the guard environment, every Buildkite
       # transport start shares one fail-closed counter.
       PYTHONPATH: ${{ github.workspace }}/scripts
+    outputs:
+      # The dependent job additionally requires snapshot.result == success:
+      # request-bearing generations are therefore usable only after the exact
+      # remote push verifies, while gated generations come from the immutable
+      # durable ref hydrated below.
+      queue_generation: ${{ steps.queue-generation.outputs.generated_at }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -55,14 +69,21 @@ jobs:
           # gh-pages copy only as a first-run migration source. A transport
           # failure while an established branch exists must fail closed; a
           # stale fallback followed by an orphan force-push would lose history.
+          QUEUE_DATA_BASELINE_SHA=""
           set +e
-          git ls-remote --exit-code origin refs/heads/queue-data >/dev/null 2>&1
+          git ls-remote --exit-code --refs origin refs/heads/queue-data \
+            > "$RUNNER_TEMP/queue-data.ls-remote" 2>/dev/null
           QUEUE_DATA_STATUS=$?
           set -e
           if [ "$QUEUE_DATA_STATUS" -eq 0 ]; then
             git fetch origin \
               +refs/heads/queue-data:refs/remotes/origin/queue-data \
               --depth=1
+            QUEUE_DATA_BASELINE_SHA=$(git rev-parse --verify 'origin/queue-data^{commit}')
+            if ! [[ "$QUEUE_DATA_BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Durable queue-data source did not resolve to one commit."
+              exit 1
+            fi
             python scripts/vllm/collect_queue_snapshot.py \
               --merge-history-git-ref origin/queue-data \
               --require-merge-history
@@ -71,19 +92,58 @@ jobs:
               > data/vllm/ci/queue_jobs.json
             python -m json.tool data/vllm/ci/queue_jobs.json >/dev/null
           elif [ "$QUEUE_DATA_STATUS" -eq 2 ]; then
-            git fetch origin \
-              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-              --depth=1 || true
-            if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
-              python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages
-              git show \
-                origin/gh-pages:data/vllm/ci/queue_jobs.json \
-                > data/vllm/ci/queue_jobs.json 2>/dev/null || true
+            # A missing queue-data ref permits one legacy migration attempt,
+            # but only a definitive gh-pages absence permits an empty-source
+            # bootstrap.  Never collapse a transport error into "no history".
+            set +e
+            git ls-remote --exit-code --refs origin refs/heads/gh-pages \
+              > "$RUNNER_TEMP/gh-pages.ls-remote" 2>/dev/null
+            GH_PAGES_STATUS=$?
+            set -e
+            if [ "$GH_PAGES_STATUS" -eq 0 ]; then
+              GH_PAGES_COUNT=$(wc -l < "$RUNNER_TEMP/gh-pages.ls-remote")
+              GH_PAGES_REMOTE_SHA=$(awk \
+                '$2 == "refs/heads/gh-pages" {print $1}' \
+                "$RUNNER_TEMP/gh-pages.ls-remote")
+              if [ "$GH_PAGES_COUNT" -ne 1 ] || \
+                 ! [[ "$GH_PAGES_REMOTE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::Legacy gh-pages migration source resolved ambiguously."
+                exit 1
+              fi
+              git fetch origin \
+                +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+                --depth=1
+              GH_PAGES_FETCHED_SHA=$(git rev-parse --verify 'origin/gh-pages^{commit}')
+              if [ "$GH_PAGES_FETCHED_SHA" != "$GH_PAGES_REMOTE_SHA" ]; then
+                echo "::error::Legacy gh-pages moved during queue migration; retrying is safe."
+                exit 1
+              fi
+              if git cat-file -e \
+                'origin/gh-pages:data/vllm/ci/queue_timeseries.jsonl'; then
+                python scripts/vllm/collect_queue_snapshot.py \
+                  --merge-history-git-ref origin/gh-pages \
+                  --require-merge-history
+              else
+                echo "Legacy gh-pages definitively contains no queue history."
+              fi
+              if git cat-file -e \
+                'origin/gh-pages:data/vllm/ci/queue_jobs.json'; then
+                git show \
+                  origin/gh-pages:data/vllm/ci/queue_jobs.json \
+                  > data/vllm/ci/queue_jobs.json
+                python -m json.tool data/vllm/ci/queue_jobs.json >/dev/null
+              fi
+            elif [ "$GH_PAGES_STATUS" -eq 2 ]; then
+              echo "Legacy gh-pages branch is definitively absent; initializing queue-data."
+            else
+              echo "::error::Could not determine legacy gh-pages state; refusing queue-data bootstrap."
+              exit "$GH_PAGES_STATUS"
             fi
           else
             echo "::error::Could not determine durable queue-data branch state; refusing to publish."
             exit "$QUEUE_DATA_STATUS"
           fi
+          echo "QUEUE_DATA_BASELINE_SHA=$QUEUE_DATA_BASELINE_SHA" >> "$GITHUB_ENV"
 
       - name: Prune queue history to post-fix baseline
         run: python scripts/vllm/collect_queue_snapshot.py --prune-only
@@ -130,6 +190,40 @@ jobs:
           echo "Queue monitor made zero Buildkite requests because the durable
           rolling request budget is full; the next allowance is available at
           ${{ steps.queue-request-budget.outputs.available_at }}."
+
+      - name: Hydrate exact durable queue projection for zero-request retry
+        if: >-
+          steps.queue-request-budget.outputs.request_mode == 'interval_gated' ||
+          steps.queue-request-budget.outputs.request_mode == 'capacity_gated'
+        run: |
+          set -euo pipefail
+          QUEUE_SOURCE_SHA=$(git rev-parse --verify 'origin/queue-data^{commit}')
+          RETRY_ROOT=$(mktemp -d)
+          cleanup() {
+            rm -rf "$RETRY_ROOT"
+          }
+          trap cleanup EXIT
+          for path in \
+            data/vllm/ci/queue_timeseries.jsonl \
+            data/vllm/ci/queue_jobs.json \
+            data/vllm/ci/queue_history_chart.json \
+            data/vllm/ci/operations_v2/queue.json; do
+            mkdir -p "$RETRY_ROOT/$(dirname "$path")"
+            git show "$QUEUE_SOURCE_SHA:$path" > "$RETRY_ROOT/$path"
+          done
+          install -m 0644 \
+            "$RETRY_ROOT/data/vllm/ci/queue_timeseries.jsonl" \
+            data/vllm/ci/queue_timeseries.jsonl
+          install -m 0644 \
+            "$RETRY_ROOT/data/vllm/ci/queue_jobs.json" \
+            data/vllm/ci/queue_jobs.json
+          install -m 0644 \
+            "$RETRY_ROOT/data/vllm/ci/queue_history_chart.json" \
+            data/vllm/ci/queue_history_chart.json
+          install -m 0644 \
+            "$RETRY_ROOT/data/vllm/ci/operations_v2/queue.json" \
+            data/vllm/ci/operations_v2/queue.json
+          echo "Hydrated all four queue projection files from $QUEUE_SOURCE_SHA."
 
       - name: Collect bounded queue snapshot
         id: collect-queue
@@ -185,15 +279,127 @@ jobs:
           steps.queue-request-guard-report.outcome == 'success'
         run: python scripts/vllm/audit_dashboard_data.py --queue-only
 
+      - name: Capture exact validated queue generation
+        id: queue-generation
+        if: >-
+          steps.queue-request-guard-report.outcome == 'success' && (
+            (
+              (steps.queue-request-budget.outputs.request_mode == 'metrics' ||
+               steps.queue-request-budget.outputs.request_mode == 'metrics_and_details') &&
+              steps.collect-queue.outcome == 'success'
+            ) ||
+            (
+              github.event_name != 'workflow_run' && (
+                steps.queue-request-budget.outputs.request_mode == 'interval_gated' ||
+                steps.queue-request-budget.outputs.request_mode == 'capacity_gated'
+              )
+            )
+          )
+        env:
+          REQUEST_MODE: ${{ steps.queue-request-budget.outputs.request_mode }}
+        run: |
+          set -euo pipefail
+          # A scheduled/manual gated run can retry reconciliation from the
+          # already validated durable branch without another Buildkite call.
+          # Watchdog-completion wake-ups deliberately require a fresh permit:
+          # this breaks Data -> Watchdog -> Queue -> Data failure feedback.
+          python scripts/vllm/audit_dashboard_data.py --queue-only
+          python - "$REQUEST_MODE" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+
+          def canonical_timestamp(value: object, label: str) -> str:
+              if not isinstance(value, str):
+                  raise SystemExit(f"{label} must be a string")
+              try:
+                  parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+                      tzinfo=timezone.utc
+                  )
+              except ValueError as exc:
+                  raise SystemExit(
+                      f"{label} must be a canonical whole-second UTC timestamp"
+                  ) from exc
+              if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+                  raise SystemExit(f"{label} is not canonical")
+              return value
+
+
+          jobs = json.loads(
+              Path("data/vllm/ci/queue_jobs.json").read_text(encoding="utf-8")
+          )
+          if not isinstance(jobs, dict):
+              raise SystemExit("queue_jobs.json must be an object")
+          # Detail rows are refreshed hourly and may intentionally be retained
+          # across metrics-only polls. The reconciliation generation is the
+          # metrics observation published beside those retained details.
+          generation = canonical_timestamp(
+              jobs.get("metrics_observed_at")
+              if "metrics_observed_at" in jobs
+              else jobs.get("ts"),
+              "queue_jobs metrics generation",
+          )
+          tail = Path("data/vllm/ci/queue_timeseries.jsonl").read_text(
+              encoding="utf-8"
+          ).splitlines()
+          if not tail:
+              raise SystemExit("queue_timeseries.jsonl must contain an observation")
+          latest = json.loads(tail[-1])
+          if not isinstance(latest, dict):
+              raise SystemExit("latest queue timeseries observation must be an object")
+          latest_generation = canonical_timestamp(
+              latest.get("metrics_observed_at")
+              if "metrics_observed_at" in latest
+              else latest.get("ts"),
+              "latest queue_timeseries metrics generation",
+          )
+          if latest_generation != generation:
+              raise SystemExit(
+                  "queue_jobs metrics_observed_at must equal the latest "
+                  "queue_timeseries metrics generation"
+              )
+          mode = sys.argv[1]
+          now = datetime.now(timezone.utc)
+          observed_at = datetime.strptime(
+              generation, "%Y-%m-%dT%H:%M:%SZ"
+          ).replace(tzinfo=timezone.utc)
+          if observed_at > now:
+              raise SystemExit("queue reconciliation generation must not be future-dated")
+          if mode in {"interval_gated", "capacity_gated"}:
+              age = now - observed_at
+              if age > timedelta(hours=5):
+                  print(
+                      "Durable queue generation is outside the safe five-hour "
+                      "reconciliation window; skipping a zero-request retry."
+                  )
+                  raise SystemExit(0)
+          with Path(sys.argv[2]).open("a", encoding="utf-8") as handle:
+              handle.write(f"generated_at={generation}\n")
+          print(f"Validated queue reconciliation generation {generation} ({mode}).")
+          PY
+
       - name: Publish durable live queue evidence
+        id: queue-publish
         if: >-
           (steps.queue-request-budget.outputs.request_mode == 'metrics' ||
            steps.queue-request-budget.outputs.request_mode == 'metrics_and_details') &&
           steps.collect-queue.outcome == 'success' &&
           steps.queue-request-guard-report.outcome == 'success'
         run: |
+          set -euo pipefail
           # Publish only queue-owned files on a dedicated single-commit branch.
           # Canonical gh-pages rebuilds can no longer overwrite or delay polls.
+          # Lease against the exact ref used to seed this candidate, not a
+          # second observation just before pushing. A writer that advances the
+          # branch at any point after hydration must win and make this run retry.
+          OBSERVED_QUEUE_SHA="${QUEUE_DATA_BASELINE_SHA:-}"
+          if [ -n "$OBSERVED_QUEUE_SHA" ] && \
+             ! [[ "$OBSERVED_QUEUE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Durable queue-data ref did not resolve to one commit."
+            exit 1
+          fi
           LIVE_ROOT=$(mktemp -d)
           cleanup() {
             git worktree remove --force "$LIVE_ROOT" 2>/dev/null || true
@@ -216,4 +422,75 @@ jobs:
             data/vllm/ci/operations_v2/queue.json
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "queue: live snapshot $(date -u +%Y-%m-%dT%H:%M)"
-          git -C "$LIVE_ROOT" push --force origin HEAD:queue-data
+          QUEUE_SOURCE_SHA=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')
+          git -C "$LIVE_ROOT" push \
+            --force-with-lease="refs/heads/queue-data:$OBSERVED_QUEUE_SHA" \
+            origin HEAD:queue-data
+          REMOTE_QUEUE_SHA=$(git ls-remote --refs origin refs/heads/queue-data \
+            | awk 'NR == 1 {print $1}')
+          if [ "$REMOTE_QUEUE_SHA" != "$QUEUE_SOURCE_SHA" ]; then
+            echo "::error::Durable queue-data ref does not match the published commit."
+            exit 1
+          fi
+          {
+            echo "queue_generation=${{ steps.queue-generation.outputs.generated_at }}"
+          } >> "$GITHUB_OUTPUT"
+
+  reconcile-publication:
+    needs: snapshot
+    if: >-
+      needs.snapshot.result == 'success' &&
+      needs.snapshot.outputs.queue_generation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Plan canonical queue publication reconciliation
+        id: publication-reconcile
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication_status.json"
+          if git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 \
+            && git show \
+              origin/gh-pages:data/vllm/ci/publication_status.json \
+              > "$PUBLICATION_STATUS"; then
+            echo "Loaded the current canonical publication status."
+          else
+            rm -f "$PUBLICATION_STATUS"
+            echo "::warning::Canonical publication status is unavailable; requesting queue reconciliation."
+          fi
+          python scripts/vllm/plan_queue_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Dispatch canonical queue reconciliation
+        if: steps.publication-reconcile.outputs.required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECONCILE_REASON: ${{ steps.publication-reconcile.outputs.reason }}
+          TARGET_QUEUE_GENERATION: ${{ needs.snapshot.outputs.queue_generation }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg ref main \
+            --arg queue_generation "$TARGET_QUEUE_GENERATION" \
+            '{ref: $ref, inputs: {queue_generation: $queue_generation}}' | \
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            --input -
+          echo "Requested canonical queue reconciliation: $RECONCILE_REASON ($TARGET_QUEUE_GENERATION)"

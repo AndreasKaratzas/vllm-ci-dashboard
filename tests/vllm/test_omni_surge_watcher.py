@@ -113,7 +113,7 @@ class _StubbedApi:
         self.assigned.append(number)
         return True
 
-    def list_owned(self, token, repo):
+    def list_owned(self, token, repo, **_kwargs):
         self.discovery_calls += 1
         if self.discovered is None:
             return None
@@ -158,6 +158,7 @@ def _owned_issue(number: int, *, legacy: bool = False) -> dict:
         "number": number,
         "body": "legacy body" if legacy else osw.OWNERSHIP_MARKER,
         "created_at": f"2026-04-18T{number % 24:02d}:00:00Z",
+        "labels": [{"name": name} for name in osw.OWNED_LABELS],
         "legacy": legacy,
     }
 
@@ -185,6 +186,41 @@ def _legacy_raw_issue(number: int = 321, waiting: int = 40, trigger: int = 30) -
     }
 
 
+def test_tracked_issue_lookup_uses_direct_number_and_zero_list_calls(monkeypatch):
+    calls = []
+    issue = {
+        "number": 568,
+        "state": "open",
+        "title": "human edited",
+        "body": osw.OWNERSHIP_MARKER,
+        "labels": [],
+        "created_at": "2026-04-18T10:00:00Z",
+    }
+
+    class Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return issue
+
+    def get(url, *, headers, timeout):
+        calls.append(url)
+        return Response()
+
+    monkeypatch.setattr(osw.requests, "get", get)
+
+    rows = osw._list_owned_open_issues(
+        "token",
+        osw.DASHBOARD_REPO,
+        include_recovery=False,
+        tracked_numbers=(568,),
+    )
+
+    assert [row["number"] for row in rows] == [568]
+    assert calls == [f"{osw.GH_API}/repos/{osw.DASHBOARD_REPO}/issues/568"]
+
+
 class TestIssueOwnershipAndDiscovery:
     def test_exact_marker_line_is_authoritative(self):
         issue = {
@@ -197,6 +233,7 @@ class TestIssueOwnershipAndDiscovery:
             "number": 7,
             "body": issue["body"],
             "created_at": "",
+            "labels": [],
             "legacy": False,
         }
 
@@ -239,21 +276,14 @@ class TestIssueOwnershipAndDiscovery:
         candidate["body"] = candidate["body"].replace("**40**", "**41**")
         assert osw._owned_open_issue(candidate) is None
 
-    def test_discovery_reads_every_page_before_returning(self, monkeypatch):
-        first_page = [
-            {"number": number, "title": "foreign", "body": "", "labels": []}
-            for number in range(1, 100)
-        ]
-        first_page.append(_legacy_raw_issue(number=100))
-        second_page = [
-            {
-                "number": 101,
-                "title": "edited",
-                "body": osw.OWNERSHIP_MARKER,
-                "labels": [],
-            }
-        ]
-        pages = []
+    def test_owner_label_exact_match_skips_recent_recovery(self, monkeypatch):
+        exact = {
+            "number": 101,
+            "title": "edited",
+            "body": osw.OWNERSHIP_MARKER,
+            "labels": [],
+        }
+        calls = []
 
         class Response:
             status_code = 200
@@ -265,16 +295,47 @@ class TestIssueOwnershipAndDiscovery:
                 return self.payload
 
         def get(url, *, headers, params, timeout):
-            pages.append(params["page"])
-            return Response(first_page if params["page"] == 1 else second_page)
+            calls.append(params)
+            return Response([exact])
 
         monkeypatch.setattr(osw.requests, "get", get)
 
         discovered = osw._list_owned_open_issues("token", osw.DASHBOARD_REPO)
 
-        assert pages == [1, 2]
-        assert [issue["number"] for issue in discovered] == [100, 101]
-        assert [issue["legacy"] for issue in discovered] == [True, False]
+        assert [issue["number"] for issue in discovered] == [101]
+        assert len(calls) == 1
+        assert calls[0]["labels"] == osw.LABEL
+
+    def test_recent_recovery_preserves_strict_legacy_568_adoption(
+        self, monkeypatch
+    ):
+        calls = []
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        def get(url, *, headers, params, timeout):
+            calls.append(params)
+            if params["labels"] == osw.LABEL:
+                return Response([])
+            return Response([_legacy_raw_issue(number=568)])
+
+        monkeypatch.setattr(osw.requests, "get", get)
+
+        discovered = osw._list_owned_open_issues("token", osw.DASHBOARD_REPO)
+
+        assert [issue["number"] for issue in discovered] == [568]
+        assert discovered[0]["legacy"] is True
+        assert [call["labels"] for call in calls] == [
+            osw.LABEL,
+            f"{osw.AUTOMATED_LABEL},{osw.WORKSTREAM_LABEL}",
+        ]
 
     def test_new_issue_carries_exact_marker_and_managed_labels(self, monkeypatch):
         captured = {}

@@ -515,6 +515,8 @@ def run() -> int:
         observed_at=observed_at,
         label_specs=LABEL_SPECS,
         client=client,
+        discovery_label="amd-duration-regression",
+        recovery_labels=("automated", "workstream:dev"),
     )
     _write_state(reconciled)
     log.info(

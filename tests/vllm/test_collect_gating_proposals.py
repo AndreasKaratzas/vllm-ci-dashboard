@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import requests
+import pytest
 
 from vllm import collect_gating_proposals as cgp
 
@@ -166,6 +167,55 @@ def test_search_open_pr_numbers_skips_issue_rows_without_pull_request_metadata()
     assert cgp.search_open_pr_numbers(FakeClient(mapping), "vllm-project/vllm", ["alice"]) == [11]
 
 
+def test_search_incomplete_results_fail_closed_without_accepting_prefix():
+    mapping = {
+        _search_key("alice"): {
+            "items": [pr_search_item(11)],
+            "total_count": 1,
+            "incomplete_results": True,
+        }
+    }
+
+    rows, errors = cgp.search_pr_candidates_with_errors(
+        FakeClient(mapping),
+        "vllm-project/vllm",
+        ["alice"],
+        state="open",
+    )
+
+    assert rows == []
+    assert errors[0]["scope"] == "search_coverage"
+
+
+def test_search_request_budget_is_global_and_below_github_minute_limit():
+    class CountingClient:
+        def __init__(self):
+            self.calls = 0
+
+        def get_json(self, url, *, params=None):
+            self.calls += 1
+            return {
+                "items": [],
+                "total_count": 0,
+                "incomplete_results": False,
+            }
+
+    client = CountingClient()
+    budget = cgp.SearchRequestBudget()
+    rows, errors = cgp.search_pr_candidates_with_errors(
+        client,
+        "vllm-project/vllm",
+        [f"author-{index}" for index in range(30)],
+        state="open",
+        budget=budget,
+    )
+
+    assert rows == []
+    assert client.calls == budget.used == cgp.MAX_SEARCH_REQUESTS == 24
+    assert cgp.MAX_SEARCH_REQUESTS < 30
+    assert any(error["scope"] == "search_budget" for error in errors)
+
+
 def test_collect_pr_emits_added_mirror_rows_from_changed_test_area_yaml():
     repo = "vllm-project/vllm"
     base_sha = "base123"
@@ -234,6 +284,33 @@ def test_collect_pr_reads_changed_files_after_first_page():
     assert pr is not None
     assert pr["new_mirror_count"] == 1
     assert pr["new_mirrors"][0]["label"] == "Samplers Test"
+
+
+def test_changed_file_non_list_page_fails_closed():
+    client = FakeClient(
+        {
+            (
+                "https://api.github.com/repos/vllm-project/vllm/pulls/7/files",
+                (("page", 1), ("per_page", 100)),
+            ): {"not": "a list"}
+        }
+    )
+
+    with pytest.raises(cgp.GitHubCoverageError, match="non-list page"):
+        cgp.paged_pr_files(client, "vllm-project/vllm", 7)
+
+
+def test_atomic_output_limit_preserves_prior_snapshot(tmp_path, monkeypatch):
+    path = tmp_path / "gating_proposals.json"
+    prior = b'{"prior":true}\n'
+    path.write_bytes(prior)
+    monkeypatch.setattr(cgp, "MAX_OUTPUT_BYTES", 8)
+
+    with pytest.raises(RuntimeError, match="publication limit"):
+        cgp.write_payload_atomic(path, {"replacement": "too large"})
+
+    assert path.read_bytes() == prior
+    assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
 
 
 def test_collect_pr_ignores_closed_prs():

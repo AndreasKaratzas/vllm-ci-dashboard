@@ -128,6 +128,43 @@ class TestWorkflowYAML:
                     f"{workflow.name}:{line_number}: unexpected revision for {action}"
                 )
 
+    def test_every_uploaded_artifact_has_bounded_retention(self):
+        """Diagnostic artifacts must not become an unbounded storage sink."""
+
+        upload_action = (
+            "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
+        )
+        observed = 0
+        for workflow in WORKFLOWS.glob("*.yml"):
+            parsed = _load_workflow(workflow.name)
+            for job_name, job in (parsed.get("jobs") or {}).items():
+                for step in job.get("steps", []) or []:
+                    if step.get("uses") != upload_action:
+                        continue
+                    observed += 1
+                    retention = (step.get("with") or {}).get("retention-days")
+                    assert (
+                        isinstance(retention, int)
+                        and not isinstance(retention, bool)
+                        and 1 <= retention <= 30
+                    ), (
+                        f"{workflow.name}:{job_name}: uploaded artifacts need an "
+                        "explicit 1-30 day retention"
+                    )
+        assert observed == 3
+
+    def test_health_and_lifecycle_have_external_scheduler_wakeups(self):
+        """An external tick can recover a delayed or dropped GitHub cron."""
+
+        expected = {
+            "health-check.yml": ["site_health_tick"],
+            "queue-lifecycle.yml": ["queue_lifecycle_tick"],
+        }
+        for workflow_name, event_types in expected.items():
+            workflow = _load_workflow(workflow_name)
+            triggers = workflow.get(True, workflow.get("on", {}))
+            assert triggers["repository_dispatch"] == {"types": event_types}
+
     def test_python_and_pip_installations_are_hermetic(self):
         for workflow in WORKFLOWS.glob("*.yml"):
             text = workflow.read_text()
@@ -663,6 +700,7 @@ class TestHourlyMasterWorkflow:
 
         assert inputs["ci_days"]["default"] == "8"
         assert inputs["dns_generation"]["default"] == ""
+        assert inputs["queue_generation"]["default"] == ""
         assert inputs["watchdog_generation"]["default"] == ""
         assert inputs["recovery_key"]["default"] == ""
         assert "[recovery:{0}]" in workflow["run-name"]
@@ -688,6 +726,7 @@ class TestHourlyMasterWorkflow:
             "RAW_SKIP_TESTS",
             "RAW_RESET_PERF_EVAL",
             "RAW_DNS_GENERATION",
+            "RAW_QUEUE_GENERATION",
             "RAW_WATCHDOG_GENERATION",
             "RAW_RECOVERY_KEY",
         }
@@ -701,9 +740,11 @@ class TestHourlyMasterWorkflow:
             'HOURLY_SKIP_TESTS',
             'HOURLY_RESET_PERF_EVAL',
             'HOURLY_DNS_GENERATION_INPUT',
+            'HOURLY_QUEUE_GENERATION_INPUT',
             'HOURLY_WATCHDOG_GENERATION_INPUT',
             'HOURLY_RECOVERY_KEY',
             r'[0-9a-f]{64}',
+            'targeted publication inputs are mutually exclusive',
         ):
             assert token in script
         unsafe = re.compile(r"\$\{\{\s*(?:inputs|github\.event\.inputs)\.")
@@ -778,11 +819,18 @@ class TestHourlyMasterWorkflow:
         assert collect["needs"] == [
             "cadence-preflight",
             "dns-reconcile-preflight",
+            "queue-reconcile-preflight",
             "publication-watchdog-preflight",
         ]
         assert collect["timeout-minutes"] == 50
         assert "always()" in collect["if"]
         assert "!cancelled()" in collect["if"]
+        for conflict in (
+            "inputs.dns_generation != '' && inputs.queue_generation != ''",
+            "inputs.dns_generation != '' && inputs.watchdog_generation != ''",
+            "inputs.queue_generation != '' && inputs.watchdog_generation != ''",
+        ):
+            assert conflict in collect["if"]
         assert "needs.dns-reconcile-preflight.result != 'success'" in collect["if"]
         assert "needs.dns-reconcile-preflight.outputs.required != 'false'" in (
             collect["if"]
@@ -896,6 +944,185 @@ class TestHourlyMasterWorkflow:
             "--fail-if-required",
         ):
             assert token in confirmation["run"]
+
+    def test_queue_reconciliation_is_single_surface_zero_request_and_exact(self):
+        workflow = _load_workflow("hourly-master.yml")
+        collect = workflow["jobs"]["collect-and-deploy"]
+        preflight = workflow["jobs"]["queue-reconcile-preflight"]
+        assert preflight["if"] == (
+            "github.event_name == 'workflow_dispatch' && "
+            "inputs.queue_generation != ''"
+        )
+        assert preflight["permissions"] == {"contents": "read"}
+        target = next(
+            step for step in preflight["steps"] if step.get("id") == "target-check"
+        )
+        assert target["env"] == {
+            "TARGET_QUEUE_GENERATION": "${{ inputs.queue_generation }}"
+        }
+        for token in (
+            "origin/gh-pages:data/vllm/ci/publication_status.json",
+            "origin/gh-pages:data/vllm/ci/queue_jobs.json",
+            "plan_queue_publication_reconcile.py",
+            "--canonical-queue-data",
+            "--target-queue-generation",
+            '--github-output "$GITHUB_OUTPUT"',
+        ):
+            assert token in target["run"]
+
+        steps = collect["steps"]
+        names = [step.get("name") for step in steps]
+        guard = steps[names.index("Install deny-all queue reconciliation request guard")]
+        sync = steps[names.index("Sync queue data from durable live branch")]
+        candidate = steps[names.index("Validate targeted queue candidate generation")]
+        restore = steps[
+            names.index("Restore baseline queue projections after targeted validation")
+        ]
+        lifecycle = steps[names.index("Sync validated queue lifecycle aggregate")]
+        dns = steps[names.index("Sync validated DNS health aggregate")]
+        reserve = steps[names.index("Reserve guarded Data Collection attempt")]
+        selector = steps[names.index("Select validated publication surfaces")]
+        report = steps[names.index("Confirm zero queue reconciliation Buildkite requests")]
+        commit = steps[names.index("Publish validated dashboard state")]
+        confirmation = steps[names.index("Confirm targeted queue reconciliation")]
+
+        assert names.index(guard["name"]) < names.index(sync["name"])
+        assert names.index(sync["name"]) < names.index(candidate["name"])
+        assert (
+            names.index(candidate["name"])
+            < names.index(restore["name"])
+            < names.index(selector["name"])
+        )
+        assert names.index(report["name"]) < names.index(commit["name"])
+        assert guard["if"] == "inputs.queue_generation != ''"
+        assert "buildkite_request_guard.py initialize" in guard["run"]
+        assert "--allowance 0" in guard["run"]
+        assert sync["id"] == "queue-data-sync"
+        assert sync["if"] == "inputs.dns_generation == ''"
+        assert 'if [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ]' in sync["run"]
+        assert 'echo "source_sha=$QUEUE_SOURCE_SHA"' in sync["run"]
+        assert "git rev-parse --verify 'origin/queue-data^{commit}'" in sync["run"]
+        for path in (
+            "data/vllm/ci/operations_v2/queue.json",
+            "data/vllm/ci/queue_history_chart.json",
+            "data/vllm/ci/queue_jobs.json",
+            "data/vllm/ci/queue_timeseries.jsonl",
+        ):
+            assert path in sync["run"]
+        assert 'git ls-tree -r --name-only "$QUEUE_SOURCE_SHA"' in sync["run"]
+        assert 'git show "$QUEUE_SOURCE_SHA:$QUEUE_PATH"' in sync["run"]
+        assert sync["run"].index('git show "$QUEUE_SOURCE_SHA:$QUEUE_PATH"') < sync[
+            "run"
+        ].index('install -D -m 0644 "$QUEUE_STAGE_DIR/$QUEUE_PATH"')
+        target_branch = sync["run"].index(
+            'if [ -n "$HOURLY_QUEUE_GENERATION_INPUT" ]; then'
+        )
+        target_return = sync["run"].index("return 0", target_branch)
+        routine_merge = sync["run"].index("--merge-history-git-ref origin/queue-data")
+        assert target_branch < target_return < routine_merge
+        assert candidate["if"] == "inputs.queue_generation != ''"
+        assert "audit_dashboard_data.py --queue-only" in candidate["run"]
+        assert "candidate < target" in candidate["run"]
+        assert "candidate queue_jobs metrics generation must equal" in candidate["run"]
+        assert 'if "metrics_observed_at" in jobs' in candidate["run"]
+        assert 'if "metrics_observed_at" in latest' in candidate["run"]
+        assert restore["if"] == (
+            "inputs.dns_generation == '' && inputs.queue_generation != ''"
+        )
+        for path in (
+            "data/vllm/ci/operations_v2/queue.json",
+            "data/vllm/ci/queue_history_chart.json",
+        ):
+            assert path in restore["run"]
+        assert 'git show "$PUBLICATION_BASELINE_REF:$QUEUE_PATH"' in restore["run"]
+        assert "queue_jobs.json" not in restore["run"]
+        assert "queue_timeseries.jsonl" not in restore["run"]
+        assert "inputs.queue_generation == ''" in lifecycle["if"]
+        assert dns["if"] == "inputs.queue_generation == ''"
+        assert "inputs.queue_generation == ''" in reserve["if"]
+        assert "--refresh-only-surface queue" in selector["run"]
+        assert "--refresh-only-surface dns_health" in selector["run"]
+        assert report["if"] == "inputs.queue_generation != ''"
+        assert "--allowance 0" in report["run"]
+
+        for step in steps:
+            if "BUILDKITE_TOKEN" in (step.get("env") or {}):
+                assert "inputs.queue_generation == ''" in step.get("if", "")
+        for required in (
+            "Live publication audit",
+            "Run test suite",
+            "Enforce publication validation results",
+            "Assemble site",
+            "Verify exact local public projection",
+            "Enforce final exact-state deployment validation",
+        ):
+            assert "inputs.queue_generation != ''" in steps[
+                names.index(required)
+            ].get("if", "")
+
+        assert confirmation["id"] == "queue-target-confirmation"
+        assert confirmation["env"] == {
+            "EXPECTED_QUEUE_SOURCE_SHA": (
+                "${{ steps.queue-data-sync.outputs.source_sha }}"
+            )
+        }
+        for token in (
+            "--canonical-queue-data",
+            '"$HOURLY_QUEUE_GENERATION_INPUT"',
+            "--fail-if-required",
+            'state.get("source_refs", {}).get("queue-data")',
+            "actual != expected",
+        ):
+            assert token in confirmation["run"]
+
+        state_candidate = steps[names.index("Prepare bounded dashboard state candidate")]
+        assert "import os" in state_candidate["run"]
+        assert 'candidate_branches = ("queue-data",)' in state_candidate["run"]
+        assert 'candidate_branches = ("dns-health-data",)' in state_candidate["run"]
+
+    def test_queue_target_can_close_only_the_exact_queue_only_incident(self):
+        workflow = _load_workflow("hourly-master.yml")
+        steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        recovery = by_name["Establish publication recovery validation"]
+        close = by_name["Close issue after healthy publication"]
+        create = by_name["Create hourly validation incident"]
+        recovery_script = recovery["with"]["script"]
+        close_script = close["with"]["script"]
+        create_script = create["with"]["script"]
+
+        assert "steps.queue-target-confirmation.outcome == 'success'" in recovery[
+            "if"
+        ]
+        assert "targeted-queue-tests-not-successful" in recovery_script
+        assert "setValidation(true, 'targeted-queue'" in recovery_script
+        assert "const targetedQueueRecovery = validationSource === 'targeted-queue'" in (
+            close_script
+        )
+        assert "isMarkedQueueOnly" in close_script
+        assert "isStrictLegacyQueueOnly" in close_script
+        assert "isStrictLegacySurfaceOnlyIncident" in close_script
+        assert "currentIssueBody, 'queue'" in close_script
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in close_script
+        assert "hourly-ci-queue-only:v1" in close_script
+        assert "const isQueueOnlyIncident" in create_script
+        assert "...(isQueueOnlyIncident ? [queueOnlyIncidentMarker] : [])" in (
+            create_script
+        )
+        for script in (create_script, close_script):
+            assert "github.paginate" not in script
+            assert "automation:hourly-master" in script
+            assert "github.rest.issues.getLabel" in script
+            assert "github.rest.issues.createLabel" in script
+            assert "state: 'all', labels: hourlyOwnerLabel" in script
+            assert "labels: 'ci-failure,automated,workstream:dashboard-ci'" in script
+            assert "sort: 'updated', direction: 'desc', per_page: 100, page: 1" in (
+                script
+            )
+            assert "owner-label lookup is ambiguous" in script
+            assert "migration lookup is ambiguous" in script
+            assert "labels: [hourlyOwnerLabel]" in script
+            assert "hasExactMarker" in script
 
     def test_calls_collect_analytics_script(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1367,6 +1594,7 @@ class TestHourlyMasterWorkflow:
         )
         assert save["if"] == (
             "inputs.dns_generation == '' && "
+            "inputs.queue_generation == '' && "
             "steps.collect-ci.outputs.cache_save == 'true' && "
             "steps.collect-ci.outputs.roster_cache_save == 'true'"
         )
@@ -1418,6 +1646,7 @@ class TestHourlyMasterWorkflow:
         )
         assert master_save["if"] == (
             "inputs.dns_generation == '' && "
+            "inputs.queue_generation == '' && "
             "steps.collect-ci.outputs.cache_save == 'true' && "
             "steps.collect-ci.outputs.dns_cache_save == 'true'"
         )
@@ -1741,10 +1970,12 @@ class TestHourlyMasterWorkflow:
             "actions/setup-python@" + ACTION_PINS["actions/setup-python"],
             "Install dependencies",
             "Validate and normalize workflow inputs",
+            "Install deny-all queue reconciliation request guard",
             "Capture immutable main code",
             "Restore validated dashboard state",
             "Sync validated DNS health aggregate",
             "Validate targeted DNS candidate generation",
+            "Validate targeted queue candidate generation",
         }
         for step in steps[:selector_index]:
             label = step.get("name") or step.get("uses")
@@ -1772,6 +2003,7 @@ class TestHourlyMasterWorkflow:
         clock = steps[names.index("Advance canonical collector clock")]
         assert clock.get("if") == (
             "inputs.dns_generation == '' && "
+            "inputs.queue_generation == '' && "
             "steps.request-attempt.outputs.request_mode == 'reserved'"
         )
         recovery = steps[names.index("Establish publication recovery validation")]
@@ -1781,7 +2013,9 @@ class TestHourlyMasterWorkflow:
         assert "targeted-dns-tests-not-successful" in recovery["with"]["script"]
         assert "setValidation(true, 'targeted-dns'" in recovery["with"]["script"]
         assert "inputs.dns_generation == ''" not in close["if"]
-        assert "targetedDnsRecovery ? 1 : 6" in close["with"]["script"]
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in close[
+            "with"
+        ]["script"]
         assert "isStrictLegacyDnsOnly" in close["with"]["script"]
         assert "hourly-ci-dns-only:v1" in close["with"]["script"]
         create = steps[names.index("Create hourly validation incident")]
@@ -1894,7 +2128,14 @@ class TestHourlyMasterWorkflow:
         assert "RECOVERED_MARKER: recoveredMarker" in close["with"]["script"]
         assert "scripts/vllm/hourly_incident_recovery.js" in close["with"]["script"]
         assert "body: recoveredBody" in close["with"]["script"]
-        assert "state: 'all', per_page: 100" in close["with"]["script"]
+        assert "for (let attempt = 1; attempt <= 2; attempt += 1)" in close[
+            "with"
+        ]["script"]
+        assert "github.rest.issues.get({" in close["with"]["script"]
+        assert "transientWriteStatuses" in close["with"]["script"]
+        assert "state: 'all', labels: hourlyOwnerLabel" in close["with"]["script"]
+        assert "per_page: 100, page: 1" in close["with"]["script"]
+        assert "owner-label lookup is ambiguous" in close["with"]["script"]
         assert "labels: 'ci-failure'" not in close["with"]["script"]
         assert "hasExactMarker" in close["with"]["script"]
         assert "if (currentIssue.state === 'closed')" in close["with"]["script"]
@@ -2017,9 +2258,13 @@ class TestHourlyMasterWorkflow:
         assert "was manually closed" in script
         assert "leaving it suppressed until the signal recovers" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
-        assert "github.paginate(github.rest.issues.listForRepo" in script
-        assert "state: 'all', per_page: 100" in script
-        assert "labels: 'ci-failure'" not in script
+        assert "github.paginate" not in script
+        assert "github.rest.issues.listForRepo({" in script
+        assert "state: 'all', labels: hourlyOwnerLabel" in script
+        assert "labels: 'ci-failure,automated,workstream:dashboard-ci'" in script
+        assert "sort: 'updated', direction: 'desc', per_page: 100, page: 1" in script
+        assert "exactOwnerPage.length >= 100" in script
+        assert "migrationPage.length >= 100" in script
         assert "hasExactMarker" in script
         assert "github.rest.issues.addLabels" in script
         assert "allIssues.filter" in script
@@ -2173,7 +2418,7 @@ class TestHourlyMasterWorkflow:
         # The reset branch has no issue creation path and mutates only the chosen
         # current slot before reconciling stale duplicates.
         assert "github.rest.issues.create({" not in reset_branch
-        assert "const requiredRecoveryRuns = targetedDnsRecovery ? 1 : 6" in close[
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in close[
             "with"
         ]["script"]
         assert "advanceRecoveryStreak(currentBody)" in close["with"]["script"]
@@ -2237,11 +2482,14 @@ class TestHourlyMasterWorkflow:
         )
         script = close["with"]["script"]
 
-        assert "const requiredRecoveryRuns = targetedDnsRecovery ? 1 : 6" in script
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in script
         assert "validationSource === 'targeted-dns'" in script
         assert "if (targetedDnsRecovery && !isMarkedDnsOnly" in script
         assert "required eligible healthy recovery runs" in script
-        assert "github.paginate(github.rest.issues.listForRepo" in script
+        assert "github.paginate" not in script
+        assert "github.rest.issues.listForRepo({" in script
+        assert "labels: 'ci-failure,automated,workstream:dashboard-ci'" in script
+        assert "sort: 'updated', direction: 'desc', per_page: 100, page: 1" in script
         assert "issues.filter" in script
         assert "hasExactMarker(body, ownershipMarker)" in script
         assert "body.includes(legacySignature)" in script
@@ -2258,8 +2506,14 @@ class TestHourlyMasterWorkflow:
         assert "body: recoveredBody" in script
         assert "state: 'closed'" in script
         assert "The active hourly publication incident was absent" in script
-        assert "Closing this single current ticket" in script
+        assert "This single current ticket is now closed" in script
         assert "validationSource === 'separate-ci'" in script
+        close_update = script.index("await github.rest.issues.update(closePayload)")
+        close_comment = script.index("await github.rest.issues.createComment({")
+        assert close_update < close_comment
+        assert "retrying once" in script
+        assert "readback.data.state !== 'closed'" in script
+        assert "could not add" in script
         assert "Separate CI validated code SHA" in script
         closed_recovered = (
             "if (currentIssue.state === 'closed' &&\n"
@@ -3402,18 +3656,43 @@ class TestNightlyCIWorkflow:
                 "*This issue was created automatically by the nightly CI workflow.*"
                 in script
             )
-            assert "github.paginate(github.rest.issues.listForRepo" in script
+            assert "github.paginate" not in script
+            assert "const ownershipLabel = 'automation:nightly-ci'" in script
+            assert "github.rest.issues.getLabel" in script
+            assert "github.rest.issues.createLabel" in script
+            assert script.count("github.rest.issues.listForRepo") == 2
+            assert "labels: ownershipLabel" in script
+            assert "sort: 'created'" in script
+            assert script.count("per_page: 100") == 2
+            assert script.count("\n  page: 1,") == 2
+            assert "bounded ambiguity limit" in script
+            assert "const candidates = new Map()" in script
+            assert "github.rest.issues.addLabels" in script
         assert "const existing = ownedIssues[0] || null" in create
         assert "ownedIssues.slice(1)" in create
         assert "Superseded by #${issue.number}" in create
         assert "github.rest.issues.addLabels" in create
-        assert "labels: 'ci-failure'" not in create
-        assert "labels: 'ci-failure'" not in close
+        assert "ownershipLabel," in create
+        assert "state: 'open'" in create
         assert "hasExactMarker" in create
         assert "hasExactMarker" in close
+        assert "labels: [ownershipLabel]" in close
+        assert "labels," in create
         assert "existing.data[0]" not in create
-        assert "issues.filter" in close
-        assert "for (const issue of issues.data)" not in close
+        assert "[...candidates.values()].filter" in close
+        assert "if (issue.state !== 'open') continue" in close
+        workflow = data["concurrency"]
+        assert workflow["cancel-in-progress"] is False
+        assert "if (hasNextPage(recentResponse))" in create
+        assert "if (hasNextPage(recentResponse))" in close
+        assert "!recentResponse.data.some(isOwned)" not in create
+        assert "!recentResponse.data.some(isOwned)" not in close
+        assert create.index("state: 'closed'") < create.index(
+            "name: ownershipLabel,", create.index("state: 'closed'")
+        )
+        assert close.index("state: 'closed'") < close.index(
+            "labels: [ownershipLabel]"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -4121,6 +4400,7 @@ class TestAlertAutomationWorkflow:
         assert persist > max(amd_watch, ci_watch, duration_watch, agent_watch)
         assert steps[persist].get("if") == (
             "inputs.dns_generation == '' && "
+            "inputs.queue_generation == '' && "
             "steps.request-attempt.outputs.request_mode == 'reserved' && "
             "steps.publication-selector.outcome == 'success'"
         )

@@ -21,6 +21,7 @@ EXPECTED_EXPORTS = {
     "ZERO_RECOVERY_MARKER",
     "advanceRecoveryStreak",
     "classifyFailureTransition",
+    "isStrictLegacySurfaceOnlyIncident",
     "parseRecoveryStreak",
     "recoveryMarker",
     "resetRecoveryStreak",
@@ -57,6 +58,13 @@ def test_commonjs_source_contract_is_dependency_free_and_exports_wiring_api():
     export_block = source[source.index("module.exports = Object.freeze({") :]
     for name in EXPECTED_EXPORTS:
         assert name in export_block
+    assert "workflowStatusLines.length === 1" in source
+    assert "deploymentLines.length === 1" in source
+    assert "**Workflow status before incident handling:** `success`" in source
+    assert (
+        "**Deployment:** commit=`success`, site_assembly=`success`, "
+        "' +\n      'deploy=`success`, post_deploy_validation=`success`"
+    ) in source
 
 
 def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
@@ -72,6 +80,7 @@ def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
           'ZERO_RECOVERY_MARKER',
           'advanceRecoveryStreak',
           'classifyFailureTransition',
+          'isStrictLegacySurfaceOnlyIncident',
           'parseRecoveryStreak',
           'recoveryMarker',
           'resetRecoveryStreak',
@@ -154,6 +163,62 @@ def test_node_healthy_streak_advances_deterministically_and_canonicalizes_marker
         assert.deepEqual(
           recovery.advanceRecoveryStreak(first.body),
           second,
+        );
+        """
+    )
+
+
+def test_node_recognizes_exact_legacy_queue_fallback_shape_from_issue_568():
+    _run_node(
+        r"""
+        const assert = require('node:assert/strict');
+        const recovery = require(process.argv[1]);
+        const issue568 = [
+          '<!-- ci-failure-owner:hourly-master -->',
+          '<!-- hourly-ci-current-incident:v1 -->',
+          '## Degraded Publication — 2026-09-01',
+          '**Summary:** `publication fallback`',
+          '**Publication selector:** outcome=`success`, mode=`fallback`',
+          '**Degraded surfaces:** queue',
+          '**Workflow status before incident handling:** `success`',
+          '**Deployment:** commit=`success`, site_assembly=`success`, deploy=`success`, post_deploy_validation=`success`',
+          '**Live publication audit:** outcome=`success`, summary=`audit: 0 errors`',
+        ].join('\n');
+        assert.equal(
+          recovery.isStrictLegacySurfaceOnlyIncident(issue568, 'queue'),
+          true,
+        );
+        assert.equal(
+          recovery.isStrictLegacySurfaceOnlyIncident(issue568, 'dns_health'),
+          false,
+        );
+        for (const unsafe of [
+          `${issue568}\n**Failing deterministic tests:**`,
+          `${issue568}\ndeployment failed: deploy`,
+          `${issue568}\nworkflow step failed before publication completed`,
+          issue568.replace(
+            '**Workflow status before incident handling:** `success`',
+            '**Workflow status before incident handling:** `failure`',
+          ),
+          issue568.replace(
+            'commit=`success`, site_assembly=`success`, deploy=`success`, post_deploy_validation=`success`',
+            'commit=`success`, site_assembly=`success`, deploy=`failure`, post_deploy_validation=`skipped`',
+          ),
+          issue568.replace(', post_deploy_validation=`success`', ''),
+          `${issue568}\n**Workflow status before incident handling:** \`failure\``,
+          `${issue568}\n**Deployment:** commit=\`success\`, site_assembly=\`success\`, deploy=\`failure\`, post_deploy_validation=\`skipped\``,
+        ]) {
+          assert.equal(
+            recovery.isStrictLegacySurfaceOnlyIncident(unsafe, 'queue'),
+            false,
+          );
+        }
+        assert.equal(
+          recovery.isStrictLegacySurfaceOnlyIncident(
+            issue568.replace('mode=`fallback`', 'mode=`blocked`'),
+            'queue',
+          ),
+          false,
         );
         """
     )

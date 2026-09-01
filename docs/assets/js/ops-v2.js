@@ -215,6 +215,24 @@
     return Number.isFinite(Number(v)) ? Number(v).toLocaleString() : '-';
   }
 
+  function populationSemantics(payload) {
+    const source = payload && typeof payload === 'object' ? payload : {};
+    if (source.count_semantics === 'lower_bound') return 'lower_bound';
+    if (source.count_semantics === 'complete') return 'complete';
+    const coverage = source.source_coverage && typeof source.source_coverage === 'object'
+      ? source.source_coverage
+      : {};
+    if (coverage.population_semantics === 'lower_bound' ||
+        coverage.authoritative_complete === false) return 'lower_bound';
+    return 'complete';
+  }
+
+  function observedCountLabel(count, semantics) {
+    const rendered = integer(count);
+    if (rendered === '-') return rendered;
+    return semantics === 'lower_bound' ? '≥' + rendered : rendered;
+  }
+
   function percent(num, den, digits) {
     if (!Number.isFinite(Number(num)) || !Number.isFinite(Number(den)) || Number(den) <= 0) return '-';
     return (Number(num) / Number(den) * 100).toFixed(digits === undefined ? 1 : digits) + '%';
@@ -3407,16 +3425,26 @@
     ], recent), 'ops-home-aside'));
     host.append(grid);
 
-    let workData = {prs: [], issues: []};
+    let workData = {
+      prs: [],
+      issues: [],
+      prsCountSemantics: 'complete',
+      issuesCountSemantics: 'complete',
+    };
     try {
       const loaded = await Promise.all([fetchJSON('data/vllm/prs.json'), fetchJSON('data/vllm/issues.json')]);
-      workData = {prs: loaded[0].prs || [], issues: loaded[1].issues || []};
+      workData = {
+        prs: loaded[0].prs || [],
+        issues: loaded[1].issues || [],
+        prsCountSemantics: populationSemantics(loaded[0]),
+        issuesCountSemantics: populationSemantics(loaded[1]),
+      };
     } catch (_) {}
     const workPanel = n('section', 'ops-panel');
     const workHead = n('div', 'ops-panel-header');
     add(workHead, [n('h2', 'ops-panel-title', 'Engineering workbench'), segmented([
-      {id: 'issues', label: 'Issues (' + workData.issues.length + ')'},
-      {id: 'prs', label: 'PRs (' + workData.prs.length + ')'},
+      {id: 'issues', label: 'Issues (' + observedCountLabel(workData.issues.length, workData.issuesCountSemantics) + ')'},
+      {id: 'prs', label: 'PRs (' + observedCountLabel(workData.prs.length, workData.prsCountSemantics) + ')'},
     ], state.homeWork, function (id) { state.homeWork = id; render('projects', true); }, 'Engineering workbench item type')]);
     const rows = state.homeWork === 'prs' ? workData.prs : workData.issues;
     const body = dataTable([
@@ -13100,6 +13128,8 @@
   if (window.__OPS_V2_TEST__) {
     window.OpsV2Test = {
       matrixHealthPolicy: matrixHealthPolicy,
+      populationSemantics: populationSemantics,
+      observedCountLabel: observedCountLabel,
       bestHardwareMatrixContract: bestHardwareMatrixContract,
       matrixHealthCollection: matrixHealthCollection,
       matrixGroupEvidence: matrixGroupEvidence,

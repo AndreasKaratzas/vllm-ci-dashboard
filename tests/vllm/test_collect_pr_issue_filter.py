@@ -383,9 +383,16 @@ class TestCollectProjectIncludesProjectIssues:
             }
         }))
         monkeypatch.setattr(collect, "DATA", data_root)
-        monkeypatch.setattr(collect, "fetch_project_open_issues", lambda *a, **kw: [])
+        def load_complete_snapshot(repo):
+            collect._PROJECT_QUERY_USABLE = True
+            return collect.fetch_project_open_issues_from_snapshot(repo)
+
+        monkeypatch.setattr(
+            collect, "fetch_project_open_issues", load_complete_snapshot
+        )
 
         patch_gh_api({
+            "/repos/vllm-project/vllm/issues/40240/comments": [],
             "/repos/vllm-project/vllm/issues/40240": {
                 "number": 40240,
                 "title": "[CI Failure]: mi355_1: V1 Spec Decode",
@@ -438,14 +445,24 @@ class TestCollectProjectIncludesProjectIssues:
             lambda: "2026-08-22T10:00:00Z",
         )
 
-        collect.write_project_items_snapshot([{
-            "number": 40240,
-            "state": "open",
-            "repo": "vllm-project/vllm",
-            "project_status": "In Progress",
-            "title": "[CI Failure]: V1 Spec Decode",
-            "html_url": "https://github.com/vllm-project/vllm/issues/40240",
-        }])
+        coverage = {
+            "complete": True,
+            "authoritative_complete": True,
+            "population_semantics": "complete",
+            "truncated": False,
+            "queries": [],
+        }
+        collect.write_project_items_snapshot(
+            [{
+                "number": 40240,
+                "state": "open",
+                "repo": "vllm-project/vllm",
+                "project_status": "In Progress",
+                "title": "[CI Failure]: V1 Spec Decode",
+                "html_url": "https://github.com/vllm-project/vllm/issues/40240",
+            }],
+            coverage,
+        )
 
         snapshot = json.loads(
             (tmp_path / "data/vllm/ci/project_items.json").read_text()
@@ -464,4 +481,6 @@ class TestCollectProjectIncludesProjectIssues:
             },
             "project": "vllm-project/projects/39",
             "project_url": "https://github.com/orgs/vllm-project/projects/39",
+            "count_semantics": "complete",
+            "source_coverage": coverage,
         }
