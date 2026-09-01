@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from vllm import ci_area_regression_watcher as watcher
 
 
@@ -347,6 +349,24 @@ def test_area_state_round_trip_preserves_transition_and_schema_extensions(
     assert loaded["signal_fingerprint_version"] == watcher.SIGNAL_FINGERPRINT_VERSION
 
 
+def test_atomic_state_replace_failure_preserves_previous_file(tmp_path, monkeypatch):
+    state_path = tmp_path / "area-state.json"
+    original = b'{"areas":{"kernels":{"issue":{"number":123}}}}\n'
+    state_path.write_bytes(original)
+
+    def fail_replace(source, destination):
+        assert destination == state_path
+        assert source.parent == state_path.parent
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(watcher.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        watcher._write_json(state_path, {"areas": {}})
+
+    assert state_path.read_bytes() == original
+    assert list(tmp_path.glob(f".{state_path.name}.*.tmp")) == []
+
+
 def test_peak_escalation_clears_manual_close_suppression():
     prior_area = _area()
     prior_fingerprint = watcher._fingerprint(prior_area)
@@ -625,6 +645,165 @@ def test_prior_area_missing_from_current_status_keeps_all_signal_state():
     )
     assert preserved["retired-area"]["issue"]["number"] == 123
     assert preserved["retired-area"]["signals"] == prior["retired-area"]["signals"]
+
+
+def test_retirement_streak_advances_only_for_complete_evidence_and_is_bounded():
+    prior = {
+        "retired-area": {
+            "issue": {"number": 123},
+            "signals": {"target-1": {"status": "confirmed"}},
+            "retirement_streak": 1,
+        }
+    }
+    next_signals = {"retired-area": prior["retired-area"]["signals"]}
+
+    incomplete = watcher._preserved_missing_area_states(
+        prior,
+        set(),
+        next_signals,
+        complete_evidence=False,
+    )
+    assert incomplete["retired-area"]["retirement_streak"] == 1
+
+    complete = watcher._preserved_missing_area_states(
+        prior,
+        set(),
+        next_signals,
+        complete_evidence=True,
+    )
+    assert complete["retired-area"]["retirement_streak"] == 2
+
+    prior["retired-area"]["retirement_streak"] = 999
+    bounded = watcher._preserved_missing_area_states(
+        prior,
+        set(),
+        next_signals,
+        complete_evidence=True,
+    )
+    assert (
+        bounded["retired-area"]["retirement_streak"]
+        == watcher.AREA_RETIREMENT_STREAK_REQUIRED
+    )
+
+
+def test_current_area_clears_prior_retirement_streak():
+    current = watcher._current_area_state(
+        {"retirement_streak": 2, "issue": {"number": 123}},
+        {},
+    )
+    assert "retirement_streak" not in current
+    assert current["issue"]["number"] == 123
+
+
+def test_complete_area_evidence_requires_every_configured_area_exactly_once():
+    config = {"areas": {"kernels": [], "models": []}}
+    status = {
+        "available": True,
+        "areas": [{"area": "kernels"}, {"area": "models"}],
+    }
+    assert watcher._complete_current_area_keys(status, config) == {
+        "kernels",
+        "models",
+    }
+
+    assert watcher._complete_current_area_keys(
+        {**status, "available": False}, config
+    ) is None
+    assert watcher._complete_current_area_keys(
+        {**status, "areas": [{"area": "kernels"}]}, config
+    ) is None
+    assert watcher._complete_current_area_keys(
+        {**status, "areas": [{"area": "kernels"}, {"area": "kernels"}]},
+        config,
+    ) is None
+
+
+class _RetirementClient:
+    def __init__(self, marker, *, open_numbers=(), states=None, lookup_error=None):
+        self.marker = marker
+        self.open_numbers = list(open_numbers)
+        self.states = dict(states or {})
+        self.lookup_error = lookup_error
+        self.verified = []
+        self.commented = []
+        self.closed = []
+
+    def find_open_issues(self, marker):
+        assert marker == self.marker
+        if self.lookup_error:
+            raise self.lookup_error
+        return self.open_numbers
+
+    def issue_state(self, number, marker):
+        assert marker == self.marker
+        self.verified.append(number)
+        return self.states.get(number, "open")
+
+    def comment_issue(self, number, body):
+        self.commented.append((number, body))
+        return True
+
+    def close_issue(self, number):
+        self.closed.append(number)
+        return True
+
+
+def test_confirmed_retirement_closes_exact_marker_issues_then_prunes_state():
+    area_key = "retired-area"
+    marker = f"<!-- {watcher.OWNERSHIP_MARKER_PREFIX}:{area_key}:v1 -->"
+    client = _RetirementClient(marker, open_numbers=[124])
+    states = {
+        area_key: {
+            "issue": {"number": 123},
+            "retirement_streak": watcher.AREA_RETIREMENT_STREAK_REQUIRED,
+        }
+    }
+
+    retired = watcher._prune_retired_area_states(
+        states,
+        client,
+        "https://example.invalid/run",
+    )
+
+    assert retired == {area_key}
+    assert states == {}
+    assert client.verified == [123, 124]
+    assert client.closed == [123, 124]
+    assert all("consecutive complete" in body for _, body in client.commented)
+
+
+def test_retirement_lookup_or_exact_marker_failure_preserves_state():
+    area_key = "retired-area"
+    marker = f"<!-- {watcher.OWNERSHIP_MARKER_PREFIX}:{area_key}:v1 -->"
+    state = {
+        area_key: {
+            "issue": {"number": 123},
+            "retirement_streak": watcher.AREA_RETIREMENT_STREAK_REQUIRED,
+        }
+    }
+    lookup_failure = _RetirementClient(
+        marker,
+        lookup_error=RuntimeError("temporary lookup failure"),
+    )
+    assert watcher._prune_retired_area_states(
+        state,
+        lookup_failure,
+        "https://example.invalid/run",
+    ) == set()
+    assert area_key in state
+
+    foreign_tracked = _RetirementClient(
+        marker,
+        open_numbers=[123],
+        states={123: "foreign"},
+    )
+    assert watcher._prune_retired_area_states(
+        state,
+        foreign_tracked,
+        "https://example.invalid/run",
+    ) == set()
+    assert area_key in state
+    assert foreign_tracked.closed == []
 
 
 def test_legacy_soft_area_issue_is_grandfathered_as_confirmed():

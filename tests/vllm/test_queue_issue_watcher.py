@@ -59,12 +59,15 @@ class _ApiRecorder:
 
     def close_issue(self, token, repo, number):
         self.closed.append(number)
+        return True
 
     def comment(self, token, repo, number, body):
         self.commented.append((number, body))
+        return True
 
     def assign(self, token, repo, number):
         self.assigned.append(number)
+        return True
 
 
 @pytest.fixture
@@ -74,8 +77,41 @@ def api(monkeypatch):
     monkeypatch.setattr(qiw, "_close_issue", rec.close_issue)
     monkeypatch.setattr(qiw, "_comment_issue", rec.comment)
     monkeypatch.setattr(qiw, "_ensure_owner_assigned", rec.assign)
+    def tracked_open_issues(token, repo):
+        state = qiw._read_state()
+        return [
+            _discovered_issue(
+                int(entry["number"]),
+                queue,
+                str(entry.get("opened_ts") or ""),
+            )
+            for queue, entry in state.get("open", {}).items()
+            if int(entry.get("number") or 0) > 0
+        ]
+
+    monkeypatch.setattr(qiw, "_list_owned_open_issues", tracked_open_issues)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
     return rec
+
+
+def _discovered_issue(number: int, queue: str, created_at: str) -> dict:
+    return {"number": number, "queue": queue, "created_at": created_at}
+
+
+def _github_issue(number: int, queue: str) -> dict:
+    stats = {"p90_wait": 45.0, "waiting": 5, "running": 1}
+    return {
+        "number": number,
+        "title": f"Queue {queue}: p90 wait 45.0m",
+        "body": qiw._open_issue_body(
+            queue,
+            stats,
+            "https://example.invalid/run",
+            "AndreasKaratzas",
+        ),
+        "labels": [{"name": name} for name in qiw.OWNED_LABELS],
+        "created_at": "2026-04-18T11:00:00Z",
+    }
 
 
 class TestReadLastSnapshot:
@@ -113,6 +149,26 @@ class TestStateIo:
         out = qiw._read_state()
         assert out["open"]["amd_mi250_1"] == entry
         assert out["last_run"] == "T"
+
+    def test_failed_atomic_replace_preserves_old_state_and_cleans_temp(
+        self, tmp_path, monkeypatch
+    ):
+        state = tmp_path / "state.json"
+        original = b'{"open":{"amd_mi250_1":777}}\n'
+        state.write_bytes(original)
+        monkeypatch.setattr(qiw, "STATE", state, raising=False)
+
+        def fail_replace(source, destination):
+            assert Path(source).parent == state.parent
+            assert Path(destination) == state
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(qiw.os, "replace", fail_replace)
+        with pytest.raises(OSError, match="simulated replace failure"):
+            qiw._write_state({"open": {"amd_mi325_1": 888}})
+
+        assert state.read_bytes() == original
+        assert list(tmp_path.glob(f".{state.name}.*.tmp")) == []
 
     def test_legacy_int_entry_is_migrated_on_read(self, tmp_path, monkeypatch):
         # Older state files stored the bare issue number. On read we must
@@ -178,6 +234,35 @@ class TestIssueTemplates:
         assert "avg wait" not in body
         assert "max wait" not in body
 
+    def test_reconciliation_requires_full_watcher_ownership_signature(self):
+        owned = _github_issue(531, "amd_mi325_1")
+        normalized = qiw._owned_queue_issue(owned)
+        assert normalized is not None
+        assert {key: normalized[key] for key in ("number", "queue", "created_at")} == {
+            "number": 531,
+            "queue": "amd_mi325_1",
+            "created_at": "2026-04-18T11:00:00Z",
+        }
+        assert normalized["legacy"] is False
+
+        missing_label = {**owned, "labels": [{"name": qiw.LABEL}]}
+        assert qiw._owned_queue_issue(missing_label) is not None
+
+        legacy_missing_label = {
+            **missing_label,
+            "body": missing_label["body"].replace(f"{qiw.OWNERSHIP_MARKER}\n", ""),
+        }
+        assert qiw._owned_queue_issue(legacy_missing_label) is None
+
+        foreign_body = {**owned, "body": "Queue latency report written by a person"}
+        assert qiw._owned_queue_issue(foreign_body) is None
+
+        mismatched_title = {**owned, "title": "Queue another_queue: p90 wait 45.0m"}
+        assert qiw._owned_queue_issue(mismatched_title) is not None
+
+        pull_request = {**owned, "pull_request": {"url": "https://example.invalid/pr"}}
+        assert qiw._owned_queue_issue(pull_request) is None
+
     def test_status_update_body_uses_supported_wait_metrics_only(self):
         body = qiw._status_update_body(
             "amd_mi355_4",
@@ -206,6 +291,151 @@ class TestIssueTemplates:
 
 
 class TestRun:
+    def test_recovers_orphaned_hot_issue_without_opening_duplicate(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        _write_snapshot(snaps, {
+            "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
+        })
+        monkeypatch.setattr(
+            qiw,
+            "_list_owned_open_issues",
+            lambda token, repo: [
+                _discovered_issue(531, "amd_mi325_1", "2026-04-18T11:00:00Z")
+            ],
+        )
+
+        assert qiw.run() == 0
+        assert api.opened == []
+        assert api.closed == []
+        assert api.assigned == [531]
+        assert api.commented[0][0] == 531
+        persisted = json.loads(state.read_text())
+        assert persisted["open"]["amd_mi325_1"]["number"] == 531
+        assert persisted["open"]["amd_mi325_1"]["opened_ts"] == "2026-04-18T11:00:00Z"
+
+    def test_recovered_stale_issue_closes_and_suppresses_even_between_thresholds(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        # Between the 15m healthy threshold and 30m opening threshold. This
+        # still must honor the advertised 24h bound after state recovery.
+        _write_snapshot(snaps, {
+            "amd_mi325_1": {"p90_wait": 20.0, "waiting": 10, "running": 2},
+        }, ts="2026-04-18T12:00:00Z")
+        monkeypatch.setattr(
+            qiw,
+            "_list_owned_open_issues",
+            lambda token, repo: [
+                _discovered_issue(531, "amd_mi325_1", "2026-04-17T11:00:00Z")
+            ],
+        )
+
+        assert qiw.run() == 0
+        assert api.opened == []
+        assert api.closed == [531]
+        assert "after 24h" in api.commented[0][1]
+        persisted = json.loads(state.read_text())
+        assert persisted["open"] == {}
+        assert persisted["suppressed"]["amd_mi325_1"]["last_number"] == 531
+
+    def test_reconciliation_closes_duplicate_but_keeps_tracked_issue(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        state.write_text(json.dumps({"open": {"amd_mi325_1": {
+            "number": 600, "peak_p90": 45.0,
+            "opened_ts": "2026-04-18T11:00:00Z", "last_status_ts": "",
+        }}, "suppressed": {}}))
+        _write_snapshot(snaps, {
+            "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
+        })
+        monkeypatch.setattr(
+            qiw,
+            "_list_owned_open_issues",
+            lambda token, repo: [
+                _discovered_issue(531, "amd_mi325_1", "2026-04-18T10:00:00Z"),
+                _discovered_issue(600, "amd_mi325_1", "2026-04-18T11:00:00Z"),
+            ],
+        )
+
+        qiw.run()
+        assert api.opened == []
+        assert api.closed == [531]
+        assert "#600 remains canonical" in api.commented[0][1]
+        assert api.commented[-1][0] == 600
+        persisted = json.loads(state.read_text())
+        assert persisted["open"]["amd_mi325_1"]["number"] == 600
+
+    def test_reconciliation_failure_does_not_risk_opening_duplicate(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, _state = isolated_state
+        _write_snapshot(snaps, {
+            "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
+        })
+        monkeypatch.setattr(qiw, "_list_owned_open_issues", lambda token, repo: None)
+
+        assert qiw.run() == 0
+        assert api.opened == []
+        assert api.closed == []
+
+    def test_reconciliation_failure_preserves_tracked_issue_without_mutation(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        original = {
+            "open": {"amd_mi325_1": {
+                "number": 531,
+                "peak_p90": 45.0,
+                "opened_ts": "2026-04-18T11:00:00Z",
+                "last_status_ts": "",
+            }},
+            "suppressed": {},
+            "last_run": "2026-04-18T11:00:00Z",
+        }
+        state.write_text(json.dumps(original))
+        _write_snapshot(snaps, {
+            "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
+        })
+        monkeypatch.setattr(qiw, "_list_owned_open_issues", lambda token, repo: None)
+
+        assert qiw.run() == 0
+        assert api.opened == []
+        assert api.closed == []
+        assert api.commented == []
+        assert api.assigned == []
+        assert json.loads(state.read_text()) == original
+
+    def test_unowned_tracked_number_is_never_mutated_and_is_suppressed(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        state.write_text(json.dumps({
+            "open": {"amd_mi325_1": {
+                "number": 531,
+                "peak_p90": 45.0,
+                "opened_ts": "2026-04-18T11:00:00Z",
+                "last_status_ts": "",
+            }},
+            "suppressed": {},
+            "last_run": "",
+        }))
+        _write_snapshot(snaps, {
+            "amd_mi325_1": {"p90_wait": 45.0, "waiting": 10, "running": 2},
+        })
+        monkeypatch.setattr(qiw, "_list_owned_open_issues", lambda token, repo: [])
+
+        assert qiw.run() == 0
+        assert api.opened == []
+        assert api.closed == []
+        assert api.commented == []
+        assert api.assigned == []
+        persisted = json.loads(state.read_text())
+        assert persisted["open"] == {}
+        assert persisted["suppressed"]["amd_mi325_1"]["last_number"] == 531
+
     def test_opens_issue_when_queue_hot(self, isolated_state, api):
         snaps, state = isolated_state
         _write_snapshot(snaps, {
@@ -337,6 +567,54 @@ class TestRun:
         assert api.commented and api.commented[0][0] == 777
         persisted = json.loads(state.read_text())
         assert "amd_mi250_1" not in persisted["open"]
+
+    def test_failed_close_preserves_healthy_issue_in_ledger(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        entry = {
+            "number": 777,
+            "peak_p90": 45.0,
+            "opened_ts": "2026-04-18T11:00:00Z",
+            "last_status_ts": "",
+        }
+        state.write_text(json.dumps({
+            "open": {"amd_mi250_1": entry},
+            "suppressed": {},
+            "last_run": "",
+        }))
+        _write_snapshot(snaps, {
+            "amd_mi250_1": {"p90_wait": 10.0, "waiting": 2, "running": 3},
+        })
+        monkeypatch.setattr(qiw, "_close_issue", lambda *args: False)
+
+        assert qiw.run() == 0
+        persisted = json.loads(state.read_text())
+        assert persisted["open"]["amd_mi250_1"] == entry
+
+    def test_failed_status_comment_does_not_advance_status_ledger(
+        self, isolated_state, api, monkeypatch
+    ):
+        snaps, state = isolated_state
+        entry = {
+            "number": 777,
+            "peak_p90": 40.0,
+            "opened_ts": "2026-04-18T11:00:00Z",
+            "last_status_ts": "2026-04-18T11:00:00Z",
+        }
+        state.write_text(json.dumps({
+            "open": {"amd_mi250_1": entry},
+            "suppressed": {},
+            "last_run": "",
+        }))
+        _write_snapshot(snaps, {
+            "amd_mi250_1": {"p90_wait": 60.0, "waiting": 8, "running": 3},
+        }, ts="2026-04-18T12:00:00Z")
+        monkeypatch.setattr(qiw, "_comment_issue", lambda *args: False)
+
+        assert qiw.run() == 0
+        persisted = json.loads(state.read_text())
+        assert persisted["open"]["amd_mi250_1"] == entry
 
     def test_closes_stale_issue_after_24h_and_suppresses_reopen(self, isolated_state, api):
         snaps, state = isolated_state

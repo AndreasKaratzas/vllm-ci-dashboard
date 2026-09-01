@@ -12,7 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -31,6 +34,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 JOBS = ROOT / "data" / "vllm" / "ci" / "queue_jobs.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_queue_zombie_issues.json"
 LABEL = "queue-zombie"
+AUTOMATED_LABEL = "automated"
+WORKSTREAM_LABEL = "workstream:infra"
+OWNED_LABELS = frozenset({LABEL, AUTOMATED_LABEL, WORKSTREAM_LABEL})
+OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:queue-zombie:v1 -->"
+MAX_SNAPSHOT_AGE = timedelta(hours=6)
+MAX_FUTURE_SKEW = timedelta(minutes=15)
 GH_API = "https://api.github.com"
 DASHBOARD_REPO = "AndreasKaratzas/vllm-ci-dashboard"
 
@@ -48,6 +57,126 @@ def _gh_headers(token: str) -> dict:
     }
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_snapshot_ts(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.endswith("Z"):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _snapshot_is_fresh(data: dict, now: datetime | None = None) -> bool:
+    snapshot_ts = _parse_snapshot_ts(data.get("ts"))
+    if snapshot_ts is None:
+        return False
+    age = (now or _utc_now()) - snapshot_ts
+    return -MAX_FUTURE_SKEW <= age <= MAX_SNAPSHOT_AGE
+
+
+def _issue_label_names(issue: dict) -> set[str]:
+    names: set[str] = set()
+    for label in issue.get("labels") or []:
+        name = label.get("name") if isinstance(label, dict) else label
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def _has_exact_marker(body: str) -> bool:
+    return any(line.strip() == OWNERSHIP_MARKER for line in body.splitlines())
+
+
+def _owned_queue_issue(issue: object) -> dict | None:
+    """Return strictly identified queue-zombie issue metadata.
+
+    New issues are owned by the exact HTML marker. Legacy issues predate that
+    marker and are adopted only when all managed labels, the generated body
+    signature, queue sentence, and title agree. A broad label match alone is
+    never enough authority to mutate an issue.
+    """
+    if not isinstance(issue, dict) or issue.get("pull_request"):
+        return None
+    number = issue.get("number")
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        return None
+
+    body = str(issue.get("body") or "")
+    has_marker = _has_exact_marker(body)
+    if not has_marker:
+        if not OWNED_LABELS.issubset(_issue_label_names(issue)):
+            return None
+        if "*Managed by `queue_zombie_watcher.py` from " not in body:
+            return None
+
+    match = re.search(
+        r"^Queue \*\*`([^`\r\n]+)`\*\* currently has waiting or running jobs older than ",
+        body,
+        flags=re.MULTILINE,
+    )
+    if not match:
+        return None
+    queue = match.group(1)
+    title = str(issue.get("title") or "")
+    title_pattern = (
+        rf"^Queue {re.escape(queue)}: zombie jobs > "
+        rf"{QUEUE_ZOMBIE_THRESHOLD_MIN // 60}h \(\d+\)$"
+    )
+    if not re.fullmatch(title_pattern, title):
+        return None
+    return {
+        "number": number,
+        "queue": queue,
+        "created_at": str(issue.get("created_at") or ""),
+        "legacy": not has_marker,
+    }
+
+
+def _list_owned_open_issues(token: str, repo: str) -> list[dict] | None:
+    """Return all provably owned open issues, or ``None`` on partial lookup."""
+    owned: list[dict] = []
+    page = 1
+    while True:
+        try:
+            response = requests.get(
+                f"{GH_API}/repos/{repo}/issues",
+                headers=_gh_headers(token),
+                params={"state": "open", "per_page": 100, "page": page},
+                timeout=30,
+            )
+        except requests.RequestException as error:
+            log.warning("Queue-zombie issue recovery lookup failed: %s", error)
+            return None
+        if response.status_code >= 300:
+            log.warning(
+                "Queue-zombie issue recovery lookup failed: HTTP %d",
+                response.status_code,
+            )
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            log.warning("Queue-zombie issue recovery lookup returned invalid JSON")
+            return None
+        if not isinstance(payload, list):
+            log.warning("Queue-zombie issue recovery lookup returned a non-list payload")
+            return None
+        for issue in payload:
+            normalized = _owned_queue_issue(issue)
+            if normalized is not None:
+                owned.append(normalized)
+        if len(payload) < 100:
+            return owned
+        page += 1
+
+
 def _repo_owner(repo: str) -> str:
     return (repo.split("/", 1)[0] if "/" in repo else repo or "AndreasKaratzas").strip() or "AndreasKaratzas"
 
@@ -56,19 +185,30 @@ def _read_jobs() -> dict | None:
     if not JOBS.exists():
         return None
     try:
-        return json.loads(JOBS.read_text())
+        payload = json.loads(JOBS.read_text())
     except (OSError, json.JSONDecodeError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _normalize_entry(entry: int | dict) -> dict:
     if isinstance(entry, dict):
-        entry.setdefault("number", 0)
-        entry.setdefault("opened_ts", "")
-        entry.setdefault("last_fingerprint", "")
-        return entry
+        raw_number = entry.get("number")
+        number = (
+            int(raw_number)
+            if isinstance(raw_number, int) and not isinstance(raw_number, bool)
+            else 0
+        )
+        return {
+            **entry,
+            "number": max(0, number),
+            "opened_ts": str(entry.get("opened_ts") or ""),
+            "last_fingerprint": str(entry.get("last_fingerprint") or ""),
+        }
+    if not isinstance(entry, int) or isinstance(entry, bool):
+        return {"number": 0, "opened_ts": "", "last_fingerprint": ""}
     return {
-        "number": int(entry),
+        "number": max(0, entry),
         "opened_ts": "",
         "last_fingerprint": "",
     }
@@ -79,16 +219,46 @@ def _read_state() -> dict:
         return {"open": {}, "last_run": ""}
     try:
         data = json.loads(STATE.read_text())
-        data["open"] = {queue: _normalize_entry(entry) for queue, entry in (data.get("open") or {}).items()}
+        if not isinstance(data, dict):
+            return {"open": {}, "last_run": ""}
+        raw_open = data.get("open")
+        data["open"] = {
+            str(queue): _normalize_entry(entry)
+            for queue, entry in (
+                raw_open.items() if isinstance(raw_open, dict) else []
+            )
+            if isinstance(queue, str) and queue
+        }
         data.setdefault("last_run", "")
         return data
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return {"open": {}, "last_run": ""}
 
 
 def _write_state(state: dict) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2, sort_keys=True))
+    payload = json.dumps(state, indent=2, sort_keys=True) + "\n"
+    temporary_name = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=STATE.parent,
+            prefix=f".{STATE.name}.",
+            delete=False,
+        ) as handle:
+            temporary_name = handle.name
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, STATE)
+        temporary_name = ""
+    finally:
+        if temporary_name:
+            try:
+                Path(temporary_name).unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _job_age(job: dict) -> float:
@@ -135,6 +305,7 @@ def _issue_title(queue: str, jobs: list[dict]) -> str:
 
 def _issue_body(queue: str, jobs: list[dict], opened_ts: str, jobs_ts: str, run_url: str, owner_login: str) -> str:
     lines = [
+        OWNERSHIP_MARKER,
         "## Queue zombie-job alert",
         "",
         f"Queue **`{queue}`** currently has waiting or running jobs older than "
@@ -174,7 +345,7 @@ def _open_issue(token: str, repo: str, title: str, body: str) -> int | None:
         json={
             "title": title,
             "body": body,
-            "labels": [LABEL, "automated", "workstream:infra"],
+            "labels": [LABEL, AUTOMATED_LABEL, WORKSTREAM_LABEL],
             "assignees": [owner_login],
         },
         timeout=30,
@@ -185,15 +356,17 @@ def _open_issue(token: str, repo: str, title: str, body: str) -> int | None:
     return int(resp.json().get("number") or 0) or None
 
 
-def _update_issue(token: str, repo: str, number: int, title: str, body: str) -> None:
+def _update_issue(token: str, repo: str, number: int, title: str, body: str) -> bool:
     resp = requests.patch(
         f"{GH_API}/repos/{repo}/issues/{number}",
         headers=_gh_headers(token),
-        json={"title": title, "body": body, "state": "open"},
+        json={"title": title, "body": body},
         timeout=30,
     )
     if resp.status_code >= 300:
         log.warning("Update #%d failed: %d", number, resp.status_code)
+        return False
+    return True
 
 
 def _ensure_owner_assigned(token: str, repo: str, number: int) -> None:
@@ -208,7 +381,7 @@ def _ensure_owner_assigned(token: str, repo: str, number: int) -> None:
         log.warning("Assign owner on #%d failed: %d", number, resp.status_code)
 
 
-def _close_issue(token: str, repo: str, number: int) -> None:
+def _close_issue(token: str, repo: str, number: int) -> bool:
     resp = requests.patch(
         f"{GH_API}/repos/{repo}/issues/{number}",
         headers=_gh_headers(token),
@@ -217,6 +390,8 @@ def _close_issue(token: str, repo: str, number: int) -> None:
     )
     if resp.status_code >= 300:
         log.warning("Close #%d failed: %d", number, resp.status_code)
+        return False
+    return True
 
 
 def run() -> int:
@@ -229,6 +404,11 @@ def run() -> int:
     jobs = _read_jobs()
     if not jobs:
         log.warning("No queue_jobs.json payload to evaluate; exiting")
+        return 0
+    if not _snapshot_is_fresh(jobs):
+        log.error(
+            "queue_jobs.json is invalid, stale, or future-dated; refusing issue mutations"
+        )
         return 0
 
     jobs_ts = jobs.get("ts", "")
@@ -244,39 +424,122 @@ def run() -> int:
         _write_state(state)
         return 0
 
-    for queue, offenders in grouped.items():
+    owned_issues = _list_owned_open_issues(token, repo)
+    if owned_issues is None:
+        log.error(
+            "Queue-zombie issue recovery lookup was incomplete; refusing issue mutations"
+        )
+        return 0
+    remote_by_queue: dict[str, list[dict]] = {}
+    for issue in owned_issues:
+        remote_by_queue.setdefault(issue["queue"], []).append(issue)
+    for issues in remote_by_queue.values():
+        issues.sort(key=lambda issue: issue["number"])
+
+    queues = sorted(set(grouped) | set(open_map) | set(remote_by_queue))
+    for queue in queues:
+        offenders = grouped.get(queue)
         entry = open_map.get(queue)
-        opened_ts = (entry or {}).get("opened_ts") or jobs_ts
+        tracked_number = int((entry or {}).get("number") or 0)
+        remote_issues = remote_by_queue.get(queue, [])
+        canonical = next(
+            (
+                issue
+                for issue in remote_issues
+                if issue["number"] == tracked_number
+            ),
+            remote_issues[0] if remote_issues else None,
+        )
+
+        if not offenders:
+            failed_closes: list[dict] = []
+            for issue in remote_issues:
+                _ensure_owner_assigned(token, repo, issue["number"])
+                if _close_issue(token, repo, issue["number"]):
+                    log.info("Closed zombie issue #%d for %s", issue["number"], queue)
+                else:
+                    failed_closes.append(issue)
+            if not failed_closes:
+                open_map.pop(queue, None)
+            elif entry and any(
+                issue["number"] == tracked_number for issue in failed_closes
+            ):
+                open_map[queue] = entry
+            # A failed close discovered without local state remains discoverable
+            # by its marker on the next run. Do not claim it in the ledger until
+            # a mutation has succeeded.
+            continue
+
         title = _issue_title(queue, offenders)
-        body = _issue_body(queue, offenders, opened_ts, jobs_ts, run_url, _repo_owner(repo))
         fingerprint = _fingerprint(queue, offenders, jobs_ts)
-
-        if entry:
-            _ensure_owner_assigned(token, repo, entry["number"])
-            if entry.get("last_fingerprint") != fingerprint:
-                _update_issue(token, repo, entry["number"], title, body)
-                log.info("Updated zombie issue #%d for %s", entry["number"], queue)
-            entry["last_fingerprint"] = fingerprint
-            open_map[queue] = entry
+        if canonical is None:
+            opened_ts = jobs_ts
+            body = _issue_body(
+                queue,
+                offenders,
+                opened_ts,
+                jobs_ts,
+                run_url,
+                _repo_owner(repo),
+            )
+            number = _open_issue(token, repo, title, body)
+            if number is None:
+                continue
+            open_map[queue] = {
+                "number": number,
+                "opened_ts": opened_ts,
+                "last_fingerprint": fingerprint,
+            }
+            log.info("Opened zombie issue #%d for %s", number, queue)
             continue
 
-        number = _open_issue(token, repo, title, body)
-        if number is None:
+        for duplicate in remote_issues:
+            if duplicate["number"] == canonical["number"]:
+                continue
+            _ensure_owner_assigned(token, repo, duplicate["number"])
+            if _close_issue(token, repo, duplicate["number"]):
+                log.info(
+                    "Closed duplicate zombie issue #%d for %s; canonical is #%d",
+                    duplicate["number"],
+                    queue,
+                    canonical["number"],
+                )
+
+        recovered = tracked_number != canonical["number"]
+        opened_ts = (
+            str((entry or {}).get("opened_ts") or "")
+            if not recovered
+            else ""
+        ) or canonical.get("created_at") or jobs_ts
+        body = _issue_body(
+            queue,
+            offenders,
+            opened_ts,
+            jobs_ts,
+            run_url,
+            _repo_owner(repo),
+        )
+        needs_update = (
+            recovered
+            or canonical.get("legacy")
+            or (entry or {}).get("last_fingerprint") != fingerprint
+        )
+        _ensure_owner_assigned(token, repo, canonical["number"])
+        if needs_update and not _update_issue(
+            token,
+            repo,
+            canonical["number"],
+            title,
+            body,
+        ):
             continue
+        if needs_update:
+            log.info("Updated zombie issue #%d for %s", canonical["number"], queue)
         open_map[queue] = {
-            "number": number,
+            "number": canonical["number"],
             "opened_ts": opened_ts,
             "last_fingerprint": fingerprint,
         }
-        log.info("Opened zombie issue #%d for %s", number, queue)
-
-    for queue, entry in list(open_map.items()):
-        if queue in grouped:
-            continue
-        _ensure_owner_assigned(token, repo, entry["number"])
-        _close_issue(token, repo, entry["number"])
-        del open_map[queue]
-        log.info("Closed zombie issue #%d for %s", entry["number"], queue)
 
     state["open"] = open_map
     state["last_run"] = jobs_ts

@@ -467,29 +467,21 @@ class TestHourlyMasterWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_analytics.py" in text
 
-    def test_perf_seed_strictly_merges_events_and_rebuilds_derived_payload(self):
+    def test_private_perf_seed_is_validated_without_public_branch_dependency(self):
         data = _load_workflow("hourly-master.yml")
         steps = data["jobs"]["collect-and-deploy"].get("steps", [])
         sync = next(
             step
             for step in steps
-            if step.get("name") == "Sync perf-eval data from gh-pages"
+            if step.get("name") == "Validate private perf-eval event store"
         )
         script = sync["run"]
 
-        remote_events = "origin/gh-pages:data/vllm/perf_eval/events.jsonl"
         merge_events = "python scripts/vllm/merge_perf_eval_events.py"
         rebuild = "python scripts/vllm/collect_perf_eval.py"
         for token in (
-            "git fetch origin",
-            "+refs/heads/gh-pages:refs/remotes/origin/gh-pages",
-            "--depth=1 || return $?",
-            "git rev-parse --verify --quiet origin/gh-pages",
-            remote_events,
-            'REMOTE_EVENTS="$RUNNER_TEMP/perf-eval-gh-pages-events.jsonl"',
             merge_events,
             "--local data/vllm/perf_eval/events.jsonl",
-            '--remote "$REMOTE_EVENTS"',
             rebuild,
             "--output data/vllm/perf_eval/perf_eval.json",
             "run_surface_collector perf_eval",
@@ -499,14 +491,37 @@ class TestHourlyMasterWorkflow:
         assert "LIVE_LINES" not in script
         assert "LOCAL_LINES" not in script
         assert "wc -l" not in script
+        assert "--remote" not in script
+        assert "gh-pages" not in script
+        assert "git fetch" not in script
+        assert "git show" not in script
         assert "|| true" not in script
-        assert "origin/gh-pages:data/vllm/perf_eval/perf_eval.json" not in script
         assert script.count(merge_events) == 1
-        assert script.index(remote_events) < script.index(merge_events)
         assert script.index(merge_events) < script.index(rebuild)
         assert sync.get("env") in (None, {})
         for network_token in ("curl ", "gh api", "api.buildkite.com", "api.github.com"):
             assert network_token not in script
+
+        manifest = json.loads(
+            (REPO_ROOT / "config/public_data_manifest.json").read_text()
+        )
+        assert "vllm/perf_eval/events.jsonl" in manifest["never_publish_patterns"]
+
+    def test_post_rebase_rebuilds_private_perf_projection_before_retest(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = data["jobs"]["collect-and-deploy"].get("steps", [])
+        commit = next(step for step in steps if step.get("name") == "Commit and push")
+        script = commit["run"]
+
+        pull = "git pull --rebase origin main"
+        validate = "python scripts/vllm/merge_perf_eval_events.py"
+        rebuild = "python scripts/vllm/collect_perf_eval.py"
+        operations = "python scripts/vllm/build_operations_snapshot.py"
+        assert script.index(pull) < script.index(validate)
+        assert script.index(validate) < script.index(rebuild)
+        assert script.index(rebuild) < script.index(operations)
+        assert "--local data/vllm/perf_eval/events.jsonl" in script
+        assert "--output data/vllm/perf_eval/perf_eval.json" in script
 
     def test_hourly_consumes_queue_snapshot_without_refetching_buildkite(self):
         data = _load_workflow("hourly-master.yml")
@@ -764,7 +779,7 @@ class TestHourlyMasterWorkflow:
             ("Refresh Omni surge heuristic", "queue"),
             ("Collect CI data", "ci_core"),
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
-            ("Sync perf-eval data from gh-pages", "perf_eval"),
+            ("Validate private perf-eval event store", "perf_eval"),
             ("Ingest perf-eval artifacts from Buildkite", "perf_eval"),
             ("Collect GitHub data", "github_home"),
         ):
@@ -1417,7 +1432,9 @@ class TestHourlyMasterWorkflow:
         assert "RECOVERED_MARKER: recoveredMarker" in close["with"]["script"]
         assert "scripts/vllm/hourly_incident_recovery.js" in close["with"]["script"]
         assert "body: recoveredBody" in close["with"]["script"]
-        assert "labels: 'ci-failure', state: 'all'" in close["with"]["script"]
+        assert "state: 'all', per_page: 100" in close["with"]["script"]
+        assert "labels: 'ci-failure'" not in close["with"]["script"]
+        assert "hasExactMarker" in close["with"]["script"]
         assert "if (currentIssue.state === 'closed')" in close["with"]["script"]
 
     def test_expedited_recovery_requires_green_code_ancestor_and_bot_data_gap(self):
@@ -1538,7 +1555,10 @@ class TestHourlyMasterWorkflow:
         assert "leaving it suppressed until the signal recovers" in script
         assert ".replace(/\\b\\d+(?:\\.\\d+)?\\b/g, '<number>')" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
-        assert "labels: 'ci-failure', state: 'all'" in script
+        assert "state: 'all', per_page: 100" in script
+        assert "labels: 'ci-failure'" not in script
+        assert "hasExactMarker" in script
+        assert "github.rest.issues.addLabels" in script
         assert "allIssues.filter" in script
         assert "if (issue.pull_request) return false" in script
         assert "const currentIssues = activeOwnedIssues.filter" in script
@@ -1555,7 +1575,7 @@ class TestHourlyMasterWorkflow:
         assert "await supersedeOtherIssues(created.data.number)" in script
         assert "const resetOnlyDegradation" in script
         assert "the current incident recovery streak was reset" in script
-        assert "issueBody.includes(ownershipMarker)" in script
+        assert "hasExactMarker(issueBody, ownershipMarker)" in script
         assert "*Auto-created by hourly-master workflow.*" in script
         assert "for (const issue of ownedIssues)" in script
         assert "suppressedDegradationRecoveryTransition," in script
@@ -1756,7 +1776,8 @@ class TestHourlyMasterWorkflow:
         assert "required eligible healthy recovery runs" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
         assert "issues.filter" in script
-        assert "body.includes(ownershipMarker) || body.includes(legacySignature)" in script
+        assert "hasExactMarker(body, ownershipMarker)" in script
+        assert "body.includes(legacySignature)" in script
         assert "if (issue.pull_request) return false" in script
         assert "const currentIssues = activeOwnedIssues.filter" in script
         assert "const openOwnedIssues = activeOwnedIssues.filter" in script
@@ -2613,7 +2634,14 @@ class TestNightlyCIWorkflow:
                 in script
             )
             assert "github.paginate(github.rest.issues.listForRepo" in script
-        assert "openIssues.find" in create
+        assert "const existing = ownedIssues[0] || null" in create
+        assert "ownedIssues.slice(1)" in create
+        assert "Superseded by #${issue.number}" in create
+        assert "github.rest.issues.addLabels" in create
+        assert "labels: 'ci-failure'" not in create
+        assert "labels: 'ci-failure'" not in close
+        assert "hasExactMarker" in create
+        assert "hasExactMarker" in close
         assert "existing.data[0]" not in create
         assert "issues.filter" in close
         assert "for (const issue of issues.data)" not in close

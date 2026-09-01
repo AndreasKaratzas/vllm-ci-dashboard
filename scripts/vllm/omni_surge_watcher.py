@@ -29,6 +29,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,6 +58,10 @@ HEURISTIC_PATH = ROOT / "data" / "vllm" / "ci" / "omni_surge_heuristic.json"
 GH_API = "https://api.github.com"
 RAW_BASE = "https://raw.githubusercontent.com"
 LABEL = "omni-surge"
+AUTOMATED_LABEL = "automated"
+WORKSTREAM_LABEL = "workstream:infra"
+OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:omni-surge:v1 -->"
+OWNED_LABELS = frozenset({LABEL, AUTOMATED_LABEL, WORKSTREAM_LABEL})
 DASHBOARD_REPO = "AndreasKaratzas/vllm-ci-dashboard"
 
 
@@ -71,6 +76,120 @@ def _gh_headers(token: str) -> dict:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+def _issue_label_names(issue: dict) -> set[str]:
+    names: set[str] = set()
+    for label in issue.get("labels") or []:
+        name = label.get("name") if isinstance(label, dict) else label
+        if isinstance(name, str) and name:
+            names.add(name)
+    return names
+
+
+def _has_exact_ownership_marker(body: str) -> bool:
+    """Require the marker as its own HTML-comment line.
+
+    A substring match would let quoted issue text or a copied diagnostic claim
+    ownership. Once an issue carries this exact marker, the marker remains the
+    durable authority even if a human later edits its title or labels.
+    """
+    return OWNERSHIP_MARKER in {
+        line.strip() for line in str(body or "").splitlines()
+    }
+
+
+def _legacy_owned_issue(issue: dict) -> bool:
+    """Recognize only the complete pre-marker issue shape emitted here.
+
+    Legacy adoption is intentionally stricter than marker ownership: all three
+    managed labels, the exact generated title grammar, matching values in the
+    body, and the generator signature must agree. A label alone never grants
+    this watcher authority over an issue.
+    """
+    if not OWNED_LABELS.issubset(_issue_label_names(issue)):
+        return False
+    title = str(issue.get("title") or "")
+    match = re.fullmatch(
+        r"Omni CI surge: ([0-9]+) jobs waiting \(threshold ([0-9]+)\)",
+        title,
+    )
+    if not match:
+        return False
+    waiting, trigger = match.groups()
+    body = str(issue.get("body") or "")
+    required_body_fragments = (
+        "## Omni workload surge",
+        f"**{waiting}** Omni-classified jobs are waiting across AMD queues",
+        f"dynamic trigger of **{trigger}**",
+        "GitHub assignee: ",
+        "Auto-opened by `omni_surge_watcher.py` from ",
+        "Will auto-close once the waiting count drops to ",
+    )
+    return all(fragment in body for fragment in required_body_fragments)
+
+
+def _owned_open_issue(issue: object) -> dict | None:
+    """Normalize a provably watcher-owned open issue."""
+    if not isinstance(issue, dict) or issue.get("pull_request"):
+        return None
+    number = issue.get("number")
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        return None
+    body = str(issue.get("body") or "")
+    marker_owned = _has_exact_ownership_marker(body)
+    if not marker_owned and not _legacy_owned_issue(issue):
+        return None
+    return {
+        "number": number,
+        "body": body,
+        "created_at": str(issue.get("created_at") or ""),
+        "legacy": not marker_owned,
+    }
+
+
+def _list_owned_open_issues(token: str, repo: str) -> list[dict] | None:
+    """Return every owned open issue, or ``None`` for incomplete discovery.
+
+    The query deliberately lists all open issues rather than trusting labels:
+    exact-marker ownership survives label edits. Every page is read before
+    callers perform any mutation, so an incomplete lookup can fail closed
+    without opening a duplicate.
+    """
+    owned: list[dict] = []
+    page = 1
+    while True:
+        try:
+            response = requests.get(
+                f"{GH_API}/repos/{repo}/issues",
+                headers=_gh_headers(token),
+                params={"state": "open", "per_page": 100, "page": page},
+                timeout=30,
+            )
+        except requests.RequestException as error:
+            log.error("Omni issue recovery lookup failed: %s", error)
+            return None
+        if response.status_code >= 300:
+            log.error(
+                "Omni issue recovery lookup failed: HTTP %d",
+                response.status_code,
+            )
+            return None
+        try:
+            payload = response.json()
+        except ValueError:
+            log.error("Omni issue recovery lookup returned invalid JSON")
+            return None
+        if not isinstance(payload, list):
+            log.error("Omni issue recovery lookup returned a non-list payload")
+            return None
+        for issue in payload:
+            normalized = _owned_open_issue(issue)
+            if normalized is not None:
+                owned.append(normalized)
+        if len(payload) < 100:
+            return owned
+        page += 1
 
 
 def _repo_owner(repo: str) -> str:
@@ -107,7 +226,26 @@ def _read_state() -> dict:
 
 def _write_state(state: dict) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2, sort_keys=True))
+    payload = json.dumps(state, indent=2, sort_keys=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=STATE.parent,
+            prefix=f".{STATE.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(payload)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, STATE)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def _fetch_yaml(path: str) -> str | None:
@@ -391,6 +529,7 @@ def _open_issue(
     rows = "\n".join(f"| `{q}` | {n} |" for q, n in sorted(by_queue.items(), key=lambda kv: -kv[1])) or "| — | 0 |"
     pools = "\n".join(f"- `{p}`: {n}" for p, n in sorted(heuristic["pool_distribution"].items()))
     body = (
+        f"{OWNERSHIP_MARKER}\n"
         f"## Omni workload surge\n\n"
         f"**{waiting}** Omni-classified jobs are waiting across AMD queues as of `{snap_ts}` — "
         f"at or above the dynamic trigger of **{heuristic['trigger']}** "
@@ -413,7 +552,7 @@ def _open_issue(
         json={
             "title": title,
             "body": body,
-            "labels": [LABEL, "automated", "workstream:infra"],
+            "labels": [LABEL, AUTOMATED_LABEL, WORKSTREAM_LABEL],
             "assignees": [owner_login],
         },
         timeout=30,
@@ -421,37 +560,136 @@ def _open_issue(
     if resp.status_code >= 300:
         log.error("Failed to open surge issue: %d %s", resp.status_code, resp.text[:200])
         return None
-    return resp.json().get("number")
+    try:
+        number = resp.json().get("number")
+    except (AttributeError, ValueError):
+        return None
+    if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+        return None
+    return number
 
 
-def _comment(token: str, repo: str, number: int, body: str) -> None:
-    resp = requests.post(
-        f"{GH_API}/repos/{repo}/issues/{number}/comments",
-        headers=_gh_headers(token), json={"body": body}, timeout=30,
-    )
+def _comment(token: str, repo: str, number: int, body: str) -> bool:
+    try:
+        resp = requests.post(
+            f"{GH_API}/repos/{repo}/issues/{number}/comments",
+            headers=_gh_headers(token), json={"body": body}, timeout=30,
+        )
+    except requests.RequestException as error:
+        log.warning("Comment on #%d failed: %s", number, error)
+        return False
     if resp.status_code >= 300:
         log.warning("Comment on #%d failed: %d", number, resp.status_code)
+        return False
+    return True
 
 
-def _ensure_owner_assigned(token: str, repo: str, number: int) -> None:
+def _ensure_owner_assigned(token: str, repo: str, number: int) -> bool:
     owner_login = _repo_owner(repo)
-    resp = requests.post(
-        f"{GH_API}/repos/{repo}/issues/{number}/assignees",
-        headers=_gh_headers(token), json={"assignees": [owner_login]}, timeout=30,
-    )
+    try:
+        resp = requests.post(
+            f"{GH_API}/repos/{repo}/issues/{number}/assignees",
+            headers=_gh_headers(token), json={"assignees": [owner_login]}, timeout=30,
+        )
+    except requests.RequestException as error:
+        log.warning("Assign owner on #%d failed: %s", number, error)
+        return False
     if resp.status_code not in {200, 201}:
         log.warning("Assign owner on #%d failed: %d", number, resp.status_code)
+        return False
+    return True
 
 
-def _close(token: str, repo: str, number: int) -> None:
-    resp = requests.patch(
-        f"{GH_API}/repos/{repo}/issues/{number}",
-        headers=_gh_headers(token),
-        json={"state": "closed", "state_reason": "completed"},
-        timeout=30,
-    )
+def _close(token: str, repo: str, number: int) -> bool:
+    try:
+        resp = requests.patch(
+            f"{GH_API}/repos/{repo}/issues/{number}",
+            headers=_gh_headers(token),
+            json={"state": "closed", "state_reason": "completed"},
+            timeout=30,
+        )
+    except requests.RequestException as error:
+        log.warning("Close #%d failed: %s", number, error)
+        return False
     if resp.status_code >= 300:
         log.warning("Close #%d failed: %d", number, resp.status_code)
+        return False
+    return True
+
+
+def _adopt_legacy_issue(token: str, repo: str, issue: dict) -> bool:
+    """Add the exact marker to one strictly recognized legacy issue."""
+    body = str(issue.get("body") or "")
+    if _has_exact_ownership_marker(body):
+        return True
+    try:
+        response = requests.patch(
+            f"{GH_API}/repos/{repo}/issues/{issue['number']}",
+            headers=_gh_headers(token),
+            json={"body": f"{OWNERSHIP_MARKER}\n{body}"},
+            timeout=30,
+        )
+    except requests.RequestException as error:
+        log.warning("Adopt legacy Omni issue #%d failed: %s", issue["number"], error)
+        return False
+    if response.status_code >= 300:
+        log.warning(
+            "Adopt legacy Omni issue #%d failed: HTTP %d",
+            issue["number"],
+            response.status_code,
+        )
+        return False
+    issue["body"] = f"{OWNERSHIP_MARKER}\n{body}"
+    issue["legacy"] = False
+    return True
+
+
+def _reconcile_owned_open_issues(
+    token: str,
+    repo: str,
+    tracked_number: int | None,
+    run_url: str,
+) -> tuple[dict | None, bool]:
+    """Recover one canonical issue and close every proven duplicate.
+
+    Discovery is completed before this function mutates anything. Existing
+    exact-marker issues are preferred to legacy candidates when local state is
+    missing; an already tracked owned issue remains canonical. ``False``
+    means the caller must preserve its ledger and stop issue automation.
+    """
+    discovered = _list_owned_open_issues(token, repo)
+    if discovered is None:
+        return None, False
+    discovered.sort(key=lambda issue: issue["number"])
+    keeper = next(
+        (issue for issue in discovered if issue["number"] == tracked_number),
+        None,
+    )
+    if keeper is None:
+        keeper = next(
+            (issue for issue in discovered if not issue["legacy"]),
+            discovered[0] if discovered else None,
+        )
+
+    for issue in discovered:
+        if keeper is not None and issue["number"] == keeper["number"]:
+            continue
+        reason = (
+            "Closing this duplicate watcher-owned Omni surge issue during "
+            f"reconciliation. #{keeper['number']} remains canonical.\n\n"
+            f"*{run_url}*"
+        )
+        if not _comment(token, repo, issue["number"], reason):
+            return None, False
+        if not _close(token, repo, issue["number"]):
+            return None, False
+        log.info("Closed duplicate Omni surge issue #%d", issue["number"])
+
+    if keeper is not None and keeper["legacy"]:
+        if not _adopt_legacy_issue(token, repo, keeper):
+            return None, False
+        log.info("Adopted legacy Omni surge issue #%d", keeper["number"])
+    return keeper, True
 
 
 def run(heuristic_only: bool = False, issues_only: bool = False) -> int:
@@ -510,15 +748,24 @@ def run(heuristic_only: bool = False, issues_only: bool = False) -> int:
     )
 
     state = _read_state()
-    open_issue: int | None = state.get("open")
-    state["last_value"] = waiting
-    state["last_trigger"] = trigger
-    state["last_healthy"] = healthy
-    state["last_snapshot_ts"] = snapshot.get("ts", "")
+    raw_open_issue = state.get("open")
+    open_issue = (
+        raw_open_issue
+        if isinstance(raw_open_issue, int)
+        and not isinstance(raw_open_issue, bool)
+        and raw_open_issue > 0
+        else None
+    )
+    next_state = dict(state)
+    next_state["open"] = open_issue
+    next_state["last_value"] = waiting
+    next_state["last_trigger"] = trigger
+    next_state["last_healthy"] = healthy
+    next_state["last_snapshot_ts"] = snapshot.get("ts", "")
 
     if not token:
         log.warning("GITHUB_TOKEN not set; skipping GitHub mutations")
-        _write_state(state)
+        _write_state(next_state)
         return 0
 
     if info["mutations_suppressed"]:
@@ -528,26 +775,54 @@ def run(heuristic_only: bool = False, issues_only: bool = False) -> int:
             info["source_status"],
             ", ".join(info["yaml_paths_failed"]) or "none",
         )
-        _write_state(state)
+        _write_state(next_state)
         return 0
 
-    if open_issue is not None:
-        _ensure_owner_assigned(token, repo, open_issue)
+    canonical, discovery_complete = _reconcile_owned_open_issues(
+        token,
+        repo,
+        open_issue,
+        run_url,
+    )
+    if not discovery_complete:
+        log.error(
+            "Omni issue discovery or deduplication was incomplete; preserving state"
+        )
+        return 1
+    open_issue = canonical["number"] if canonical is not None else None
 
     if waiting >= trigger and open_issue is None:
         number = _open_issue(token, repo, waiting, by_queue, info,
                              snapshot.get("ts", ""), run_url)
-        if number is not None:
-            state["open"] = number
-            log.info("Opened omni surge issue #%d", number)
+        if number is None:
+            log.error("Omni surge issue open failed; preserving state")
+            return 1
+        next_state["open"] = number
+        log.info("Opened omni surge issue #%d", number)
     elif waiting <= healthy and open_issue is not None:
-        _comment(token, repo, open_issue,
-                 f"Omni queue drained: {waiting} waiting (healthy ≤ {healthy}). Closing.\n\n*{run_url}*")
-        _close(token, repo, open_issue)
+        if not _ensure_owner_assigned(token, repo, open_issue):
+            return 1
+        if not _comment(
+            token,
+            repo,
+            open_issue,
+            f"Omni queue drained: {waiting} waiting (healthy ≤ {healthy}). Closing.\n\n*{run_url}*",
+        ):
+            return 1
+        if not _close(token, repo, open_issue):
+            return 1
         log.info("Closed omni surge issue #%d", open_issue)
-        state["open"] = None
+        next_state["open"] = None
+    elif open_issue is not None:
+        if not _ensure_owner_assigned(token, repo, open_issue):
+            return 1
+        next_state["open"] = open_issue
+    else:
+        # Authoritative discovery found no owned issue. Clear stale local state
+        # without manufacturing a remote mutation while the signal is healthy.
+        next_state["open"] = None
 
-    _write_state(state)
+    _write_state(next_state)
     return 0
 
 

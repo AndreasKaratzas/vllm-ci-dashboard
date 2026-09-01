@@ -483,6 +483,7 @@ def test_publication_status_projection_labels_split_and_legacy_ci_surfaces() -> 
         "generated_at": "2026-01-01T00:00:00Z",
         "degraded_surfaces": [
             "ci",
+            "ci_analytics",
             "ci_core",
             "ci_gating",
             "ci_changes",
@@ -491,6 +492,7 @@ def test_publication_status_projection_labels_split_and_legacy_ci_surfaces() -> 
     })
 
     assert payload["affected_surfaces"] == [
+        "CI analytics",
         "CI core health",
         "CI gating",
         "CI health",

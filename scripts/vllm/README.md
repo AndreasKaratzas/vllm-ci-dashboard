@@ -87,18 +87,18 @@ collector enforces a maximum 30-day Buildkite lookback, so the index always
 outlives every artifact the next run can discover. Compaction changes only
 local storage; it adds no Buildkite or GitHub API requests.
 
-Canonical sync merges the locally checked-out store with the gh-pages store;
-it never chooses between them by line count because a newer compacted store is
-expected to have fewer lines. Both JSONL inputs are validated strictly before
-the local path is replaced. Stable result identities are reconciled by their
-validated ingestion generation (then run timestamp): newer wins regardless of
-which branch supplied it, equal-generation disjoint metrics/tasks are unioned,
-and conflicting equal-generation values fail closed. `perf_eval.json` is then
-rebuilt from the merged events rather than copied from gh-pages. This makes the
-derived timestamp non-regressing without a token or a Buildkite/GitHub API
-request. The perf surface performs its own shallow gh-pages fetch and fails
-into its validated fallback if that established branch or event store cannot
-be read.
+Canonical startup strictly validates and bounds the private event store from
+the immutable main checkout before any collector mutates it. The store is an
+explicitly private build input and is never expected to exist on gh-pages.
+`perf_eval.json` is rebuilt from those validated events instead of copied from
+the public site. The shared non-canceling deployment lock serializes every
+collector run, while the final rebase and exact-tree retest prevent a concurrent
+main update from bypassing validation. This keeps derived timestamps
+non-regressing without an additional token, GitHub request, or Buildkite
+request. The merge helper still supports strict source-neutral reconciliation
+for migrations and repairs: it orders stable result identities by validated
+ingestion generation, unions equal-generation disjoint metrics/tasks, and
+fails closed on conflicting equal-generation values.
 
 ## Data Flow
 

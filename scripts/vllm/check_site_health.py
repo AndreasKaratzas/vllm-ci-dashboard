@@ -32,6 +32,7 @@ PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "bloc
 PUBLICATION_STATUSES = frozenset({"healthy", "degraded", "blocked"})
 PUBLICATION_SURFACE_LABELS = frozenset({
     "Agent health",
+    "CI analytics",
     "CI core health",
     "CI gating",
     "CI health",

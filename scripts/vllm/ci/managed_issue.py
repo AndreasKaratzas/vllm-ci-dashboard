@@ -96,25 +96,36 @@ class GitHubIssueClient:
         }
 
     def issue_state(self, number: int, ownership_marker: str) -> str | None:
-        response = requests.get(
-            f"{GH_API}/repos/{self.repo}/issues/{number}",
-            headers=self.headers,
-            timeout=30,
-        )
+        try:
+            response = requests.get(
+                f"{GH_API}/repos/{self.repo}/issues/{number}",
+                headers=self.headers,
+                timeout=30,
+            )
+        except requests.RequestException as error:
+            log.warning("Read issue #%d failed: %s", number, error)
+            return None
         if response.status_code == 404:
             return "closed"
         if response.status_code >= 300:
             log.warning("Read issue #%d failed: %d", number, response.status_code)
             return None
-        payload = response.json() or {}
-        if ownership_marker not in str(payload.get("body") or ""):
+        try:
+            payload = response.json() or {}
+        except ValueError:
+            log.warning("Read issue #%d returned invalid JSON", number)
+            return None
+        if not isinstance(payload, dict):
+            log.warning("Read issue #%d returned a non-object payload", number)
+            return None
+        if ownership_marker not in _html_ownership_markers(str(payload.get("body") or "")):
             log.error("Issue #%d lacks the expected ownership marker", number)
             return "foreign"
         state = str(payload.get("state") or "").lower()
         return state if state in {"open", "closed"} else None
 
-    def find_open_issue(self, ownership_marker: str) -> int | None:
-        """Find the oldest open issue containing the exact marker on its own line."""
+    def find_open_issues(self, ownership_marker: str) -> list[int]:
+        """Find all open issues containing the exact marker on its own line."""
         if self._open_issues_by_marker is None:
             issues_by_marker: dict[str, list[int]] = {}
             page = 1
@@ -132,7 +143,12 @@ class GitHubIssueClient:
                     raise RuntimeError(
                         f"Open managed-issue recovery lookup failed: HTTP {response.status_code}"
                     )
-                payload = response.json()
+                try:
+                    payload = response.json()
+                except ValueError as error:
+                    raise RuntimeError(
+                        "Open managed-issue recovery lookup returned invalid JSON"
+                    ) from error
                 if not isinstance(payload, list):
                     raise RuntimeError("Open managed-issue recovery lookup returned invalid JSON")
                 for issue in payload:
@@ -148,14 +164,18 @@ class GitHubIssueClient:
                 page += 1
             self._open_issues_by_marker = issues_by_marker
 
-        matches = self._open_issues_by_marker.get(ownership_marker, [])
+        return sorted(set(self._open_issues_by_marker.get(ownership_marker, [])))
+
+    def find_open_issue(self, ownership_marker: str) -> int | None:
+        """Find the oldest open issue containing the exact marker on its own line."""
+        matches = self.find_open_issues(ownership_marker)
         if len(matches) > 1:
             log.error(
                 "Found %d open issues with ownership marker %s; recovering the oldest",
                 len(matches),
                 ownership_marker,
             )
-        return min(matches) if matches else None
+        return matches[0] if matches else None
 
     def ensure_label(self, name: str, color: str, description: str) -> bool:
         encoded = quote(name, safe="")
@@ -332,6 +352,71 @@ class GitHubIssueClient:
         return True
 
 
+def _normalized_issue_numbers(value: object) -> list[int] | None:
+    if not isinstance(value, (list, tuple, set)):
+        return None
+    numbers: set[int] = set()
+    for number in value:
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            return None
+        numbers.add(number)
+    return sorted(numbers)
+
+
+def _close_verified_open_siblings(
+    client: GitHubIssueClient,
+    ownership_marker: str,
+    open_numbers: list[int],
+    canonical_number: int,
+) -> bool:
+    """Close exact-marker siblings while preserving ``canonical_number``.
+
+    Every sibling is read again before mutation so a stale list response or a
+    marker removed by a human cannot authorize a close. Any uncertain read or
+    failed close stops reconciliation; the next run can safely retry.
+    """
+    for sibling_number in open_numbers:
+        if sibling_number == canonical_number:
+            continue
+        try:
+            sibling_state = client.issue_state(sibling_number, ownership_marker)
+        except Exception as error:
+            log.warning(
+                "Verify managed sibling #%d failed; refusing further mutation: %s",
+                sibling_number,
+                error,
+            )
+            return False
+        if sibling_state == "foreign":
+            log.warning(
+                "Managed sibling candidate #%d no longer has the exact marker; preserving it",
+                sibling_number,
+            )
+            continue
+        if sibling_state == "closed":
+            continue
+        if sibling_state != "open":
+            log.warning(
+                "Managed sibling #%d state is unverified; refusing further mutation",
+                sibling_number,
+            )
+            return False
+        try:
+            closed = client.close_issue(sibling_number)
+        except Exception as error:
+            log.warning("Close managed sibling #%d failed: %s", sibling_number, error)
+            return False
+        if not closed:
+            log.warning("Close managed sibling #%d failed; reconciliation will retry", sibling_number)
+            return False
+        log.info(
+            "Closed duplicate managed issue #%d; canonical issue is #%d",
+            sibling_number,
+            canonical_number,
+        )
+    return True
+
+
 def reconcile_managed_issue(
     state: dict,
     *,
@@ -364,9 +449,14 @@ def reconcile_managed_issue(
     issue = normalized.get("issue")
     number = int((issue or {}).get("number") or 0)
     recovered = False
+    recovered_opened_at = ""
 
     if number:
-        remote_state = client.issue_state(number, ownership_marker)
+        try:
+            remote_state = client.issue_state(number, ownership_marker)
+        except Exception as error:
+            log.warning("Read managed issue #%d failed; preserving local state: %s", number, error)
+            return normalized
         if remote_state in {None, "foreign"}:
             log.warning("Issue #%d ownership/state is unverified; preserving local state", number)
             return normalized
@@ -378,6 +468,19 @@ def reconcile_managed_issue(
                 normalized["suppressed_fingerprint"] = normalized["last_fingerprint"] or fingerprint
                 log.info("Issue was manually closed; suppressing until the signal recovers")
 
+    open_marker_numbers: list[int] | None = None
+    find_open_issues = getattr(client, "find_open_issues", None)
+    if callable(find_open_issues):
+        try:
+            raw_open_numbers = find_open_issues(ownership_marker)
+        except Exception as error:
+            log.warning("Managed-issue recovery lookup failed; refusing mutation: %s", error)
+            return normalized
+        open_marker_numbers = _normalized_issue_numbers(raw_open_numbers)
+        if open_marker_numbers is None:
+            log.warning("Managed-issue recovery lookup returned invalid issue numbers")
+            return normalized
+
     if active:
         if normalized["suppressed"]:
             suppressed_fingerprint = normalized["suppressed_fingerprint"]
@@ -386,26 +489,48 @@ def reconcile_managed_issue(
                 normalized["suppressed_fingerprint"] = ""
                 log.info("Managed signal changed; clearing manual-close suppression")
             else:
+                if open_marker_numbers is not None and not _close_verified_open_siblings(
+                    client,
+                    ownership_marker,
+                    open_marker_numbers,
+                    0,
+                ):
+                    return normalized
                 normalized["last_run"] = observed_at
                 return normalized
 
     if not number and not normalized["suppressed"]:
-        find_open_issue = getattr(client, "find_open_issue", None)
-        if callable(find_open_issue):
-            try:
-                recovered_number = find_open_issue(ownership_marker)
-            except Exception as error:
-                log.warning("Managed-issue recovery lookup failed; refusing mutation: %s", error)
-                return normalized
-            if isinstance(recovered_number, int) and not isinstance(recovered_number, bool):
-                if recovered_number > 0:
-                    number = recovered_number
-                    normalized["issue"] = {
-                        "number": number,
-                        "opened_at": str((issue or {}).get("opened_at") or observed_at),
-                    }
-                    recovered = True
-                    log.info("Recovered open managed issue #%d from its ownership marker", number)
+        if open_marker_numbers is not None:
+            recovered_number = open_marker_numbers[0] if open_marker_numbers else None
+        else:
+            find_open_issue = getattr(client, "find_open_issue", None)
+            recovered_number = None
+            if callable(find_open_issue):
+                try:
+                    recovered_number = find_open_issue(ownership_marker)
+                except Exception as error:
+                    log.warning("Managed-issue recovery lookup failed; refusing mutation: %s", error)
+                    return normalized
+        if isinstance(recovered_number, int) and not isinstance(recovered_number, bool):
+            if recovered_number > 0:
+                number = recovered_number
+                recovered_opened_at = str((issue or {}).get("opened_at") or observed_at)
+                recovered = True
+
+    if open_marker_numbers is not None and not _close_verified_open_siblings(
+        client,
+        ownership_marker,
+        open_marker_numbers,
+        number,
+    ):
+        return normalized
+
+    if recovered:
+        normalized["issue"] = {
+            "number": number,
+            "opened_at": recovered_opened_at,
+        }
+        log.info("Recovered open managed issue #%d from its ownership marker", number)
 
     if active:
         if number:

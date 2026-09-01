@@ -121,20 +121,27 @@ jobs:
             const openIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              labels: 'ci-failure',
               state: 'open',
               per_page: 100,
             });
-            const existing = openIssues.find(issue => {
+            const hasExactMarker = (body, marker) =>
+              String(body || '').split(/\r?\n/).includes(marker);
+            const ownedIssues = openIssues.filter(issue => {
+              if (issue.pull_request) return false;
               const issueBody = issue.body || '';
-              return issueBody.includes(ownershipMarker) ||
+              return hasExactMarker(issueBody, ownershipMarker) ||
                 issueBody.includes(legacySignature);
-            });
+            }).sort((left, right) =>
+              Date.parse(right.updated_at || right.created_at || 0) -
+                Date.parse(left.updated_at || left.created_at || 0) ||
+              right.number - left.number,
+            );
+            const existing = ownedIssues[0] || null;
 
             if (existing) {
               // Update existing issue with new failure info
               const issue = existing;
-              if (!(issue.body || '').includes(ownershipMarker)) {
+              if (!hasExactMarker(issue.body, ownershipMarker)) {
                 await github.rest.issues.update({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -142,6 +149,12 @@ jobs:
                   body: `${ownershipMarker}\n${issue.body || ''}`,
                 });
               }
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels,
+              });
               try {
                 await github.rest.issues.addAssignees({
                   owner: context.repo.owner,
@@ -167,6 +180,20 @@ jobs:
                 issue_number: issue.number,
                 body: comment,
               });
+              for (const duplicate of ownedIssues.slice(1)) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: duplicate.number,
+                  body: `Superseded by #${issue.number}, the canonical nightly CI incident. Closing this duplicate.\n\n**Run:** ${runUrl}`,
+                });
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: duplicate.number,
+                  state: 'closed',
+                });
+              }
               console.log(`Updated existing issue #${issue.number}`);
             } else {
               // Create new issue
@@ -197,14 +224,17 @@ jobs:
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              labels: 'ci-failure',
               state: 'open',
               per_page: 100,
             });
 
+            const hasExactMarker = (body, marker) =>
+              String(body || '').split(/\r?\n/).includes(marker);
             const ownedIssues = issues.filter(issue => {
+              if (issue.pull_request) return false;
               const body = issue.body || '';
-              return body.includes(ownershipMarker) || body.includes(legacySignature);
+              return hasExactMarker(body, ownershipMarker) ||
+                body.includes(legacySignature);
             });
             for (const issue of ownedIssues) {
               await github.rest.issues.createComment({

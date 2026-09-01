@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,7 @@ MAX_ISSUE_ROWS = 50
 OWNERSHIP_MARKER_PREFIX = "vllm-ci-dashboard:managed-alert:ci-area-regression"
 ISSUE_BODY_SCHEMA_VERSION = 3
 SIGNAL_FINGERPRINT_VERSION = 2
+AREA_RETIREMENT_STREAK_REQUIRED = 3
 GITHUB_LOGIN_RE = re.compile(
     r"(?=.{1,39}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\Z"
 )
@@ -165,6 +167,35 @@ def _source_validation_error(
     return ""
 
 
+def _complete_current_area_keys(status: dict, config: dict) -> set[str] | None:
+    """Return current area keys only when the derived evidence is exhaustive.
+
+    Retirement is destructive state cleanup, so a partial status projection
+    must be treated differently from a valid configuration that intentionally
+    removed an area. The status builder is expected to emit every configured
+    area, including areas with zero targets.
+    """
+    if status.get("available") is not True:
+        return None
+    rows = status.get("areas")
+    configured = config.get("areas")
+    if not isinstance(rows, list) or not isinstance(configured, dict):
+        return None
+    keys: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            return None
+        area_key = str(row.get("area") or "")
+        if not area_key:
+            return None
+        keys.append(area_key)
+    current = set(keys)
+    expected = {str(area_key) for area_key in configured}
+    if len(current) != len(keys) or current != expected:
+        return None
+    return current
+
+
 def _default_state() -> dict:
     return {
         "schema_version": 1,
@@ -191,6 +222,17 @@ def _normalize_area_state(value: Any) -> dict:
         raw_value = raw.get(key)
         if isinstance(raw_value, int) and not isinstance(raw_value, bool):
             state[key] = raw_value
+    raw_retirement_streak = raw.get("retirement_streak")
+    state.pop("retirement_streak", None)
+    if (
+        isinstance(raw_retirement_streak, int)
+        and not isinstance(raw_retirement_streak, bool)
+        and raw_retirement_streak > 0
+    ):
+        state["retirement_streak"] = min(
+            raw_retirement_streak,
+            AREA_RETIREMENT_STREAK_REQUIRED,
+        )
     return state
 
 
@@ -212,7 +254,26 @@ def _read_state() -> dict:
 
 def _write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+    payload = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            temp_file.write(payload)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, path)
+        temp_path = None
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 def _md(value: Any) -> str:
@@ -657,22 +718,139 @@ def _state_with_signals(managed: dict, signals: dict[str, dict]) -> dict:
     return merged
 
 
+def _current_area_state(managed: dict, signals: dict[str, dict]) -> dict:
+    """Return current-area state with any prior retirement evidence cleared."""
+    merged = _state_with_signals(managed, signals)
+    merged.pop("retirement_streak", None)
+    return merged
+
+
 def _preserved_missing_area_states(
     prior_areas: dict[str, dict],
     current_area_keys: set[str],
     next_signals: dict[str, dict[str, dict]],
+    *,
+    complete_evidence: bool = False,
 ) -> dict[str, dict]:
-    return {
-        str(area_key): _state_with_signals(
+    preserved: dict[str, dict] = {}
+    for area_key, prior_area in prior_areas.items():
+        normalized_key = str(area_key)
+        if not isinstance(prior_area, dict) or normalized_key in current_area_keys:
+            continue
+        area_state = _state_with_signals(
             prior_area,
             next_signals.get(
-                str(area_key),
+                normalized_key,
                 (prior_area.get("signals") or {}),
             ),
         )
-        for area_key, prior_area in prior_areas.items()
-        if isinstance(prior_area, dict) and str(area_key) not in current_area_keys
-    }
+        if complete_evidence:
+            area_state["retirement_streak"] = min(
+                int(area_state.get("retirement_streak") or 0) + 1,
+                AREA_RETIREMENT_STREAK_REQUIRED,
+            )
+        preserved[normalized_key] = area_state
+    return preserved
+
+
+def _retire_area_issue(
+    area_key: str,
+    area_state: dict,
+    client: GitHubIssueClient,
+    run_url: str,
+) -> bool:
+    """Close every exact-marker-owned issue before pruning retired area state."""
+    marker = f"<!-- {OWNERSHIP_MARKER_PREFIX}:{area_key}:v1 -->"
+    tracked_number = int(((area_state.get("issue") or {}).get("number") or 0))
+    find_open_issues = getattr(client, "find_open_issues", None)
+    if not callable(find_open_issues):
+        log.warning("Cannot verify retired area %s without marker-owned issue lookup", area_key)
+        return False
+    try:
+        raw_open_numbers = find_open_issues(marker)
+    except Exception as error:
+        log.warning("Retired area %s issue lookup failed: %s", area_key, error)
+        return False
+    if not isinstance(raw_open_numbers, (list, tuple, set)):
+        log.warning("Retired area %s issue lookup returned invalid data", area_key)
+        return False
+    open_numbers: set[int] = set()
+    for number in raw_open_numbers:
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0:
+            log.warning("Retired area %s issue lookup returned an invalid number", area_key)
+            return False
+        open_numbers.add(number)
+    if tracked_number:
+        open_numbers.add(tracked_number)
+
+    for number in sorted(open_numbers):
+        try:
+            remote_state = client.issue_state(number, marker)
+        except Exception as error:
+            log.warning("Retired area %s issue #%d verification failed: %s", area_key, number, error)
+            return False
+        if remote_state == "foreign":
+            if number == tracked_number:
+                log.error(
+                    "Tracked issue #%d for retired area %s lacks its exact marker; preserving state",
+                    number,
+                    area_key,
+                )
+                return False
+            continue
+        if remote_state == "closed":
+            continue
+        if remote_state != "open":
+            log.warning(
+                "Retired area %s issue #%d state is unverified; preserving state",
+                area_key,
+                number,
+            )
+            return False
+        comment_issue = getattr(client, "comment_issue", None)
+        if callable(comment_issue):
+            try:
+                comment_issue(
+                    number,
+                    f"This CI test area was absent from {AREA_RETIREMENT_STREAK_REQUIRED} "
+                    "consecutive complete current ownership projections. Closing its "
+                    f"retired-area issue.\n\n*{run_url}*",
+                )
+            except Exception as error:
+                log.warning("Comment on retiring area issue #%d failed: %s", number, error)
+        try:
+            closed = client.close_issue(number)
+        except Exception as error:
+            log.warning("Close retiring area issue #%d failed: %s", number, error)
+            return False
+        if not closed:
+            log.warning("Close retiring area issue #%d failed; preserving state", number)
+            return False
+        log.info("Closed issue #%d for retired CI area %s", number, area_key)
+    return True
+
+
+def _prune_retired_area_states(
+    area_states: dict[str, dict],
+    client: GitHubIssueClient,
+    run_url: str,
+) -> set[str]:
+    retired: set[str] = set()
+    for area_key in sorted(list(area_states)):
+        area_state = area_states[area_key]
+        streak = int(area_state.get("retirement_streak") or 0)
+        if streak < AREA_RETIREMENT_STREAK_REQUIRED:
+            continue
+        if not _retire_area_issue(area_key, area_state, client, run_url):
+            continue
+        area_states.pop(area_key, None)
+        retired.add(area_key)
+        log.info(
+            "Pruned retired CI area %s after %d complete observations",
+            area_key,
+            streak,
+        )
+    return retired
 
 
 def _can_mutate_area(active: bool, actual_assignee: dict) -> bool:
@@ -724,14 +902,14 @@ def run() -> int:
         generated_at=observed_at,
         attribution_parity=ownership_parity,
     )
+    current_area_keys = _complete_current_area_keys(status, config)
+    if current_area_keys is None:
+        log.error("CI area evidence is incomplete; refusing issue mutations or retirement progress")
+        _mark_unavailable_status(now, "ci_area_evidence_incomplete")
+        return 0
     state = _read_state()
     prior_areas = state.get("areas") or {}
     next_signals = apply_incident_hysteresis(status, prior_areas)
-    current_area_keys = {
-        str(area.get("area") or "")
-        for area in status.get("areas") or []
-        if isinstance(area, dict)
-    }
 
     token = os.getenv("GITHUB_TOKEN", "").strip()
     if not token:
@@ -742,10 +920,11 @@ def run() -> int:
             prior_areas,
             current_area_keys,
             next_signals,
+            complete_evidence=True,
         )
         dry_run_areas.update(
             {
-                area_key: _state_with_signals(
+                area_key: _current_area_state(
                     prior_areas.get(area_key) or {},
                     signals,
                 )
@@ -767,8 +946,9 @@ def run() -> int:
         prior_areas,
         current_area_keys,
         next_signals,
+        complete_evidence=True,
     )
-    checkpoint_areas = dict(prior_areas)
+    checkpoint_areas = {**prior_areas, **next_areas}
     for area in status["areas"]:
         actual, assignment_reason = _actual_assignee(area, config, client)
         area["actual_assignee"] = actual or None
@@ -780,7 +960,7 @@ def run() -> int:
                 "No assignee could be verified for %s; refusing to open or mutate its issue",
                 area["source_file"],
             )
-            preserved = _state_with_signals(
+            preserved = _current_area_state(
                 prior_areas.get(area_key) or {},
                 next_signals.get(area_key) or {},
             )
@@ -798,7 +978,7 @@ def run() -> int:
             fingerprint=fingerprint,
             legacy_fingerprint=_legacy_fingerprint(area),
         )
-        prior_area = _state_with_signals(
+        prior_area = _current_area_state(
             prior_area,
             next_signals.get(area_key) or {},
         )
@@ -836,6 +1016,10 @@ def run() -> int:
         checkpoint_areas[area_key] = reconciled
         _attach_issue(area, reconciled, repo)
         _checkpoint_state(checkpoint_areas, observed_at)
+
+    retired_areas = _prune_retired_area_states(next_areas, client, run_url)
+    for area_key in retired_areas:
+        checkpoint_areas.pop(area_key, None)
 
     status["issue_mutations"] = "enabled"
     _checkpoint_state(next_areas, observed_at)

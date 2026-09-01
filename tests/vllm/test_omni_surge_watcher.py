@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,15 @@ class _StubbedApi:
         self.closed = []
         self.commented = []
         self.assigned = []
+        self.adopted = []
+        self.discovered = []
+        self.discovery_calls = 0
+        self.open_succeeds = True
+        self.close_succeeds = True
+        self.comment_succeeds = True
+        self.assign_succeeds = True
+        self.adopt_succeeds = True
+        self.mutations = []
         self._next = 500
         # A stub YAML where every `label:` row counts as one group.
         self._yaml_text = "\n".join([f"- label: test-{i}" for i in range(yaml_groups)])
@@ -68,6 +78,9 @@ class _StubbedApi:
         return self._yaml_text
 
     def open_issue(self, token, repo, waiting, by_queue, heuristic, snap_ts, run_url):
+        self.mutations.append(("open", waiting))
+        if not self.open_succeeds:
+            return None
         num = self._next
         self._next += 1
         owner = repo.split("/", 1)[0]
@@ -80,13 +93,40 @@ class _StubbedApi:
         return num
 
     def close(self, token, repo, number):
+        self.mutations.append(("close", number))
+        if not self.close_succeeds:
+            return False
         self.closed.append(number)
+        return True
 
     def comment(self, token, repo, number, body):
+        self.mutations.append(("comment", number))
+        if not self.comment_succeeds:
+            return False
         self.commented.append((number, body))
+        return True
 
     def assign(self, token, repo, number):
+        self.mutations.append(("assign", number))
+        if not self.assign_succeeds:
+            return False
         self.assigned.append(number)
+        return True
+
+    def list_owned(self, token, repo):
+        self.discovery_calls += 1
+        if self.discovered is None:
+            return None
+        return [dict(issue) for issue in self.discovered]
+
+    def adopt(self, token, repo, issue):
+        self.mutations.append(("adopt", issue["number"]))
+        if not self.adopt_succeeds:
+            return False
+        self.adopted.append(issue["number"])
+        issue["legacy"] = False
+        issue["body"] = f"{osw.OWNERSHIP_MARKER}\n{issue['body']}"
+        return True
 
 
 @pytest.fixture
@@ -106,9 +146,198 @@ def stub_api(monkeypatch):
     monkeypatch.setattr(osw, "_close", api.close)
     monkeypatch.setattr(osw, "_comment", api.comment)
     monkeypatch.setattr(osw, "_ensure_owner_assigned", api.assign)
+    monkeypatch.setattr(osw, "_list_owned_open_issues", api.list_owned)
+    monkeypatch.setattr(osw, "_adopt_legacy_issue", api.adopt)
     monkeypatch.setenv("GITHUB_TOKEN", "fake")
     monkeypatch.setenv("GITHUB_REPOSITORY", "AndreasKaratzas/vllm-ci-dashboard")
     return api
+
+
+def _owned_issue(number: int, *, legacy: bool = False) -> dict:
+    return {
+        "number": number,
+        "body": "legacy body" if legacy else osw.OWNERSHIP_MARKER,
+        "created_at": f"2026-04-18T{number % 24:02d}:00:00Z",
+        "legacy": legacy,
+    }
+
+
+def _legacy_raw_issue(number: int = 321, waiting: int = 40, trigger: int = 30) -> dict:
+    return {
+        "number": number,
+        "title": f"Omni CI surge: {waiting} jobs waiting (threshold {trigger})",
+        "body": (
+            "## Omni workload surge\n\n"
+            f"**{waiting}** Omni-classified jobs are waiting across AMD queues "
+            "as of `2026-04-18T10:00:00Z` — at or above the "
+            f"dynamic trigger of **{trigger}**.\n\n"
+            "GitHub assignee: AndreasKaratzas.\n\n"
+            "Auto-opened by `omni_surge_watcher.py` from "
+            "https://github.com/AndreasKaratzas/vllm-ci-dashboard/actions/runs/1. "
+            "Will auto-close once the waiting count drops to 21.\n"
+        ),
+        "labels": [
+            {"name": osw.LABEL},
+            {"name": osw.AUTOMATED_LABEL},
+            {"name": osw.WORKSTREAM_LABEL},
+        ],
+        "created_at": "2026-04-18T10:00:00Z",
+    }
+
+
+class TestIssueOwnershipAndDiscovery:
+    def test_exact_marker_line_is_authoritative(self):
+        issue = {
+            "number": 7,
+            "title": "human-edited title",
+            "body": f"intro\n{osw.OWNERSHIP_MARKER}\nmore",
+            "labels": [],
+        }
+        assert osw._owned_open_issue(issue) == {
+            "number": 7,
+            "body": issue["body"],
+            "created_at": "",
+            "legacy": False,
+        }
+
+        issue["body"] = f"quoted {osw.OWNERSHIP_MARKER} text"
+        assert osw._owned_open_issue(issue) is None
+
+    def test_pull_request_is_never_owned_even_with_marker(self):
+        issue = {
+            "number": 8,
+            "body": osw.OWNERSHIP_MARKER,
+            "pull_request": {"url": "https://example.invalid"},
+        }
+        assert osw._owned_open_issue(issue) is None
+
+    def test_legacy_adoption_requires_labels_body_and_title(self):
+        issue = _legacy_raw_issue()
+        normalized = osw._owned_open_issue(issue)
+        assert normalized is not None and normalized["legacy"] is True
+
+        for label in osw.OWNED_LABELS:
+            candidate = _legacy_raw_issue()
+            candidate["labels"] = [
+                value
+                for value in candidate["labels"]
+                if value["name"] != label
+            ]
+            assert osw._owned_open_issue(candidate) is None
+
+        candidate = _legacy_raw_issue()
+        candidate["title"] = "Omni CI surge"
+        assert osw._owned_open_issue(candidate) is None
+
+        candidate = _legacy_raw_issue()
+        candidate["body"] = candidate["body"].replace(
+            "Auto-opened by `omni_surge_watcher.py`", "Opened manually"
+        )
+        assert osw._owned_open_issue(candidate) is None
+
+        candidate = _legacy_raw_issue()
+        candidate["body"] = candidate["body"].replace("**40**", "**41**")
+        assert osw._owned_open_issue(candidate) is None
+
+    def test_discovery_reads_every_page_before_returning(self, monkeypatch):
+        first_page = [
+            {"number": number, "title": "foreign", "body": "", "labels": []}
+            for number in range(1, 100)
+        ]
+        first_page.append(_legacy_raw_issue(number=100))
+        second_page = [
+            {
+                "number": 101,
+                "title": "edited",
+                "body": osw.OWNERSHIP_MARKER,
+                "labels": [],
+            }
+        ]
+        pages = []
+
+        class Response:
+            status_code = 200
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        def get(url, *, headers, params, timeout):
+            pages.append(params["page"])
+            return Response(first_page if params["page"] == 1 else second_page)
+
+        monkeypatch.setattr(osw.requests, "get", get)
+
+        discovered = osw._list_owned_open_issues("token", osw.DASHBOARD_REPO)
+
+        assert pages == [1, 2]
+        assert [issue["number"] for issue in discovered] == [100, 101]
+        assert [issue["legacy"] for issue in discovered] == [True, False]
+
+    def test_new_issue_carries_exact_marker_and_managed_labels(self, monkeypatch):
+        captured = {}
+
+        class Response:
+            status_code = 201
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"number": 910}
+
+        def post(url, *, headers, json, timeout):
+            captured.update(json)
+            return Response()
+
+        monkeypatch.setattr(osw.requests, "post", post)
+        heuristic = {
+            "trigger": 30,
+            "healthy": 21,
+            "total_groups": 10,
+            "dynamic_component": 13,
+            "pool_distribution": {"amd": 10},
+        }
+
+        number = osw._open_issue(
+            "token",
+            osw.DASHBOARD_REPO,
+            40,
+            {"amd_mi300_1": 40},
+            heuristic,
+            "2026-04-18T10:00:00Z",
+            "https://example.invalid/run",
+        )
+
+        assert number == 910
+        assert captured["body"].splitlines()[0] == osw.OWNERSHIP_MARKER
+        assert set(captured["labels"]) == set(osw.OWNED_LABELS)
+
+    def test_watcher_has_no_buildkite_api_surface(self):
+        source = Path(osw.__file__).read_text(encoding="utf-8")
+        assert "api.buildkite.com" not in source
+        assert "BUILDKITE_TOKEN" not in source
+        assert "BUILDKITE_API_TOKEN" not in source
+
+
+class TestAtomicState:
+    def test_replace_failure_preserves_prior_state_and_cleans_temp(
+        self, isolated_paths, monkeypatch
+    ):
+        _, state, _ = isolated_paths
+        original = b'{"open": 77, "last_value": 40}\n'
+        state.write_bytes(original)
+
+        def fail_replace(source, destination):
+            raise OSError("replace failed")
+
+        monkeypatch.setattr(os, "replace", fail_replace)
+        with pytest.raises(OSError, match="replace failed"):
+            osw._write_state({"open": None, "last_value": 0})
+
+        assert state.read_bytes() == original
+        assert list(state.parent.glob(f".{state.name}.*.tmp")) == []
 
 
 class TestThreshold:
@@ -280,6 +509,8 @@ class TestRun:
     def test_no_reopen_when_already_tracked(self, isolated_paths, stub_api):
         snaps, state, _ = isolated_paths
         state.write_text(json.dumps({"open": 999, "last_value": 50}))
+        stub_api.discovered = [_owned_issue(999)]
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
         _write_snapshot(snaps, {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}})
         rc = osw.run()
         assert rc == 0
@@ -288,6 +519,7 @@ class TestRun:
     def test_closes_when_waiting_drops_to_healthy(self, isolated_paths, stub_api):
         snaps, state, _ = isolated_paths
         state.write_text(json.dumps({"open": 999, "last_value": 50}))
+        stub_api.discovered = [_owned_issue(999)]
         # Healthy threshold for floor-trigger of 30 is floor(30*0.7)=21 → 10 is <= healthy.
         _write_snapshot(snaps, {"amd_mi250_1": {"waiting_by_workload": {"omni": 10}}})
         stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(5))
@@ -302,6 +534,7 @@ class TestRun:
     def test_hysteresis_keeps_issue_open_between_thresholds(self, isolated_paths, stub_api):
         snaps, state, _ = isolated_paths
         state.write_text(json.dumps({"open": 999, "last_value": 25}))
+        stub_api.discovered = [_owned_issue(999)]
         # 25 is below trigger(30) but above healthy(21) — don't close.
         _write_snapshot(snaps, {"amd_mi250_1": {"waiting_by_workload": {"omni": 25}}})
         stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(5))
@@ -312,6 +545,166 @@ class TestRun:
         assert stub_api.opened == []  # already tracked anyway
         # last_value is refreshed so the dashboard reflects the current reading.
         assert json.loads(state.read_text())["last_value"] == 25
+
+    def test_recovers_lost_state_from_owned_issue(self, isolated_paths, stub_api):
+        snapshots, state, _ = isolated_paths
+        stub_api.discovered = [_owned_issue(740)]
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 0
+
+        assert stub_api.discovery_calls == 1
+        assert stub_api.opened == []
+        assert stub_api.assigned == [740]
+        assert json.loads(state.read_text())["open"] == 740
+
+    def test_adopts_strict_legacy_issue_before_recording_it(
+        self, isolated_paths, stub_api
+    ):
+        snapshots, state, _ = isolated_paths
+        stub_api.discovered = [_owned_issue(741, legacy=True)]
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 0
+
+        assert stub_api.adopted == [741]
+        assert stub_api.assigned == [741]
+        assert stub_api.mutations.index(("adopt", 741)) < stub_api.mutations.index(
+            ("assign", 741)
+        )
+        assert json.loads(state.read_text())["open"] == 741
+
+    def test_deduplicates_after_full_recovery_before_lifecycle_mutation(
+        self, isolated_paths, stub_api
+    ):
+        snapshots, state, _ = isolated_paths
+        stub_api.discovered = [_owned_issue(80), _owned_issue(81)]
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 0
+
+        assert stub_api.commented[0][0] == 81
+        assert stub_api.closed == [81]
+        assert stub_api.mutations.index(("close", 81)) < stub_api.mutations.index(
+            ("assign", 80)
+        )
+        assert stub_api.opened == []
+        assert json.loads(state.read_text())["open"] == 80
+
+    def test_discovery_failure_is_fail_closed_and_preserves_state(
+        self, isolated_paths, stub_api
+    ):
+        snapshots, state, _ = isolated_paths
+        original = b'{"open": 77, "last_value": 12}\n'
+        state.write_bytes(original)
+        stub_api.discovered = None
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 1
+
+        assert state.read_bytes() == original
+        assert stub_api.mutations == []
+
+    def test_open_failure_does_not_advance_ledger(self, isolated_paths, stub_api):
+        snapshots, state, _ = isolated_paths
+        stub_api.open_succeeds = False
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 1
+
+        assert not state.exists()
+        assert stub_api.mutations == [("open", 50)]
+
+    def test_close_failure_keeps_open_ledger(self, isolated_paths, stub_api):
+        snapshots, state, _ = isolated_paths
+        original = b'{"open": 999, "last_value": 50}\n'
+        state.write_bytes(original)
+        stub_api.discovered = [_owned_issue(999)]
+        stub_api.close_succeeds = False
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 10}}},
+        )
+
+        assert osw.run() == 1
+
+        assert state.read_bytes() == original
+        assert stub_api.commented[0][0] == 999
+        assert stub_api.closed == []
+
+    def test_comment_failure_prevents_close_and_ledger_change(
+        self, isolated_paths, stub_api
+    ):
+        snapshots, state, _ = isolated_paths
+        original = b'{"open": 999, "last_value": 50}\n'
+        state.write_bytes(original)
+        stub_api.discovered = [_owned_issue(999)]
+        stub_api.comment_succeeds = False
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 10}}},
+        )
+
+        assert osw.run() == 1
+
+        assert state.read_bytes() == original
+        assert stub_api.closed == []
+
+    def test_recovery_assignment_failure_does_not_adopt_local_state(
+        self, isolated_paths, stub_api
+    ):
+        snapshots, state, _ = isolated_paths
+        stub_api.discovered = [_owned_issue(444)]
+        stub_api.assign_succeeds = False
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 1
+
+        assert not state.exists()
+        assert stub_api.opened == []
+
+    def test_duplicate_close_failure_preserves_prior_ledger(
+        self, isolated_paths, stub_api
+    ):
+        snapshots, state, _ = isolated_paths
+        original = b'{"open": 80, "last_value": 50}\n'
+        state.write_bytes(original)
+        stub_api.discovered = [_owned_issue(80), _owned_issue(81)]
+        stub_api.close_succeeds = False
+        stub_api._yaml_text = "\n".join(f"- label: t{i}" for i in range(10))
+        _write_snapshot(
+            snapshots,
+            {"amd_mi250_1": {"waiting_by_workload": {"omni": 50}}},
+        )
+
+        assert osw.run() == 1
+
+        assert state.read_bytes() == original
+        assert stub_api.assigned == []
 
     def test_no_snapshot_returns_early(self, isolated_paths, stub_api):
         # No snapshot file → nothing to do, graceful exit.

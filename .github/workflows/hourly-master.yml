@@ -1032,40 +1032,33 @@ jobs:
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
       # Perf-eval nightlies run once a day, so this data does NOT need the
-      # hourly cadence. Every run merges the live event store from gh-pages
-      # with main, then rebuilds the derived JSON locally so compacted history
-      # cannot lose to a line-count comparison or regress generated_at. The
+      # hourly cadence. Every run strictly validates and bounds the private
+      # event store from the immutable main checkout, then rebuilds the derived
+      # JSON locally so compacted history cannot regress generated_at. The
       # artifact regeneration itself is gated to a few times a day (every 8h)
       # or on demand when a perf-eval build finishes. Skipped on a one-time
       # reset so the old (seed) log is NOT pulled back in — the backfill step
       # below rebuilds it from scratch.
-      - name: Sync perf-eval data from gh-pages
+      - name: Validate private perf-eval event store
         if: >-
           inputs.dns_generation == '' &&
           github.event.inputs.reset_perf_eval != 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_perf_eval_seed() {
+          validate_perf_eval_seed() {
             mkdir -p data/vllm/perf_eval || return $?
-            REMOTE_EVENTS="$RUNNER_TEMP/perf-eval-gh-pages-events.jsonl"
-            git fetch origin \
-              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-              --depth=1 || return $?
-            git rev-parse --verify --quiet origin/gh-pages >/dev/null || return $?
-            git show origin/gh-pages:data/vllm/perf_eval/events.jsonl \
-              > "$REMOTE_EVENTS" || return $?
             python scripts/vllm/merge_perf_eval_events.py \
-              --local data/vllm/perf_eval/events.jsonl \
-              --remote "$REMOTE_EVENTS" || return $?
+              --local data/vllm/perf_eval/events.jsonl || return $?
             python scripts/vllm/collect_perf_eval.py \
               --store data/vllm/perf_eval/events.jsonl \
               --output data/vllm/perf_eval/perf_eval.json || return $?
           }
-          run_surface_collector perf_eval "perf-eval seed" sync_perf_eval_seed
+          run_surface_collector perf_eval "perf-eval seed" validate_perf_eval_seed
 
       # One-time cutover: wipe the durable event log so the backfill below
       # replaces any seed/synthetic data with real Buildkite results. The
-      # subsequent commit + full-site deploy overwrites the gh-pages copy.
+      # subsequent commit persists the private store on main; only the rebuilt
+      # derived payload is included in the full-site deployment.
       - name: Reset perf-eval event log (one-time backfill)
         if: >-
           inputs.dns_generation == '' &&
@@ -1585,6 +1578,11 @@ jobs:
             # Operations/Markdown output. Rebuild and re-audit on every retry so
             # the commit that is pushed—not merely the pre-race candidate—is the
             # snapshot that passed validation.
+            python scripts/vllm/merge_perf_eval_events.py \
+              --local data/vllm/perf_eval/events.jsonl
+            python scripts/vllm/collect_perf_eval.py \
+              --store data/vllm/perf_eval/events.jsonl \
+              --output data/vllm/perf_eval/perf_eval.json
             python scripts/vllm/build_operations_snapshot.py \
               --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
             python scripts/render.py
@@ -2301,12 +2299,14 @@ jobs:
 
             const allIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
-              labels: 'ci-failure', state: 'all', per_page: 100,
+              state: 'all', per_page: 100,
             });
+            const hasExactMarker = (body, marker) =>
+              String(body || '').split(/\r?\n/).includes(marker);
             const ownedIssues = allIssues.filter(issue => {
               if (issue.pull_request) return false;
               const issueBody = issue.body || '';
-              return issueBody.includes(ownershipMarker) ||
+              return hasExactMarker(issueBody, ownershipMarker) ||
                 issueBody.includes(legacySignature);
             });
             const newestFirst = (left, right) =>
@@ -2416,6 +2416,12 @@ jobs:
               return;
             }
             if (existing) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
+              });
               const incidentTransition = classifyFailureTransition(
                 existing.body || '', existing.state, fingerprintMarker,
               );
@@ -2541,12 +2547,15 @@ jobs:
             const requiredRecoveryRuns = 6;
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
-              labels: 'ci-failure', state: 'all', per_page: 100,
+              state: 'all', per_page: 100,
             });
+            const hasExactMarker = (body, marker) =>
+              String(body || '').split(/\r?\n/).includes(marker);
             const ownedIssues = issues.filter(issue => {
               if (issue.pull_request) return false;
               const body = issue.body || '';
-              return body.includes(ownershipMarker) || body.includes(legacySignature);
+              return hasExactMarker(body, ownershipMarker) ||
+                body.includes(legacySignature);
             });
             const newestFirst = (left, right) =>
               Date.parse(right.updated_at || right.created_at || 0) -
@@ -2569,6 +2578,12 @@ jobs:
               console.log('No current hourly incident needs recovery tracking.');
               return;
             }
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: currentIssue.number,
+              labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
+            });
 
             const supersedeOtherIssues = async canonicalNumber => {
               for (const issue of ownedIssues) {
