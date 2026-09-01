@@ -100,6 +100,20 @@ REST_PAGE_SAFETY_CAP = 100
 MAX_COMPRESSED_LEDGER_BYTES = 16 * 1024 * 1024
 MAX_COMPRESSED_SEGMENT_BYTES = MAX_COMPRESSED_LEDGER_BYTES
 MAX_UNCOMPRESSED_LEDGER_BYTES = 512 * 1024 * 1024
+# One deployment briefly published the immediately preceding daily-only
+# ledger schema with a 90 MiB declaration, although its actual writer ceiling
+# was first reduced to 85 MiB.  Migration may recognize those two frozen
+# declarations, but neither declaration is trusted as a read allowance: old
+# bytes are admitted only inside the exact 85 MiB aggregate / 32 MiB segment
+# envelope and are immediately rewritten under the current contract.
+LEGACY_MIGRATION_MAX_COMPRESSED_LEDGER_BYTES = 85 * 1024 * 1024
+LEGACY_MIGRATION_MAX_COMPRESSED_SEGMENT_BYTES = 32 * 1024 * 1024
+LEGACY_MIGRATION_DECLARED_TOTAL_BYTES = frozenset(
+    {
+        LEGACY_MIGRATION_MAX_COMPRESSED_LEDGER_BYTES,
+        90 * 1024 * 1024,
+    }
+)
 MAX_SUMMARY_BYTES = writer_max_bytes("queue_lifecycle_summary")
 CHECKPOINT_SCHEMA_VERSION = 1
 CHECKPOINT_PRODUCER = "vllm_queue_lifecycle_wip"
@@ -386,6 +400,67 @@ def _ledger_manifest_complete(ledger: object) -> bool:
         retention,
         job_observations=ledger["job_observations"],
     )
+
+
+_LEGACY_MIGRATION_LEDGER_FIELDS = frozenset(
+    {
+        "format",
+        "generation_sha256",
+        "job_observations",
+        "max_segment_bytes",
+        "max_total_bytes",
+        "segment_count",
+        "segments",
+        "total_compressed_bytes",
+        "total_uncompressed_bytes",
+    }
+)
+
+
+def _remote_ledger_read_contract(ledger: dict | None) -> tuple[int, int, bool]:
+    """Return bounded remote read limits and whether a one-hop migration applies.
+
+    Remote generations without a manifest use only the current limits.  A
+    manifest-bound generation must be either the current adaptive schema or
+    the exact immediately preceding daily-only schema.  In particular, old
+    self-declared maxima never raise the amount of data this process will
+    read.
+    """
+    if ledger is None:
+        return MAX_COMPRESSED_SEGMENT_BYTES, MAX_COMPRESSED_LEDGER_BYTES, False
+    if not _ledger_manifest_complete(ledger):
+        raise RuntimeError("lifecycle ledger manifest is incomplete")
+
+    segments = ledger["segments"]
+    legacy = (
+        set(ledger) == _LEGACY_MIGRATION_LEDGER_FIELDS
+        and all(".part-" not in name for name in segments)
+        and ledger.get("max_segment_bytes")
+        == LEGACY_MIGRATION_MAX_COMPRESSED_SEGMENT_BYTES
+        and ledger.get("max_total_bytes")
+        in LEGACY_MIGRATION_DECLARED_TOTAL_BYTES
+    )
+    if legacy:
+        max_segment = LEGACY_MIGRATION_MAX_COMPRESSED_SEGMENT_BYTES
+        max_total = LEGACY_MIGRATION_MAX_COMPRESSED_LEDGER_BYTES
+    else:
+        if (
+            ledger.get("segment_naming") != SEGMENT_NAMING
+            or ledger.get("partitioning") != SEGMENT_PARTITIONING
+            or ledger.get("max_segment_bytes") != MAX_COMPRESSED_SEGMENT_BYTES
+            or ledger.get("max_total_bytes") != MAX_COMPRESSED_LEDGER_BYTES
+        ):
+            raise RuntimeError("lifecycle ledger uses an unsupported storage contract")
+        max_segment = MAX_COMPRESSED_SEGMENT_BYTES
+        max_total = MAX_COMPRESSED_LEDGER_BYTES
+
+    if any(row["compressed_bytes"] > max_segment for row in segments.values()):
+        raise RuntimeError("lifecycle ledger manifest exceeds the per-file migration limit")
+    if ledger["total_compressed_bytes"] > max_total:
+        raise RuntimeError("lifecycle ledger manifest exceeds the total migration limit")
+    if ledger["total_uncompressed_bytes"] > MAX_UNCOMPRESSED_LEDGER_BYTES:
+        raise RuntimeError("lifecycle ledger manifest exceeds the uncompressed safety limit")
+    return max_segment, max_total, legacy
 
 
 def _utc_iso(value: datetime) -> str:
@@ -956,21 +1031,77 @@ def _decode_job_ledger_with_size(
     *,
     source: str,
     max_uncompressed: int = MAX_UNCOMPRESSED_LEDGER_BYTES,
+    max_compressed: int = MAX_COMPRESSED_SEGMENT_BYTES,
 ) -> tuple[list[dict], int]:
-    if len(compressed) > MAX_COMPRESSED_SEGMENT_BYTES:
+    if len(compressed) > max_compressed:
         raise RuntimeError(
             f"compressed queue lifecycle segment at {source} exceeds the safety limit"
         )
+    return _decode_job_ledger_stream_with_size(
+        io.BytesIO(compressed),
+        compressed_size=len(compressed),
+        source=source,
+        max_uncompressed=max_uncompressed,
+        max_compressed=max_compressed,
+    )
+
+
+def _decode_job_ledger_stream_with_size(
+    compressed_stream,
+    *,
+    compressed_size: int,
+    source: str,
+    max_uncompressed: int = MAX_UNCOMPRESSED_LEDGER_BYTES,
+    max_compressed: int = MAX_COMPRESSED_SEGMENT_BYTES,
+) -> tuple[list[dict], int]:
+    """Decode one bounded gzip stream without materializing its full text."""
+    if compressed_size < 0 or compressed_size > max_compressed:
+        raise RuntimeError(
+            f"compressed queue lifecycle segment at {source} exceeds the safety limit"
+        )
+    rows: list[dict] = []
+    by_id: dict[str, dict] = {}
+    decoded_size = 0
     try:
-        with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as archive:
-            decoded = _read_decompressed_limited(archive, max_uncompressed)
+        with gzip.GzipFile(fileobj=compressed_stream, mode="rb") as archive:
+            line_number = 0
+            while True:
+                raw_line = archive.readline(max_uncompressed - decoded_size + 1)
+                if not raw_line:
+                    break
+                decoded_size += len(raw_line)
+                if decoded_size > max_uncompressed:
+                    raise RuntimeError(
+                        "uncompressed queue lifecycle ledger exceeds the safety limit"
+                    )
+                line_number += 1
+                try:
+                    text = raw_line.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise RuntimeError(
+                        f"queue lifecycle ledger at {source} is not UTF-8"
+                    ) from exc
+                if any(marker in text for marker in ("<<<<<<<", "=======", ">>>>>>>")):
+                    raise RuntimeError(f"{source} contains merge conflict markers")
+                if not text.strip():
+                    continue
+                try:
+                    decoded = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        f"malformed {source} JSON on line {line_number}: {exc}"
+                    ) from exc
+                row = _validate_observation(decoded, line=line_number)
+                job_id = row["job_id"]
+                previous = by_id.get(job_id)
+                if previous is not None and previous != row:
+                    raise RuntimeError(f"{source} contains conflicting duplicate job {job_id}")
+                if previous is None:
+                    by_id[job_id] = row
+                    rows.append(row)
     except (gzip.BadGzipFile, EOFError, OSError) as exc:
         raise RuntimeError(f"unreadable compressed queue lifecycle ledger at {source}") from exc
-    try:
-        text = decoded.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise RuntimeError(f"queue lifecycle ledger at {source} is not UTF-8") from exc
-    return read_job_text(text, source=source), len(decoded)
+    return rows, decoded_size
 
 
 def decode_job_ledger(compressed: bytes, *, source: str) -> list[dict]:
@@ -3259,14 +3390,64 @@ def collect_lifecycle(
     return summary
 
 
+def _read_git_blob_bounded(
+    object_name: str,
+    *,
+    expected_size: int,
+    max_bytes: int,
+):
+    """Spool one Git blob under a hard byte cap and return it with its digest."""
+    spool = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
+    process = subprocess.Popen(
+        ["git", "show", object_name],
+        cwd=REPO_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        if process.stdout is None:  # pragma: no cover - guaranteed by PIPE
+            raise RuntimeError(f"could not read lifecycle segment at {object_name}")
+        while True:
+            chunk = process.stdout.read(min(1024 * 1024, max_bytes - total + 1))
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                process.kill()
+                process.wait()
+                raise RuntimeError(f"invalid lifecycle segment size at {object_name}")
+            spool.write(chunk)
+            digest.update(chunk)
+        returncode = process.wait()
+        if returncode != 0 or total != expected_size:
+            raise RuntimeError(f"could not read complete lifecycle segment at {object_name}")
+        spool.seek(0)
+        return spool, digest.hexdigest()
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        spool.close()
+        raise
+    finally:
+        if process.stdout is not None:
+            process.stdout.close()
+
+
 def _git_ref_jobs(
     git_ref: str,
     *,
     required: bool = False,
     expected_ledger: dict | None = None,
 ) -> list[dict]:
-    if expected_ledger is not None and not _ledger_manifest_complete(expected_ledger):
-        raise RuntimeError(f"lifecycle ledger manifest at {git_ref} is incomplete")
+    try:
+        max_segment_bytes, max_total_bytes, _ = _remote_ledger_read_contract(
+            expected_ledger
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(f"lifecycle ledger manifest at {git_ref} is invalid: {exc}") from exc
     ref_exists = subprocess.run(
         ["git", "cat-file", "-e", f"{git_ref}^{{commit}}"],
         cwd=REPO_ROOT,
@@ -3307,14 +3488,14 @@ def _git_ref_jobs(
     if not _segment_names_valid(names):
         raise RuntimeError(f"lifecycle segment directory at {git_ref} contains an invalid path")
     expected_segments = (expected_ledger or {}).get("segments") or {}
-    if expected_segments and set(expected_segments) != set(names):
+    if expected_ledger is not None and set(expected_segments) != set(names):
         raise RuntimeError(f"lifecycle segment manifest mismatch at {git_ref}")
 
-    rows: list[dict] = []
-    seen: set[str] = set()
-    actual_segments: dict[str, dict] = {}
+    # Resolve and bind every object size before decoding the first byte. This
+    # prevents a multi-segment legacy generation from consuming resources
+    # before its aggregate is known to fit the one-hop migration envelope.
+    segment_sizes: dict[str, int] = {}
     total_size = 0
-    total_uncompressed = 0
     for path in sorted(paths):
         name = path[len(prefix) :]
         object_name = f"{git_ref}:{path}"
@@ -3328,30 +3509,44 @@ def _git_ref_jobs(
             size = int(size_result.stdout.strip()) if size_result.returncode == 0 else -1
         except ValueError:
             size = -1
-        if size < 0 or size > MAX_COMPRESSED_SEGMENT_BYTES:
+        if size < 0 or size > max_segment_bytes:
             raise RuntimeError(f"invalid lifecycle segment size at {object_name}")
-        total_size += size
-        if total_size > MAX_COMPRESSED_LEDGER_BYTES:
-            raise RuntimeError(f"lifecycle segments at {git_ref} exceed the total safety limit")
-        result = subprocess.run(
-            ["git", "show", object_name],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0 or len(result.stdout) != size:
-            raise RuntimeError(f"could not read complete lifecycle segment at {object_name}")
-        digest = hashlib.sha256(result.stdout).hexdigest()
         expected = expected_segments.get(name) or {}
-        if expected and (
-            expected.get("sha256") != digest or expected.get("compressed_bytes") != size
-        ):
+        if expected and expected.get("compressed_bytes") != size:
             raise RuntimeError(f"lifecycle segment generation mismatch at {object_name}")
-        segment_rows, uncompressed_size = _decode_job_ledger_with_size(
-            result.stdout,
-            source=object_name,
-            max_uncompressed=MAX_UNCOMPRESSED_LEDGER_BYTES - total_uncompressed,
+        total_size += size
+        if total_size > max_total_bytes:
+            raise RuntimeError(f"lifecycle segments at {git_ref} exceed the total safety limit")
+        segment_sizes[name] = size
+    if expected_ledger and expected_ledger.get("total_compressed_bytes") != total_size:
+        raise RuntimeError(f"lifecycle segment volume manifest mismatch at {git_ref}")
+
+    rows: list[dict] = []
+    seen: set[str] = set()
+    actual_segments: dict[str, dict] = {}
+    total_uncompressed = 0
+    for path in sorted(paths):
+        name = path[len(prefix) :]
+        object_name = f"{git_ref}:{path}"
+        size = segment_sizes[name]
+        compressed_stream, digest = _read_git_blob_bounded(
+            object_name,
+            expected_size=size,
+            max_bytes=max_segment_bytes,
         )
+        try:
+            expected = expected_segments.get(name) or {}
+            if expected and expected.get("sha256") != digest:
+                raise RuntimeError(f"lifecycle segment generation mismatch at {object_name}")
+            segment_rows, uncompressed_size = _decode_job_ledger_stream_with_size(
+                compressed_stream,
+                compressed_size=size,
+                source=object_name,
+                max_uncompressed=MAX_UNCOMPRESSED_LEDGER_BYTES - total_uncompressed,
+                max_compressed=max_segment_bytes,
+            )
+        finally:
+            compressed_stream.close()
         total_uncompressed += uncompressed_size
         for row in segment_rows:
             if row["job_id"] in seen:
@@ -3497,6 +3692,22 @@ def restore_exact_job_ledger(
         raise RuntimeError(
             f"established lifecycle ref {git_ref} lacks a complete summary-bound ledger manifest"
         )
+    try:
+        _, _, legacy_migration = _remote_ledger_read_contract(remote_ledger)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"established lifecycle ref {git_ref} uses an unsupported ledger contract: {exc}"
+        ) from exc
+    migration_requires_rewrite = bool(
+        legacy_migration
+        and (
+            remote_ledger["total_compressed_bytes"] > MAX_COMPRESSED_LEDGER_BYTES
+            or any(
+                segment["compressed_bytes"] > MAX_COMPRESSED_SEGMENT_BYTES
+                for segment in remote_ledger["segments"].values()
+            )
+        )
+    )
     current = _provenance_datetime(remote_provenance.get("last_successful_query_end"))
     if current is None:
         raise RuntimeError(f"established lifecycle ref {git_ref} has no safe query horizon")
@@ -3517,8 +3728,14 @@ def restore_exact_job_ledger(
         end_exclusive=current,
         prior_retention_scopes=[remote_ledger.get("retention") or {}],
     )
-    if ledger["generation_sha256"] != remote_ledger["generation_sha256"]:
+    if (
+        ledger["generation_sha256"] != remote_ledger["generation_sha256"]
+        and not migration_requires_rewrite
+    ):
         raise RuntimeError(f"lifecycle generation at {git_ref} changes at its bound horizon")
+    _, _, output_is_legacy = _remote_ledger_read_contract(ledger)
+    if output_is_legacy:
+        raise RuntimeError("lifecycle migration did not produce the current storage contract")
     summary = build_summary(
         retained,
         now=current,

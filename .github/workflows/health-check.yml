@@ -21,8 +21,8 @@ jobs:
   check:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    # Three critical-route probes plus one streamed reliability proof can consume
-    # 1,587 seconds at their exact retry/deadline bounds. Preserve more than five
+    # Three identity probes plus one complete canary/stream proof can consume
+    # 1,507 seconds at their exact retry/deadline bounds. Preserve more than five
     # minutes for normalization, artifact upload, and issue reconciliation.
     timeout-minutes: 35
     steps:

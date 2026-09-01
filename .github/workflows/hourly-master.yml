@@ -1120,6 +1120,16 @@ jobs:
             exit 1
           fi
 
+      - name: Rebuild targeted queue projections with current code
+        if: inputs.dns_generation == '' && inputs.queue_generation != ''
+        run: |
+          set -euo pipefail
+          # The durable branch may have been produced by an older queue schema.
+          # Its two source files remain authoritative; regenerate both derived
+          # browser projections locally so a zero-request recovery can migrate
+          # them to the current bounded publication contract before auditing.
+          python scripts/vllm/build_queue_section.py --input-dir data/vllm/ci
+
       - name: Validate targeted queue candidate generation
         if: inputs.queue_generation != ''
         run: |
@@ -1196,14 +1206,14 @@ jobs:
         if: inputs.dns_generation == '' && inputs.queue_generation != ''
         run: |
           set -euo pipefail
-          # The audit above proves that all four durable files belong to one
-          # exact generation. The publication selector owns the queue source
-          # files and rebuilds both derived projections after selection. Mirror
-          # their exact baseline presence transactionally: operations_v2 is
-          # normally absent because it is gitignored, while the tracked chart
-          # is restored byte-for-byte. The baseline passed full state validation
-          # above; a successful empty ls-tree result remains distinct from any
-          # Git/object failure.
+          # The audit above proves that current-code projections can be derived
+          # from the exact durable source generation. The publication selector
+          # owns only those queue source files and rebuilds both projections
+          # after selection. Mirror their exact baseline presence transactionally:
+          # operations_v2 is normally absent because it is gitignored, while the
+          # tracked chart is restored byte-for-byte. The baseline passed full
+          # state validation above; a successful empty ls-tree result remains
+          # distinct from any Git/object failure.
           python -S scripts/vllm/restore_queue_projections.py \
             --baseline-ref "$PUBLICATION_BASELINE_REF"
 

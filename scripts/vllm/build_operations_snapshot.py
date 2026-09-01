@@ -25,6 +25,7 @@ from vllm.constants import is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_SECTION_MAX_BYTES,
+    OPERATIONS_PRODUCER_BUNDLE_VERSION,
     OperationsBundleContractError,
     validate_operations_canary_budget,
 )
@@ -11284,7 +11285,7 @@ def write_snapshot_bundle(
 
     manifest = {
         "schema_version": payload.get("schema_version"),
-        "bundle_version": 1,
+        "bundle_version": OPERATIONS_PRODUCER_BUNDLE_VERSION,
         "generated_at": payload.get("generated_at"),
         "monolith": output.name if write_monolith else None,
         "shell": _operations_shell(payload),

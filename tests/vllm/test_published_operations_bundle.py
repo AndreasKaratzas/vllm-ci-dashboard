@@ -6,12 +6,13 @@ import subprocess
 import pytest
 
 from vllm import verify_published_operations_bundle as verifier
+from vllm.operations_bundle_contract import OPERATIONS_BUNDLE_VERSION
 
 
 def _manifest():
     return {
         "schema_version": 2,
-        "bundle_version": 1,
+        "bundle_version": OPERATIONS_BUNDLE_VERSION,
         "generated_at": "2026-08-29T00:00:00Z",
         "monolith": None,
         "organization_summary": {"path": "org_summary.json", "bytes": 11},
@@ -58,6 +59,30 @@ def test_verifies_every_declared_asset_size(tmp_path):
     assert count == 3
     assert len(observed) == len(expected)
     assert set(observed) == set(expected)
+
+
+def test_verifier_accepts_immutable_legacy_bundle_during_rollout(tmp_path):
+    payload = _manifest()
+    payload["bundle_version"] = 1
+    assembled, deployed = _write_manifests(tmp_path, payload)
+    expected = {
+        "data/vllm/ci/org_summary.json": 11,
+        "data/vllm/ci/operations_v2/nightly.json": 17,
+        "data/vllm/ci/operations_v2/queue.json": 23,
+    }
+
+    assert verifier.verify_published_bundle(
+        assembled,
+        deployed,
+        git_ref="origin/gh-pages",
+        asset_info=lambda path, _local: (
+            "100644",
+            "blob",
+            expected[path],
+            "a" * 40,
+            "a" * 40,
+        ),
+    ) == len(expected)
 
 
 def test_deployed_manifest_must_exactly_match_assembled_site(tmp_path):

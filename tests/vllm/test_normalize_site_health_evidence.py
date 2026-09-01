@@ -56,7 +56,9 @@ def _healthy_report(now: datetime, *, complete_attempt: int = 1) -> dict:
             "publication_http": 200,
             "generation_http": 200,
             "manifest_http": 200,
-            "projection_mode": "verified" if complete else "critical-routes-verified",
+            "projection_mode": (
+                "verified" if complete else "manifest-identity-verified"
+            ),
             "projection_verified": complete,
             "complete_projection": complete,
             "streamed_projection_attempted": complete,
@@ -121,6 +123,9 @@ def _healthy_report(now: datetime, *, complete_attempt: int = 1) -> dict:
             "required_matching_projection_healthy": health.CONFIRMATION_QUORUM,
             "max_requests": health.MAX_CONFIRMATION_REQUESTS,
             "per_request_timeout_seconds": health.FETCH_TIMEOUT_SECONDS,
+            "canary_request_timeout_seconds": (
+                health.CANARY_FETCH_TIMEOUT_SECONDS
+            ),
             "max_transport_seconds": (
                 health.MAX_CONFIRMATION_TRANSPORT_SECONDS
             ),

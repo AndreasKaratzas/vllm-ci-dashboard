@@ -34,7 +34,7 @@ from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_STREAMED_FILE_MAX_BYTES,
     OPERATIONS_STREAMED_LARGE_SECTIONS,
     OperationsBundleContractError,
-    validate_operations_canary_budget,
+    validate_operations_canary_budget_for_bundle_version,
 )
 from vllm.publication_limits import (  # noqa: E402
     PUBLICATION_MAX_BLOB_BYTES,
@@ -55,8 +55,12 @@ PUBLICATION_MANIFEST_PATH = "publication_manifest.json"
 OPERATIONS_MANIFEST_PATH = "data/vllm/ci/operations_v2_manifest.json"
 DEFAULT_MAX_PUBLICATION_AGE_HOURS = 3.0
 FETCH_TIMEOUT_SECONDS = 10
+CANARY_FETCH_TIMEOUT_SECONDS = 20
 FETCH_ATTEMPTS = 2
-STREAM_TOTAL_TIMEOUT_SECONDS = 60
+# GitHub Pages can legitimately deliver the bounded 64 MiB reliability route
+# below 1 MiB/s. Give each of the two exact digest attempts enough wall time to
+# complete at roughly 0.4 MiB/s while retaining a hard whole-attempt deadline.
+STREAM_TOTAL_TIMEOUT_SECONDS = 150
 STREAM_ATTEMPT_MAX_SECONDS = STREAM_TOTAL_TIMEOUT_SECONDS + FETCH_TIMEOUT_SECONDS
 RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 CONFIRMATION_ATTEMPTS = 3
@@ -88,23 +92,32 @@ CRITICAL_ASSET_PATHS = (
     "assets/js/dashboard-nav.js",
     "assets/js/ops-v2.js",
 )
+CONTROL_RESOURCES_PER_PROBE = 5 + len(CRITICAL_ASSET_PATHS)
+CANARY_RESOURCES_PER_FULL_PROBE = len(OPERATIONS_CANARY_SECTIONS)
 BASE_RESOURCES_PER_PROBE = (
-    5 + len(CRITICAL_ASSET_PATHS) + len(OPERATIONS_CANARY_SECTIONS)
+    CONTROL_RESOURCES_PER_PROBE + CANARY_RESOURCES_PER_FULL_PROBE
 )
-# Every probe verifies the bounded critical routes. Exactly one probe also
-# streams each large route through its full digest, keeping the normal hourly
-# monitor to one reliability download while making that proof mandatory.
+# Every probe verifies the immutable generation, publication manifest, shell,
+# assets, and Operations manifest. Exactly one modal-generation probe also
+# parses all eager canaries and streams each large route through its full
+# digest. The other two probes bind that proof to a 2-of-3 identity quorum.
 RESOURCES_PER_PROBE = BASE_RESOURCES_PER_PROBE
 REQUESTS_PER_PROBE = RESOURCES_PER_PROBE * FETCH_ATTEMPTS
+CONTROL_REQUESTS_PER_PROBE = CONTROL_RESOURCES_PER_PROBE * FETCH_ATTEMPTS
+CANARY_REQUESTS_PER_CONFIRMATION = (
+    CANARY_RESOURCES_PER_FULL_PROBE * FETCH_ATTEMPTS
+)
 STREAMED_REQUESTS_PER_CONFIRMATION = (
     len(OPERATIONS_STREAMED_LARGE_SECTIONS) * FETCH_ATTEMPTS
 )
 MAX_CONFIRMATION_REQUESTS = (
-    CONFIRMATION_ATTEMPTS * REQUESTS_PER_PROBE
+    CONFIRMATION_ATTEMPTS * CONTROL_REQUESTS_PER_PROBE
+    + CANARY_REQUESTS_PER_CONFIRMATION
     + STREAMED_REQUESTS_PER_CONFIRMATION
 )
 MAX_CONFIRMATION_TRANSPORT_SECONDS = (
-    CONFIRMATION_ATTEMPTS * REQUESTS_PER_PROBE * FETCH_TIMEOUT_SECONDS
+    CONFIRMATION_ATTEMPTS * CONTROL_REQUESTS_PER_PROBE * FETCH_TIMEOUT_SECONDS
+    + CANARY_REQUESTS_PER_CONFIRMATION * CANARY_FETCH_TIMEOUT_SECONDS
     + STREAMED_REQUESTS_PER_CONFIRMATION * STREAM_ATTEMPT_MAX_SECONDS
 )
 MAX_CONFIRMATION_ELAPSED_SECONDS = (
@@ -336,8 +349,22 @@ def _same_origin_url(site_url: str, relative_path: str) -> str:
     return target
 
 
-def fetch_url(url: str, max_bytes: int) -> dict[str, Any]:
+def fetch_url(
+    url: str,
+    max_bytes: int,
+    *,
+    timeout_seconds: int | float | None = None,
+) -> dict[str, Any]:
     """Fetch one bounded resource with one bounded transient retry."""
+    if timeout_seconds is None:
+        timeout_seconds = FETCH_TIMEOUT_SECONDS
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, (int, float))
+        or not math.isfinite(timeout_seconds)
+        or timeout_seconds <= 0
+    ):
+        raise ValueError("fetch timeout must be a positive finite number")
     for attempt in range(FETCH_ATTEMPTS):
         request = Request(
             url,
@@ -348,9 +375,9 @@ def fetch_url(url: str, max_bytes: int) -> dict[str, Any]:
             },
         )
         try:
-            with _whole_attempt_deadline(FETCH_TIMEOUT_SECONDS):
+            with _whole_attempt_deadline(float(timeout_seconds)):
                 with build_opener(_NoRedirectHandler()).open(
-                    request, timeout=FETCH_TIMEOUT_SECONDS
+                    request, timeout=timeout_seconds
                 ) as response:
                     body = response.read(max_bytes + 1)
                     return {
@@ -403,8 +430,8 @@ def fetch_url_digest(url: str, max_bytes: int) -> dict[str, Any]:
             },
         )
         try:
-            # The outer 70-second deadline composes the existing 10-second
-            # connect/header allowance with the 60-second body-stream bound.
+            # The outer 160-second deadline composes the existing 10-second
+            # connect/header allowance with the 150-second body-stream bound.
             # It also interrupts a single buffered read that keeps receiving
             # sub-timeout trickle bytes and therefore never returns to Python.
             with _whole_attempt_deadline(STREAM_ATTEMPT_MAX_SECONDS):
@@ -913,7 +940,7 @@ def _normalize_operations_manifest(
         not isinstance(value, dict)
         or set(value) != expected
         or value.get("schema_version") != 2
-        or value.get("bundle_version") != 1
+        or type(value.get("bundle_version")) is not int
         or value.get("monolith") is not None
         or not isinstance(value.get("shell"), dict)
     ):
@@ -1049,7 +1076,8 @@ def _normalize_operations_manifest(
     }
     operations_descriptor = projected_files.get(OPERATIONS_MANIFEST_PATH)
     try:
-        validate_operations_canary_budget(
+        validate_operations_canary_budget_for_bundle_version(
+            bundle_version=value.get("bundle_version"),
             manifest_bytes=(
                 operations_descriptor.get("bytes")
                 if isinstance(operations_descriptor, dict)
@@ -1428,6 +1456,7 @@ def check_site_health(
     stream_fetch: DigestFetch | None = None,
     cache_token: str | None = None,
     allow_legacy_metadata_absence: bool = False,
+    verify_canary_sections: bool = True,
     verify_streamed_sections: bool = True,
 ) -> dict[str, Any]:
     """Return one deterministic, bounded projection-integrity probe."""
@@ -1448,8 +1477,21 @@ def check_site_health(
         raise ValueError("cache token must be a safe bounded identifier")
     if not isinstance(allow_legacy_metadata_absence, bool):
         raise ValueError("legacy metadata policy must be boolean")
+    if not isinstance(verify_canary_sections, bool):
+        raise ValueError("canary section verification policy must be boolean")
     if not isinstance(verify_streamed_sections, bool):
         raise ValueError("streamed section verification policy must be boolean")
+    if verify_streamed_sections and not verify_canary_sections:
+        raise ValueError("streamed verification requires canary verification")
+    if fetch is fetch_url:
+        def canary_fetch(url: str, max_bytes: int) -> dict[str, Any]:
+            return fetch_url(
+                url,
+                max_bytes,
+                timeout_seconds=CANARY_FETCH_TIMEOUT_SECONDS,
+            )
+    else:
+        canary_fetch = fetch
     if stream_fetch is None:
         stream_fetch = (
             fetch_url_digest if fetch is fetch_url else _digest_fetch_adapter(fetch)
@@ -2020,9 +2062,11 @@ def check_site_health(
                     canary_path = canary_paths[canary_name]
                     canary_size = canary_sizes[canary_name]
                     canary_row["path"] = canary_path
+                    if not verify_canary_sections:
+                        continue
                     canary_url = _same_origin_url(base_url, canary_path)
                     canary_request_url = _cache_bust_token(canary_url, cache_token)
-                    canary_response = fetch(
+                    canary_response = canary_fetch(
                         canary_request_url,
                         canary_size,
                     )
@@ -2089,18 +2133,25 @@ def check_site_health(
                         }
                     )
                     verified_files.append(streamed_path)
-                complete_projection = verify_streamed_sections and all(
-                    row.get("verified") is True for row in streamed_rows
+                complete_projection = (
+                    verify_canary_sections
+                    and verify_streamed_sections
+                    and all(row.get("verified") is True for row in streamed_rows)
                 )
+                if complete_projection:
+                    projection_mode = "verified"
+                    verification_scope = "complete"
+                elif verify_canary_sections:
+                    projection_mode = "critical-routes-verified"
+                    verification_scope = "critical-routes"
+                else:
+                    projection_mode = "manifest-identity-verified"
+                    verification_scope = "manifest-identity"
                 projection.update(
                     {
-                        "mode": (
-                            "verified" if complete_projection else "critical-routes-verified"
-                        ),
+                        "mode": projection_mode,
                         "verified": complete_projection,
-                        "verification_scope": (
-                            "complete" if complete_projection else "critical-routes"
-                        ),
+                        "verification_scope": verification_scope,
                         "generation_id": marker["generation_id"],
                         "state_sha": marker["state_sha"],
                         "state_tree": marker["state_tree"],
@@ -2192,6 +2243,7 @@ def confirm_site_health(
     probes: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
     streamed_projection_attempt: int | None = None
+    full_projection_payload_attempted = False
     for attempt in range(1, CONFIRMATION_ATTEMPTS + 1):
         delay = CONFIRMATION_DELAYS_SECONDS[attempt - 1]
         if delay:
@@ -2205,11 +2257,11 @@ def confirm_site_health(
         # Bind the one full streamed proof to the middle sample. If one normal
         # deployment rolls A->B during the three-probe window, the middle is in
         # the 2-of-3 modal generation for both A,A,B and A,B,B. Probe three is
-        # the bounded fallback only when probe two failed before reaching the
-        # stream; a stream that was attempted and failed already used its exact
-        # internal request/retry allowance.
-        verify_streamed_sections = attempt == 2 or (
-            attempt == 3 and streamed_projection_attempt is None
+        # the bounded fallback only when probe two failed before requesting any
+        # application payload. A canary or stream request that was attempted
+        # already used its exact internal request/retry allowance.
+        verify_full_projection = attempt == 2 or (
+            attempt == 3 and not full_projection_payload_attempted
         )
         probe = check_site_health(
             site_url,
@@ -2219,7 +2271,8 @@ def confirm_site_health(
             stream_fetch=stream_fetch,
             cache_token=cache_token,
             allow_legacy_metadata_absence=allow_legacy_metadata_absence,
-            verify_streamed_sections=verify_streamed_sections,
+            verify_canary_sections=verify_full_projection,
+            verify_streamed_sections=verify_full_projection,
         )
         probes.append(probe)
         site = probe.get("site") if isinstance(probe.get("site"), dict) else {}
@@ -2234,6 +2287,14 @@ def confirm_site_health(
             else {}
         )
         raw_streamed_rows = projection.get("operations_streamed_sections")
+        raw_canary_rows = projection.get("operations_canaries")
+        canary_was_attempted = bool(
+            isinstance(raw_canary_rows, list)
+            and any(
+                isinstance(row, dict) and row.get("http_status") is not None
+                for row in raw_canary_rows
+            )
+        )
         stream_was_attempted = bool(
             isinstance(raw_streamed_rows, list)
             and any(
@@ -2243,6 +2304,8 @@ def confirm_site_health(
         )
         if stream_was_attempted and streamed_projection_attempt is None:
             streamed_projection_attempt = attempt
+        if canary_was_attempted or stream_was_attempted:
+            full_projection_payload_attempted = True
         raw_reasons = probe.get("reasons")
         reason_codes = []
         if isinstance(raw_reasons, list):
@@ -2393,6 +2456,7 @@ def confirm_site_health(
                 "required_matching_projection_healthy": CONFIRMATION_QUORUM,
                 "max_requests": MAX_CONFIRMATION_REQUESTS,
                 "per_request_timeout_seconds": FETCH_TIMEOUT_SECONDS,
+                "canary_request_timeout_seconds": CANARY_FETCH_TIMEOUT_SECONDS,
                 "max_transport_seconds": MAX_CONFIRMATION_TRANSPORT_SECONDS,
                 "retry_delays_seconds": list(CONFIRMATION_DELAYS_SECONDS),
                 "max_elapsed_seconds": MAX_CONFIRMATION_ELAPSED_SECONDS,
@@ -2619,6 +2683,7 @@ def _internal_error_report(site_url: str) -> dict[str, Any]:
             "required_matching_projection_healthy": CONFIRMATION_QUORUM,
             "max_requests": MAX_CONFIRMATION_REQUESTS,
             "per_request_timeout_seconds": FETCH_TIMEOUT_SECONDS,
+            "canary_request_timeout_seconds": CANARY_FETCH_TIMEOUT_SECONDS,
             "max_transport_seconds": MAX_CONFIRMATION_TRANSPORT_SECONDS,
             "retry_delays_seconds": list(CONFIRMATION_DELAYS_SECONDS),
             "max_elapsed_seconds": MAX_CONFIRMATION_ELAPSED_SECONDS,

@@ -92,7 +92,7 @@ class Fetcher:
         }
         operations_payload = {
             "schema_version": 2,
-            "bundle_version": 1,
+            "bundle_version": bundle_contract.OPERATIONS_BUNDLE_VERSION,
             "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
             "monolith": None,
             "shell": {},
@@ -907,6 +907,9 @@ def test_streamed_fetch_total_deadline_is_enforced_across_slow_chunks(monkeypatc
     monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
     monkeypatch.setattr(health.time, "monotonic", lambda: elapsed["seconds"])
 
+    monkeypatch.setattr(health, "STREAM_TOTAL_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(health, "STREAM_ATTEMPT_MAX_SECONDS", 70)
+
     result = health.fetch_url_digest(
         "https://example.test/reliability.json", 1024
     )
@@ -1158,6 +1161,14 @@ class GenerationAttemptFetcher:
             for url, _limit in fetcher.calls
         )
 
+    def canary_call_count(self, name):
+        canary_path = f"data/vllm/ci/operations_v2/{name}.json"
+        return sum(
+            urlsplit(url).path.endswith(canary_path)
+            for fetcher in self.fetchers.values()
+            for url, _limit in fetcher.calls
+        )
+
 
 @pytest.mark.parametrize("generations", [("a", "a", "b"), ("a", "b", "b")])
 def test_confirmation_streams_the_modal_generation_during_one_rollover(generations):
@@ -1180,6 +1191,7 @@ def test_confirmation_streams_the_modal_generation_during_one_rollover(generatio
         for probe in report["confirmation"]["probes"]
     ] == [False, True, False]
     assert fetcher.reliability_call_count() == 1
+    assert fetcher.canary_call_count("amd_test_health") == 1
 
 
 def test_confirmation_falls_back_to_probe_three_when_middle_cannot_stream():
@@ -1266,6 +1278,27 @@ def test_confirmation_fails_globally_when_the_single_full_reliability_stream_fai
     ) == 1
 
 
+def test_confirmation_does_not_redownload_canaries_after_bounded_failure():
+    canary_path = "data/vllm/ci/operations_v2/amd_test_health.json"
+    fetcher = Fetcher(resources={canary_path: _response(b"corrupt")})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["confirmation"]["healthy_count"] == 2
+    assert report["confirmation"]["streamed_projection_attempt"] is None
+    assert "complete-projection-required" in _codes(report)
+    assert sum(
+        urlsplit(url).path.endswith(canary_path)
+        for url, _limit in fetcher.calls
+    ) == 1
+
+
 def test_confirmation_reports_a_bounded_quorum_failure():
     report = health.confirm_site_health(
         "https://example.test/dashboard/",
@@ -1279,22 +1312,29 @@ def test_confirmation_reports_a_bounded_quorum_failure():
     assert report["confirmation"]["confirmed"] is True
     assert report["confirmation"]["healthy_count"] == 1
     assert health.REQUESTS_PER_PROBE == 48
+    assert health.CONTROL_REQUESTS_PER_PROBE == 22
+    assert health.CANARY_REQUESTS_PER_CONFIRMATION == 26
     assert health.STREAMED_REQUESTS_PER_CONFIRMATION == 2
     assert health.MAX_CONFIRMATION_REQUESTS == (
-        health.CONFIRMATION_ATTEMPTS * health.REQUESTS_PER_PROBE
+        health.CONFIRMATION_ATTEMPTS * health.CONTROL_REQUESTS_PER_PROBE
+        + health.CANARY_REQUESTS_PER_CONFIRMATION
         + health.STREAMED_REQUESTS_PER_CONFIRMATION
     )
     assert health.MAX_CONFIRMATION_TRANSPORT_SECONDS == (
         health.CONFIRMATION_ATTEMPTS
-        * health.REQUESTS_PER_PROBE
+        * health.CONTROL_REQUESTS_PER_PROBE
         * health.FETCH_TIMEOUT_SECONDS
+        + health.CANARY_REQUESTS_PER_CONFIRMATION
+        * health.CANARY_FETCH_TIMEOUT_SECONDS
         + health.STREAMED_REQUESTS_PER_CONFIRMATION
         * health.STREAM_ATTEMPT_MAX_SECONDS
     )
-    assert report["confirmation"]["max_requests"] == 146
-    assert report["confirmation"]["max_transport_seconds"] == 1580
+    assert report["confirmation"]["max_requests"] == 94
+    assert health.STREAM_TOTAL_TIMEOUT_SECONDS == 150
+    assert report["confirmation"]["canary_request_timeout_seconds"] == 20
+    assert report["confirmation"]["max_transport_seconds"] == 1500
     assert report["confirmation"]["retry_delays_seconds"] == [0.0, 2.0, 5.0]
-    assert report["confirmation"]["max_elapsed_seconds"] == 1587
+    assert report["confirmation"]["max_elapsed_seconds"] == 1507
     assert "confirmation-quorum" in _codes(report)
 
 
@@ -1463,6 +1503,44 @@ def test_operations_manifest_rejects_an_unbounded_canary_bundle():
         health._normalize_operations_manifest(operations, projection)
 
     assert exc.value.code == "operations-canary-budget"
+
+
+def test_operations_manifest_uses_declared_legacy_budget_during_rollout():
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    section_name = "comparison_retry_evidence"
+    descriptor = operations["sections"][section_name]
+    legacy_size = (
+        bundle_contract.OPERATIONS_CANARY_SECTION_MAX_BYTES[section_name] + 1
+    )
+    assert legacy_size <= bundle_contract.OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES
+    descriptor["bytes"] = legacy_size
+    projection["files"][f"data/vllm/ci/{descriptor['path']}"]["bytes"] = legacy_size
+
+    operations["bundle_version"] = bundle_contract.OPERATIONS_LEGACY_BUNDLE_VERSION
+    health._normalize_operations_manifest(operations, projection)
+
+    operations["bundle_version"] = bundle_contract.OPERATIONS_BUNDLE_VERSION
+    with pytest.raises(health._ProjectionFailure, match="canary bundle section") as exc:
+        health._normalize_operations_manifest(operations, projection)
+    assert exc.value.code == "operations-canary-budget"
+
+
+def test_operations_manifest_rejects_unknown_bundle_version():
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    operations["bundle_version"] = max(
+        bundle_contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
+    ) + 1
+
+    with pytest.raises(health._ProjectionFailure, match="unsupported bundle version"):
+        health._normalize_operations_manifest(operations, projection)
 
 
 def test_checker_accepts_a_hash_bound_canary_larger_than_two_mibibytes():

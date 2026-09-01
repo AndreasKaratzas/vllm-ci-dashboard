@@ -1050,6 +1050,9 @@ class TestHourlyMasterWorkflow:
         names = [step.get("name") for step in steps]
         guard = steps[names.index("Install deny-all queue reconciliation request guard")]
         sync = steps[names.index("Sync queue data from durable live branch")]
+        projection = steps[
+            names.index("Rebuild targeted queue projections with current code")
+        ]
         candidate = steps[names.index("Validate targeted queue candidate generation")]
         restore = steps[
             names.index("Restore baseline queue projections after targeted validation")
@@ -1063,7 +1066,11 @@ class TestHourlyMasterWorkflow:
         confirmation = steps[names.index("Confirm targeted queue reconciliation")]
 
         assert names.index(guard["name"]) < names.index(sync["name"])
-        assert names.index(sync["name"]) < names.index(candidate["name"])
+        assert (
+            names.index(sync["name"])
+            < names.index(projection["name"])
+            < names.index(candidate["name"])
+        )
         assert (
             names.index(candidate["name"])
             < names.index(restore["name"])
@@ -1096,6 +1103,13 @@ class TestHourlyMasterWorkflow:
         target_return = sync["run"].index("return 0", target_branch)
         routine_merge = sync["run"].index("--merge-history-git-ref origin/queue-data")
         assert target_branch < target_return < routine_merge
+        assert projection["if"] == (
+            "inputs.dns_generation == '' && inputs.queue_generation != ''"
+        )
+        assert projection["run"].strip().endswith(
+            "python scripts/vllm/build_queue_section.py --input-dir data/vllm/ci"
+        )
+        assert "BUILDKITE_TOKEN" not in (projection.get("env") or {})
         assert candidate["if"] == "inputs.queue_generation != ''"
         assert (
             "python scripts/vllm/audit_dashboard_data.py --queue-only"
@@ -3248,12 +3262,8 @@ class TestPublicationWatchdogWorkflow:
         assert 'github.event.workflow_run.conclusion' in route_script
         assert "scripts/vllm/check_site_health.py" in route_script
         assert "--max-publication-age-hours 3" in route_script
-        assert 'report.get("overall_status") == "confirmed_unhealthy"' in (
-            route_script
-        )
-        assert 'confirmation.get("strategy") == "2-of-3-quorum"' in route_script
-        assert 'confirmation.get("attempted") == 3' in route_script
-        assert 'confirmation.get("required_healthy") == 2' in route_script
+        assert "validate_watchdog_health_report.py" in route_script
+        assert '--input "$HEALTH_REPORT"' in route_script
         assert "refusing speculative deployment" in route_script
         assert route_script.index("public_projection.py verify-git") < (
             route_script.index("scripts/vllm/check_site_health.py")

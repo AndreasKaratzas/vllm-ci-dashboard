@@ -5510,7 +5510,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     manifest = ops.write_snapshot_bundle(output, payload)
 
     assert json.loads(output.read_text()) == payload
-    assert manifest["bundle_version"] == 1
+    assert manifest["bundle_version"] == ops.OPERATIONS_PRODUCER_BUNDLE_VERSION
     assert manifest["generated_at"] == GENERATED_AT
     assert set(manifest["sections"]) == {
         "nightly",

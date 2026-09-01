@@ -36,6 +36,15 @@ OPERATIONS_STREAMED_LARGE_SECTIONS = ("reliability",)
 # Compatibility spelling used by health/audit tests and downstream consumers.
 OPERATIONS_UNFETCHED_LARGE_SECTIONS = frozenset(OPERATIONS_STREAMED_LARGE_SECTIONS)
 OPERATIONS_STREAMED_FILE_MAX_BYTES = 64 * 1024 * 1024
+OPERATIONS_BUNDLE_VERSION = 2
+OPERATIONS_LEGACY_BUNDLE_VERSION = 1
+# Producer activation is intentionally separate from reader support. Bundle
+# upgrades ship in two phases: readers first, then this single writer selector
+# after every prior-version health/watchdog run has drained.
+OPERATIONS_PRODUCER_BUNDLE_VERSION = OPERATIONS_LEGACY_BUNDLE_VERSION
+OPERATIONS_SUPPORTED_BUNDLE_VERSIONS = frozenset(
+    (OPERATIONS_LEGACY_BUNDLE_VERSION, OPERATIONS_BUNDLE_VERSION)
+)
 OPERATIONS_CANARY_SECTIONS = tuple(
     name
     for name in OPERATIONS_SECTION_NAMES
@@ -65,6 +74,14 @@ OPERATIONS_CANARY_SECTION_MAX_BYTES = {
     "omni": 1 * 1024 * 1024,
     "diagnostics": 256 * 1024,
 }
+
+# Version 1 predates the exact additive per-section allocations above. Its
+# immutable manifests remain safe to probe when every eager section fits the
+# bounded legacy per-file ceiling and their composed response set fits the
+# current 32 MiB envelope. This prevents a producer upgrade from retroactively
+# invalidating the last-known-good deployed generation during a rollout.
+OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES = OPERATIONS_CANARY_FILE_MAX_BYTES
+OPERATIONS_LEGACY_CANARY_BUNDLE_MAX_BYTES = OPERATIONS_CANARY_BUNDLE_MAX_BYTES
 
 
 class OperationsBundleContractError(ValueError):
@@ -112,5 +129,62 @@ def validate_operations_canary_budget(
         raise OperationsBundleContractError(
             "Operations canary bundle is "
             f"{total} bytes; limit is {OPERATIONS_CANARY_BUNDLE_MAX_BYTES} bytes"
+        )
+    return total
+
+
+def validate_operations_canary_budget_for_bundle_version(
+    *,
+    bundle_version: object,
+    manifest_bytes: int,
+    section_bytes: Mapping[str, object],
+) -> int:
+    """Validate one immutable bundle using the contract it declares."""
+    if (
+        type(bundle_version) is not int
+        or bundle_version not in OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
+    ):
+        raise OperationsBundleContractError(
+            "Operations bundle declares an unsupported bundle version"
+        )
+    if bundle_version == OPERATIONS_BUNDLE_VERSION:
+        return validate_operations_canary_budget(
+            manifest_bytes=manifest_bytes,
+            section_bytes=section_bytes,
+        )
+
+    if type(manifest_bytes) is not int or not 0 < manifest_bytes <= (
+        OPERATIONS_MANIFEST_MAX_BYTES
+    ):
+        raise OperationsBundleContractError(
+            "Operations manifest exceeds its bounded read budget"
+        )
+    if set(section_bytes) != set(OPERATIONS_SECTION_NAMES):
+        raise OperationsBundleContractError(
+            "Operations bundle does not declare the exact supported section inventory"
+        )
+
+    total = manifest_bytes
+    for name in OPERATIONS_CANARY_SECTIONS:
+        size = section_bytes.get(name)
+        if type(size) is not int or not 0 < size <= (
+            OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES
+        ):
+            raise OperationsBundleContractError(
+                "Legacy Operations canary bundle section "
+                f"{name!r} has an invalid byte size"
+            )
+        total += size
+    for name in OPERATIONS_STREAMED_LARGE_SECTIONS:
+        size = section_bytes.get(name)
+        if type(size) is not int or not 0 < size <= OPERATIONS_STREAMED_FILE_MAX_BYTES:
+            raise OperationsBundleContractError(
+                f"Operations streamed section {name!r} has an invalid byte size"
+            )
+    if total > OPERATIONS_LEGACY_CANARY_BUNDLE_MAX_BYTES:
+        raise OperationsBundleContractError(
+            "Legacy Operations canary bundle is "
+            f"{total} bytes; limit is "
+            f"{OPERATIONS_LEGACY_CANARY_BUNDLE_MAX_BYTES} bytes"
         )
     return total

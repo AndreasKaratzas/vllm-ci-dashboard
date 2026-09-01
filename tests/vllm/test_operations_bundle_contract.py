@@ -24,6 +24,12 @@ def _section_sizes(*, total: int) -> dict[str, int]:
 
 
 def test_probe_policy_covers_every_declared_section_and_streams_reliability():
+    assert contract.OPERATIONS_BUNDLE_VERSION == 2
+    assert (
+        contract.OPERATIONS_PRODUCER_BUNDLE_VERSION
+        in contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
+    )
+    assert contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS == {1, 2}
     assert contract.OPERATIONS_STREAMED_LARGE_SECTIONS == ("reliability",)
     assert (
         set(contract.OPERATIONS_SECTION_NAMES)
@@ -98,6 +104,42 @@ def test_canary_budget_rejects_one_byte_over_the_boundary():
         contract.validate_operations_canary_budget(
             manifest_bytes=manifest_bytes,
             section_bytes=section_bytes,
+        )
+
+
+def test_legacy_bundle_keeps_bounded_rollout_compatibility():
+    section_bytes = _section_sizes(total=len(contract.OPERATIONS_CANARY_SECTIONS))
+    section_bytes["comparison_retry_evidence"] = (
+        contract.OPERATIONS_CANARY_SECTION_MAX_BYTES[
+            "comparison_retry_evidence"
+        ]
+        + 1
+    )
+
+    with pytest.raises(contract.OperationsBundleContractError):
+        contract.validate_operations_canary_budget(
+            manifest_bytes=1,
+            section_bytes=section_bytes,
+        )
+    assert contract.validate_operations_canary_budget_for_bundle_version(
+        bundle_version=contract.OPERATIONS_LEGACY_BUNDLE_VERSION,
+        manifest_bytes=1,
+        section_bytes=section_bytes,
+    ) > 0
+
+
+@pytest.mark.parametrize("bundle_version", [True, 0, 3, "2"])
+def test_bundle_version_dispatch_rejects_unknown_versions(bundle_version):
+    with pytest.raises(
+        contract.OperationsBundleContractError,
+        match="unsupported bundle version",
+    ):
+        contract.validate_operations_canary_budget_for_bundle_version(
+            bundle_version=bundle_version,
+            manifest_bytes=1,
+            section_bytes=_section_sizes(
+                total=len(contract.OPERATIONS_CANARY_SECTIONS)
+            ),
         )
 
 

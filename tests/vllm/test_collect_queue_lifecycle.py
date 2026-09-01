@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -25,6 +26,12 @@ def test_retained_ledger_budget_stays_below_repository_sync_ceiling() -> None:
     assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES == 16 * 1024 * 1024
     assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES < 90_000_000
     assert lifecycle.MAX_COMPRESSED_SEGMENT_BYTES <= lifecycle.MAX_COMPRESSED_LEDGER_BYTES
+    assert lifecycle.LEGACY_MIGRATION_MAX_COMPRESSED_LEDGER_BYTES == 85 * 1024 * 1024
+    assert lifecycle.LEGACY_MIGRATION_MAX_COMPRESSED_SEGMENT_BYTES == 32 * 1024 * 1024
+    assert lifecycle.LEGACY_MIGRATION_DECLARED_TOTAL_BYTES == {
+        85 * 1024 * 1024,
+        90 * 1024 * 1024,
+    }
     assert lifecycle.MAX_SUMMARY_BYTES == writer_max_bytes("queue_lifecycle_summary")
 
 
@@ -136,6 +143,53 @@ def _write_previous_generation(
             }
         )
     )
+
+
+def _legacy_migration_ledger(ledger: dict, *, declared_total_mib: int = 90) -> dict:
+    legacy = json.loads(json.dumps(ledger))
+    legacy.pop("retention", None)
+    legacy.pop("segment_naming", None)
+    legacy.pop("partitioning", None)
+    legacy["max_segment_bytes"] = 32 * 1024 * 1024
+    legacy["max_total_bytes"] = declared_total_mib * 1024 * 1024
+    return legacy
+
+
+def _mock_remote_segments(monkeypatch, payloads: dict[str, bytes]) -> list[str]:
+    ref = "origin/queue-lifecycle-data"
+    object_payloads = {
+        f"{ref}:{lifecycle.JOBS_REPO_PATH}/{name}": payload
+        for name, payload in payloads.items()
+    }
+    blob_reads: list[str] = []
+
+    def run(args, **kwargs):
+        if args[1:3] == ["cat-file", "-e"]:
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        if args[1] == "ls-tree":
+            listing = "".join(
+                f"{lifecycle.JOBS_REPO_PATH}/{name}\n" for name in sorted(payloads)
+            )
+            return SimpleNamespace(returncode=0, stdout=listing.encode(), stderr=b"")
+        if args[1:3] == ["cat-file", "-s"]:
+            payload = object_payloads[args[-1]]
+            return SimpleNamespace(
+                returncode=0,
+                stdout=f"{len(payload)}\n".encode(),
+                stderr=b"",
+            )
+        raise AssertionError(args)
+
+    def read_blob(object_name, *, expected_size, max_bytes):
+        payload = object_payloads[object_name]
+        assert len(payload) == expected_size
+        assert len(payload) <= max_bytes
+        blob_reads.append(object_name)
+        return io.BytesIO(payload), hashlib.sha256(payload).hexdigest()
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", run)
+    monkeypatch.setattr(lifecycle, "_read_git_blob_bounded", read_blob)
+    return blob_reads
 
 
 def test_canonical_scope_is_only_requested_families_and_widths():
@@ -1278,11 +1332,125 @@ def test_git_ref_absence_is_noop_but_unreadable_established_ledger_fails(monkeyp
             return SimpleNamespace(returncode=0, stdout=path.encode(), stderr=b"")
         if args[1:3] == ["cat-file", "-s"]:
             return SimpleNamespace(returncode=0, stdout=b"3\n", stderr=b"")
-        return SimpleNamespace(returncode=0, stdout=b"bad", stderr=b"")
+        raise AssertionError(args)
 
     monkeypatch.setattr(lifecycle.subprocess, "run", corrupt)
+    monkeypatch.setattr(
+        lifecycle,
+        "_read_git_blob_bounded",
+        lambda object_name, expected_size, max_bytes: (
+            io.BytesIO(b"bad"),
+            hashlib.sha256(b"bad").hexdigest(),
+        ),
+    )
     with pytest.raises(RuntimeError, match="unreadable compressed"):
         lifecycle._git_ref_jobs("origin/queue-lifecycle-data")
+
+
+@pytest.mark.parametrize("declared_total_mib", [85, 90])
+def test_legacy_remote_contract_accepts_only_enumerated_declarations(
+    declared_total_mib,
+):
+    _, current = lifecycle.encode_job_segments(
+        [_observation()],
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    legacy = _legacy_migration_ledger(
+        current,
+        declared_total_mib=declared_total_mib,
+    )
+
+    assert lifecycle._remote_ledger_read_contract(legacy) == (
+        32 * 1024 * 1024,
+        85 * 1024 * 1024,
+        True,
+    )
+
+    legacy["max_total_bytes"] = 84 * 1024 * 1024
+    with pytest.raises(RuntimeError, match="unsupported storage contract"):
+        lifecycle._remote_ledger_read_contract(legacy)
+
+
+def test_legacy_remote_reader_rejects_self_consistent_corrupt_segment(monkeypatch):
+    payload = b"not-a-gzip-stream"
+    name = "2026-08-11.jsonl.gz"
+    segments = {
+        name: {
+            "compressed_bytes": len(payload),
+            "job_observations": 1,
+            "uncompressed_bytes": 1,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+    }
+    ledger = {
+        "format": lifecycle.SEGMENT_FORMAT,
+        "segment_count": 1,
+        "job_observations": 1,
+        "total_compressed_bytes": len(payload),
+        "total_uncompressed_bytes": 1,
+        "generation_sha256": lifecycle._segment_generation_sha(segments),
+        "max_segment_bytes": 32 * 1024 * 1024,
+        "max_total_bytes": 90 * 1024 * 1024,
+        "segments": segments,
+    }
+    assert lifecycle._ledger_manifest_complete(ledger)
+    _mock_remote_segments(monkeypatch, {name: payload})
+
+    with pytest.raises(RuntimeError, match="unreadable compressed"):
+        lifecycle._git_ref_jobs(
+            "origin/queue-lifecycle-data",
+            required=True,
+            expected_ledger=ledger,
+        )
+
+
+@pytest.mark.parametrize(
+    ("sizes", "message"),
+    [
+        ([32 * 1024 * 1024 + 1], "per-file migration limit"),
+        (
+            [32 * 1024 * 1024, 32 * 1024 * 1024, 21 * 1024 * 1024 + 1],
+            "total migration limit",
+        ),
+    ],
+)
+def test_legacy_remote_reader_rejects_manifest_bound_bytes_outside_85mib_envelope(
+    monkeypatch, sizes, message
+):
+    segments = {
+        f"2026-08-{day:02d}.jsonl.gz": {
+            "compressed_bytes": size,
+            "job_observations": 0,
+            "uncompressed_bytes": 0,
+            "sha256": hashlib.sha256(f"segment-{day}".encode()).hexdigest(),
+        }
+        for day, size in enumerate(sizes, start=9)
+    }
+    ledger = {
+        "format": lifecycle.SEGMENT_FORMAT,
+        "segment_count": len(segments),
+        "job_observations": 0,
+        "total_compressed_bytes": sum(sizes),
+        "total_uncompressed_bytes": 0,
+        "generation_sha256": lifecycle._segment_generation_sha(segments),
+        "max_segment_bytes": 32 * 1024 * 1024,
+        "max_total_bytes": 90 * 1024 * 1024,
+        "segments": segments,
+    }
+    assert lifecycle._ledger_manifest_complete(ledger)
+    monkeypatch.setattr(
+        lifecycle.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("oversized manifest must fail before Git I/O"),
+    )
+
+    with pytest.raises(RuntimeError, match=message):
+        lifecycle._git_ref_jobs(
+            "origin/queue-lifecycle-data",
+            required=True,
+            expected_ledger=ledger,
+        )
 
 
 def test_remote_summary_size_is_bounded_before_git_show(monkeypatch):
@@ -2181,3 +2349,78 @@ def test_exact_remote_restore_uses_published_horizon_not_resume_wall_time(
     assert lifecycle.validate_local_ledger_generation(
         jobs_path=jobs_path, summary_path=summary_path
     )[1] == 1
+
+
+def test_restore_migrates_live_shape_90mib_legacy_generation_above_current_cap(
+    monkeypatch, tmp_path
+):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    older = [
+        _observations_for(
+            _job(
+                uuid=f"legacy-old-{index}",
+                runnable_at="2026-08-10T18:10:00Z",
+                started_at="2026-08-10T18:20:00Z",
+                finished_at="2026-08-10T19:20:00Z",
+            )
+        )[0]
+        for index in range(40)
+    ]
+    newest = _observation(999)
+    source_rows = [*older, newest]
+    source_payloads, source_ledger = lifecycle.encode_job_segments(
+        source_rows,
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    legacy_ledger = _legacy_migration_ledger(
+        source_ledger,
+        declared_total_mib=90,
+    )
+    new_cap = max(len(lifecycle.encode_job_ledger([row])) for row in source_rows)
+    assert legacy_ledger["total_compressed_bytes"] > new_cap
+    assert any(len(payload) > new_cap for payload in source_payloads.values())
+    assert lifecycle._remote_ledger_read_contract(legacy_ledger)[2] is True
+
+    provenance = {
+        "last_successful_query_start": lifecycle._utc_iso(NOW - timedelta(hours=6)),
+        "last_successful_query_end": lifecycle._utc_iso(NOW),
+        "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
+        "last_full_reconciliation_end": lifecycle._utc_iso(NOW),
+        "ledger": legacy_ledger,
+    }
+    monkeypatch.setattr(
+        lifecycle,
+        "_git_ref_summary_provenance",
+        lambda git_ref: provenance,
+    )
+    blob_reads = _mock_remote_segments(monkeypatch, source_payloads)
+    monkeypatch.setattr(lifecycle, "MAX_COMPRESSED_LEDGER_BYTES", new_cap)
+    monkeypatch.setattr(lifecycle, "MAX_COMPRESSED_SEGMENT_BYTES", new_cap)
+
+    summary = lifecycle.restore_exact_job_ledger(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        git_ref="origin/queue-lifecycle-data",
+    )
+
+    assert len(blob_reads) == len(source_payloads)
+    migrated = summary["provenance"]["ledger"]
+    assert migrated["max_total_bytes"] == new_cap
+    assert migrated["max_segment_bytes"] == new_cap
+    assert migrated["total_compressed_bytes"] <= new_cap
+    assert migrated["job_observations"] == 1
+    assert migrated["generation_sha256"] != legacy_ledger["generation_sha256"]
+    scope = migrated["retention"]
+    assert scope["input_job_observations"] == len(source_rows)
+    assert scope["published_job_observations"] == 1
+    assert scope["omitted_from_input_job_observations"] == len(older)
+    assert scope["omitted_whole_day_job_observations"] == len(older)
+    assert scope["omitted_whole_latest_event_days"] == ["2026-08-10"]
+    assert scope["byte_limited"] is True
+    assert lifecycle.read_job_directory(jobs_path) == [newest]
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+    ) == (1, 1)

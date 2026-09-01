@@ -401,17 +401,18 @@ Synthetic public health additionally fetches and digest/length verifies the
 Operations manifest and every bounded lazy section except `reliability`; those
 thirteen JSON canaries are also strict-parsed. Together with the shell,
 publication metadata, and six required shell assets, each of the three quorum
-probes has 24 bounded resources and at most 48 HTTP starts after the single
-transient retry. Exactly the first probe that reaches the Operations routes
-also streams the complete `reliability.json` route through SHA-256 without
-retaining its body; if an earlier probe fails before route discovery, the next
-probe owns that one proof. The stream has one retry, a 60-second total deadline
-per attempt, and at most one final 10-second blocking-read overrun. The exact
-confirmation ceiling is therefore
-146 HTTP starts, 1,580 transport/deadline seconds, and 1,587 elapsed seconds
-including quorum delays. Later healthy probes must identify the same exact
-projection generation as the full stream; failure of that one full proof fails
-the complete health invocation regardless of the ordinary 2-of-3 result.
+probes has 11 bounded identity/control resources and at most 22 HTTP starts
+after the single transient retry. The modal-generation probe additionally
+strict-parses all thirteen eager Operations canaries and streams the complete
+`reliability.json` route through SHA-256 without retaining its body; if the
+middle probe fails before route discovery, probe three owns that proof. Eager
+canaries have a 20-second bounded attempt and the stream has one retry, a
+150-second total deadline per attempt, and at most one final 10-second
+blocking-read overrun. The exact confirmation ceiling is therefore 94 HTTP
+starts, 1,500 transport/deadline seconds, and 1,507 elapsed seconds including
+quorum delays. The two lightweight healthy probes must identify the same exact
+projection generation as the full proof; failure of that full proof fails the
+complete health invocation regardless of the ordinary 2-of-3 result.
 
 The Operations manifest is capped at 2 MiB, each canary at 12 MiB, their
 combined probe bundle at 32 MiB, and the separately streamed reliability route

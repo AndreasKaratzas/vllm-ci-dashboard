@@ -278,7 +278,10 @@ def test_data_fetches_retry_and_do_not_cache_transient_failures():
 @pytest.mark.live_data
 def test_current_operations_payloads_are_bounded(ops_data, ops_manifest):
     assert ops_manifest["schema_version"] == 2
-    assert ops_manifest["bundle_version"] == 1
+    assert (
+        ops_manifest["bundle_version"]
+        == bundle_contract.OPERATIONS_PRODUCER_BUNDLE_VERSION
+    )
     assert ops_manifest["generated_at"] == ops_data["generated_at"]
     assert "reliability" not in ops_manifest["shell"]
     assert "amd_agent_health" not in ops_manifest["shell"]
@@ -2300,6 +2303,35 @@ const helpers = sandbox.window.OpsV2Test;
 
 assert.equal(helpers.queueDnsPayloadValid(livePayload), true);
 assert.equal(helpers.queueDnsPayloadValid(pagesPayload), true);
+const compactedPayload = JSON.parse(JSON.stringify(livePayload));
+Object.values(compactedPayload.windows).forEach(function (windowBlock) {
+  windowBlock.rows = windowBlock.rows.slice(0, 3);
+});
+compactedPayload.evidence.items = compactedPayload.evidence.items.slice(0, 1);
+compactedPayload.evidence.shown = 1;
+compactedPayload.evidence.truncated = true;
+compactedPayload.publication_retention = {
+  policy: 'retain_exact_totals_with_deterministic_whole_row_prefixes',
+  max_bytes: 8 * 1024 * 1024,
+  complete_relative_to_source: false,
+  aggregate_scalars_complete: true,
+  window_rows: Object.fromEntries(canonicalWindowOptions.map(function (option) {
+    return [option.id, {source: 6, published: 3, omitted: 3, complete: false}];
+  })),
+  evidence: {source: 3, published: 1, omitted: 2, complete: false},
+};
+assert.equal(helpers.queueDnsPayloadValid(compactedPayload), true);
+const compactedWrongPublishedCount = JSON.parse(JSON.stringify(compactedPayload));
+compactedWrongPublishedCount.publication_retention.window_rows['3h'].published = 4;
+compactedWrongPublishedCount.publication_retention.window_rows['3h'].omitted = 2;
+assert.equal(helpers.queueDnsPayloadValid(compactedWrongPublishedCount), false);
+const compactedFalseCompleteness = JSON.parse(JSON.stringify(compactedPayload));
+compactedFalseCompleteness.publication_retention.window_rows['3h'].complete = true;
+assert.equal(helpers.queueDnsPayloadValid(compactedFalseCompleteness), false);
+const compactedRowsExceedTotals = JSON.parse(JSON.stringify(compactedPayload));
+compactedRowsExceedTotals.windows['3h'].totals.passed_jobs = 1;
+compactedRowsExceedTotals.windows['3h'].totals.hard_failed_jobs = 307;
+assert.equal(helpers.queueDnsPayloadValid(compactedRowsExceedTotals), false);
 const legacyPayload = JSON.parse(JSON.stringify(livePayload));
 delete legacyPayload.outcome_contract;
 Object.values(legacyPayload.windows).forEach(function (windowBlock) {

@@ -28,7 +28,7 @@ jobs:
   recover:
     runs-on: ubuntu-24.04
     # Exact state/code/Pages proofs and a failed Site Health completion can
-    # compose with the checker's 1,587-second transport/deadline bound. Preserve
+    # compose with the checker's 1,507-second transport/deadline bound. Preserve
     # more than five minutes for Git proofs and recovery dispatch afterward.
     timeout-minutes: 35
     permissions:
@@ -511,38 +511,8 @@ jobs:
               --markdown-output "$HEALTH_DETAILS"; then
               echo "A fresh 2-of-3 synthetic quorum is healthy; the triggering failure was not a confirmed Pages outage."
             else
-              if python - "$HEALTH_REPORT" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          raw = path.read_bytes()
-          if len(raw) > 64 * 1024:
-              raise SystemExit(2)
-          try:
-              report = json.loads(raw)
-          except (UnicodeDecodeError, json.JSONDecodeError):
-              raise SystemExit(2)
-          confirmation = report.get("confirmation") if isinstance(report, dict) else None
-          confirmed_unhealthy = (
-              report.get("healthy") is False
-              and report.get("overall_status") == "confirmed_unhealthy"
-              and isinstance(confirmation, dict)
-              and confirmation.get("confirmed") is True
-              and confirmation.get("strategy") == "2-of-3-quorum"
-              and confirmation.get("attempted") == 3
-              and confirmation.get("required_healthy") == 2
-              and type(confirmation.get("healthy_count")) is int
-              and 0 <= confirmation["healthy_count"] < 2
-              and confirmation.get("unhealthy_count")
-                  == 3 - confirmation["healthy_count"]
-              and isinstance(confirmation.get("probes"), list)
-              and len(confirmation["probes"]) == 3
-          )
-          raise SystemExit(0 if confirmed_unhealthy else 2)
-          PY
-              then
+              if python scripts/vllm/validate_watchdog_health_report.py \
+                --input "$HEALTH_REPORT"; then
                 {
                   echo "target=deploy-pages"
                   echo "force_reason=site-health-failed"

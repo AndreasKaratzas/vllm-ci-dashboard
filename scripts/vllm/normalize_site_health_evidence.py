@@ -23,6 +23,7 @@ def normalize_health_evidence() -> None:
     from pathlib import Path
 
     from vllm.check_site_health import (
+        CANARY_FETCH_TIMEOUT_SECONDS,
         CONFIRMATION_ATTEMPTS,
         CONFIRMATION_DELAYS_SECONDS,
         CONFIRMATION_QUORUM,
@@ -292,6 +293,8 @@ def normalize_health_evidence() -> None:
             or matching_projection_healthy_count > healthy_count
             or confirmation.get("max_requests") != max_requests
             or confirmation.get("per_request_timeout_seconds") != FETCH_TIMEOUT_SECONDS
+            or confirmation.get("canary_request_timeout_seconds")
+            != CANARY_FETCH_TIMEOUT_SECONDS
             or confirmation.get("max_transport_seconds") != max_transport_seconds
             or confirmation.get("retry_delays_seconds") != list(CONFIRMATION_DELAYS_SECONDS)
             or confirmation.get("max_elapsed_seconds") != max_elapsed_seconds
@@ -388,6 +391,12 @@ def normalize_health_evidence() -> None:
                         and probe.get("manifest_http") == 200
                     ) or (
                         projection_mode == "critical-routes-verified"
+                        and probe.get("projection_verified") is False
+                        and probe.get("complete_projection") is False
+                        and probe.get("generation_http") == 200
+                        and probe.get("manifest_http") == 200
+                    ) or (
+                        projection_mode == "manifest-identity-verified"
                         and probe.get("projection_verified") is False
                         and probe.get("complete_projection") is False
                         and probe.get("generation_http") == 200

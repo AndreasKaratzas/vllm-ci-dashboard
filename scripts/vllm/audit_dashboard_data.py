@@ -4151,6 +4151,7 @@ class DashboardAudit:
             OPERATIONS_CANARY_SECTION_MAX_BYTES,
             OPERATIONS_CANARY_SECTIONS,
             OPERATIONS_MANIFEST_MAX_BYTES,
+            OPERATIONS_PRODUCER_BUNDLE_VERSION,
             OperationsBundleContractError,
             validate_operations_canary_budget,
         )
@@ -4160,10 +4161,14 @@ class DashboardAudit:
         manifest = self.load_json(relpath, {})
         if not isinstance(manifest, dict):
             return
-        if manifest.get("schema_version") != 2 or manifest.get("bundle_version") != 1:
+        if (
+            manifest.get("schema_version") != 2
+            or manifest.get("bundle_version") != OPERATIONS_PRODUCER_BUNDLE_VERSION
+        ):
             self.error(
                 "operations-bundle-schema",
-                "operations manifest must use schema_version=2 and bundle_version=1",
+                "operations manifest must use schema_version=2 and "
+                f"bundle_version={OPERATIONS_PRODUCER_BUNDLE_VERSION}",
                 relpath,
             )
         shell = _mapping(manifest.get("shell"))
@@ -7838,10 +7843,117 @@ class DashboardAudit:
             "windows",
             "evidence",
         }
+        has_publication_retention = "publication_retention" in payload
+        if has_publication_retention:
+            top_keys.add("publication_retention")
         has_outcome_contract = "outcome_contract" in payload
         if has_outcome_contract:
             top_keys.add("outcome_contract")
         exact_keys(payload, top_keys, "dns_failures.json")
+
+        publication_window_rows: dict[str, dict[str, Any]] = {}
+        publication_evidence: dict[str, Any] = {}
+        if has_publication_retention:
+            publication = exact_keys(
+                payload.get("publication_retention"),
+                {
+                    "policy",
+                    "max_bytes",
+                    "complete_relative_to_source",
+                    "aggregate_scalars_complete",
+                    "window_rows",
+                    "evidence",
+                },
+                "publication_retention",
+            )
+            if publication.get("policy") != (
+                "retain_exact_totals_with_deterministic_whole_row_prefixes"
+            ):
+                self.error(
+                    "dns-health-publication-retention",
+                    "DNS publication retention policy is unsupported",
+                    path,
+                )
+            publication_max_bytes = publication.get("max_bytes")
+            if (
+                not _is_nonnegative_int(publication_max_bytes)
+                or publication_max_bytes <= 0
+                or publication_max_bytes > DNS_FAILURES_MAX_BYTES
+            ):
+                self.error(
+                    "dns-health-publication-retention",
+                    "DNS publication retention max_bytes must fit the public DNS budget",
+                    path,
+                )
+            elif size > publication_max_bytes:
+                self.error(
+                    "dns-health-publication-retention",
+                    "DNS payload exceeds its declared publication retention bound",
+                    path,
+                )
+            if publication.get("aggregate_scalars_complete") is not True:
+                self.error(
+                    "dns-health-publication-retention",
+                    "DNS compacted detail must preserve every aggregate scalar",
+                    path,
+                )
+
+            def publication_counts(value: Any, label: str) -> dict[str, Any]:
+                counts = exact_keys(
+                    value,
+                    {"source", "published", "omitted", "complete"},
+                    label,
+                )
+                source = counts.get("source")
+                published = counts.get("published")
+                omitted = counts.get("omitted")
+                complete = counts.get("complete")
+                if (
+                    not _is_nonnegative_int(source)
+                    or not _is_nonnegative_int(published)
+                    or not _is_nonnegative_int(omitted)
+                    or source != published + omitted
+                    or not isinstance(complete, bool)
+                    or complete != (omitted == 0)
+                ):
+                    self.error(
+                        "dns-health-publication-retention",
+                        f"{label} counts do not reconcile",
+                        path,
+                    )
+                    return {}
+                return counts
+
+            option_ids = {option_id for option_id, _, _ in DNS_WINDOW_OPTIONS}
+            window_rows = exact_keys(
+                publication.get("window_rows"),
+                option_ids,
+                "publication_retention.window_rows",
+            )
+            publication_window_rows = {
+                option_id: publication_counts(
+                    window_rows.get(option_id),
+                    f"publication_retention.window_rows.{option_id}",
+                )
+                for option_id, _, _ in DNS_WINDOW_OPTIONS
+            }
+            publication_evidence = publication_counts(
+                publication.get("evidence"),
+                "publication_retention.evidence",
+            )
+            complete = publication.get("complete_relative_to_source")
+            detail_counts = [
+                *publication_window_rows.values(),
+                publication_evidence,
+            ]
+            if not isinstance(complete, bool) or complete != all(
+                counts.get("omitted") == 0 for counts in detail_counts if counts
+            ) or any(not counts for counts in detail_counts):
+                self.error(
+                    "dns-health-publication-retention",
+                    "DNS publication completeness disagrees with omitted detail rows",
+                    path,
+                )
         if payload.get("schema_version") != 1:
             self.error(
                 "dns-health-schema-version",
@@ -8312,6 +8424,17 @@ class DashboardAudit:
                     path,
                 )
                 rows = []
+            row_retention = publication_window_rows.get(option_id) or {}
+            rows_may_be_omitted = row_retention.get("omitted", 0) > 0
+            if row_retention and row_retention.get("published") != len(rows):
+                self.error(
+                    "dns-health-publication-retention",
+                    (
+                        f"publication_retention.window_rows.{option_id}.published "
+                        "does not match the emitted row count"
+                    ),
+                    path,
+                )
             coordinates: list[tuple[str, str]] = []
             row_sums = {
                 "affected_jobs": 0,
@@ -8392,19 +8515,40 @@ class DashboardAudit:
                 )
             if len(numeric_totals) == len(totals_keys):
                 for total_field, row_sum in row_sums.items():
-                    if numeric_totals[total_field] != row_sum:
+                    invalid_sum = (
+                        row_sum > numeric_totals[total_field]
+                        if rows_may_be_omitted
+                        else numeric_totals[total_field] != row_sum
+                    )
+                    if invalid_sum:
                         self.error(
                             "dns-health-window-reconciliation",
-                            f"windows.{option_id}.totals.{total_field}={numeric_totals[total_field]} but rows sum to {row_sum}",
+                            (
+                                f"windows.{option_id}.totals.{total_field}="
+                                f"{numeric_totals[total_field]} but published rows sum to "
+                                f"{row_sum}"
+                            ),
                             path,
                         )
-                if numeric_totals["queues"] != len({queue for queue, _ in coordinates}):
+                visible_queues = len({queue for queue, _ in coordinates})
+                invalid_queues = (
+                    visible_queues > numeric_totals["queues"]
+                    if rows_may_be_omitted
+                    else visible_queues != numeric_totals["queues"]
+                )
+                if invalid_queues:
                     self.error(
                         "dns-health-window-reconciliation",
                         f"windows.{option_id}.totals.queues disagrees with rows",
                         path,
                     )
-                if numeric_totals["nodes"] != len({node for _, node in coordinates}):
+                visible_nodes = len({node for _, node in coordinates})
+                invalid_nodes = (
+                    visible_nodes > numeric_totals["nodes"]
+                    if rows_may_be_omitted
+                    else visible_nodes != numeric_totals["nodes"]
+                )
+                if invalid_nodes:
                     self.error(
                         "dns-health-window-reconciliation",
                         f"windows.{option_id}.totals.nodes disagrees with rows",
@@ -8416,6 +8560,7 @@ class DashboardAudit:
                 "totals": numeric_totals,
                 "rows": row_lookup,
                 "coverage": window_coverage,
+                "rows_may_be_omitted": rows_may_be_omitted,
             }
 
         retained_coverage = window_blocks.get("720h", {}).get("coverage") or {}
@@ -8457,6 +8602,12 @@ class DashboardAudit:
         if not isinstance(items, list):
             self.error("dns-health-evidence-items", "evidence.items must be a list", path)
             items = []
+        if publication_evidence and publication_evidence.get("published") != len(items):
+            self.error(
+                "dns-health-publication-retention",
+                "publication_retention.evidence.published does not match emitted evidence",
+                path,
+            )
         if _is_nonnegative_int(shown) and shown != len(items):
             self.error(
                 "dns-health-evidence-count",
@@ -8839,7 +8990,7 @@ class DashboardAudit:
             for window_id in window_ids:
                 window = window_blocks.get(window_id) or {}
                 lookup = window.get("rows") or {}
-                if coordinate not in lookup:
+                if coordinate not in lookup and not window.get("rows_may_be_omitted"):
                     self.error(
                         "dns-health-evidence-window",
                         f"evidence.items[{index}] has no {window_id} queue/node rollup",

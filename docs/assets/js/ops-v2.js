@@ -9017,6 +9017,17 @@
     };
   }
 
+  function queueDnsRowsComplete(payload, id, count) {
+    if (payload.publication_retention === undefined) return true;
+    const row = ((payload.publication_retention || {}).window_rows || {})[id];
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    return [row.source, row.published, row.omitted].every(Number.isSafeInteger)
+      && row.published === count && row.omitted >= 0
+      && row.source === row.published + row.omitted
+      && row.complete === (row.omitted === 0)
+      ? row.complete : null;
+  }
+
   function queueDnsPayloadValid(payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
     if (payload.schema_version !== 1 || queueTimestamp(payload.generated_at) === -Infinity) return false;
@@ -9051,7 +9062,9 @@
         && windowBlock.coverage && typeof windowBlock.coverage === 'object' && !Array.isArray(windowBlock.coverage)
         && windowBlock.totals && typeof windowBlock.totals === 'object' && !Array.isArray(windowBlock.totals)
         && Array.isArray(windowBlock.rows);
-      if (!structurallyValid || !outcomesMarked) return Boolean(structurallyValid);
+      if (!structurallyValid) return false;
+      const rowsComplete = queueDnsRowsComplete(payload, option.id, windowBlock.rows.length);
+      if (rowsComplete === null || !outcomesMarked) return rowsComplete !== null;
       const totals = queueDnsOutcomeCounts(windowBlock.totals);
       if (!totals.available || !windowBlock.rows.every(function (row) {
         return queueDnsOutcomeCounts(row).available;
@@ -9061,9 +9074,10 @@
         ['soft_failed_jobs', totals.softFailed],
         ['hard_failed_jobs', totals.hardFailed],
       ].every(function (entry) {
-        return entry[1] === windowBlock.rows.reduce(function (sum, row) {
+        const published = windowBlock.rows.reduce(function (sum, row) {
           return sum + queueDnsCount(row[entry[0]]);
         }, 0);
+        return rowsComplete ? entry[1] === published : published <= entry[1];
       });
     });
     return windowsValid && payload.evidence.items.every(function (row) {

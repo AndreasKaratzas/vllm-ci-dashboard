@@ -12,6 +12,10 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.operations_bundle_contract import OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
+
 
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_ASSET_BYTES = 85 * 1024 * 1024
@@ -71,7 +75,7 @@ def _asset_descriptors(manifest: dict[str, Any]) -> list[tuple[str, str, int]]:
         type(manifest.get("schema_version")) is not int
         or manifest.get("schema_version") != 2
         or type(manifest.get("bundle_version")) is not int
-        or manifest.get("bundle_version") != 1
+        or manifest.get("bundle_version") not in OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
         or manifest.get("monolith") is not None
         or not isinstance(sections, dict)
         or not 1 <= len(sections) <= MAX_SECTIONS

@@ -696,6 +696,54 @@ def test_queue_only_audit_enforces_exact_operations_section_cap(tmp_path):
     }
 
 
+def test_current_queue_reprojection_migrates_legacy_targeted_state(tmp_path):
+    queue_dir = tmp_path / "data" / "vllm" / "ci"
+    operations_dir = queue_dir / "operations_v2"
+    operations_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    observed_at = now.isoformat().replace("+00:00", "Z")
+    snapshot = {
+        "ts": observed_at,
+        "queues": {"amd_mi300_1": {"waiting": 1, "running": 2}},
+        "total_waiting": 1,
+        "total_running": 2,
+        "sources": {"counts": "legacy-durable-queue"},
+    }
+    jobs = {"ts": observed_at, "pending": [], "running": []}
+    history_bytes = (json.dumps(snapshot) + "\n").encode()
+    jobs_bytes = (json.dumps(jobs) + "\n").encode()
+    (queue_dir / "queue_timeseries.jsonl").write_bytes(history_bytes)
+    (queue_dir / "queue_jobs.json").write_bytes(jobs_bytes)
+    # Reproduce a durable branch generated before the exact queue-section cap
+    # and compact chart contracts existed.
+    (operations_dir / "queue.json").write_text(
+        json.dumps({"queue": {"snapshot": snapshot, "queue_jobs": jobs}}) + "\n"
+    )
+    (queue_dir / "queue_history_chart.json").write_text(
+        '{"schema_version":1,"points":[]}\n'
+    )
+
+    legacy = DashboardAudit(tmp_path)
+    legacy.audit_queue_data(validate_derived=True)
+    assert {
+        "operations-queue-payload-budget",
+        "queue-section-projection",
+        "queue-history-chart-projection",
+    } <= {finding.code for finding in legacy.report.errors}
+
+    queue_section_module.main(["--input-dir", str(queue_dir)])
+
+    assert (queue_dir / "queue_timeseries.jsonl").read_bytes() == history_bytes
+    assert (queue_dir / "queue_jobs.json").read_bytes() == jobs_bytes
+    migrated = DashboardAudit(tmp_path)
+    migrated.audit_queue_data(validate_derived=True)
+    assert not migrated.report.errors
+    projected = json.loads((operations_dir / "queue.json").read_text())
+    assert projected["queue"]["operations_publication_retention"]["max_bytes"] == (
+        queue_section_module.QUEUE_SECTION_MAX_BYTES
+    )
+
+
 def test_queue_audit_accepts_current_metrics_with_an_explicit_retained_overlay(tmp_path):
     queue_dir = tmp_path / "data" / "vllm" / "ci"
     queue_dir.mkdir(parents=True)
@@ -1091,6 +1139,7 @@ def test_dns_audit_accepts_the_backend_public_projection(tmp_path):
         empty_state,
         iso_timestamp,
         scan_record,
+        write_public_output,
     )
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -1119,13 +1168,70 @@ def test_dns_audit_accepts_the_backend_public_projection(tmp_path):
             attempted_at=iso_timestamp(now),
         )
     ]
-    _write_dns_audit_payload(tmp_path, build_public_output(state))
+    path = tmp_path / "data/vllm/ci/dns_failures.json"
+    write_public_output(path, build_public_output(state))
     audit = DashboardAudit(tmp_path)
 
     audit.audit_dns_failures()
 
     assert audit.report.errors == []
     assert audit.report.degradations == []
+
+
+def test_dns_writer_compaction_passes_the_dns_only_cli(tmp_path, monkeypatch):
+    from vllm.ci import dns_failures as dns_backend
+
+    output = _dns_audit_payload()
+    path = tmp_path / "dns_failures.json"
+    monkeypatch.setattr(dns_backend, "PUBLIC_OUTPUT_MAX_BYTES", 8_000)
+    dns_backend.write_public_output(path, output)
+
+    written = json.loads(path.read_text(encoding="utf-8"))
+    retention = written["publication_retention"]
+    assert path.stat().st_size <= 8_000
+    assert retention["complete_relative_to_source"] is False
+    assert retention["window_rows"]["720h"] == {
+        "source": 1,
+        "published": 0,
+        "omitted": 1,
+        "complete": False,
+    }
+    assert written["windows"]["720h"]["totals"]["affected_jobs"] == 1
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(Path(audit_module.__file__).resolve()),
+            "--dns-only",
+            "--dns-path",
+            str(path),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Errors: 0" in completed.stdout
+
+
+def test_dns_audit_rejects_mismatched_publication_retention(tmp_path):
+    from vllm.ci import dns_failures as dns_backend
+
+    path = tmp_path / "data/vllm/ci/dns_failures.json"
+    dns_backend.write_public_output(path, _dns_audit_payload())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["publication_retention"]["window_rows"]["1h"]["published"] += 1
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_dns_failures()
+
+    assert "dns-health-publication-retention" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
