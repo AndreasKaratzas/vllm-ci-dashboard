@@ -124,7 +124,7 @@ def test_repository_policy_stays_below_ninety_mb_and_private() -> None:
     assert policy.max_tree_bytes == 256 * 1024 * 1024
     assert policy.max_files == 10_000
     assert policy.generated_roots == ("data", "dashboards", "README.md")
-    assert policy.bootstrap_allowed is True
+    assert policy.bootstrap_allowed is False
 
     public_policy = json.loads((state.ROOT / "config/public_data_manifest.json").read_text())
     assert "vllm/ci/dashboard_state.json" in public_policy["never_publish_patterns"]

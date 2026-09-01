@@ -1138,7 +1138,7 @@ def test_legacy_guard_requires_deadline_and_fresh_two_slot_absence(tmp_path):
     assert guard() is False
 
 
-def test_bootstrap_evidence_writer_observes_both_refs_and_writes_canonical(
+def test_bootstrap_evidence_writer_observes_both_refs_but_locked_policy_denies(
     tmp_path, monkeypatch
 ):
     output = tmp_path / "bootstrap-ref-evidence.json"
@@ -1165,7 +1165,7 @@ def test_bootstrap_evidence_writer_observes_both_refs_and_writes_canonical(
         ("owner/repo", "dashboard-state-previous", "runner-token"),
     ]
     assert output.read_bytes() == health._canonical_json(evidence)
-    assert health._legacy_bootstrap_allowed(
+    assert not health._legacy_bootstrap_allowed(
         evidence_path=output,
         repository="owner/repo",
         now=NOW,
@@ -1199,13 +1199,13 @@ def test_bootstrap_evidence_writer_leaves_no_proof_on_ambiguous_observation(
     assert not output.exists()
 
 
-def test_checked_in_bootstrap_window_is_canonical_and_expires_fail_closed():
+def test_checked_in_bootstrap_policy_is_locked_and_deadline_remains_canonical():
     bootstrap = json.loads(health.DEFAULT_BOOTSTRAP_CONFIG.read_text())
     assert bootstrap == {
         "schema_version": 1,
         "bootstrap_deadline": "2026-09-02T00:00:00Z",
     }
-    assert health.bootstrap_policy_active(
+    assert not health.bootstrap_policy_active(
         now=datetime(2026, 9, 1, 23, 59, 59, tzinfo=timezone.utc)
     )
     assert not health.bootstrap_policy_active(
