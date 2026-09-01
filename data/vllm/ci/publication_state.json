@@ -1,17 +1,38 @@
 {
-  "baseline_ref": "2e4c4bea4b137fdc08bb8081e1146f9ae2556d95",
-  "candidate_degradations": [
-    {
-      "code": "dns-health-stale",
-      "message": "DNS health source is 6.0h old; maximum is 6h",
-      "path": "data/vllm/ci/dns_failures.json",
-      "severity": "degradation",
-      "surfaces": [
-        "dns_health"
-      ]
-    }
-  ],
+  "baseline_ref": "8609caee8e0450a952f7a18f6281c81ac4f79a61",
+  "candidate_degradations": [],
   "candidate_errors": [
+    {
+      "code": "publication-upstream-retry-provisional",
+      "context": {
+        "active_retry": true,
+        "alertable": false,
+        "build_number": 86297,
+        "candidate_test_signal_build_number": 86198,
+        "kind": "published-build-active-retry",
+        "persistence_runs": 1,
+        "pipeline": "upstream",
+        "surface": "ci_core"
+      },
+      "message": "upstream build #86297 returned to an active retry; CI core will retain its validated completed cohort",
+      "path": "data/vllm/ci/ci_health.json",
+      "severity": "error",
+      "surfaces": [
+        "ci_core"
+      ]
+    },
+    {
+      "code": "analytics-jsonl-build-mismatch",
+      "context": {
+        "pipeline": "upstream"
+      },
+      "message": "ci latest analytics build #86198 does not match 2026-08-31_upstream.jsonl build numbers [86297]",
+      "path": "data/vllm/ci/analytics.json",
+      "severity": "error",
+      "surfaces": [
+        "ci_analytics"
+      ]
+    },
     {
       "code": "queue-lifecycle-daily-waits-total",
       "message": "daily wait samples exceed observed served events",
@@ -31,44 +52,354 @@
     "transient_persistence_runs_required": 2
   },
   "degraded_since": {
-    "dns_health": "2026-08-31T21:22:07Z",
+    "ci_analytics": "2026-08-31T23:58:47Z",
+    "ci_core": "2026-08-31T23:58:47Z",
     "queue_lifecycle": "2026-08-31T21:22:07Z"
   },
   "degraded_surfaces": [
-    "dns_health",
+    "ci_analytics",
+    "ci_core",
     "queue_lifecycle"
   ],
   "fallback_max_age_hours": 36,
   "fallback_since": {
+    "ci_analytics": "2026-08-31T23:58:47Z",
+    "ci_core": "2026-08-31T23:58:47Z",
     "queue_lifecycle": "2026-08-31T21:22:07Z"
   },
   "fallback_surfaces": [
+    "ci_analytics",
+    "ci_core",
     "queue_lifecycle"
   ],
-  "final_degradations": [
-    {
-      "code": "dns-health-stale",
-      "message": "DNS health source is 6.0h old; maximum is 6h",
-      "path": "data/vllm/ci/dns_failures.json",
-      "severity": "degradation",
-      "surfaces": [
-        "dns_health"
-      ]
-    }
-  ],
+  "final_degradations": [],
   "final_errors": [],
-  "fresh_degraded_surfaces": [
-    "dns_health"
-  ],
-  "generated_at": "2026-08-31T21:22:07Z",
+  "fresh_degraded_surfaces": [],
+  "generated_at": "2026-08-31T23:58:47Z",
   "incident_policy": {
     "alert": true,
     "max_observed_streak": 0,
     "reason": "non-collector-publication-finding",
     "transient_persistence_runs_required": 2
   },
-  "mode": "mixed",
+  "mode": "fallback",
   "restored_manifest": {
+    "ci_analytics": {
+      "data/vllm/ci/analytics.json": {
+        "bytes": 55290939,
+        "sha256": "2979316330689fb3365173f942c501337f0cf4e2fdf0c1e990dcdbb13b80172d"
+      }
+    },
+    "ci_core": {
+      "data/vllm/ci/amd_test_matrix.json": {
+        "bytes": 948347,
+        "sha256": "315ea578c3d407e04f33906cf67b3330456aad9e431f1fbf22a1025b8d6b5061"
+      },
+      "data/vllm/ci/ci_health.json": {
+        "bytes": 214200,
+        "sha256": "c301c78aac39e9c45b87e2e70aba01df86eb224763c65d66efe303f6041dc1a6"
+      },
+      "data/vllm/ci/ci_ownership.json": {
+        "bytes": 174779,
+        "sha256": "2d27d9eea904f45a7e3df56e26776eaa46d367ddc83b5a55d022813b4fd5f45e"
+      },
+      "data/vllm/ci/config_parity.json": {
+        "bytes": 507767,
+        "sha256": "9e083d77140daa0b9f5ada0e21a72f0d6b67a97d41025ddb1e778f79b6695dcb"
+      },
+      "data/vllm/ci/failure_trends.json": {
+        "bytes": 20292,
+        "sha256": "981812c5368eb61c5e5f2cfcd3d4bd67d09bc819de840b7a19e806d765049eb7"
+      },
+      "data/vllm/ci/flaky_tests.json": {
+        "bytes": 585,
+        "sha256": "f591b611428630fc22e6f7e4a4389a6d76d89e0e2485bc539cc6ad40999f6b64"
+      },
+      "data/vllm/ci/ownership_config_parity.json": {
+        "bytes": 507804,
+        "sha256": "92d7c631300ce3e3358912b6903329d42323bdecfa0aa776ad03f27bb9715aa9"
+      },
+      "data/vllm/ci/parity_key_overrides.json": {
+        "bytes": 2052,
+        "sha256": "9157d48541492c61edbf4ae2d905551ca79b4bb59c5b21faf1296d897acaf9cb"
+      },
+      "data/vllm/ci/parity_report.json": {
+        "bytes": 636940,
+        "sha256": "6dc389db9e65d34812414e2c262c86ec64416a51d750e4318af3a7bf278c7f38"
+      },
+      "data/vllm/ci/quarantine.json": {
+        "bytes": 182,
+        "sha256": "6d5f21283e2bf419e85cafbcc0e878ea8cd74640f49fa10bf7741ded7f0ee938"
+      },
+      "data/vllm/ci/shard_base_catalog.json": {
+        "bytes": 30591,
+        "sha256": "f7036435eaf1c8394e71ac0de49dabd4e3bfc5f498240f7eebd6de2182434828"
+      },
+      "data/vllm/ci/shard_bases.json": {
+        "bytes": 664,
+        "sha256": "139a59529ec740b3a3cc79a58070a87ce40e4c04779c3106f57f1843ee9907f4"
+      },
+      "data/vllm/ci/test_group_parity.json": {
+        "bytes": 55468,
+        "sha256": "b83bfb95c94ec2fa4e70ce5329e82ab9ba03fffb3d14efdbcbcbb68f2bdfdc87"
+      },
+      "data/vllm/ci/test_results/2026-08-01_amd.jsonl": {
+        "bytes": 157949,
+        "sha256": "a2c1cfca99bdbcc4e474e6217e4fdab2dbff7a4529f1e1992b34d8135654c369"
+      },
+      "data/vllm/ci/test_results/2026-08-01_upstream.jsonl": {
+        "bytes": 179653,
+        "sha256": "1a69b989174f2002b35f114fe7f677655340751bd599dbfe097be58034f8c1d2"
+      },
+      "data/vllm/ci/test_results/2026-08-02_amd.jsonl": {
+        "bytes": 154747,
+        "sha256": "b5ab7cc6a1feb35df19df73a37b46dba66f7bff23e02e8854e7c9a97ab1a93cb"
+      },
+      "data/vllm/ci/test_results/2026-08-02_upstream.jsonl": {
+        "bytes": 177062,
+        "sha256": "76fbe34768a554ce202d0879174d816a09d81ec39f559ccf9bc25349411b5f0b"
+      },
+      "data/vllm/ci/test_results/2026-08-03_amd.jsonl": {
+        "bytes": 157803,
+        "sha256": "90e15ad130e74530afa905d0614501bc049cfcb90387f96eabeeef026b2a4868"
+      },
+      "data/vllm/ci/test_results/2026-08-03_upstream.jsonl": {
+        "bytes": 177726,
+        "sha256": "cc34b83bea1149bc0ed7e9ff84786c291c9fd907dd89bab4e93cfa70c21de236"
+      },
+      "data/vllm/ci/test_results/2026-08-04_amd.jsonl": {
+        "bytes": 156376,
+        "sha256": "efe251051bc6d4297d021bc2e5e73ed7ddf1af6aa42ef2575bcb1ac9caf58ebb"
+      },
+      "data/vllm/ci/test_results/2026-08-04_upstream.jsonl": {
+        "bytes": 179942,
+        "sha256": "3111da95520e6a9ebc930fbbfa286445b40a9d5b294a7533315d7586c9070b08"
+      },
+      "data/vllm/ci/test_results/2026-08-05_amd.jsonl": {
+        "bytes": 168802,
+        "sha256": "526b3492cd23c66fa9a88ee324bfc37897538223490eff75d1722f0b003cc53d"
+      },
+      "data/vllm/ci/test_results/2026-08-05_upstream.jsonl": {
+        "bytes": 178603,
+        "sha256": "4047a7754f0518508f49d3e918714d39e69ccdc835f3b77284847fde2b3d300c"
+      },
+      "data/vllm/ci/test_results/2026-08-06_amd.jsonl": {
+        "bytes": 159335,
+        "sha256": "2e88391ab203546061371f94b0e90e6e5965ab253bb1a5d95c6e1727f963e66b"
+      },
+      "data/vllm/ci/test_results/2026-08-06_upstream.jsonl": {
+        "bytes": 178865,
+        "sha256": "df1ccef0669a9840c4259200310f278ecb2e5230a706c02898ee63437dace206"
+      },
+      "data/vllm/ci/test_results/2026-08-07_amd.jsonl": {
+        "bytes": 160460,
+        "sha256": "d773b603acf7351a362ec081b517454c71c7ee2c1e20995f78d7f4745003f950"
+      },
+      "data/vllm/ci/test_results/2026-08-07_upstream.jsonl": {
+        "bytes": 178990,
+        "sha256": "54e4ff3123b0839a51eb933705edd8b54a68e2193680851cd66aa07330c991ed"
+      },
+      "data/vllm/ci/test_results/2026-08-08_amd.jsonl": {
+        "bytes": 154259,
+        "sha256": "1ea431811d1fc206be772e8c8782c7b3beaccf415c7cbd395c33c7ba43fc6464"
+      },
+      "data/vllm/ci/test_results/2026-08-08_upstream.jsonl": {
+        "bytes": 177149,
+        "sha256": "fc949f93312ae2bef13e4c8e6919f5544b7423ba17b10b4b8548f8e1d8a21b46"
+      },
+      "data/vllm/ci/test_results/2026-08-09_amd.jsonl": {
+        "bytes": 153067,
+        "sha256": "63b6b2d87667cb5d6a9bb5c0692f2e4c0e2f513329819aa8169eae3f8cbb38fc"
+      },
+      "data/vllm/ci/test_results/2026-08-09_upstream.jsonl": {
+        "bytes": 178336,
+        "sha256": "7963a553467fb7d47e478a16f1cf2a5f4c028b72faa925e4a1dc40ec5b863551"
+      },
+      "data/vllm/ci/test_results/2026-08-10_amd.jsonl": {
+        "bytes": 154716,
+        "sha256": "7b34ed1076f7295c7b7b48bd4ca7c29e1db323f257d42cc4f04cf55057362d85"
+      },
+      "data/vllm/ci/test_results/2026-08-10_upstream.jsonl": {
+        "bytes": 177903,
+        "sha256": "41f937c9316828b5decb2362317bc6569ea9119ca3d9e64ae154e066cf03afdd"
+      },
+      "data/vllm/ci/test_results/2026-08-11_amd.jsonl": {
+        "bytes": 151164,
+        "sha256": "fc2641edbfec2b8b6b200f4e3fabdd11f02f523e974f07160462aa0f69ed04b1"
+      },
+      "data/vllm/ci/test_results/2026-08-11_upstream.jsonl": {
+        "bytes": 182650,
+        "sha256": "4fca99246ac02fe7f38f7d3a2723016d87c77668d1b43b753606b44a8964cf8f"
+      },
+      "data/vllm/ci/test_results/2026-08-12_amd.jsonl": {
+        "bytes": 150127,
+        "sha256": "ea7e0abf6aee4ee9f577fbcbc100e251f7ab83484bda7bd0fdc235fdae300445"
+      },
+      "data/vllm/ci/test_results/2026-08-12_upstream.jsonl": {
+        "bytes": 181385,
+        "sha256": "25c4c064af1a8cc5571b59c3b0dccf8c85c2dc6e9cde0d4bcedfe2bd00ef4886"
+      },
+      "data/vllm/ci/test_results/2026-08-13_amd.jsonl": {
+        "bytes": 148276,
+        "sha256": "c0c144ca962d66881dd93437e853980bbf881bc058d5b41ad533866b80bda453"
+      },
+      "data/vllm/ci/test_results/2026-08-13_upstream.jsonl": {
+        "bytes": 180882,
+        "sha256": "90e9e347c209f5b267c90084d5348761b3793cd3e2005413f48f944c2e9b87fd"
+      },
+      "data/vllm/ci/test_results/2026-08-14_amd.jsonl": {
+        "bytes": 148486,
+        "sha256": "a0015351744eeedbf2337f2dfcf81609fcb93d1acc3b524e1a7a6338c7a4d1b8"
+      },
+      "data/vllm/ci/test_results/2026-08-14_upstream.jsonl": {
+        "bytes": 182185,
+        "sha256": "1cfe398336e908d8c4e253ee164086dcadb51de413b80869dcd3ea5956b32c8d"
+      },
+      "data/vllm/ci/test_results/2026-08-15_amd.jsonl": {
+        "bytes": 148078,
+        "sha256": "1db6ef941f0e946084addd3d636a96eb10645c9c832be40cf2ba93126092e1c3"
+      },
+      "data/vllm/ci/test_results/2026-08-15_upstream.jsonl": {
+        "bytes": 185398,
+        "sha256": "16271931260ae1318a3c17d8d59403e7b417d89a95a2bf631551386681560a00"
+      },
+      "data/vllm/ci/test_results/2026-08-16_amd.jsonl": {
+        "bytes": 149611,
+        "sha256": "5ee29fc00d2ad8eccddc1a26b267b8308622e4fb26c64c6ce372b9c541ef22bc"
+      },
+      "data/vllm/ci/test_results/2026-08-16_upstream.jsonl": {
+        "bytes": 191136,
+        "sha256": "386daf7ef8a5d954e31bdffe1d07e21f3a1a30cac4b6b2cc4be4dec25a73d86a"
+      },
+      "data/vllm/ci/test_results/2026-08-17_amd.jsonl": {
+        "bytes": 149744,
+        "sha256": "a4c39547564aff17d6b1110a419d9906e88f4255b061e1301e4052374275e598"
+      },
+      "data/vllm/ci/test_results/2026-08-17_upstream.jsonl": {
+        "bytes": 192570,
+        "sha256": "b81ca2be2f94a54dda6601becfb6b26013f77a0781950ad29aeb0dd7d29a289a"
+      },
+      "data/vllm/ci/test_results/2026-08-18_amd.jsonl": {
+        "bytes": 151290,
+        "sha256": "d5d350f3562970eead3edd7d3842b9caa511bfc78e80b21a82fc538422a7ed94"
+      },
+      "data/vllm/ci/test_results/2026-08-18_upstream.jsonl": {
+        "bytes": 191541,
+        "sha256": "43e4e3affd825f32f7e0f2d5a307b591b00254e0b9061d924b9fe670d8c9012c"
+      },
+      "data/vllm/ci/test_results/2026-08-19_amd.jsonl": {
+        "bytes": 151208,
+        "sha256": "f2916252461c49ab340b03126ca435ff6ebfcd227747adf1c491a4aa7d2e7340"
+      },
+      "data/vllm/ci/test_results/2026-08-19_upstream.jsonl": {
+        "bytes": 217128,
+        "sha256": "90d099748b9ccffa92bd8b78a1617b87db89e968e2b6b11adb7291e86820abc7"
+      },
+      "data/vllm/ci/test_results/2026-08-20_amd.jsonl": {
+        "bytes": 161823,
+        "sha256": "79a8851d98d4512900ac3d26b379e7dc8142c5eca16b4cd9f2bb0e8c67a13eae"
+      },
+      "data/vllm/ci/test_results/2026-08-20_upstream.jsonl": {
+        "bytes": 218629,
+        "sha256": "fe5758da7db00afad1120593440398c37ff0853b5e54df966ce13ae718f07f2f"
+      },
+      "data/vllm/ci/test_results/2026-08-21_amd.jsonl": {
+        "bytes": 163960,
+        "sha256": "54cd0a8bb6141987a93436434578721f68a878604a27373b357152d250a63b4f"
+      },
+      "data/vllm/ci/test_results/2026-08-21_upstream.jsonl": {
+        "bytes": 222135,
+        "sha256": "f9695cc47665d4ab7996069f4920f19829d8029449c20a8def511a6e95e33c75"
+      },
+      "data/vllm/ci/test_results/2026-08-22_amd.jsonl": {
+        "bytes": 158957,
+        "sha256": "3525e3c39eac6264e0fea7fdc0686413e3265a7a435a43cc3808116b0d47dfe2"
+      },
+      "data/vllm/ci/test_results/2026-08-22_upstream.jsonl": {
+        "bytes": 219213,
+        "sha256": "614727605233540f3703714d4c5599bce7779b778e5c0f37fd1c929093d0703f"
+      },
+      "data/vllm/ci/test_results/2026-08-23_amd.jsonl": {
+        "bytes": 160093,
+        "sha256": "5b781bf8d5e2524d3d281095403f638342059ff02f078d80fc64b74be46f76f9"
+      },
+      "data/vllm/ci/test_results/2026-08-23_upstream.jsonl": {
+        "bytes": 219596,
+        "sha256": "69754a917472002b476d2efd9410e8584e913b407db23c4556a2f69a2e97b04a"
+      },
+      "data/vllm/ci/test_results/2026-08-24_amd.jsonl": {
+        "bytes": 160528,
+        "sha256": "2af58cb293f324f7f82498ba464b28c438bd71ae3b28efa3a2bce85250dd1f2a"
+      },
+      "data/vllm/ci/test_results/2026-08-24_upstream.jsonl": {
+        "bytes": 219468,
+        "sha256": "e97e5298821c34018c582a3e7afa8f54a9a4d5903b002decf29b912d2586a2d4"
+      },
+      "data/vllm/ci/test_results/2026-08-25_amd.jsonl": {
+        "bytes": 159391,
+        "sha256": "d207699c08a17ff196defc8bbde08d06ba9098fb3fad2d1152e6b4ef4f98a7e0"
+      },
+      "data/vllm/ci/test_results/2026-08-25_upstream.jsonl": {
+        "bytes": 220920,
+        "sha256": "e50650bcafafac5cb89f54af338e83cde52a3bf7e0f8262b7c28162ded38d9d6"
+      },
+      "data/vllm/ci/test_results/2026-08-26_amd.jsonl": {
+        "bytes": 160910,
+        "sha256": "249cedce047efcfa6fb745b6d11bf1866fcf0caf44cd13479bc5db41cd71557d"
+      },
+      "data/vllm/ci/test_results/2026-08-26_upstream.jsonl": {
+        "bytes": 221762,
+        "sha256": "5aff717a2eb5af339e836aec59e873e0c4dfa05b442ad106f9e400b8557c9115"
+      },
+      "data/vllm/ci/test_results/2026-08-27_amd.jsonl": {
+        "bytes": 161096,
+        "sha256": "5993850238676004d03c7f734edce61beaf234d6fbc684562637ae6768cfdf59"
+      },
+      "data/vllm/ci/test_results/2026-08-27_upstream.jsonl": {
+        "bytes": 222555,
+        "sha256": "911147d294010866a0bc58b315ce4349d9a6ac012f816a9acffa1e2267415bba"
+      },
+      "data/vllm/ci/test_results/2026-08-28_amd.jsonl": {
+        "bytes": 159961,
+        "sha256": "457581fc007d7ca7df4bb894f8d95a5cdf1b83c4739c224ff7b3e1a90a8fa114"
+      },
+      "data/vllm/ci/test_results/2026-08-28_upstream.jsonl": {
+        "bytes": 223545,
+        "sha256": "3daa06619cbd2ec3a3837ea8230b2463d719067bf3243a31a85be54c91d4dbc8"
+      },
+      "data/vllm/ci/test_results/2026-08-29_amd.jsonl": {
+        "bytes": 162166,
+        "sha256": "a374d87af0f1651515bf73d2accc11ac4a46687d1da871063db7206fae14680c"
+      },
+      "data/vllm/ci/test_results/2026-08-29_upstream.jsonl": {
+        "bytes": 224055,
+        "sha256": "ba2629c5584add4ee90c241ba5f2bbef2f4b6cba17b006aa9f8c3c0fc1ffe5c4"
+      },
+      "data/vllm/ci/test_results/2026-08-30_amd.jsonl": {
+        "bytes": 160579,
+        "sha256": "c3d0aca6f21c126681df77e88430215c2b2a7f3c3a733d1849607af4fe38513c"
+      },
+      "data/vllm/ci/test_results/2026-08-30_upstream.jsonl": {
+        "bytes": 233986,
+        "sha256": "600f6a429e8b9ae671742bd3c1ac552dfec044fe2ebaee7f779712b9b7af6893"
+      },
+      "data/vllm/ci/test_results/2026-08-31_amd.jsonl": {
+        "bytes": 162015,
+        "sha256": "07b97fca8e12cc8c8218ac50d852e34bed4a9931d69e63578b947211f361df10"
+      },
+      "data/vllm/ci/test_results/2026-08-31_upstream.jsonl": {
+        "bytes": 239480,
+        "sha256": "555474ad1d6129935dc16124c2ebb124efe5511dc011a4ad17fed0a82776a58b"
+      },
+      "data/vllm/parity_report.json": {
+        "bytes": 636940,
+        "sha256": "6dc389db9e65d34812414e2c262c86ec64416a51d750e4318af3a7bf278c7f38"
+      },
+      "data/vllm/test_results.json": {
+        "bytes": 1248,
+        "sha256": "251b69010d8f70684b443e6b685a892d7d549c6d9a4b10b0120864c09d6a595a"
+      }
+    },
     "queue_lifecycle": {
       "data/vllm/ci/queue_lifecycle.json": {
         "bytes": 406939,
@@ -77,12 +408,106 @@
     }
   },
   "restored_paths": {
+    "ci_analytics": [
+      "data/vllm/ci/analytics.json"
+    ],
+    "ci_core": [
+      "data/vllm/ci/amd_test_matrix.json",
+      "data/vllm/ci/ci_health.json",
+      "data/vllm/ci/ci_ownership.json",
+      "data/vllm/ci/config_parity.json",
+      "data/vllm/ci/failure_trends.json",
+      "data/vllm/ci/flaky_tests.json",
+      "data/vllm/ci/ownership_config_parity.json",
+      "data/vllm/ci/parity_key_overrides.json",
+      "data/vllm/ci/parity_report.json",
+      "data/vllm/ci/quarantine.json",
+      "data/vllm/ci/shard_base_catalog.json",
+      "data/vllm/ci/shard_bases.json",
+      "data/vllm/ci/test_group_parity.json",
+      "data/vllm/ci/test_results/2026-08-01_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-01_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-02_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-02_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-03_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-03_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-04_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-04_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-05_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-05_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-06_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-06_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-07_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-07_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-08_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-08_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-09_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-09_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-10_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-10_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-11_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-11_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-12_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-12_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-13_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-13_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-14_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-14_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-15_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-15_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-16_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-16_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-17_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-17_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-18_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-18_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-19_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-19_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-20_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-20_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-21_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-21_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-22_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-22_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-23_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-23_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-24_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-24_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-25_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-25_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-26_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-26_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-27_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-27_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-28_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-28_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-29_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-29_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-30_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-30_upstream.jsonl",
+      "data/vllm/ci/test_results/2026-08-31_amd.jsonl",
+      "data/vllm/ci/test_results/2026-08-31_upstream.jsonl",
+      "data/vllm/parity_report.json",
+      "data/vllm/test_results.json"
+    ],
     "queue_lifecycle": [
       "data/vllm/ci/queue_lifecycle.json"
     ]
   },
   "schema_version": 2,
   "surface_contract_version": 4,
-  "upstream_retry_observations": [],
-  "upstream_retry_streaks": {}
+  "upstream_retry_observations": [
+    {
+      "alertable": false,
+      "build_number": 86297,
+      "candidate_test_signal_build_number": 86198,
+      "kind": "published-build-active-retry",
+      "persistence_runs": 1,
+      "pipeline": "upstream",
+      "surface": "ci_core"
+    }
+  ],
+  "upstream_retry_streaks": {
+    "60b4fdd6ff458b77c602": 1
+  }
 }
