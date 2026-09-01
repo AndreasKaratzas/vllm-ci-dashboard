@@ -54,7 +54,7 @@ class TestHashLike:
     def test_allows_only_a_full_sha_in_an_action_uses_reference(self):
         revision = "a" * 40
         assert ss.scan_text(
-            f"      - uses: actions/checkout@{revision} # v4", "workflow.yml"
+            f"      - uses: actions/checkout@{revision} # v7", "workflow.yml"
         ) == []
         assert ss.scan_text(
             f"value: actions/checkout@{revision}", "settings.yml"

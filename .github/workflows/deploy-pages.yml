@@ -26,11 +26,11 @@ jobs:
     steps:
       # The trusted default branch supplies only the state validator. The site
       # itself is built with the exact code SHA recorded by dashboard-state.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12.13'
           cache: 'pip'
@@ -658,6 +658,7 @@ jobs:
             --code-sha "$DASHBOARD_STATE_CODE_SHA" \
             --generated-at "$DASHBOARD_STATE_GENERATED_AT" \
             --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --publication-status data/vllm/ci/publication_status.json \
             --output _site/publication_generation.json
 
       - name: Verify exact local public projection
@@ -829,6 +830,7 @@ jobs:
               --code-sha "$DASHBOARD_STATE_CODE_SHA" \
               --generated-at "$DASHBOARD_STATE_GENERATED_AT" \
               --public-attestation data/vllm/ci/public_projection_attestation.json \
+              --publication-status data/vllm/ci/publication_status.json \
               --output _site/publication_generation.json
           }
           run_retry_stage() {
@@ -1074,6 +1076,7 @@ jobs:
             --code-sha "$ROLLBACK_CODE_SHA" \
             --generated-at "$ROLLBACK_GENERATED_AT" \
             --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --publication-status data/vllm/ci/publication_status.json \
             --output _site/publication_generation.json
           "$ROLLBACK_VENV/bin/python" scripts/vllm/public_projection.py verify-local \
             --site-root _site \

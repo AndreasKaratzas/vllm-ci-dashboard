@@ -92,11 +92,11 @@ jobs:
       # this exact directory and all Buildkite API sends share one counter.
       PYTHONPATH: ${{ github.workspace }}/scripts
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12.13'
           cache: 'pip'
@@ -1282,7 +1282,7 @@ jobs:
           inputs.dns_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/nightly-rosters-v2
           key: ${{ steps.ci-roster-cache-key.outputs.key }}
@@ -1313,7 +1313,7 @@ jobs:
           inputs.dns_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/ci-backfill-v1
           key: ${{ steps.ci-backfill-cache-key.outputs.key }}
@@ -1348,7 +1348,7 @@ jobs:
           inputs.dns_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/dns-classifications-v1
           key: ${{ steps.dns-classification-cache-key.outputs.key }}
@@ -1386,7 +1386,7 @@ jobs:
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.roster_cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/nightly-rosters-v2
           key: ${{ steps.ci-roster-cache-key.outputs.key }}
@@ -1397,7 +1397,7 @@ jobs:
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.dns_cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/dns-classifications-v1
           key: ${{ steps.dns-classification-cache-key.outputs.key }}
@@ -1424,7 +1424,7 @@ jobs:
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.ci-backfill-cache-decision.outputs.cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/ci-backfill-v1
           key: ${{ steps.ci-backfill-cache-key.outputs.key }}
@@ -1453,7 +1453,7 @@ jobs:
         id: analytics-cache-restore
         if: inputs.dns_generation == ''
         continue-on-error: true
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/analytics-builds-v1
           key: ${{ steps.analytics-cache-key.outputs.key }}
@@ -1503,7 +1503,7 @@ jobs:
           steps.collect-analytics.outputs.cache_save == 'true' &&
           steps.collect-analytics.outputs.analytics_cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: data/vllm/ci/.cache/analytics-builds-v1
           key: ${{ steps.analytics-cache-key.outputs.key }}
@@ -1972,6 +1972,8 @@ jobs:
         if: >-
           inputs.dns_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          PUBLICATION_GENERATED_AT: ${{ steps.publication-selector.outputs.generated_at }}
         run: |
           set -euo pipefail
           assert_no_tracked_private_cache() {
@@ -1984,7 +1986,9 @@ jobs:
           git add -A -- data/ dashboards/ README.md
           python scripts/vllm/check_git_blob_sizes.py
 
-          GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Publication selection owns the generation clock. Reusing its exact
+          # timestamp keeps the status document and state marker inseparable.
+          GENERATED_AT="$PUBLICATION_GENERATED_AT"
           GENERATION_ID="hourly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           SOURCE_REF_ARGS=()
           while IFS= read -r source_ref; do
@@ -2156,7 +2160,7 @@ jobs:
            steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: live-publication-audit
           path: |
@@ -2369,6 +2373,7 @@ jobs:
             --code-sha "$PUBLICATION_CODE_SHA" \
             --generated-at "$DASHBOARD_GENERATED_AT" \
             --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --publication-status data/vllm/ci/publication_status.json \
             --output _site/publication_generation.json
 
       - name: Verify exact local public projection
@@ -2675,7 +2680,7 @@ jobs:
             inputs.dns_generation == '' ||
             steps.dns-target-confirmation.outcome == 'success'
           )
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           HOURLY_PUBLICATION_SHA: ${{ steps.publication-commit.outputs.published_sha }}
           HOURLY_LOCAL_TEST_GAP_SAFE: ${{ steps.publication-commit.outputs.local_test_gap_safe }}
@@ -2837,7 +2842,7 @@ jobs:
             steps.pages-deploy.outcome == 'failure' ||
             steps.final-deploy-validation.outcome == 'failure'
           )
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           HOURLY_TEST_EXIT_CODE: ${{ steps.run-tests.outputs.exit_code }}
           HOURLY_TEST_SUMMARY: ${{ steps.run-tests.outputs.summary }}
@@ -3423,7 +3428,7 @@ jobs:
           steps.live-data-audit.outputs.exit_code == '0' &&
           steps.publication-recovery-validation.outcome == 'success' &&
           steps.publication-recovery-validation.outputs.eligible == 'true'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           HOURLY_RECOVERY_VALIDATION_SOURCE: ${{ steps.publication-recovery-validation.outputs.source }}
           HOURLY_RECOVERY_CODE_SHA: ${{ steps.publication-recovery-validation.outputs.code_sha }}
@@ -3676,12 +3681,12 @@ jobs:
       required: ${{ steps.target-check.outputs.required }}
       reason: ${{ steps.target-check.outputs.reason }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12.13'
 
@@ -3724,12 +3729,12 @@ jobs:
     outputs:
       required: ${{ steps.generation-check.outputs.required }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12.13'
 
@@ -3754,12 +3759,12 @@ jobs:
       required: ${{ steps.cadence-check.outputs.required }}
       observation_valid: ${{ steps.cadence-check.outputs.observation_valid }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12.13'
 

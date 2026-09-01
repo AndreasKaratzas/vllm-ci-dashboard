@@ -221,6 +221,7 @@ def test_parentless_snapshot_round_trip_and_public_marker(
         marker_path,
         snapshot,
         public_projection=PUBLIC_PROJECTION,
+        publication_status={"generated_at": GENERATED_AT},
         expected_state_tree=snapshot.state_tree,
         expected_code_sha=code_sha,
         expected_generated_at=GENERATED_AT,
@@ -234,6 +235,25 @@ def test_parentless_snapshot_round_trip_and_public_marker(
     )
     assert marker["schema_version"] == 2
     assert marker["public_projection"] == PUBLIC_PROJECTION
+
+
+def test_public_marker_rejects_publication_status_generation_mismatch(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+) -> None:
+    code_sha = init_repo(tmp_path)
+    snapshot = make_state(tmp_path, policy, code_sha, generation="run-101", value=2)
+
+    with pytest.raises(
+        state.DashboardStateError,
+        match="state generated_at does not match publication status generated_at",
+    ):
+        state.write_public_marker(
+            tmp_path / "_site/publication_generation.json",
+            snapshot,
+            public_projection=PUBLIC_PROJECTION,
+            publication_status={"generated_at": "2026-08-17T12:01:00Z"},
+        )
 
 
 def test_public_marker_metadata_mode_requires_code_and_never_uses_full_validation(
@@ -343,6 +363,12 @@ def test_public_marker_cli_defaults_to_full_validation(
     monkeypatch.setattr(state, "validate_state_ref", record_full_validation)
     monkeypatch.setattr(state, "validate_state_ref_metadata", reject_metadata_validation)
 
+    publication_status = tmp_path / "publication_status.json"
+    publication_status.write_text(
+        json.dumps({"generated_at": GENERATED_AT}) + "\n",
+        encoding="utf-8",
+    )
+
     assert (
         state.main(
             [
@@ -357,6 +383,8 @@ def test_public_marker_cli_defaults_to_full_validation(
                 code_sha,
                 "--public-attestation",
                 str(tmp_path / projection.ATTESTATION_PATH),
+                "--publication-status",
+                str(publication_status),
                 "--output",
                 str(tmp_path / "_site/publication_generation.json"),
             ]

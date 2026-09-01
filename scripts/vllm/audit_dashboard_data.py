@@ -8833,7 +8833,7 @@ class DashboardAudit:
             )
 
         cache_restore_action_ok = re.search(
-            r"uses:\s*actions/cache/restore@(?:v4|[0-9a-f]{40}\s+#\s*v4)\s*$",
+            r"uses:\s*actions/cache/restore@(?:v6|[0-9a-f]{40}\s+#\s*v6)\s*$",
             cache_restore,
             flags=re.MULTILINE,
         ) is not None
@@ -8852,7 +8852,7 @@ class DashboardAudit:
             self.error(
                 "workflow-private-analytics-cache-restore",
                 (
-                    "private analytics cache restore must use actions/cache@v4, "
+                    "private analytics cache restore must use actions/cache@v6, "
                     "the exact private path, and current/prior UTC-day prefixes"
                 ),
                 ".github/workflows/hourly-master.yml",
@@ -8868,7 +8868,7 @@ class DashboardAudit:
             )
         )
         cache_save_action_ok = re.search(
-            r"uses:\s*actions/cache/save@(?:v4|[0-9a-f]{40}\s+#\s*v4)\s*$",
+            r"uses:\s*actions/cache/save@(?:v6|[0-9a-f]{40}\s+#\s*v6)\s*$",
             cache_save,
             flags=re.MULTILINE,
         ) is not None

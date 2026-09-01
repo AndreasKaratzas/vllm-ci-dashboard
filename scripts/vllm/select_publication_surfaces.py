@@ -1517,6 +1517,7 @@ def _emit_outputs(state: dict) -> None:
         )
     )
     lines = [
+        f"generated_at={state['generated_at']}",
         f"degraded={'true' if degraded else 'false'}",
         f"blocked={'true' if blocked else 'false'}",
         (

@@ -1737,6 +1737,7 @@ def test_active_retry_does_not_suppress_an_unrelated_publication_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     state = {
+        "generated_at": "2026-09-01T12:34:56Z",
         "mode": "fallback",
         "degraded_surfaces": ["ci_core"],
         "fallback_surfaces": ["ci_core"],
@@ -1783,6 +1784,7 @@ def test_active_retry_does_not_suppress_an_unrelated_publication_error(
     assert "context" not in state["candidate_errors"][0]
     assert "alertable_degradation=true" in output.read_text()
     assert "transient_alert_suppressed=false" in output.read_text()
+    assert "generated_at=2026-09-01T12:34:56Z" in output.read_text()
 
 
 def test_transient_collector_alert_requires_two_consecutive_fallbacks() -> None:

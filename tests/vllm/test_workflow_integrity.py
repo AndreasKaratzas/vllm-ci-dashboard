@@ -24,13 +24,13 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 ACTION_PINS = {
-    "actions/cache/restore": "0057852bfaa89a56745cba8c7296529d2fc39830",  # action revision
-    "actions/cache/save": "0057852bfaa89a56745cba8c7296529d2fc39830",  # action revision
-    "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",  # action revision
-    "actions/github-script": "f28e40c7f34bde8b3046d885e986cb6290c5673b",  # action revision
-    "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",  # action revision
-    "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",  # action revision
-    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",  # action revision
+    "actions/cache/restore": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",  # action revision
+    "actions/cache/save": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",  # action revision
+    "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",  # action revision
+    "actions/github-script": "3a2844b7e9c422d3c10d287c895573f7108da1b3",  # action revision
+    "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020",  # action revision
+    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",  # action revision
+    "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",  # action revision
     "peaceiris/actions-gh-pages": "84c30a85c19949d7eee79c4ff27748b70285e453",  # action revision
 }
 
@@ -202,6 +202,58 @@ class TestWorkflowYAML:
         assert "npm ci --prefix tools/spellcheck" in commands
         assert "tools/spellcheck/node_modules/.bin/cspell" in commands
         assert "npm install -g" not in commands
+
+    def test_setup_node_cache_policy_is_explicit(self):
+        """Node 24 actions must never enable an accidental package cache."""
+
+        setup_node = "actions/setup-node@" + ACTION_PINS["actions/setup-node"]
+        observed = []
+        for workflow in WORKFLOWS.glob("*.yml"):
+            parsed = _load_workflow(workflow.name)
+            for job_name, job in (parsed.get("jobs") or {}).items():
+                for step in job.get("steps", []):
+                    if step.get("uses") != setup_node:
+                        continue
+                    settings = step.get("with", {})
+                    observed.append((workflow.name, job_name, settings))
+                    if settings.get("cache") == "npm":
+                        assert settings.get("cache-dependency-path") == (
+                            "tools/spellcheck/package-lock.json"
+                        )
+                        continue
+                    assert settings.get("package-manager-cache") is False, (
+                        f"{workflow.name}:{job_name}: setup-node without an explicit "
+                        "cache must disable automatic package-manager caching"
+                    )
+
+        assert len(observed) == 2
+
+    def test_github_script_v9_uses_the_modern_octokit_surface(self):
+        """Keep scripts compatible with the github-script v9 client contract."""
+
+        github_script = (
+            "actions/github-script@" + ACTION_PINS["actions/github-script"]
+        )
+        legacy_client = re.compile(
+            r"\bgithub\.(?:actions|checks|issues|pulls|repos)\."
+        )
+        observed = 0
+        for workflow in WORKFLOWS.glob("*.yml"):
+            parsed = _load_workflow(workflow.name)
+            for job_name, job in (parsed.get("jobs") or {}).items():
+                for step in job.get("steps", []):
+                    if step.get("uses") != github_script:
+                        continue
+                    observed += 1
+                    script = step.get("with", {}).get("script")
+                    assert isinstance(script, str) and script.strip(), (
+                        f"{workflow.name}:{job_name}: github-script needs inline code"
+                    )
+                    assert legacy_client.search(script) is None, (
+                        f"{workflow.name}:{job_name}: github-script must use github.rest"
+                    )
+
+        assert observed == 9
 
     def test_dependency_contracts_are_exact_and_covered_by_lock(self):
         constraint_lines = [
@@ -1400,7 +1452,8 @@ class TestHourlyMasterWorkflow:
         dns_collect = dns_steps[dns_collect_index]["run"]
         assert f"--classification-cache {cache_path}" in dns_collect
         assert not any(
-            step.get("uses") == "actions/cache/save@v4" for step in dns_steps
+            str(step.get("uses", "")).startswith("actions/cache/save@")
+            for step in dns_steps
         )
 
         assert "data/vllm/ci/.cache/" in {
@@ -1566,11 +1619,12 @@ class TestHourlyMasterWorkflow:
     def test_hourly_refuses_to_publish_tracked_private_caches(self):
         workflow = _load_workflow("hourly-master.yml")
         steps = next(iter(workflow["jobs"].values())).get("steps", [])
-        script = next(
-            step["run"]
+        candidate = next(
+            step
             for step in steps
             if step.get("name") == "Prepare bounded dashboard state candidate"
         )
+        script = candidate["run"]
 
         guard = "git ls-files -- ':(glob)**/.cache/**'"
         assert guard in script
@@ -1579,6 +1633,13 @@ class TestHourlyMasterWorkflow:
             "git add -A -- data/ dashboards/ README.md"
         )
         assert "git push" not in _load_workflow_text("hourly-master.yml")
+        assert candidate["env"] == {
+            "PUBLICATION_GENERATED_AT": (
+                "${{ steps.publication-selector.outputs.generated_at }}"
+            )
+        }
+        assert 'GENERATED_AT="$PUBLICATION_GENERATED_AT"' in script
+        assert "GENERATED_AT=$(date" not in script
 
     def test_selection_precedes_side_effects_render_and_tests(self):
         data = _load_workflow("hourly-master.yml")
@@ -2345,6 +2406,10 @@ class TestHourlyMasterWorkflow:
         assert "MEMBER" in deploy["if"]
         assert "COLLABORATOR" in deploy["if"]
         assert "author_association" in deploy["if"]
+        assert (
+            "github.event.pull_request.head.repo.full_name == github.repository"
+            in deploy["if"]
+        )
         assert deploy["permissions"] == {
             "contents": "write",
             "pull-requests": "write",
@@ -3362,6 +3427,7 @@ class TestFrameworkIsolation:
             text = _load_workflow_text(wf)
             assert "dashboard_state.py write-public-marker" in text
             assert "publication_generation.json" in text
+            assert "--publication-status data/vllm/ci/publication_status.json" in text
             assert "git show origin/gh-pages:data/vllm/ci/analytics.json" not in text
 
     def test_pr_preview_rebuilds_untracked_operations_input(self):

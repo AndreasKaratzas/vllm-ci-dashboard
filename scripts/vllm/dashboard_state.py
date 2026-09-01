@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -53,6 +54,7 @@ STATE_MANIFEST_SCHEMA_VERSION = 2
 MIN_COMPATIBLE_STATE_MANIFEST_SCHEMA_VERSION = STATE_MANIFEST_SCHEMA_VERSION - 1
 PUBLIC_MARKER_SCHEMA_VERSION = 2
 MAX_STATE_MANIFEST_BYTES = 8 * 1024 * 1024
+MAX_PUBLICATION_STATUS_BYTES = 64 * 1024
 DEFAULT_MAX_BLOB_BYTES = 85 * 1024 * 1024
 DEFAULT_MAX_TREE_BYTES = 256 * 1024 * 1024
 DEFAULT_MAX_FILES = 10_000
@@ -199,6 +201,68 @@ def _canonical_timestamp(value: object, *, label: str) -> str:
     if canonical != value:
         raise DashboardStateError(f"{label} must use canonical UTC form {canonical!r}")
     return canonical
+
+
+def _load_publication_status(path: Path) -> dict[str, Any]:
+    """Read the small public status document without following symlinks."""
+    try:
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise DashboardStateError("publication status must be a regular file")
+        if metadata.st_size > MAX_PUBLICATION_STATUS_BYTES:
+            raise DashboardStateError("publication status exceeds its byte limit")
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+    except DashboardStateError:
+        raise
+    except OSError as exc:
+        raise DashboardStateError(
+            f"publication status is unreadable: {type(exc).__name__}"
+        ) from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != metadata.st_dev
+            or opened.st_ino != metadata.st_ino
+            or opened.st_size != metadata.st_size
+        ):
+            raise DashboardStateError("publication status changed while opening")
+        chunks: list[bytes] = []
+        consumed = 0
+        while consumed <= MAX_PUBLICATION_STATUS_BYTES:
+            chunk = os.read(
+                descriptor,
+                min(1024 * 1024, MAX_PUBLICATION_STATUS_BYTES + 1 - consumed),
+            )
+            if not chunk:
+                break
+            chunks.append(chunk)
+            consumed += len(chunk)
+        closed = os.fstat(descriptor)
+        if consumed > MAX_PUBLICATION_STATUS_BYTES:
+            raise DashboardStateError("publication status exceeds its byte limit")
+        if (
+            consumed != metadata.st_size
+            or closed.st_size != metadata.st_size
+            or closed.st_mtime_ns != opened.st_mtime_ns
+        ):
+            raise DashboardStateError("publication status changed while reading")
+    except OSError as exc:
+        raise DashboardStateError(
+            f"publication status is unreadable: {type(exc).__name__}"
+        ) from exc
+    finally:
+        os.close(descriptor)
+    value = _decode_json(b"".join(chunks), label="publication status")
+    if not isinstance(value, dict):
+        raise DashboardStateError("publication status must be a JSON object")
+    _canonical_timestamp(
+        value.get("generated_at"), label="publication status generated_at"
+    )
+    return value
 
 
 def _generation_id(value: object) -> str:
@@ -1751,6 +1815,7 @@ def write_public_marker(
     state: ValidatedState,
     *,
     public_projection: Mapping[str, Any],
+    publication_status: Mapping[str, Any] | None = None,
     expected_state_tree: str | None = None,
     expected_code_sha: str | None = None,
     expected_generated_at: str | None = None,
@@ -1768,6 +1833,15 @@ def write_public_marker(
         expected_time = _canonical_timestamp(expected_generated_at, label="expected generated_at")
         if state.generated_at != expected_time:
             raise DashboardStateError("state generated_at does not match expected generated_at")
+    if publication_status is not None:
+        status_time = _canonical_timestamp(
+            publication_status.get("generated_at"),
+            label="publication status generated_at",
+        )
+        if state.generated_at != status_time:
+            raise DashboardStateError(
+                "state generated_at does not match publication status generated_at"
+            )
     try:
         normalized_projection = normalize_attestation(public_projection)
     except PublicProjectionError as exc:
@@ -1943,6 +2017,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     marker.add_argument("--public-attestation", type=Path, required=True)
+    marker.add_argument("--publication-status", type=Path)
     marker.add_argument("--output", type=Path, required=True)
     _add_output_argument(marker)
     return parser.parse_args(argv)
@@ -2065,10 +2140,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise DashboardStateError(
                     f"public projection attestation is invalid: {exc}"
                 ) from exc
+            if not args.metadata_only and args.publication_status is None:
+                raise DashboardStateError(
+                    "write-public-marker requires --publication-status outside metadata-only mode"
+                )
+            publication_status = (
+                _load_publication_status(args.publication_status.absolute())
+                if args.publication_status is not None
+                else None
+            )
             marker = write_public_marker(
                 args.output,
                 state,
                 public_projection=projection,
+                publication_status=publication_status,
                 expected_state_tree=args.state_tree,
                 expected_code_sha=args.code_sha,
                 expected_generated_at=args.generated_at,

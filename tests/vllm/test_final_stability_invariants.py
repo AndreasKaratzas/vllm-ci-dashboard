@@ -10,7 +10,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
-SETUP_PYTHON_SHA = "a26af69be951a213d495a4c3e4e4022e16d87065"
+SETUP_PYTHON_SHA = "5fda3b95a4ea91299a34e894583c3862153e4b97"
 
 
 def _workflow(name: str) -> dict:

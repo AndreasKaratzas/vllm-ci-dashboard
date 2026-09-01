@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 DOCS = ROOT / "docs"
 WORKFLOWS = ROOT / ".github" / "workflows"
-CACHE_ACTION_REVISION = "0057852bfaa89a56745cba8c7296529d2fc39830"  # action revision
+CACHE_ACTION_REVISION = "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"  # action revision
 
 
 @pytest.mark.live_data
