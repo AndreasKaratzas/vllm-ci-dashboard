@@ -664,6 +664,70 @@ class TestQueueMonitorWorkflow:
         ):
             assert relative in hydrate["run"]
         assert 'git show "$QUEUE_SOURCE_SHA:$path"' in hydrate["run"]
+        assert 'install -D -m 0644 "$RETRY_ROOT/$path" "$path"' in hydrate["run"]
+
+    def test_zero_request_hydration_creates_missing_generated_directories(
+        self, workflow, tmp_path
+    ):
+        """Replay hydration from a clean main tree with no operations directory."""
+
+        remote = tmp_path / "remote.git"
+        seed = tmp_path / "seed"
+        checkout = tmp_path / "checkout"
+
+        def git(*args, cwd=None):
+            return subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        git("init", "--bare", str(remote))
+        git("init", str(seed))
+        git("config", "user.name", "queue-test", cwd=seed)
+        git("config", "user.email", "queue-test@example.invalid", cwd=seed)
+        git("config", "commit.gpgsign", "false", cwd=seed)
+        projection = {
+            "data/vllm/ci/operations_v2/queue.json": '{"queue":[]}\n',
+            "data/vllm/ci/queue_history_chart.json": '{"history":[]}\n',
+            "data/vllm/ci/queue_jobs.json": '{"pending":[],"running":[]}\n',
+            "data/vllm/ci/queue_timeseries.jsonl": '{"queues":{}}\n',
+        }
+        for relative, content in projection.items():
+            destination = seed / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(content, encoding="utf-8")
+        git("add", ".", cwd=seed)
+        git("commit", "-m", "durable queue projection", cwd=seed)
+        git("remote", "add", "origin", str(remote), cwd=seed)
+        git("push", "origin", "HEAD:queue-data", cwd=seed)
+
+        git("init", str(checkout))
+        git("remote", "add", "origin", str(remote), cwd=checkout)
+        git(
+            "fetch",
+            "origin",
+            "refs/heads/queue-data:refs/remotes/origin/queue-data",
+            cwd=checkout,
+        )
+        assert not (checkout / "data" / "vllm" / "ci" / "operations_v2").exists()
+        hydrate = next(
+            step
+            for step in workflow["jobs"]["snapshot"]["steps"]
+            if step.get("name")
+            == "Hydrate exact durable queue projection for zero-request retry"
+        )
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", hydrate["run"]],
+            cwd=checkout,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        for relative, content in projection.items():
+            assert (checkout / relative).read_text(encoding="utf-8") == content
 
     def test_queue_reconciliation_is_conditional_and_least_privilege(self, workflow):
         reconcile = workflow["jobs"]["reconcile-publication"]

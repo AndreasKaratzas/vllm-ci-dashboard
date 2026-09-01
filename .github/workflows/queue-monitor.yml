@@ -203,26 +203,19 @@ jobs:
             rm -rf "$RETRY_ROOT"
           }
           trap cleanup EXIT
-          for path in \
-            data/vllm/ci/queue_timeseries.jsonl \
-            data/vllm/ci/queue_jobs.json \
-            data/vllm/ci/queue_history_chart.json \
-            data/vllm/ci/operations_v2/queue.json; do
+          QUEUE_PATHS=(
+            data/vllm/ci/queue_timeseries.jsonl
+            data/vllm/ci/queue_jobs.json
+            data/vllm/ci/queue_history_chart.json
+            data/vllm/ci/operations_v2/queue.json
+          )
+          for path in "${QUEUE_PATHS[@]}"; do
             mkdir -p "$RETRY_ROOT/$(dirname "$path")"
             git show "$QUEUE_SOURCE_SHA:$path" > "$RETRY_ROOT/$path"
           done
-          install -m 0644 \
-            "$RETRY_ROOT/data/vllm/ci/queue_timeseries.jsonl" \
-            data/vllm/ci/queue_timeseries.jsonl
-          install -m 0644 \
-            "$RETRY_ROOT/data/vllm/ci/queue_jobs.json" \
-            data/vllm/ci/queue_jobs.json
-          install -m 0644 \
-            "$RETRY_ROOT/data/vllm/ci/queue_history_chart.json" \
-            data/vllm/ci/queue_history_chart.json
-          install -m 0644 \
-            "$RETRY_ROOT/data/vllm/ci/operations_v2/queue.json" \
-            data/vllm/ci/operations_v2/queue.json
+          for path in "${QUEUE_PATHS[@]}"; do
+            install -D -m 0644 "$RETRY_ROOT/$path" "$path"
+          done
           echo "Hydrated all four queue projection files from $QUEUE_SOURCE_SHA."
 
       - name: Collect bounded queue snapshot
