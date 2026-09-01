@@ -676,7 +676,19 @@ class TestQueueMonitorWorkflow:
         plan = steps[names.index("Plan canonical queue publication reconciliation")]
         dispatch = steps[names.index("Dispatch canonical queue reconciliation")]
         assert plan["id"] == "publication-reconcile"
+        assert plan["env"] == {
+            "TARGET_QUEUE_GENERATION": (
+                "${{ needs.snapshot.outputs.queue_generation }}"
+            )
+        }
         assert "plan_queue_publication_reconcile.py" in plan["run"]
+        assert "if ! PAGES_SHA=$(GIT_NO_LAZY_FETCH=1 git rev-parse" in plan["run"]
+        assert '"$PAGES_SHA:data/vllm/ci/publication_status.json"' in plan["run"]
+        assert '"$PAGES_SHA:data/vllm/ci/queue_jobs.json"' in plan["run"]
+        assert '--canonical-queue-data "$CANONICAL_QUEUE"' in plan["run"]
+        assert '--target-queue-generation "$TARGET_QUEUE_GENERATION"' in plan["run"]
+        assert "--filter=blob:none" in plan["run"]
+        assert "--fail-if-required" not in plan["run"]
         assert "--max-age-hours" not in plan["run"]
         assert dispatch["if"] == (
             "steps.publication-reconcile.outputs.required == 'true'"

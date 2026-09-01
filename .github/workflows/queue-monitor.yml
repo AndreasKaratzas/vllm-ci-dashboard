@@ -459,22 +459,38 @@ jobs:
 
       - name: Plan canonical queue publication reconciliation
         id: publication-reconcile
+        env:
+          TARGET_QUEUE_GENERATION: ${{ needs.snapshot.outputs.queue_generation }}
         run: |
           set -euo pipefail
           PUBLICATION_STATUS="$RUNNER_TEMP/publication_status.json"
+          CANONICAL_QUEUE="$RUNNER_TEMP/canonical_queue_jobs.json"
+          rm -f "$PUBLICATION_STATUS" "$CANONICAL_QUEUE"
           if git fetch origin \
             +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 \
-            && git show \
-              origin/gh-pages:data/vllm/ci/publication_status.json \
-              > "$PUBLICATION_STATUS"; then
-            echo "Loaded the current canonical publication status."
+            --depth=1 --filter=blob:none; then
+            if ! PAGES_SHA=$(GIT_NO_LAZY_FETCH=1 git rev-parse --verify \
+              'origin/gh-pages^{commit}'); then
+              PAGES_SHA=unavailable
+            fi
+            if ! [[ "$PAGES_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::warning::Canonical Pages ref is ambiguous; requesting queue reconciliation."
+              PAGES_SHA=unavailable
+            fi
+            git show \
+              "$PAGES_SHA:data/vllm/ci/publication_status.json" \
+              > "$PUBLICATION_STATUS" 2>/dev/null || rm -f "$PUBLICATION_STATUS"
+            git show \
+              "$PAGES_SHA:data/vllm/ci/queue_jobs.json" \
+              > "$CANONICAL_QUEUE" 2>/dev/null || rm -f "$CANONICAL_QUEUE"
+            echo "Loaded the canonical publication snapshot."
           else
-            rm -f "$PUBLICATION_STATUS"
             echo "::warning::Canonical publication status is unavailable; requesting queue reconciliation."
           fi
           python scripts/vllm/plan_queue_publication_reconcile.py \
             --status "$PUBLICATION_STATUS" \
+            --canonical-queue-data "$CANONICAL_QUEUE" \
+            --target-queue-generation "$TARGET_QUEUE_GENERATION" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Dispatch canonical queue reconciliation
