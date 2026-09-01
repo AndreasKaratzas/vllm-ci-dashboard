@@ -28,9 +28,11 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
     writers = budget.writer_limits
     assert groups["analytics"].max_bytes == 64 * 1024 * 1024
     assert writers["analytics"].max_bytes == 56 * 1024 * 1024
+    assert writers["dashboard_state_manifest"].max_bytes == 8 * 1024 * 1024
     assert (
-        groups["analytics"].max_bytes - writers["analytics"].max_bytes
-        == 8 * 1024 * 1024
+        writers["analytics"].max_bytes
+        + writers["dashboard_state_manifest"].max_bytes
+        == groups["analytics"].max_bytes
     )
     assert (
         writers["queue_history"].max_bytes
@@ -117,6 +119,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         "omni_surge_heuristic",
         "quarantine_report",
         "last_collected_at",
+        "public_projection_attestation",
     )
     assert sum(
         writers[name].max_bytes for name in operational_misc_writers
@@ -124,7 +127,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
     assert (
         groups["operational_misc"].max_bytes
         - sum(writers[name].max_bytes for name in operational_misc_writers)
-        >= 7 * 1024
+        >= 3 * 1024
     )
     assert budget.unmanaged_max_bytes == 16 * 1024 * 1024
     assert budget.max_files == 10_000
@@ -155,6 +158,25 @@ def test_every_current_generated_data_file_has_an_explicit_group() -> None:
     } == {}
 
 
+@pytest.mark.parametrize(
+    ("path", "expected_group"),
+    [
+        ("data/vllm/ci/dashboard_state.json", "analytics"),
+        (
+            "data/vllm/ci/public_projection_attestation.json",
+            "operational_misc",
+        ),
+    ],
+)
+def test_generated_state_control_file_has_one_explicit_group(
+    path: str,
+    expected_group: str,
+) -> None:
+    budget = load_storage_budget()
+
+    assert budget.matching_groups(path) == (expected_group,)
+
+
 def test_runtime_writer_caps_match_the_shared_allocation() -> None:
     import collect_ci
 
@@ -175,8 +197,10 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         collect_queue_lifecycle,
         collect_queue_snapshot,
         collect_workload_mapping,
+        dashboard_state,
         github_home_bundle,
         omni_surge_watcher,
+        public_projection,
         select_publication_surfaces,
         write_last_collected_at,
     )
@@ -189,6 +213,14 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
     groups = budget.groups
 
     assert collect_analytics.PRIVATE_ANALYTICS_TARGET_BYTES == writers["analytics"].max_bytes
+    assert (
+        dashboard_state.MAX_STATE_MANIFEST_BYTES
+        == writers["dashboard_state_manifest"].max_bytes
+    )
+    assert (
+        public_projection.MAX_ATTESTATION_BYTES
+        == writers["public_projection_attestation"].max_bytes
+    )
     assert collect_analytics.GATING_NIGHTLIES_MAX_BYTES == writers["gating_nightlies"].max_bytes
     assert reporter.TEST_RESULT_SHARD_MAX_BYTES == writers["test_result_shard"].max_bytes
     assert reporter.TEST_RESULT_STORE_MAX_BYTES == writers["test_result_store"].max_bytes

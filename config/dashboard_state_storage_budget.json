@@ -14,7 +14,8 @@
     "analytics": {
       "max_bytes": 67108864,
       "patterns": [
-        "data/vllm/ci/analytics.json"
+        "data/vllm/ci/analytics.json",
+        "data/vllm/ci/dashboard_state.json"
       ]
     },
     "gating_nightlies": {
@@ -149,7 +150,8 @@
         "data/vllm/ci/shard_bases.json",
         "data/vllm/ci/omni_surge_heuristic.json",
         "data/vllm/ci/quarantine.json",
-        "data/vllm/ci/last_collected_at.txt"
+        "data/vllm/ci/last_collected_at.txt",
+        "data/vllm/ci/public_projection_attestation.json"
       ]
     }
   },
@@ -161,6 +163,10 @@
     "analytics": {
       "group": "analytics",
       "max_bytes": 58720256
+    },
+    "dashboard_state_manifest": {
+      "group": "analytics",
+      "max_bytes": 8388608
     },
     "gating_nightlies": {
       "group": "gating_nightlies",
@@ -357,6 +363,10 @@
     "last_collected_at": {
       "group": "operational_misc",
       "max_bytes": 1024
+    },
+    "public_projection_attestation": {
+      "group": "operational_misc",
+      "max_bytes": 4096
     }
   }
 }
