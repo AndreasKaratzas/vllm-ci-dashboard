@@ -55,6 +55,8 @@ def repo(tmp_path: Path) -> tuple[Path, Path]:
     checkout.mkdir()
     git(checkout, "init")
     git(checkout, "config", "commit.gpgsign", "false")
+    git(checkout, "config", "user.name", "Dashboard Budget Test")
+    git(checkout, "config", "user.email", "dashboard-budget-test@example.invalid")
     subprocess.run(
         ["git", "init", "--bare", str(remote)],
         check=True,
