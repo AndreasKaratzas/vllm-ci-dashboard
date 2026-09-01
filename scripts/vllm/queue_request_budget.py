@@ -600,10 +600,23 @@ def reserve_budget(
     )
     if used + amount > policy.max_request_starts:
         available_at = _next_available_at(rows, amount=amount, policy=policy)
-        raise QueueRequestBudgetError(
-            f"rolling queue request budget exhausted: {used} starts remain reserved; "
-            f"the next {amount}-start allowance is available at {_iso_timestamp(available_at)}"
-        )
+        # Capacity pressure is an expected rolling-budget state, especially
+        # while conservative legacy reservations age out after cutover.  It is
+        # not a malformed ledger and must not turn a scheduled poll red.  Do
+        # not move the branch: return an explicit zero-start mode so the
+        # workflow can install its deny-all transport guard and finish as an
+        # observable no-op.
+        return {
+            "request_mode": "capacity_gated",
+            "decision_at": decision_at,
+            "available_at": _iso_timestamp(available_at),
+            "budget_sha": established.commit_sha,
+            "reserved_request_starts": 0,
+            "metrics_request_limit": 0,
+            "details_request_limit": 0,
+            "rolling_reserved_starts": used,
+            "remaining_request_starts": max(0, policy.max_request_starts - used),
+        }
     suffixes = [f"{reservation_id}:metrics"]
     if details_due:
         suffixes.append(f"{reservation_id}:details")

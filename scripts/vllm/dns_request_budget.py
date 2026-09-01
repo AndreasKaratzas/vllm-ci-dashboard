@@ -653,11 +653,20 @@ def reserve_budget(
     new_total = used + policy.scan_reservation_request_starts
     if new_total > policy.max_request_starts:
         available_at = _next_available_at(rows, policy=policy)
-        raise DnsRequestBudgetError(
-            "rolling DNS request budget exhausted: "
-            f"{used} starts remain reserved; next {policy.scan_reservation_request_starts} "
-            f"start allowance is available at {_iso_timestamp(available_at)}"
-        )
+        # A valid but full rolling ledger is an expected scheduling gate, not
+        # a producer failure.  Leave the exact remote ledger untouched and
+        # return a deny-all mode.  The workflow skips collection/publication in
+        # this mode and exposes the next safe opportunity without presenting a
+        # stale generation as freshly collected.
+        return {
+            "request_mode": "capacity_gated",
+            "decision_at": decision_at,
+            "available_at": _iso_timestamp(available_at),
+            "budget_sha": established.commit_sha,
+            "reserved_request_starts": 0,
+            "rolling_reserved_starts": used,
+            "remaining_request_starts": max(0, policy.max_request_starts - used),
+        }
     rows.append(
         {
             "id": reservation_id,

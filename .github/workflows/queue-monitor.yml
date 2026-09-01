@@ -104,7 +104,7 @@ jobs:
           METRICS_LIMIT=$(awk -F= '$1 == "metrics_request_limit" {print $2}' "$OUTPUTS")
           DETAILS_LIMIT=$(awk -F= '$1 == "details_request_limit" {print $2}' "$OUTPUTS")
           case "$REQUEST_MODE:$ALLOWANCE:$METRICS_LIMIT:$DETAILS_LIMIT" in
-            interval_gated:0:0:0|metrics:2:2:0|metrics_and_details:14:2:12) ;;
+            interval_gated:0:0:0|capacity_gated:0:0:0|metrics:2:2:0|metrics_and_details:14:2:12) ;;
             *)
               echo "::error::Queue budget returned malformed guard allowance outputs."
               exit 1
@@ -124,9 +124,18 @@ jobs:
           } >> "$GITHUB_ENV"
           cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
 
+      - name: Report capacity-gated queue request budget
+        if: steps.queue-request-budget.outputs.request_mode == 'capacity_gated'
+        run: >-
+          echo "Queue monitor made zero Buildkite requests because the durable
+          rolling request budget is full; the next allowance is available at
+          ${{ steps.queue-request-budget.outputs.available_at }}."
+
       - name: Collect bounded queue snapshot
         id: collect-queue
-        if: steps.queue-request-budget.outputs.request_mode != 'interval_gated'
+        if: >-
+          steps.queue-request-budget.outputs.request_mode == 'metrics' ||
+          steps.queue-request-budget.outputs.request_mode == 'metrics_and_details'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -162,21 +171,24 @@ jobs:
 
       - name: Build live queue section
         if: >-
-          steps.queue-request-budget.outputs.request_mode != 'interval_gated' &&
+          (steps.queue-request-budget.outputs.request_mode == 'metrics' ||
+           steps.queue-request-budget.outputs.request_mode == 'metrics_and_details') &&
           steps.collect-queue.outcome == 'success' &&
           steps.queue-request-guard-report.outcome == 'success'
         run: python scripts/vllm/build_queue_section.py
 
       - name: Validate live queue evidence
         if: >-
-          steps.queue-request-budget.outputs.request_mode != 'interval_gated' &&
+          (steps.queue-request-budget.outputs.request_mode == 'metrics' ||
+           steps.queue-request-budget.outputs.request_mode == 'metrics_and_details') &&
           steps.collect-queue.outcome == 'success' &&
           steps.queue-request-guard-report.outcome == 'success'
         run: python scripts/vllm/audit_dashboard_data.py --queue-only
 
       - name: Publish durable live queue evidence
         if: >-
-          steps.queue-request-budget.outputs.request_mode != 'interval_gated' &&
+          (steps.queue-request-budget.outputs.request_mode == 'metrics' ||
+           steps.queue-request-budget.outputs.request_mode == 'metrics_and_details') &&
           steps.collect-queue.outcome == 'success' &&
           steps.queue-request-guard-report.outcome == 'success'
         run: |

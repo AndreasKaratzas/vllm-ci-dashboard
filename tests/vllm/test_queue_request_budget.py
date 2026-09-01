@@ -133,13 +133,20 @@ def test_initializer_accepts_conservative_over_cap_legacy_run_telemetry(
     assert validated.ledger["migration_debt"] is True
     assert sum(row["request_starts"] for row in validated.ledger["reservations"]) == 707
 
-    with pytest.raises(budget.QueueRequestBudgetError, match="707 starts remain reserved"):
-        budget.reserve_budget(
-            checkout,
-            policy,
-            reservation_id="queue-cutover-1",
-            now=INITIALIZED_AT + timedelta(hours=1),
-        )
+    gated = budget.reserve_budget(
+        checkout,
+        policy,
+        reservation_id="queue-cutover-1",
+        now=INITIALIZED_AT + timedelta(hours=1),
+    )
+    assert gated["request_mode"] == "capacity_gated"
+    assert gated["reserved_request_starts"] == 0
+    assert gated["metrics_request_limit"] == 0
+    assert gated["details_request_limit"] == 0
+    assert gated["rolling_reserved_starts"] == 707
+    assert gated["remaining_request_starts"] == 0
+    assert gated["available_at"] == "2026-09-02T01:00:00Z"
+    assert remote_sha(checkout) == initialized["budget_sha"]
 
 
 def test_burst_is_coalesced_without_moving_the_branch(
@@ -213,7 +220,7 @@ def test_metrics_and_details_have_independent_durable_cadences(
     assert kinds.count("details") == 2
 
 
-def test_budget_exhaustion_never_writes_an_over_cap_commit(
+def test_budget_exhaustion_is_a_zero_start_gate_and_never_moves_the_branch(
     repo: tuple[Path, Path],
     policy: budget.BudgetPolicy,
 ) -> None:
@@ -224,13 +231,23 @@ def test_budget_exhaustion_never_writes_an_over_cap_commit(
         seed_at=INITIALIZED_AT - timedelta(hours=2),
         amount=642,
     )
-    with pytest.raises(budget.QueueRequestBudgetError, match="642 starts remain reserved"):
-        budget.reserve_budget(
-            checkout,
-            policy,
-            reservation_id="queue-120-1",
-            now=INITIALIZED_AT,
-        )
+    outputs = budget.reserve_budget(
+        checkout,
+        policy,
+        reservation_id="queue-120-1",
+        now=INITIALIZED_AT,
+    )
+    assert outputs == {
+        "request_mode": "capacity_gated",
+        "decision_at": "2026-09-01T06:00:00Z",
+        "available_at": "2026-09-02T05:00:00Z",
+        "budget_sha": old_sha,
+        "reserved_request_starts": 0,
+        "metrics_request_limit": 0,
+        "details_request_limit": 0,
+        "rolling_reserved_starts": 642,
+        "remaining_request_starts": 8,
+    }
     assert remote_sha(checkout) == old_sha
 
 
@@ -334,12 +351,15 @@ def test_workflow_gates_every_trigger_before_exposing_buildkite_token() -> None:
     steps = job["steps"]
     names = [step.get("name") for step in steps]
     reserve = steps[names.index("Reserve durable rolling queue request budget")]
+    capacity_report = steps[
+        names.index("Report capacity-gated queue request budget")
+    ]
     collect = steps[names.index("Collect bounded queue snapshot")]
     report = steps[names.index("Read exact guarded queue request total")]
 
-    assert names.index("Collect bounded queue snapshot") == names.index(
-        "Reserve durable rolling queue request budget"
-    ) + 1
+    assert names.index("Reserve durable rolling queue request budget") < names.index(
+        "Report capacity-gated queue request budget"
+    ) < names.index("Collect bounded queue snapshot")
     assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
     assert reserve["env"] == {
         "ATTEMPT_ID": "queue-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -348,7 +368,10 @@ def test_workflow_gates_every_trigger_before_exposing_buildkite_token() -> None:
     assert '--reservation-id "$ATTEMPT_ID"' in reserve["run"]
     assert "buildkite_request_guard.py initialize" in reserve["run"]
     assert 'if [ "$REQUEST_MODE" != interval_gated ]' not in reserve["run"]
-    assert 'interval_gated:0:0:0|metrics:2:2:0|metrics_and_details:14:2:12' in reserve["run"]
+    assert (
+        "interval_gated:0:0:0|capacity_gated:0:0:0|"
+        "metrics:2:2:0|metrics_and_details:14:2:12"
+    ) in reserve["run"]
     for name in (
         "BUILDKITE_REQUEST_GUARD_FILE",
         "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
@@ -360,7 +383,13 @@ def test_workflow_gates_every_trigger_before_exposing_buildkite_token() -> None:
     assert "--metrics-max-pages 2" in collect["run"]
     assert "--details-max-pages 12" in collect["run"]
     assert "metrics_and_details" in collect["run"]
-    assert collect["if"] == "steps.queue-request-budget.outputs.request_mode != 'interval_gated'"
+    assert "request_mode == 'metrics'" in collect["if"]
+    assert "request_mode == 'metrics_and_details'" in collect["if"]
+    assert capacity_report["if"] == (
+        "steps.queue-request-budget.outputs.request_mode == 'capacity_gated'"
+    )
+    assert "made zero Buildkite requests" in capacity_report["run"]
+    assert "available_at" in capacity_report["run"]
     assert names.index("Read exact guarded queue request total") == names.index(
         "Collect bounded queue snapshot"
     ) + 1
@@ -389,5 +418,7 @@ def test_workflow_gates_every_trigger_before_exposing_buildkite_token() -> None:
         "Publish durable live queue evidence",
     ):
         condition = next(step for step in steps if step.get("name") == step_name)["if"]
+        assert "request_mode == 'metrics'" in condition
+        assert "request_mode == 'metrics_and_details'" in condition
         assert "steps.collect-queue.outcome == 'success'" in condition
         assert "steps.queue-request-guard-report.outcome == 'success'" in condition

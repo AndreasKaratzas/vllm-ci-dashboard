@@ -658,7 +658,7 @@ jobs:
             --code-sha "$DASHBOARD_STATE_CODE_SHA" \
             --generated-at "$DASHBOARD_STATE_GENERATED_AT" \
             --public-attestation data/vllm/ci/public_projection_attestation.json \
-            --publication-status data/vllm/ci/publication_status.json \
+            --publication-status _site/data/vllm/ci/publication_status.json \
             --output _site/publication_generation.json
 
       - name: Verify exact local public projection
@@ -830,7 +830,7 @@ jobs:
               --code-sha "$DASHBOARD_STATE_CODE_SHA" \
               --generated-at "$DASHBOARD_STATE_GENERATED_AT" \
               --public-attestation data/vllm/ci/public_projection_attestation.json \
-              --publication-status data/vllm/ci/publication_status.json \
+              --publication-status _site/data/vllm/ci/publication_status.json \
               --output _site/publication_generation.json
           }
           run_retry_stage() {
@@ -1076,7 +1076,7 @@ jobs:
             --code-sha "$ROLLBACK_CODE_SHA" \
             --generated-at "$ROLLBACK_GENERATED_AT" \
             --public-attestation data/vllm/ci/public_projection_attestation.json \
-            --publication-status data/vllm/ci/publication_status.json \
+            --publication-status _site/data/vllm/ci/publication_status.json \
             --output _site/publication_generation.json
           "$ROLLBACK_VENV/bin/python" scripts/vllm/public_projection.py verify-local \
             --site-root _site \

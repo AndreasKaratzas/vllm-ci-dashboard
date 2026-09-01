@@ -2287,8 +2287,8 @@ jobs:
           python scripts/vllm/dashboard_state.py refresh-manifest \
             --expected-code-sha "$PUBLICATION_CODE_SHA"
 
-      - name: Publish validated dashboard state
-        id: publication-commit
+      - name: Create validated dashboard state candidate
+        id: publication-candidate
         if: >-
           inputs.dns_generation != '' ||
           steps.request-attempt.outputs.request_mode == 'reserved'
@@ -2310,23 +2310,42 @@ jobs:
           fi
           python scripts/vllm/dashboard_state.py validate-ref \
             --ref "$STATE_SHA" --expected-code-sha "$PUBLICATION_CODE_SHA"
-          python scripts/vllm/dashboard_state.py rotate \
-            --new-state "$STATE_SHA" \
-            --current-sha "$DASHBOARD_CURRENT_STATE_SHA" \
-            --previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA" \
-            --remote origin
           {
-            echo "DASHBOARD_PUBLISHED_STATE_SHA=$STATE_SHA"
-            echo "DASHBOARD_PUBLISHED_STATE_TREE=$STATE_TREE"
+            echo "DASHBOARD_CANDIDATE_STATE_SHA=$STATE_SHA"
+            echo "DASHBOARD_CANDIDATE_STATE_TREE=$STATE_TREE"
           } >> "$GITHUB_ENV"
           {
             echo "state_sha=$STATE_SHA"
             echo "state_tree=$STATE_TREE"
-            echo "published_sha=$PUBLICATION_CODE_SHA"
-            echo "code_sha=$PUBLICATION_CODE_SHA"
-            echo "local_test_gap_safe=true"
           } >> "$GITHUB_OUTPUT"
-          echo "Atomically rotated dashboard state to $STATE_SHA (code $PUBLICATION_CODE_SHA)."
+          echo "Created fully validated local dashboard state candidate $STATE_SHA."
+
+      - name: Write state publication marker
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/dashboard_state.py write-public-marker \
+            --state-sha "$DASHBOARD_CANDIDATE_STATE_SHA" \
+            --state-tree "$DASHBOARD_CANDIDATE_STATE_TREE" \
+            --code-sha "$PUBLICATION_CODE_SHA" \
+            --generated-at "$DASHBOARD_GENERATED_AT" \
+            --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --publication-status _site/data/vllm/ci/publication_status.json \
+            --output _site/publication_generation.json
+
+      - name: Verify exact local public projection
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/public_projection.py verify-local \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --marker _site/publication_generation.json
 
       - name: Read exact guarded Buildkite request total
         id: request-guard-report
@@ -2338,6 +2357,31 @@ jobs:
             --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
             --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Publish validated dashboard state
+        id: publication-commit
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/dashboard_state.py rotate \
+            --new-state "$DASHBOARD_CANDIDATE_STATE_SHA" \
+            --current-sha "$DASHBOARD_CURRENT_STATE_SHA" \
+            --previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA" \
+            --remote origin
+          {
+            echo "DASHBOARD_PUBLISHED_STATE_SHA=$DASHBOARD_CANDIDATE_STATE_SHA"
+            echo "DASHBOARD_PUBLISHED_STATE_TREE=$DASHBOARD_CANDIDATE_STATE_TREE"
+          } >> "$GITHUB_ENV"
+          {
+            echo "state_sha=$DASHBOARD_CANDIDATE_STATE_SHA"
+            echo "state_tree=$DASHBOARD_CANDIDATE_STATE_TREE"
+            echo "published_sha=$PUBLICATION_CODE_SHA"
+            echo "code_sha=$PUBLICATION_CODE_SHA"
+            echo "local_test_gap_safe=true"
+          } >> "$GITHUB_OUTPUT"
+          echo "Atomically rotated dashboard state to $DASHBOARD_CANDIDATE_STATE_SHA (code $PUBLICATION_CODE_SHA)."
 
       - name: Mark durable Data Collection success
         if: >-
@@ -2360,33 +2404,6 @@ jobs:
           done
           echo "::error::Dashboard state rotated, but its durable attempt success could not be recorded."
           exit 1
-
-      - name: Write state publication marker
-        if: >-
-          inputs.dns_generation != '' ||
-          steps.request-attempt.outputs.request_mode == 'reserved'
-        run: |
-          set -euo pipefail
-          python scripts/vllm/dashboard_state.py write-public-marker \
-            --state-sha "$DASHBOARD_PUBLISHED_STATE_SHA" \
-            --state-tree "$DASHBOARD_PUBLISHED_STATE_TREE" \
-            --code-sha "$PUBLICATION_CODE_SHA" \
-            --generated-at "$DASHBOARD_GENERATED_AT" \
-            --public-attestation data/vllm/ci/public_projection_attestation.json \
-            --publication-status data/vllm/ci/publication_status.json \
-            --output _site/publication_generation.json
-
-      - name: Verify exact local public projection
-        if: >-
-          inputs.dns_generation != '' ||
-          steps.request-attempt.outputs.request_mode == 'reserved'
-        run: |
-          set -euo pipefail
-          python scripts/vllm/public_projection.py verify-local \
-            --site-root _site \
-            --manifest _site/publication_manifest.json \
-            --attestation data/vllm/ci/public_projection_attestation.json \
-            --marker _site/publication_generation.json
 
       - name: Preserve only bounded PR previews
         id: preview-preservation

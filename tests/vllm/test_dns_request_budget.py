@@ -159,18 +159,23 @@ def test_legacy_debt_blocks_then_expires_on_the_half_open_boundary(
     initialized_sha = initialize(checkout, policy)
     missing_state = tmp_path / "missing.json.gz"
 
-    with pytest.raises(
-        budget.DnsRequestBudgetError,
-        match="1368 starts remain reserved.*2026-09-01T08:33:07Z",
-    ):
-        budget.reserve_budget(
-            checkout,
-            policy,
-            state_path=missing_state,
-            minimum_interval_hours=3,
-            reservation_id="dns-101-1",
-            now=INITIALIZED_AT,
-        )
+    gated = budget.reserve_budget(
+        checkout,
+        policy,
+        state_path=missing_state,
+        minimum_interval_hours=3,
+        reservation_id="dns-101-1",
+        now=INITIALIZED_AT,
+    )
+    assert gated == {
+        "request_mode": "capacity_gated",
+        "decision_at": "2026-09-01T05:40:00Z",
+        "available_at": "2026-09-01T08:33:07Z",
+        "budget_sha": initialized_sha,
+        "reserved_request_starts": 0,
+        "rolling_reserved_starts": 1368,
+        "remaining_request_starts": 0,
+    }
     assert remote_sha(checkout) == initialized_sha
 
     outputs = budget.reserve_budget(
@@ -195,7 +200,7 @@ def test_legacy_debt_blocks_then_expires_on_the_half_open_boundary(
     assert git(checkout, "rev-list", "--count", new_sha) == "1"
 
 
-def test_runtime_reservation_never_creates_an_over_cap_ledger(
+def test_runtime_capacity_exhaustion_is_a_zero_start_gate(
     repo: tuple[Path, Path],
     policy: budget.BudgetPolicy,
     tmp_path: Path,
@@ -211,15 +216,23 @@ def test_runtime_reservation_never_creates_an_over_cap_ledger(
     )
     old_sha = str(initialized["budget_sha"])
 
-    with pytest.raises(budget.DnsRequestBudgetError, match="990 starts remain reserved"):
-        budget.reserve_budget(
-            checkout,
-            policy,
-            state_path=tmp_path / "missing.json.gz",
-            minimum_interval_hours=3,
-            reservation_id="dns-103-1",
-            now=now,
-        )
+    outputs = budget.reserve_budget(
+        checkout,
+        policy,
+        state_path=tmp_path / "missing.json.gz",
+        minimum_interval_hours=3,
+        reservation_id="dns-103-1",
+        now=now,
+    )
+    assert outputs == {
+        "request_mode": "capacity_gated",
+        "decision_at": "2026-09-01T09:00:00Z",
+        "available_at": "2026-09-02T01:00:00Z",
+        "budget_sha": old_sha,
+        "reserved_request_starts": 0,
+        "rolling_reserved_starts": 990,
+        "remaining_request_starts": 0,
+    }
     assert remote_sha(checkout) == old_sha
     assert budget.validate_budget_ref(checkout, old_sha, policy).ledger["migration_debt"] is False
 
@@ -347,6 +360,7 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     steps = collect_job["steps"]
     names = [step.get("name") for step in steps]
     reserve = steps[names.index("Reserve durable rolling DNS request budget")]
+    capacity_report = steps[names.index("Report capacity-gated DNS request budget")]
     collect = steps[names.index("Collect DNS failure observations")]
     report = steps[names.index("Read exact guarded Buildkite request total")]
 
@@ -368,7 +382,9 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     assert '--reservation-id "$ATTEMPT_ID"' in reserve["run"]
     assert "--minimum-interval-hours 3" in reserve["run"]
     assert "buildkite_request_guard.py initialize" in reserve["run"]
-    assert '[ "$REQUEST_MODE" = interval_gated ] && [ "$ALLOWANCE" != 0 ]' in (
+    assert '^(reserved|interval_gated|capacity_gated)$' in reserve["run"]
+    assert '^(interval_gated|capacity_gated)$' in reserve["run"]
+    assert '[ "$ALLOWANCE" != 0 ]' in (
         reserve["run"]
     )
     assert 'if [ "$REQUEST_MODE" = reserved ]' not in reserve["run"]
@@ -377,7 +393,14 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     assert 'echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"' in reserve["run"]
     assert collect["env"] == {"BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}"}
     assert collect["id"] == "collect-dns"
-    assert "if" not in collect
+    assert collect["if"] == (
+        "steps.dns-request-budget.outputs.request_mode != 'capacity_gated'"
+    )
+    assert capacity_report["if"] == (
+        "steps.dns-request-budget.outputs.request_mode == 'capacity_gated'"
+    )
+    assert "made zero Buildkite requests" in capacity_report["run"]
+    assert "available_at" in capacity_report["run"]
     assert "--max-requests 110" in collect["run"]
     assert '--now "${{ steps.dns-request-budget.outputs.decision_at }}"' in collect["run"]
     assert "always()" in report["if"]
@@ -393,8 +416,13 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
         "Encrypt durable DNS scanner state",
         "Publish durable DNS evidence",
     ):
-        assert "if" not in steps[names.index(step_name)]
-    assert "if" not in workflow["jobs"]["reconcile-publication"]
+        condition = steps[names.index(step_name)]["if"]
+        assert "request_mode != 'capacity_gated'" in condition
+        assert "steps.collect-dns.outcome == 'success'" in condition
+        assert "steps.dns-request-guard-report.outcome == 'success'" in condition
+    assert workflow["jobs"]["reconcile-publication"]["if"] == (
+        "needs.collect.outputs.dns_generation != ''"
+    )
 
 
 def test_fixed_collector_clock_keeps_an_interval_gated_run_at_zero_requests(

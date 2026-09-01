@@ -158,9 +158,10 @@ jobs:
             --github-output "$OUTPUTS"
           REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
           ALLOWANCE=$(awk -F= '$1 == "reserved_request_starts" {print $2}' "$OUTPUTS")
-          if [[ ! "$REQUEST_MODE" =~ ^(reserved|interval_gated)$ ]] || \
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|interval_gated|capacity_gated)$ ]] || \
              { [ "$REQUEST_MODE" = reserved ] && [ "$ALLOWANCE" != 110 ]; } || \
-             { [ "$REQUEST_MODE" = interval_gated ] && [ "$ALLOWANCE" != 0 ]; }; then
+             { [[ "$REQUEST_MODE" =~ ^(interval_gated|capacity_gated)$ ]] && \
+               [ "$ALLOWANCE" != 0 ]; }; then
             echo "::error::DNS request ledger returned malformed gate outputs."
             exit 1
           fi
@@ -179,8 +180,16 @@ jobs:
             echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
           } >> "$GITHUB_ENV"
 
+      - name: Report capacity-gated DNS request budget
+        if: steps.dns-request-budget.outputs.request_mode == 'capacity_gated'
+        run: >-
+          echo "DNS Health made zero Buildkite requests because the durable
+          rolling request budget is full; the next allowance is available at
+          ${{ steps.dns-request-budget.outputs.available_at }}."
+
       - name: Collect DNS failure observations
         id: collect-dns
+        if: steps.dns-request-budget.outputs.request_mode != 'capacity_gated'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -217,6 +226,10 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate bounded DNS artifacts
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
         run: |
           set -euo pipefail
           python -m json.tool data/vllm/ci/dns_failures.json >/dev/null
@@ -227,6 +240,10 @@ jobs:
 
       - name: Capture validated DNS generation
         id: dns-generation
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
         run: |
           set -euo pipefail
           DNS_GENERATED_AT=$(jq -er '.generated_at | select(type == "string")' \
@@ -238,6 +255,10 @@ jobs:
           echo "generated_at=$DNS_GENERATED_AT" >> "$GITHUB_OUTPUT"
 
       - name: Encrypt durable DNS scanner state
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
         env:
           DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
         run: |
@@ -249,6 +270,10 @@ jobs:
           rm -f data/vllm/ci/dns_health/scan_state.json.gz
 
       - name: Publish durable DNS evidence
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
         run: |
           set -euo pipefail
           # The orphan branch is publicly readable. Retain only the bounded
@@ -277,6 +302,7 @@ jobs:
 
   reconcile-publication:
     needs: collect
+    if: needs.collect.outputs.dns_generation != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

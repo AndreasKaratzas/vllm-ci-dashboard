@@ -176,15 +176,18 @@ def test_gated_wakeups_cannot_publish_or_advance_buildkite_clock() -> None:
     assert "success_gated deploy" not in text.casefold()
 
 
-def test_success_is_recorded_after_state_rotation_before_pages_work() -> None:
+def test_candidate_is_locally_bound_before_rotation_and_success_accounting() -> None:
     workflow = load("hourly-master.yml")
     steps = workflow["jobs"]["collect-and-deploy"]["steps"]
     names = [step.get("name") for step in steps]
+    candidate = names.index("Create validated dashboard state candidate")
+    marker = names.index("Write state publication marker")
+    projection = names.index("Verify exact local public projection")
     rotation = names.index("Publish validated dashboard state")
     report = names.index("Read exact guarded Buildkite request total")
     success = names.index("Mark durable Data Collection success")
-    marker = names.index("Write state publication marker")
-    assert rotation < report < success < marker
+    pages = names.index("Preserve only bounded PR previews")
+    assert candidate < marker < projection < report < rotation < success < pages
     assert "steps.publication-commit.outputs.state_sha" in steps[success]["if"]
     assert '--durable-ref "$DURABLE_STATE_SHA"' in steps[success]["run"]
 

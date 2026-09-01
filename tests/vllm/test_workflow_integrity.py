@@ -2277,30 +2277,42 @@ class TestHourlyMasterWorkflow:
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
+        candidate = next(
+            step
+            for step in steps
+            if step.get("name") == "Create validated dashboard state candidate"
+        )
         publish = next(
             step
             for step in steps
             if step.get("name") == "Publish validated dashboard state"
         )
-        script = publish.get("run", "")
+        candidate_script = candidate.get("run", "")
+        publish_script = publish.get("run", "")
         assert names.index("Prepare bounded dashboard state candidate") < names.index(
             "Live publication audit"
         ) < names.index("Run test suite") < names.index(
             "Enforce publication validation results"
         ) < names.index("Assemble site") < names.index(
-            "Publish validated dashboard state"
+            "Create validated dashboard state candidate"
         ) < names.index("Write state publication marker") < names.index(
+            "Verify exact local public projection"
+        ) < names.index("Read exact guarded Buildkite request total") < names.index(
+            "Publish validated dashboard state"
+        ) < names.index("Mark durable Data Collection success") < names.index(
             "Deploy to GitHub Pages"
         )
-        assert "dashboard_state.py create-commit" in script
-        assert '--code-sha "$PUBLICATION_CODE_SHA"' in script
-        assert "dashboard_state.py validate-ref" in script
-        assert "dashboard_state.py rotate" in script
-        assert '--current-sha "$DASHBOARD_CURRENT_STATE_SHA"' in script
-        assert '--previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA"' in script
-        assert "--remote origin" in script
-        assert 'echo "published_sha=$PUBLICATION_CODE_SHA"' in script
-        assert 'echo "local_test_gap_safe=true"' in script
+        assert "dashboard_state.py create-commit" in candidate_script
+        assert '--code-sha "$PUBLICATION_CODE_SHA"' in candidate_script
+        assert "dashboard_state.py validate-ref" in candidate_script
+        assert "dashboard_state.py rotate" not in candidate_script
+        assert "dashboard_state.py rotate" in publish_script
+        assert '--new-state "$DASHBOARD_CANDIDATE_STATE_SHA"' in publish_script
+        assert '--current-sha "$DASHBOARD_CURRENT_STATE_SHA"' in publish_script
+        assert '--previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA"' in publish_script
+        assert "--remote origin" in publish_script
+        assert 'echo "published_sha=$PUBLICATION_CODE_SHA"' in publish_script
+        assert 'echo "local_test_gap_safe=true"' in publish_script
 
         text = _load_workflow_text("hourly-master.yml")
         assert "git pull --rebase origin main" not in text
@@ -2953,7 +2965,9 @@ class TestDnsHealthWorkflow:
             "${{ secrets.BUILDKITE_TOKEN }}"
         )
         assert collect["id"] == "collect-dns"
-        assert "if" not in collect
+        assert collect["if"] == (
+            "steps.dns-request-budget.outputs.request_mode != 'capacity_gated'"
+        )
         assert "DNS_STATE_ENCRYPTION_KEY" not in collect.get("env", {})
         script = collect["run"]
         assert "scripts/vllm/collect_dns_failures.py" in script
@@ -3013,7 +3027,7 @@ class TestDnsHealthWorkflow:
 
         workflow, _ = self._workflow()
         reconcile = workflow["jobs"]["reconcile-publication"]
-        assert "if" not in reconcile
+        assert reconcile["if"] == "needs.collect.outputs.dns_generation != ''"
         reconcile_steps = reconcile["steps"]
         reconcile_names = [step.get("name") for step in reconcile_steps]
         plan = reconcile_steps[
@@ -3427,8 +3441,40 @@ class TestFrameworkIsolation:
             text = _load_workflow_text(wf)
             assert "dashboard_state.py write-public-marker" in text
             assert "publication_generation.json" in text
-            assert "--publication-status data/vllm/ci/publication_status.json" in text
+            assert (
+                "--publication-status _site/data/vllm/ci/publication_status.json"
+                in text
+            )
             assert "git show origin/gh-pages:data/vllm/ci/analytics.json" not in text
+
+    def test_every_full_marker_command_binds_the_assembled_publication_status(self):
+        full = []
+        metadata_only = []
+        for workflow_path in WORKFLOWS.glob("*.yml"):
+            workflow = _load_workflow(workflow_path.name)
+            for job_name, job in (workflow.get("jobs") or {}).items():
+                for step in job.get("steps", []):
+                    script = str(step.get("run") or "")
+                    if "write-public-marker" not in script:
+                        continue
+                    identity = (workflow_path.name, job_name, step.get("name"))
+                    if "--metadata-only" in script:
+                        metadata_only.append(identity)
+                        continue
+                    full.append(identity)
+                    assert (
+                        "--publication-status "
+                        "_site/data/vllm/ci/publication_status.json"
+                    ) in script
+
+        assert len(full) == 4
+        assert metadata_only == [
+            (
+                "publication-watchdog.yml",
+                "recover",
+                "Inspect durable state and choose recovery target",
+            )
+        ]
 
     def test_pr_preview_rebuilds_untracked_operations_input(self):
         data = _load_workflow("pr-preview.yml")

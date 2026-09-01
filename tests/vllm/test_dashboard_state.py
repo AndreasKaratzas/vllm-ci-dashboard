@@ -334,6 +334,7 @@ def test_public_marker_cli_defaults_to_full_validation(
     tmp_path: Path,
     policy: state.StatePolicy,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     code_sha = init_repo(tmp_path)
     snapshot = make_state(tmp_path, policy, code_sha, generation="run-100.full-marker", value=2)
@@ -369,20 +370,28 @@ def test_public_marker_cli_defaults_to_full_validation(
         encoding="utf-8",
     )
 
+    base_args = [
+        "--root",
+        str(tmp_path),
+        "--config",
+        str(tmp_path / "unused-policy.json"),
+        "write-public-marker",
+        "--state-sha",
+        snapshot.state_sha,
+        "--code-sha",
+        code_sha,
+        "--public-attestation",
+        str(tmp_path / projection.ATTESTATION_PATH),
+    ]
+    missing_output = tmp_path / "_site/missing-status-marker.json"
+    assert state.main([*base_args, "--output", str(missing_output)]) == 1
+    assert "requires --publication-status" in capsys.readouterr().err
+    assert not missing_output.exists()
+
     assert (
         state.main(
             [
-                "--root",
-                str(tmp_path),
-                "--config",
-                str(tmp_path / "unused-policy.json"),
-                "write-public-marker",
-                "--state-sha",
-                snapshot.state_sha,
-                "--code-sha",
-                code_sha,
-                "--public-attestation",
-                str(tmp_path / projection.ATTESTATION_PATH),
+                *base_args,
                 "--publication-status",
                 str(publication_status),
                 "--output",
@@ -391,7 +400,28 @@ def test_public_marker_cli_defaults_to_full_validation(
         )
         == 0
     )
-    assert full_calls == [snapshot.state_sha]
+    assert full_calls == [snapshot.state_sha, snapshot.state_sha]
+
+    publication_status.write_text(
+        json.dumps({"generated_at": "2026-09-01T12:35:56Z"}) + "\n",
+        encoding="utf-8",
+    )
+    mismatch_output = tmp_path / "_site/mismatched-status-marker.json"
+    assert (
+        state.main(
+            [
+                *base_args,
+                "--publication-status",
+                str(publication_status),
+                "--output",
+                str(mismatch_output),
+            ]
+        )
+        == 1
+    )
+    assert "does not match publication status" in capsys.readouterr().err
+    assert not mismatch_output.exists()
+    assert full_calls == [snapshot.state_sha, snapshot.state_sha, snapshot.state_sha]
 
 
 @pytest.mark.parametrize(
