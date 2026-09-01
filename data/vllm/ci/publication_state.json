@@ -1,60 +1,93 @@
 {
-  "baseline_ref": "bca5884682851359cfae16f7d1f249f6d6ded668",
+  "baseline_ref": "2a41140071cf8adf9882cfec3d15af0e1ac36388",
   "candidate_degradations": [],
   "candidate_errors": [
     {
-      "code": "queue-lifecycle-daily-waits-total",
-      "message": "daily wait samples exceed observed served events",
-      "path": "data/vllm/ci/queue_lifecycle.json",
+      "code": "publication-collector-failed",
+      "context": {
+        "alertable": true,
+        "collector": "sync_perf_eval_seed",
+        "details": {
+          "summary": "fatal: path 'data/vllm/perf_eval/events.jsonl' exists on disk, but not in 'origin/gh-pages'"
+        },
+        "exit_code": 128,
+        "persistence_runs": 1,
+        "reason_class": "command-error",
+        "step": "perf-eval seed",
+        "surface": "perf_eval"
+      },
+      "message": "perf-eval seed (sync_perf_eval_seed) failed with command-error; perf_eval will use its validated baseline",
+      "path": "",
       "severity": "error",
       "surfaces": [
-        "queue_lifecycle"
+        "perf_eval"
       ]
     }
   ],
-  "collector_failure_streaks": {},
-  "collector_failures": [],
+  "collector_failure_streaks": {
+    "ab06747396d6b6b96e34": 1
+  },
+  "collector_failures": [
+    {
+      "alertable": true,
+      "collector": "sync_perf_eval_seed",
+      "details": {
+        "summary": "fatal: path 'data/vllm/perf_eval/events.jsonl' exists on disk, but not in 'origin/gh-pages'"
+      },
+      "exit_code": 128,
+      "persistence_runs": 1,
+      "reason_class": "command-error",
+      "schema_version": 1,
+      "step": "perf-eval seed",
+      "surface": "perf_eval"
+    }
+  ],
   "collector_incident_policy": {
     "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "max_observed_streak": 1,
+    "reason": "deterministic-or-unclassified-collector-failure",
     "transient_persistence_runs_required": 2
   },
   "degraded_since": {
-    "queue_lifecycle": "2026-08-31T21:22:07Z"
+    "perf_eval": "2026-09-01T04:24:53Z"
   },
   "degraded_surfaces": [
-    "queue_lifecycle"
+    "perf_eval"
   ],
   "fallback_max_age_hours": 36,
   "fallback_since": {
-    "queue_lifecycle": "2026-08-31T21:22:07Z"
+    "perf_eval": "2026-09-01T04:24:53Z"
   },
   "fallback_surfaces": [
-    "queue_lifecycle"
+    "perf_eval"
   ],
   "final_degradations": [],
   "final_errors": [],
   "fresh_degraded_surfaces": [],
-  "generated_at": "2026-09-01T01:12:10Z",
+  "generated_at": "2026-09-01T04:24:53Z",
   "incident_policy": {
     "alert": true,
-    "max_observed_streak": 0,
-    "reason": "non-collector-publication-finding",
+    "max_observed_streak": 1,
+    "reason": "deterministic-or-unclassified-collector-failure",
     "transient_persistence_runs_required": 2
   },
   "mode": "fallback",
   "restored_manifest": {
-    "queue_lifecycle": {
-      "data/vllm/ci/queue_lifecycle.json": {
-        "bytes": 406939,
-        "sha256": "5731e228870f2de3f9aea404f0f1bebf59d900f0916e4b648792d828208ab307"
+    "perf_eval": {
+      "data/vllm/perf_eval/events.jsonl": {
+        "bytes": 384783,
+        "sha256": "362352e83ab90d40bb6d036d052ddd309989e9b87d98a0676de3c381a5b9e56d"
+      },
+      "data/vllm/perf_eval/perf_eval.json": {
+        "bytes": 2301740,
+        "sha256": "a152dd710293d3c849c2acf273e1e2daaf2efde2507a65b30c36d6960a4c73c4"
       }
     }
   },
   "restored_paths": {
-    "queue_lifecycle": [
-      "data/vllm/ci/queue_lifecycle.json"
+    "perf_eval": [
+      "data/vllm/perf_eval/events.jsonl",
+      "data/vllm/perf_eval/perf_eval.json"
     ]
   },
   "schema_version": 2,
