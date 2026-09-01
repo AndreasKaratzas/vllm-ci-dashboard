@@ -260,7 +260,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     assert "topology-distinct routes remain separate" in summary["definitions"][
         "test_group"
     ]
-    assert "not averages or percentiles" in summary["definitions"][
+    assert "ledger-reconciled distribution" in summary["definitions"][
         "served_job_wait_sample"
     ]
     variants = summary["test_groups"]["exact_job_variants_latest_amd"]
@@ -292,6 +292,43 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
         "scheduled_gating_group",
         "gating_target",
     }.isdisjoint(summary["definitions"])
+
+
+def test_org_summary_exposes_missing_nightly_as_available_false(tmp_path) -> None:
+    payload = _payload()
+    payload["gating"]["upstream_scheduled"]["latest_by_kind"]["nightly"] = None
+
+    scheduled = ops.build_org_summary(payload, _lifecycle())[
+        "scheduled_cohorts"
+    ]["upstream_nightly"]
+
+    assert scheduled["available"] is False
+    assert all(
+        scheduled[key] is None
+        for key in (
+            "build_number",
+            "configured",
+            "observed",
+            "green",
+            "non_green",
+            "failing",
+            "soft_failing",
+            "pending",
+            "missing",
+            "queues_configured",
+            "queues_with_observed_work",
+        )
+    )
+
+    data_dir = tmp_path / "data" / "vllm" / "ci"
+    data_dir.mkdir(parents=True)
+    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
+    ops.write_snapshot_bundle(data_dir / "operations_v2.json", payload, log=False)
+    checked = DashboardAudit(tmp_path)
+    checked.audit_operations_bundle()
+    assert "operations-bundle-org-summary-scheduled-denominators" not in {
+        finding.code for finding in checked.report.findings
+    }
 
 
 def test_org_summary_projects_daily_wait_vectors_and_rolling_counts() -> None:
@@ -391,6 +428,39 @@ def test_org_summary_marks_daily_waits_unavailable_without_dropping_rolling_coun
     assert queues["daily_served_job_waits"]["days"] == []
     assert queues["daily_served_job_waits"]["sample_count"] is None
     assert queues["recent_completed_window"]["served_jobs"] == 970
+
+
+def test_org_summary_preserves_explicit_bounded_daily_wait_evidence() -> None:
+    lifecycle = _lifecycle()
+    day = lifecycle["daily_wait_times"]["days"][1]
+    waits = day["served_job_wait_seconds"]
+    day.update(
+        {
+            "served_job_wait_seconds": [],
+            "vector_complete": False,
+            "published_sample_count": 0,
+            "omitted_sample_count": len(waits),
+            "distribution": {
+                "count": len(waits),
+                "min": min(waits),
+                "p50": waits[1],
+                "p95": max(waits),
+                "max": max(waits),
+                "avg": sum(waits) / len(waits),
+            },
+        }
+    )
+
+    daily = ops.build_org_summary(_payload(), lifecycle)["queues"][
+        "daily_served_job_waits"
+    ]
+
+    assert daily["available"] is True
+    assert daily["sample_count"] == 4
+    bounded = daily["days"][1]
+    assert bounded["vector_complete"] is False
+    assert bounded["omitted_sample_count"] == len(waits)
+    assert bounded["distribution"]["count"] == len(waits)
 
 
 def test_org_summary_rejects_noncontiguous_daily_wait_vectors() -> None:
@@ -596,6 +666,27 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
     }
 
 
+def test_dashboard_audit_rejects_invalid_available_nightly_denominators(
+    tmp_path,
+) -> None:
+    data_dir = tmp_path / "data" / "vllm" / "ci"
+    data_dir.mkdir(parents=True)
+    output = data_dir / "operations_v2.json"
+    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
+    payload = _payload()
+    payload["gating"]["upstream_scheduled"]["latest_by_kind"]["nightly"][
+        "summary"
+    ]["gated"] = None
+    ops.write_snapshot_bundle(output, payload, log=False)
+
+    invalid = DashboardAudit(tmp_path)
+    invalid.audit_operations_bundle()
+
+    assert "operations-bundle-org-summary-scheduled-denominators" in {
+        finding.code for finding in invalid.report.findings
+    }
+
+
 @pytest.mark.parametrize("case", ("path", "key", "sample_count", "day_bounds"))
 def test_dashboard_audit_rejects_a_drifted_org_summary_wait_reference(
     tmp_path, case: str
@@ -647,10 +738,36 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     assert best["non_green"] == best["total"] - best["green"]
 
     scheduled = summary["scheduled_cohorts"]["upstream_nightly"]
-    assert scheduled["configured"] == scheduled["observed"] + scheduled["missing"]
-    assert scheduled["observed"] == sum(
-        scheduled[key] for key in ("green", "failing", "soft_failing", "pending")
+    scheduled_count_fields = (
+        "configured",
+        "observed",
+        "green",
+        "non_green",
+        "failing",
+        "soft_failing",
+        "pending",
+        "missing",
+        "queues_configured",
+        "queues_with_observed_work",
     )
+    if scheduled["available"] is False:
+        assert all(scheduled[key] is None for key in scheduled_count_fields)
+    else:
+        assert scheduled["available"] is True
+        assert all(
+            type(scheduled[key]) is int and scheduled[key] >= 0
+            for key in scheduled_count_fields
+        )
+        assert scheduled["configured"] == (
+            scheduled["observed"] + scheduled["missing"]
+        )
+        assert scheduled["observed"] == sum(
+            scheduled[key]
+            for key in ("green", "failing", "soft_failing", "pending")
+        )
+        assert scheduled["non_green"] == (
+            scheduled["observed"] - scheduled["green"]
+        )
 
     current = summary["queues"]["current"]
     queue_rows = summary["queues"]["by_queue"]
@@ -677,8 +794,16 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     ]
     for day, source_day in zip(wait["days"], source_days, strict=True):
         values = source_day[wait["source"]["vector_key"]]
-        assert day["sample_count"] == len(values)
         assert values == sorted(values)
         assert all(value >= 0 for value in values)
+        if source_day.get("vector_complete") is False:
+            assert day["vector_complete"] is False
+            assert day["published_sample_count"] == len(values)
+            assert day["published_sample_count"] + day["omitted_sample_count"] == day[
+                "sample_count"
+            ]
+            assert day["distribution"]["count"] == day["sample_count"]
+        else:
+            assert day["sample_count"] == len(values)
     assert wait["sample_count"] == sum(day["sample_count"] for day in wait["days"])
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES

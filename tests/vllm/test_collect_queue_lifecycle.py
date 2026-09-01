@@ -334,6 +334,30 @@ def test_observation_is_compact_private_and_uses_direct_durations():
     assert row["retry"] == {"retried": False, "is_retry": True, "retries_count": 1}
 
 
+def test_query_timestamp_coverage_is_explicitly_pre_merge_and_duration_exact():
+    complete = _job(uuid="complete")
+    missing_runnable = _job(uuid="missing-runnable", runnable_at=None)
+    for row in (complete, missing_runnable):
+        row["_cohorts"] = {"created", "finished:2026-08-11"}
+
+    observations, coverage = lifecycle.observations_from_jobs(
+        {row["uuid"]: row for row in (complete, missing_runnable)},
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+
+    assert len(observations) == 2
+    assert coverage == {
+        "scope": "current_api_query_before_ledger_merge",
+        "jobs": 2,
+        "with_runnable_at": 1,
+        "with_started_at": 2,
+        "with_finished_at": 2,
+        "events_in_retention": {"incoming": 1, "served": 2, "completed": 2},
+        "duration_samples_in_retention": {"queue_wait": 1, "runtime": 2},
+    }
+
+
 def test_ledger_rejects_any_unrecognized_identifying_field():
     leaked = {**_observation(), "label": "private job label"}
     payload = gzip.compress((json.dumps(leaked, separators=(",", ":")) + "\n").encode("utf-8"))
@@ -542,6 +566,59 @@ def test_summary_separates_complete_api_collection_from_event_exhaustiveness():
     assert fields["incoming"] == "builds[].jobs[].runnable_at"
     assert summary["provenance"]["provider"] == ("Buildkite REST organization builds API")
     assert "queues" not in summary["hourly"][0]
+
+
+def test_summary_coverage_uses_merged_ledger_not_current_query_scope():
+    older = _observations_for(
+        _job(
+            uuid="older-ledger-job",
+            runnable_at="2026-08-06T10:00:00Z",
+            started_at="2026-08-06T10:05:00Z",
+            finished_at="2026-08-06T11:05:00Z",
+        )
+    )[0]
+    current = _observation(2)
+    query_coverage = {
+        "scope": "current_api_query_before_ledger_merge",
+        "jobs": 1,
+        "with_runnable_at": 1,
+        "with_started_at": 1,
+        "with_finished_at": 1,
+        "events_in_retention": {"incoming": 1, "served": 1, "completed": 1},
+        "duration_samples_in_retention": {"queue_wait": 1, "runtime": 1},
+    }
+    collection = {
+        "complete": True,
+        "query_start": "2026-08-11T17:00:00Z",
+        "query_end_exclusive": "2026-08-11T20:00:00Z",
+        "query_mode": "incremental_overlap",
+        "queue_discovery": {"complete": True, "target_queue_count": 12},
+        "source_coverage": {"complete": True},
+        "unique_jobs": 1,
+        "timestamp_coverage": query_coverage,
+    }
+
+    summary = lifecycle.build_summary(
+        [older, current],
+        now=NOW,
+        collection=collection,
+        previous_provenance={},
+    )
+
+    retained = summary["coverage"]["timestamp_fields"]
+    assert retained == {
+        "scope": "retained_job_ledger",
+        "jobs": 2,
+        "with_runnable_at": 2,
+        "with_started_at": 2,
+        "with_finished_at": 2,
+        "events_in_retention": {"incoming": 2, "served": 2, "completed": 2},
+        "duration_samples_in_retention": {"queue_wait": 2, "runtime": 2},
+    }
+    assert summary["coverage"]["job_observation_count"] == 2
+    assert summary["coverage"]["event_count"] == 6
+    assert sum(row["sample_count"] for row in summary["daily_wait_times"]["days"]) == 2
+    assert summary["provenance"]["collection"]["timestamp_coverage"] == query_coverage
 
 
 def test_deterministic_gzip_handles_measured_7d_volume_well_below_90mib():
@@ -918,6 +995,127 @@ def test_generation_summary_links_exact_compressed_ledger(tmp_path):
     )
 
 
+def test_local_generation_validator_accepts_manifest_bound_empty_ledger(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    lifecycle.maintain_job_ledger(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        now=NOW,
+    )
+
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path, summary_path=summary_path
+    ) == (0, 0)
+
+
+def test_local_generation_validator_binds_every_segment(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    segments, _ = lifecycle.encode_job_segments(
+        [_observation()], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    jobs_path.mkdir()
+    for name, payload in segments.items():
+        (jobs_path / name).write_bytes(payload)
+    lifecycle.maintain_job_ledger(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        now=NOW,
+    )
+
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path, summary_path=summary_path
+    ) == (1, 1)
+
+    segment_path = next(jobs_path.iterdir())
+    segment_path.write_bytes(segment_path.read_bytes() + b"tampered")
+    with pytest.raises(RuntimeError, match="manifest|unreadable"):
+        lifecycle.validate_local_ledger_generation(
+            jobs_path=jobs_path, summary_path=summary_path
+        )
+
+
+def test_local_generation_validator_rejects_unmanifested_entries(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    _write_previous_generation(jobs_path, summary_path, provenance={})
+    (jobs_path / "unexpected.txt").write_text("not ledger evidence")
+
+    with pytest.raises(RuntimeError, match="unexpected entry"):
+        lifecycle.validate_local_ledger_generation(
+            jobs_path=jobs_path, summary_path=summary_path
+        )
+
+
+def test_remote_reader_accepts_manifest_bound_empty_generation(monkeypatch):
+    _, ledger = lifecycle.encode_job_segments(
+        [], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    replies = iter(
+        [
+            SimpleNamespace(returncode=0, stdout=b"", stderr=b""),
+            SimpleNamespace(returncode=0, stdout=b"", stderr=b""),
+        ]
+    )
+    monkeypatch.setattr(lifecycle.subprocess, "run", lambda *args, **kwargs: next(replies))
+
+    assert lifecycle._git_ref_jobs(
+        "origin/queue-lifecycle-data", required=True, expected_ledger=ledger
+    ) == []
+
+
+def test_pathological_wait_volume_compacts_whole_day_and_remains_ledger_auditable(
+    monkeypatch, tmp_path
+):
+    observations = []
+    for index in range(2_000):
+        row = json.loads(json.dumps(_observation()))
+        row["job_id"] = hashlib.sha256(f"high-volume-{index}".encode()).hexdigest()
+        observations.append(row)
+    retention_start = NOW - timedelta(days=7)
+    segments, ledger = lifecycle.encode_job_segments(
+        observations,
+        retention_start=retention_start,
+        end_exclusive=NOW,
+    )
+    summary = lifecycle.build_summary(
+        observations,
+        now=NOW,
+        collection=None,
+        ledger=ledger,
+    )
+    raw_size = len(
+        (json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    )
+    monkeypatch.setattr(lifecycle, "MAX_SUMMARY_BYTES", raw_size - 1)
+
+    encoded = lifecycle._encode_summary(summary)
+    assert len(encoded.encode()) <= lifecycle.MAX_SUMMARY_BYTES
+    coverage = summary["daily_wait_times"]["vector_coverage"]
+    assert coverage["complete"] is False
+    assert coverage["observed_sample_count"] == len(observations)
+    compacted = next(
+        day
+        for day in summary["daily_wait_times"]["days"]
+        if day.get("vector_complete") is False
+    )
+    assert compacted["served_job_wait_seconds"] == []
+    assert compacted["omitted_sample_count"] == len(observations)
+    assert compacted["distribution"]["count"] == len(observations)
+
+    jobs_path = tmp_path / "jobs"
+    jobs_path.mkdir()
+    for name, payload in segments.items():
+        (jobs_path / name).write_bytes(payload)
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(encoded)
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+    ) == (1, len(observations))
+
+
 def test_summary_write_failure_rolls_ledger_back_to_prior_generation(monkeypatch, tmp_path):
     jobs_path = tmp_path / "jobs"
     summary_path = tmp_path / "summary.json"
@@ -942,6 +1140,41 @@ def test_summary_write_failure_rolls_ledger_back_to_prior_generation(monkeypatch
 
     assert {path.name: path.read_bytes() for path in jobs_path.iterdir()} == old_payloads
     assert summary_path.read_text() == "old-summary"
+
+
+def test_oversized_summary_is_rejected_before_generation_replacement(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    old_payloads, _ = lifecycle.encode_job_segments(
+        [_observation(1)], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    new_payloads, _ = lifecycle.encode_job_segments(
+        [_observation(2)], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    jobs_path.mkdir()
+    for name, payload in old_payloads.items():
+        (jobs_path / name).write_bytes(payload)
+    summary_path.write_text("old-summary")
+
+    oversized = "x" * (lifecycle.MAX_SUMMARY_BYTES + 1)
+    with pytest.raises(RuntimeError, match="summary .* limit"):
+        lifecycle._publish_generation(
+            jobs_path,
+            new_payloads,
+            summary_path,
+            oversized,
+        )
+
+    assert {path.name: path.read_bytes() for path in jobs_path.iterdir()} == old_payloads
+    assert summary_path.read_text() == "old-summary"
+    assert not list(tmp_path.glob(".jobs.stage.*"))
+    assert not list(tmp_path.glob(".jobs.backup.*"))
+
+
+def test_summary_serializer_enforces_the_same_local_budget(monkeypatch):
+    monkeypatch.setattr(lifecycle, "MAX_SUMMARY_BYTES", 20)
+    with pytest.raises(RuntimeError, match="summary .* limit"):
+        lifecycle._encode_summary({"payload": "x" * 20})
 
 
 def test_stage_install_failure_restores_prior_generation(monkeypatch, tmp_path):

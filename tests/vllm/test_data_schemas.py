@@ -698,7 +698,8 @@ class TestQueueLifecycle:
         d = _load_json_or_skip("queue_lifecycle.json")
         daily = d["daily_wait_times"]
 
-        assert set(daily) == {"unit", "day_timezone", "attributed_by", "days"}
+        base_daily_keys = {"unit", "day_timezone", "attributed_by", "days"}
+        assert set(daily) in (base_daily_keys, base_daily_keys | {"vector_coverage"})
         assert daily["unit"] == "seconds"
         assert daily["day_timezone"] == "UTC"
         assert daily["attributed_by"] == "timestamps.started_at"
@@ -714,8 +715,11 @@ class TestQueueLifecycle:
         assert [row["date"] for row in daily["days"]] == expected_dates
 
         cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        observed_samples = 0
+        published_samples = 0
+        compacted_dates = []
         for index, row in enumerate(daily["days"]):
-            assert set(row) == {
+            base_row_keys = {
                 "date",
                 "start",
                 "end_exclusive",
@@ -723,6 +727,14 @@ class TestQueueLifecycle:
                 "sample_count",
                 "served_job_wait_seconds",
             }
+            compacted = row.get("vector_complete") is False
+            compacted_keys = {
+                "vector_complete",
+                "published_sample_count",
+                "omitted_sample_count",
+                "distribution",
+            }
+            assert set(row) == (base_row_keys | compacted_keys if compacted else base_row_keys)
             calendar_end = cursor + timedelta(days=1)
             expected_start = max(cursor, retention_start)
             expected_end = min(calendar_end, retention_end)
@@ -733,7 +745,6 @@ class TestQueueLifecycle:
             )
             values = row["served_job_wait_seconds"]
             assert isinstance(values, list)
-            assert row["sample_count"] == len(values)
             assert values == sorted(values)
             assert all(
                 isinstance(value, (int, float))
@@ -742,7 +753,31 @@ class TestQueueLifecycle:
                 and value >= 0
                 for value in values
             ), f"daily_wait_times.days[{index}] contains an invalid wait"
+            observed_samples += row["sample_count"]
+            published_samples += len(values)
+            if compacted:
+                assert row["published_sample_count"] == len(values)
+                assert row["omitted_sample_count"] > 0
+                assert (
+                    row["published_sample_count"] + row["omitted_sample_count"]
+                    == row["sample_count"]
+                )
+                assert row["distribution"]["count"] == row["sample_count"]
+                compacted_dates.append(row["date"])
+            else:
+                assert row["sample_count"] == len(values)
             cursor = calendar_end
+
+        if compacted_dates:
+            assert daily["vector_coverage"] == {
+                "complete": False,
+                "observed_sample_count": observed_samples,
+                "published_sample_count": published_samples,
+                "compacted_dates": compacted_dates,
+                "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
+            }
+        else:
+            assert "vector_coverage" not in daily
 
     def test_event_counts_and_distributions_are_typed(self):
         d = _load_json_or_skip("queue_lifecycle.json")

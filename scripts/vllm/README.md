@@ -13,6 +13,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `collect_gating_targets.py` | Regenerates `gating_targets.json` from the authoritative `config/vllm_amd_gating_targets.json` | Every canonical `hourly-master.yml` run |
 | `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Hourly via `hourly-master.yml` |
 | `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Hourly via `hourly-master.yml` |
+| `merge_perf_eval_events.py` | Strictly merges main + published perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
 | `build_operations_snapshot.py` | Builds the private v2 operations input plus its public manifest and lazy section shards; runtime targets resolve through exact matrix aliases and definition parity with explicit unresolved reasons | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
@@ -55,7 +56,49 @@ For queue monitoring specifically, the token needs Buildkite GraphQL access so `
 
 Buildkite's queue-native p50/p95 remain the site-comparable primary values whenever they are available. The fully paginated scheduled-job reconstruction is stored and charted separately, with exact non-zombie n/N coverage, because equal counts do not prove that two sequential reads contain the same jobs or use the same percentile estimator. Queue history keeps every poll for 48 hours, then retains one actual snapshot plus every queue's primary and reconstructed p50/p95/p99 peaks and exact observation times per UTC hour for the remainder of the 30-day window.
 
+The history writer is atomic and capped at 64 MiB. If unusually wide queue
+schemas exceed that budget, it progressively coarsens only older UTC buckets
+while preserving the newest live snapshot and each retained bucket's exact
+peak envelopes; it never makes another Buildkite request to compact storage.
+
 The frequent collector force-publishes a single-commit `queue-data` branch containing only queue-owned evidence and a compact chart feed. The browser compares its current snapshot with the canonical Pages shard, uses the newer one, and falls back to the Pages history if the dedicated feed becomes stale. The verbose JSONL remains available as drill-down evidence but is not reparsed on every chart refresh.
+
+### Perf-eval retention and artifact deduplication
+
+Both `data/vllm/perf_eval/events.jsonl` and its derived `perf_eval.json` have an
+exact 60 MiB writer limit. Writers serialize in memory, reject an oversized
+candidate, and atomically replace the previous file only after the candidate
+passes that byte check. This leaves 4 MiB of headroom below the 64 MiB
+perf-data ceiling and substantially more below the dashboard's 90 MB sync
+limit.
+
+The normal event history is a rolling 180 days with at least the latest 30
+complete nightlies. If unusually wide results reach the byte limit first, the
+store deterministically removes whole oldest nightly cohorts through smaller
+retention tiers, never individual rows from a retained nightly and never the
+latest two nightlies needed for deltas. The derived payload applies the same
+whole-nightly rule. If the irreducible latest-two payload cannot fit, the write
+fails before replacement instead of publishing an oversized or partial file.
+
+Result pruning does not make an artifact eligible for another download. Exact
+Buildkite artifact IDs (or the conservative build/job/path/SHA-1 fallback) are
+folded into a compact identity index retained for 45 days. The artifact
+collector enforces a maximum 30-day Buildkite lookback, so the index always
+outlives every artifact the next run can discover. Compaction changes only
+local storage; it adds no Buildkite or GitHub API requests.
+
+Canonical sync merges the locally checked-out store with the gh-pages store;
+it never chooses between them by line count because a newer compacted store is
+expected to have fewer lines. Both JSONL inputs are validated strictly before
+the local path is replaced. Stable result identities are reconciled by their
+validated ingestion generation (then run timestamp): newer wins regardless of
+which branch supplied it, equal-generation disjoint metrics/tasks are unioned,
+and conflicting equal-generation values fail closed. `perf_eval.json` is then
+rebuilt from the merged events rather than copied from gh-pages. This makes the
+derived timestamp non-regressing without a token or a Buildkite/GitHub API
+request. The perf surface performs its own shallow gh-pages fetch and fails
+into its validated fallback if that established branch or event store cannot
+be read.
 
 ## Data Flow
 

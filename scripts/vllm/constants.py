@@ -168,6 +168,12 @@ QUEUE_HISTORY_RETENTION_DAYS = 30
 QUEUE_HISTORY_HIGH_RES_HOURS = 48
 QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES = 60
 
+# Bound the durable JSONL well below both the repository's 85 MiB blob guard
+# and the dashboard sync layer's 90 MB limit.  The queue collector preserves
+# the newest snapshot and coarsens older peak envelopes only when this budget
+# would otherwise be exceeded.
+QUEUE_HISTORY_MAX_BYTES = 64 * 1024 * 1024
+
 # ---------------------------------------------------------------------------
 # queue_issue_watcher thresholds
 # ---------------------------------------------------------------------------

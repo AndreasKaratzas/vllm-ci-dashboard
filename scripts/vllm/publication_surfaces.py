@@ -396,6 +396,7 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-bundle-org-summary-descriptor": _OPS_GLOBAL,
     "operations-bundle-org-summary-missing": _OPS_GLOBAL,
     "operations-bundle-org-summary-projection": _OPS_GLOBAL,
+    "operations-bundle-org-summary-scheduled-denominators": _OPS_ANALYTICS,
     "operations-bundle-org-summary-size": _OPS_GLOBAL,
     "operations-bundle-org-summary-source": frozenset({"queue_lifecycle"}),
     "operations-bundle-path": _OPS_GLOBAL,

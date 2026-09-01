@@ -8409,6 +8409,7 @@ def _org_daily_wait_days(
         partial = raw.get("partial")
         sample_count = raw.get("sample_count")
         raw_waits = raw.get("served_job_wait_seconds")
+        vector_complete = raw.get("vector_complete", True)
         calendar_end = cursor + timedelta(days=1)
         expected_start = max(cursor, retention_start)
         expected_end = min(calendar_end, retention_end)
@@ -8421,7 +8422,7 @@ def _org_daily_wait_days(
             or type(sample_count) is not int
             or sample_count < 0
             or not isinstance(raw_waits, list)
-            or sample_count != len(raw_waits)
+            or not isinstance(vector_complete, bool)
         ):
             return None
         waits = [float(wait) for wait in raw_waits if type(wait) in (int, float)]
@@ -8431,14 +8432,57 @@ def _org_daily_wait_days(
             or waits != sorted(waits)
         ):
             return None
-        projected.append({
+        projected_row = {
             "date": day,
             "start": start,
             "end_exclusive": end_exclusive,
             "partial": partial,
             "sample_count": sample_count,
             "served_job_wait_seconds": waits,
-        })
+        }
+        if vector_complete:
+            if sample_count != len(waits):
+                return None
+        else:
+            published_count = raw.get("published_sample_count")
+            omitted_count = raw.get("omitted_sample_count")
+            distribution = raw.get("distribution")
+            if (
+                type(published_count) is not int
+                or published_count < 0
+                or published_count != len(waits)
+                or type(omitted_count) is not int
+                or omitted_count <= 0
+                or published_count + omitted_count != sample_count
+                or not isinstance(distribution, dict)
+                or distribution.get("count") != sample_count
+            ):
+                return None
+            distribution_values = [
+                distribution.get(field) for field in ("min", "p50", "p95", "avg", "max")
+            ]
+            if (
+                any(type(value) not in (int, float) for value in distribution_values)
+                or any(
+                    not math.isfinite(float(value)) or float(value) < 0
+                    for value in distribution_values
+                )
+                or not distribution["min"]
+                <= distribution["p50"]
+                <= distribution["p95"]
+                <= distribution["max"]
+                or not distribution["min"] <= distribution["avg"] <= distribution["max"]
+            ):
+                return None
+            projected_row.update(
+                {
+                    "vector_complete": False,
+                    "published_sample_count": published_count,
+                    "omitted_sample_count": omitted_count,
+                    "distribution": distribution,
+                }
+            )
+        projected.append(projected_row)
         cursor = calendar_end
     return projected if cursor >= retention_end else None
 
@@ -8551,15 +8595,15 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         if daily_wait_days is not None
         else None
     )
-    # The exact vectors already live in the public, independently bounded
-    # queue_lifecycle.json source. Keep only their validated day index here and
-    # point rollup consumers at the authoritative values. Embedding the same
-    # vectors a second time allowed a valid (<5 MiB) lifecycle artifact to grow
-    # this compact contract past its 2 MiB ceiling and abort the whole dashboard
-    # build before publication fallback could run.
+    # The independently bounded queue_lifecycle.json source owns daily detail.
+    # Its normal rows contain exact vectors; pathological-volume rows expose
+    # exact distribution summaries plus explicit omitted-vector coverage while
+    # the manifest-bound ledger retains the underlying observations. Keep only
+    # the validated day index here. Duplicating vectors in this compact contract
+    # previously allowed the organization summary to cross its 2 MiB ceiling.
     daily_wait_day_index = (
         [
-            {
+            ({
                 key: day[key]
                 for key in (
                     "date",
@@ -8568,7 +8612,15 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     "partial",
                     "sample_count",
                 )
-            }
+            } | ({
+                key: day[key]
+                for key in (
+                    "vector_complete",
+                    "published_sample_count",
+                    "omitted_sample_count",
+                    "distribution",
+                )
+            } if day.get("vector_complete") is False else {}))
             for day in daily_wait_days
         ]
         if daily_wait_days is not None
@@ -8962,9 +9014,10 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
             ),
             "served_job_wait_sample": (
                 "One observed job attempt's started_at minus runnable_at duration, "
-                "assigned to the UTC date of started_at. The referenced lifecycle "
-                "vectors retain every sample and duplicate value; they are not "
-                "averages or percentiles."
+                "assigned to the UTC date of started_at. Normal lifecycle days retain "
+                "every sample and duplicate value in an exact vector. A byte-bounded "
+                "day declares vector_complete=false and instead publishes an exact, "
+                "ledger-reconciled distribution plus its omitted-sample count."
             ),
         },
         "sources": {
@@ -9045,10 +9098,11 @@ def write_snapshot_bundle(
     manifest_encoded = _encoded_json(manifest)
     manifest_path.write_text(manifest_encoded)
     chart_path = output.parent / QUEUE_HISTORY_CHART_NAME
+    queue_history = list((payload.get("queue") or {}).get("history") or [])
     write_queue_history_chart(
         chart_path,
-        list((payload.get("queue") or {}).get("history") or []),
-        str(payload.get("generated_at") or "") or None,
+        queue_history,
+        str(queue_history[-1].get("ts") or "") if queue_history else None,
     )
     if log:
         if write_monolith:

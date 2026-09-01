@@ -7,7 +7,7 @@ and the ``queue_jobs.json`` side effect the dashboard depends on.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -520,6 +520,11 @@ def _history_snapshot(ts: str) -> dict:
 
 
 class TestHistoryPrune:
+    def test_history_budget_stays_below_repository_and_sync_limits(self):
+        assert cqs.QUEUE_HISTORY_MAX_BYTES == 64 * 1024 * 1024
+        assert cqs.QUEUE_HISTORY_MAX_BYTES < 85 * 1024 * 1024
+        assert cqs.QUEUE_HISTORY_MAX_BYTES < 90_000_000
+
     def test_drops_pre_reset_but_migrates_old_schema_rows(self, tmp_path):
         path = tmp_path / "queue_timeseries.jsonl"
         path.write_text(
@@ -756,6 +761,57 @@ class TestHistoryPrune:
         ]
         assert json.loads(first_write.splitlines()[-1])["merge_marker"] == "local"
 
+    @pytest.mark.parametrize(
+        ("returncode", "remote_text", "message"),
+        [
+            (1, "", "unavailable"),
+            (0, "<<<<<<< ours\n=======\n>>>>>>> theirs\n", "conflict markers"),
+            (0, "not-json\n", "parsed 0 of 1 rows"),
+            (
+                0,
+                json.dumps(_history_snapshot("2026-06-20T00:00:00Z"))
+                + "\nnot-json\n",
+                "parsed 1 of 2 rows",
+            ),
+        ],
+    )
+    def test_required_git_merge_fails_closed_without_replacing_local_history(
+        self,
+        tmp_path,
+        returncode,
+        remote_text,
+        message,
+    ):
+        path = tmp_path / "queue_timeseries.jsonl"
+        path.write_text(json.dumps(_history_snapshot("2026-06-21T00:00:00Z")) + "\n")
+        original = path.read_bytes()
+        completed = cqs.subprocess.CompletedProcess(
+            args=["git", "show"],
+            returncode=returncode,
+            stdout=remote_text,
+            stderr="missing",
+        )
+
+        with patch.object(cqs.subprocess, "run", return_value=completed):
+            with pytest.raises(RuntimeError, match=message):
+                cqs.merge_history_from_git_ref(path, "origin/queue-data", required=True)
+
+        assert path.read_bytes() == original
+
+    def test_required_git_merge_rejects_empty_remote_history(self, tmp_path):
+        path = tmp_path / "queue_timeseries.jsonl"
+        path.write_text(json.dumps(_history_snapshot("2026-06-21T00:00:00Z")) + "\n")
+        original = path.read_bytes()
+        completed = cqs.subprocess.CompletedProcess(
+            args=["git", "show"], returncode=0, stdout="\n", stderr=""
+        )
+
+        with patch.object(cqs.subprocess, "run", return_value=completed):
+            with pytest.raises(RuntimeError, match="is empty"):
+                cqs.merge_history_from_git_ref(path, "origin/queue-data", required=True)
+
+        assert path.read_bytes() == original
+
     def test_drops_rows_older_than_retention_window(self, tmp_path):
         path = tmp_path / "queue_timeseries.jsonl"
 
@@ -878,11 +934,119 @@ class TestHistoryPrune:
             == compacted
         )
 
+    def test_byte_budget_coarsens_old_rows_but_preserves_latest_and_peaks(self):
+        now = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
+
+        def snapshot(ts: datetime, p95: float) -> dict:
+            row = _history_snapshot(ts.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            row["padding"] = "x" * 3_000
+            queue = row["queues"]["amd_mi250_1"]
+            queue["waiting"] = 1
+            queue["running"] = 2
+            queue["official_wait"] = {
+                "p50": p95 / 2,
+                "p95": p95,
+                "max": p95,
+            }
+            queue["official_wait_source"] = "queue_native_metrics"
+            return row
+
+        old_start = now.replace(hour=0) - timedelta(days=20)
+        rows = [snapshot(old_start + timedelta(hours=hour), float(hour)) for hour in range(24)]
+        rows.extend(
+            [
+                snapshot(now - timedelta(minutes=10), 98.0),
+                snapshot(now, 99.0),
+            ]
+        )
+        normalized = cqs.normalize_history_rows(rows)
+        latest = normalized[-1]
+
+        compacted = cqs.compact_history_to_byte_budget(
+            normalized,
+            now,
+            max_bytes=30_000,
+        )
+
+        assert len(cqs._encoded_history(compacted)) <= 30_000
+        assert len(compacted) < len(normalized)
+        assert compacted[-1] == latest
+        assert any(row.get("archive_bucket_minutes", 0) >= 1_440 for row in compacted[:-1])
+        archived_peaks = [
+            row["queues"]["amd_mi250_1"]["archive_wait_peaks"]["p95"]
+            for row in compacted
+            if row.get("history_mode") == "hourly_queue_wait_peaks"
+        ]
+        assert max((peak["value"], peak["observed_at"]) for peak in archived_peaks) == (
+            23.0,
+            (old_start + timedelta(hours=23)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        assert cqs.compact_history_resolution(compacted, now) == compacted
+
+    def test_over_budget_single_snapshot_fails_before_replacing_file(self, tmp_path):
+        path = tmp_path / "queue_timeseries.jsonl"
+        original = b'{"sentinel":true}\n'
+        path.write_bytes(original)
+        snapshot = _history_snapshot("2026-08-31T12:00:00Z")
+        snapshot["unavoidable_payload"] = "x" * 10_000
+
+        with pytest.raises(RuntimeError, match="cannot fit its byte budget"):
+            cqs.write_history_file(path, [snapshot], max_bytes=1_000)
+
+        assert path.read_bytes() == original
+
+    def test_history_replacement_is_atomic_on_install_failure(self, tmp_path, monkeypatch):
+        path = tmp_path / "queue_timeseries.jsonl"
+        original = b'{"sentinel":true}\n'
+        path.write_bytes(original)
+        snapshot = _history_snapshot("2026-08-31T12:00:00Z")
+
+        monkeypatch.setattr(
+            cqs.os,
+            "replace",
+            lambda *_: (_ for _ in ()).throw(OSError("install failed")),
+        )
+        with pytest.raises(OSError, match="install failed"):
+            cqs.write_history_file(path, [snapshot])
+
+        assert path.read_bytes() == original
+        assert not list(tmp_path.glob(".queue_timeseries.jsonl.*.tmp"))
+
+    def test_append_enforces_budget_without_losing_newest_live_snapshot(self, tmp_path):
+        path = tmp_path / "queue_timeseries.jsonl"
+        now = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
+        rows = []
+        for hour in range(24):
+            row = _history_snapshot(
+                (now - timedelta(days=10) + timedelta(hours=hour)).strftime(
+                    "%Y-%m-%dT%H:%M:%SZ"
+                )
+            )
+            row["padding"] = "x" * 2_000
+            rows.append(row)
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        newest = _history_snapshot(now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        newest["live_marker"] = "must-survive"
+
+        _, written = cqs.append_history_snapshot(
+            path,
+            newest,
+            now=now,
+            max_bytes=20_000,
+        )
+
+        output = [json.loads(line) for line in path.read_text().splitlines()]
+        assert path.stat().st_size <= 20_000
+        assert written == len(output)
+        assert output[-1]["ts"] == newest["ts"]
+        assert output[-1]["live_marker"] == "must-survive"
+
     def test_equal_timestamp_raw_merge_retains_incoming_archive_peaks(self, tmp_path):
         raw = _history_snapshot("2026-06-16T10:25:00Z")
         envelope = json.loads(json.dumps(raw))
         envelope["history_mode"] = "hourly_queue_wait_peaks"
         envelope["archive_bucket_start"] = "2026-06-16T10:00:00Z"
+        envelope["archive_bucket_minutes"] = 120
         envelope["queues"]["amd_mi250_1"]["archive_wait_peaks"] = {
             "p95": {
                 "value": 80.0,
@@ -899,6 +1063,7 @@ class TestHistoryPrune:
 
         merged = json.loads(path.read_text())
         assert merged["history_mode"] == "hourly_queue_wait_peaks"
+        assert merged["archive_bucket_minutes"] == 120
         peak = merged["queues"]["amd_mi250_1"]["archive_wait_peaks"]["p95"]
         assert (peak["value"], peak["observed_at"]) == (
             80.0,

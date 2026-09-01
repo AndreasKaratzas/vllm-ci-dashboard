@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Aggregate webhook-fed perf-eval events into the dashboard's ``perf_eval.json``.
 
-This collector never talks to the Buildkite API. It folds the append-only
-event log written by ``vllm.ci.perf_eval_webhook`` (``events.jsonl``) into a
+This collector never talks to the Buildkite API. It folds the bounded rolling
+event store written by ``vllm.ci.perf_eval_webhook`` (``events.jsonl``) into a
 single payload the ``Perf Eval`` tab renders.
 
 Design goals (mirroring the task requirements):
 
 * **AMD only** — NVIDIA workloads are dropped at webhook-normalization time, so
   every event here is already AMD; we still guard defensively.
-* **Nightly only** — only events flagged ``nightly`` feed the executive view,
-  but the raw event log retains everything so history is never lost.
+* **Nightly only** — only events flagged ``nightly`` feed the executive view;
+  retention removes complete oldest nightlies so a partial nightly is never
+  presented as a complete comparison.
 * **Self-updating workload set** — models, perf configs and accuracy tasks are
   discovered from the data, never hard-coded, so adding/removing/renaming a
   workload in the perf-eval repo is reflected automatically while older runs
@@ -27,7 +28,6 @@ Output: ``data/vllm/perf_eval/perf_eval.json``.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from datetime import datetime, timezone
@@ -38,8 +38,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm.ci.perf_eval_webhook import (  # noqa: E402
     ACCURACY_DIRECTION,
     METRIC_META,
+    PERF_EVAL_ARTIFACT_IDENTITY_DAYS,
+    PERF_EVAL_HISTORY_DAYS,
+    PERF_EVAL_MAX_BYTES,
+    encoded_json,
+    enforced_byte_budget,
     is_amd_workload,
-    read_events,
+    read_events_strict,
+    write_json_atomic,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -57,6 +63,8 @@ PERF_REL_THRESHOLD = 0.02
 # Accuracy is reported on a 0..1 scale; a half-point absolute move is the
 # minimum we treat as a real change rather than sampling noise.
 ACCURACY_ABS_THRESHOLD = 0.005
+
+_DERIVED_NIGHTLY_LIMITS = (180, 120, 90, 60, 45, 30, 14, 7, 2)
 
 
 def _parse_ts(event: dict) -> datetime:
@@ -253,7 +261,7 @@ def _latest_identity(events: list[dict]) -> dict:
     }
 
 
-def aggregate(events: list[dict]) -> dict:
+def aggregate(events: list[dict], *, generated_at: datetime | None = None) -> dict:
     """Fold the event log into the frontend payload (AMD + nightly only)."""
     perf_by_model: dict[str, list[dict]] = {}
     eval_by_model: dict[str, list[dict]] = {}
@@ -304,7 +312,9 @@ def aggregate(events: list[dict]) -> dict:
     metric_meta["accuracy"] = {"label": "Accuracy", "unit": "", "direction": ACCURACY_DIRECTION}
 
     return {
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": (generated_at or datetime.now(timezone.utc)).astimezone(
+            timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pipeline": {"org": "vllm", "slug": "perf-eval", "url": PIPELINE_URL},
         "metric_meta": metric_meta,
         "thresholds": {
@@ -322,17 +332,73 @@ def aggregate(events: list[dict]) -> dict:
     }
 
 
+def bounded_aggregate(
+    events: list[dict],
+    *,
+    generated_at: datetime | None = None,
+    max_bytes: int = PERF_EVAL_MAX_BYTES,
+) -> dict:
+    """Build a complete payload, shortening whole-nightly history only if needed."""
+    max_bytes = enforced_byte_budget(max_bytes)
+    timestamp = (generated_at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    nightly_latest: dict[str, datetime] = {}
+    for event in events:
+        if (
+            event.get("event") not in {"perf_result", "accuracy_result"}
+            or event.get("nightly") is not True
+        ):
+            continue
+        identity = _nightly_key(event)
+        observed_at = _parse_ts(event)
+        nightly_latest[identity] = max(
+            nightly_latest.get(identity, observed_at), observed_at
+        )
+    ordered_nightlies = [
+        identity
+        for identity, _ in sorted(
+            nightly_latest.items(),
+            key=lambda item: (item[1], item[0]),
+        )
+    ]
+
+    for nightly_limit in _DERIVED_NIGHTLY_LIMITS:
+        allowed = set(ordered_nightlies[-nightly_limit:])
+        selected = [
+            event
+            for event in events
+            if event.get("event") not in {"perf_result", "accuracy_result"}
+            or event.get("nightly") is not True
+            or _nightly_key(event) in allowed
+        ]
+        payload = aggregate(selected, generated_at=timestamp)
+        payload["retention"] = {
+            "event_history_days": PERF_EVAL_HISTORY_DAYS,
+            "artifact_identity_days": PERF_EVAL_ARTIFACT_IDENTITY_DAYS,
+            "max_bytes": max_bytes,
+            "nightly_limit": nightly_limit,
+            "adaptive": len(ordered_nightlies) > nightly_limit,
+        }
+        if len(encoded_json(payload)) <= max_bytes:
+            return payload
+
+    required = len(encoded_json(payload))
+    raise RuntimeError(
+        "perf_eval.json cannot fit the byte budget while preserving the latest "
+        f"two complete nightlies: {required} > {max_bytes} bytes"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store", default=str(DEFAULT_STORE), help="Path to events.jsonl")
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Path to perf_eval.json")
     args = parser.parse_args()
 
-    events = read_events(Path(args.store))
-    payload = aggregate(events)
+    events = read_events_strict(Path(args.store))
+    generated_at = datetime.now(timezone.utc)
+    payload = bounded_aggregate(events, generated_at=generated_at)
     out = Path(args.output)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=2) + "\n")
+    write_json_atomic(out, payload)
     log.info(
         "Wrote %s: %d models, %d nightlies, %d perf points, %d accuracy points",
         out,

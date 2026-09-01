@@ -355,6 +355,231 @@ def test_incremental_slice_failure_is_fail_closed(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Bounded, atomic retained generation
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    (
+        ('{"d":"2026-07-13"}\n{not-json}\n', "ledger is invalid"),
+        ('{"d":"2026-07-13"}\n[]\n', "row is not an object"),
+        ('<<<<<<< ours\n{"d":"2026-07-13"}\n', "ledger is invalid"),
+    ),
+)
+def test_agent_health_retained_ledger_corruption_fails_closed(
+    tmp_path,
+    payload,
+    message,
+):
+    path = tmp_path / "node_days.jsonl"
+    path.write_text(payload)
+
+    with pytest.raises(RuntimeError, match=message):
+        ah._load_jsonl(path)
+
+
+def test_agent_health_retained_ledger_allows_blank_lines(tmp_path):
+    path = tmp_path / "node_days.jsonl"
+    row = _retained_node_day("2026-07-13")
+    path.write_text("\n" + json.dumps(row) + "\n\n")
+
+    assert ah._load_jsonl(path) == [row]
+
+def _retained_node_day(day: str, suffix: str = "node") -> dict:
+    return {
+        "nd": f"{suffix}-{day}",
+        "h": "MI300",
+        "d": day,
+        "a": [10, 1, 2, 0],
+        "n": [2, 0, 1, 0],
+    }
+
+
+def _retained_failure(day: str, index: int, *, padding: int = 0) -> dict:
+    return {
+        "nd": f"node-{index % 4}",
+        "h": "MI300",
+        "p": "amd-ci",
+        "q": "amd_mi300_1",
+        "g": f"group-{index}-" + ("x" * padding),
+        "s": "hard",
+        "ng": False,
+        "i": index % 2,
+        "bc": 0,
+        "b": 1000 + index,
+        "j": f"job-{day}-{index}",
+        "t": f"{day}T12:{index % 60:02d}:00Z",
+        "e": f"{day}T12:{index % 60:02d}:30Z",
+        "d": day,
+    }
+
+
+def test_agent_health_generation_is_bounded_by_dropping_oldest_whole_days():
+    days = ["2026-07-12", "2026-07-13", "2026-07-14"]
+    node_days = [_retained_node_day(day) for day in days]
+    failures = [
+        _retained_failure(day, index, padding=1000)
+        for day in days
+        for index in range(40)
+    ]
+
+    generation = ah._prepare_generation(
+        list(reversed(node_days)),
+        list(reversed(failures)),
+        NOW,
+        max_file_bytes=60_000,
+        max_generation_bytes=120_000,
+    )
+
+    assert {row["d"] for row in generation["node_days"]} == {days[-1]}
+    assert {row["d"] for row in generation["failing"]} == {days[-1]}
+    assert generation["dropped_days"] == tuple(days[:-1])
+    assert max(generation["file_sizes"].values()) <= 60_000
+    assert generation["total_bytes"] <= 120_000
+    assert generation["payload"]["node_day_count"] == 1
+    assert generation["payload"]["infra_failure_count"] == 40
+    assert generation["payload"]["retention"] == {
+        "policy": "drop_oldest_whole_days",
+        "configured_days": ah.MAX_WINDOW_DAYS,
+        "original_day_count": 3,
+        "retained_day_count": 1,
+        "retained_start": days[-1],
+        "retained_end": days[-1],
+        "dropped_oldest_day_count": 2,
+        "byte_limited": True,
+        "max_file_bytes": 60_000,
+        "max_generation_bytes": 120_000,
+    }
+
+    repeated = ah._prepare_generation(
+        node_days,
+        failures,
+        NOW,
+        max_file_bytes=60_000,
+        max_generation_bytes=120_000,
+    )
+    assert repeated["encoded"] == generation["encoded"]
+
+
+def test_agent_health_refuses_partial_newest_day_before_publication():
+    day = "2026-07-14"
+    failures = [_retained_failure(day, index, padding=1000) for index in range(5)]
+
+    with pytest.raises(RuntimeError, match="newest whole day cannot fit"):
+        ah._prepare_generation(
+            [_retained_node_day(day)],
+            failures,
+            NOW,
+            max_file_bytes=1_000,
+            max_generation_bytes=2_000,
+        )
+
+
+def test_agent_health_generation_publication_writes_exact_bounded_files(tmp_path):
+    generation = ah._prepare_generation(
+        [_retained_node_day("2026-07-14")],
+        [_retained_failure("2026-07-14", 1)],
+        NOW,
+    )
+
+    ah._publish_generation(tmp_path, generation)
+
+    store = tmp_path / ah.STORE_SUBDIR
+    assert (store / ah.NODE_DAYS_JSONL).read_bytes() == generation["encoded"][
+        ah.NODE_DAYS_JSONL
+    ]
+    assert (store / ah.INFRA_FAILURES_JSONL).read_bytes() == generation["encoded"][
+        ah.INFRA_FAILURES_JSONL
+    ]
+    assert (tmp_path / ah.OUTPUT_JSON).read_bytes() == generation["encoded"][
+        ah.OUTPUT_JSON
+    ]
+    assert not list(tmp_path.glob(f".{ah.STORE_SUBDIR}.stage.*"))
+    assert not list(tmp_path.glob(f".{ah.STORE_SUBDIR}.backup.*"))
+
+
+def test_agent_health_summary_failure_rolls_back_the_ledger(monkeypatch, tmp_path):
+    store = tmp_path / ah.STORE_SUBDIR
+    store.mkdir()
+    old_node_days = b'{"d":"old-node-days"}\n'
+    old_failures = b'{"d":"old-failures"}\n'
+    old_summary = b'{"generation":"old"}\n'
+    (store / ah.NODE_DAYS_JSONL).write_bytes(old_node_days)
+    (store / ah.INFRA_FAILURES_JSONL).write_bytes(old_failures)
+    (tmp_path / ah.OUTPUT_JSON).write_bytes(old_summary)
+    generation = ah._prepare_generation(
+        [_retained_node_day("2026-07-14")],
+        [_retained_failure("2026-07-14", 1)],
+        NOW,
+    )
+
+    def fail_summary_replace(_path, _payload):
+        raise OSError("injected summary replacement failure")
+
+    monkeypatch.setattr(ah, "_atomic_write_bytes", fail_summary_replace)
+    with pytest.raises(OSError, match="injected summary replacement failure"):
+        ah._publish_generation(tmp_path, generation)
+
+    assert (store / ah.NODE_DAYS_JSONL).read_bytes() == old_node_days
+    assert (store / ah.INFRA_FAILURES_JSONL).read_bytes() == old_failures
+    assert (tmp_path / ah.OUTPUT_JSON).read_bytes() == old_summary
+    assert not list(tmp_path.glob(f".{ah.STORE_SUBDIR}.stage.*"))
+    assert not list(tmp_path.glob(f".{ah.STORE_SUBDIR}.backup.*"))
+
+
+def test_agent_health_failed_rollback_preserves_the_only_prior_backup(
+    monkeypatch,
+    tmp_path,
+):
+    store = tmp_path / ah.STORE_SUBDIR
+    store.mkdir()
+    old_node_days = b'{"d":"old-node-days"}\n'
+    old_failures = b'{"d":"old-failures"}\n'
+    (store / ah.NODE_DAYS_JSONL).write_bytes(old_node_days)
+    (store / ah.INFRA_FAILURES_JSONL).write_bytes(old_failures)
+    (tmp_path / ah.OUTPUT_JSON).write_bytes(b'{"generation":"old"}\n')
+    generation = ah._prepare_generation(
+        [_retained_node_day("2026-07-14")],
+        [_retained_failure("2026-07-14", 1)],
+        NOW,
+    )
+    real_remove_path = ah._remove_path
+
+    def fail_summary_replace(_path, _payload):
+        raise OSError("injected summary replacement failure")
+
+    def fail_new_store_removal(path):
+        if path == store:
+            raise OSError("injected rollback removal failure")
+        return real_remove_path(path)
+
+    monkeypatch.setattr(ah, "_atomic_write_bytes", fail_summary_replace)
+    monkeypatch.setattr(ah, "_remove_path", fail_new_store_removal)
+
+    with pytest.raises(RuntimeError, match="prior ledger backup remains at"):
+        ah._publish_generation(tmp_path, generation)
+
+    backups = list(tmp_path.glob(f".{ah.STORE_SUBDIR}.backup.*"))
+    assert len(backups) == 1
+    assert (backups[0] / ah.NODE_DAYS_JSONL).read_bytes() == old_node_days
+    assert (backups[0] / ah.INFRA_FAILURES_JSONL).read_bytes() == old_failures
+
+
+def test_agent_health_storage_caps_stay_below_dashboard_sync_limit():
+    assert ah.AGENT_HEALTH_MAX_FILE_BYTES == 32 * 1024 * 1024
+    assert ah.AGENT_HEALTH_MAX_GENERATION_BYTES == 64 * 1024 * 1024
+    assert ah.AGENT_HEALTH_MAX_FILE_BYTES < 90_000_000
+    assert ah.AGENT_HEALTH_MAX_GENERATION_BYTES < 90_000_000
+
+
+def test_agent_health_transaction_scratch_directories_cannot_be_committed():
+    ignore = (Path(__file__).resolve().parents[2] / ".gitignore").read_text()
+
+    assert "data/vllm/ci/.agent_health.stage.*/" in ignore
+    assert "data/vllm/ci/.agent_health.backup.*/" in ignore
+
+
+# --------------------------------------------------------------------------- #
 # build_operations_snapshot._amd_agent_health — pass-through loader
 # --------------------------------------------------------------------------- #
 

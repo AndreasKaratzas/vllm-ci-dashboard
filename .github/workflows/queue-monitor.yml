@@ -47,7 +47,9 @@ jobs:
             git fetch origin \
               +refs/heads/queue-data:refs/remotes/origin/queue-data \
               --depth=1
-            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
+            python scripts/vllm/collect_queue_snapshot.py \
+              --merge-history-git-ref origin/queue-data \
+              --require-merge-history
           elif [ "$QUEUE_DATA_STATUS" -eq 2 ]; then
             git fetch origin \
               +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
@@ -74,6 +76,9 @@ jobs:
 
       - name: Build live queue section
         run: python scripts/vllm/build_queue_section.py
+
+      - name: Validate live queue evidence
+        run: python scripts/vllm/audit_dashboard_data.py --queue-only
 
       - name: Publish durable live queue evidence
         run: |

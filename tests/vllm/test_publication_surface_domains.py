@@ -255,6 +255,11 @@ def test_path_specific_findings_route_to_the_owning_domain(
             None,
             {"queue_lifecycle"},
         ),
+        (
+            "operations-bundle-org-summary-scheduled-denominators",
+            None,
+            {"ci_analytics"},
+        ),
         ("definition-parity-command", None, {"ci_core"}),
         ("matrix-summary-mismatch", None, {"ci_core"}),
         ("gating-target-invalid", None, {"ci_gating"}),

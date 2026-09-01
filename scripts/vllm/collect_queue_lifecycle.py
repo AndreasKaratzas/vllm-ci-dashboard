@@ -414,11 +414,13 @@ def observations_from_jobs(
     """Materialize one privacy-minimized observation per stable job UUID."""
     observations: list[dict] = []
     timestamp_coverage = {
+        "scope": "current_api_query_before_ledger_merge",
         "jobs": len(jobs),
         "with_runnable_at": 0,
         "with_started_at": 0,
         "with_finished_at": 0,
         "events_in_retention": {"incoming": 0, "served": 0, "completed": 0},
+        "duration_samples_in_retention": {"queue_wait": 0, "runtime": 0},
     }
 
     for job_uuid, node in sorted(jobs.items()):
@@ -501,6 +503,16 @@ def observations_from_jobs(
             ):
                 timestamp_coverage["events_in_retention"][event_type] += 1
                 keep = True
+        if (
+            _timestamp_in_window(timestamps["started_at"], retention_start, end_exclusive)
+            and queue_wait is not None
+        ):
+            timestamp_coverage["duration_samples_in_retention"]["queue_wait"] += 1
+        if (
+            _timestamp_in_window(timestamps["finished_at"], retention_start, end_exclusive)
+            and runtime is not None
+        ):
+            timestamp_coverage["duration_samples_in_retention"]["runtime"] += 1
         if keep:
             observations.append(observation)
 
@@ -879,6 +891,12 @@ def _publish_generation(
     summary_text: str,
 ) -> None:
     """Publish linked artifacts, preserving the old ledger on every failure."""
+    summary_size = len(summary_text.encode("utf-8"))
+    if summary_size > MAX_SUMMARY_BYTES:
+        raise RuntimeError(
+            f"queue lifecycle summary is {summary_size} bytes; "
+            f"limit is {MAX_SUMMARY_BYTES}"
+        )
     jobs_path.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(dir=jobs_path.parent, prefix=f".{jobs_path.name}.stage."))
     backup: Path | None = None
@@ -956,6 +974,49 @@ def _duration_summary(values: list[float]) -> dict:
 
 def _timestamp_in_window(value: str | None, start: datetime, end_exclusive: datetime) -> bool:
     return bool(value and start <= _require_datetime(value, "lifecycle timestamp") < end_exclusive)
+
+
+def _retained_timestamp_coverage(
+    observations: Iterable[dict],
+    start: datetime,
+    end_exclusive: datetime,
+) -> dict:
+    """Describe the exact retained-ledger scope used by every public aggregate."""
+    coverage = {
+        "scope": "retained_job_ledger",
+        "jobs": 0,
+        "with_runnable_at": 0,
+        "with_started_at": 0,
+        "with_finished_at": 0,
+        "events_in_retention": {"incoming": 0, "served": 0, "completed": 0},
+        "duration_samples_in_retention": {"queue_wait": 0, "runtime": 0},
+    }
+    event_fields = {
+        "runnable_at": "incoming",
+        "started_at": "served",
+        "finished_at": "completed",
+    }
+    for row in observations:
+        coverage["jobs"] += 1
+        timestamps = row["timestamps"]
+        for field, event in event_fields.items():
+            value = timestamps.get(field)
+            if value is not None:
+                coverage[f"with_{field}"] += 1
+            if _timestamp_in_window(value, start, end_exclusive):
+                coverage["events_in_retention"][event] += 1
+        durations = row.get("durations_seconds") or {}
+        if (
+            _timestamp_in_window(timestamps.get("started_at"), start, end_exclusive)
+            and durations.get("queue_wait") is not None
+        ):
+            coverage["duration_samples_in_retention"]["queue_wait"] += 1
+        if (
+            _timestamp_in_window(timestamps.get("finished_at"), start, end_exclusive)
+            and durations.get("runtime") is not None
+        ):
+            coverage["duration_samples_in_retention"]["runtime"] += 1
+    return coverage
 
 
 def _metric_block(observations: Iterable[dict], start: datetime, end_exclusive: datetime) -> dict:
@@ -1172,6 +1233,149 @@ def _safe_previous_provenance(path: Path, *, jobs_path: Path | None = None) -> d
     return provenance
 
 
+def validate_local_ledger_generation(*, jobs_path: Path, summary_path: Path) -> tuple[int, int]:
+    """Validate that a local summary and ledger are one exact generation.
+
+    A zero-segment manifest is a valid idle/bootstrap generation. Any files
+    that do exist must match the manifest byte-for-byte and decode as complete
+    lifecycle observations before the workflow may publish them.
+    """
+    if not summary_path.is_file():
+        raise RuntimeError(f"queue lifecycle summary is missing: {summary_path}")
+    summary_bytes = summary_path.read_bytes()
+    if len(summary_bytes) > MAX_SUMMARY_BYTES:
+        raise RuntimeError("queue lifecycle summary exceeds the safety limit")
+    try:
+        summary = json.loads(summary_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("queue lifecycle summary is not valid UTF-8 JSON") from exc
+    ledger = _summary_provenance(summary).get("ledger")
+    if not _ledger_manifest_complete(ledger):
+        raise RuntimeError("queue lifecycle summary lacks a complete ledger manifest")
+
+    if jobs_path.exists() and not jobs_path.is_dir():
+        raise RuntimeError(f"queue lifecycle ledger path is not a directory: {jobs_path}")
+    segment_paths = sorted(jobs_path.iterdir()) if jobs_path.exists() else []
+    if any(
+        not item.is_file() or not _SEGMENT_NAME_RE.fullmatch(item.name)
+        for item in segment_paths
+    ):
+        raise RuntimeError(
+            f"queue lifecycle ledger directory contains an unexpected entry: {jobs_path}"
+        )
+    expected_segments = ledger["segments"]
+    actual_names = {item.name for item in segment_paths}
+    if actual_names != set(expected_segments):
+        raise RuntimeError("queue lifecycle ledger files do not match the summary manifest")
+
+    actual_segments: dict[str, dict] = {}
+    seen: set[str] = set()
+    observations: list[dict] = []
+    total_compressed = 0
+    total_uncompressed = 0
+    for segment_path in segment_paths:
+        payload = segment_path.read_bytes()
+        total_compressed += len(payload)
+        if len(payload) > MAX_COMPRESSED_SEGMENT_BYTES:
+            raise RuntimeError("compressed queue lifecycle segment exceeds the per-file safety limit")
+        if total_compressed > MAX_COMPRESSED_LEDGER_BYTES:
+            raise RuntimeError("compressed queue lifecycle segments exceed the total safety limit")
+        segment_rows, uncompressed_bytes = _decode_job_ledger_with_size(
+            payload,
+            source=str(segment_path),
+            max_uncompressed=MAX_UNCOMPRESSED_LEDGER_BYTES - total_uncompressed,
+        )
+        total_uncompressed += uncompressed_bytes
+        for row in segment_rows:
+            if row["job_id"] in seen:
+                raise RuntimeError(
+                    f"job {row['job_id']} occurs in multiple lifecycle segments"
+                )
+            seen.add(row["job_id"])
+            observations.append(row)
+        metadata = {
+            "compressed_bytes": len(payload),
+            "job_observations": len(segment_rows),
+            "uncompressed_bytes": uncompressed_bytes,
+            "sha256": hashlib.sha256(payload).hexdigest(),
+        }
+        if any(
+            expected_segments[segment_path.name].get(key) != value
+            for key, value in metadata.items()
+        ):
+            raise RuntimeError(
+                f"queue lifecycle segment does not match its manifest: {segment_path.name}"
+            )
+        actual_segments[segment_path.name] = metadata
+
+    if (
+        len(segment_paths) != ledger["segment_count"]
+        or len(seen) != ledger["job_observations"]
+        or total_compressed != ledger["total_compressed_bytes"]
+        or total_uncompressed != ledger["total_uncompressed_bytes"]
+        or _segment_generation_sha(actual_segments) != ledger["generation_sha256"]
+    ):
+        raise RuntimeError("queue lifecycle ledger volume does not match the summary manifest")
+
+    retention = summary.get("retention")
+    if not isinstance(retention, dict) or retention.get("days") != RETENTION_DAYS:
+        raise RuntimeError("queue lifecycle summary has an invalid retention contract")
+    retention_start = _require_datetime(retention.get("event_start"), "retention.event_start")
+    retention_end = _require_datetime(
+        retention.get("end_exclusive"), "retention.end_exclusive"
+    )
+    if retention_end - retention_start != timedelta(days=RETENTION_DAYS):
+        raise RuntimeError("queue lifecycle summary retention window is inconsistent")
+    expected_daily = _daily_wait_times(observations, retention_start, retention_end)
+    actual_daily = summary.get("daily_wait_times")
+    if not isinstance(actual_daily, dict):
+        raise RuntimeError("queue lifecycle summary has no daily wait evidence")
+    for field in ("unit", "day_timezone", "attributed_by"):
+        if actual_daily.get(field) != expected_daily[field]:
+            raise RuntimeError("queue lifecycle daily wait metadata does not match the ledger")
+    actual_days = actual_daily.get("days")
+    if not isinstance(actual_days, list) or len(actual_days) != len(expected_daily["days"]):
+        raise RuntimeError("queue lifecycle daily wait days do not match the ledger")
+    compacted_dates: list[str] = []
+    published_samples = 0
+    observed_samples = 0
+    for actual, expected in zip(actual_days, expected_daily["days"], strict=True):
+        if not isinstance(actual, dict):
+            raise RuntimeError("queue lifecycle daily wait row is invalid")
+        observed_samples += expected["sample_count"]
+        if actual.get("vector_complete") is not False:
+            if actual != expected:
+                raise RuntimeError("queue lifecycle daily wait vector does not match the ledger")
+            published_samples += expected["sample_count"]
+            continue
+        waits = expected["served_job_wait_seconds"]
+        compacted = {
+            **{key: value for key, value in expected.items() if key != "served_job_wait_seconds"},
+            "served_job_wait_seconds": [],
+            "vector_complete": False,
+            "published_sample_count": 0,
+            "omitted_sample_count": len(waits),
+            "distribution": _duration_summary(waits),
+        }
+        if not waits or actual != compacted:
+            raise RuntimeError("queue lifecycle compacted wait evidence does not match the ledger")
+        compacted_dates.append(expected["date"])
+    expected_vector_coverage = (
+        {
+            "complete": False,
+            "observed_sample_count": observed_samples,
+            "published_sample_count": published_samples,
+            "compacted_dates": compacted_dates,
+            "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
+        }
+        if compacted_dates
+        else None
+    )
+    if actual_daily.get("vector_coverage") != expected_vector_coverage:
+        raise RuntimeError("queue lifecycle daily vector coverage does not match the ledger")
+    return len(segment_paths), len(seen)
+
+
 def _provenance_datetime(value: object) -> datetime | None:
     """Return a trustworthy UTC provenance timestamp, or ``None``.
 
@@ -1296,6 +1500,11 @@ def build_summary(
         if row["timestamps"].get(key)
         and retention_start <= _require_datetime(row["timestamps"][key], key) < now
     ]
+    retained_timestamp_coverage = _retained_timestamp_coverage(
+        observations,
+        retention_start,
+        now,
+    )
     queue_discovery_complete = bool(
         collection and (collection.get("queue_discovery") or {}).get("complete")
     )
@@ -1372,9 +1581,8 @@ def build_summary(
         "event_count": len(observed_times),
         "observed_start": _utc_iso(min(observed_times)) if observed_times else None,
         "observed_end": _utc_iso(max(observed_times)) if observed_times else None,
+        "timestamp_fields": retained_timestamp_coverage,
     }
-    if collection:
-        coverage["timestamp_fields"] = collection.get("timestamp_coverage") or {}
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1431,11 +1639,61 @@ def build_summary(
     }
 
 
-def write_summary(path: Path, summary: dict) -> None:
-    _atomic_write_text(
-        path,
-        json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n",
+def _encode_summary(summary: dict) -> str:
+    def encode() -> tuple[str, int]:
+        value = json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n"
+        return value, len(value.encode("utf-8"))
+
+    text, size = encode()
+    if size <= MAX_SUMMARY_BYTES:
+        return text
+
+    daily = summary.get("daily_wait_times")
+    days = daily.get("days") if isinstance(daily, dict) else None
+    if isinstance(days, list):
+        compacted_dates: list[str] = []
+        # Remove only complete per-day vectors, oldest first. The exact count
+        # and distribution summary remain public and the durable ledger keeps
+        # every underlying observation. This turns pathological job volume
+        # into explicitly reduced detail instead of a permanent publication
+        # failure once the JSON blob reaches its hard ceiling.
+        for row in days:
+            if not isinstance(row, dict):
+                continue
+            waits = row.get("served_job_wait_seconds")
+            if not isinstance(waits, list) or not waits:
+                continue
+            row["served_job_wait_seconds"] = []
+            row["vector_complete"] = False
+            row["published_sample_count"] = 0
+            row["omitted_sample_count"] = len(waits)
+            row["distribution"] = _duration_summary(waits)
+            compacted_dates.append(str(row.get("date") or ""))
+            daily["vector_coverage"] = {
+                "complete": False,
+                "observed_sample_count": sum(
+                    day.get("sample_count", 0) for day in days if isinstance(day, dict)
+                ),
+                "published_sample_count": sum(
+                    len(day.get("served_job_wait_seconds") or [])
+                    for day in days
+                    if isinstance(day, dict)
+                ),
+                "compacted_dates": compacted_dates,
+                "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
+            }
+            text, size = encode()
+            if size <= MAX_SUMMARY_BYTES:
+                return text
+
+    raise RuntimeError(
+        f"queue lifecycle summary is {size} bytes after bounded vector compaction; "
+        f"limit is {MAX_SUMMARY_BYTES}"
     )
+
+
+def write_summary(path: Path, summary: dict) -> None:
+    _atomic_write_text(path, _encode_summary(summary))
 
 
 def collect_lifecycle(
@@ -1523,7 +1781,7 @@ def collect_lifecycle(
     )
     # All network, validation, aggregation, and serialization work has
     # succeeded before either public artifact is replaced.
-    summary_text = json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n"
+    summary_text = _encode_summary(summary)
     _publish_generation(jobs_path, segment_payloads, summary_path, summary_text)
     return summary
 
@@ -1554,6 +1812,13 @@ def _git_ref_jobs(
         raise RuntimeError(f"could not list lifecycle segments at {git_ref}")
     paths = [line.decode("utf-8") for line in listing.stdout.splitlines() if line]
     if not paths:
+        if (
+            expected_ledger is not None
+            and expected_ledger.get("segment_count") == 0
+            and expected_ledger.get("job_observations") == 0
+        ):
+            log.info("Lifecycle ledger at %s is a manifest-bound empty generation", git_ref)
+            return []
         if required:
             raise RuntimeError(f"established lifecycle ledger is missing at {git_ref}")
         log.info("No lifecycle job ledger at %s; merge is a first-bootstrap no-op", git_ref)
@@ -1733,7 +1998,7 @@ def maintain_job_ledger(
         previous_provenance=previous,
         ledger=ledger,
     )
-    summary_text = json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n"
+    summary_text = _encode_summary(summary)
     _publish_generation(jobs_path, segment_payloads, summary_path, summary_text)
     return summary
 
@@ -1753,8 +2018,24 @@ def main() -> None:
         action="store_true",
         help="Tokenlessly prune the local ledger and rebuild the derived output",
     )
+    modes.add_argument(
+        "--validate-ledger-only",
+        action="store_true",
+        help="Tokenlessly validate that the local summary exactly binds every ledger segment",
+    )
     args = parser.parse_args()
 
+    if args.validate_ledger_only:
+        segment_count, job_count = validate_local_ledger_generation(
+            jobs_path=args.jobs_output,
+            summary_path=args.output,
+        )
+        log.info(
+            "Validated lifecycle generation: %d segments, %d job observations",
+            segment_count,
+            job_count,
+        )
+        return
     if args.merge_jobs_git_ref or args.prune_jobs_only:
         summary = maintain_job_ledger(
             jobs_path=args.jobs_output,

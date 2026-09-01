@@ -166,6 +166,462 @@ def _manifest_descriptor(payload: bytes) -> dict[str, int | str]:
     }
 
 
+def test_refresh_only_dns_recovers_without_clearing_unrelated_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    queue_relative = "data/queue_lifecycle.json"
+    dns_relative = "data/dns_failures.json"
+    hotness_relative = "data/hotness.json"
+    state_relative = "data/publication_state.json"
+    queue_path = repo / queue_relative
+    dns_path = repo / dns_relative
+    hotness_path = repo / hotness_relative
+    state_path = repo / state_relative
+    queue_path.parent.mkdir(parents=True)
+    queue_payload = b'{"generation":"queue-fallback"}\n'
+    old_dns_payload = b'{"generation":"dns-fallback"}\n'
+    queue_path.write_bytes(queue_payload)
+    dns_path.write_bytes(old_dns_payload)
+    hotness_path.write_text('{"generation":"fresh-degraded"}\n')
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    queue_failure = {
+        "schema_version": 1,
+        "surface": "queue_lifecycle",
+        "collector": "queue-lifecycle-sync",
+        "step": "Sync validated queue lifecycle aggregate",
+        "reason_class": "schema-drift",
+        "exit_code": 1,
+        "details": {},
+        "persistence_runs": 3,
+        "alertable": True,
+    }
+    dns_failure = {
+        "schema_version": 1,
+        "surface": "dns_health",
+        "collector": "dns-health-sync",
+        "step": "Sync validated DNS health aggregate",
+        "reason_class": "schema-drift",
+        "exit_code": 1,
+        "details": {},
+        "persistence_runs": 1,
+        "alertable": True,
+    }
+    queue_identity = selector_module._collector_failure_persistence_identity(
+        queue_failure
+    )
+    dns_identity = selector_module._collector_failure_persistence_identity(dns_failure)
+    retry_observation = {
+        "kind": "published-build-active-retry",
+        "surface": "ci_core",
+        "pipeline": "amd",
+        "build_number": 123,
+        "candidate_test_signal_build_number": 122,
+        "persistence_runs": 2,
+        "alertable": True,
+    }
+    retry_identity = selector_module._upstream_retry_identity(retry_observation)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "surface_contract_version": selector_module.SURFACE_CONTRACT_VERSION,
+                "generated_at": since,
+                "baseline_ref": "0" * 40,
+                "mode": "mixed",
+                "degraded_surfaces": [
+                    "ci_hotness",
+                    "dns_health",
+                    "queue_lifecycle",
+                ],
+                "fresh_degraded_surfaces": ["ci_hotness"],
+                "fallback_surfaces": ["dns_health", "queue_lifecycle"],
+                "degraded_since": {
+                    "ci_hotness": since,
+                    "dns_health": since,
+                    "queue_lifecycle": since,
+                },
+                "fallback_since": {
+                    "dns_health": since,
+                    "queue_lifecycle": since,
+                },
+                "fallback_max_age_hours": 36,
+                "collector_failures": [dns_failure, queue_failure],
+                "collector_failure_streaks": {
+                    dns_identity: 1,
+                    queue_identity: 3,
+                },
+                "collector_incident_policy": {
+                    "alert": True,
+                    "reason": "deterministic-or-unclassified-collector-failure",
+                    "transient_persistence_runs_required": 2,
+                    "max_observed_streak": 3,
+                },
+                "incident_policy": {
+                    "alert": True,
+                    "reason": "deterministic-or-unclassified-collector-failure",
+                    "transient_persistence_runs_required": 2,
+                    "max_observed_streak": 3,
+                },
+                "upstream_retry_observations": [retry_observation],
+                "upstream_retry_streaks": {
+                    retry_identity: 2,
+                    "stale-retry-without-an-observation": 99,
+                },
+                "candidate_errors": [],
+                "candidate_degradations": [],
+                "final_errors": [],
+                "final_degradations": [],
+                "restored_paths": {
+                    "dns_health": [dns_relative],
+                    "queue_lifecycle": [queue_relative],
+                },
+                "restored_manifest": {
+                    "dns_health": {
+                        dns_relative: _manifest_descriptor(old_dns_payload),
+                    },
+                    "queue_lifecycle": {
+                        queue_relative: _manifest_descriptor(queue_payload),
+                    },
+                },
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated mixed fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    new_dns_payload = b'{"generation":"dns-current"}\n'
+    dns_path.write_bytes(new_dns_payload)
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(required_paths=(dns_relative,)),
+            "ci_hotness": SurfaceSpec(required_paths=(hotness_relative,)),
+            "ci_core": SurfaceSpec(required_paths=()),
+            "queue_lifecycle": SurfaceSpec(required_paths=(queue_relative,)),
+        },
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        refresh_only_surface="dns_health",
+    )
+
+    assert dns_path.read_bytes() == new_dns_payload
+    assert queue_path.read_bytes() == queue_payload
+    assert state["mode"] == "mixed"
+    assert state["fresh_degraded_surfaces"] == ["ci_hotness"]
+    assert state["fallback_surfaces"] == ["queue_lifecycle"]
+    assert state["fallback_since"] == {"queue_lifecycle": since}
+    assert state["degraded_since"] == {
+        "ci_hotness": since,
+        "queue_lifecycle": since,
+    }
+    assert state["restored_paths"] == {
+        "queue_lifecycle": [queue_relative],
+    }
+    assert set(state["restored_manifest"]) == {"queue_lifecycle"}
+    assert state["collector_failures"] == [queue_failure]
+    assert state["collector_failure_streaks"] == {queue_identity: 3}
+    assert state["upstream_retry_observations"] == [retry_observation]
+    assert state["upstream_retry_streaks"] == {retry_identity: 2}
+
+
+def test_refresh_only_transient_target_failure_cannot_suppress_preserved_incident(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    dns_relative = "data/dns_failures.json"
+    queue_relative = "data/queue_lifecycle.json"
+    state_relative = "data/publication_state.json"
+    dns_path = repo / dns_relative
+    queue_path = repo / queue_relative
+    state_path = repo / state_relative
+    dns_path.parent.mkdir(parents=True)
+    dns_payload = b'{"generation":"dns-baseline"}\n'
+    queue_payload = b'{"generation":"queue-fallback"}\n'
+    dns_path.write_bytes(dns_payload)
+    queue_path.write_bytes(queue_payload)
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    queue_failure = {
+        "schema_version": 1,
+        "surface": "queue_lifecycle",
+        "collector": "queue-lifecycle-sync",
+        "step": "Sync validated queue lifecycle aggregate",
+        "reason_class": "schema-drift",
+        "exit_code": 1,
+        "details": {},
+        "persistence_runs": 3,
+        "alertable": True,
+    }
+    queue_identity = selector_module._collector_failure_persistence_identity(
+        queue_failure
+    )
+    preserved_policy = {
+        "alert": True,
+        "reason": "deterministic-or-unclassified-collector-failure",
+        "transient_persistence_runs_required": 2,
+        "max_observed_streak": 3,
+    }
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "surface_contract_version": selector_module.SURFACE_CONTRACT_VERSION,
+                "generated_at": since,
+                "baseline_ref": "0" * 40,
+                "mode": "fallback",
+                "degraded_surfaces": ["queue_lifecycle"],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": ["queue_lifecycle"],
+                "degraded_since": {"queue_lifecycle": since},
+                "fallback_since": {"queue_lifecycle": since},
+                "fallback_max_age_hours": 36,
+                "collector_failures": [queue_failure],
+                "collector_failure_streaks": {queue_identity: 3},
+                "collector_incident_policy": preserved_policy,
+                "incident_policy": preserved_policy,
+                "upstream_retry_observations": [],
+                "upstream_retry_streaks": {},
+                "candidate_errors": [],
+                "candidate_degradations": [],
+                "final_errors": [],
+                "final_degradations": [],
+                "restored_paths": {"queue_lifecycle": [queue_relative]},
+                "restored_manifest": {
+                    "queue_lifecycle": {
+                        queue_relative: _manifest_descriptor(queue_payload),
+                    }
+                },
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated queue fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(required_paths=(dns_relative,)),
+            "queue_lifecycle": SurfaceSpec(required_paths=(queue_relative,)),
+        },
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    dns_failure = {
+        "schema_version": 1,
+        "surface": "dns_health",
+        "collector": "dns-health-sync",
+        "step": "Sync validated DNS health aggregate",
+        "reason_class": "timeout",
+        "exit_code": 1,
+        "details": {},
+    }
+    dns_identity = selector_module._collector_failure_persistence_identity(
+        dns_failure
+    )
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        collector_failures=[dns_failure],
+        refresh_only_surface="dns_health",
+    )
+
+    assert state["fallback_surfaces"] == ["dns_health", "queue_lifecycle"]
+    assert state["fallback_since"]["queue_lifecycle"] == since
+    assert state["degraded_since"]["queue_lifecycle"] == since
+    assert state["collector_failure_streaks"] == {
+        dns_identity: 1,
+        queue_identity: 3,
+    }
+    assert state["collector_incident_policy"]["alert"] is True
+    assert state["collector_incident_policy"]["max_observed_streak"] == 3
+    assert state["incident_policy"]["alert"] is True
+    assert state["incident_policy"]["max_observed_streak"] == 3
+    assert "alertable_degradation=true" in output.read_text()
+    assert "transient_alert_suppressed=false" in output.read_text()
+
+
+def test_refresh_only_rejects_an_unrelated_candidate_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    queue_relative = "data/queue_lifecycle.json"
+    dns_relative = "data/dns_failures.json"
+    state_relative = "data/publication_state.json"
+    for relative in (queue_relative, dns_relative):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"generation":"baseline"}\n')
+    state_path = repo / state_relative
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "surface_contract_version": selector_module.SURFACE_CONTRACT_VERSION,
+                "generated_at": "2026-09-01T00:00:00Z",
+                "baseline_ref": "0" * 40,
+                "mode": "current",
+                "degraded_surfaces": [],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": [],
+                "degraded_since": {},
+                "fallback_since": {},
+                "fallback_max_age_hours": 36,
+                "restored_paths": {},
+                "restored_manifest": {},
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated current publication")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    (repo / dns_relative).write_text('{"generation":"dns-current"}\n')
+    (repo / queue_relative).write_text('{"generation":"queue-unexpected"}\n')
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(required_paths=(dns_relative,)),
+            "queue_lifecycle": SurfaceSpec(required_paths=(queue_relative,)),
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="changed non-target paths"):
+        selector_module.select_publication(
+            repo,
+            baseline,
+            state_path,
+            refresh_only_surface="dns_health",
+        )
+
+
+def test_refresh_only_still_blocks_an_unrouted_full_audit_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    dns_relative = "data/dns_failures.json"
+    state_relative = "data/publication_state.json"
+    dns_path = repo / dns_relative
+    state_path = repo / state_relative
+    dns_path.parent.mkdir(parents=True)
+    dns_path.write_text('{"generation":"baseline"}\n')
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "surface_contract_version": selector_module.SURFACE_CONTRACT_VERSION,
+                "generated_at": "2026-09-01T00:00:00Z",
+                "baseline_ref": "0" * 40,
+                "mode": "current",
+                "degraded_surfaces": [],
+                "fresh_degraded_surfaces": [],
+                "fallback_surfaces": [],
+                "degraded_since": {},
+                "fallback_since": {},
+                "fallback_max_age_hours": 36,
+                "restored_paths": {},
+                "restored_manifest": {},
+            }
+        )
+    )
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated current publication")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    dns_path.write_text('{"generation":"candidate"}\n')
+
+    global_error = Finding(
+        "error",
+        "global-contract-failure",
+        "full audit found an unrouted invariant failure",
+        "data/unowned.json",
+    )
+
+    class GloballyInvalidAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[global_error], degradations=[])
+
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"dns_health": SurfaceSpec(required_paths=(dns_relative,))},
+    )
+    monkeypatch.setattr(selector_module, "DashboardAudit", GloballyInvalidAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    with pytest.raises(RuntimeError, match="global or unrouted errors"):
+        selector_module.select_publication(
+            repo,
+            baseline,
+            state_path,
+            refresh_only_surface="dns_health",
+        )
+
+    blocked = json.loads(state_path.read_text())
+    assert blocked["mode"] == "blocked"
+    assert blocked["final_errors"][0]["code"] == "global-contract-failure"
+
+
 def _write_v2_agent_health_baseline(repo: Path, since: str) -> tuple[Path, str, str]:
     surface = "agent_health"
     source_relative = "data/vllm/ci/agent_health.json"
@@ -780,7 +1236,7 @@ def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
         active_retry: bool,
     ) -> dict:
         return {
-            "amd": {
+            "upstream": {
                 "latest_build": {"build_number": signal_build},
                 "latest_test_signal_build": {"build_number": signal_build},
                 "latest_pipeline_build": {
@@ -806,38 +1262,47 @@ def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
         "ci_core": SurfaceSpec(required_paths=(health_relative,)),
         "ci_analytics": SurfaceSpec(required_paths=(analytics_relative,)),
     }
-    audit_runs = 0
+    audited_generations = []
+    preflight_analytics_builds = []
+    preflight_audits = []
 
     class ActiveRetryAudit:
         def __init__(self, *args, **kwargs):
-            self.report = SimpleNamespace(errors=[], degradations=[])
+            self.report = SimpleNamespace(
+                errors=[],
+                degradations=[],
+                findings=[],
+            )
 
         def audit_publication_surface_files(self) -> None:
             return None
 
+        def audit_ci_health(self) -> None:
+            preflight_audits.append("audit_ci_health")
+
+        def audit_root_test_results(self) -> None:
+            preflight_audits.append("audit_root_test_results")
+
+        def audit_shard_bases(self) -> None:
+            preflight_audits.append("audit_shard_bases")
+
+        def audit_analytics(self) -> None:
+            preflight_audits.append("audit_analytics")
+            preflight_analytics_builds.append(
+                json.loads(analytics_path.read_text())["build"]
+            )
+
+        def audit_amd_matrix(self) -> None:
+            preflight_audits.append("audit_amd_matrix")
+
         def run(self) -> SimpleNamespace:
-            nonlocal audit_runs
-            audit_runs += 1
-            if audit_runs == 1:
-                errors = [
-                    Finding(
-                        "error",
-                        "matrix-analytics-build",
-                        "restored core is newer than analytics",
-                        health_relative,
-                        {"pipeline": "amd"},
-                    ),
-                    Finding(
-                        "error",
-                        "analytics-jsonl-build-mismatch",
-                        "analytics is older than restored JSONL evidence",
-                        analytics_relative,
-                        {"pipeline": "amd"},
-                    ),
-                ]
-            else:
-                errors = []
-            return SimpleNamespace(errors=errors, degradations=[])
+            audited_generations.append((
+                json.loads(health_path.read_text())["upstream"][
+                    "latest_test_signal_build"
+                ]["build_number"],
+                json.loads(analytics_path.read_text())["build"],
+            ))
+            return SimpleNamespace(errors=[], degradations=[])
 
     monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
     monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
@@ -864,11 +1329,18 @@ def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
     assert state["incident_policy"]["reason"] == (
         "active-upstream-retry-first-observation"
     )
-    assert audit_runs == 2
+    assert audited_generations == [(101, 101), (101, 101)]
+    assert preflight_analytics_builds == [100]
+    assert preflight_audits == list(
+        selector_module.UPSTREAM_RETRY_CANDIDATE_AUDITS
+    )
+    assert {
+        finding["code"] for finding in state["candidate_errors"]
+    } == {"publication-upstream-retry-provisional"}
     assert state["upstream_retry_observations"] == [{
         "kind": "published-build-active-retry",
         "surface": "ci_core",
-        "pipeline": "amd",
+        "pipeline": "upstream",
         "build_number": 101,
         "candidate_test_signal_build_number": 100,
         "persistence_runs": 1,
@@ -888,7 +1360,9 @@ def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
     second_baseline = _git(repo, "rev-parse", "HEAD")
     health_path.write_text(json.dumps(health_payload(100, active_retry=True)))
     analytics_path.write_text(json.dumps({"build": 100}))
-    audit_runs = 0
+    audited_generations.clear()
+    preflight_analytics_builds.clear()
+    preflight_audits.clear()
     output.write_text("")
 
     second_state = selector_module.select_publication(
@@ -897,7 +1371,11 @@ def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
         state_path,
     )
 
-    assert audit_runs == 2
+    assert audited_generations == [(101, 101), (101, 101)]
+    assert preflight_analytics_builds == [100]
+    assert preflight_audits == list(
+        selector_module.UPSTREAM_RETRY_CANDIDATE_AUDITS
+    )
     assert second_state["incident_policy"]["alert"] is True
     assert second_state["incident_policy"]["reason"] == (
         "active-upstream-retry-persisted"
@@ -907,6 +1385,192 @@ def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
     ] == 2
     assert "alertable_degradation=true" in output.read_text()
     assert "transient_alert_suppressed=false" in output.read_text()
+
+
+@pytest.mark.parametrize(
+    ("defect", "expected_code"),
+    (
+        ("summary", "matrix-summary"),
+        ("analytics-build", "matrix-analytics-build"),
+        ("health-build", "matrix-health-build"),
+    ),
+)
+def test_active_retry_preflight_preserves_real_candidate_matrix_defects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    defect: str,
+    expected_code: str,
+) -> None:
+    repo = tmp_path / "repo"
+    health_relative = "data/vllm/ci/ci_health.json"
+    analytics_relative = "data/vllm/ci/analytics.json"
+    matrix_relative = "data/vllm/ci/amd_test_matrix.json"
+    parity_relative = "data/vllm/ci/parity_report.json"
+    paths = {
+        relative: repo / relative
+        for relative in (
+            health_relative,
+            analytics_relative,
+            matrix_relative,
+            parity_relative,
+        )
+    }
+    paths[health_relative].parent.mkdir(parents=True)
+
+    def health_payload(signal_build: int, *, active_retry: bool) -> dict:
+        return {
+            "amd": {
+                "latest_build": {
+                    "build_number": signal_build,
+                    "by_hardware": {"mi300": {"groups": 1}},
+                },
+                "latest_test_signal_build": {"build_number": signal_build},
+                "latest_pipeline_build": {
+                    "build_number": 101,
+                    "active_retry": active_retry,
+                },
+            }
+        }
+
+    def analytics_payload(build: int) -> dict:
+        return {"amd-ci": {"builds": [{"number": build}]}}
+
+    def matrix_payload(build: int, *, corrupt_summary: bool = False) -> dict:
+        summary = {
+            "unique_groups": 1,
+            "architecture_count": 1,
+            "hardware_cells": 1,
+            "latest_matched_cells": 1,
+            "passing_cells": 1,
+            "failing_cells": 0,
+            "waiting_cells": 0,
+            "unknown_cells": 0,
+            "fully_shared_groups": 1,
+            "single_arch_groups": 1,
+            "multi_variant_cells": 0,
+        }
+        if corrupt_summary:
+            summary["unique_groups"] = 999
+        return {
+            "source": {"latest_build_number": build},
+            "architectures": [{
+                "id": "mi300",
+                "group_count": 1,
+                "nightly_match_count": 1,
+            }],
+            "rows": [{
+                "id": "matrix-row",
+                "title": "matrix row",
+                "coverage_count": 1,
+                "nightly_coverage_count": 1,
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "latest_matched": True,
+                        "latest_state": "passed",
+                        "raw_variant_count": 1,
+                    }
+                },
+            }],
+            "summary": summary,
+        }
+
+    baseline_health = health_payload(101, active_retry=False)
+    baseline_analytics = analytics_payload(101)
+    baseline_matrix = matrix_payload(101)
+    parity = {
+        "job_groups": [{
+            "amd_hardware": ["mi300"],
+            "amd_hw_failures": {},
+            "amd_hw_canceled": {},
+        }]
+    }
+    paths[health_relative].write_text(json.dumps(baseline_health))
+    paths[analytics_relative].write_text(json.dumps(baseline_analytics))
+    paths[matrix_relative].write_text(json.dumps(baseline_matrix))
+    paths[parity_relative].write_text(json.dumps(parity))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated completed AMD build")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    candidate_analytics_build = 99 if defect in {
+        "analytics-build",
+        "health-build",
+    } else 100
+    candidate_matrix_build = 99 if defect == "health-build" else 100
+    paths[health_relative].write_text(
+        json.dumps(health_payload(100, active_retry=True))
+    )
+    paths[analytics_relative].write_text(
+        json.dumps(analytics_payload(candidate_analytics_build))
+    )
+    paths[matrix_relative].write_text(json.dumps(matrix_payload(
+        candidate_matrix_build,
+        corrupt_summary=defect == "summary",
+    )))
+
+    specs = {
+        "ci_core": SurfaceSpec(required_paths=(
+            health_relative,
+            matrix_relative,
+            parity_relative,
+        )),
+        "ci_analytics": SurfaceSpec(required_paths=(analytics_relative,)),
+    }
+
+    class RealMatrixPreflightAudit(DashboardAudit):
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def audit_ci_health(self) -> None:
+            return None
+
+        def audit_root_test_results(self) -> None:
+            return None
+
+        def audit_shard_bases(self) -> None:
+            return None
+
+        def audit_analytics(self) -> None:
+            return None
+
+        def run(self):
+            return self.report
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(surfaces_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", RealMatrixPreflightAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        repo / "data/vllm/ci/publication_state.json",
+    )
+
+    defect_findings = [
+        finding
+        for finding in state["candidate_errors"]
+        if finding["code"] == expected_code
+    ]
+    assert len(defect_findings) == 1
+    assert defect_findings[0]["context"]["publication_phase"] == (
+        selector_module.UPSTREAM_RETRY_CANDIDATE_PHASE
+    )
+    assert state["mode"] == "fallback"
+    assert state["fallback_surfaces"] == ["ci_analytics", "ci_core"]
+    assert state["incident_policy"]["alert"] is True
+    assert json.loads(paths[health_relative].read_text()) == baseline_health
+    assert json.loads(paths[analytics_relative].read_text()) == baseline_analytics
+    assert json.loads(paths[matrix_relative].read_text()) == baseline_matrix
+    assert "alertable_degradation=true" in output.read_text()
 
 
 def test_active_retry_alert_requires_two_consecutive_observations() -> None:
@@ -937,6 +1601,22 @@ def test_active_retry_alert_requires_two_consecutive_observations() -> None:
     assert recovered["alert"] is False
     assert recovered_streaks == {}
     assert after_recovery["alert"] is False
+
+
+def test_active_retry_candidate_mismatch_is_not_treated_as_restore_skew() -> None:
+    record = {
+        "code": "analytics-jsonl-build-mismatch",
+        "surfaces": ["ci_analytics", "ci_core"],
+        "context": {
+            "pipeline": "upstream",
+            "publication_phase": selector_module.UPSTREAM_RETRY_CANDIDATE_PHASE,
+        },
+    }
+
+    assert selector_module._retry_reconciliation_finding(
+        record,
+        {"upstream"},
+    ) is False
 
 
 def test_active_retry_does_not_suppress_an_unrelated_publication_error(

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Ingest real perf-eval nightly results from Buildkite artifacts.
 
-The Perf Eval tab is fed by an append-only event log
+The Perf Eval tab is fed by a bounded rolling event store
 (``data/vllm/perf_eval/events.jsonl``) that ``collect_perf_eval.py`` folds into
-``perf_eval.json``. This collector is what actually *fills* that log from live
-data — no webhook receiver required.
+``perf_eval.json``. This collector is what actually *fills* that store from
+live data — no webhook receiver required.
 
 The ``vllm/perf-eval`` pipeline uploads its entire ``results/`` tree as
 Buildkite artifacts on every build (``artifact_paths: ["results/**/*"]``). Using
@@ -46,12 +46,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
 from vllm.ci.perf_eval_webhook import (  # noqa: E402
+    ARTIFACT_INDEX_EVENT,
+    ARTIFACT_MARKER_EVENT,
     METRIC_META,
-    append_event,
+    PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS,
+    append_events,
+    artifact_key,
+    artifact_keys_from_event,
     commit_from_image,
     is_amd_workload,
     normalize_eval_payload,
-    read_events,
+    read_events_strict,
     utcnow_iso,
 )
 
@@ -87,12 +92,11 @@ _NIGHTLY_WORD_RE = re.compile(r"\bnightly\b", re.IGNORECASE)
 _PERF_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/bench-(?P<cfg>.+)\.json$")
 _ACC_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/(?P<task>[^/]+)/results_.*\.json$")
 
-# Result events retain the exact Buildkite artifact that produced them.  Legacy
+# Result events retain the exact Buildkite artifact that produced them. Legacy
 # result rows predate these fields, so once such a row is encountered again we
-# append a metadata-only marker after confirming the downloaded payload maps to
-# an already-known canonical event.  ``collect_perf_eval.aggregate`` ignores
-# marker events, while future ingestion runs can avoid the artifact download.
-ARTIFACT_MARKER_EVENT = "buildkite_artifact_ingested"
+# add a metadata-only marker after confirming the downloaded payload maps to an
+# already-known canonical event. Atomic store compaction folds marker rows into
+# the bounded artifact identity index used by future ingestion runs.
 _ARTIFACT_PROVENANCE_FIELDS = (
     "buildkite_artifact_id",
     "buildkite_artifact_job_id",
@@ -387,23 +391,8 @@ def artifact_provenance(artifact: dict, build_number: Any) -> dict:
     }
 
 
-def artifact_key(record: dict) -> Optional[tuple]:
-    """Return an exact artifact identity from API metadata or a stored event."""
-    artifact_id = str(record.get("buildkite_artifact_id") or "").strip()
-    if artifact_id:
-        return "id", artifact_id
-
-    build_number = record.get("build_number")
-    job_id = str(record.get("buildkite_artifact_job_id") or "").strip()
-    path = str(record.get("buildkite_artifact_path") or "").strip().lstrip("./")
-    sha1 = str(record.get("buildkite_artifact_sha1") or "").strip().lower()
-    if build_number is not None and job_id and path and sha1:
-        return "metadata", build_number, job_id, path, sha1
-    return None
-
-
 def artifact_marker(provenance: dict) -> dict:
-    """Build an append-only marker for a legacy event's confirmed artifact."""
+    """Build a marker that compaction folds into the exact artifact index."""
     return {
         "event": ARTIFACT_MARKER_EVENT,
         "received_at": utcnow_iso(),
@@ -544,7 +533,12 @@ def fetch_workload_map(gh_token: str) -> dict[str, tuple[dict, dict]]:
 
 def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int:
     """Pull nightly perf-eval artifacts and append new canonical events."""
-    existing = read_events(store_path)
+    if not 1 <= days <= PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS:
+        raise ValueError(
+            "perf-eval artifact lookback must be between 1 and "
+            f"{PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS} days"
+        )
+    existing = read_events_strict(store_path)
     seen = {
         event_key(e)
         for e in existing
@@ -553,7 +547,7 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
     known_artifacts = {
         key
         for event in existing
-        if (key := artifact_key(event)) is not None
+        for key in artifact_keys_from_event(event)
     }
     before = len(existing)
 
@@ -569,6 +563,7 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
 
     appended = 0
     markers_appended = 0
+    pending_events: list[dict] = []
     for build in builds:
         night = nightly_info(build)
         if night is None:
@@ -624,7 +619,7 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
                         for field in _ARTIFACT_PROVENANCE_FIELDS
                     }
                 )
-                append_event(store_path, event)
+                pending_events.append(event)
                 seen.add(key)
                 appended += 1
             elif source_key is not None:
@@ -632,11 +627,15 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
                 # was recorded. Persist only the exact source identity now that
                 # the payload has proved the association; aggregation ignores
                 # this marker event.
-                append_event(store_path, artifact_marker(provenance))
+                pending_events.append(artifact_marker(provenance))
                 markers_appended += 1
             if source_key is not None:
                 known_artifacts.add(source_key)
 
+    # Always rewrite through the bounded atomic store, even when every
+    # artifact was already known. This migrates legacy unbounded logs without
+    # changing the Buildkite/GitHub request plan.
+    append_events(store_path, pending_events)
     log.info(
         "Appended %d new result events and %d artifact markers "
         "(%d existing records)",

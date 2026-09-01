@@ -16,6 +16,7 @@ import pytest
 
 from vllm import audit_dashboard_data as audit_module
 from vllm import build_operations_snapshot as operations_module
+from vllm import build_queue_section as queue_section_module
 from vllm import collect_queue_lifecycle as queue_lifecycle
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
@@ -300,13 +301,35 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
     } <= covered
 
 
-def test_queue_lifecycle_audit_validates_daily_wait_vector_counts(tmp_path):
-    payload = queue_lifecycle.build_summary(
+def _queue_lifecycle_audit_payload(now: datetime | None = None) -> dict:
+    timestamp_coverage = {
+        "scope": "current_api_query_before_ledger_merge",
+        "jobs": 0,
+        "with_runnable_at": 0,
+        "with_started_at": 0,
+        "with_finished_at": 0,
+        "events_in_retention": {"incoming": 0, "served": 0, "completed": 0},
+        "duration_samples_in_retention": {"queue_wait": 0, "runtime": 0},
+    }
+    return queue_lifecycle.build_summary(
         [],
-        now=datetime.now(timezone.utc).replace(microsecond=0),
-        collection=None,
+        now=(now or datetime.now(timezone.utc)).replace(microsecond=0),
+        collection={
+            "complete": True,
+            "query_start": "2026-08-01T00:00:00Z",
+            "query_end_exclusive": "2026-08-01T01:00:00Z",
+            "query_mode": "incremental_overlap",
+            "queue_discovery": {"complete": True, "target_queue_count": 12},
+            "source_coverage": {"complete": True},
+            "unique_jobs": 0,
+            "timestamp_coverage": timestamp_coverage,
+        },
         previous_provenance={},
     )
+
+
+def test_queue_lifecycle_audit_validates_daily_wait_vector_counts(tmp_path):
+    payload = _queue_lifecycle_audit_payload()
     output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
     output.parent.mkdir(parents=True)
     output.write_text(json.dumps(payload))
@@ -327,18 +350,291 @@ def test_queue_lifecycle_audit_validates_daily_wait_vector_counts(tmp_path):
         finding.code for finding in invalid.report.errors
     }
 
-    payload = queue_lifecycle.build_summary(
-        [],
-        now=datetime.now(timezone.utc).replace(microsecond=0),
-        collection=None,
-        previous_provenance={},
-    )
+    payload = _queue_lifecycle_audit_payload()
     payload.pop("daily_wait_times")
     output.write_text(json.dumps(payload))
     missing = DashboardAudit(tmp_path)
     missing.audit_queue_lifecycle()
     assert "queue-lifecycle-daily-waits-shape" in {
         finding.code for finding in missing.report.errors
+    }
+
+
+def test_queue_lifecycle_audit_accepts_and_reconciles_bounded_daily_vectors(tmp_path):
+    now = datetime(2026, 8, 11, 20, 0, tzinfo=timezone.utc)
+    observation = {
+        "schema_version": queue_lifecycle.SCHEMA_VERSION,
+        "job_id": "a" * 64,
+        "queue": queue_lifecycle.AMD_METRIC_TARGET_QUEUES[0],
+        "timestamps": {
+            "created_at": "2026-08-11T18:00:00Z",
+            "runnable_at": "2026-08-11T18:10:00Z",
+            "started_at": "2026-08-11T18:20:00Z",
+            "finished_at": "2026-08-11T19:20:00Z",
+        },
+        "durations_seconds": {"queue_wait": 600.0, "runtime": 3_600.0},
+        "outcome": "passed",
+        "retry": {"retried": False, "is_retry": False, "retries_count": 0},
+    }
+    query_coverage = {
+        "scope": "current_api_query_before_ledger_merge",
+        "jobs": 1,
+        "with_runnable_at": 1,
+        "with_started_at": 1,
+        "with_finished_at": 1,
+        "events_in_retention": {"incoming": 1, "served": 1, "completed": 1},
+        "duration_samples_in_retention": {"queue_wait": 1, "runtime": 1},
+    }
+    payload = queue_lifecycle.build_summary(
+        [observation],
+        now=now,
+        collection={
+            "complete": True,
+            "query_start": "2026-08-04T00:00:00Z",
+            "query_end_exclusive": "2026-08-11T20:00:00Z",
+            "query_mode": queue_lifecycle.FULL_QUERY_MODE,
+            "queue_discovery": {"complete": True, "target_queue_count": 12},
+            "source_coverage": {"complete": True},
+            "unique_jobs": 1,
+            "timestamp_coverage": query_coverage,
+        },
+    )
+    day = next(row for row in payload["daily_wait_times"]["days"] if row["sample_count"])
+    waits = day["served_job_wait_seconds"]
+    day.update(
+        {
+            "served_job_wait_seconds": [],
+            "vector_complete": False,
+            "published_sample_count": 0,
+            "omitted_sample_count": len(waits),
+            "distribution": queue_lifecycle._duration_summary(waits),
+        }
+    )
+    payload["daily_wait_times"]["vector_coverage"] = {
+        "complete": False,
+        "observed_sample_count": 1,
+        "published_sample_count": 0,
+        "compacted_dates": [day["date"]],
+        "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
+    }
+    output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(json.dumps(payload))
+
+    valid = DashboardAudit(tmp_path)
+    valid.audit_queue_lifecycle()
+    assert not {
+        finding.code
+        for finding in valid.report.errors
+        if finding.code.startswith("queue-lifecycle-daily-waits")
+    }
+
+    day["omitted_sample_count"] = 2
+    output.write_text(json.dumps(payload))
+    invalid = DashboardAudit(tmp_path)
+    invalid.audit_queue_lifecycle()
+    assert "queue-lifecycle-daily-waits-compaction" in {
+        finding.code for finding in invalid.report.errors
+    }
+
+
+def test_queue_lifecycle_audit_reconciles_retained_and_query_scopes(tmp_path):
+    payload = _queue_lifecycle_audit_payload()
+    output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(json.dumps(payload))
+
+    valid = DashboardAudit(tmp_path)
+    valid.audit_queue_lifecycle()
+    assert not valid.report.errors
+
+    cases = (
+        ("coverage", "scope", "wrong", "queue-lifecycle-timestamp-scope"),
+        ("coverage", "jobs", 1, "queue-lifecycle-timestamp-jobs"),
+        ("query", "scope", "wrong", "queue-lifecycle-query-scope"),
+        ("query", "jobs", 1, "queue-lifecycle-query-scope"),
+    )
+    for location, field, value, expected_code in cases:
+        mutated = copy.deepcopy(payload)
+        if location == "coverage":
+            target = mutated["coverage"]["timestamp_fields"]
+        else:
+            target = mutated["provenance"]["collection"]["timestamp_coverage"]
+        target[field] = value
+        output.write_text(json.dumps(mutated))
+        audit = DashboardAudit(tmp_path)
+        audit.audit_queue_lifecycle()
+        assert expected_code in {finding.code for finding in audit.report.errors}
+
+
+def test_queue_lifecycle_audit_requires_exact_daily_retained_reconciliation(tmp_path):
+    payload = _queue_lifecycle_audit_payload()
+    day = payload["daily_wait_times"]["days"][0]
+    day["served_job_wait_seconds"] = [1.0]
+    day["sample_count"] = 1
+    output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(json.dumps(payload))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_queue_lifecycle()
+
+    assert "queue-lifecycle-daily-waits-coverage-reconciliation" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_queue_lifecycle_legacy_v1_is_bounded_fallback_not_producer_output(tmp_path):
+    payload = _queue_lifecycle_audit_payload()
+    retained = payload["coverage"]["timestamp_fields"]
+    legacy_fields = {
+        key: copy.deepcopy(value)
+        for key, value in retained.items()
+        if key not in {"scope", "duration_samples_in_retention"}
+    }
+    payload["coverage"]["timestamp_fields"] = legacy_fields
+    payload["provenance"]["collection"]["timestamp_coverage"] = copy.deepcopy(
+        legacy_fields
+    )
+    output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(json.dumps(payload))
+
+    fallback = DashboardAudit(tmp_path)
+    fallback.audit_queue_lifecycle()
+    assert not fallback.report.errors
+    assert "queue-lifecycle-legacy-timestamp-coverage" in {
+        finding.code for finding in fallback.report.warnings
+    }
+
+    producer = DashboardAudit(tmp_path)
+    producer.audit_queue_lifecycle(require_current_scope=True)
+    assert "queue-lifecycle-current-scope-required" in {
+        finding.code for finding in producer.report.errors
+    }
+
+    day = payload["daily_wait_times"]["days"][0]
+    day["served_job_wait_seconds"] = [1.0]
+    day["sample_count"] = 1
+    output.write_text(json.dumps(payload))
+    incoherent = DashboardAudit(tmp_path)
+    incoherent.audit_queue_lifecycle()
+    assert "queue-lifecycle-daily-waits-total" in {
+        finding.code for finding in incoherent.report.errors
+    }
+
+
+def test_queue_lifecycle_only_entrypoint_runs_without_site_packages(tmp_path):
+    payload = _queue_lifecycle_audit_payload()
+    output = tmp_path / "queue_lifecycle.json"
+    output.write_text(json.dumps(payload))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(ROOT / "scripts" / "vllm" / "audit_dashboard_data.py"),
+            "--queue-lifecycle-only",
+            "--queue-lifecycle-path",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_queue_only_entrypoint_runs_targeted_semantic_audit(tmp_path, monkeypatch):
+    queue_dir = tmp_path / "data" / "vllm" / "ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    rows = []
+    for minutes_ago in (10, 0):
+        rows.append(
+            {
+                "ts": (now - timedelta(minutes=minutes_ago))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                "queues": {"amd_mi300_1": {"waiting": 1, "running": 0}},
+                "total_waiting": 1,
+                "total_running": 0,
+                "sources": {"counts": "test-fixture"},
+            }
+        )
+    (queue_dir / "queue_timeseries.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    (queue_dir / "queue_jobs.json").write_text(
+        json.dumps({"ts": rows[-1]["ts"], "pending": [], "running": []})
+    )
+    queue_section_module.main(["--input-dir", str(queue_dir)])
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+
+    assert audit_module.main(["--queue-only", "--format", "json"]) == 0
+
+    rows[-1]["total_waiting"] = 2
+    (queue_dir / "queue_timeseries.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    assert audit_module.main(["--queue-only", "--format", "json"]) == 1
+
+
+def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
+    tmp_path,
+):
+    queue_dir = tmp_path / "data" / "vllm" / "ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    snapshot = {
+        "ts": now.isoformat().replace("+00:00", "Z"),
+        "queues": {"amd_mi300_1": {"waiting": 0, "running": 0}},
+        "total_waiting": 0,
+        "total_running": 0,
+        "sources": {"counts": "test-fixture"},
+    }
+    (queue_dir / "queue_timeseries.jsonl").write_text(json.dumps(snapshot) + "\n")
+    (queue_dir / "queue_jobs.json").write_text(
+        json.dumps({"ts": snapshot["ts"], "pending": [], "running": []})
+    )
+    queue_section_module.main(["--input-dir", str(queue_dir)])
+
+    valid = DashboardAudit(tmp_path)
+    valid.audit_queue_data(validate_derived=True)
+    assert not valid.report.errors
+    assert {finding.code for finding in valid.report.warnings} == {
+        "queue-history-bootstrap"
+    }
+
+    chart_path = queue_dir / "queue_history_chart.json"
+    original_chart = chart_path.read_text()
+    chart_path.write_text('{"schema_version":1,"points":[]}\n')
+    corrupt_chart = DashboardAudit(tmp_path)
+    corrupt_chart.audit_queue_data(validate_derived=True)
+    assert "queue-history-chart-projection" in {
+        finding.code for finding in corrupt_chart.report.errors
+    }
+
+    chart_path.write_text(original_chart)
+    (queue_dir / "operations_v2" / "queue.json").write_text('{"queue":{}}\n')
+    corrupt_section = DashboardAudit(tmp_path)
+    corrupt_section.audit_queue_data(validate_derived=True)
+    assert "queue-section-projection" in {
+        finding.code for finding in corrupt_section.report.errors
+    }
+
+    (queue_dir / "operations_v2" / "queue.json").write_text(
+        json.dumps(queue_section_module.build_queue_section(queue_dir)) + "\n"
+    )
+    jobs = json.loads((queue_dir / "queue_jobs.json").read_text())
+    jobs["ts"] = (now - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
+    (queue_dir / "queue_jobs.json").write_text(json.dumps(jobs))
+    queue_section_module.main(["--input-dir", str(queue_dir)])
+    mixed_generation = DashboardAudit(tmp_path)
+    mixed_generation.audit_queue_data(validate_derived=True)
+    assert "queue-jobs-generation-mismatch" in {
+        finding.code for finding in mixed_generation.report.errors
     }
 
 

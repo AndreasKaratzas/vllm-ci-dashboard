@@ -56,12 +56,17 @@ jobs:
       - name: Collect canonical AMD queue lifecycle
         env:
           BUILDKITE_API_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: python scripts/vllm/collect_queue_lifecycle.py
+
+      - name: Validate retained lifecycle evidence
         run: |
-          python scripts/vllm/collect_queue_lifecycle.py
           python -m json.tool data/vllm/ci/queue_lifecycle.json >/dev/null
-          test -n "$(find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print -quit)"
-          find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print0 \
-            | xargs -0 gzip -t
+          if [ -d data/vllm/ci/queue_lifecycle_jobs ]; then
+            find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print0 \
+              | xargs -0 -r gzip -t
+          fi
+          python scripts/vllm/collect_queue_lifecycle.py --validate-ledger-only
+          python -S scripts/vllm/audit_dashboard_data.py --queue-lifecycle-only
 
       - name: Publish durable lifecycle evidence
         run: |
@@ -83,9 +88,7 @@ jobs:
           done < <(find data/vllm/ci/queue_lifecycle_jobs -type f -name '*.jsonl.gz' -print0)
           git -C "$LIVE_ROOT" config user.name "github-actions[bot]"
           git -C "$LIVE_ROOT" config user.email "github-actions[bot]@users.noreply.github.com"
-          git -C "$LIVE_ROOT" add \
-            data/vllm/ci/queue_lifecycle.json \
-            data/vllm/ci/queue_lifecycle_jobs
+          git -C "$LIVE_ROOT" add --all data/vllm/ci
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "queue: lifecycle observations $(date -u +%Y-%m-%dT%H:%M)"
           git -C "$LIVE_ROOT" push --force origin HEAD:queue-lifecycle-data

@@ -10,6 +10,7 @@ restored result is rebuilt and subjected to the complete audit again.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -71,6 +72,15 @@ UPSTREAM_RETRY_RECONCILIATION_CODES = frozenset({
     "matrix-analytics-build",
     "matrix-health-build",
 })
+UPSTREAM_RETRY_TRANSACTION_SURFACES = frozenset({"ci_core", "ci_analytics"})
+UPSTREAM_RETRY_CANDIDATE_PHASE = "active-retry-candidate-preflight"
+UPSTREAM_RETRY_CANDIDATE_AUDITS = (
+    "audit_ci_health",
+    "audit_root_test_results",
+    "audit_shard_bases",
+    "audit_analytics",
+    "audit_amd_matrix",
+)
 
 
 class FallbackExpiredError(RuntimeError):
@@ -262,6 +272,45 @@ def _collector_incident_policy(
     }, streaks)
 
 
+def _compose_incident_policy(
+    preserved: Mapping[str, Any] | None,
+    current: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Combine an attempted refresh with incidents carried from other surfaces.
+
+    A refresh-only run must not advance unattempted incident streaks, so it
+    cannot simply feed preserved failures back through ``_collector_incident_policy``.
+    It also must not let a first transient failure on the attempted surface
+    silence an already-alertable preserved incident. Select the most relevant
+    policy record while independently retaining the strongest alert and streak.
+    """
+    current_policy = copy.deepcopy(dict(current))
+    if not isinstance(preserved, Mapping):
+        return current_policy
+
+    preserved_policy = copy.deepcopy(dict(preserved))
+    preserved_alert = preserved_policy.get("alert", True) is not False
+    current_alert = current_policy.get("alert", True) is not False
+    if preserved_alert and not current_alert:
+        composed = preserved_policy
+    else:
+        # A newly alertable target adds severity. When neither policy alerts,
+        # the attempted target's reason is the useful current diagnostic.
+        composed = current_policy
+    preserved_streak = preserved_policy.get("max_observed_streak")
+    current_streak = current_policy.get("max_observed_streak")
+    composed["alert"] = preserved_alert or current_alert
+    composed["max_observed_streak"] = max(
+        preserved_streak
+        if isinstance(preserved_streak, int) and not isinstance(preserved_streak, bool)
+        else 0,
+        current_streak
+        if isinstance(current_streak, int) and not isinstance(current_streak, bool)
+        else 0,
+    )
+    return composed
+
+
 def _positive_int(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         return None
@@ -366,6 +415,43 @@ def _upstream_retry_identity(observation: Mapping[str, Any]) -> str:
     return hashlib.sha256(source.encode()).hexdigest()[:20]
 
 
+def _audit_active_retry_candidate_transaction(audit: DashboardAudit) -> None:
+    """Audit retry-owned source semantics before either surface is restored."""
+    findings = audit.report.findings
+    initial_count = len(findings)
+    for method_name in UPSTREAM_RETRY_CANDIDATE_AUDITS:
+        getattr(audit, method_name)()
+
+    existing = {
+        (
+            finding.severity,
+            finding.code,
+            finding.message,
+            finding.path,
+            json.dumps(finding.context, sort_keys=True, default=str),
+        )
+        for finding in findings[:initial_count]
+    }
+    semantic_findings = findings[initial_count:]
+    del findings[initial_count:]
+    for finding in semantic_findings:
+        identity = (
+            finding.severity,
+            finding.code,
+            finding.message,
+            finding.path,
+            json.dumps(finding.context, sort_keys=True, default=str),
+        )
+        if identity in existing:
+            continue
+        existing.add(identity)
+        finding.context = {
+            **finding.context,
+            "publication_phase": UPSTREAM_RETRY_CANDIDATE_PHASE,
+        }
+        findings.append(finding)
+
+
 def _upstream_retry_incident_policy(
     observations: list[dict[str, Any]],
     previous: dict | None,
@@ -411,6 +497,10 @@ def _retry_reconciliation_finding(
         return False
     context = record.get("context")
     context = context if isinstance(context, Mapping) else {}
+    # A mismatch already present while both candidate surfaces still describe
+    # the retry generation is a real defect, not restore-induced skew.
+    if context.get("publication_phase") == UPSTREAM_RETRY_CANDIDATE_PHASE:
+        return False
     if code == UPSTREAM_RETRY_FINDING_CODE:
         return context.get("pipeline") in pipelines
     if code == "operations-stale-source":
@@ -516,6 +606,43 @@ def _run_git(root: Path, *args: str) -> bytes:
         capture_output=True,
     )
     return result.stdout
+
+
+def _validate_refresh_only_candidate(
+    root: Path,
+    baseline_ref: str,
+    refresh_surface: str,
+) -> None:
+    """Fail closed unless the pre-selector tree changed only one source surface."""
+    tracked = _run_git(
+        root,
+        "diff",
+        "--name-only",
+        baseline_ref,
+        "--",
+    ).decode().splitlines()
+    untracked = _run_git(
+        root,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+    ).decode().splitlines()
+    changed = sorted({path.strip() for path in [*tracked, *untracked] if path.strip()})
+    unexpected = []
+    for relative in changed:
+        owners = [
+            surface
+            for surface, spec in SURFACE_SPECS.items()
+            if relative in {*spec.required_paths, *spec.optional_paths}
+            or any(Path(relative).match(pattern) for pattern in spec.globs)
+        ]
+        if owners != [refresh_surface]:
+            unexpected.append(relative)
+    if unexpected:
+        raise RuntimeError(
+            f"refresh-only {refresh_surface} candidate changed non-target paths: "
+            f"{unexpected}"
+        )
 
 
 def _uses_declared_surface_domain() -> bool:
@@ -1342,6 +1469,7 @@ def select_publication(
     *,
     forced_degraded: Iterable[str] = (),
     collector_failures: Iterable[Mapping[str, Any]] = (),
+    refresh_only_surface: str | None = None,
 ) -> dict:
     baseline_ref = baseline_ref.strip().lower()
     if not FULL_SHA_RE.fullmatch(baseline_ref):
@@ -1372,16 +1500,114 @@ def select_publication(
     if unknown_forced:
         raise ValueError(f"unknown forced publication surfaces: {sorted(unknown_forced)}")
 
-    retry_observations = _active_upstream_retry_observations(root, baseline_ref)
-    retry_surfaces = {
-        str(observation["surface"])
-        for observation in retry_observations
-    }
+    refresh_surface = str(refresh_only_surface or "").strip() or None
+    if refresh_surface is not None and refresh_surface not in SURFACE_SPECS:
+        raise ValueError(f"unknown refresh-only publication surface: {refresh_surface}")
+    if refresh_surface is not None and (forced | typed_surfaces) - {refresh_surface}:
+        raise ValueError(
+            "refresh-only publication cannot accept failures for unattempted surfaces"
+        )
+
+    preserved_state: dict | None = None
+    preserved_fallback: set[str] = set()
+    preserved_fresh_degraded: set[str] = set()
+    preserved_collector_failures: list[dict[str, Any]] = []
+    preserved_collector_streaks: dict[str, int] = {}
+    preserved_retry_observations: list[dict[str, Any]] = []
+    preserved_retry_streaks: dict[str, int] = {}
+    preserved_collector_policy: dict[str, Any] | None = None
+    preserved_incident_policy: dict[str, Any] | None = None
+    if refresh_surface is not None:
+        _validate_refresh_only_candidate(root, baseline_ref, refresh_surface)
+        preserved_state = prior_state()
+        if preserved_state is None:
+            raise RuntimeError(
+                "refresh-only publication requires a validated baseline publication state"
+            )
+        prior_fallback = set(preserved_state.get("fallback_surfaces") or [])
+        prior_fresh = set(preserved_state.get("fresh_degraded_surfaces") or [])
+        preserved_fallback = prior_fallback - {refresh_surface}
+        if _closed_fallback_surfaces(preserved_fallback) != preserved_fallback:
+            raise RuntimeError(
+                f"cannot refresh {refresh_surface} independently of a preserved "
+                "fallback dependency"
+            )
+        preserved_fresh_degraded = prior_fresh - {refresh_surface}
+        preserved_degraded = preserved_fallback | preserved_fresh_degraded
+        raw_collector_policy = preserved_state.get("collector_incident_policy")
+        if preserved_degraded and isinstance(raw_collector_policy, dict):
+            preserved_collector_policy = copy.deepcopy(raw_collector_policy)
+        raw_incident_policy = preserved_state.get("incident_policy")
+        if preserved_degraded and isinstance(raw_incident_policy, dict):
+            preserved_incident_policy = copy.deepcopy(raw_incident_policy)
+        preserved_collector_failures = [
+            copy.deepcopy(record)
+            for record in (preserved_state.get("collector_failures") or [])
+            if isinstance(record, dict)
+            and record.get("surface") in preserved_degraded
+        ]
+        preserved_failure_identities = {
+            _collector_failure_persistence_identity(record)
+            for record in preserved_collector_failures
+        }
+        previous_collector_streaks = (
+            preserved_state.get("collector_failure_streaks") or {}
+        )
+        if isinstance(previous_collector_streaks, dict):
+            preserved_collector_streaks = {
+                identity: count
+                for identity, count in previous_collector_streaks.items()
+                if identity in preserved_failure_identities
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+                and count > 0
+            }
+        preserved_retry_observations = [
+            copy.deepcopy(record)
+            for record in (preserved_state.get("upstream_retry_observations") or [])
+            if isinstance(record, dict)
+            and record.get("surface") != refresh_surface
+        ]
+        preserved_retry_identities = {
+            _upstream_retry_identity(record)
+            for record in preserved_retry_observations
+        }
+        previous_retry_streaks = preserved_state.get("upstream_retry_streaks") or {}
+        if preserved_retry_identities and isinstance(previous_retry_streaks, dict):
+            preserved_retry_streaks = {
+                str(identity): count
+                for identity, count in previous_retry_streaks.items()
+                if str(identity) in preserved_retry_identities
+                and isinstance(count, int)
+                and not isinstance(count, bool)
+                and count > 0
+            }
+
+    retry_observations = (
+        []
+        if refresh_surface is not None
+        else _active_upstream_retry_observations(root, baseline_ref)
+    )
+    # ``ci_health.json`` owns the retry attestation, but analytics selects the
+    # same completed test-signal build. Restoring only CI core first creates a
+    # tree in which the two surfaces point at different builds until a later
+    # audit pass happens to widen the fallback. Treat an attested retry as one
+    # bounded publication transaction up front so every semantic audit sees a
+    # coherent generation. This is deliberately narrower than a global
+    # fallback dependency: unrelated analytics or CI-core failures remain
+    # independently publishable.
+    retry_surfaces = (
+        set(UPSTREAM_RETRY_TRANSACTION_SURFACES)
+        if retry_observations
+        else set()
+    )
     now = datetime.now(timezone.utc)
     candidate_errors: list[dict] = []
     candidate_degradations: list[dict] = []
-    fresh_degraded: set[str] = set()
-    fallback: set[str] = _closed_fallback_surfaces(forced | retry_surfaces)
+    fresh_degraded: set[str] = set(preserved_fresh_degraded)
+    fallback: set[str] = preserved_fallback | _closed_fallback_surfaces(
+        forced | retry_surfaces
+    )
     restored: dict[str, list[str]] = {}
     state = {
         "schema_version": 2,
@@ -1395,9 +1621,9 @@ def select_publication(
         "degraded_since": {},
         "fallback_since": {},
         "fallback_max_age_hours": FALLBACK_MAX_AGE_HOURS,
-        "collector_failures": [],
-        "collector_failure_streaks": {},
-        "collector_incident_policy": {
+        "collector_failures": preserved_collector_failures,
+        "collector_failure_streaks": preserved_collector_streaks,
+        "collector_incident_policy": preserved_collector_policy or {
             "alert": True,
             "reason": "non-collector-publication-finding",
             "transient_persistence_runs_required": (
@@ -1405,7 +1631,7 @@ def select_publication(
             ),
             "max_observed_streak": 0,
         },
-        "incident_policy": {
+        "incident_policy": preserved_incident_policy or {
             "alert": True,
             "reason": "non-collector-publication-finding",
             "transient_persistence_runs_required": (
@@ -1413,8 +1639,8 @@ def select_publication(
             ),
             "max_observed_streak": 0,
         },
-        "upstream_retry_observations": [],
-        "upstream_retry_streaks": {},
+        "upstream_retry_observations": preserved_retry_observations,
+        "upstream_retry_streaks": preserved_retry_streaks,
         "candidate_errors": candidate_errors,
         "candidate_degradations": candidate_degradations,
         "final_errors": [],
@@ -1431,14 +1657,26 @@ def select_publication(
             has_untyped_forced_surface=bool(forced - typed_surfaces),
         )
         if forced:
-            state["collector_incident_policy"] = incident_policy
-            state["incident_policy"] = dict(incident_policy)
-        state["collector_failure_streaks"] = collector_streaks
+            state["collector_incident_policy"] = _compose_incident_policy(
+                preserved_collector_policy,
+                incident_policy,
+            )
+            state["incident_policy"] = _compose_incident_policy(
+                preserved_incident_policy,
+                incident_policy,
+            )
+        state["collector_failure_streaks"] = {
+            **preserved_collector_streaks,
+            **collector_streaks,
+        }
         retry_policy, retry_streaks = _upstream_retry_incident_policy(
             retry_observations,
             previous_for_policy,
         )
-        state["upstream_retry_streaks"] = retry_streaks
+        state["upstream_retry_streaks"] = {
+            **preserved_retry_streaks,
+            **retry_streaks,
+        }
         for observation in retry_observations:
             persistence_runs = retry_streaks[
                 _upstream_retry_identity(observation)
@@ -1458,7 +1696,8 @@ def select_publication(
                 "message": (
                     f"{observation['pipeline']} build "
                     f"#{observation['build_number']} returned to an active retry; "
-                    "CI core will retain its validated completed cohort"
+                    "CI core and analytics will retain their coherent validated "
+                    "completed cohort"
                 ),
                 "path": CI_HEALTH_PATH,
                 "context": {
@@ -1526,6 +1765,11 @@ def select_publication(
             publication_state_path=state_path,
         )
         source_audit.audit_publication_surface_files()
+        if retry_observations:
+            # CI core and analytics will be restored together below. Audit the
+            # complete source transaction first so genuine candidate defects
+            # cannot be erased or mislabeled as ordinary retry reconciliation.
+            _audit_active_retry_candidate_transaction(source_audit)
         unrouted = []
         for finding in source_audit.report.errors:
             surfaces = finding_surfaces(finding)
@@ -1800,6 +2044,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "are restored in addition to explicitly forced surfaces"
         ),
     )
+    parser.add_argument(
+        "--refresh-only-surface",
+        choices=sorted(SURFACE_SPECS),
+        help=(
+            "Refresh only this source transaction while carrying every other "
+            "validated baseline degradation and fallback without advancing its clocks"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -1828,6 +2080,7 @@ def main(argv: list[str] | None = None) -> int:
             state_path,
             forced_degraded=forced,
             collector_failures=collector_failures,
+            refresh_only_surface=args.refresh_only_surface,
         )
     except Exception as exc:
         print(f"Publication selection failed: {exc}", file=sys.stderr)

@@ -8,11 +8,14 @@ parsing, AMD-only filtering, and dedup identity. No network is touched.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import importlib
 import json
 
 import pytest
 import requests
+
+from vllm.ci import perf_eval_webhook as event_store
 
 art = importlib.import_module("vllm.collect_perf_eval_artifacts")
 
@@ -322,7 +325,8 @@ _ENTRY = {
 _CONFIGS = {"8-in-8-out-conc-1": {"isl": 8, "osl": 8, "conc": 1}}
 
 
-def _stub_collection(monkeypatch, artifacts, downloads):
+def _stub_collection(monkeypatch, artifacts, downloads, *, build=None):
+    selected_build = build or _BUILD
     monkeypatch.setattr(
         art,
         "fetch_workload_map",
@@ -331,8 +335,8 @@ def _stub_collection(monkeypatch, artifacts, downloads):
 
     def paginate(path, _token, params=None, max_pages=10):
         if path.endswith("/builds"):
-            return [_BUILD]
-        if path.endswith("/builds/501/artifacts"):
+            return [selected_build]
+        if path.endswith(f"/builds/{selected_build['number']}/artifacts"):
             return artifacts
         raise AssertionError(path)
 
@@ -381,6 +385,51 @@ def test_collect_skips_known_artifacts_before_download(tmp_path, monkeypatch):
 
     assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
     assert downloads == []
+
+
+@pytest.mark.parametrize("days", [0, 31])
+def test_collect_rejects_lookback_outside_identity_horizon_before_requests(
+    tmp_path, monkeypatch, days
+):
+    requested = []
+    monkeypatch.setattr(
+        art,
+        "fetch_workload_map",
+        lambda _token: requested.append("github"),
+    )
+    monkeypatch.setattr(
+        art,
+        "_bk_paginate",
+        lambda *_args, **_kwargs: requested.append("buildkite"),
+    )
+
+    with pytest.raises(ValueError, match="between 1 and 30 days"):
+        art.collect(tmp_path / "events.jsonl", days=days, bk_token="bk", gh_token="gh")
+
+    assert requested == []
+
+
+def test_collect_rejects_corrupt_store_before_requests(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    original = b'{"event":"perf_result"}\n["not", "an", "object"]\n'
+    store.write_bytes(original)
+    requested = []
+    monkeypatch.setattr(
+        art,
+        "fetch_workload_map",
+        lambda _token: requested.append("github"),
+    )
+    monkeypatch.setattr(
+        art,
+        "_bk_paginate",
+        lambda *_args, **_kwargs: requested.append("buildkite"),
+    )
+
+    with pytest.raises(ValueError, match="event must be a JSON object"):
+        art.collect(store, days=14, bk_token="bk", gh_token="gh")
+
+    assert requested == []
+    assert store.read_bytes() == original
 
 
 def test_new_event_carries_artifact_identity_and_next_run_skips_download(
@@ -441,6 +490,97 @@ def test_legacy_duplicate_gets_marker_then_skips_future_downloads(
     rows = [json.loads(line) for line in store.read_text().splitlines()]
     assert [row["event"] for row in rows] == [
         "perf_result",
-        art.ARTIFACT_MARKER_EVENT,
+        art.ARTIFACT_INDEX_EVENT,
     ]
-    assert rows[1]["buildkite_artifact_id"] == "artifact-perf"
+    assert art.artifact_keys_from_event(rows[1]) == (("id", "artifact-perf"),)
+
+
+def test_pruned_result_identity_prevents_repeated_artifact_downloads(
+    tmp_path, monkeypatch
+):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    old_at = now - timedelta(days=20)
+    old_build = {
+        **_BUILD,
+        "number": 601,
+        "message": f"Nightly run {old_at:%Y-%m-%d}: commit deadbeef123456",
+        "created_at": old_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "finished_at": (old_at + timedelta(hours=1)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+    }
+
+    def result(commit, observed_at, *, artifact_id="", padding=""):
+        return {
+            "event": "perf_result",
+            "nightly": True,
+            "date": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "vllm_commit": commit,
+            "build_number": 601 if artifact_id else int(commit[-1]),
+            "model": "m",
+            "device": "mi355x",
+            "tp": 1,
+            "precision": "bf16",
+            "isl": 8,
+            "osl": 8,
+            "conc": 1,
+            "metrics": {"tput_per_gpu": 1.0},
+            "buildkite_artifact_id": artifact_id,
+            "padding": padding,
+        }
+
+    history = [
+        result(
+            "deadbeef123456",
+            old_at,
+            artifact_id="artifact-pruned",
+            padding="old" * 2_000,
+        ),
+        *[
+            result(
+                f"abcdef00000{index}",
+                now - timedelta(days=4 - index),
+                padding=str(index) * 2_000,
+            )
+            for index in range(1, 4)
+        ],
+    ]
+    smallest = event_store._compact_events_once(
+        history,
+        now,
+        history_days=14,
+        min_nightlies=2,
+        auxiliary_days=14,
+    )
+    budget = len(event_store._encoded_events(smallest))
+    store = tmp_path / "events.jsonl"
+    event_store.write_events_atomic(store, history, now=now, max_bytes=budget)
+
+    compacted = event_store.read_events(store)
+    assert all(
+        row.get("buildkite_artifact_id") != "artifact-pruned"
+        for row in compacted
+        if row.get("event") == "perf_result"
+    )
+    assert ("id", "artifact-pruned") in {
+        key for row in compacted for key in art.artifact_keys_from_event(row)
+    }
+
+    artifacts = [
+        {
+            "id": "artifact-pruned",
+            "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json",
+            "download_url": "https://example.test/pruned",
+        }
+    ]
+    downloads = []
+    _stub_collection(
+        monkeypatch,
+        artifacts,
+        downloads,
+        build=old_build,
+    )
+
+    assert art.collect(store, days=30, bk_token="bk", gh_token="gh") == 0
+    assert art.collect(store, days=30, bk_token="bk", gh_token="gh") == 0
+    assert downloads == []

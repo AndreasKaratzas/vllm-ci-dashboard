@@ -52,3 +52,7 @@ data/vllm/ci/operations_v2/
 data/vllm/ci/queue_lifecycle_jobs/
 data/vllm/ci/.queue_lifecycle_jobs.stage.*/
 data/vllm/ci/.queue_lifecycle_jobs.backup.*/
+# Recoverable agent-health transaction directories must never be swept into a
+# broad generated-data commit if a runner is interrupted during rollback.
+data/vllm/ci/.agent_health.stage.*/
+data/vllm/ci/.agent_health.backup.*/

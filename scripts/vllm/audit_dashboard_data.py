@@ -868,7 +868,7 @@ class DashboardAudit:
         self.audit_gating_target_candidates()
         self.audit_analytics()
         self.audit_amd_matrix()
-        self.audit_queue_data()
+        self.audit_queue_data(validate_derived=True)
         self.audit_queue_lifecycle()
         self.audit_dns_failures()
         self.audit_frontend_contracts()
@@ -3765,6 +3765,69 @@ class DashboardAudit:
                     relpath,
                 )
             summary_mapping = _mapping(summary)
+            scheduled = _mapping(
+                _mapping(summary_mapping.get("scheduled_cohorts")).get(
+                    "upstream_nightly"
+                )
+            )
+            scheduled_count_fields = (
+                "configured",
+                "observed",
+                "green",
+                "non_green",
+                "failing",
+                "soft_failing",
+                "pending",
+                "missing",
+                "queues_configured",
+                "queues_with_observed_work",
+            )
+            scheduled_counts = {
+                key: scheduled.get(key) for key in scheduled_count_fields
+            }
+            scheduled_available = scheduled.get("available")
+            scheduled_invalid = type(scheduled_available) is not bool
+            if scheduled_available is True:
+                scheduled_invalid = scheduled_invalid or any(
+                    type(value) is not int or value < 0
+                    for value in scheduled_counts.values()
+                )
+                if not scheduled_invalid:
+                    scheduled_invalid = (
+                        scheduled_counts["configured"]
+                        != scheduled_counts["observed"]
+                        + scheduled_counts["missing"]
+                        or scheduled_counts["observed"]
+                        != sum(
+                            scheduled_counts[key]
+                            for key in (
+                                "green",
+                                "failing",
+                                "soft_failing",
+                                "pending",
+                            )
+                        )
+                        or scheduled_counts["non_green"]
+                        != scheduled_counts["observed"]
+                        - scheduled_counts["green"]
+                    )
+            elif scheduled_available is False:
+                # No retained nightly is a valid stable-API state. Keep it
+                # distinguishable from an observed zero-sized cohort: every
+                # unavailable denominator must remain explicitly null.
+                scheduled_invalid = scheduled_invalid or any(
+                    value is not None for value in scheduled_counts.values()
+                )
+            if scheduled_invalid:
+                self.error(
+                    "operations-bundle-org-summary-scheduled-denominators",
+                    (
+                        "organization summary upstream nightly denominators must "
+                        "be non-negative and reconcile when available, or all be "
+                        "null when the cohort is unavailable"
+                    ),
+                    relpath,
+                )
             daily_waits = _mapping(
                 _mapping(summary_mapping.get("queues")).get(
                     "daily_served_job_waits"
@@ -5898,19 +5961,27 @@ class DashboardAudit:
                     )
         self.report.metrics["parity_hardware"] = parity_stats
 
-    def audit_queue_data(self) -> None:
+    def audit_queue_data(self, *, validate_derived: bool = False) -> None:
         rows = self.load_jsonl("data/vllm/ci/queue_timeseries.jsonl")
         if not rows:
+            self.error(
+                "queue-history-empty",
+                "Queue timeseries must contain at least one valid snapshot",
+                "data/vllm/ci/queue_timeseries.jsonl",
+            )
             return
         if len(rows) < 2:
-            self.error(
-                "queue-history-missing",
-                "Queue timeseries contains only the current snapshot; historical counts must be retained",
+            # A new durable branch necessarily starts with one row. Treat that
+            # as an honest bootstrap state so the next successful poll can add
+            # history instead of deadlocking the producer forever.
+            self.warning(
+                "queue-history-bootstrap",
+                "Queue timeseries contains its first valid snapshot",
                 "data/vllm/ci/queue_timeseries.jsonl",
             )
         latest = rows[-1]
         latest_ts = parse_iso(latest.get("ts"))
-        if latest_ts:
+        if latest_ts and latest_ts.tzinfo is not None:
             age_hours = (datetime.now(timezone.utc) - latest_ts).total_seconds() / 3600
             if age_hours > 6:
                 self.warning(
@@ -5921,11 +5992,85 @@ class DashboardAudit:
 
         workload_mismatches: list[str] = []
         retired_queue_rows = 0
+        previous_ts: datetime | None = None
         for idx, row in enumerate(rows, 1):
-            queues = row.get("queues") or {}
+            row_ts = parse_iso(row.get("ts"))
+            canonical_ts = (
+                isinstance(row.get("ts"), str)
+                and row["ts"].endswith("Z")
+                and row_ts is not None
+                and row_ts.tzinfo is not None
+                and row_ts.utcoffset() == timedelta(0)
+            )
+            if not canonical_ts:
+                self.error(
+                    "queue-timestamp",
+                    f"queue_timeseries row {idx} must use a UTC timestamp ending in Z",
+                    "data/vllm/ci/queue_timeseries.jsonl",
+                )
+            elif previous_ts is not None and row_ts <= previous_ts:
+                self.error(
+                    "queue-timestamp-order",
+                    f"queue_timeseries row {idx} is not strictly newer than the prior row",
+                    "data/vllm/ci/queue_timeseries.jsonl",
+                )
+            if canonical_ts:
+                previous_ts = row_ts
+
+            queues = row.get("queues")
+            if not isinstance(queues, dict):
+                self.error(
+                    "queue-row-shape",
+                    f"queue_timeseries row {idx} queues must be an object",
+                    "data/vllm/ci/queue_timeseries.jsonl",
+                )
+                continue
+            if not isinstance(row.get("sources") or row.get("provenance"), dict):
+                self.error(
+                    "queue-row-provenance",
+                    f"queue_timeseries row {idx} must identify its source coverage",
+                    "data/vllm/ci/queue_timeseries.jsonl",
+                )
             retired_queue_rows += sum(is_mi355b_queue(queue) for queue in queues)
-            total_waiting = sum((q.get("waiting") or 0) for q in queues.values())
-            total_running = sum((q.get("running") or 0) for q in queues.values())
+            total_waiting = 0
+            total_running = 0
+            for queue, queue_row in queues.items():
+                if not isinstance(queue, str) or not isinstance(queue_row, dict):
+                    self.error(
+                        "queue-row-shape",
+                        f"queue_timeseries row {idx} contains an invalid queue entry",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
+                    continue
+                for count_name in ("waiting", "running"):
+                    count = queue_row.get(count_name)
+                    if (
+                        not isinstance(count, int)
+                        or isinstance(count, bool)
+                        or count < 0
+                    ):
+                        self.error(
+                            "queue-count-shape",
+                            f"row {idx} {queue}.{count_name} must be a non-negative integer",
+                            "data/vllm/ci/queue_timeseries.jsonl",
+                        )
+                        continue
+                    if count_name == "waiting":
+                        total_waiting += count
+                    else:
+                        total_running += count
+            for total_name in ("total_waiting", "total_running"):
+                total_value = row.get(total_name)
+                if (
+                    not isinstance(total_value, int)
+                    or isinstance(total_value, bool)
+                    or total_value < 0
+                ):
+                    self.error(
+                        "queue-total-shape",
+                        f"queue_timeseries row {idx} {total_name} must be a non-negative integer",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
             if row.get("total_waiting") != total_waiting:
                 self.error(
                     "queue-total-waiting",
@@ -5939,6 +6084,8 @@ class DashboardAudit:
                     "data/vllm/ci/queue_timeseries.jsonl",
                 )
             for queue, queue_row in queues.items():
+                if not isinstance(queue_row, dict):
+                    continue
                 for key in ("waiting_by_workload", "running_by_workload"):
                     split = queue_row.get(key)
                     if not isinstance(split, dict):
@@ -5962,7 +6109,11 @@ class DashboardAudit:
                 f"Queue history contains {retired_queue_rows} retired amd_mi355B queue rows",
                 "data/vllm/ci/queue_timeseries.jsonl",
             )
-        cutoff = latest_ts.timestamp() - 72 * 3600 if latest_ts else None
+        cutoff = (
+            latest_ts.timestamp() - 72 * 3600
+            if latest_ts and latest_ts.tzinfo is not None
+            else None
+        )
         recent_rows = [
             row
             for row in rows
@@ -5974,14 +6125,30 @@ class DashboardAudit:
             for queue, queue_row in (row.get("queues") or {}).items():
                 if is_amd_queue(queue) and not is_retired_queue(queue):
                     amd_workload += (queue_row.get("waiting") or 0) + (queue_row.get("running") or 0)
-        if amd_workload == 0:
-            self.error(
-                "queue-amd-workload-zero",
-                "AMD queues have zero waiting+running workload across the default 72h window",
-                "data/vllm/ci/queue_timeseries.jsonl",
-            )
+        # Zero is a legitimate observation (for example during a quiet fleet
+        # window). Availability and source coverage are explicit in each row;
+        # traffic volume must never be used as a proxy for collector success.
 
         jobs = self.load_json("data/vllm/ci/queue_jobs.json", {})
+        jobs_ts = parse_iso(jobs.get("ts")) if isinstance(jobs, dict) else None
+        if (
+            jobs_ts is None
+            or jobs_ts.tzinfo is None
+            or jobs_ts.utcoffset() != timedelta(0)
+            or not isinstance(jobs.get("ts"), str)
+            or not jobs["ts"].endswith("Z")
+        ):
+            self.error(
+                "queue-jobs-timestamp",
+                "queue_jobs.json must contain a valid snapshot timestamp",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        elif jobs.get("ts") != latest.get("ts"):
+            self.error(
+                "queue-jobs-generation-mismatch",
+                "queue_jobs.json and the latest queue_timeseries row must be one generation",
+                "data/vllm/ci/queue_jobs.json",
+            )
         pending = jobs.get("pending") if isinstance(jobs, dict) else []
         running = jobs.get("running") if isinstance(jobs, dict) else []
         if not isinstance(pending, list) or not isinstance(running, list):
@@ -6009,11 +6176,82 @@ class DashboardAudit:
             "pending_jobs": len(pending) if isinstance(pending, list) else None,
             "running_jobs": len(running) if isinstance(running, list) else None,
         }
+        if validate_derived:
+            self.audit_queue_derived_projections()
 
-    def audit_queue_lifecycle(self) -> None:
-        path = "data/vllm/ci/queue_lifecycle.json"
-        payload = self.load_json(path, {})
+    def audit_queue_derived_projections(self) -> None:
+        """Recompute the two queue-owned browser projections and compare exactly."""
+        history_relpath = "data/vllm/ci/queue_timeseries.jsonl"
+        section_relpath = "data/vllm/ci/operations_v2/queue.json"
+        chart_relpath = "data/vllm/ci/queue_history_chart.json"
+        data_dir = self.root / "data/vllm/ci"
+        try:
+            from vllm.build_operations_snapshot import (
+                _filter_queue_snapshot,
+                build_queue_history_chart,
+                load_queue_history,
+            )
+            from vllm.build_queue_section import build_queue_section
+
+            history = load_queue_history(data_dir / "queue_timeseries.jsonl")
+            expected_section = build_queue_section(data_dir)
+            expected_chart = build_queue_history_chart(
+                [_filter_queue_snapshot(row) for row in history],
+                history[-1].get("ts") if history else None,
+            )
+        except Exception as exc:
+            self.error(
+                "queue-derived-rebuild",
+                f"Queue browser projections could not be recomputed: {exc}",
+                history_relpath,
+            )
+            return
+
+        section = self.load_json(section_relpath, {})
+        if section != expected_section:
+            self.error(
+                "queue-section-projection",
+                "operations_v2/queue.json does not exactly match the validated queue inputs",
+                section_relpath,
+            )
+        chart = self.load_json(chart_relpath, {})
+        if chart != expected_chart:
+            self.error(
+                "queue-history-chart-projection",
+                "queue_history_chart.json does not exactly match the validated queue history",
+                chart_relpath,
+            )
+
+    def audit_queue_lifecycle(
+        self,
+        source_path: Path | None = None,
+        *,
+        require_current_scope: bool = False,
+    ) -> None:
+        path_obj = source_path or (self.root / "data/vllm/ci/queue_lifecycle.json")
+        path = self.rel(path_obj)
+        if not path_obj.is_file() or path_obj.is_symlink():
+            self.error(
+                "queue-lifecycle-missing",
+                "queue_lifecycle.json must be a regular file",
+                path,
+            )
+            return
+        try:
+            payload = json.loads(path_obj.read_text())
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            self.error(
+                "queue-lifecycle-json",
+                f"queue lifecycle data is unreadable: {exc}",
+                path,
+            )
+            return
         if not isinstance(payload, dict) or not payload:
+            self.error(
+                "queue-lifecycle-shape",
+                "queue_lifecycle.json must contain a non-empty object",
+                path,
+            )
             return
 
         expected_queues = [
@@ -6076,6 +6314,153 @@ class DashboardAudit:
                 str(coverage.get("reason") or coverage.get("status") or "collection incomplete"),
                 path,
             )
+
+        def nonnegative_int(value: object) -> bool:
+            return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+        timestamp_fields = coverage.get("timestamp_fields")
+        retained_events: dict[str, int] = {}
+        retained_durations: dict[str, int] = {}
+        legacy_timestamp_keys = {
+            "jobs",
+            "with_runnable_at",
+            "with_started_at",
+            "with_finished_at",
+            "events_in_retention",
+        }
+        legacy_timestamp_contract = (
+            payload.get("schema_version") == 1
+            and isinstance(timestamp_fields, dict)
+            and set(timestamp_fields) == legacy_timestamp_keys
+        )
+        if legacy_timestamp_contract:
+            self.warning(
+                "queue-lifecycle-legacy-timestamp-coverage",
+                (
+                    "schema v1 timestamp coverage describes only the current API query; "
+                    "retained-ledger duration coverage will be added by the next collection"
+                ),
+                path,
+            )
+            if require_current_scope:
+                self.error(
+                    "queue-lifecycle-current-scope-required",
+                    "producer validation requires explicit retained-ledger timestamp coverage",
+                    path,
+                )
+        if not isinstance(timestamp_fields, dict):
+            self.error(
+                "queue-lifecycle-timestamp-coverage",
+                "coverage.timestamp_fields must describe the retained job ledger",
+                path,
+            )
+        else:
+            expected_retained_keys = {
+                "scope",
+                "jobs",
+                "with_runnable_at",
+                "with_started_at",
+                "with_finished_at",
+                "events_in_retention",
+                "duration_samples_in_retention",
+            }
+            if (
+                set(timestamp_fields) != expected_retained_keys
+                and not legacy_timestamp_contract
+            ):
+                self.error(
+                    "queue-lifecycle-timestamp-coverage",
+                    "retained timestamp coverage has an invalid schema",
+                    path,
+                )
+            if (
+                not legacy_timestamp_contract
+                and timestamp_fields.get("scope") != "retained_job_ledger"
+            ):
+                self.error(
+                    "queue-lifecycle-timestamp-scope",
+                    "coverage.timestamp_fields.scope must be retained_job_ledger",
+                    path,
+                )
+            retained_jobs = timestamp_fields.get("jobs")
+            observation_count = coverage.get("job_observation_count")
+            if (
+                not nonnegative_int(retained_jobs)
+                or not nonnegative_int(observation_count)
+                or (
+                    not legacy_timestamp_contract
+                    and retained_jobs != observation_count
+                )
+            ):
+                self.error(
+                    "queue-lifecycle-timestamp-jobs",
+                    (
+                        "retained timestamp coverage jobs must equal "
+                        "coverage.job_observation_count"
+                    ),
+                    path,
+                )
+            for field in ("with_runnable_at", "with_started_at", "with_finished_at"):
+                value = timestamp_fields.get(field)
+                if not nonnegative_int(value) or (
+                    nonnegative_int(retained_jobs) and value > retained_jobs
+                ):
+                    self.error(
+                        "queue-lifecycle-timestamp-presence",
+                        f"coverage.timestamp_fields.{field} is outside the retained scope",
+                        path,
+                    )
+
+            events = timestamp_fields.get("events_in_retention")
+            if not isinstance(events, dict) or set(events) != {
+                "incoming",
+                "served",
+                "completed",
+            } or any(not nonnegative_int(value) for value in events.values()):
+                self.error(
+                    "queue-lifecycle-timestamp-events",
+                    "retained timestamp event counts are malformed",
+                    path,
+                )
+            else:
+                retained_events = events
+                if coverage.get("event_count") != sum(events.values()):
+                    self.error(
+                        "queue-lifecycle-timestamp-event-total",
+                        "retained timestamp event counts do not equal coverage.event_count",
+                        path,
+                    )
+                if nonnegative_int(retained_jobs) and any(
+                    value > retained_jobs for value in events.values()
+                ):
+                    self.error(
+                        "queue-lifecycle-timestamp-event-scope",
+                        "retained timestamp event counts exceed retained jobs",
+                        path,
+                    )
+
+            if not legacy_timestamp_contract:
+                durations = timestamp_fields.get("duration_samples_in_retention")
+                if not isinstance(durations, dict) or set(durations) != {
+                    "queue_wait",
+                    "runtime",
+                } or any(not nonnegative_int(value) for value in durations.values()):
+                    self.error(
+                        "queue-lifecycle-duration-samples",
+                        "retained duration sample counts are malformed",
+                        path,
+                    )
+                else:
+                    retained_durations = durations
+                    if retained_events and (
+                        durations["queue_wait"] > retained_events["served"]
+                        or durations["runtime"] > retained_events["completed"]
+                    ):
+                        self.error(
+                            "queue-lifecycle-duration-scope",
+                            "retained duration samples exceed their lifecycle event cohorts",
+                            path,
+                        )
 
         count_fields = (
             "incoming",
@@ -6270,6 +6655,8 @@ class DashboardAudit:
 
                     cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
                     total_wait_samples = 0
+                    published_wait_samples = 0
+                    compacted_dates: list[str] = []
                     for index, row in enumerate(day_rows):
                         if not isinstance(row, dict):
                             self.error(
@@ -6279,7 +6666,7 @@ class DashboardAudit:
                             )
                             cursor += timedelta(days=1)
                             continue
-                        expected_keys = {
+                        base_keys = {
                             "date",
                             "start",
                             "end_exclusive",
@@ -6287,6 +6674,18 @@ class DashboardAudit:
                             "sample_count",
                             "served_job_wait_seconds",
                         }
+                        compacted = row.get("vector_complete") is False
+                        expected_keys = (
+                            base_keys
+                            | {
+                                "vector_complete",
+                                "published_sample_count",
+                                "omitted_sample_count",
+                                "distribution",
+                            }
+                            if compacted
+                            else base_keys
+                        )
                         if set(row) != expected_keys:
                             self.error(
                                 "queue-lifecycle-daily-waits-row",
@@ -6334,12 +6733,59 @@ class DashboardAudit:
                                 path,
                             )
                         sample_count = row.get("sample_count")
-                        if (
-                            not isinstance(sample_count, int)
-                            or isinstance(sample_count, bool)
-                            or not isinstance(waits, list)
-                            or sample_count != len(waits)
-                        ):
+                        if not nonnegative_int(sample_count) or not isinstance(waits, list):
+                            self.error(
+                                "queue-lifecycle-daily-waits-count",
+                                f"daily_wait_times.days[{index}].sample_count is invalid",
+                                path,
+                            )
+                        elif compacted:
+                            published_count = row.get("published_sample_count")
+                            omitted_count = row.get("omitted_sample_count")
+                            distribution = row.get("distribution")
+                            distribution_values = [
+                                _mapping(distribution).get(field)
+                                for field in ("min", "p50", "p95", "avg", "max")
+                            ]
+                            distribution_valid = bool(
+                                isinstance(distribution, dict)
+                                and set(distribution)
+                                == {"count", "min", "p50", "p95", "max", "avg"}
+                                and distribution.get("count") == sample_count
+                                and sample_count > 0
+                                and all(
+                                    isinstance(value, (int, float))
+                                    and not isinstance(value, bool)
+                                    and math.isfinite(value)
+                                    and value >= 0
+                                    for value in distribution_values
+                                )
+                                and distribution["min"]
+                                <= distribution["p50"]
+                                <= distribution["p95"]
+                                <= distribution["max"]
+                                and distribution["min"]
+                                <= distribution["avg"]
+                                <= distribution["max"]
+                            )
+                            if (
+                                not nonnegative_int(published_count)
+                                or published_count != len(waits)
+                                or not nonnegative_int(omitted_count)
+                                or published_count + omitted_count != sample_count
+                                or omitted_count == 0
+                                or not valid_waits
+                                or not distribution_valid
+                            ):
+                                self.error(
+                                    "queue-lifecycle-daily-waits-compaction",
+                                    f"daily_wait_times.days[{index}] has invalid bounded-vector metadata",
+                                    path,
+                                )
+                            total_wait_samples += sample_count
+                            published_wait_samples += len(waits)
+                            compacted_dates.append(str(row.get("date") or ""))
+                        elif sample_count != len(waits):
                             self.error(
                                 "queue-lifecycle-daily-waits-count",
                                 f"daily_wait_times.days[{index}].sample_count does not match its vector",
@@ -6347,7 +6793,30 @@ class DashboardAudit:
                             )
                         elif valid_waits:
                             total_wait_samples += sample_count
+                            published_wait_samples += sample_count
                         cursor = calendar_end
+
+                    vector_coverage = daily_wait_times.get("vector_coverage")
+                    if compacted_dates:
+                        expected_vector_coverage = {
+                            "complete": False,
+                            "observed_sample_count": total_wait_samples,
+                            "published_sample_count": published_wait_samples,
+                            "compacted_dates": compacted_dates,
+                            "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
+                        }
+                        if vector_coverage != expected_vector_coverage:
+                            self.error(
+                                "queue-lifecycle-daily-waits-vector-coverage",
+                                "daily_wait_times.vector_coverage does not reconcile compacted days",
+                                path,
+                            )
+                    elif vector_coverage is not None:
+                        self.error(
+                            "queue-lifecycle-daily-waits-vector-coverage",
+                            "daily_wait_times.vector_coverage is present without compacted days",
+                            path,
+                        )
 
                     served_events = _mapping(
                         _mapping(coverage.get("timestamp_fields")).get("events_in_retention")
@@ -6360,6 +6829,20 @@ class DashboardAudit:
                         self.error(
                             "queue-lifecycle-daily-waits-total",
                             "daily wait samples exceed observed served events",
+                            path,
+                        )
+                    retained_wait_samples = retained_durations.get("queue_wait")
+                    if (
+                        nonnegative_int(retained_wait_samples)
+                        and total_wait_samples != retained_wait_samples
+                    ):
+                        self.error(
+                            "queue-lifecycle-daily-waits-coverage-reconciliation",
+                            (
+                                f"daily wait vectors contain {total_wait_samples} samples, "
+                                "but retained-ledger timestamp coverage reports "
+                                f"{retained_wait_samples}"
+                            ),
                             path,
                         )
                     hourly_wait_samples = (
@@ -6386,8 +6869,128 @@ class DashboardAudit:
                             ),
                             path,
                         )
-        if not isinstance(payload.get("provenance"), dict):
+        provenance = payload.get("provenance")
+        if not isinstance(provenance, dict):
             self.error("queue-lifecycle-provenance", "provenance must be an object", path)
+        else:
+            collection = provenance.get("collection")
+            if not isinstance(collection, dict):
+                self.error(
+                    "queue-lifecycle-query-coverage",
+                    "provenance.collection must describe the current API query",
+                    path,
+                )
+            else:
+                query_fields = collection.get("timestamp_coverage")
+                expected_query_keys = {
+                    "scope",
+                    "jobs",
+                    "with_runnable_at",
+                    "with_started_at",
+                    "with_finished_at",
+                    "events_in_retention",
+                    "duration_samples_in_retention",
+                }
+                if legacy_timestamp_contract:
+                    legacy_jobs = (
+                        query_fields.get("jobs")
+                        if isinstance(query_fields, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(query_fields, dict)
+                        or set(query_fields) != legacy_timestamp_keys
+                        or query_fields != timestamp_fields
+                        or not nonnegative_int(legacy_jobs)
+                        or not nonnegative_int(collection.get("unique_jobs"))
+                        or legacy_jobs != collection.get("unique_jobs")
+                    ):
+                        self.error(
+                            "queue-lifecycle-query-coverage",
+                            (
+                                "legacy current-query timestamp coverage must reconcile "
+                                "with coverage.timestamp_fields and collection.unique_jobs"
+                            ),
+                            path,
+                        )
+                elif (
+                    not isinstance(query_fields, dict)
+                    or set(query_fields) != expected_query_keys
+                ):
+                    self.error(
+                        "queue-lifecycle-query-coverage",
+                        "current-query timestamp coverage has an invalid schema",
+                        path,
+                    )
+                else:
+                    query_jobs = query_fields.get("jobs")
+                    unique_jobs = collection.get("unique_jobs")
+                    if (
+                        query_fields.get("scope")
+                        != "current_api_query_before_ledger_merge"
+                        or not nonnegative_int(query_jobs)
+                        or not nonnegative_int(unique_jobs)
+                        or query_jobs != unique_jobs
+                    ):
+                        self.error(
+                            "queue-lifecycle-query-scope",
+                            (
+                                "current-query timestamp coverage must use the query scope "
+                                "and reconcile with collection.unique_jobs"
+                            ),
+                            path,
+                        )
+                    if nonnegative_int(query_jobs):
+                        for field in (
+                            "with_runnable_at",
+                            "with_started_at",
+                            "with_finished_at",
+                        ):
+                            value = query_fields.get(field)
+                            if not nonnegative_int(value) or value > query_jobs:
+                                self.error(
+                                    "queue-lifecycle-query-presence",
+                                    f"current-query {field} is outside the query scope",
+                                    path,
+                                )
+                    query_events = query_fields.get("events_in_retention")
+                    query_durations = query_fields.get("duration_samples_in_retention")
+                    if (
+                        not isinstance(query_events, dict)
+                        or set(query_events) != {"incoming", "served", "completed"}
+                        or any(not nonnegative_int(value) for value in query_events.values())
+                        or (
+                            nonnegative_int(query_jobs)
+                            and any(value > query_jobs for value in query_events.values())
+                        )
+                    ):
+                        self.error(
+                            "queue-lifecycle-query-events",
+                            "current-query event coverage is malformed or outside its scope",
+                            path,
+                        )
+                    if (
+                        not isinstance(query_durations, dict)
+                        or set(query_durations) != {"queue_wait", "runtime"}
+                        or any(not nonnegative_int(value) for value in query_durations.values())
+                    ):
+                        self.error(
+                            "queue-lifecycle-query-durations",
+                            "current-query duration coverage is malformed",
+                            path,
+                        )
+                    elif isinstance(query_events, dict) and all(
+                        nonnegative_int(query_events.get(field))
+                        for field in ("served", "completed")
+                    ) and (
+                        query_durations["queue_wait"] > query_events["served"]
+                        or query_durations["runtime"] > query_events["completed"]
+                    ):
+                        self.error(
+                            "queue-lifecycle-query-duration-scope",
+                            "current-query duration samples exceed their event cohorts",
+                            path,
+                        )
 
         self.report.metrics["queue_lifecycle"] = {
             "generated_at": payload.get("generated_at"),
@@ -8231,15 +8834,34 @@ def format_text(report: AuditReport) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Audit generated dashboard data and contracts")
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.add_argument(
+    focused = parser.add_mutually_exclusive_group()
+    focused.add_argument(
         "--dns-only",
         action="store_true",
         help="Validate only the DNS health aggregate",
+    )
+    focused.add_argument(
+        "--queue-lifecycle-only",
+        action="store_true",
+        help="Validate only the retained queue lifecycle aggregate",
+    )
+    focused.add_argument(
+        "--queue-only",
+        action="store_true",
+        help="Validate only the live queue history and job evidence",
     )
     parser.add_argument(
         "--dns-path",
         type=Path,
         help="DNS aggregate path for --dns-only (defaults to the repository dataset)",
+    )
+    parser.add_argument(
+        "--queue-lifecycle-path",
+        type=Path,
+        help=(
+            "queue lifecycle aggregate path for --queue-lifecycle-only "
+            "(defaults to the repository dataset)"
+        ),
     )
     parser.add_argument(
         "--strict-warnings",
@@ -8250,9 +8872,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dns_path is not None and not args.dns_only:
         parser.error("--dns-path requires --dns-only")
+    if args.queue_lifecycle_path is not None and not args.queue_lifecycle_only:
+        parser.error("--queue-lifecycle-path requires --queue-lifecycle-only")
     if args.dns_only:
         audit = DashboardAudit(ROOT)
         audit.audit_dns_failures(args.dns_path)
+        report = audit.report
+    elif args.queue_lifecycle_only:
+        audit = DashboardAudit(ROOT)
+        audit.audit_queue_lifecycle(
+            args.queue_lifecycle_path,
+            require_current_scope=True,
+        )
+        report = audit.report
+    elif args.queue_only:
+        audit = DashboardAudit(ROOT)
+        audit.audit_queue_data(validate_derived=True)
         report = audit.report
     else:
         report = run_audit(ROOT)

@@ -253,7 +253,11 @@ retention window. Each entry contains the sorted vector of individual
 served-job wait durations in seconds, attributed to the date of the direct
 `started_at` timestamp; empty observed days remain present with an empty
 vector, and the first or last date is marked partial when its observed bounds
-do not cover a complete calendar day. The supported organization
+do not cover a complete calendar day. The public aggregate has a 5 MiB hard
+ceiling. If pathological job volume would exceed it, the oldest whole-day
+vectors are replaced deterministically by exact count/min/p50/p95/max/average
+blocks and explicit omitted-sample coverage; the manifest-bound sharded ledger
+continues to retain every underlying observation. The supported organization
 Builds REST endpoint does not filter job event timestamps directly. The
 collector unions builds finished inside the source window, builds created
 inside it, and active-state builds created inside the bounded parent-build

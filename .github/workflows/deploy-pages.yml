@@ -28,65 +28,179 @@ jobs:
         run: |
           # queue-data owns independent queue history; gh-pages remains the
           # source for other live datasets and a queue migration fallback.
-          git fetch origin \
-            +refs/heads/queue-data:refs/remotes/origin/queue-data \
-            --depth=1 || true
-          git fetch origin \
-            +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
-            --depth=1 || true
-          git fetch origin \
-            +refs/heads/dns-health-data:refs/remotes/origin/dns-health-data \
-            --depth=1 || true
-          git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 || true
+          # A branch that genuinely does not exist is a valid first bootstrap.
+          # Once it exists, transport/read failures are fatal: silently using a
+          # stale main copy would make a manual recovery deployment regress.
+          fetch_live_branch() {
+            BRANCH="$1"
+            set +e
+            git ls-remote --exit-code origin "refs/heads/$BRANCH" >/dev/null 2>&1
+            STATUS=$?
+            set -e
+            if [ "$STATUS" -eq 0 ]; then
+              if ! git fetch origin \
+                "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" \
+                --depth=1; then
+                echo "::error::Could not fetch established durable $BRANCH branch."
+                return 1
+              fi
+              return 0
+            fi
+            if [ "$STATUS" -eq 2 ]; then
+              return 2
+            fi
+            echo "::error::Could not determine durable $BRANCH branch state."
+            return "$STATUS"
+          }
 
-          if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
-            python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data
+          QUEUE_DATA_PRESENT=false
+          if fetch_live_branch queue-data; then
+            QUEUE_DATA_PRESENT=true
+          elif [ "$?" -ne 2 ]; then
+            exit 1
+          fi
+          LIFECYCLE_DATA_PRESENT=false
+          if fetch_live_branch queue-lifecycle-data; then
+            LIFECYCLE_DATA_PRESENT=true
+          elif [ "$?" -ne 2 ]; then
+            exit 1
+          fi
+          DNS_DATA_PRESENT=false
+          if fetch_live_branch dns-health-data; then
+            DNS_DATA_PRESENT=true
+          elif [ "$?" -ne 2 ]; then
+            exit 1
+          fi
+          PAGES_PRESENT=false
+          if fetch_live_branch gh-pages; then
+            PAGES_PRESENT=true
+          elif [ "$?" -ne 2 ]; then
+            exit 1
+          fi
+
+          if [ "$QUEUE_DATA_PRESENT" = true ]; then
+            python scripts/vllm/collect_queue_snapshot.py \
+              --merge-history-git-ref origin/queue-data \
+              --require-merge-history
             LIVE_QUEUE_JOBS="$RUNNER_TEMP/queue_jobs.json"
             git show origin/queue-data:data/vllm/ci/queue_jobs.json > "$LIVE_QUEUE_JOBS"
-            python -m json.tool "$LIVE_QUEUE_JOBS" >/dev/null
+            python - "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def load_snapshot(path: str, label: str) -> datetime:
+              with open(path, encoding="utf-8") as handle:
+                  payload = json.load(handle)
+              if not isinstance(payload, dict):
+                  raise SystemExit(f"{label} queue_jobs.json must be an object")
+              for key in ("pending", "running"):
+                  if not isinstance(payload.get(key), list):
+                      raise SystemExit(
+                          f"{label} queue_jobs.json field {key!r} must be a list"
+                      )
+              raw_timestamp = payload.get("ts")
+              if not isinstance(raw_timestamp, str) or not raw_timestamp.strip():
+                  raise SystemExit(f"{label} queue_jobs.json has no embedded timestamp")
+              try:
+                  parsed = datetime.fromisoformat(
+                      raw_timestamp.strip().replace("Z", "+00:00")
+                  )
+              except ValueError as exc:
+                  raise SystemExit(
+                      f"{label} queue_jobs.json has an invalid embedded timestamp"
+                  ) from exc
+              if parsed.tzinfo is None:
+                  raise SystemExit(
+                      f"{label} queue_jobs.json embedded timestamp must include a timezone"
+                  )
+              return parsed.astimezone(timezone.utc)
+
+
+          remote_timestamp = load_snapshot(sys.argv[1], "durable")
+          local_timestamp = load_snapshot(sys.argv[2], "local")
+          if remote_timestamp < local_timestamp:
+              raise SystemExit(
+                  "durable queue_jobs.json would regress the embedded timestamp: "
+                  f"{remote_timestamp.isoformat()} < {local_timestamp.isoformat()}"
+              )
+          print(
+              "Validated non-regressing durable queue_jobs.json: "
+              f"{remote_timestamp.isoformat()} >= {local_timestamp.isoformat()}"
+          )
+          PY
             install -m 0644 "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json
           fi
 
-          if git rev-parse --verify --quiet origin/queue-lifecycle-data >/dev/null; then
+          if [ "$LIFECYCLE_DATA_PRESENT" = true ]; then
             LIVE_QUEUE_LIFECYCLE="$RUNNER_TEMP/queue_lifecycle.json"
-            if git show origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json > "$LIVE_QUEUE_LIFECYCLE" 2>/dev/null \
-              && python -m json.tool "$LIVE_QUEUE_LIFECYCLE" >/dev/null; then
-              install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
-            else
-              echo "::warning::queue-lifecycle-data has no valid aggregate; keeping the main-branch copy."
-            fi
+            git show origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json \
+              > "$LIVE_QUEUE_LIFECYCLE"
+            python -m json.tool "$LIVE_QUEUE_LIFECYCLE" >/dev/null
+            python -S scripts/vllm/audit_dashboard_data.py \
+              --queue-lifecycle-only \
+              --queue-lifecycle-path "$LIVE_QUEUE_LIFECYCLE"
+            python - "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def generated_at(path: str) -> datetime:
+              with open(path, encoding="utf-8") as handle:
+                  raw = json.load(handle)["generated_at"]
+              parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              if parsed.tzinfo is None:
+                  raise SystemExit(f"lifecycle generated_at has no timezone: {path}")
+              return parsed.astimezone(timezone.utc)
+
+
+          remote = generated_at(sys.argv[1])
+          local = generated_at(sys.argv[2])
+          if remote < local:
+              raise SystemExit(
+                  "durable lifecycle aggregate would regress generated_at: "
+                  f"{remote.isoformat()} < {local.isoformat()}"
+              )
+          PY
+            install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
           fi
 
-          if git rev-parse --verify --quiet origin/dns-health-data >/dev/null; then
+          if [ "$DNS_DATA_PRESENT" = true ]; then
             LIVE_DNS_FAILURES="$RUNNER_TEMP/dns_failures.json"
-            if git show origin/dns-health-data:data/vllm/ci/dns_failures.json > "$LIVE_DNS_FAILURES" 2>/dev/null \
-              && python -m json.tool "$LIVE_DNS_FAILURES" >/dev/null \
-              && python scripts/vllm/audit_dashboard_data.py --dns-only --dns-path "$LIVE_DNS_FAILURES"; then
-              read -r REMOTE_DNS_STATUS REMOTE_DNS_GENERATED < <(
-                python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
-                  "$LIVE_DNS_FAILURES"
-              )
-              read -r LOCAL_DNS_STATUS LOCAL_DNS_GENERATED < <(
-                python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
-                  data/vllm/ci/dns_failures.json
-              )
-              if [[ "$REMOTE_DNS_STATUS" =~ ^(complete|partial)$ && ! "$REMOTE_DNS_GENERATED" < "$LOCAL_DNS_GENERATED" ]]; then
-                install -m 0644 "$LIVE_DNS_FAILURES" data/vllm/ci/dns_failures.json
-              else
-                echo "Keeping the newer or already-collected main-branch DNS aggregate."
-              fi
+            git show origin/dns-health-data:data/vllm/ci/dns_failures.json \
+              > "$LIVE_DNS_FAILURES"
+            python -m json.tool "$LIVE_DNS_FAILURES" >/dev/null
+            python scripts/vllm/audit_dashboard_data.py \
+              --dns-only --dns-path "$LIVE_DNS_FAILURES"
+            read -r REMOTE_DNS_STATUS REMOTE_DNS_GENERATED < <(
+              python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                "$LIVE_DNS_FAILURES"
+            )
+            read -r LOCAL_DNS_STATUS LOCAL_DNS_GENERATED < <(
+              python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                data/vllm/ci/dns_failures.json
+            )
+            if [[ ! "$REMOTE_DNS_STATUS" =~ ^(complete|partial)$ ]]; then
+              echo "::error::Established dns-health-data branch has no publishable aggregate."
+              exit 1
+            fi
+            if [[ ! "$REMOTE_DNS_GENERATED" < "$LOCAL_DNS_GENERATED" ]]; then
+              install -m 0644 "$LIVE_DNS_FAILURES" data/vllm/ci/dns_failures.json
             else
-              echo "::warning::dns-health-data has no valid aggregate; keeping the main-branch copy."
+              echo "Keeping newer main-branch DNS aggregate from $LOCAL_DNS_GENERATED."
             fi
           fi
 
           # A corrupt legacy Pages copy must not block the independent branch.
-          CORRUPT=$(git show origin/gh-pages:data/vllm/ci/ci_health.json 2>/dev/null | head -5 | grep -c "^>>>>>>>\|^<<<<<<<\|^=======" || true)
+          CORRUPT=0
+          if [ "$PAGES_PRESENT" = true ]; then
+            CORRUPT=$(git show origin/gh-pages:data/vllm/ci/ci_health.json 2>/dev/null | head -5 | grep -c "^>>>>>>>\|^<<<<<<<\|^=======" || true)
+          fi
           if [ "$CORRUPT" -gt 0 ]; then
             echo "WARNING: gh-pages data is corrupted; keeping queue-data plus main inputs."
-          else
+          elif [ "$PAGES_PRESENT" = true ]; then
             # Merge data/vllm/ci/queue_timeseries.jsonl by timestamp. The
             # collector rejects conflict markers and normalizes legacy rows.
             python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages

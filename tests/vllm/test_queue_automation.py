@@ -144,15 +144,14 @@ class TestCollectQueueSnapshotScript:
         content = script.read_text()
         assert "queue_timeseries.jsonl" in content, "Script must write to queue_timeseries.jsonl"
 
-    def test_script_appends_jsonl(self):
-        """Verify the script opens file in append mode, not write mode."""
+    def test_script_retains_history_through_bounded_append(self):
+        """Verify collection preserves history without an unbounded append."""
         script = ROOT / "scripts" / "vllm" / "collect_queue_snapshot.py"
         if not script.exists():
             pytest.skip("script not present")
         content = script.read_text()
-        assert '"a"' in content or "'a'" in content, (
-            "Script must open file in append mode to preserve history"
-        )
+        assert "append_history_snapshot(OUTPUT, snapshot)" in content
+        assert "QUEUE_HISTORY_MAX_BYTES" in content
 
     def test_script_syntax_valid(self):
         script = ROOT / "scripts" / "vllm" / "collect_queue_snapshot.py"
@@ -261,6 +260,20 @@ class TestQueueMonitorWorkflow:
         assert "data/vllm/ci/operations_v2_manifest.json" not in script
         assert "peaceiris/actions-gh-pages" not in script
 
+    def test_semantic_validation_runs_after_build_and_before_force_publish(self, workflow):
+        steps = workflow["jobs"]["snapshot"]["steps"]
+        names = [step.get("name") for step in steps]
+        assert names.index("Build live queue section") < names.index(
+            "Validate live queue evidence"
+        ) < names.index("Publish durable live queue evidence")
+        validate = next(
+            step for step in steps if step.get("name") == "Validate live queue evidence"
+        )
+        assert validate.get("run") == (
+            "python scripts/vllm/audit_dashboard_data.py --queue-only"
+        )
+        assert "env" not in validate
+
     def test_workflow_references_correct_script(self):
         path = WORKFLOWS / "queue-monitor.yml"
         if not path.exists():
@@ -292,6 +305,7 @@ class TestQueueMonitorWorkflow:
         content = path.read_text()
         assert "origin/queue-data" in content
         assert "--merge-history-git-ref origin/queue-data" in content
+        assert "--require-merge-history" in content
         assert "origin/gh-pages" in content  # first-run migration fallback
         assert "git ls-remote --exit-code origin refs/heads/queue-data" in content
         assert "+refs/heads/queue-data:refs/remotes/origin/queue-data" in content
@@ -305,11 +319,14 @@ class TestQueueMonitorWorkflow:
         content = path.read_text()
         assert "origin/queue-data" in content
         assert "--merge-history-git-ref origin/queue-data" in content
+        assert "--require-merge-history" in content
+        assert "git ls-remote --exit-code origin \"refs/heads/$BRANCH\"" in content
+        assert "Could not fetch established durable $BRANCH branch" in content
         assert "queue_lifecycle.json" in content
-        assert (
-            "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
-            in content
-        )
+        assert '"+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"' in content
+        assert "--queue-lifecycle-path \"$LIVE_QUEUE_LIFECYCLE\"" in content
+        assert "durable lifecycle aggregate would regress generated_at" in content
+        assert "Established dns-health-data branch has no publishable aggregate" in content
 
 
 class TestQueueLifecycleWorkflow:
@@ -348,6 +365,28 @@ class TestQueueLifecycleWorkflow:
         assert "collect_queue_lifecycle.py" in collect.get("run", "")
         assert "--full-backfill" not in collect.get("run", "")
 
+    def test_semantic_validation_runs_before_durable_publish(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        names = [step.get("name") for step in steps]
+        assert names.index("Collect canonical AMD queue lifecycle") < names.index(
+            "Validate retained lifecycle evidence"
+        ) < names.index("Publish durable lifecycle evidence")
+        validate = next(
+            step
+            for step in steps
+            if step.get("name") == "Validate retained lifecycle evidence"
+        )
+        run = validate.get("run", "")
+        assert "gzip -t" in run
+        assert "xargs -0 -r" in run
+        assert "--validate-ledger-only" in run
+        assert 'test -n "$(find' not in run
+        assert (
+            "python -S scripts/vllm/audit_dashboard_data.py --queue-lifecycle-only"
+            in run
+        )
+        assert "env" not in validate
+
     def test_publishes_only_aggregate_and_privacy_minimized_ledger(self, workflow):
         steps = workflow["jobs"]["lifecycle"]["steps"]
         publish = next(
@@ -356,6 +395,7 @@ class TestQueueLifecycleWorkflow:
         assert "HEAD:queue-lifecycle-data" in publish
         assert "data/vllm/ci/queue_lifecycle.json" in publish
         assert "data/vllm/ci/queue_lifecycle_jobs" in publish
+        assert "git -C \"$LIVE_ROOT\" add --all data/vllm/ci" in publish
         assert "find data/vllm/ci/queue_lifecycle_jobs" in publish
         assert "queue_lifecycle_events.jsonl" not in publish
         assert "queue_timeseries.jsonl" not in publish

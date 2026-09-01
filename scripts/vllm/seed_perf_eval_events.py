@@ -21,13 +21,12 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vllm.ci.perf_eval_webhook import METRIC_META  # noqa: E402
+from vllm.ci.perf_eval_webhook import METRIC_META, write_events_atomic  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 STORE = ROOT / "data" / "vllm" / "perf_eval" / "events.jsonl"
@@ -178,10 +177,7 @@ def build_events() -> list[dict]:
 
 def main() -> int:
     events = build_events()
-    STORE.parent.mkdir(parents=True, exist_ok=True)
-    with STORE.open("w", encoding="utf-8") as fh:
-        for ev in events:
-            fh.write(json.dumps(ev, sort_keys=True) + "\n")
+    write_events_atomic(STORE, events)
     print(f"Wrote {len(events)} seed events -> {STORE}")
     return 0
 

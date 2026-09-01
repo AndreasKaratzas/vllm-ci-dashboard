@@ -5421,8 +5421,9 @@ def test_retry_analysis_and_collector_retry_fields(monkeypatch):
 
 def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     payload = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)
+    history_generated_at = "2026-04-22T12:30:00Z"
     payload["queue"]["history"] = [{
-        "ts": GENERATED_AT,
+        "ts": history_generated_at,
         "schema_version": 2,
         "history_mode": "hourly_queue_wait_peaks",
         "queues": {
@@ -5543,6 +5544,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert queue["history_summary"] == payload["queue"]["history_summary"]
     assert queue["history_summary"]["source_path"] == "queue_timeseries.jsonl"
     chart = json.loads((output.parent / ops.QUEUE_HISTORY_CHART_NAME).read_text())
+    assert chart["generated_at"] == history_generated_at
     encoded_row = chart["points"][0][1][0]
     encoded_peak = encoded_row[13][1]
     assert encoded_peak[0] == 12.0

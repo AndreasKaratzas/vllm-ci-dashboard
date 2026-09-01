@@ -339,6 +339,7 @@ jobs:
           echo "Validated publication baseline: $BASELINE_REF"
 
       - name: Resolve immutable vLLM config snapshot
+        if: inputs.dns_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -376,26 +377,32 @@ jobs:
 
       # ── Phase 1: Consume the independently collected queue snapshot ──
       - name: Sync queue data from durable live branch
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           sync_queue_data() {
-            git fetch origin \
+            if ! git fetch origin \
               +refs/heads/queue-data:refs/remotes/origin/queue-data \
-              --depth=1 || true
-            git fetch origin \
-              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-              --depth=1 || true
-            if git rev-parse --verify --quiet origin/queue-data >/dev/null; then
-              python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/queue-data \
-                || return $?
-              LIVE_QUEUE_JOBS="$RUNNER_TEMP/queue_jobs.json"
-              if ! git show origin/queue-data:data/vllm/ci/queue_jobs.json \
-                > "$LIVE_QUEUE_JOBS"; then
-                echo "::error::Durable queue-data branch has no queue_jobs.json snapshot."
-                return 1
-              fi
-              python - "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json <<'PY' \
-                || return $?
+              --depth=1; then
+              echo "::error::Could not fetch the mandatory durable queue-data branch."
+              return 1
+            fi
+            if ! git rev-parse --verify --quiet origin/queue-data >/dev/null; then
+              echo "::error::The mandatory durable queue-data ref did not resolve."
+              return 1
+            fi
+            python scripts/vllm/collect_queue_snapshot.py \
+              --merge-history-git-ref origin/queue-data \
+              --require-merge-history \
+              || return $?
+            LIVE_QUEUE_JOBS="$RUNNER_TEMP/queue_jobs.json"
+            if ! git show origin/queue-data:data/vllm/ci/queue_jobs.json \
+              > "$LIVE_QUEUE_JOBS"; then
+              echo "::error::Durable queue-data branch has no queue_jobs.json snapshot."
+              return 1
+            fi
+            python - "$LIVE_QUEUE_JOBS" data/vllm/ci/queue_jobs.json <<'PY' \
+              || return $?
           import json
           import sys
           from datetime import datetime, timezone
@@ -441,30 +448,85 @@ jobs:
               f"{remote_timestamp.isoformat()} >= {local_timestamp.isoformat()}"
           )
           PY
-              install -m 0644 "$LIVE_QUEUE_JOBS" \
-                data/vllm/ci/queue_jobs.json || return $?
-              rm -f "$LIVE_QUEUE_JOBS" || return $?
-            fi
-            if git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
+            install -m 0644 "$LIVE_QUEUE_JOBS" \
+              data/vllm/ci/queue_jobs.json || return $?
+            rm -f "$LIVE_QUEUE_JOBS" || return $?
+            if git fetch origin \
+              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+              --depth=1; then
+              if ! git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
+                echo "::error::Fetched gh-pages but its remote-tracking ref did not resolve."
+                return 1
+              fi
               python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages \
                 || return $?
+            else
+              echo "::warning::gh-pages queue history is unavailable; durable queue-data remains authoritative."
             fi
           }
           run_surface_collector queue "durable queue data seed" sync_queue_data
 
       - name: Sync validated queue lifecycle aggregate
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           # Lifecycle collection owns an independent branch. A missing or
           # temporarily unavailable branch must not block unrelated queue/CI
           # publication; retain the last validated aggregate already on main.
-          LIVE_QUEUE_LIFECYCLE="$RUNNER_TEMP/queue_lifecycle.json"
-          if git fetch origin \
-            +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
-            --depth=1 \
-            && git show origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json > "$LIVE_QUEUE_LIFECYCLE" \
-            && python -m json.tool "$LIVE_QUEUE_LIFECYCLE" >/dev/null; then
-            install -m 0644 "$LIVE_QUEUE_LIFECYCLE" data/vllm/ci/queue_lifecycle.json
+          sync_queue_lifecycle() {
+            LIVE_QUEUE_LIFECYCLE="$RUNNER_TEMP/queue_lifecycle.json"
+            git fetch origin \
+              +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
+              --depth=1 || return $?
+            git show \
+              origin/queue-lifecycle-data:data/vllm/ci/queue_lifecycle.json \
+              > "$LIVE_QUEUE_LIFECYCLE" || return $?
+            python -m json.tool "$LIVE_QUEUE_LIFECYCLE" >/dev/null || return $?
+            python -S scripts/vllm/audit_dashboard_data.py \
+              --queue-lifecycle-only \
+              --queue-lifecycle-path "$LIVE_QUEUE_LIFECYCLE" || return $?
+            python - "$LIVE_QUEUE_LIFECYCLE" \
+              data/vllm/ci/queue_lifecycle.json <<'PY' || return $?
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def generation(path: str, label: str) -> datetime:
+              with open(path, encoding="utf-8") as handle:
+                  payload = json.load(handle)
+              raw = payload.get("generated_at") if isinstance(payload, dict) else None
+              if not isinstance(raw, str) or not raw.strip():
+                  raise SystemExit(f"{label} lifecycle aggregate has no generated_at")
+              try:
+                  parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+              except ValueError as exc:
+                  raise SystemExit(
+                      f"{label} lifecycle aggregate has invalid generated_at"
+                  ) from exc
+              if parsed.tzinfo is None:
+                  raise SystemExit(
+                      f"{label} lifecycle aggregate generated_at has no timezone"
+                  )
+              return parsed.astimezone(timezone.utc)
+
+
+          remote = generation(sys.argv[1], "durable")
+          local = generation(sys.argv[2], "local")
+          if remote < local:
+              raise SystemExit(
+                  "durable lifecycle aggregate would regress generated_at: "
+                  f"{remote.isoformat()} < {local.isoformat()}"
+              )
+          print(
+              "Validated non-regressing durable lifecycle aggregate: "
+              f"{remote.isoformat()} >= {local.isoformat()}"
+          )
+          PY
+            install -m 0644 "$LIVE_QUEUE_LIFECYCLE" \
+              data/vllm/ci/queue_lifecycle.json || return $?
+          }
+          if sync_queue_lifecycle; then
             echo "Synced the independently collected lifecycle aggregate."
           else
             record_surface_failure queue_lifecycle "queue lifecycle aggregate" 1
@@ -507,7 +569,51 @@ jobs:
             echo "::warning::DNS health live aggregate is unavailable; retaining the existing safe candidate."
           fi
 
+      - name: Validate targeted DNS candidate generation
+        if: inputs.dns_generation != ''
+        env:
+          TARGET_DNS_GENERATION: ${{ inputs.dns_generation }}
+        run: |
+          set -euo pipefail
+          python -S scripts/vllm/audit_dashboard_data.py \
+            --dns-only --dns-path data/vllm/ci/dns_failures.json
+          python - "$TARGET_DNS_GENERATION" \
+            data/vllm/ci/dns_failures.json <<'PY'
+          import json
+          import sys
+          from datetime import datetime, timezone
+
+
+          def timestamp(raw: str, label: str) -> datetime:
+              try:
+                  parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+              except (AttributeError, ValueError) as exc:
+                  raise SystemExit(f"{label} is not a valid timestamp") from exc
+              if parsed.tzinfo is None:
+                  raise SystemExit(f"{label} must include a timezone")
+              return parsed.astimezone(timezone.utc)
+
+
+          target = timestamp(sys.argv[1], "requested DNS generation")
+          with open(sys.argv[2], encoding="utf-8") as handle:
+              payload = json.load(handle)
+          candidate = timestamp(
+              payload.get("generated_at") if isinstance(payload, dict) else None,
+              "candidate DNS generation",
+          )
+          if candidate < target:
+              raise SystemExit(
+                  "candidate DNS generation does not acknowledge the request: "
+                  f"{candidate.isoformat()} < {target.isoformat()}"
+              )
+          print(
+              "Validated targeted DNS candidate generation: "
+              f"{candidate.isoformat()} >= {target.isoformat()}"
+          )
+          PY
+
       - name: Sync issue automation state from gh-pages
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           sync_queue_issue_state() {
@@ -526,12 +632,14 @@ jobs:
           run_surface_collector queue "queue issue-state seed" sync_queue_issue_state
 
       - name: Normalize and prune queue history
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue "queue history normalization" \
             python scripts/vllm/collect_queue_snapshot.py --prune-only
 
       - name: Collect queue capacity monitor
+        if: inputs.dns_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -544,6 +652,7 @@ jobs:
 
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
       - name: Sync CI data from gh-pages
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           sync_ci_files() {
@@ -608,12 +717,14 @@ jobs:
       # Otherwise the live copy above can overwrite its fresh generated_at
       # timestamp with an older artifact.
       - name: Collect AMD gating target list
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector ci_gating "AMD gating target list" \
             python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 
       - name: Collect AMD hotness (3d window)
+        if: inputs.dns_generation == ''
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -622,6 +733,7 @@ jobs:
             python scripts/vllm/collect_hotness.py
 
       - name: Collect vLLM/Omni AMD workload mappings
+        if: inputs.dns_generation == ''
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -631,6 +743,7 @@ jobs:
             --output data/vllm/ci/workload_mapping.json
 
       - name: Refresh Omni surge heuristic
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue "Omni surge heuristic" \
@@ -638,6 +751,7 @@ jobs:
 
       - name: Prepare private CI roster cache key
         id: ci-roster-cache-key
+        if: inputs.dns_generation == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -651,6 +765,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore private CI roster cache
+        if: inputs.dns_generation == ''
         continue-on-error: true
         uses: actions/cache/restore@v4
         with:
@@ -665,6 +780,7 @@ jobs:
       # can avoid downloading the same logs on a different runner.
       - name: Prepare private DNS classification cache key
         id: dns-classification-cache-key
+        if: inputs.dns_generation == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -678,6 +794,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore private DNS classification cache
+        if: inputs.dns_generation == ''
         continue-on-error: true
         uses: actions/cache/restore@v4
         with:
@@ -689,6 +806,7 @@ jobs:
 
       - name: Collect CI data
         id: collect-ci
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS="${{ github.event.inputs.ci_days || '8' }}"
@@ -709,6 +827,7 @@ jobs:
 
       - name: Save private CI roster cache
         if: >-
+          inputs.dns_generation == '' &&
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.roster_cache_save == 'true'
         continue-on-error: true
@@ -719,6 +838,7 @@ jobs:
 
       - name: Save private DNS classification cache
         if: >-
+          inputs.dns_generation == '' &&
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.dns_cache_save == 'true'
         continue-on-error: true
@@ -733,6 +853,7 @@ jobs:
       # saves a unique immutable key; the next run restores the newest prefix.
       - name: Prepare private analytics cache key
         id: analytics-cache-key
+        if: inputs.dns_generation == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -747,6 +868,7 @@ jobs:
 
       - name: Restore private analytics build cache
         id: analytics-cache-restore
+        if: inputs.dns_generation == ''
         continue-on-error: true
         uses: actions/cache/restore@v4
         with:
@@ -758,6 +880,7 @@ jobs:
 
       - name: Collect CI analytics
         id: collect-analytics
+        if: inputs.dns_generation == ''
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -790,6 +913,7 @@ jobs:
 
       - name: Save private analytics build cache
         if: >-
+          inputs.dns_generation == '' &&
           steps.collect-analytics.outputs.cache_save == 'true' &&
           steps.collect-analytics.outputs.analytics_cache_save == 'true'
         continue-on-error: true
@@ -799,6 +923,7 @@ jobs:
           key: ${{ steps.analytics-cache-key.outputs.key }}
 
       - name: Prune superseded private Actions caches
+        if: inputs.dns_generation == ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -847,6 +972,7 @@ jobs:
           done < "$LEGACY_CACHE_IDS"
 
       - name: Collect AMD agent health (all builds, all branches)
+        if: inputs.dns_generation == ''
         # Walks every build on AMD GPU hardware (not just main nightlies) and
         # merges the last few days into the 60-day node_days / infra_failures
         # store, then reassembles agent_health.json.
@@ -859,6 +985,7 @@ jobs:
             --days 3 --pipeline both --output data/vllm/ci/
 
       - name: Collect test group changes
+        if: inputs.dns_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -867,6 +994,7 @@ jobs:
             python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD test matrix
+        if: inputs.dns_generation == ''
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -877,6 +1005,7 @@ jobs:
             --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
 
       - name: Collect build-pinned CI ownership parity
+        if: inputs.dns_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -886,6 +1015,7 @@ jobs:
             --input-dir data/vllm/ci --output data/vllm/ci
 
       - name: Collect AMD gating proposals
+        if: inputs.dns_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -894,6 +1024,7 @@ jobs:
             python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 
       - name: Collect AMD gating target candidate audit
+        if: inputs.dns_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector ci_gating "AMD gating target candidate audit" \
@@ -901,31 +1032,34 @@ jobs:
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
       # Perf-eval nightlies run once a day, so this data does NOT need the
-      # hourly cadence. Every run mirrors the live event log + aggregated JSON
-      # from gh-pages so the full-site deploy always re-publishes the current
-      # versions unchanged, but the (re)generation itself is gated to a few
-      # times a day (every 8h) or on demand when a perf-eval build finishes.
-      # Normal runs mirror the live event log from gh-pages so nothing is
-      # clobbered. Skipped on a one-time reset so the old (seed) log is NOT
-      # pulled back in — the backfill step below rebuilds it from scratch.
+      # hourly cadence. Every run merges the live event store from gh-pages
+      # with main, then rebuilds the derived JSON locally so compacted history
+      # cannot lose to a line-count comparison or regress generated_at. The
+      # artifact regeneration itself is gated to a few times a day (every 8h)
+      # or on demand when a perf-eval build finishes. Skipped on a one-time
+      # reset so the old (seed) log is NOT pulled back in — the backfill step
+      # below rebuilds it from scratch.
       - name: Sync perf-eval data from gh-pages
-        if: github.event.inputs.reset_perf_eval != 'true'
+        if: >-
+          inputs.dns_generation == '' &&
+          github.event.inputs.reset_perf_eval != 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           sync_perf_eval_seed() {
             mkdir -p data/vllm/perf_eval || return $?
-            LIVE=$(git show origin/gh-pages:data/vllm/perf_eval/events.jsonl 2>/dev/null || true)
-            if [ -n "$LIVE" ]; then
-              LIVE_LINES=$(printf '%s\n' "$LIVE" | wc -l)
-              LOCAL_LINES=$(wc -l < data/vllm/perf_eval/events.jsonl 2>/dev/null || echo 0)
-              if [ "$LIVE_LINES" -ge "$LOCAL_LINES" ]; then
-                printf '%s\n' "$LIVE" > data/vllm/perf_eval/events.jsonl || return $?
-              fi
-            fi
-            LIVE_JSON=$(git show origin/gh-pages:data/vllm/perf_eval/perf_eval.json 2>/dev/null || true)
-            if [ -n "$LIVE_JSON" ]; then
-              printf '%s\n' "$LIVE_JSON" > data/vllm/perf_eval/perf_eval.json || return $?
-            fi
+            REMOTE_EVENTS="$RUNNER_TEMP/perf-eval-gh-pages-events.jsonl"
+            git fetch origin \
+              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+              --depth=1 || return $?
+            git rev-parse --verify --quiet origin/gh-pages >/dev/null || return $?
+            git show origin/gh-pages:data/vllm/perf_eval/events.jsonl \
+              > "$REMOTE_EVENTS" || return $?
+            python scripts/vllm/merge_perf_eval_events.py \
+              --local data/vllm/perf_eval/events.jsonl \
+              --remote "$REMOTE_EVENTS" || return $?
+            python scripts/vllm/collect_perf_eval.py \
+              --store data/vllm/perf_eval/events.jsonl \
+              --output data/vllm/perf_eval/perf_eval.json || return $?
           }
           run_surface_collector perf_eval "perf-eval seed" sync_perf_eval_seed
 
@@ -933,7 +1067,9 @@ jobs:
       # replaces any seed/synthetic data with real Buildkite results. The
       # subsequent commit + full-site deploy overwrites the gh-pages copy.
       - name: Reset perf-eval event log (one-time backfill)
-        if: github.event.inputs.reset_perf_eval == 'true'
+        if: >-
+          inputs.dns_generation == '' &&
+          github.event.inputs.reset_perf_eval == 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           reset_perf_eval_seed() {
@@ -948,6 +1084,7 @@ jobs:
       # a scheduled run only regenerates in the 00/08/16 UTC hour windows.
       - name: Decide whether to regenerate perf-eval
         id: perf_decide
+        if: inputs.dns_generation == ''
         env:
           DNS_RECONCILE_GENERATION: ${{ inputs.dns_generation }}
           WATCHDOG_GENERATION: ${{ inputs.watchdog_generation }}
@@ -974,7 +1111,9 @@ jobs:
       # the public workload recipes for per-GPU throughput derivation. A reset
       # uses a wider window to backfill several past nightlies at once.
       - name: Ingest perf-eval artifacts from Buildkite
-        if: steps.perf_decide.outputs.run_perf == 'true'
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.perf_decide.outputs.run_perf == 'true'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -986,7 +1125,9 @@ jobs:
             python scripts/vllm/collect_perf_eval_artifacts.py --days "$DAYS"
 
       - name: Collect perf-eval (AMD nightly perf + accuracy)
-        if: steps.perf_decide.outputs.run_perf == 'true'
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.perf_decide.outputs.run_perf == 'true'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector perf_eval "perf-eval aggregation" \
@@ -995,6 +1136,7 @@ jobs:
       # ── Phase 3: GitHub data (PRs, issues, activity, ~1min) ──
       - name: Check GitHub data freshness
         id: freshness
+        if: inputs.dns_generation == ''
         run: |
           python3 - <<'PY'
           import datetime
@@ -1042,7 +1184,9 @@ jobs:
           PY
 
       - name: Collect GitHub data
-        if: steps.freshness.outputs.stale == 'true'
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.freshness.outputs.stale == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROJECTS_READ_TOKEN: ${{ secrets.PROJECTS_READ_TOKEN }}
@@ -1067,6 +1211,10 @@ jobs:
             SELECTOR_ARGS+=(--force-degraded-surfaces "$FORCED_SURFACES")
             echo "Collector fallback requested for: $FORCED_SURFACES"
           fi
+          if [ -n "${{ inputs.dns_generation }}" ]; then
+            SELECTOR_ARGS+=(--refresh-only-surface dns_health)
+            echo "Refreshing only DNS health; preserving all other publication state."
+          fi
           python scripts/vllm/select_publication_surfaces.py \
             --baseline-ref "$PUBLICATION_BASELINE_REF" \
             --collector-failures-file "$PUBLICATION_COLLECTOR_FAILURES_FILE" \
@@ -1076,7 +1224,9 @@ jobs:
       # authoritative surface is current. They never mutate issues from a
       # rejected candidate or a restored last-known-good transaction.
       - name: Ensure CI Operations issue labels
-        if: steps.publication-selector.outcome == 'success'
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.publication-selector.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -1084,6 +1234,7 @@ jobs:
 
       - name: Watch queue latency (open/close issues)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
         env:
@@ -1094,6 +1245,7 @@ jobs:
 
       - name: Watch zombie queue jobs (open/close issues)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
         env:
@@ -1104,6 +1256,7 @@ jobs:
 
       - name: Watch Omni workload surge (open/close issues)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
         env:
@@ -1114,6 +1267,7 @@ jobs:
 
       - name: Watch AMD main test-group failures (open/close issue)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
@@ -1124,6 +1278,7 @@ jobs:
 
       - name: Watch upstream CI main test-group failures (open/close issue)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
@@ -1134,6 +1289,7 @@ jobs:
 
       - name: Watch AMD main duration regressions (open/close issue)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
@@ -1144,6 +1300,7 @@ jobs:
 
       - name: Watch AMD CI agent health (open/close issue)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',agent_health,')
         env:
@@ -1153,7 +1310,9 @@ jobs:
         run: python scripts/vllm/agent_health_issue_watcher.py
 
       - name: Stage managed alert issue state
-        if: steps.publication-selector.outcome == 'success'
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.publication-selector.outcome == 'success'
         run: |
           git add \
             data/vllm/ci/open_amd_main_failure_issues.json \
@@ -1163,6 +1322,7 @@ jobs:
 
       - name: Watch AMD CI test-area regressions (ranked owners)
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
@@ -1173,6 +1333,7 @@ jobs:
 
       - name: Sync managed issues to AMD CI Operations project
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         continue-on-error: true
@@ -1186,6 +1347,7 @@ jobs:
 
       - name: Stage CI ownership issue state
         if: >-
+          inputs.dns_generation == '' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         run: |
@@ -1315,7 +1477,9 @@ jobs:
 
       # ── Phase 4: Deterministic tests ──
       - name: Run test suite
-        if: github.event.inputs.skip_tests != 'true'
+        if: >-
+          inputs.dns_generation == '' &&
+          github.event.inputs.skip_tests != 'true'
         id: run-tests
         env:
           CI: "1"
@@ -1349,6 +1513,7 @@ jobs:
             steps.live-data-audit.outcome != 'success' ||
             steps.live-data-audit.outputs.exit_code != '0' ||
             (
+              inputs.dns_generation == '' &&
               github.event.inputs.skip_tests != 'true' &&
               steps.run-tests.outputs.exit_code != '0'
             )
@@ -1360,7 +1525,8 @@ jobs:
             echo "::error::Live publication audit failed; refusing to publish an invalid data snapshot."
             FAILED=1
           fi
-          if [ "${{ github.event.inputs.skip_tests }}" != "true" ] && \
+          if [ -z "${{ inputs.dns_generation }}" ] && \
+             [ "${{ github.event.inputs.skip_tests }}" != "true" ] && \
              [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
             echo "::error::Deterministic dashboard tests failed; refusing to publish an unvalidated site."
             FAILED=1
@@ -1377,16 +1543,36 @@ jobs:
               exit 1
             fi
           }
+          assert_no_unstaged_generated_output() {
+            # Pytest must read exactly the tracked tree that will be amended
+            # and pushed, not a worktree with an unstaged code or data delta.
+            if ! git diff --quiet; then
+              echo "::error::The publication worktree differs from its staged candidate."
+              git diff --name-only
+              exit 1
+            fi
+            UNSTAGED_GENERATED=$(git ls-files --others --exclude-standard -- \
+              data/ dashboards/ README.md)
+            if [ -n "$UNSTAGED_GENERATED" ]; then
+              echo "::error::A generated untracked output remains unstaged after the final rebuild."
+              printf '%s\n' "$UNSTAGED_GENERATED"
+              exit 1
+            fi
+          }
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           # .gitignore protects newly created caches, but it does not protect a
           # path that was accidentally tracked in an earlier revision.
           assert_no_tracked_private_cache
-          # Always update liveness timestamp so commits prove the cron is running
-          date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
+          # A targeted producer reconciliation is not an hourly collector run.
+          # Preserve the canonical collector-liveness clock in that path.
+          if [ -z "${{ inputs.dns_generation }}" ]; then
+            date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
+          fi
           git add data/ dashboards/ README.md
           python scripts/vllm/check_git_blob_sizes.py
           git commit -m "auto: update data $(date -u +%Y-%m-%dT%H:%M)"
+          INITIAL_PUBLICATION_TREE=$(git rev-parse --verify 'HEAD^{tree}')
           PUSHED=0
           for attempt in 1 2 3; do
             if ! git pull --rebase origin main; then
@@ -1403,14 +1589,25 @@ jobs:
               --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
             python scripts/render.py
             python scripts/vllm/audit_dashboard_data.py
-            git add \
-              data/vllm/ci/org_summary.json \
-              data/vllm/ci/operations_v2_manifest.json \
-              data/vllm/ci/queue_history_chart.json \
-              data/site/projects.json \
-              dashboards/ \
-              README.md
+            # Stage the complete tracked output domain again. This includes any
+            # output newly introduced by code that arrived in the rebase; the
+            # intentionally ignored private monolith and ephemeral lazy bundle
+            # remain runner/site-assembly artifacts.
+            git add -- data/ dashboards/ README.md
             python scripts/vllm/check_git_blob_sizes.py
+            assert_no_unstaged_generated_output
+            RETEST_REQUIRED=$(python \
+              scripts/vllm/publication_retest_required.py \
+              --baseline-parent "$PUBLICATION_BASELINE_REF" \
+              --tested-tree "$INITIAL_PUBLICATION_TREE")
+            if [ "$RETEST_REQUIRED" = "true" ]; then
+              echo "The publication parent or staged tree changed after initial validation; rerunning exact-tree contracts."
+              CI=1 MAX_DATA_AGE_HOURS=36 \
+                pytest tests/ -m 'not live_data' -v --tb=short
+              CI=1 MAX_DATA_AGE_HOURS=36 \
+                pytest tests/ -m 'live_data' -v --tb=short
+              assert_no_unstaged_generated_output
+            fi
             if ! git diff --cached --quiet; then
               git commit --amend --no-edit
             fi
@@ -1433,6 +1630,32 @@ jobs:
             echo "::error::Failed to publish collected dashboard data to main after 3 attempts"
             exit 1
           fi
+          PUBLISHED_SHA=$(git rev-parse --verify 'HEAD^{commit}')
+          if ! [[ "$PUBLISHED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Published main snapshot did not resolve to one full commit SHA"
+            exit 1
+          fi
+          LOCAL_TEST_GAP_SAFE=true
+          if ! git merge-base --is-ancestor \
+            "$PUBLICATION_BASELINE_REF" "$PUBLISHED_SHA"; then
+            LOCAL_TEST_GAP_SAFE=false
+          else
+            while IFS= read -r candidate_sha; do
+              subject=$(git show -s --format=%s "$candidate_sha")
+              author=$(git show -s --format=%an "$candidate_sha")
+              committer=$(git show -s --format=%cn "$candidate_sha")
+              if [[ ! "$subject" =~ ^auto:\ update\ data($|[[:space:]]) ]] || \
+                 [ "$author" != "github-actions[bot]" ] || \
+                 [ "$committer" != "github-actions[bot]" ]; then
+                LOCAL_TEST_GAP_SAFE=false
+                break
+              fi
+            done < <(git rev-list --reverse \
+              "$PUBLICATION_BASELINE_REF..$PUBLISHED_SHA")
+          fi
+          echo "published_sha=$PUBLISHED_SHA" >> "$GITHUB_OUTPUT"
+          echo "local_test_gap_safe=$LOCAL_TEST_GAP_SAFE" >> "$GITHUB_OUTPUT"
+          echo "Published snapshot: $PUBLISHED_SHA (local test gap safe: $LOCAL_TEST_GAP_SAFE)"
 
       - name: Assemble site
         id: site-assembly
@@ -1580,9 +1803,142 @@ jobs:
             --fail-if-required
           echo "Confirmed canonical DNS generation $TARGET_DNS_GENERATION."
 
+      - name: Establish publication recovery validation
+        id: publication-recovery-validation
+        if: >-
+          inputs.dns_generation == '' &&
+          success() &&
+          steps.publication-selector.outcome == 'success' &&
+          steps.publication-selector.outputs.degraded == 'false' &&
+          steps.live-data-audit.outcome == 'success' &&
+          steps.live-data-audit.outputs.exit_code == '0' &&
+          steps.pages-deploy.outcome == 'success' &&
+          steps.post-deploy-validation.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          HOURLY_PUBLICATION_SHA: ${{ steps.publication-commit.outputs.published_sha }}
+          HOURLY_LOCAL_TEST_GAP_SAFE: ${{ steps.publication-commit.outputs.local_test_gap_safe }}
+          HOURLY_TEST_OUTCOME: ${{ steps.run-tests.outcome }}
+          HOURLY_TEST_EXIT_CODE: ${{ steps.run-tests.outputs.exit_code }}
+          HOURLY_TESTS_SKIPPED: ${{ github.event.inputs.skip_tests }}
+        with:
+          script: |
+            const publicationSha = process.env.HOURLY_PUBLICATION_SHA || '';
+            const localTestGapSafe =
+              (process.env.HOURLY_LOCAL_TEST_GAP_SAFE || '') === 'true';
+            const testOutcome = process.env.HOURLY_TEST_OUTCOME || '';
+            const testExitCode = process.env.HOURLY_TEST_EXIT_CODE || '';
+            const testsIntentionallySkipped =
+              (process.env.HOURLY_TESTS_SKIPPED || '') === 'true';
+            const setValidation = (eligible, source, codeSha = '', runUrl = '') => {
+              core.setOutput('eligible', eligible ? 'true' : 'false');
+              core.setOutput('source', source);
+              core.setOutput('code_sha', codeSha);
+              core.setOutput('run_url', runUrl);
+            };
+
+            const localTestsPassed =
+              testOutcome === 'success' && testExitCode === '0';
+            if (localTestsPassed && localTestGapSafe) {
+              setValidation(true, 'hourly-tests', publicationSha, '');
+              console.log(
+                `Recovery is eligible: this publication tested ${publicationSha}.`,
+              );
+              return;
+            }
+            const needsSeparateCi = (
+              testsIntentionallySkipped && testOutcome === 'skipped'
+            ) || (localTestsPassed && !localTestGapSafe);
+            if (!needsSeparateCi) {
+              setValidation(false, 'tests-not-successful');
+              console.log(
+                'Recovery is ineligible because deterministic tests neither passed ' +
+                'nor were intentionally skipped for an expedited publication.',
+              );
+              return;
+            }
+            if (!/^[0-9a-f]{40}$/.test(publicationSha)) {
+              setValidation(false, 'invalid-publication-sha');
+              core.warning('Cannot validate recovery: published SHA is invalid.');
+              return;
+            }
+
+            // GITHUB_TOKEN-authored data commits do not start CI. For an expedited
+            // publication (or a push rebased beyond the locally tested baseline),
+            // accept a separately green code SHA only if it is an ancestor of the
+            // published snapshot and every intervening commit is one of this
+            // workflow's bot-authored data-only publication commits.
+            const response = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'ci.yml',
+              branch: 'main',
+              event: 'push',
+              status: 'completed',
+              per_page: 100,
+            });
+            const successfulRuns = (response.data.workflow_runs || [])
+              .filter(run => run.conclusion === 'success')
+              .sort((left, right) =>
+                Date.parse(right.created_at || 0) - Date.parse(left.created_at || 0)
+              )
+              .slice(0, 10);
+            for (const run of successfulRuns) {
+              const codeSha = String(run.head_sha || '');
+              if (!/^[0-9a-f]{40}$/.test(codeSha)) continue;
+              let comparison;
+              try {
+                comparison = await github.rest.repos.compareCommitsWithBasehead({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  basehead: `${codeSha}...${publicationSha}`,
+                  per_page: 100,
+                });
+              } catch (error) {
+                core.warning(
+                  `Could not compare green CI SHA ${codeSha} with ${publicationSha}: ` +
+                  String(error.message || error),
+                );
+                continue;
+              }
+              const commits = comparison.data.commits || [];
+              const comparisonIsComplete =
+                Number(comparison.data.ahead_by || 0) === commits.length;
+              const isAncestor = comparison.data.behind_by === 0 &&
+                ['ahead', 'identical'].includes(comparison.data.status);
+              const botIdentity = value =>
+                String(value || '').toLowerCase() === 'github-actions[bot]';
+              const isGeneratedPublicationCommit = commit => {
+                const subject = String(commit.commit?.message || '').split('\n')[0];
+                const authorIsBot = botIdentity(commit.author?.login) ||
+                  botIdentity(commit.commit?.author?.name);
+                const committerIsBot = botIdentity(commit.committer?.login) ||
+                  botIdentity(commit.commit?.committer?.name);
+                return /^auto: update data(?:\s|$)/.test(subject) &&
+                  authorIsBot && committerIsBot;
+              };
+              if (!comparisonIsComplete || !isAncestor ||
+                  !commits.every(isGeneratedPublicationCommit)) {
+                continue;
+              }
+              setValidation(true, 'separate-ci', codeSha, run.html_url || '');
+              console.log(
+                `Recovery is eligible: CI run ${run.id} validated code SHA ` +
+                `${codeSha}; ${commits.length} bot publication commit(s) lead to ` +
+                `${publicationSha}.`,
+              );
+              return;
+            }
+            setValidation(false, 'no-green-code-ancestor');
+            core.warning(
+              `Publication ${publicationSha} has no separately green code ` +
+              'ancestor separated only by bot-authored data commits; recovery will not advance.',
+            );
+
       # ── Phase 6: Hourly publication incident management ──
       - name: Create hourly validation incident
         if: >-
+          inputs.dns_generation == '' &&
           always() && (
             failure() ||
             (steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != '') ||
@@ -1690,9 +2046,18 @@ jobs:
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const date = new Date().toISOString().slice(0, 10);
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
+            const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
+            const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
-            const recoveryPattern = /<!-- hourly-ci-recovery-streak:\d+ -->/;
-            const fingerprintPattern = /<!-- hourly-ci-fingerprint:[0-9a-f]+ -->/;
+            const {
+              RECOVERED_MARKER: recoveredMarker,
+              ZERO_RECOVERY_MARKER: recoveryMarker,
+              classifyFailureTransition,
+              resetRecoveryStreak,
+              suppressedDegradationRecoveryTransition,
+            } = require(
+              `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
+            );
             const crypto = require('crypto');
             const stripAnsi = value => value.replace(/\u001b\[[0-9;]*m/g, '');
             const normalizeDiagnostic = value => stripAnsi(value)
@@ -1718,17 +2083,9 @@ jobs:
                 ? `${match[1]} ${node} - ${normalizeDiagnostic(detail)}`
                 : `${match[1]} ${node}`;
             }).filter(Boolean);
-            const normalizedFailures = [...new Set(failureRecords)].sort();
             const normalizedFailureNodes = [...new Set(failureRecords.map(record =>
               record.replace(/\s+-\s+.*$/, ''),
             ))].sort();
-            const normalizedDiagnostics = [...new Set(
-              output.split('\n')
-                .map(line => stripAnsi(line).trim())
-                .filter(line => /^E(?:\s|$)/.test(line))
-                .map(line => normalizeDiagnostic(line.replace(/^E\s*/, '')))
-                .filter(Boolean),
-            )].sort();
             const candidatePublicationFindings = [
               ...(Array.isArray(publicationState.candidate_errors)
                 ? publicationState.candidate_errors : []),
@@ -1756,55 +2113,6 @@ jobs:
                 typeof finding.context === 'object' ? finding.context : {};
               return context.alertable !== false;
             });
-            const publicationDiagnostics = [...new Set(publicationFindings.map(finding => {
-              const surfaces = Array.isArray(finding.surfaces) && finding.surfaces.length
-                ? ` [${finding.surfaces.join(',')}]` : '';
-              const path = finding.path ? ` ${finding.path}` : '';
-              const context = finding && typeof finding.context === 'object'
-                ? finding.context : {};
-              const collector = context.collector ? ` collector=${context.collector}` : '';
-              const step = context.step ? ` step=${context.step}` : '';
-              const reasonClass = context.reason_class
-                ? ` reason_class=${context.reason_class}` : '';
-              return normalizeDiagnostic(
-                `PUBLICATION ${finding.severity || 'unknown'} ${finding.code || 'unknown'}` +
-                `${surfaces}${path}${collector}${step}${reasonClass}: ` +
-                `${finding.message || ''}`,
-              );
-            }))].sort();
-            if ((selectorOutcome === 'failure' || selectorDegraded) && !publicationDiagnostics.length) {
-              publicationDiagnostics.push(normalizeDiagnostic(
-                `PUBLICATION selector=${selectorOutcome} mode=${publicationState.mode || 'unknown'} ` +
-                `degraded=${(publicationState.degraded_surfaces || []).join(',') || forcedSurfaces || 'unknown'}`,
-              ));
-            }
-            const liveAuditDiagnostics = hasLiveAuditFailure
-              ? [...new Set([
-                ...liveAuditFindings.map(finding => {
-                  const path = finding.path ? ` ${finding.path}` : '';
-                  return normalizeDiagnostic(
-                    `LIVE AUDIT ${finding.severity || 'unknown'} ${finding.code || 'unknown'}` +
-                    `${path}: ${finding.message || ''}`,
-                  );
-                }),
-                ...liveAuditOutput.split('\n')
-                  .map(line => stripAnsi(line).trim())
-                  .filter(line => /^(FAILED|ERROR)\s+/.test(line))
-                  .map(line => normalizeDiagnostic(`LIVE SNAPSHOT ${line}`)),
-              ])].filter(Boolean).sort()
-              : [];
-            if (hasLiveAuditFailure && !liveAuditDiagnostics.length) {
-              liveAuditDiagnostics.push(normalizeDiagnostic(
-                `LIVE AUDIT outcome=${liveAuditOutcome} exit=${liveAuditExitCode || 'unknown'} ` +
-                `summary=${liveAuditSummary}`,
-              ));
-            }
-            const detailedFingerprintEvidence = [...new Set([
-              ...normalizedFailures,
-              ...normalizedDiagnostics,
-              ...publicationDiagnostics,
-              ...liveAuditDiagnostics,
-            ])].sort();
             const candidatePublicationSurfaces = [...new Set(
               candidatePublicationFindings.flatMap(finding => {
                 if (Array.isArray(finding.surfaces)) return finding.surfaces;
@@ -1824,11 +2132,6 @@ jobs:
             // identity. Multiple unrelated validator conditions can affect the
             // same surface, so key publication incidents by their stable finding
             // codes. Fall back to surfaces only when a producer omitted codes.
-            const publicationConditionCodes = [...new Set(
-              alertablePublicationFindings
-                .map(finding => String(finding && finding.code || '').trim())
-                .filter(Boolean),
-            )].sort();
             const publicationConditionSignals = [...new Set(
               alertablePublicationFindings.map(finding => {
                 const code = String(finding && finding.code || '').trim();
@@ -1908,61 +2211,8 @@ jobs:
               .update(`hourly-ci-v4\n${fingerprintSource}`)
               .digest('hex')
               .slice(0, 16);
-            const codeOnlySignalEvidence = [...new Set([
-              ...(hasTestFailure
-                ? normalizedFailureNodes.map(node => `deterministic:${node}`) : []),
-              ...((selectorOutcome === 'failure' || selectorAlertable)
-                ? (publicationConditionCodes.length
-                  ? publicationConditionCodes.map(
-                    code => `publication-finding:${code}`,
-                  )
-                  : publicationSurfaceSignals.length
-                    ? publicationSurfaceSignals.map(surface => `publication:${surface}`)
-                    : ['publication:unknown'])
-                : []),
-              ...(hasDeploymentFailure
-                ? deploymentFailures.map(stage => `deployment:${stage}`) : []),
-              ...(hasUnclassifiedWorkflowFailure
-                ? ['workflow:unclassified-step-failure'] : []),
-              ...(hasLiveAuditFailure
-                ? [
-                  ...liveErrorCodes.map(code => `live-audit:${code}`),
-                  ...liveFailureNodes.map(node => `live-contract:${node}`),
-                ]
-                : []),
-            ])].sort();
-            const codeOnlyFingerprint = crypto
-              .createHash('sha256')
-              .update(`hourly-ci-v4\n${codeOnlySignalEvidence.join('\n')}`)
-              .digest('hex')
-              .slice(0, 16);
-            const previousFingerprintSource = detailedFingerprintEvidence.join('\n') ||
-              `validation:${normalizeDiagnostic(summary)}`;
-            const previousFingerprint = crypto
-              .createHash('sha256')
-              .update(`hourly-ci-v2\n${previousFingerprintSource}`)
-              .digest('hex')
-              .slice(0, 16);
-            // Preserve discovery of issues opened by the former node-name-only
-            // fingerprint. The issue is migrated in place, without generating a
-            // duplicate notification merely because the algorithm was upgraded.
-            const legacyFingerprintSource = normalizedFailureNodes.join('\n') ||
-              `pytest:${summary.replace(/\b\d+(?:\.\d+)?s\b/g, '<duration>')}`;
-            const legacyFingerprint = crypto
-              .createHash('sha256')
-              .update(legacyFingerprintSource)
-              .digest('hex')
-              .slice(0, 16);
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
-            const codeOnlyFingerprintMarker =
-              `<!-- hourly-ci-fingerprint:${codeOnlyFingerprint} -->`;
-            const previousFingerprintMarker = `<!-- hourly-ci-fingerprint:${previousFingerprint} -->`;
-            const legacyFingerprintMarker = `<!-- hourly-ci-fingerprint:${legacyFingerprint} -->`;
             const fingerprintVersionMarker = '<!-- hourly-ci-fingerprint-version:4 -->';
-            const surfaceOnlyFingerprintVersionMarker =
-              '<!-- hourly-ci-fingerprint-version:3 -->';
-            const recoveryMarker = '<!-- hourly-ci-recovery-streak:0 -->';
-            const recoveredMarker = '<!-- hourly-ci-recovered -->';
             const title = `Hourly validation failure [${fingerprint.slice(0, 8)}] — ${date}`;
             const incidentKind = selectorOutcome === 'failure'
               ? 'Publication Selection Failure'
@@ -2039,6 +2289,7 @@ jobs:
             const contentMarker = `<!-- hourly-ci-content:${contentFingerprint} -->`;
             const body = [
               ownershipMarker,
+              currentIncidentMarker,
               fingerprintVersionMarker,
               fingerprintMarker,
               contentMarker,
@@ -2048,242 +2299,146 @@ jobs:
             ].join('\n');
             const desiredIssueBody = `${body}\n\nGitHub assignee: ${context.repo.owner}.`;
 
-            // v2 fingerprints included mutable diagnostic prose. Recover their
-            // stable signal from the structured issue report so a wording/value
-            // change can migrate the same incident without broadly matching an
-            // unrelated manually closed issue.
-            const fencedSection = (issueBody, heading, language) => {
-              const headingIndex = issueBody.indexOf(heading);
-              if (headingIndex === -1) return '';
-              const tail = issueBody.slice(headingIndex + heading.length);
-              const fence = '```' + language;
-              const fenceIndex = tail.indexOf(fence);
-              if (fenceIndex === -1) return '';
-              const contentStart = tail.indexOf('\n', fenceIndex + fence.length);
-              if (contentStart === -1) return '';
-              const contentEnd = tail.indexOf('\n```', contentStart + 1);
-              return contentEnd === -1 ? '' : tail.slice(contentStart + 1, contentEnd);
-            };
-            const jsonSection = (issueBody, heading) => {
-              const section = fencedSection(issueBody, heading, 'json');
-              if (!section) return [];
-              try {
-                const parsed = JSON.parse(section);
-                return Array.isArray(parsed) ? parsed : null;
-              } catch (error) {
-                return null;
-              }
-            };
-            const failureNodesFromOutput = (value, includeStatus) => [...new Set(
-              value.split('\n').map(line => {
-                const clean = stripAnsi(line).trim();
-                const match = clean.match(/^(FAILED|ERROR)\s+(.+)$/);
-                if (!match) return null;
-                const separator = match[2].indexOf(' - ');
-                const node = separator === -1 ? match[2] : match[2].slice(0, separator);
-                return includeStatus ? `${match[1]} ${node}` : node;
-              }).filter(Boolean),
-            )].sort();
-            const legacyStableSignalEvidence = issueBody => {
-              const evidence = [];
-              const deterministic = fencedSection(
-                issueBody, '**Failing deterministic tests:**', 'text',
-              );
-              evidence.push(...failureNodesFromOutput(deterministic, true).map(
-                node => `deterministic:${node}`,
-              ));
-
-              const degradedMatch = issueBody.match(
-                /\*\*Degraded surfaces:\*\*\s*([^\n]+)/,
-              );
-              const degraded = degradedMatch
-                ? degradedMatch[1].replace(/`/g, '').split(',')
-                  .map(surface => surface.trim())
-                  .filter(surface => surface && surface !== 'none')
-                : [];
-              const publicationRows = jsonSection(
-                issueBody, '<details><summary>Publication findings</summary>',
-              );
-              if (publicationRows === null) return null;
-              const publicationSurfaces = [...new Set([
-                ...degraded,
-                ...publicationRows.flatMap(finding => {
-                  if (!finding || typeof finding !== 'object') return [];
-                  if (Array.isArray(finding.surfaces)) return finding.surfaces;
-                  return finding.surface ? [finding.surface] : [];
-                }),
-              ].map(surface => String(surface || '').trim()).filter(Boolean))].sort();
-              const publicationConditionCodes = [...new Set(
-                publicationRows
-                  .filter(finding => finding && typeof finding === 'object')
-                  .map(finding => String(finding.code || '').trim())
-                  .filter(Boolean),
-              )].sort();
-              const hasPublicationSignal =
-                /## (?:Publication Selection Failure|Degraded Publication)/.test(issueBody) ||
-                /\*\*Publication selector:\*\* outcome=`failure`/.test(issueBody) ||
-                publicationSurfaces.length > 0;
-              if (hasPublicationSignal) {
-                if (publicationConditionCodes.length) {
-                  evidence.push(...publicationConditionCodes.map(
-                    code => `publication-finding:${code}`,
-                  ));
-                } else {
-                  evidence.push(...(
-                    publicationSurfaces.length ? publicationSurfaces : ['unknown']
-                  ).map(surface => `publication:${surface}`));
-                }
-              }
-
-              const liveRows = jsonSection(
-                issueBody,
-                '<details><summary>Live publication audit findings</summary>',
-              );
-              if (liveRows === null) return null;
-              evidence.push(...liveRows
-                .filter(finding => finding && typeof finding === 'object' &&
-                  String(finding.severity || '').toLowerCase() === 'error')
-                .map(finding => `live-audit:${String(finding.code || 'unknown')}`));
-              const liveOutput = fencedSection(
-                issueBody,
-                '<details><summary>Live publication audit output</summary>',
-                'text',
-              );
-              evidence.push(...failureNodesFromOutput(liveOutput, false).map(
-                node => `live-contract:${node}`,
-              ));
-              const stable = [...new Set(evidence)].sort();
-              return stable.length ? stable : null;
-            };
-            const sameSignalEvidence = (left, right) => left !== null &&
-              left.length === right.length &&
-              left.every((value, index) => value === right[index]);
-            const hasSurfaceOnlyV3PublicationIdentity = issueBody =>
-              issueBody.includes(surfaceOnlyFingerprintVersionMarker) &&
-              /## (?:Publication Selection Failure|Degraded Publication)/.test(issueBody);
-
             const allIssues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
               labels: 'ci-failure', state: 'all', per_page: 100,
             });
-            const openIssues = allIssues.filter(issue => issue.state === 'open');
             const ownedIssues = allIssues.filter(issue => {
+              if (issue.pull_request) return false;
               const issueBody = issue.body || '';
               return issueBody.includes(ownershipMarker) ||
                 issueBody.includes(legacySignature);
             });
-            // A failed validation breaks the global recovery streak for every hourly
-            // incident, even when this run has a different failure fingerprint.
-            // Closed, automatically recovered issues remain armed; closed manual
-            // suppressions only reset a partial healthy streak.
-            for (const issue of ownedIssues) {
-              let resetBody = issue.body || '';
-              const closedAlreadyRecovered = issue.state === 'closed' &&
-                resetBody.includes(recoveredMarker);
-              if (closedAlreadyRecovered) continue;
-              const priorRecovery = resetBody.match(recoveryPattern);
-              const closedWithPartialRecovery = issue.state === 'closed' &&
-                priorRecovery && Number(priorRecovery[1]) > 0;
-              if (issue.state !== 'open' && !closedWithPartialRecovery) continue;
-              if (!resetBody.includes(ownershipMarker)) {
-                resetBody = `${ownershipMarker}\n${resetBody}`;
+            const newestFirst = (left, right) =>
+              Date.parse(right.updated_at || right.created_at || 0) -
+                Date.parse(left.updated_at || left.created_at || 0) ||
+              right.number - left.number;
+            const openCurrentFirst = (left, right) =>
+              Number(right.state === 'open') - Number(left.state === 'open') ||
+              newestFirst(left, right);
+            const activeOwnedIssues = ownedIssues.filter(issue =>
+              !(issue.body || '').includes(supersededMarker),
+            );
+            const currentIssues = activeOwnedIssues.filter(issue =>
+              (issue.body || '').includes(currentIncidentMarker),
+            ).sort(openCurrentFirst);
+            const openOwnedIssues = activeOwnedIssues.filter(
+              issue => issue.state === 'open',
+            ).sort(newestFirst);
+            const exactIssues = activeOwnedIssues.filter(issue =>
+              (issue.body || '').includes(fingerprintMarker),
+            ).sort(newestFirst);
+            const recoveredIssues = activeOwnedIssues.filter(issue =>
+              (issue.body || '').includes(recoveredMarker),
+            ).sort(newestFirst);
+            // A single stable slot owns the current hourly incident. During the
+            // migration, prefer the newest still-open fingerprint so the issue
+            // users are already watching remains authoritative.
+            let existing = currentIssues[0] || openOwnedIssues[0] ||
+              exactIssues[0] || recoveredIssues[0] || null;
+
+            const markCurrent = issueBody => {
+              let nextBody = issueBody || '';
+              nextBody = nextBody.split(supersededMarker).join('').replace(/^\n+/, '');
+              if (!nextBody.includes(ownershipMarker)) {
+                nextBody = `${ownershipMarker}\n${nextBody}`;
               }
-              resetBody = recoveryPattern.test(resetBody)
-                ? resetBody.replace(recoveryPattern, recoveryMarker)
-                : `${recoveryMarker}\n${resetBody}`;
-              resetBody = resetBody.replace(`${recoveredMarker}\n`, '');
-              if (resetBody !== (issue.body || '')) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: issue.number, body: resetBody,
-                });
-                issue.body = resetBody;
+              if (!nextBody.includes(currentIncidentMarker)) {
+                nextBody = `${currentIncidentMarker}\n${nextBody}`;
               }
-            }
+              return nextBody;
+            };
+            const supersedeOtherIssues = async canonicalNumber => {
+              for (const issue of ownedIssues) {
+                if (issue.number === canonicalNumber) continue;
+                const issueBody = issue.body || '';
+                const wasCurrent = issueBody.includes(currentIncidentMarker);
+                if (issue.state !== 'open' && !wasCurrent) continue;
+                let nextBody = issueBody.split(currentIncidentMarker).join('')
+                  .replace(/^\n+/, '');
+                if (!nextBody.includes(ownershipMarker)) {
+                  nextBody = `${ownershipMarker}\n${nextBody}`;
+                }
+                if (!nextBody.includes(supersededMarker)) {
+                  nextBody = [
+                    supersededMarker,
+                    nextBody,
+                    '',
+                    '---',
+                    `Superseded by #${canonicalNumber}, the single current hourly ` +
+                      'publication incident. This ticket remains closed as history.',
+                    `Reconciliation run: ${runUrl}`,
+                  ].join('\n');
+                }
+                try {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    body: nextBody,
+                    state: 'closed',
+                  });
+                } catch (error) {
+                  core.warning(
+                    `Could not supersede stale hourly issue #${issue.number}: ` +
+                    String(error.message || error),
+                  );
+                }
+              }
+            };
             const resetOnlyDegradation = selectorDegraded &&
               !selectorAlertable && transientAlertSuppressed &&
               selectorOutcome === 'success' && !hasTestFailure &&
               !hasLiveAuditFailure && !hasDeploymentFailure &&
               !hasUnclassifiedWorkflowFailure;
             if (resetOnlyDegradation) {
+              if (existing) {
+                const resetTransition = suppressedDegradationRecoveryTransition(
+                  markCurrent(existing.body || ''),
+                  existing.state,
+                );
+                if (resetTransition.body !== (existing.body || '')) {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: existing.number,
+                    body: resetTransition.body,
+                  });
+                  existing.body = resetTransition.body;
+                }
+                await supersedeOtherIssues(existing.number);
+              }
               console.log(
                 'Transient publication fallback has not reached its alert threshold; ' +
-                'recovery streaks were reset without opening an incident.',
+                'the current incident recovery streak was reset without opening ' +
+                'a new incident.',
               );
               return;
             }
-            const suppressionRank = issue => issue.state === 'closed' &&
-              !(issue.body || '').includes(recoveredMarker) ? 0 :
-              issue.state === 'open' ? 1 : 2;
-            const incidentPreference = (left, right) =>
-              suppressionRank(left) - suppressionRank(right) ||
-              left.number - right.number;
-            const exact = allIssues.filter(issue => {
-              const issueBody = issue.body || '';
-              return issueBody.includes(ownershipMarker) &&
-                issueBody.includes(fingerprintMarker);
-            }).sort(incidentPreference)[0] || null;
-            const codeOnlyPreviousVersion = codeOnlyFingerprint !== fingerprint
-              ? allIssues.filter(issue => {
-                const issueBody = issue.body || '';
-                return issueBody.includes(ownershipMarker) &&
-                  issueBody.includes(fingerprintVersionMarker) &&
-                  issueBody.includes(codeOnlyFingerprintMarker) &&
-                  // The former code-only identity grouped unrelated collector
-                  // surfaces and causes. Its manual closure cannot suppress a
-                  // newly typed incident; only an open or auto-recovered issue
-                  // is safe to migrate in place.
-                  (issue.state === 'open' || issueBody.includes(recoveredMarker));
-              }).sort(incidentPreference)[0] || null
-              : null;
-            const previousVersion = allIssues.filter(issue => {
-              const issueBody = issue.body || '';
-              return issueBody.includes(ownershipMarker) &&
-                issueBody.includes(previousFingerprintMarker);
-            }).sort(incidentPreference)[0] || null;
-            const stablePreviousVersions = allIssues.filter(issue => {
-              const issueBody = issue.body || '';
-              return issueBody.includes(ownershipMarker) &&
-                fingerprintPattern.test(issueBody) &&
-                !issueBody.includes(fingerprintVersionMarker) &&
-                // v3 intentionally grouped all publication failures for the
-                // same surfaces. Those mixed-history tickets cannot be safely
-                // migrated into one code-scoped v4 incident. Deterministic and
-                // live-audit-only v3 incidents already had precise identities.
-                !hasSurfaceOnlyV3PublicationIdentity(issueBody) &&
-                sameSignalEvidence(
-                  legacyStableSignalEvidence(issueBody), signalEvidence,
-                );
-            }).sort(incidentPreference);
-            const stablePreviousVersion = stablePreviousVersions[0] || null;
-            const legacyVersion = hasTestFailure && !publicationDiagnostics.length &&
-              !liveAuditDiagnostics.length
-              ? allIssues.filter(issue => {
-                const issueBody = issue.body || '';
-                return issueBody.includes(ownershipMarker) &&
-                  issueBody.includes(legacyFingerprintMarker);
-              }).sort(incidentPreference)[0] || null : null;
-            const legacy = hasTestFailure && !publicationDiagnostics.length &&
-              !liveAuditDiagnostics.length &&
-              normalizedFailureNodes.length ? openIssues.find(issue => {
-              const issueBody = issue.body || '';
-              return issueBody.includes(legacySignature) &&
-                !issueBody.includes('<!-- hourly-ci-fingerprint:') &&
-                normalizedFailureNodes.every(failure => issueBody.includes(failure));
-              }) : null;
-            const existing = exact || codeOnlyPreviousVersion || previousVersion ||
-              stablePreviousVersion || legacyVersion || legacy;
             if (existing) {
-              const manuallySuppressed = existing.state === 'closed' &&
-                !(existing.body || '').includes(recoveredMarker);
-              if (manuallySuppressed) {
+              const incidentTransition = classifyFailureTransition(
+                existing.body || '', existing.state, fingerprintMarker,
+              );
+              if (incidentTransition === 'manually-suppressed') {
+                const suppressedBody = resetRecoveryStreak(
+                  markCurrent(existing.body || ''),
+                );
+                if (suppressedBody !== (existing.body || '')) {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: existing.number,
+                    body: suppressedBody,
+                  });
+                  existing.body = suppressedBody;
+                }
+                await supersedeOtherIssues(existing.number);
                 console.log(
                   `Hourly validation incident #${existing.number} was manually closed; ` +
                   'leaving it suppressed until the signal recovers.',
                 );
                 return;
               }
-              const incidentTransition = existing.state === 'open' ? 'unchanged' : 'reopened';
               const evidenceChanged = !(existing.body || '').includes(contentMarker) ||
                 (existing.body || '') !== desiredIssueBody || existing.title !== title;
               if (evidenceChanged || incidentTransition === 'reopened') {
@@ -2304,106 +2459,242 @@ jobs:
                 } catch (error) {
                   if (error.status !== 422) throw error;
                 }
+              }
+              if (incidentTransition === 'reopened' ||
+                  incidentTransition === 'changed') {
                 await github.rest.issues.createComment({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: existing.number, body: report,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body: [
+                    incidentTransition === 'reopened'
+                      ? 'The hourly publication incident has recurred.'
+                      : 'The active hourly publication failure signal changed.',
+                    '',
+                    `**Current fingerprint:** \`${fingerprint}\``,
+                    `**Run:** ${runUrl}`,
+                    '',
+                    'The issue body now contains the current evidence.',
+                  ].join('\n'),
                 });
+              }
+              await supersedeOtherIssues(existing.number);
+              if (incidentTransition === 'reopened') {
                 console.log(`Reopened hourly CI incident #${existing.number}.`);
+              } else if (incidentTransition === 'changed') {
+                console.log(
+                  `Updated hourly CI incident #${existing.number} for a new signal.`,
+                );
               } else {
                 console.log(
                   `Hourly CI incident #${existing.number} is unchanged; duplicate notification suppressed.`,
                 );
               }
             } else {
-              await github.rest.issues.create({
+              const created = await github.rest.issues.create({
                 owner: context.repo.owner, repo: context.repo.repo,
                 title,
                 body: desiredIssueBody,
                 labels: ['ci-failure', 'automated', 'workstream:dashboard-ci'],
                 assignees: [context.repo.owner],
               });
+              await supersedeOtherIssues(created.data.number);
             }
 
       - name: Close issue after healthy publication
         if: >-
+          inputs.dns_generation == '' &&
           success() &&
           steps.publication-selector.outcome == 'success' &&
           steps.publication-selector.outputs.degraded == 'false' &&
           steps.live-data-audit.outcome == 'success' &&
           steps.live-data-audit.outputs.exit_code == '0' &&
-          steps.run-tests.outcome == 'success' &&
-          steps.run-tests.outputs.exit_code == '0'
+          steps.publication-recovery-validation.outcome == 'success' &&
+          steps.publication-recovery-validation.outputs.eligible == 'true'
         uses: actions/github-script@v7
+        env:
+          HOURLY_RECOVERY_VALIDATION_SOURCE: ${{ steps.publication-recovery-validation.outputs.source }}
+          HOURLY_RECOVERY_CODE_SHA: ${{ steps.publication-recovery-validation.outputs.code_sha }}
+          HOURLY_RECOVERY_CI_URL: ${{ steps.publication-recovery-validation.outputs.run_url }}
         with:
           script: |
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
+            const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
+            const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
-            const recoveryPattern = /<!-- hourly-ci-recovery-streak:(\d+) -->/;
-            const recoveredMarker = '<!-- hourly-ci-recovered -->';
-            // Require roughly six healthy hourly publications before closing or
-            // rearming an incident. Any degraded run—including a suppressed
-            // transient fallback—resets this streak in the incident step above.
+            const {
+              RECOVERED_MARKER: recoveredMarker,
+              advanceRecoveryStreak,
+            } = require(
+              `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
+            );
+            const validationSource =
+              process.env.HOURLY_RECOVERY_VALIDATION_SOURCE || 'unknown';
+            const validationCodeSha =
+              process.env.HOURLY_RECOVERY_CODE_SHA || '';
+            const validationCiUrl =
+              process.env.HOURLY_RECOVERY_CI_URL || '';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            // Require roughly six eligible healthy publications before closing
+            // or rearming the one current incident. Any degraded run—including
+            // a suppressed transient fallback—resets this streak.
             const requiredRecoveryRuns = 6;
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
               labels: 'ci-failure', state: 'all', per_page: 100,
             });
             const ownedIssues = issues.filter(issue => {
+              if (issue.pull_request) return false;
               const body = issue.body || '';
               return body.includes(ownershipMarker) || body.includes(legacySignature);
             });
-            for (const issue of ownedIssues) {
-              const body = issue.body || '';
-              if (issue.state === 'closed' && body.includes(recoveredMarker)) continue;
-              const match = body.match(recoveryPattern);
-              const recoveryStreak = match ? Number(match[1]) : 0;
-              const nextRecoveryStreak = recoveryStreak + 1;
-              const nextMarker = `<!-- hourly-ci-recovery-streak:${nextRecoveryStreak} -->`;
-              let nextBody = body.includes(ownershipMarker)
-                ? body
-                : `${ownershipMarker}\n${body}`;
-              nextBody = recoveryPattern.test(nextBody)
-                ? nextBody.replace(recoveryPattern, nextMarker)
-                : `${nextMarker}\n${nextBody}`;
-              if (nextRecoveryStreak < requiredRecoveryRuns) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: issue.number, body: nextBody,
-                });
-                console.log(
-                  `Issue #${issue.number} has ${nextRecoveryStreak} of ` +
-                  `${requiredRecoveryRuns} required healthy recovery runs; ` +
-                  'leaving its current state unchanged.',
-                );
-                continue;
-              }
-              const recoveredBody = nextBody.includes(recoveredMarker)
-                ? nextBody
-                : `${recoveredMarker}\n${nextBody}`;
-              if (issue.state === 'closed') {
-                await github.rest.issues.update({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: issue.number, body: recoveredBody,
-                });
-                console.log(
-                  `Manually closed issue #${issue.number} recovered in ` +
-                  `${requiredRecoveryRuns} consecutive runs; recurrence is rearmed.`,
-                );
-                continue;
-              }
-              await github.rest.issues.createComment({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: issue.number,
-                body: `This incident's validation condition was absent in ${requiredRecoveryRuns} consecutive fully successful publication runs. Closing this ticket; unrelated validation conditions remain independently tracked.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-              });
-              await github.rest.issues.update({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: issue.number, body: recoveredBody, state: 'closed',
-              });
+            const newestFirst = (left, right) =>
+              Date.parse(right.updated_at || right.created_at || 0) -
+                Date.parse(left.updated_at || left.created_at || 0) ||
+              right.number - left.number;
+            const openCurrentFirst = (left, right) =>
+              Number(right.state === 'open') - Number(left.state === 'open') ||
+              newestFirst(left, right);
+            const activeOwnedIssues = ownedIssues.filter(issue =>
+              !(issue.body || '').includes(supersededMarker),
+            );
+            const currentIssues = activeOwnedIssues.filter(issue =>
+              (issue.body || '').includes(currentIncidentMarker),
+            ).sort(openCurrentFirst);
+            const openOwnedIssues = activeOwnedIssues.filter(
+              issue => issue.state === 'open',
+            ).sort(newestFirst);
+            const currentIssue = currentIssues[0] || openOwnedIssues[0] || null;
+            if (!currentIssue) {
+              console.log('No current hourly incident needs recovery tracking.');
+              return;
             }
+
+            const supersedeOtherIssues = async canonicalNumber => {
+              for (const issue of ownedIssues) {
+                if (issue.number === canonicalNumber) continue;
+                const issueBody = issue.body || '';
+                const wasCurrent = issueBody.includes(currentIncidentMarker);
+                if (issue.state !== 'open' && !wasCurrent) continue;
+                let nextBody = issueBody.split(currentIncidentMarker).join('')
+                  .replace(/^\n+/, '');
+                if (!nextBody.includes(ownershipMarker)) {
+                  nextBody = `${ownershipMarker}\n${nextBody}`;
+                }
+                if (!nextBody.includes(supersededMarker)) {
+                  nextBody = [
+                    supersededMarker,
+                    nextBody,
+                    '',
+                    '---',
+                    `Superseded by #${canonicalNumber}, the single current hourly ` +
+                      'publication incident. This ticket remains closed as history.',
+                    `Reconciliation run: ${runUrl}`,
+                  ].join('\n');
+                }
+                try {
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    body: nextBody,
+                    state: 'closed',
+                  });
+                } catch (error) {
+                  core.warning(
+                    `Could not supersede stale hourly issue #${issue.number}: ` +
+                    String(error.message || error),
+                  );
+                }
+              }
+            };
+            await supersedeOtherIssues(currentIssue.number);
+
+            let currentBody = currentIssue.body || '';
+            currentBody = currentBody.split(supersededMarker).join('').replace(/^\n+/, '');
+            if (!currentBody.includes(ownershipMarker)) {
+              currentBody = `${ownershipMarker}\n${currentBody}`;
+            }
+            if (!currentBody.includes(currentIncidentMarker)) {
+              currentBody = `${currentIncidentMarker}\n${currentBody}`;
+            }
+            if (currentIssue.state === 'closed' &&
+                currentBody.includes(recoveredMarker)) {
+              if (currentBody !== (currentIssue.body || '')) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: currentIssue.number,
+                  body: currentBody,
+                });
+              }
+              console.log(
+                `Current hourly incident #${currentIssue.number} is already recovered.`,
+              );
+              return;
+            }
+            const {
+              body: nextBody,
+              streak: nextRecoveryStreak,
+            } = advanceRecoveryStreak(currentBody);
+            if (nextRecoveryStreak < requiredRecoveryRuns) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: currentIssue.number,
+                body: nextBody,
+              });
+              console.log(
+                `Current issue #${currentIssue.number} has ${nextRecoveryStreak} of ` +
+                `${requiredRecoveryRuns} required eligible healthy recovery runs ` +
+                `(validation=${validationSource}, code=${validationCodeSha}).`,
+              );
+              return;
+            }
+            const recoveredBody = nextBody.includes(recoveredMarker)
+              ? nextBody
+              : `${recoveredMarker}\n${nextBody}`;
+            if (currentIssue.state === 'closed') {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: currentIssue.number,
+                body: recoveredBody,
+              });
+              console.log(
+                `Manually closed current issue #${currentIssue.number} recovered in ` +
+                `${requiredRecoveryRuns} consecutive eligible runs; recurrence is rearmed.`,
+              );
+              return;
+            }
+            const validationEvidence = validationSource === 'separate-ci'
+              ? `Separate CI validated code SHA \`${validationCodeSha}\`` +
+                (validationCiUrl ? ` ([run](${validationCiUrl})).` : '.')
+              : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: currentIssue.number,
+              body: [
+                `The active hourly publication incident was absent in ` +
+                  `${requiredRecoveryRuns} consecutive eligible healthy ` +
+                  'publication runs. Closing this single current ticket.',
+                '',
+                validationEvidence,
+                `**Publication run:** ${runUrl}`,
+              ].join('\n'),
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: currentIssue.number,
+              body: recoveredBody,
+              state: 'closed',
+            });
 
       # ── Phase 7: Health check ──
       - name: Health check
+        if: inputs.dns_generation == ''
         run: |
           SITE_URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SITE_URL")

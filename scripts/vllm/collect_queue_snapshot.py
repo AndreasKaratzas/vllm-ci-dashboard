@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ from vllm.constants import (  # noqa: E402
     BK_ORG,
     QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES,
     QUEUE_HISTORY_HIGH_RES_HOURS,
+    QUEUE_HISTORY_MAX_BYTES,
     QUEUE_HISTORY_RETENTION_DAYS,
     QUEUE_ZOMBIE_THRESHOLD_MIN,
     TRACKED_QUEUES,
@@ -1118,6 +1120,15 @@ def _merge_same_timestamp_snapshots(previous: dict, current: dict) -> dict:
         merged["archive_bucket_start"] = current.get("archive_bucket_start") or previous.get(
             "archive_bucket_start"
         )
+        bucket_widths = [
+            _as_count(snapshot.get("archive_bucket_minutes"))
+            for snapshot in (previous, current)
+            if snapshot.get("history_mode") == "hourly_queue_wait_peaks"
+        ]
+        # Old hourly envelopes predate the explicit width field.  Treat them as
+        # 60-minute buckets, and never claim finer resolution after merging a
+        # byte-budget-coarsened envelope with a same-timestamp raw row.
+        merged["archive_bucket_minutes"] = max(bucket_widths or [60]) or 60
 
     merged_queues = merged.setdefault("queues", {})
     queue_names = set((previous.get("queues") or {})) | set((current.get("queues") or {}))
@@ -1165,8 +1176,17 @@ def _snapshot_peak_wait(snapshot: dict) -> float:
     return max((value for value in values if value is not None), default=-1.0)
 
 
-def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
-    """Retain one coherent snapshot plus each queue's exact hourly wait peaks."""
+def _archive_bucket_snapshot(
+    snapshots: list[dict],
+    *,
+    bucket_start: datetime | None = None,
+    bucket_minutes: int = QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES,
+) -> dict:
+    """Retain one coherent snapshot plus each queue's exact bucket wait peaks."""
+    if not snapshots:
+        raise ValueError("archive bucket must contain at least one snapshot")
+    if bucket_minutes <= 0:
+        raise ValueError("archive bucket minutes must be positive")
     representative = max(
         snapshots,
         key=lambda snapshot: (
@@ -1176,13 +1196,15 @@ def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
         ),
     )
     archived = deepcopy(representative)
+    # Keep the legacy mode name so existing dashboard readers recognize these
+    # rows.  ``archive_bucket_minutes`` makes a byte-budget-coarsened envelope
+    # unambiguous without changing the established JSONL contract.
     archived["history_mode"] = "hourly_queue_wait_peaks"
-    archived["archive_bucket_start"] = (
-        parse_iso(representative["ts"])
-        .replace(minute=0, second=0, microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    if bucket_start is None:
+        observed_at = parse_iso(representative["ts"])
+        bucket_start = _history_bucket_start(observed_at, bucket_minutes)
+    archived["archive_bucket_start"] = bucket_start.isoformat().replace("+00:00", "Z")
+    archived["archive_bucket_minutes"] = bucket_minutes
 
     queue_names = sorted(
         {name for snapshot in snapshots for name in (snapshot.get("queues") or {})}
@@ -1324,57 +1346,238 @@ def _archive_bucket_snapshot(snapshots: list[dict]) -> dict:
             target["archive_sample_wait_peaks"] = sample_peaks
 
     sources = dict(archived.get("sources") or {})
-    sources["history_resolution"] = (
-        "One actual snapshot per UTC hour plus per-queue primary and reconstructed "
-        "sample p50/p95/p99 peaks with their exact observation timestamps."
-    )
+    if bucket_minutes == 60:
+        sources["history_resolution"] = (
+            "One actual snapshot per UTC hour plus per-queue primary and reconstructed "
+            "sample p50/p95/p99 peaks with their exact observation timestamps."
+        )
+    else:
+        sources["history_resolution"] = (
+            f"One actual snapshot per {bucket_minutes}-minute UTC bucket plus per-queue "
+            "primary and reconstructed sample p50/p95/p99 peaks with their exact "
+            "observation timestamps; resolution was coarsened to honor the history "
+            "byte budget."
+        )
     archived["sources"] = sources
     return archived
 
 
-def compact_history_resolution(rows: list[dict], now: datetime) -> list[dict]:
-    """Keep recent polls and per-queue wait peaks in older hourly envelopes."""
+def _history_bucket_start(observed_at: datetime, bucket_minutes: int) -> datetime:
+    """Return a stable UTC bucket boundary for intervals longer than one hour."""
+    if bucket_minutes <= 0:
+        raise ValueError("archive bucket minutes must be positive")
+    utc = observed_at.astimezone(timezone.utc)
+    epoch_minutes = int(utc.timestamp()) // 60
+    start_minutes = (epoch_minutes // bucket_minutes) * bucket_minutes
+    return datetime.fromtimestamp(start_minutes * 60, timezone.utc)
+
+
+def _archive_bucket_for_snapshot(
+    snapshot: dict,
+    observed_at: datetime,
+    requested_minutes: int,
+) -> tuple[datetime, int]:
+    """Keep an existing coarse envelope coarse during later normal pruning."""
+    if snapshot.get("history_mode") != "hourly_queue_wait_peaks":
+        return _history_bucket_start(observed_at, requested_minutes), requested_minutes
+    existing_minutes = _as_count(snapshot.get("archive_bucket_minutes"), default=60) or 60
+    if existing_minutes <= requested_minutes:
+        return _history_bucket_start(observed_at, requested_minutes), requested_minutes
+    existing_start = parse_iso(snapshot.get("archive_bucket_start") or "")
+    if existing_start is None:
+        existing_start = _history_bucket_start(observed_at, existing_minutes)
+    return existing_start, existing_minutes
+
+
+def compact_history_resolution(
+    rows: list[dict],
+    now: datetime,
+    *,
+    high_resolution_hours: int = QUEUE_HISTORY_HIGH_RES_HOURS,
+    archive_bucket_minutes: int = QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES,
+    protected_timestamps: frozenset[str] = frozenset(),
+) -> list[dict]:
+    """Keep recent polls and per-queue peaks in older UTC bucket envelopes."""
+    if high_resolution_hours < 0:
+        raise ValueError("high-resolution hours must not be negative")
+    if archive_bucket_minutes <= 0:
+        raise ValueError("archive bucket minutes must be positive")
     normalized = normalize_history_rows(rows)
-    high_resolution_cutoff = now - timedelta(hours=QUEUE_HISTORY_HIGH_RES_HOURS)
+    high_resolution_cutoff = now - timedelta(hours=high_resolution_hours)
     recent: list[dict] = []
-    archive_buckets: dict[datetime, list[dict]] = {}
+    archive_buckets: dict[tuple[datetime, int], list[dict]] = {}
 
     for snapshot in normalized:
         observed_at = parse_iso(snapshot.get("ts") or "")
         if observed_at is None:
             continue
-        if observed_at >= high_resolution_cutoff:
+        if snapshot["ts"] in protected_timestamps or observed_at >= high_resolution_cutoff:
             recent.append(snapshot)
             continue
-        minute = (
-            observed_at.minute // QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES
-        ) * QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES
-        bucket = observed_at.replace(minute=minute, second=0, microsecond=0)
+        bucket = _archive_bucket_for_snapshot(
+            snapshot,
+            observed_at,
+            archive_bucket_minutes,
+        )
         archive_buckets.setdefault(bucket, []).append(snapshot)
 
-    archive = [_archive_bucket_snapshot(bucket) for bucket in archive_buckets.values()]
+    archive = [
+        _archive_bucket_snapshot(
+            snapshots,
+            bucket_start=bucket,
+            bucket_minutes=bucket_minutes,
+        )
+        for (bucket, bucket_minutes), snapshots in sorted(archive_buckets.items())
+    ]
     return normalize_history_rows([*archive, *recent])
 
 
-def write_history_file(path: Path, rows: list[dict]) -> None:
+def _encoded_history(rows: list[dict]) -> bytes:
+    return "".join(
+        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows
+    ).encode("utf-8")
+
+
+# Ordered from least to most lossy.  Normal retention keeps 48 hours at full
+# resolution and older rows hourly.  If exact serialization still exceeds the
+# byte budget, only the necessary older intervals are folded together.  The
+# final levels are defensive for unexpectedly wide future queue schemas.
+_HISTORY_BYTE_COMPACTION_LEVELS = (
+    (QUEUE_HISTORY_HIGH_RES_HOURS, 60),
+    (QUEUE_HISTORY_HIGH_RES_HOURS, 120),
+    (QUEUE_HISTORY_HIGH_RES_HOURS, 240),
+    (QUEUE_HISTORY_HIGH_RES_HOURS, 480),
+    (QUEUE_HISTORY_HIGH_RES_HOURS, 1_440),
+    (24, 1_440),
+    (12, 1_440),
+    (6, 1_440),
+    (1, 1_440),
+    (0, 1_440),
+    (0, 2_880),
+    (0, 10_080),
+    (0, QUEUE_HISTORY_RETENTION_DAYS * 24 * 60),
+)
+
+
+def compact_history_to_byte_budget(
+    rows: list[dict],
+    now: datetime,
+    *,
+    max_bytes: int = QUEUE_HISTORY_MAX_BYTES,
+) -> list[dict]:
+    """Return deterministic history that serializes within ``max_bytes``.
+
+    The newest observation is protected at every compaction level because the
+    queue and Omni issue watchers read the last JSONL row as live state.  Older
+    rows retain a coherent real observation plus exact per-queue wait peaks for
+    every resulting bucket.  No network data is fetched during compaction.
+    """
+    if max_bytes <= 0:
+        raise ValueError("queue history byte budget must be positive")
     normalized = normalize_history_rows(rows)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    text = "".join(
-        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in normalized
+    if len(_encoded_history(normalized)) <= max_bytes:
+        return normalized
+    if not normalized:
+        return []
+
+    newest_timestamp = normalized[-1]["ts"]
+    protected = frozenset({newest_timestamp})
+    for high_resolution_hours, bucket_minutes in _HISTORY_BYTE_COMPACTION_LEVELS:
+        candidate = compact_history_resolution(
+            normalized,
+            now,
+            high_resolution_hours=high_resolution_hours,
+            archive_bucket_minutes=bucket_minutes,
+            protected_timestamps=protected,
+        )
+        if len(_encoded_history(candidate)) <= max_bytes:
+            return candidate
+
+    smallest = compact_history_resolution(
+        normalized,
+        now,
+        high_resolution_hours=0,
+        archive_bucket_minutes=QUEUE_HISTORY_RETENTION_DAYS * 24 * 60,
+        protected_timestamps=protected,
     )
-    path.write_text(text)
+    required_bytes = len(_encoded_history(smallest))
+    raise RuntimeError(
+        "queue history cannot fit its byte budget while preserving the newest "
+        f"snapshot and retained peak envelope: {required_bytes} > {max_bytes} bytes"
+    )
 
 
-def merge_history_rows(path: Path, incoming_rows: list[dict]) -> tuple[int, int]:
+def write_history_file(
+    path: Path,
+    rows: list[dict],
+    *,
+    now: datetime | None = None,
+    max_bytes: int = QUEUE_HISTORY_MAX_BYTES,
+) -> int:
+    """Write normalized history without ever publishing an over-budget blob."""
+    normalized = normalize_history_rows(rows)
+    reference_time = now
+    if reference_time is None and normalized:
+        reference_time = parse_iso(normalized[-1]["ts"])
+    reference_time = reference_time or queue_history_reset_datetime()
+    bounded = compact_history_to_byte_budget(
+        normalized,
+        reference_time,
+        max_bytes=max_bytes,
+    )
+    payload = _encoded_history(bounded)
+    if len(payload) > max_bytes:  # Defensive invariant if compaction changes.
+        raise RuntimeError(
+            f"queue history serializer exceeded its byte budget: {len(payload)} > {max_bytes}"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_name = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            temporary.write(payload)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name and os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+    return len(bounded)
+
+
+def merge_history_rows(
+    path: Path,
+    incoming_rows: list[dict],
+    *,
+    max_bytes: int = QUEUE_HISTORY_MAX_BYTES,
+) -> tuple[int, int]:
     """Merge incoming history with local rows; local rows win equal timestamps."""
     _, existing_rows = _read_history_file(path)
     merged = normalize_history_rows([*incoming_rows, *existing_rows])
-    write_history_file(path, merged)
-    return len(incoming_rows), len(merged)
+    written_count = write_history_file(path, merged, max_bytes=max_bytes)
+    return len(incoming_rows), written_count
 
 
-def merge_history_from_git_ref(path: Path, git_ref: str) -> tuple[int, int]:
-    """Merge queue history from a git ref without line-count replacement."""
+def merge_history_from_git_ref(
+    path: Path,
+    git_ref: str,
+    *,
+    required: bool = False,
+) -> tuple[int, int]:
+    """Merge queue history from a git ref without line-count replacement.
+
+    ``required`` is used for the established durable queue-data branch.  In
+    that mode every nonblank remote row must be valid and at least one row
+    must exist.  Validation completes before the local file is replaced, so a
+    missing or corrupt durable generation can never be converted into an
+    apparently successful orphan publication.
+    """
     repo_root = Path(__file__).resolve().parent.parent.parent
     result = subprocess.run(
         ["git", "show", f"{git_ref}:{HISTORY_REPO_PATH}"],
@@ -1384,15 +1587,26 @@ def merge_history_from_git_ref(path: Path, git_ref: str) -> tuple[int, int]:
         check=False,
     )
     if result.returncode != 0:
+        if required:
+            raise RuntimeError(f"required queue history is unavailable at {git_ref}")
         log.warning("No queue history available at %s", git_ref)
         _, existing = _read_history_file(path)
         return 0, len(existing)
     if any(marker in result.stdout for marker in ("<<<<<<<", "=======", ">>>>>>>")):
+        if required:
+            raise RuntimeError(f"required queue history at {git_ref} contains conflict markers")
         log.warning("Queue history at %s contains conflict markers; ignoring it", git_ref)
         _, existing = _read_history_file(path)
         return 0, len(existing)
 
     incoming_total, incoming_rows = _read_history_text(result.stdout)
+    if required and incoming_total == 0:
+        raise RuntimeError(f"required queue history at {git_ref} is empty")
+    if required and len(incoming_rows) != incoming_total:
+        raise RuntimeError(
+            f"required queue history at {git_ref} is malformed: "
+            f"parsed {len(incoming_rows)} of {incoming_total} rows"
+        )
     incoming_count, merged_count = merge_history_rows(path, incoming_rows)
     log.info(
         "Merged queue history from %s: %d parsed of %d lines, %d total rows",
@@ -1414,8 +1628,31 @@ def prune_history_file(path: Path, now: datetime | None = None) -> tuple[int, in
     cutoff = _history_cutoff(current_time)
     kept = [snapshot for snapshot in snapshots if parse_iso(snapshot["ts"]) >= cutoff]
     compacted = compact_history_resolution(kept, current_time)
-    write_history_file(path, compacted)
-    return total, len(compacted)
+    written_count = write_history_file(path, compacted, now=current_time)
+    return total, written_count
+
+
+def append_history_snapshot(
+    path: Path,
+    snapshot: dict,
+    *,
+    now: datetime | None = None,
+    max_bytes: int = QUEUE_HISTORY_MAX_BYTES,
+) -> tuple[int, int]:
+    """Append one observation while applying retention and byte limits once."""
+    total, existing = _read_history_file(path)
+    current_time = now or parse_iso(snapshot.get("ts") or "") or datetime.now(timezone.utc)
+    merged = normalize_history_rows([*existing, snapshot])
+    cutoff = _history_cutoff(current_time)
+    retained = [row for row in merged if parse_iso(row["ts"]) >= cutoff]
+    compacted = compact_history_resolution(retained, current_time)
+    written_count = write_history_file(
+        path,
+        compacted,
+        now=current_time,
+        max_bytes=max_bytes,
+    )
+    return total, written_count
 
 
 def _wait_summary(times: list[float]) -> dict:
@@ -2150,10 +2387,21 @@ def main():
         metavar="REF",
         help="Merge queue history from REF by timestamp, then exit.",
     )
+    parser.add_argument(
+        "--require-merge-history",
+        action="store_true",
+        help="Fail unless the requested git ref contains a complete nonempty history.",
+    )
     args = parser.parse_args()
 
+    if args.require_merge_history and not args.merge_history_git_ref:
+        parser.error("--require-merge-history requires --merge-history-git-ref")
     if args.merge_history_git_ref:
-        merge_history_from_git_ref(OUTPUT, args.merge_history_git_ref)
+        merge_history_from_git_ref(
+            OUTPUT,
+            args.merge_history_git_ref,
+            required=args.require_merge_history,
+        )
         return
 
     if args.prune_only:
@@ -2169,10 +2417,7 @@ def main():
     log.info("Collecting queue snapshot...")
     snapshot = collect_snapshot(token)
 
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    with OUTPUT.open("a", encoding="utf-8") as history_file:
-        history_file.write(json.dumps(snapshot, separators=(",", ":")) + "\n")
-    prune_history_file(OUTPUT)
+    append_history_snapshot(OUTPUT, snapshot)
 
     log.info(
         "Snapshot: %d queues, %d waiting, %d running -> %s",

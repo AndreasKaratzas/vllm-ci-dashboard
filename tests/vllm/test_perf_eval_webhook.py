@@ -8,7 +8,10 @@ provenance, the executive view lies.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import json
+
+import pytest
 
 from vllm.ci import perf_eval_webhook as w
 
@@ -182,6 +185,193 @@ def test_append_and_read_events_round_trip_and_skip_malformed(tmp_path):
         fh.write("{not json}\n")
     events = w.read_events(store)
     assert [e["event"] for e in events] == ["perf_result", "accuracy_result"]
+
+
+def _store_perf_event(
+    commit: str,
+    observed_at: datetime,
+    *,
+    model: str = "org/model",
+    padding: str = "",
+    artifact_id: str = "",
+) -> dict:
+    return {
+        "event": "perf_result",
+        "nightly": True,
+        "date": observed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "vllm_commit": commit,
+        "model": model,
+        "device": "mi355x",
+        "tp": 1,
+        "precision": "bf16",
+        "isl": 8,
+        "osl": 8,
+        "conc": 1,
+        "metrics": {"tput_per_gpu": 1.0},
+        "padding": padding,
+        "buildkite_artifact_id": artifact_id,
+    }
+
+
+def test_store_limits_leave_headroom_and_cover_artifact_lookback():
+    assert w.PERF_EVAL_MAX_BYTES == 60 * 1024 * 1024
+    assert w.PERF_EVAL_MAX_BYTES < 64 * 1024 * 1024
+    assert w.PERF_EVAL_MAX_BYTES < 90_000_000
+    assert w.enforced_byte_budget(100 * 1024 * 1024) == w.PERF_EVAL_MAX_BYTES
+    assert (
+        w.PERF_EVAL_ARTIFACT_IDENTITY_DAYS
+        > w.PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS
+    )
+
+
+def test_compaction_merges_duplicate_results_without_losing_metrics_or_tasks():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    perf_first = _store_perf_event(
+        "same-commit", now - timedelta(hours=2), artifact_id="artifact-first"
+    )
+    perf_first["metrics"] = {"tput_per_gpu": 10.0}
+    perf_second = _store_perf_event(
+        "same-commit", now - timedelta(hours=1), artifact_id="artifact-second"
+    )
+    perf_second["metrics"] = {"mean_ttft": 0.4}
+    accuracy_first = {
+        **_store_perf_event("same-commit", now - timedelta(minutes=45)),
+        "event": "accuracy_result",
+        "workload": "model-mi355x",
+        "results": [
+            {"task": "gsm8k", "metric": "exact_match", "value": 0.8}
+        ],
+    }
+    accuracy_second = {
+        **accuracy_first,
+        "date": (now - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "results": [{"task": "mmlu", "metric": "acc", "value": 0.7}],
+    }
+
+    compacted = w.compact_events(
+        [perf_first, perf_second, accuracy_first, accuracy_second], now=now
+    )
+    perf = next(row for row in compacted if row.get("event") == "perf_result")
+    accuracy = next(
+        row for row in compacted if row.get("event") == "accuracy_result"
+    )
+    index = next(row for row in compacted if row.get("event") == w.ARTIFACT_INDEX_EVENT)
+
+    assert perf["metrics"] == {"tput_per_gpu": 10.0, "mean_ttft": 0.4}
+    assert {(row["task"], row["metric"]) for row in accuracy["results"]} == {
+        ("gsm8k", "exact_match"),
+        ("mmlu", "acc"),
+    }
+    assert w.artifact_keys_from_event(index) == (("id", "artifact-first"),)
+
+
+def test_compaction_prunes_whole_oldest_nightlies_to_exact_byte_budget(tmp_path):
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    events = []
+    for nightly in range(4):
+        observed_at = datetime(2025, 1, nightly + 1, tzinfo=timezone.utc)
+        for model in ("org/a", "org/b"):
+            events.append(
+                _store_perf_event(
+                    f"commit-{nightly}",
+                    observed_at,
+                    model=model,
+                    padding=str(nightly) * 2_000,
+                )
+            )
+
+    latest_two = w._compact_events_once(
+        events,
+        now,
+        history_days=14,
+        min_nightlies=2,
+        auxiliary_days=14,
+    )
+    budget = len(w._encoded_events(latest_two))
+    store = tmp_path / "events.jsonl"
+    w.write_events_atomic(store, events, now=now, max_bytes=budget)
+    compacted = w.read_events(store)
+
+    result_rows = [row for row in compacted if row["event"] == "perf_result"]
+    assert {row["vllm_commit"] for row in result_rows} == {"commit-2", "commit-3"}
+    assert {
+        commit: sum(row["vllm_commit"] == commit for row in result_rows)
+        for commit in {"commit-2", "commit-3"}
+    } == {"commit-2": 2, "commit-3": 2}
+    assert store.stat().st_size == len(w._encoded_events(compacted))
+    assert store.stat().st_size <= budget
+
+
+def test_artifact_index_keeps_only_exact_identities_inside_dedup_horizon():
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    events = [
+        {
+            "event": w.ARTIFACT_MARKER_EVENT,
+            "received_at": (now - timedelta(days=44)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "buildkite_artifact_id": "still-queryable",
+        },
+        {
+            "event": w.ARTIFACT_MARKER_EVENT,
+            "received_at": (now - timedelta(days=46)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "buildkite_artifact_id": "expired",
+        },
+    ]
+
+    compacted = w.compact_events(events, now=now)
+    assert len(compacted) == 1
+    assert compacted[0]["event"] == w.ARTIFACT_INDEX_EVENT
+    assert w.artifact_keys_from_event(compacted[0]) == (("id", "still-queryable"),)
+
+
+def test_oversized_store_candidate_preserves_previous_file(tmp_path):
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    store = tmp_path / "events.jsonl"
+    original = b'{"known":"good"}\n'
+    store.write_bytes(original)
+    events = [
+        _store_perf_event(
+            f"commit-{nightly}",
+            now - timedelta(days=nightly),
+            padding="x" * 4_000,
+        )
+        for nightly in range(2)
+    ]
+
+    with pytest.raises(RuntimeError, match="cannot fit the byte budget"):
+        w.write_events_atomic(store, events, now=now, max_bytes=64)
+
+    assert store.read_bytes() == original
+    assert list(tmp_path.glob(".events.jsonl.*.tmp")) == []
+
+
+def test_atomic_replace_failure_preserves_previous_file_and_cleans_temp(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "perf_eval.json"
+    original = b'{"known":"good"}\n'
+    output.write_bytes(original)
+
+    def fail_replace(_source, _destination):
+        raise OSError("injected replace failure")
+
+    monkeypatch.setattr(w.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="injected replace failure"):
+        w.write_json_atomic(output, {"new": "candidate"}, max_bytes=1_024)
+
+    assert output.read_bytes() == original
+    assert list(tmp_path.glob(".perf_eval.json.*.tmp")) == []
+
+
+def test_append_rejects_corrupt_existing_store_without_replacement(tmp_path):
+    store = tmp_path / "events.jsonl"
+    original = b'{"event":"perf_result"}\n{not-json}\n'
+    store.write_bytes(original)
+
+    with pytest.raises(ValueError, match="invalid perf-eval JSONL"):
+        w.append_event(store, {"event": "perf_result", "model": "new"})
+
+    assert store.read_bytes() == original
+    assert list(tmp_path.glob(".events.jsonl.*.tmp")) == []
 
 
 def test_normalize_dispatches_eval_payload_via_header_router():

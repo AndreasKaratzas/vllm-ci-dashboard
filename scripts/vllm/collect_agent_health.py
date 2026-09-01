@@ -29,10 +29,12 @@ emits only compact, meaningful artifacts:
      broadly-broken code. The frontend clusters the selected subset into
      co-failure events reactively (per the window / signal / nightly toggles).
 
-On-disk stores (merged incrementally, pruned to 60d):
+On-disk stores (merged incrementally, pruned to 60d and then byte-bounded by
+dropping the oldest complete UTC days):
     data/vllm/ci/agent_health/node_days.jsonl        per-(node,day) rollups
     data/vllm/ci/agent_health/infra_failures.jsonl   failing runs (i=infra-suspect)
-Assembled output (read by build_operations_snapshot):
+Assembled output (read by build_operations_snapshot and published atomically
+with the two-file ledger):
     data/vllm/ci/agent_health.json
 
 Usage:
@@ -45,8 +47,11 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import re
+import shutil
 import sys
+import tempfile
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -76,6 +81,14 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
 STORE_SUBDIR = "agent_health"
 OUTPUT_JSON = "agent_health.json"
+NODE_DAYS_JSONL = "node_days.jsonl"
+INFRA_FAILURES_JSONL = "infra_failures.jsonl"
+
+# Bound every tracked blob and the complete three-file generation well below
+# the dashboard sync layer's 90 MB ceiling. The assembled JSON repeats the two
+# private ledgers, so the aggregate cap also keeps repository growth bounded.
+AGENT_HEALTH_MAX_FILE_BYTES = 32 * 1024 * 1024
+AGENT_HEALTH_MAX_GENERATION_BYTES = 64 * 1024 * 1024
 
 # Retain the same window the frontend can display. Anything older is pruned.
 MAX_WINDOW_DAYS = 60
@@ -392,21 +405,52 @@ def _failing_row(r: dict) -> dict:
 def _load_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    out = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
+    out: list[dict] = []
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
         if not line:
             continue
         try:
-            out.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"retained agent-health ledger is invalid at {path}:{line_number}"
+            ) from exc
+        if not isinstance(row, dict):
+            raise RuntimeError(
+                f"retained agent-health ledger row is not an object at "
+                f"{path}:{line_number}"
+            )
+        out.append(row)
     return out
 
 
-def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+def _encoded_jsonl(rows: list[dict]) -> bytes:
+    return "".join(
+        json.dumps(
+            row,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+        for row in rows
+    ).encode("utf-8")
+
+
+def _encoded_json(payload: dict) -> bytes:
+    return (
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cutoff_day: str,
@@ -422,10 +466,16 @@ def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cuto
     return list(seen.values())
 
 
-def _assemble(node_days: list[dict], failing: list[dict], now: datetime) -> dict:
+def _assemble(
+    node_days: list[dict],
+    failing: list[dict],
+    now: datetime,
+    *,
+    retention: dict | None = None,
+) -> dict:
     hardware_types = sorted({r["h"] for r in node_days if r.get("h")})
     total_runs = sum(r["a"][0] for r in node_days)
-    return {
+    payload = {
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "max_window_days": MAX_WINDOW_DAYS,
         "default_window_days": DEFAULT_WINDOW_DAYS,
@@ -444,6 +494,241 @@ def _assemble(node_days: list[dict], failing: list[dict], now: datetime) -> dict
         "node_days": sorted(node_days, key=lambda r: (r["d"], r["nd"])),
         "failing_runs": sorted(failing, key=lambda r: (r.get("t") or "", r.get("j") or "")),
     }
+    if retention is not None:
+        payload["retention"] = retention
+    return payload
+
+
+def _row_sort_key(row: dict) -> str:
+    return json.dumps(
+        row,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _prepare_generation(
+    node_days: list[dict],
+    failing: list[dict],
+    now: datetime,
+    *,
+    max_file_bytes: int = AGENT_HEALTH_MAX_FILE_BYTES,
+    max_generation_bytes: int = AGENT_HEALTH_MAX_GENERATION_BYTES,
+) -> dict:
+    """Drop oldest whole days until one exact generation fits all budgets."""
+    if max_file_bytes <= 0 or max_generation_bytes <= 0:
+        raise ValueError("agent-health byte budgets must be positive")
+
+    retained_node_days = sorted(
+        node_days,
+        key=lambda row: (
+            str(row.get("d") or ""),
+            str(row.get("nd") or ""),
+            _row_sort_key(row),
+        ),
+    )
+    retained_failing = sorted(
+        failing,
+        key=lambda row: (
+            str(row.get("d") or ""),
+            str(row.get("t") or ""),
+            str(row.get("j") or ""),
+            _row_sort_key(row),
+        ),
+    )
+    original_days = sorted(
+        {
+            str(row.get("d") or "")
+            for row in [*retained_node_days, *retained_failing]
+            if str(row.get("d") or "")
+        }
+    )
+    dropped_days: list[str] = []
+
+    while True:
+        retained_days = sorted(
+            {
+                str(row.get("d") or "")
+                for row in [*retained_node_days, *retained_failing]
+                if str(row.get("d") or "")
+            }
+        )
+        retention = {
+            "policy": "drop_oldest_whole_days",
+            "configured_days": MAX_WINDOW_DAYS,
+            "original_day_count": len(original_days),
+            "retained_day_count": len(retained_days),
+            "retained_start": retained_days[0] if retained_days else None,
+            "retained_end": retained_days[-1] if retained_days else None,
+            "dropped_oldest_day_count": len(dropped_days),
+            "byte_limited": bool(dropped_days),
+            "max_file_bytes": max_file_bytes,
+            "max_generation_bytes": max_generation_bytes,
+        }
+        payload = _assemble(
+            retained_node_days,
+            retained_failing,
+            now,
+            retention=retention,
+        )
+        encoded = {
+            NODE_DAYS_JSONL: _encoded_jsonl(retained_node_days),
+            INFRA_FAILURES_JSONL: _encoded_jsonl(retained_failing),
+            OUTPUT_JSON: _encoded_json(payload),
+        }
+        file_sizes = {name: len(value) for name, value in encoded.items()}
+        total_bytes = sum(file_sizes.values())
+        if (
+            all(size <= max_file_bytes for size in file_sizes.values())
+            and total_bytes <= max_generation_bytes
+        ):
+            return {
+                "node_days": retained_node_days,
+                "failing": retained_failing,
+                "payload": payload,
+                "encoded": encoded,
+                "file_sizes": file_sizes,
+                "total_bytes": total_bytes,
+                "dropped_days": tuple(dropped_days),
+            }
+
+        # Preserve at least the newest complete UTC day. If a single day is
+        # itself larger than the cap, fail before replacing the last-known-good
+        # generation rather than silently publishing a partial day.
+        if len(retained_days) <= 1:
+            raise RuntimeError(
+                "agent-health newest whole day cannot fit the byte budgets: "
+                f"files={file_sizes}, total={total_bytes}, "
+                f"max_file={max_file_bytes}, max_generation={max_generation_bytes}"
+            )
+        oldest_day = retained_days[0]
+        dropped_days.append(oldest_day)
+        retained_node_days = [
+            row
+            for row in retained_node_days
+            if str(row.get("d") or "") != oldest_day
+        ]
+        retained_failing = [
+            row
+            for row in retained_failing
+            if str(row.get("d") or "") != oldest_day
+        ]
+
+
+def _write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(path, 0o644)
+
+
+def _atomic_write_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, 0o644)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def _remove_path(path: Path) -> None:
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def _publish_generation(output_dir: Path, generation: dict) -> None:
+    """Install the private ledger and assembled JSON as one recoverable unit."""
+    encoded = generation.get("encoded") or {}
+    expected = {NODE_DAYS_JSONL, INFRA_FAILURES_JSONL, OUTPUT_JSON}
+    if set(encoded) != expected or any(not isinstance(encoded[name], bytes) for name in expected):
+        raise RuntimeError("agent-health generation is incomplete")
+    file_sizes = {name: len(encoded[name]) for name in expected}
+    if any(size > AGENT_HEALTH_MAX_FILE_BYTES for size in file_sizes.values()):
+        raise RuntimeError("agent-health generation exceeds the per-file byte budget")
+    if sum(file_sizes.values()) > AGENT_HEALTH_MAX_GENERATION_BYTES:
+        raise RuntimeError("agent-health generation exceeds the aggregate byte budget")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    store_dir = output_dir / STORE_SUBDIR
+    summary_path = output_dir / OUTPUT_JSON
+    if store_dir.exists() and not store_dir.is_dir():
+        raise RuntimeError(f"agent-health ledger path is not a directory: {store_dir}")
+
+    stage = Path(
+        tempfile.mkdtemp(
+            dir=output_dir,
+            prefix=f".{STORE_SUBDIR}.stage.",
+        )
+    )
+    backup: Path | None = None
+    store_installed = False
+    try:
+        _write_bytes(stage / NODE_DAYS_JSONL, encoded[NODE_DAYS_JSONL])
+        _write_bytes(stage / INFRA_FAILURES_JSONL, encoded[INFRA_FAILURES_JSONL])
+        if store_dir.exists():
+            backup = Path(
+                tempfile.mkdtemp(
+                    dir=output_dir,
+                    prefix=f".{STORE_SUBDIR}.backup.",
+                )
+            )
+            backup.rmdir()
+            os.replace(store_dir, backup)
+        os.replace(stage, store_dir)
+        store_installed = True
+        _atomic_write_bytes(summary_path, encoded[OUTPUT_JSON])
+    except Exception as publish_error:
+        try:
+            if store_installed:
+                _remove_path(store_dir)
+            if backup is not None and backup.exists():
+                os.replace(backup, store_dir)
+                backup = None
+        except Exception as rollback_error:
+            # Never clean up the only recoverable prior generation after a
+            # failed restore. Leave its explicit backup path in the exception
+            # and on disk for the next run or an operator to recover.
+            recovery_path = (
+                backup
+                if backup is not None and backup.exists()
+                else store_dir if store_dir.exists() else None
+            )
+            recovery_kind = "prior ledger backup" if recovery_path == backup else "ledger"
+            log.error(
+                "Agent-health publish rollback failed; recoverable %s remains "
+                "at %s: %s",
+                recovery_kind,
+                recovery_path,
+                rollback_error,
+            )
+            raise RuntimeError(
+                "agent-health publish failed and rollback failed; recoverable "
+                f"{recovery_kind} remains at {recovery_path}"
+            ) from publish_error
+        raise
+    else:
+        if backup is not None and backup.exists():
+            _remove_path(backup)
+    finally:
+        _remove_path(stage)
 
 
 def main() -> int:
@@ -490,8 +775,8 @@ def main() -> int:
         return 0
 
     store_dir = args.output / STORE_SUBDIR
-    node_days_path = store_dir / "node_days.jsonl"
-    failing_path = store_dir / "infra_failures.jsonl"
+    node_days_path = store_dir / NODE_DAYS_JSONL
+    failing_path = store_dir / INFRA_FAILURES_JSONL
 
     earliest_day = (now - timedelta(days=days)).strftime("%Y-%m-%d")
     cutoff_day = (now - timedelta(days=MAX_WINDOW_DAYS)).strftime("%Y-%m-%d")
@@ -505,15 +790,18 @@ def main() -> int:
         key=lambda r: r["j"],
     )
 
-    _write_jsonl(node_days_path, sorted(node_days, key=lambda r: (r["d"], r["nd"])))
-    _write_jsonl(failing_path, sorted(failing, key=lambda r: (r.get("t") or "", r.get("j") or "")))
-
-    payload = _assemble(node_days, failing, now)
+    generation = _prepare_generation(node_days, failing, now)
+    _publish_generation(args.output, generation)
+    payload = generation["payload"]
     out_path = args.output / OUTPUT_JSON
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     log.info(
-        "Wrote %s (%d node-days, %d failing runs, %.2f MB)",
-        out_path, len(node_days), len(failing), out_path.stat().st_size / 1e6,
+        "Wrote %s (%d node-days, %d failing runs, %.2f MB generation, "
+        "%d oldest whole days dropped)",
+        out_path,
+        payload["node_day_count"],
+        payload["infra_failure_count"],
+        generation["total_bytes"] / 1e6,
+        len(generation["dropped_days"]),
     )
     return 0
 
