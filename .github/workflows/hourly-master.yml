@@ -1124,7 +1124,10 @@ jobs:
         if: inputs.queue_generation != ''
         run: |
           set -euo pipefail
-          python -S scripts/vllm/audit_dashboard_data.py --queue-only
+          # Queue-only validation recomputes both derived browser projections.
+          # That imports the Operations builder and its installed PyYAML dependency,
+          # so unlike the isolated DNS/lifecycle validators this must retain site-packages.
+          python scripts/vllm/audit_dashboard_data.py --queue-only
           python - "$HOURLY_QUEUE_GENERATION_INPUT" \
             data/vllm/ci/queue_jobs.json \
             data/vllm/ci/queue_timeseries.jsonl <<'PY'

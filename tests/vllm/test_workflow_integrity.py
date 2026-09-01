@@ -103,6 +103,38 @@ class TestWorkflowYAML:
                     f"{f.name}:{name}: runner image must not float"
                 )
 
+    def test_isolated_dashboard_audits_are_limited_to_stdlib_safe_modes(self):
+        isolated_entrypoint = "python -S scripts/vllm/audit_dashboard_data.py"
+        safe_mode_flags = ("--dns-only", "--queue-lifecycle-only")
+        isolated_commands = []
+
+        for workflow_path in WORKFLOWS.glob("*.yml"):
+            workflow = yaml.safe_load(workflow_path.read_text())
+            for job_name, job in workflow["jobs"].items():
+                for step in job.get("steps", []) or []:
+                    script = str(step.get("run") or "")
+                    logical_command = ""
+                    for raw_line in script.splitlines():
+                        line = raw_line.strip()
+                        logical_command = f"{logical_command} {line}".strip()
+                        if line.endswith("\\"):
+                            logical_command = logical_command[:-1].rstrip()
+                            continue
+                        if isolated_entrypoint in logical_command:
+                            isolated_commands.append(
+                                (workflow_path.name, job_name, logical_command)
+                            )
+                        logical_command = ""
+
+        assert isolated_commands, "expected focused isolated dashboard audits"
+        for workflow_name, job_name, command in isolated_commands:
+            selected_modes = [flag for flag in safe_mode_flags if flag in command]
+            assert len(selected_modes) == 1, (
+                f"{workflow_name}:{job_name}: python -S may run the dashboard audit "
+                "only in one stdlib-safe focused mode; "
+                f"found {selected_modes!r} in {command!r}"
+            )
+
     def test_remote_actions_are_allowlisted_and_immutably_pinned(self):
         """A moving action tag must never change production code implicitly."""
 
@@ -1021,7 +1053,14 @@ class TestHourlyMasterWorkflow:
         routine_merge = sync["run"].index("--merge-history-git-ref origin/queue-data")
         assert target_branch < target_return < routine_merge
         assert candidate["if"] == "inputs.queue_generation != ''"
-        assert "audit_dashboard_data.py --queue-only" in candidate["run"]
+        assert (
+            "python scripts/vllm/audit_dashboard_data.py --queue-only"
+            in candidate["run"]
+        )
+        assert (
+            "python -S scripts/vllm/audit_dashboard_data.py --queue-only"
+            not in candidate["run"]
+        )
         assert "candidate < target" in candidate["run"]
         assert "candidate queue_jobs metrics generation must equal" in candidate["run"]
         assert 'if "metrics_observed_at" in jobs' in candidate["run"]
