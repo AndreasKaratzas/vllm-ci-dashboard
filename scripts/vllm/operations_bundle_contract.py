@@ -41,7 +41,7 @@ OPERATIONS_LEGACY_BUNDLE_VERSION = 1
 # Producer activation is intentionally separate from reader support. Bundle
 # upgrades ship in two phases: readers first, then this single writer selector
 # after every prior-version health/watchdog run has drained.
-OPERATIONS_PRODUCER_BUNDLE_VERSION = OPERATIONS_LEGACY_BUNDLE_VERSION
+OPERATIONS_PRODUCER_BUNDLE_VERSION = OPERATIONS_BUNDLE_VERSION
 OPERATIONS_SUPPORTED_BUNDLE_VERSIONS = frozenset(
     (OPERATIONS_LEGACY_BUNDLE_VERSION, OPERATIONS_BUNDLE_VERSION)
 )
