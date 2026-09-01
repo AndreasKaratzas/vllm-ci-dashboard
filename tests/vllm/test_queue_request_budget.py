@@ -330,19 +330,64 @@ def test_workflow_gates_every_trigger_before_exposing_buildkite_token() -> None:
     workflow = yaml.safe_load(workflow_path.read_text())
     job = workflow["jobs"]["snapshot"]
     assert job["timeout-minutes"] <= 20
+    assert job["env"] == {"PYTHONPATH": "${{ github.workspace }}/scripts"}
     steps = job["steps"]
     names = [step.get("name") for step in steps]
     reserve = steps[names.index("Reserve durable rolling queue request budget")]
     collect = steps[names.index("Collect bounded queue snapshot")]
+    report = steps[names.index("Read exact guarded queue request total")]
 
     assert names.index("Collect bounded queue snapshot") == names.index(
         "Reserve durable rolling queue request budget"
     ) + 1
     assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
+    assert reserve["env"] == {
+        "ATTEMPT_ID": "queue-${{ github.run_id }}-${{ github.run_attempt }}"
+    }
     assert "queue_request_budget.py reserve" in reserve["run"]
-    assert '--reservation-id "queue-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reserve["run"]
+    assert '--reservation-id "$ATTEMPT_ID"' in reserve["run"]
+    assert "buildkite_request_guard.py initialize" in reserve["run"]
+    assert 'if [ "$REQUEST_MODE" != interval_gated ]' not in reserve["run"]
+    assert 'interval_gated:0:0:0|metrics:2:2:0|metrics_and_details:14:2:12' in reserve["run"]
+    for name in (
+        "BUILDKITE_REQUEST_GUARD_FILE",
+        "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
+        "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
+    ):
+        assert f'echo "{name}=' in reserve["run"]
     assert collect["env"] == {"BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}"}
+    assert collect["id"] == "collect-queue"
     assert "--metrics-max-pages 2" in collect["run"]
     assert "--details-max-pages 12" in collect["run"]
     assert "metrics_and_details" in collect["run"]
     assert collect["if"] == "steps.queue-request-budget.outputs.request_mode != 'interval_gated'"
+    assert names.index("Read exact guarded queue request total") == names.index(
+        "Collect bounded queue snapshot"
+    ) + 1
+    assert "always()" in report["if"]
+    assert "steps.queue-request-budget.outcome == 'success'" in report["if"]
+    assert "buildkite_request_guard.py report" in report["run"]
+    for name in (
+        "BUILDKITE_REQUEST_GUARD_FILE",
+        "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
+        "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
+    ):
+        assert f'"${name}"' in report["run"]
+
+    token_steps = [
+        (index, step)
+        for index, step in enumerate(steps)
+        if "BUILDKITE_TOKEN" in (step.get("env") or {})
+        or "BUILDKITE_API_TOKEN" in (step.get("env") or {})
+    ]
+    assert token_steps == [(names.index("Collect bounded queue snapshot"), collect)]
+    assert token_steps[0][0] > names.index("Reserve durable rolling queue request budget")
+
+    for step_name in (
+        "Build live queue section",
+        "Validate live queue evidence",
+        "Publish durable live queue evidence",
+    ):
+        condition = next(step for step in steps if step.get("name") == step_name)["if"]
+        assert "steps.collect-queue.outcome == 'success'" in condition
+        assert "steps.queue-request-guard-report.outcome == 'success'" in condition

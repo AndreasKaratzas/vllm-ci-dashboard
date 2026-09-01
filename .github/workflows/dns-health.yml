@@ -34,6 +34,10 @@ jobs:
   collect:
     runs-on: ubuntu-24.04
     timeout-minutes: 34
+    env:
+      # Every token-bearing Python process imports the fail-closed transport
+      # guard from this trusted checkout before its script can execute.
+      PYTHONPATH: ${{ github.workspace }}/scripts
     outputs:
       dns_generation: ${{ steps.dns-generation.outputs.generated_at }}
     permissions:
@@ -141,15 +145,42 @@ jobs:
 
       - name: Reserve durable rolling DNS request budget
         id: dns-request-budget
+        env:
+          ATTEMPT_ID: dns-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/dns-request-budget.outputs"
+          : > "$OUTPUTS"
           python scripts/vllm/dns_request_budget.py reserve \
             --state data/vllm/ci/dns_health/scan_state.json.gz \
             --minimum-interval-hours 3 \
-            --reservation-id "dns-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            --github-output "$GITHUB_OUTPUT"
+            --reservation-id "$ATTEMPT_ID" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "reserved_request_starts" {print $2}' "$OUTPUTS")
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|interval_gated)$ ]] || \
+             { [ "$REQUEST_MODE" = reserved ] && [ "$ALLOWANCE" != 110 ]; } || \
+             { [ "$REQUEST_MODE" = interval_gated ] && [ "$ALLOWANCE" != 0 ]; }; then
+            echo "::error::DNS request ledger returned malformed gate outputs."
+            exit 1
+          fi
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+          # The interval-gated mode deliberately installs a zero allowance.
+          # It may reuse and republish the prior generation, but any accidental
+          # Buildkite transport is denied before reaching the network.
+          GUARD_FILE="$RUNNER_TEMP/dns-buildkite-request-guard-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance "$ALLOWANCE"
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+          } >> "$GITHUB_ENV"
 
       - name: Collect DNS failure observations
+        id: collect-dns
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -171,6 +202,19 @@ jobs:
             --classification-cache data/vllm/ci/.cache/dns-classifications-v1
           )
           python scripts/vllm/collect_dns_failures.py "${ARGS[@]}"
+
+      - name: Read exact guarded Buildkite request total
+        id: dns-request-guard-report
+        if: >-
+          always() &&
+          steps.dns-request-budget.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Validate bounded DNS artifacts
         run: |

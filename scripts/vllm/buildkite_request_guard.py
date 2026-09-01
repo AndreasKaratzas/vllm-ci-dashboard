@@ -70,7 +70,7 @@ def _validate_state(
         isinstance(allowance, bool)
         or not isinstance(allowance, int)
         or allowance != expected_allowance
-        or not 1 <= allowance <= MAX_ALLOWANCE
+        or not 0 <= allowance <= MAX_ALLOWANCE
     ):
         raise BuildkiteRequestGuardError("request guard allowance disagrees")
     starts = value.get("request_starts")
@@ -127,7 +127,7 @@ def _open_locked(path: Path, *, writable: bool):
 def initialize(path: Path, *, attempt_id: str, allowance: int) -> None:
     if not SAFE_ATTEMPT_RE.fullmatch(attempt_id):
         raise BuildkiteRequestGuardError("request guard attempt id is invalid")
-    if isinstance(allowance, bool) or not isinstance(allowance, int) or not 1 <= allowance <= MAX_ALLOWANCE:
+    if isinstance(allowance, bool) or not isinstance(allowance, int) or not 0 <= allowance <= MAX_ALLOWANCE:
         raise BuildkiteRequestGuardError("request guard allowance is invalid")
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -278,15 +278,16 @@ def install(path: Path, *, attempt_id: str, allowance: int) -> None:
 
 
 def install_from_environment() -> None:
-    names = (
+    guard_names = (
         "BUILDKITE_REQUEST_GUARD_FILE",
         "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
         "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
     )
+    token_names = ("BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN")
     raw_path = os.getenv("BUILDKITE_REQUEST_GUARD_FILE", "")
     raw_attempt = os.getenv("BUILDKITE_REQUEST_GUARD_ATTEMPT_ID", "")
     raw_allowance = os.getenv("BUILDKITE_REQUEST_GUARD_ALLOWANCE", "")
-    if not any(name in os.environ for name in names):
+    if not any(name in os.environ for name in (*guard_names, *token_names)):
         return
     if not raw_path or not raw_attempt or not raw_allowance.isdigit():
         raise BuildkiteRequestGuardError("request guard environment is incomplete")

@@ -44,6 +44,56 @@ def test_every_workflow_rejects_duplicate_yaml_keys() -> None:
         assert isinstance(value, dict), path
 
 
+def test_every_buildkite_token_step_has_one_initialized_local_transport_guard() -> None:
+    token_names = {"BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN"}
+    guarded_workflows: set[str] = set()
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        workflow = load(path.name)
+        assert not token_names.intersection(workflow.get("env") or {}), path
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            job_env = job.get("env") or {}
+            assert not token_names.intersection(job_env), (path, job_name)
+            steps = job.get("steps") or []
+            token_indexes = [
+                index
+                for index, step in enumerate(steps)
+                if token_names.intersection(step.get("env") or {})
+            ]
+            if not token_indexes:
+                continue
+
+            guarded_workflows.add(path.name)
+            assert job_env.get("PYTHONPATH") == "${{ github.workspace }}/scripts"
+            first_token = min(token_indexes)
+            last_token = max(token_indexes)
+            before_token = "\n".join(
+                str(step.get("run") or "") for step in steps[:first_token]
+            )
+            after_token = "\n".join(
+                str(step.get("run") or "") for step in steps[last_token + 1 :]
+            )
+            assert any(
+                name in before_token
+                for name in (
+                    "request_bearing_attempt_budget.py",
+                    "dns_request_budget.py",
+                    "queue_request_budget.py",
+                )
+            )
+            assert "buildkite_request_guard.py initialize" in before_token
+            assert "buildkite_request_guard.py report" in after_token
+            for index in token_indexes:
+                assert "python -S" not in str(steps[index].get("run") or "")
+
+    assert guarded_workflows == {
+        "dns-health.yml",
+        "hourly-master.yml",
+        "queue-lifecycle.yml",
+        "queue-monitor.yml",
+    }
+
+
 def test_data_collection_serializes_before_a_failure_surviving_reservation() -> None:
     workflow = load("hourly-master.yml")
     job = workflow["jobs"]["collect-and-deploy"]

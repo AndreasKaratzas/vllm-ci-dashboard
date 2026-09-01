@@ -28,6 +28,11 @@ jobs:
     # every request starts promptly after reservation. This job cannot retain a
     # permit for more than twenty minutes.
     timeout-minutes: 20
+    env:
+      # Import sitecustomize before every Python entry point. Once the durable
+      # reservation initializes the guard environment, every Buildkite
+      # transport start shares one fail-closed counter.
+      PYTHONPATH: ${{ github.workspace }}/scripts
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -85,13 +90,42 @@ jobs:
 
       - name: Reserve durable rolling queue request budget
         id: queue-request-budget
+        env:
+          ATTEMPT_ID: queue-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/queue-request-budget.outputs"
+          : > "$OUTPUTS"
           python scripts/vllm/queue_request_budget.py reserve \
-            --reservation-id "queue-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            --github-output "$GITHUB_OUTPUT"
+            --reservation-id "$ATTEMPT_ID" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "reserved_request_starts" {print $2}' "$OUTPUTS")
+          METRICS_LIMIT=$(awk -F= '$1 == "metrics_request_limit" {print $2}' "$OUTPUTS")
+          DETAILS_LIMIT=$(awk -F= '$1 == "details_request_limit" {print $2}' "$OUTPUTS")
+          case "$REQUEST_MODE:$ALLOWANCE:$METRICS_LIMIT:$DETAILS_LIMIT" in
+            interval_gated:0:0:0|metrics:2:2:0|metrics_and_details:14:2:12) ;;
+            *)
+              echo "::error::Queue budget returned malformed guard allowance outputs."
+              exit 1
+              ;;
+          esac
+          # A coalesced wake-up receives a zero allowance. Installing that
+          # deny-all guard keeps every post-gate Python process fail closed.
+          GUARD_FILE="$RUNNER_TEMP/queue-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance "$ALLOWANCE"
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+          } >> "$GITHUB_ENV"
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
 
       - name: Collect bounded queue snapshot
+        id: collect-queue
         if: steps.queue-request-budget.outputs.request_mode != 'interval_gated'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
@@ -113,16 +147,38 @@ jobs:
           echo "After: $(wc -l < data/vllm/ci/queue_timeseries.jsonl) lines"
           tail -1 data/vllm/ci/queue_timeseries.jsonl | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'Latest: ts={d[\"ts\"]}, queues={len(d[\"queues\"])}')"
 
+      - name: Read exact guarded queue request total
+        id: queue-request-guard-report
+        if: >-
+          always() &&
+          steps.queue-request-budget.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Build live queue section
-        if: steps.queue-request-budget.outputs.request_mode != 'interval_gated'
+        if: >-
+          steps.queue-request-budget.outputs.request_mode != 'interval_gated' &&
+          steps.collect-queue.outcome == 'success' &&
+          steps.queue-request-guard-report.outcome == 'success'
         run: python scripts/vllm/build_queue_section.py
 
       - name: Validate live queue evidence
-        if: steps.queue-request-budget.outputs.request_mode != 'interval_gated'
+        if: >-
+          steps.queue-request-budget.outputs.request_mode != 'interval_gated' &&
+          steps.collect-queue.outcome == 'success' &&
+          steps.queue-request-guard-report.outcome == 'success'
         run: python scripts/vllm/audit_dashboard_data.py --queue-only
 
       - name: Publish durable live queue evidence
-        if: steps.queue-request-budget.outputs.request_mode != 'interval_gated'
+        if: >-
+          steps.queue-request-budget.outputs.request_mode != 'interval_gated' &&
+          steps.collect-queue.outcome == 'success' &&
+          steps.queue-request-guard-report.outcome == 'success'
         run: |
           # Publish only queue-owned files on a dedicated single-commit branch.
           # Canonical gh-pages rebuilds can no longer overwrite or delay polls.

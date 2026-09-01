@@ -348,20 +348,53 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     names = [step.get("name") for step in steps]
     reserve = steps[names.index("Reserve durable rolling DNS request budget")]
     collect = steps[names.index("Collect DNS failure observations")]
+    report = steps[names.index("Read exact guarded Buildkite request total")]
 
+    assert collect_job["env"] == {
+        "PYTHONPATH": "${{ github.workspace }}/scripts"
+    }
     assert (
         names.index("Resolve durable DNS scanner state")
         < names.index("Reserve durable rolling DNS request budget")
         < names.index("Collect DNS failure observations")
+        < names.index("Read exact guarded Buildkite request total")
     )
     assert reserve["id"] == "dns-request-budget"
     assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
     assert "dns_request_budget.py reserve" in reserve["run"]
-    assert '--reservation-id "dns-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reserve["run"]
+    assert reserve["env"] == {
+        "ATTEMPT_ID": "dns-${{ github.run_id }}-${{ github.run_attempt }}"
+    }
+    assert '--reservation-id "$ATTEMPT_ID"' in reserve["run"]
     assert "--minimum-interval-hours 3" in reserve["run"]
+    assert "buildkite_request_guard.py initialize" in reserve["run"]
+    assert '[ "$REQUEST_MODE" = interval_gated ] && [ "$ALLOWANCE" != 0 ]' in (
+        reserve["run"]
+    )
+    assert 'if [ "$REQUEST_MODE" = reserved ]' not in reserve["run"]
+    assert 'echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"' in reserve["run"]
+    assert 'echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"' in reserve["run"]
+    assert 'echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"' in reserve["run"]
     assert collect["env"] == {"BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}"}
+    assert collect["id"] == "collect-dns"
+    assert "if" not in collect
     assert "--max-requests 110" in collect["run"]
     assert '--now "${{ steps.dns-request-budget.outputs.decision_at }}"' in collect["run"]
+    assert "always()" in report["if"]
+    assert "steps.dns-request-budget.outcome == 'success'" in report["if"]
+    assert "buildkite_request_guard.py report" in report["run"]
+    assert "--file \"$BUILDKITE_REQUEST_GUARD_FILE\"" in report["run"]
+    assert "--attempt-id \"$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID\"" in report["run"]
+    assert "--allowance \"$BUILDKITE_REQUEST_GUARD_ALLOWANCE\"" in report["run"]
+
+    for step_name in (
+        "Validate bounded DNS artifacts",
+        "Capture validated DNS generation",
+        "Encrypt durable DNS scanner state",
+        "Publish durable DNS evidence",
+    ):
+        assert "if" not in steps[names.index(step_name)]
+    assert "if" not in workflow["jobs"]["reconcile-publication"]
 
 
 def test_fixed_collector_clock_keeps_an_interval_gated_run_at_zero_requests(

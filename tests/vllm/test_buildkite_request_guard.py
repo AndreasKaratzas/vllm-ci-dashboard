@@ -60,6 +60,27 @@ def test_counter_is_atomic_and_blocks_allowance_plus_one_before_transport(
     assert guard.read_count(path, attempt_id="data-100-1", allowance=10) == 10
 
 
+def test_zero_allowance_is_a_valid_deny_all_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = initialize(tmp_path, allowance=0)
+    transported: list[str] = []
+    monkeypatch.setattr(
+        requests.sessions.Session,
+        "send",
+        lambda session, request, *args, **kwargs: transported.append(request.url),
+    )
+    guard.install(path, attempt_id="data-100-1", allowance=0)
+    session = requests.Session()
+
+    session.send(prepared("https://github.com/example"))
+    with pytest.raises(guard.BuildkiteRequestGuardError, match="blocked before transport"):
+        session.send(prepared("https://api.buildkite.com/v2/builds"))
+
+    assert transported == ["https://github.com/example"]
+    assert guard.read_count(path, attempt_id="data-100-1", allowance=0) == 0
+
+
 def test_send_level_patch_counts_redirect_hops_and_ignores_non_buildkite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

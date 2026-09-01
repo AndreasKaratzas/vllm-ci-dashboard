@@ -82,9 +82,11 @@ class TestBuildkiteTokenScope:
             )
 
     def test_no_buildkite_token_in_non_vllm_scripts(self):
-        """Only scripts/vllm/ and collect_ci.py should reference BUILDKITE_TOKEN."""
-        # collect_ci.py is at root but imports from vllm.pipelines — it's vLLM-specific
-        allowed_root_scripts = {"collect_ci.py"}
+        """Only vLLM code and the exact fail-closed bootstrap name the token."""
+        # collect_ci.py imports from vllm.pipelines. sitecustomize.py never uses
+        # the token value; it detects either token variable so an unguarded
+        # Python process terminates before its requested script executes.
+        allowed_root_scripts = {"collect_ci.py", "sitecustomize.py"}
         for py_file in SCRIPTS.rglob("*.py"):
             rel = py_file.relative_to(SCRIPTS)
             if str(rel).startswith("vllm") or rel.name in allowed_root_scripts:

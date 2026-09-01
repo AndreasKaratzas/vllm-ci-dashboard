@@ -2821,10 +2821,16 @@ class TestDnsHealthWorkflow:
         assert policy["branch"] == "dns-request-budget"
         assert reserve["id"] == "dns-request-budget"
         assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
+        assert reserve["env"] == {
+            "ATTEMPT_ID": "dns-${{ github.run_id }}-${{ github.run_attempt }}"
+        }
         assert "dns_request_budget.py reserve" in reserve["run"]
-        assert '--reservation-id "dns-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in (
-            reserve["run"]
-        )
+        assert '--reservation-id "$ATTEMPT_ID"' in reserve["run"]
+        assert "buildkite_request_guard.py initialize" in reserve["run"]
+        assert 'if [ "$REQUEST_MODE" = reserved ]' not in reserve["run"]
+        assert 'echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"' in reserve["run"]
+        assert 'echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"' in reserve["run"]
+        assert 'echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"' in reserve["run"]
         assert '--now "${{ steps.dns-request-budget.outputs.decision_at }}"' in collect
 
     def test_restores_exact_state_collects_and_validates_before_publish(self):
@@ -2836,6 +2842,7 @@ class TestDnsHealthWorkflow:
         restore = restore_step["run"]
         reserve = steps[names.index("Reserve durable rolling DNS request budget")]
         collect = steps[names.index("Collect DNS failure observations")]
+        report = steps[names.index("Read exact guarded Buildkite request total")]
         validate = steps[names.index("Validate bounded DNS artifacts")]["run"]
         generation_step = steps[names.index("Capture validated DNS generation")]
         encrypt_step = steps[names.index("Encrypt durable DNS scanner state")]
@@ -2875,10 +2882,13 @@ class TestDnsHealthWorkflow:
 
         assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
         assert "dns_request_budget.py reserve" in reserve["run"]
+        assert "buildkite_request_guard.py initialize" in reserve["run"]
 
         assert collect.get("env", {}).get("BUILDKITE_TOKEN") == (
             "${{ secrets.BUILDKITE_TOKEN }}"
         )
+        assert collect["id"] == "collect-dns"
+        assert "if" not in collect
         assert "DNS_STATE_ENCRYPTION_KEY" not in collect.get("env", {})
         script = collect["run"]
         assert "scripts/vllm/collect_dns_failures.py" in script
@@ -2894,6 +2904,13 @@ class TestDnsHealthWorkflow:
             '--now "${{ steps.dns-request-budget.outputs.decision_at }}"'
             in argument_lines
         )
+
+        assert "always()" in report["if"]
+        assert "steps.dns-request-budget.outcome == 'success'" in report["if"]
+        assert "buildkite_request_guard.py report" in report["run"]
+        assert '--file "$BUILDKITE_REQUEST_GUARD_FILE"' in report["run"]
+        assert '--attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID"' in report["run"]
+        assert '--allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE"' in report["run"]
         assert "--time-budget-seconds 1200" in argument_lines
         assert (
             "--classification-cache data/vllm/ci/.cache/dns-classifications-v1"
@@ -2931,6 +2948,7 @@ class TestDnsHealthWorkflow:
 
         workflow, _ = self._workflow()
         reconcile = workflow["jobs"]["reconcile-publication"]
+        assert "if" not in reconcile
         reconcile_steps = reconcile["steps"]
         reconcile_names = [step.get("name") for step in reconcile_steps]
         plan = reconcile_steps[

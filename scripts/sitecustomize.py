@@ -9,6 +9,8 @@ import sys
 if any(
     name in os.environ
     for name in (
+        "BUILDKITE_TOKEN",
+        "BUILDKITE_API_TOKEN",
         "BUILDKITE_REQUEST_GUARD_FILE",
         "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
         "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
