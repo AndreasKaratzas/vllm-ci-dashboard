@@ -42,9 +42,17 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import (  # noqa: E402
+    BuildkiteRequestGuardError,
+    install_from_environment_or_exit,
+)
+
+install_from_environment_or_exit()
+
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
 from vllm.ci.utils import parse_iso, queue_from_rules  # noqa: E402
-from vllm.buildkite_request_guard import BuildkiteRequestGuardError  # noqa: E402
+from vllm.bounded_json import atomic_write_bytes, pretty_json_bytes  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -58,6 +66,7 @@ DEFAULT_HOURLY_RETENTION_DAYS = 7
 DEFAULT_PARENT_BUILD_LOOKBACK_DAYS = 3
 DEFAULT_WINDOW_DAYS = 14
 DEFAULT_MAX_PAGES = 50
+WORKLOAD_MAPPING_MAX_BYTES = writer_max_bytes("workload_mapping")
 MAX_SLICE_WORKERS = 3
 PER_PAGE = 100
 REQUEST_ATTEMPTS = 6
@@ -75,6 +84,10 @@ STAT_FIELDS = (
 )
 
 log = logging.getLogger(__name__)
+
+
+class BuildkiteRequestDeadlineExceeded(RuntimeError):
+    """A caller-owned wall-clock deadline ended before a complete response."""
 
 
 def _utc_iso(value: datetime) -> str:
@@ -230,20 +243,38 @@ def _request_build_page(
     path: str,
     token: str,
     params: dict[str, Any],
+    *,
+    deadline_monotonic: float | None = None,
 ) -> list[dict]:
     response = None
     for attempt in range(1, REQUEST_ATTEMPTS + 1):
+        remaining = None
+        if deadline_monotonic is not None:
+            remaining = deadline_monotonic - time_module.monotonic()
+            if remaining <= 0:
+                raise BuildkiteRequestDeadlineExceeded(
+                    "Buildkite request deadline ended before the next transport start"
+                )
         try:
             response = requests.get(
                 f"{BK_API_BASE}{path}",
                 headers={"Authorization": f"Bearer {token}"},
                 params=params,
-                timeout=90,
+                timeout=min(90.0, remaining) if remaining is not None else 90,
             )
+            if (
+                deadline_monotonic is not None
+                and time_module.monotonic() >= deadline_monotonic
+            ):
+                raise BuildkiteRequestDeadlineExceeded(
+                    "Buildkite response arrived after the caller deadline"
+                )
             if response.status_code not in RETRYABLE_STATUS_CODES:
                 response.raise_for_status()
                 break
             response.raise_for_status()
+        except BuildkiteRequestDeadlineExceeded:
+            raise
         except requests.RequestException as exc:
             retryable = (
                 response is None
@@ -268,6 +299,12 @@ def _request_build_page(
                     except (TypeError, ValueError):
                         continue
             delay = min(60, max(1, retry_after, 2 ** (attempt - 1)))
+            if deadline_monotonic is not None:
+                remaining = deadline_monotonic - time_module.monotonic()
+                if remaining <= delay:
+                    raise BuildkiteRequestDeadlineExceeded(
+                        "Buildkite retry delay would cross the caller deadline"
+                    ) from exc
             log.warning(
                 "Buildkite request retry %d/%d after %s; waiting %ds",
                 attempt,
@@ -279,6 +316,10 @@ def _request_build_page(
     if response is None:
         raise RuntimeError("Buildkite request did not produce a response")
     payload = response.json()
+    if deadline_monotonic is not None and time_module.monotonic() >= deadline_monotonic:
+        raise BuildkiteRequestDeadlineExceeded(
+            "Buildkite response decoding crossed the caller deadline"
+        )
     if not isinstance(payload, list):
         raise TypeError(f"Buildkite returned non-list payload for {path}")
     return payload
@@ -967,8 +1008,20 @@ def collect_workload_mapping(
         microsecond=0
     )
     existing = existing if isinstance(existing, dict) else {}
-    retention_days = max(90, retention_days)
-    hourly_retention_days = max(7, hourly_retention_days)
+    if retention_days > DEFAULT_RETENTION_DAYS:
+        raise ValueError(
+            f"retention_days may not exceed {DEFAULT_RETENTION_DAYS}"
+        )
+    if hourly_retention_days > DEFAULT_HOURLY_RETENTION_DAYS:
+        raise ValueError(
+            "hourly_retention_days may not exceed "
+            f"{DEFAULT_HOURLY_RETENTION_DAYS}"
+        )
+    retention_days = max(DEFAULT_RETENTION_DAYS, retention_days)
+    hourly_retention_days = max(
+        DEFAULT_HOURLY_RETENTION_DAYS,
+        hourly_retention_days,
+    )
     parent_build_lookback_days = max(1, parent_build_lookback_days)
     current_hour = _hour_start(now)
     daily_retention_start = now.date() - timedelta(days=retention_days - 1)
@@ -1289,6 +1342,101 @@ def collect_workload_mapping(
     }
 
 
+def compact_workload_mapping_for_publication(
+    source: dict,
+    *,
+    max_bytes: int = WORKLOAD_MAPPING_MAX_BYTES,
+) -> dict:
+    """Drop oldest whole buckets until the exact JSON encoding fits."""
+    if max_bytes <= 0:
+        raise ValueError("workload-mapping byte budget must be positive")
+    source_hourly = list(source.get("hourly") or [])
+    source_daily = list(source.get("daily") or [])
+
+    def candidate(hourly_start: int, daily_start: int) -> dict:
+        hourly = source_hourly[hourly_start:]
+        daily = source_daily[daily_start:]
+        result = {
+            key: value
+            for key, value in source.items()
+            if key not in {"hourly", "daily", "retention"}
+        }
+        result["retention"] = dict(source.get("retention") or {})
+        result["retention"]["publication"] = {
+            "policy": "drop_oldest_whole_utc_buckets",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": (
+                hourly_start == 0 and daily_start == 0
+            ),
+            "aggregate_scalars_complete": True,
+            "hourly": {
+                "source": len(source_hourly),
+                "published": len(hourly),
+                "omitted": hourly_start,
+                "complete": hourly_start == 0,
+                "published_start": hourly[0].get("hour") if hourly else None,
+            },
+            "daily": {
+                "source": len(source_daily),
+                "published": len(daily),
+                "omitted": daily_start,
+                "complete": daily_start == 0,
+                "published_start": daily[0].get("date") if daily else None,
+            },
+        }
+        result["hourly"] = hourly
+        result["daily"] = daily
+        return result
+
+    hourly_start = 0
+    daily_start = 0
+    bounded = candidate(hourly_start, daily_start)
+    while len(pretty_json_bytes(bounded)) > max_bytes:
+        if hourly_start >= len(source_hourly) and daily_start >= len(source_daily):
+            raise RuntimeError(
+                "workload-mapping fixed metadata exceeds its byte budget; "
+                "preserving the last-known-good file"
+            )
+        next_hour = (
+            str(source_hourly[hourly_start].get("hour") or "")
+            if hourly_start < len(source_hourly)
+            else None
+        )
+        next_day = (
+            str(source_daily[daily_start].get("date") or "")
+            if daily_start < len(source_daily)
+            else None
+        )
+        # ISO UTC timestamps and canonical dates have the same lexical order.
+        # At an equal calendar boundary, discard the coarser daily row first.
+        if next_day is not None and (
+            next_hour is None or next_day <= next_hour[:10]
+        ):
+            daily_start += 1
+        else:
+            hourly_start += 1
+        bounded = candidate(hourly_start, daily_start)
+    return bounded
+
+
+def write_workload_mapping(
+    path: Path,
+    source: dict,
+    *,
+    max_bytes: int = WORKLOAD_MAPPING_MAX_BYTES,
+) -> dict:
+    """Compact and atomically publish a bounded mapping generation."""
+    bounded = compact_workload_mapping_for_publication(
+        source,
+        max_bytes=max_bytes,
+    )
+    encoded = pretty_json_bytes(bounded)
+    if len(encoded) > max_bytes:
+        raise RuntimeError("workload-mapping serializer exceeded its byte budget")
+    atomic_write_bytes(path, encoded)
+    return bounded
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect vLLM Omni/vLLM AMD job mappings",
@@ -1353,15 +1501,18 @@ def main() -> None:
         max_pages=args.max_pages,
         force_days=args.force_days,
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, indent=2) + "\n")
+    published = write_workload_mapping(args.output, payload)
     log.info(
         "Wrote %s: Omni=%d vLLM=%d mapped jobs in the %d-day window (%s)",
         args.output,
-        payload["totals"]["omni"]["mapped_jobs"],
-        payload["totals"]["main"]["mapped_jobs"],
-        payload["window"]["days"],
-        ("query complete" if payload["window"]["collection_complete"] else "lower bound"),
+        published["totals"]["omni"]["mapped_jobs"],
+        published["totals"]["main"]["mapped_jobs"],
+        published["window"]["days"],
+        (
+            "query complete"
+            if published["window"]["collection_complete"]
+            else "lower bound"
+        ),
     )
 
 

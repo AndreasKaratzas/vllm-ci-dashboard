@@ -21,6 +21,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Literal, TypedDict
 
+from ..bounded_json import atomic_write_bytes
+from ..dashboard_storage_budget import writer_max_bytes
+
 
 SCHEMA_VERSION = 1
 STATE_KIND = "vllm-ci-dns-scan-state"
@@ -32,6 +35,7 @@ LOG_CLOCK_TOLERANCE_SECONDS = 60
 MAX_LOG_BYTES = 16 * 1024 * 1024
 PUBLIC_EVIDENCE_LIMIT = 3000
 PUBLIC_EVIDENCE_BYTE_BUDGET = 5 * 1024 * 1024
+PUBLIC_OUTPUT_MAX_BYTES = writer_max_bytes("dns_failures")
 MAX_COMPRESSED_STATE_BYTES = 63 * 1024 * 1024
 MAX_DECOMPRESSED_STATE_BYTES = 256 * 1024 * 1024
 
@@ -1458,10 +1462,105 @@ def build_public_output(state: object) -> dict:
     }
 
 
+def _public_output_bytes(payload: dict) -> bytes:
+    return (
+        json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=False)
+        + "\n"
+    ).encode("utf-8")
+
+
+def compact_public_output(
+    source: dict,
+    *,
+    max_bytes: int | None = None,
+) -> dict:
+    """Bound public drill-down rows while retaining exact aggregate totals."""
+    if max_bytes is None:
+        max_bytes = PUBLIC_OUTPUT_MAX_BYTES
+    if max_bytes <= 0:
+        raise ValueError("DNS public-output byte budget must be positive")
+    source_windows = source.get("windows")
+    if not isinstance(source_windows, dict):
+        source_windows = {}
+    source_rows = {
+        str(window): list((block or {}).get("rows") or [])
+        for window, block in source_windows.items()
+        if isinstance(block, dict)
+    }
+    source_evidence = list(((source.get("evidence") or {}).get("items") or []))
+
+    def candidate(ratio: int) -> dict:
+        result = {
+            key: value
+            for key, value in source.items()
+            if key not in {"windows", "evidence", "publication_retention"}
+        }
+        windows = {}
+        row_metadata = {}
+        for window, block in source_windows.items():
+            if not isinstance(block, dict):
+                continue
+            rows = source_rows.get(str(window), [])
+            count = len(rows) * ratio // 1_000_000
+            published = rows[:count]
+            windows[window] = {**block, "rows": published}
+            row_metadata[str(window)] = {
+                "source": len(rows),
+                "published": len(published),
+                "omitted": len(rows) - len(published),
+                "complete": len(published) == len(rows),
+            }
+        evidence_count = len(source_evidence) * ratio // 1_000_000
+        evidence_items = source_evidence[:evidence_count]
+        evidence = dict(source.get("evidence") or {})
+        evidence["items"] = evidence_items
+        evidence["shown"] = len(evidence_items)
+        evidence["truncated"] = len(evidence_items) < int(
+            evidence.get("evidence_total") or len(source_evidence)
+        )
+        result["windows"] = windows
+        result["evidence"] = evidence
+        evidence_metadata = {
+            "source": len(source_evidence),
+            "published": len(evidence_items),
+            "omitted": len(source_evidence) - len(evidence_items),
+            "complete": len(evidence_items) == len(source_evidence),
+        }
+        result["publication_retention"] = {
+            "policy": "retain_exact_totals_with_deterministic_whole_row_prefixes",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": all(
+                row["complete"] for row in [*row_metadata.values(), evidence_metadata]
+            ),
+            "aggregate_scalars_complete": True,
+            "window_rows": row_metadata,
+            "evidence": evidence_metadata,
+        }
+        return result
+
+    full = candidate(1_000_000)
+    if len(_public_output_bytes(full)) <= max_bytes:
+        return full
+    low = 0
+    high = 999_999
+    best: dict | None = None
+    while low <= high:
+        ratio = (low + high) // 2
+        attempt = candidate(ratio)
+        if len(_public_output_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = ratio + 1
+        else:
+            high = ratio - 1
+    if best is None:
+        raise RuntimeError(
+            "DNS public fixed metadata exceeds its byte budget; preserving the "
+            "last-known-good file"
+        )
+    return best
+
+
 def write_public_output(path: Path, payload: dict) -> None:
-    """Write a deterministic JSON projection atomically."""
-    encoded = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=False) + "\n"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
-    temporary.write_text(encoded)
-    temporary.replace(path)
+    """Write a deterministic bounded JSON projection atomically."""
+    bounded = compact_public_output(payload)
+    atomic_write_bytes(path, _public_output_bytes(bounded))

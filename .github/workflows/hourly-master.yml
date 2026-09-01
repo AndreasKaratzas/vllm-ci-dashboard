@@ -1779,7 +1779,13 @@ jobs:
             python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
 
       - name: Collect AMD test matrix
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        # The matrix is derived from the exact roster frozen by collect-ci in
+        # this same reserved request attempt. A zero-request cooldown run has
+        # no private handoff by design and must retain the validated matrix
+        # from dashboard-state instead of rebuilding from partial analytics.
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -2154,7 +2160,7 @@ jobs:
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
-        run: date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
+        run: python scripts/vllm/write_last_collected_at.py
 
       - name: Rebuild v2 operations snapshot with selected issue state
         if: >-
@@ -2189,6 +2195,7 @@ jobs:
           assert_no_tracked_private_cache
           git add -A -- data/ dashboards/ README.md
           python scripts/vllm/check_git_blob_sizes.py
+          python scripts/vllm/check_dashboard_state_storage_budget.py
 
           # Publication selection owns the generation clock. Reusing its exact
           # timestamp keeps the status document and state marker inseparable.
@@ -2511,6 +2518,10 @@ jobs:
           git add -- data/vllm/ci/public_projection_attestation.json
           python scripts/vllm/dashboard_state.py refresh-manifest \
             --expected-code-sha "$PUBLICATION_CODE_SHA"
+          # This is the final staged index: the refreshed manifest now binds
+          # the public projection attestation. Recheck the exact tree that the
+          # following step will turn into a parentless state commit.
+          python scripts/vllm/check_dashboard_state_storage_budget.py
 
       - name: Create validated dashboard state candidate
         id: publication-candidate
@@ -4092,11 +4103,16 @@ jobs:
             --public-attestation "$STATE_ATTESTATION" \
             --publication-status "$PUBLICATION_STATUS" \
             --output "$EXPECTED_MARKER"
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$CODE_SHA" != "$TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
           GIT_NO_LAZY_FETCH=1 python scripts/vllm/public_projection.py verify-git \
             --repo-root . \
             --git-ref "$PAGES_SHA" \
             --attestation "$STATE_ATTESTATION" \
-            --expected-marker "$EXPECTED_MARKER"
+            --expected-marker "$EXPECTED_MARKER" \
+            "${PROJECTION_COMPAT_ARGS[@]}"
           python scripts/vllm/plan_queue_publication_reconcile.py \
             --status "$PUBLICATION_STATUS" \
             --canonical-queue-data "$CANONICAL_QUEUE" \

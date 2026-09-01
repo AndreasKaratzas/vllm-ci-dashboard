@@ -7,7 +7,7 @@ merges canonical event identities instead of comparing line counts. Inputs are
 strict JSONL: a malformed or non-object line aborts before the local store is
 replaced. Duplicate stable results are ordered by validated ingestion
 generation (falling back to run time), not by source branch; equal-generation
-conflicts fail closed. The shared perf-eval writer then applies the 60 MiB cap,
+conflicts fail closed. The shared perf-eval writer then applies the 4 MiB cap,
 complete-nightly retention, and exact artifact identity index.
 
 This is a local git-data operation. It performs no Buildkite or GitHub API

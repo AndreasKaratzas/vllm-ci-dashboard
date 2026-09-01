@@ -18,13 +18,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..dashboard_storage_budget import writer_max_bytes
+
 
 SCHEMA_VERSION = 1
 MANIFEST_NAME = "manifest.json"
 SHARD_DIR = "test_results"
 SHARD_RE = re.compile(r"\d{4}-\d{2}-\d{2}_(amd|upstream)\.jsonl")
-MAX_SHARD_BYTES = 80 * 1024 * 1024
-MAX_TOTAL_BYTES = 256 * 1024 * 1024
+MAX_SHARD_BYTES = writer_max_bytes("test_result_shard")
+MAX_TOTAL_BYTES = writer_max_bytes("test_result_store")
 MAX_SHARDS = 64
 RETAIN_SHARDS = 16
 MAX_LINE_BYTES = 2 * 1024 * 1024
@@ -228,18 +230,31 @@ def record_complete_shard(root: Path, shard: Path) -> dict[str, Any]:
         raise BackfillCheckpointError("checkpoint progress may not regress a build number")
     shards = dict(manifest["shards"])
     shards[shard.name] = descriptor
-    retained_names = set(sorted(shards, reverse=True)[:RETAIN_SHARDS])
-    retained = {name: row for name, row in shards.items() if name in retained_names}
-    if (
-        len(retained) > MAX_SHARDS
-        or sum(row["bytes"] for row in retained.values()) > MAX_TOTAL_BYTES
-    ):
-        raise BackfillCheckpointError("checkpoint growth exceeds its storage bound")
+    retained_names = set(shards)
+    while True:
+        retained = {
+            name: row for name, row in shards.items() if name in retained_names
+        }
+        if (
+            len(retained) <= min(RETAIN_SHARDS, MAX_SHARDS)
+            and sum(row["bytes"] for row in retained.values()) <= MAX_TOTAL_BYTES
+        ):
+            break
+        retained_days = sorted({name[:10] for name in retained})
+        if len(retained_days) <= 1:
+            raise BackfillCheckpointError(
+                "checkpoint newest whole UTC day exceeds its storage bound"
+            )
+        oldest_day = retained_days[0]
+        retained_names.difference_update(
+            name for name in retained if name.startswith(f"{oldest_day}_")
+        )
     target = root / SHARD_DIR / shard.name
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.incoming")
-    shutil.copyfile(shard, temporary)
-    os.replace(temporary, target)
+    if shard.name in retained_names:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.incoming")
+        shutil.copyfile(shard, temporary)
+        os.replace(temporary, target)
     for stale_name in sorted(set(shards) - retained_names):
         try:
             (root / SHARD_DIR / stale_name).unlink()

@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,15 @@ from typing import Any
 
 import requests
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
+from vllm.amd_nightly_handoff import (  # noqa: E402
+    AMD_NIGHTLY_HANDOFF_MAX_BYTES,
+    load_frozen_build_snapshot,
+)
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
 
 log = logging.getLogger(__name__)
@@ -46,6 +56,7 @@ RAW_YAML_URL_TEMPLATE = (
     "{commit}/.buildkite/test-amd.yaml"
 )
 DEFAULT_BUILD_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
+AMD_TEST_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
 
 AREA_PATTERNS = [
     ("Kernels", re.compile(r"^kernels?|attention test|quantization test", re.I)),
@@ -1103,43 +1114,6 @@ def build_buildkite_job_index(
     return index
 
 
-def load_frozen_build_snapshot(
-    path: Path,
-    expected_build_number: int | str | None,
-) -> dict[str, Any] | None:
-    """Load the point-in-time AMD roster emitted by ``collect_ci.py``.
-
-    A present but malformed or mismatched snapshot is a hard error. Silently
-    using it would attach states and links from one build to another; falling
-    back to a fresh Buildkite request would recreate the temporal race this
-    snapshot exists to prevent.
-    """
-    if not path.exists():
-        return None
-    try:
-        payload = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Unable to read frozen AMD build snapshot {path}: {exc}") from exc
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise ValueError(f"Frozen AMD build snapshot {path} must use schema_version 1")
-    if payload.get("pipeline") != "amd-ci":
-        raise ValueError(f"Frozen AMD build snapshot {path} must identify amd-ci")
-    build = payload.get("build")
-    if not isinstance(build, dict) or not build.get("number"):
-        raise ValueError(f"Frozen AMD build snapshot {path} has no build number")
-    if not isinstance(build.get("jobs"), list):
-        raise ValueError(f"Frozen AMD build snapshot {path} has no jobs list")
-    if (
-        expected_build_number not in (None, "")
-        and str(build.get("number")) != str(expected_build_number)
-    ):
-        raise ValueError(
-            "Frozen AMD build snapshot mismatch: "
-            f"expected #{expected_build_number}, found #{build.get('number')}"
-        )
-    return build
-
-
 def frozen_or_analytics_job_index(
     analytics_index: dict[str, dict[str, list[dict[str, Any]]]],
     frozen_build: dict[str, Any] | None,
@@ -1547,6 +1521,283 @@ def build_matrix(
     }
 
 
+def bounded_matrix_payload(
+    matrix: dict[str, Any],
+    *,
+    max_bytes: int = AMD_TEST_MATRIX_MAX_BYTES,
+) -> dict[str, Any]:
+    """Bound matrix detail by retaining complete connected row cohorts.
+
+    A cohort joins rows referenced by the same best-hardware or duplicate
+    group. Publishing the cohort as a unit prevents dangling group members.
+    Incident and unresolved cohorts are retained before passing cohorts, while
+    the original aggregate counts remain explicit in the summary and exact
+    retention ledger.
+    """
+    if max_bytes <= 0:
+        raise ValueError("AMD test matrix byte budget must be positive")
+    source_rows = sorted(
+        (dict(row) for row in matrix.get("rows") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            int(row.get("yaml_order") or 0),
+            str(row.get("id") or ""),
+        ),
+    )
+    source_health = sorted(
+        (
+            dict(group)
+            for group in matrix.get("health_groups") or []
+            if isinstance(group, dict)
+        ),
+        key=lambda group: (
+            str(group.get("status") or ""),
+            str(group.get("id") or ""),
+        ),
+    )
+    source_duplicates = sorted(
+        (
+            dict(group)
+            for group in matrix.get("duplicate_groups") or []
+            if isinstance(group, dict)
+        ),
+        key=lambda group: str(group.get("id") or ""),
+    )
+    row_ids = [str(row.get("id") or "") for row in source_rows]
+    if len(set(row_ids)) != len(row_ids) or any(not row_id for row_id in row_ids):
+        raise ValueError("AMD test matrix rows must have unique non-empty ids")
+    row_id_set = set(row_ids)
+    parent = {row_id: row_id for row_id in row_ids}
+
+    def find(row_id: str) -> str:
+        while parent[row_id] != row_id:
+            parent[row_id] = parent[parent[row_id]]
+            row_id = parent[row_id]
+        return row_id
+
+    def union(references: Any) -> None:
+        members = sorted(
+            {
+                str(row_id)
+                for row_id in references or []
+                if str(row_id) in row_id_set
+            }
+        )
+        if not members:
+            return
+        root = find(members[0])
+        for member in members[1:]:
+            other = find(member)
+            if other != root:
+                parent[other] = root
+
+    for group in source_health:
+        union(group.get("member_row_ids"))
+    for group in source_duplicates:
+        union(group.get("member_ids"))
+
+    components: dict[str, set[str]] = defaultdict(set)
+    for row_id in row_ids:
+        components[find(row_id)].add(row_id)
+    status_by_row: dict[str, set[str]] = defaultdict(set)
+    for group in source_health:
+        status = str(group.get("status") or "unknown").casefold()
+        for row_id in group.get("member_row_ids") or []:
+            if str(row_id) in row_id_set:
+                status_by_row[str(row_id)].add(status)
+    row_order = {
+        str(row.get("id")): int(row.get("yaml_order") or 0)
+        for row in source_rows
+    }
+    status_rank = {
+        "failed": 0,
+        "failing": 0,
+        "timed_out": 0,
+        "broken": 0,
+        "soft_fail": 0,
+        "soft_failed": 0,
+        "waiting": 1,
+        "running": 1,
+        "scheduled": 1,
+        "assigned": 1,
+        "unknown": 2,
+        "passing": 3,
+        "passed": 3,
+    }
+
+    def component_key(component: set[str]) -> tuple[int, int, tuple[str, ...]]:
+        statuses = {
+            status
+            for row_id in component
+            for status in status_by_row.get(row_id, {"unknown"})
+        }
+        return (
+            min(status_rank.get(status, 2) for status in statuses),
+            min(row_order[row_id] for row_id in component),
+            tuple(sorted(component)),
+        )
+
+    ordered_components = sorted(components.values(), key=component_key)
+    source_policy = matrix.get("best_hardware_policy")
+    if not isinstance(source_policy, dict):
+        source_policy = {}
+    source_classifications = sorted(
+        (
+            dict(row)
+            for row in source_policy.get("mi355_classification") or []
+            if isinstance(row, dict)
+        ),
+        key=lambda row: (
+            str(row.get("row_id") or ""),
+            str(row.get("health_group_id") or ""),
+        ),
+    )
+
+    def count_entry(source_count: int, published_count: int) -> dict[str, Any]:
+        return {
+            "source": source_count,
+            "published": published_count,
+            "omitted": source_count - published_count,
+            "complete_relative_to_source": source_count == published_count,
+        }
+
+    def candidate(component_count: int) -> dict[str, Any]:
+        selected_ids = {
+            row_id
+            for component in ordered_components[:component_count]
+            for row_id in component
+        }
+        published_rows = [
+            row for row in source_rows if str(row.get("id")) in selected_ids
+        ]
+        published_health = [
+            group
+            for group in source_health
+            if (members := {
+                str(row_id) for row_id in group.get("member_row_ids") or []
+            })
+            and members <= selected_ids
+        ]
+        published_health_ids = {
+            str(group.get("id") or "") for group in published_health
+        }
+        published_duplicates = [
+            group
+            for group in source_duplicates
+            if (members := {str(row_id) for row_id in group.get("member_ids") or []})
+            and members <= selected_ids
+        ]
+        published_classifications = [
+            row
+            for row in source_classifications
+            if str(row.get("row_id") or "") in selected_ids
+            and (
+                not row.get("health_group_id")
+                or str(row.get("health_group_id")) in published_health_ids
+            )
+        ]
+        policy = {
+            key: value
+            for key, value in source_policy.items()
+            if key != "mi355_classification"
+        }
+        policy["mi355_classification"] = published_classifications
+        summary = dict(matrix.get("summary") or {})
+        health_policies = dict(summary.get("health_policies") or {})
+        best_hardware = dict(health_policies.get("best_hardware") or {})
+        best_hardware["group_ids"] = sorted(published_health_ids)
+        best_hardware["published_health_group_count"] = len(published_health)
+        best_hardware["health_group_details_complete"] = (
+            len(published_health) == len(source_health)
+        )
+        health_policies["best_hardware"] = best_hardware
+        summary["health_policies"] = health_policies
+        summary["source_health_group_count"] = len(source_health)
+        # Existing consumers compare this published-detail count to the full
+        # policy denominator and therefore fail closed on any omission.
+        summary["health_group_count"] = len(published_health)
+        complete = (
+            len(published_rows) == len(source_rows)
+            and len(published_health) == len(source_health)
+            and len(published_duplicates) == len(source_duplicates)
+            and len(published_classifications) == len(source_classifications)
+        )
+        result = {
+            key: value
+            for key, value in matrix.items()
+            if key not in {
+                "summary",
+                "best_hardware_policy",
+                "health_groups",
+                "duplicate_groups",
+                "rows",
+                "publication_retention",
+            }
+        }
+        result.update({
+            "summary": summary,
+            "best_hardware_policy": policy,
+            "health_groups": published_health,
+            "duplicate_groups": published_duplicates,
+            "rows": published_rows,
+            "publication_retention": {
+                "policy": "incident_first_connected_logical_cohorts_v1",
+                "max_bytes": max_bytes,
+                "complete_relative_to_source": complete,
+                "aggregate_source_counts_complete": True,
+                "logical_cohorts": count_entry(
+                    len(ordered_components), component_count
+                ),
+                "matrix_rows": count_entry(
+                    len(source_rows), len(published_rows)
+                ),
+                "health_groups": count_entry(
+                    len(source_health), len(published_health)
+                ),
+                "duplicate_groups": count_entry(
+                    len(source_duplicates), len(published_duplicates)
+                ),
+                "mi355_classifications": count_entry(
+                    len(source_classifications), len(published_classifications)
+                ),
+            },
+        })
+        return result
+
+    low, high = 0, len(ordered_components)
+    best: dict[str, Any] | None = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "AMD test matrix fixed metadata exceeds its byte budget; preserving "
+            "the last-known-good file"
+        )
+    return best
+
+
+def publish_matrix(
+    output_path: Path,
+    matrix: dict[str, Any],
+    *,
+    max_bytes: int = AMD_TEST_MATRIX_MAX_BYTES,
+) -> dict[str, Any]:
+    """Atomically publish the bounded matrix and return the written payload."""
+    bounded = bounded_matrix_payload(matrix, max_bytes=max_bytes)
+    write_pretty_json_lkg(
+        output_path,
+        bounded,
+        max_bytes=max_bytes,
+        label="AMD test matrix",
+    )
+    return bounded
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect AMD test-group coverage matrix")
     parser.add_argument("--output", type=str, default=str(OUTPUT))
@@ -1595,6 +1846,7 @@ def main() -> None:
     frozen_build = load_frozen_build_snapshot(
         snapshot_path,
         latest_build.get("number") if latest_build else None,
+        max_bytes=AMD_NIGHTLY_HANDOFF_MAX_BYTES,
     )
     if frozen_build is not None:
         # The frozen response is the source of both roster and commit. Preserve
@@ -1634,7 +1886,11 @@ def main() -> None:
     )
 
     out_path = output / "amd_test_matrix.json"
-    out_path.write_text(json.dumps(matrix, indent=2))
+    matrix = publish_matrix(
+        out_path,
+        matrix,
+        max_bytes=AMD_TEST_MATRIX_MAX_BYTES,
+    )
     log.info(
         "Wrote %s with %d groups across %d architectures",
         out_path,

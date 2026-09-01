@@ -14,11 +14,16 @@ import json
 import logging
 import os
 import re
+import sys
 import tempfile
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 import requests
 import yaml
@@ -49,7 +54,7 @@ DEFAULT_LOOKBACK_DAYS = 35
 MAX_SEARCH_REQUESTS = 24
 MAX_SEARCH_PAGES_PER_AUTHOR = 2
 MAX_PR_FILE_PAGES = 10
-MAX_OUTPUT_BYTES = 80 * 1024 * 1024
+MAX_OUTPUT_BYTES = writer_max_bytes("gating_proposals")
 MULTISPACE_RE = re.compile(r"\s+")
 
 
@@ -546,7 +551,76 @@ def load_previous_payload(path: Path) -> dict[str, Any] | None:
 
 def write_payload_atomic(path: Path, payload: dict[str, Any]) -> None:
     """Publish one complete sub-90-MiB snapshot without an in-place tear."""
-    encoded = (json.dumps(payload, indent=2, default=str) + "\n").encode("utf-8")
+    proposals = list(payload.get("pull_requests") or [])
+    collection = dict(payload.get("collection") or {})
+    cache_block = dict(collection.get("candidate_cache") or {})
+    cache_rows = list(cache_block.get("pull_requests") or [])
+
+    def candidate(proposal_count: int, cache_count: int) -> dict[str, Any]:
+        result = dict(payload)
+        result["pull_requests"] = proposals[:proposal_count]
+        result["collection"] = {
+            **collection,
+            "candidate_cache": {
+                **cache_block,
+                "pull_requests": cache_rows[:cache_count],
+            },
+        }
+        result["publication_retention"] = {
+            "policy": "retain_public_proposals_before_refetchable_candidate_cache",
+            "max_bytes": MAX_OUTPUT_BYTES,
+            "complete_relative_to_source": (
+                proposal_count == len(proposals) and cache_count == len(cache_rows)
+            ),
+            "pull_requests": {
+                "source": len(proposals),
+                "published": proposal_count,
+                "omitted": len(proposals) - proposal_count,
+                "complete": proposal_count == len(proposals),
+            },
+            "candidate_cache": {
+                "source": len(cache_rows),
+                "published": cache_count,
+                "omitted": len(cache_rows) - cache_count,
+                "complete": cache_count == len(cache_rows),
+            },
+        }
+        return result
+
+    def encoded_candidate(proposal_count: int, cache_count: int) -> bytes:
+        return (
+            json.dumps(
+                candidate(proposal_count, cache_count),
+                indent=2,
+                default=str,
+            )
+            + "\n"
+        ).encode("utf-8")
+
+    encoded = encoded_candidate(len(proposals), len(cache_rows))
+    if len(encoded) > MAX_OUTPUT_BYTES:
+        low, high = 0, len(cache_rows)
+        best: bytes | None = None
+        while low <= high:
+            keep = (low + high) // 2
+            attempt = encoded_candidate(len(proposals), keep)
+            if len(attempt) <= MAX_OUTPUT_BYTES:
+                best = attempt
+                low = keep + 1
+            else:
+                high = keep - 1
+        if best is None:
+            low, high = 0, len(proposals)
+            while low <= high:
+                keep = (low + high) // 2
+                attempt = encoded_candidate(keep, 0)
+                if len(attempt) <= MAX_OUTPUT_BYTES:
+                    best = attempt
+                    low = keep + 1
+                else:
+                    high = keep - 1
+        if best is not None:
+            encoded = best
     if len(encoded) > MAX_OUTPUT_BYTES:
         raise RuntimeError(
             f"Gating proposal payload is {len(encoded)} bytes; "

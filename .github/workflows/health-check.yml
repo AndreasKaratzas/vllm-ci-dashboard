@@ -19,11 +19,18 @@ permissions:
 
 jobs:
   check:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Three critical-route probes plus one streamed reliability proof can consume
+    # 1,587 seconds at their exact retry/deadline bounds. Preserve more than five
+    # minutes for normalization, artifact upload, and issue reconciliation.
+    timeout-minutes: 35
     steps:
       - name: Check out monitor
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
 
       - name: Set up exact Python runtime
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -44,7 +51,8 @@ jobs:
         continue-on-error: true
         env:
           SITE_URL: https://andreaskaratzas.github.io/vllm-ci-dashboard/
-          REPORT_PATH: ${{ runner.temp }}/site-health-report.json
+          REPORT_PATH: ${{ runner.temp }}/site-health-checker-report.json
+          EFFECTIVE_REPORT_PATH: ${{ runner.temp }}/site-health-report.json
           DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
           BOOTSTRAP_EVIDENCE_PATH: ${{ runner.temp }}/dashboard-bootstrap-refs.json
           GH_TOKEN: ${{ github.token }}
@@ -65,9 +73,12 @@ jobs:
               "overall_status": "checker_not_completed",
               "reasons": ["synthetic checker did not produce a complete report"],
           }
-          Path(os.environ["REPORT_PATH"]).write_text(
-              json.dumps(report, indent=2, sort_keys=True) + "\n"
-          )
+          encoded = json.dumps(report, indent=2, sort_keys=True) + "\n"
+          # Keep a fail-closed upload target independent of the raw checker
+          # output. If normalization crashes, the artifact cannot expose a raw
+          # healthy result that enforcement refused to trust.
+          for variable in ("REPORT_PATH", "EFFECTIVE_REPORT_PATH"):
+              Path(os.environ[variable]).write_text(encoded)
           Path(os.environ["DETAILS_PATH"]).write_text(
               "Synthetic checker did not produce bounded Markdown details.\n"
           )
@@ -112,7 +123,8 @@ jobs:
           CORE_REQUEST_MODE: ${{ steps.core-freshness.outputs.request_mode }}
           CORE_AVAILABLE_AT: ${{ steps.core-freshness.outputs.available_at }}
           CORE_LATEST_SUCCEEDED_AT: ${{ steps.core-freshness.outputs.latest_succeeded_at }}
-          REPORT_PATH: ${{ runner.temp }}/site-health-report.json
+          REPORT_PATH: ${{ runner.temp }}/site-health-checker-report.json
+          EFFECTIVE_REPORT_PATH: ${{ runner.temp }}/site-health-report.json
           DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
           BODY_PATH: ${{ runner.temp }}/site-health-issue.md
           BOOTSTRAP_EVIDENCE_PATH: ${{ runner.temp }}/dashboard-bootstrap-refs.json
@@ -120,606 +132,7 @@ jobs:
           OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import html
-          import json
-          import math
-          import os
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          max_report_bytes = 64 * 1024
-          max_details_bytes = 16 * 1024
-          report_path = Path(os.environ["REPORT_PATH"])
-          details_path = Path(os.environ["DETAILS_PATH"])
-          body_path = Path(os.environ["BODY_PATH"])
-
-          def fallback_report(reason):
-              return {
-                  "schema_version": 1,
-                  "checked_at": datetime.now(timezone.utc).isoformat(),
-                  "healthy": False,
-                  "overall_status": "workflow_evidence_invalid",
-                  "reasons": [reason],
-              }
-
-          def reject_duplicate_keys(pairs):
-              value = {}
-              for key, item in pairs:
-                  if key in value:
-                      raise ValueError(f"duplicate JSON key: {key}")
-                  value[key] = item
-              return value
-
-          def reject_nonfinite_constant(value):
-              raise ValueError(f"non-finite JSON constant: {value}")
-
-          report_syntax_valid = False
-          report_error = ""
-          try:
-              raw = report_path.read_bytes()
-              if len(raw) > max_report_bytes:
-                  raise ValueError("checker report exceeded 64 KiB")
-              report = json.loads(
-                  raw,
-                  object_pairs_hook=reject_duplicate_keys,
-                  parse_constant=reject_nonfinite_constant,
-              )
-              if not isinstance(report, dict):
-                  raise ValueError("checker report was not a JSON object")
-              encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
-              if len(encoded) > max_report_bytes:
-                  raise ValueError("normalized checker report exceeded 64 KiB")
-              report_syntax_valid = True
-          except (OSError, ValueError, json.JSONDecodeError) as exc:
-              report_error = str(exc)[:500]
-              report = fallback_report(report_error)
-
-          required = {
-              "healthy": os.environ.get("CHECKER_HEALTHY", ""),
-              "overall_status": os.environ.get("OVERALL_STATUS", ""),
-              "site_http": os.environ.get("SITE_HTTP", ""),
-              "site_bytes": os.environ.get("SITE_BYTES", ""),
-              "publication_http": os.environ.get("PUBLICATION_HTTP", ""),
-              "publication_mode": os.environ.get("PUBLICATION_MODE", ""),
-              "publication_status": os.environ.get("PUBLICATION_STATUS", ""),
-              "generated_at": os.environ.get("GENERATED_AT", ""),
-              "age_hours": os.environ.get("AGE_HOURS", ""),
-              "reason_count": os.environ.get("REASON_COUNT", ""),
-              "confirmation_confirmed": os.environ.get("CONFIRMATION_CONFIRMED", ""),
-              "probe_attempts": os.environ.get("PROBE_ATTEMPTS", ""),
-              "healthy_probe_count": os.environ.get("HEALTHY_PROBE_COUNT", ""),
-              "required_healthy_probes": os.environ.get("REQUIRED_HEALTHY_PROBES", ""),
-          }
-          # A completed unhealthy probe can legitimately have no parsed mode,
-          # status, generation, or age (for example when publication_status.json
-          # is unavailable or malformed). Quorum/transport evidence is mandatory;
-          # nullable publication diagnostics are cross-checked below and become
-          # mandatory through the stricter healthy-report contract.
-          mandatory_output_keys = {
-              "healthy",
-              "overall_status",
-              "site_http",
-              "site_bytes",
-              "publication_http",
-              "reason_count",
-              "confirmation_confirmed",
-              "probe_attempts",
-              "healthy_probe_count",
-              "required_healthy_probes",
-          }
-          missing = sorted(
-              key for key in mandatory_output_keys if not required[key].strip()
-          )
-          contract_errors = []
-
-          def parse_nonnegative_int_output(key, label):
-              raw_value = required[key]
-              try:
-                  value = int(raw_value, 10)
-              except ValueError:
-                  contract_errors.append(f"checker {label} output was not an integer")
-                  return None
-              if raw_value != str(value) or value < 0:
-                  contract_errors.append(
-                      f"checker {label} output was not a canonical nonnegative integer"
-                  )
-                  return None
-              return value
-
-          def is_nonnegative_int(value):
-              return (
-                  isinstance(value, int)
-                  and not isinstance(value, bool)
-                  and value >= 0
-              )
-
-          checker_healthy = None
-          if required["healthy"] in {"true", "false"}:
-              checker_healthy = required["healthy"] == "true"
-          else:
-              contract_errors.append("checker healthy output was not boolean")
-          if not required["overall_status"]:
-              contract_errors.append("checker overall_status output was missing")
-          output_site_http = parse_nonnegative_int_output("site_http", "site HTTP")
-          output_site_bytes = parse_nonnegative_int_output("site_bytes", "site bytes")
-          output_publication_http = parse_nonnegative_int_output(
-              "publication_http", "publication HTTP"
-          )
-          output_reason_count = parse_nonnegative_int_output(
-              "reason_count", "reason count"
-          )
-          output_probe_attempts = parse_nonnegative_int_output(
-              "probe_attempts", "probe attempts"
-          )
-          output_healthy_probe_count = parse_nonnegative_int_output(
-              "healthy_probe_count", "healthy probe count"
-          )
-          output_required_healthy = parse_nonnegative_int_output(
-              "required_healthy_probes", "required healthy probes"
-          )
-          confirmation_confirmed = None
-          if required["confirmation_confirmed"] in {"true", "false"}:
-              confirmation_confirmed = required["confirmation_confirmed"] == "true"
-          else:
-              contract_errors.append("checker confirmation output was not boolean")
-
-          if report_syntax_valid:
-              reasons = report.get("reasons")
-              report_healthy = report.get("healthy")
-              site = report.get("site")
-              publication = report.get("publication")
-              projection = report.get("projection")
-              confirmation = report.get("confirmation")
-              if type(report.get("schema_version")) is not int or report.get("schema_version") != 1:
-                  contract_errors.append("report schema_version was not 1")
-              if not isinstance(report_healthy, bool):
-                  contract_errors.append("report healthy was not boolean")
-              elif checker_healthy is not None and report_healthy != checker_healthy:
-                  contract_errors.append("report healthy disagreed with checker output")
-              if not isinstance(reasons, list):
-                  contract_errors.append("report reasons was not an array")
-              elif output_reason_count is not None and len(reasons) != output_reason_count:
-                  contract_errors.append("report reason count disagreed with checker output")
-              report_status = report.get("overall_status")
-              if not isinstance(report_status, str) or not report_status:
-                  contract_errors.append("report overall_status was not a nonempty string")
-              elif report_status != required["overall_status"]:
-                  contract_errors.append("report overall_status disagreed with checker output")
-              if checker_healthy is True and required["overall_status"] != "healthy":
-                  contract_errors.append("healthy checker output lacked healthy overall_status")
-              if checker_healthy is False and required["overall_status"] == "healthy":
-                  contract_errors.append("unhealthy checker output claimed healthy status")
-
-              if not isinstance(site, dict):
-                  contract_errors.append("report site was not an object")
-                  site = {}
-              if not isinstance(publication, dict):
-                  contract_errors.append("report publication was not an object")
-                  publication = {}
-              if not isinstance(projection, dict):
-                  contract_errors.append("report projection was not an object")
-                  projection = {}
-              if not isinstance(confirmation, dict):
-                  contract_errors.append("report confirmation was not an object")
-                  confirmation = {}
-
-              report_confirmed = confirmation.get("confirmed")
-              attempted = confirmation.get("attempted")
-              required_healthy = confirmation.get("required_healthy")
-              healthy_count = confirmation.get("healthy_count")
-              unhealthy_count = confirmation.get("unhealthy_count")
-              probes = confirmation.get("probes")
-              if report_confirmed is not True:
-                  contract_errors.append("report lacked completed quorum confirmation")
-              if confirmation_confirmed is not None and report_confirmed is not confirmation_confirmed:
-                  contract_errors.append("report confirmation disagreed with checker output")
-              if (
-                  confirmation.get("strategy") != "2-of-3-quorum"
-                  or confirmation.get("max_attempts") != 3
-                  or attempted != 3
-                  or required_healthy != 2
-                  or confirmation.get("max_requests") != 42
-                  or confirmation.get("per_request_timeout_seconds") != 10
-                  or confirmation.get("max_transport_seconds") != 420
-                  or confirmation.get("retry_delays_seconds") != [0.0, 2.0, 5.0]
-                  or confirmation.get("max_elapsed_seconds") != 427
-                  or not is_nonnegative_int(healthy_count)
-                  or not is_nonnegative_int(unhealthy_count)
-                  or healthy_count + unhealthy_count != attempted
-                  or not isinstance(probes, list)
-                  or len(probes) != attempted
-              ):
-                  contract_errors.append("report quorum confirmation was malformed")
-              if output_probe_attempts is not None and attempted != output_probe_attempts:
-                  contract_errors.append("report probe attempts disagreed with checker output")
-              if (
-                  output_healthy_probe_count is not None
-                  and healthy_count != output_healthy_probe_count
-              ):
-                  contract_errors.append("report healthy probe count disagreed with checker output")
-              if (
-                  output_required_healthy is not None
-                  and required_healthy != output_required_healthy
-              ):
-                  contract_errors.append("report quorum disagreed with checker output")
-              if isinstance(report_healthy, bool) and is_nonnegative_int(healthy_count):
-                  if report_healthy != (healthy_count >= 2):
-                      contract_errors.append("report health disagreed with its probe quorum")
-              if isinstance(probes, list):
-                  observed_probe_health = 0
-                  expected_probe_fields = {
-                      "attempt",
-                      "checked_at",
-                      "healthy",
-                      "site_http",
-                      "publication_http",
-                      "generation_http",
-                      "manifest_http",
-                      "projection_mode",
-                      "projection_verified",
-                      "reason_codes",
-                  }
-                  for index, probe in enumerate(probes, 1):
-                      if not isinstance(probe, dict) or set(probe) != expected_probe_fields:
-                          contract_errors.append("report probe summary was malformed")
-                          continue
-                      if probe.get("attempt") != index or not isinstance(probe.get("healthy"), bool):
-                          contract_errors.append("report probe sequence was malformed")
-                      else:
-                          observed_probe_health += int(probe["healthy"])
-                      for field in (
-                          "site_http",
-                          "publication_http",
-                          "generation_http",
-                          "manifest_http",
-                      ):
-                          if not is_nonnegative_int(probe.get(field)):
-                              contract_errors.append("report probe HTTP evidence was malformed")
-                      reason_codes = probe.get("reason_codes")
-                      if (
-                          not isinstance(reason_codes, list)
-                          or len(reason_codes) > 20
-                          or any(not isinstance(code, str) or not code for code in reason_codes)
-                      ):
-                          contract_errors.append("report probe findings were malformed")
-                      if probe.get("healthy") is True:
-                          projection_mode = probe.get("projection_mode")
-                          projection_proof_valid = (
-                              projection_mode == "verified"
-                              and probe.get("projection_verified") is True
-                              and probe.get("generation_http") == 200
-                              and probe.get("manifest_http") == 200
-                          ) or (
-                              projection_mode == "legacy-bootstrap"
-                              and probe.get("projection_verified") is False
-                              and probe.get("generation_http") == 404
-                              and probe.get("manifest_http") == 404
-                          )
-                          if (
-                              probe.get("site_http") != 200
-                              or probe.get("publication_http") != 200
-                              or reason_codes != []
-                              or not projection_proof_valid
-                          ):
-                              contract_errors.append("healthy probe summary lacked health proof")
-                  if is_nonnegative_int(healthy_count) and observed_probe_health != healthy_count:
-                      contract_errors.append("report probe summaries disagreed with healthy count")
-
-              report_site_http = site.get("http_status")
-              if not is_nonnegative_int(report_site_http):
-                  contract_errors.append(
-                      "report site http_status was not a nonnegative integer"
-                  )
-              elif (
-                  output_site_http is not None
-                  and report_site_http != output_site_http
-              ):
-                  contract_errors.append("report site HTTP disagreed with checker output")
-
-              report_site_bytes = site.get("bytes_read")
-              if not is_nonnegative_int(report_site_bytes):
-                  contract_errors.append(
-                      "report site bytes_read was not a nonnegative integer"
-                  )
-              elif (
-                  output_site_bytes is not None
-                  and report_site_bytes != output_site_bytes
-              ):
-                  contract_errors.append("report site bytes disagreed with checker output")
-
-              report_publication_http = publication.get("http_status")
-              if not is_nonnegative_int(report_publication_http):
-                  contract_errors.append(
-                      "report publication http_status was not a nonnegative integer"
-                  )
-              elif (
-                  output_publication_http is not None
-                  and report_publication_http != output_publication_http
-              ):
-                  contract_errors.append(
-                      "report publication HTTP disagreed with checker output"
-                  )
-
-              for field, output_key, label in (
-                  ("mode", "publication_mode", "publication mode"),
-                  ("status", "publication_status", "publication status"),
-                  ("generated_at", "generated_at", "publication timestamp"),
-              ):
-                  report_value = publication.get(field)
-                  if report_value is not None and (
-                      not isinstance(report_value, str)
-                      or not report_value
-                      or "\r" in report_value
-                      or "\n" in report_value
-                  ):
-                      contract_errors.append(
-                          f"report {label} was not a safe nonempty string or null"
-                      )
-                      continue
-                  expected_output = "" if report_value is None else report_value
-                  if required[output_key] != expected_output:
-                      contract_errors.append(
-                          f"report {label} disagreed with checker output"
-                      )
-
-              report_generated_at = publication.get("generated_at")
-              if isinstance(report_generated_at, str) and report_generated_at:
-                  try:
-                      parsed_generated_at = datetime.fromisoformat(
-                          report_generated_at.replace("Z", "+00:00")
-                      )
-                      if parsed_generated_at.tzinfo is None:
-                          raise ValueError
-                  except ValueError:
-                      contract_errors.append(
-                          "report publication timestamp was not timezone-aware ISO-8601"
-                      )
-
-              report_age = publication.get("age_hours")
-              if report_age is None:
-                  if required["age_hours"]:
-                      contract_errors.append(
-                          "report publication age disagreed with checker output"
-                      )
-              elif (
-                  isinstance(report_age, bool)
-                  or not isinstance(report_age, (int, float))
-                  or not math.isfinite(report_age)
-              ):
-                  contract_errors.append(
-                      "report publication age_hours was not a finite number or null"
-                  )
-              else:
-                  try:
-                      output_age = float(required["age_hours"])
-                  except ValueError:
-                      output_age = math.nan
-                  if (
-                      not math.isfinite(output_age)
-                      or required["age_hours"] != str(report_age)
-                  ):
-                      contract_errors.append(
-                          "report publication age disagreed with checker output"
-                      )
-
-              if checker_healthy is True:
-                  if confirmation_confirmed is not True:
-                      contract_errors.append("healthy report was not quorum-confirmed")
-                  if reasons:
-                      contract_errors.append("healthy report contained findings")
-                  if (
-                      report_site_http != 200
-                      or not is_nonnegative_int(report_site_bytes)
-                      or report_site_bytes < 500
-                  ):
-                      contract_errors.append("healthy report failed the site-shell contract")
-                  if report_publication_http != 200:
-                      contract_errors.append("healthy report lacked publication HTTP 200")
-                  report_mode = publication.get("mode")
-                  report_publication_status = publication.get("status")
-                  if report_mode not in {"current", "degraded", "fallback", "mixed"}:
-                      contract_errors.append("healthy report used an unhealthy publication mode")
-                  if report_publication_status not in {"healthy", "degraded"}:
-                      contract_errors.append("healthy report used an unhealthy publication status")
-                  if publication.get("publication_blocked") is not False:
-                      contract_errors.append("healthy report was publication-blocked")
-                  expected_fallback = report_mode in {"fallback", "mixed"}
-                  if publication.get("uses_fallback") is not expected_fallback:
-                      contract_errors.append("healthy report had contradictory fallback state")
-                  if (
-                      not isinstance(report_age, (int, float))
-                      or isinstance(report_age, bool)
-                      or not math.isfinite(report_age)
-                      or report_age < -(5 / 60)
-                      or report_age > 3
-                  ):
-                      contract_errors.append("healthy report had an invalid publication age")
-                  projection_mode = projection.get("mode")
-                  if projection_mode == "verified":
-                      if (
-                          projection.get("verified") is not True
-                          or projection.get("generation_http") != 200
-                          or projection.get("manifest_http") != 200
-                          or not isinstance(projection.get("manifest_sha256"), str)
-                          or len(projection["manifest_sha256"]) != 64
-                          or any(char not in "0123456789abcdef" for char in projection["manifest_sha256"])
-                          or not is_nonnegative_int(projection.get("file_count"))
-                          or not is_nonnegative_int(projection.get("total_bytes"))
-                          or projection.get("verified_files") != [
-                              "index.html",
-                              "data/vllm/ci/publication_status.json",
-                              "assets/css/dashboard.css",
-                              "assets/css/ops-v2.css",
-                              "assets/js/utils.js",
-                              "assets/js/publication-status.js",
-                              "assets/js/dashboard-nav.js",
-                              "assets/js/ops-v2.js",
-                              "data/vllm/ci/operations_v2_manifest.json",
-                              "data/vllm/ci/operations_v2/nightly.json",
-                              "data/vllm/ci/operations_v2/amd_test_health.json",
-                              "data/vllm/ci/operations_v2/diagnostics.json",
-                          ]
-                          or projection.get("operations_canaries") != [
-                              {
-                                  "name": "nightly",
-                                  "path": "data/vllm/ci/operations_v2/nightly.json",
-                                  "http_status": 200,
-                              },
-                              {
-                                  "name": "amd_test_health",
-                                  "path": "data/vllm/ci/operations_v2/amd_test_health.json",
-                                  "http_status": 200,
-                              },
-                              {
-                                  "name": "diagnostics",
-                                  "path": "data/vllm/ci/operations_v2/diagnostics.json",
-                                  "http_status": 200,
-                              },
-                          ]
-                      ):
-                          contract_errors.append("healthy report lacked exact projection proof")
-                  elif projection_mode == "legacy-bootstrap":
-                      try:
-                          from scripts.vllm.check_site_health import (
-                              _legacy_bootstrap_allowed,
-                          )
-
-                          bootstrap_authorized = _legacy_bootstrap_allowed(
-                              evidence_path=Path(os.environ["BOOTSTRAP_EVIDENCE_PATH"]),
-                              repository=os.environ["GITHUB_REPOSITORY"],
-                              now=datetime.now(timezone.utc),
-                          )
-                      except (OSError, ValueError):
-                          bootstrap_authorized = False
-                      if (
-                          bootstrap_authorized is not True
-                          or projection.get("verified") is not False
-                          or projection.get("generation_http") != 404
-                          or projection.get("manifest_http") != 404
-                      ):
-                          contract_errors.append("legacy projection exception lacked bootstrap policy")
-                  else:
-                      contract_errors.append("healthy report used an invalid projection mode")
-
-          report_valid = report_syntax_valid and not contract_errors
-          if not report_valid:
-              reason = "; ".join(contract_errors) or report_error or "report invalid"
-              report = fallback_report(reason[:500])
-          encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
-          report_path.write_bytes(encoded)
-
-          core_outcome = os.environ.get("CORE_FRESHNESS_OUTCOME", "")
-          core_required = os.environ.get("CORE_COLLECTION_REQUIRED", "")
-          core_mode = os.environ.get("CORE_REQUEST_MODE", "")
-          core_available_at = os.environ.get("CORE_AVAILABLE_AT", "")
-          core_latest_succeeded_at = os.environ.get("CORE_LATEST_SUCCEEDED_AT", "")
-          core_observation_valid = (
-              core_outcome == "success"
-              and core_required in {"true", "false"}
-              and core_mode
-              in {"reserved", "success_gated", "retry_gated", "cap_gated"}
-              and ((core_required == "true") == (core_mode == "reserved"))
-          )
-          core_success_at = None
-          if core_latest_succeeded_at:
-              try:
-                  core_success_at = datetime.fromisoformat(
-                      core_latest_succeeded_at.replace("Z", "+00:00")
-                  )
-                  if (
-                      core_success_at.tzinfo is None
-                      or core_success_at.microsecond
-                      or core_success_at.astimezone(timezone.utc).isoformat().replace(
-                          "+00:00", "Z"
-                      )
-                      != core_latest_succeeded_at
-                  ):
-                      core_success_at = None
-              except ValueError:
-                  core_success_at = None
-          now = datetime.now(timezone.utc)
-          core_current = bool(
-              core_observation_valid
-              and core_success_at is not None
-              and now - timedelta(minutes=5)
-              <= core_success_at + timedelta(hours=3)
-              and core_success_at <= now + timedelta(minutes=5)
-          )
-
-          confirmed = (
-              confirmation_confirmed is True
-              and not missing
-              and report_valid
-              and required["overall_status"] in {"healthy", "confirmed_unhealthy"}
-              and (
-                  (checker_healthy is True and os.environ.get("CHECKER_OUTCOME") == "success")
-                  or (checker_healthy is False and os.environ.get("CHECKER_OUTCOME") == "failure")
-              )
-          )
-          healthy = confirmed and checker_healthy is True and core_current
-
-          try:
-              details_raw = details_path.read_bytes()
-              if len(details_raw) > max_details_bytes:
-                  raise ValueError("checker details exceeded 16 KiB")
-              details = details_raw.decode("utf-8")
-          except (OSError, UnicodeDecodeError, ValueError) as exc:
-              details = f"Synthetic checker details unavailable: {exc}"
-          escaped_details = html.escape(details[:max_details_bytes])
-          safe_details = escaped_details.encode("utf-8")[:max_details_bytes].decode(
-              "utf-8", errors="ignore"
-          )
-
-          repository = os.environ["GITHUB_REPOSITORY"]
-          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-          run_url = f"{server}/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-          deploy_url = f"{server}/{repository}/deployments"
-          status = "healthy" if healthy else "confirmed unhealthy" if confirmed else "unconfirmed"
-          missing_text = ", ".join(missing) if missing else "none"
-          body = f"""{os.environ['OWNERSHIP_MARKER']}
-          <!-- SITE_HEALTH_STATE -->
-
-          ## Dashboard synthetic health: {status}
-
-          - **Site:** [{os.environ['SITE_URL']}]({os.environ['SITE_URL']})
-          - **Workflow run:** [synthetic monitor evidence]({run_url})
-          - **Deployment history:** [GitHub deployments]({deploy_url})
-          - **Checker outcome:** `{html.escape(os.environ.get('CHECKER_OUTCOME', 'missing'))}`
-          - **Quorum confirmation:** `{str(confirmed).lower()}` ({html.escape(required['healthy_probe_count'] or 'missing')}/{html.escape(required['probe_attempts'] or 'missing')} healthy; {html.escape(required['required_healthy_probes'] or 'missing')} required)
-          - **Overall status:** `{html.escape(os.environ.get('OVERALL_STATUS') or 'missing')}`
-          - **Publication mode/status:** `{html.escape(required['publication_mode'] or 'missing')}` / `{html.escape(required['publication_status'] or 'missing')}`
-          - **Publication age:** `{html.escape(required['age_hours'] or 'missing')}` hours
-          - **Durable core collection:** `{'current' if core_current else 'stale/unavailable'}` (last success `{html.escape(core_latest_succeeded_at or 'missing')}`, observation `{html.escape(core_outcome or 'missing')}`, mode `{html.escape(core_mode or 'missing')}`, next `{html.escape(core_available_at or 'now')}`)
-          - **Missing checker outputs:** `{html.escape(missing_text)}`
-
-          <details><summary>Bounded checker details</summary><pre>{safe_details}</pre></details>
-
-          <!-- SITE_HEALTH_RECOVERY_NOTE -->
-
-          This issue is owned by the synthetic site-health workflow. Evidence is
-          updated in place; the workflow does not post hourly comments.
-          """
-          body_path.write_text(body)
-
-          summary = (
-              f"healthy={str(healthy).lower()} "
-              f"confirmed={str(confirmed).lower()} "
-              f"status={os.environ.get('OVERALL_STATUS') or 'missing'} "
-              f"mode={required['publication_mode'] or 'missing'} "
-              f"age_hours={required['age_hours'] or 'missing'} "
-              f"core_current={str(core_current).lower()} "
-              f"core_mode={core_mode or 'missing'} "
-              f"missing_outputs={len(missing)}"
-          ).replace("\n", " ")[:1000]
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"healthy={str(healthy).lower()}\n")
-              output.write(f"confirmed={str(confirmed).lower()}\n")
-              output.write(f"core_current={str(core_current).lower()}\n")
-              output.write(f"report_valid={str(report_valid).lower()}\n")
-              output.write(f"missing_output_count={len(missing)}\n")
-              output.write(f"summary={summary}\n")
-          PY
+          python scripts/vllm/normalize_site_health_evidence.py
 
       - name: Upload bounded site health report
         id: upload-health-report
@@ -739,6 +152,7 @@ jobs:
         env:
           HEALTHY: ${{ steps.health-result.outputs.healthy }}
           CONFIRMED: ${{ steps.health-result.outputs.confirmed }}
+          NORMALIZE_OUTCOME: ${{ steps.health-result.outcome }}
           BODY_PATH: ${{ runner.temp }}/site-health-issue.md
           OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
         with:
@@ -750,8 +164,9 @@ jobs:
             const recoveryPlaceholder = '<!-- SITE_HEALTH_RECOVERY_NOTE -->';
             const healthy = process.env.HEALTHY === 'true';
             const confirmed = process.env.CONFIRMED === 'true';
-            if (!confirmed) {
-              core.warning('Synthetic evidence was not quorum-confirmed; issue state is unchanged.');
+            const normalizationSucceeded = process.env.NORMALIZE_OUTCOME === 'success';
+            if (!normalizationSucceeded || !confirmed) {
+              core.warning('Synthetic evidence was not successfully normalized and quorum-confirmed; issue state is unchanged.');
               core.setOutput('reconciled', 'true');
               return;
             }

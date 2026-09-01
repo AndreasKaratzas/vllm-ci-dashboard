@@ -77,6 +77,28 @@ def test_hardware_fold_key_preserves_gpu_counts() -> None:
     assert "(2 gpus)" in two_gpus
 
 
+def test_publication_bound_retains_actionable_rows_and_exact_summary() -> None:
+    rows = [
+        {
+            "label": f"row-{index}",
+            "decision": "new_candidate" if index == 0 else "canonical",
+            "padding": "x" * 900,
+        }
+        for index in range(20)
+    ]
+    source = {"summary": {"row_count": 20, "new_candidate_count": 1}, "rows": rows}
+
+    published = collector.bounded_payload(source, max_bytes=5_000)
+
+    assert published["summary"] == source["summary"]
+    assert any(row["decision"] == "new_candidate" for row in published["rows"])
+    retention = published["publication_retention"]
+    assert retention["aggregate_scalars_complete"] is True
+    assert retention["rows"]["source"] == 20
+    assert retention["rows"]["omitted"] > 0
+    assert len((collector.json.dumps(published, indent=2) + "\n").encode()) <= 5_000
+
+
 def test_percent_n_targets_aggregate_only_their_numbered_runtime_shards() -> None:
     targets = {
         "groups": [

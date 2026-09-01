@@ -246,8 +246,15 @@ def test_site_health_independently_checks_last_durable_core_success() -> None:
     assert "steps.core-freshness.outputs.latest_succeeded_at" in normalize["env"][
         "CORE_LATEST_SUCCEEDED_AT"
     ]
-    assert "core_success_at + timedelta(hours=3)" in normalize["run"]
-    assert "checker_healthy is True and core_current" in normalize["run"]
+    assert normalize["run"] == (
+        "set -euo pipefail\n"
+        "python scripts/vllm/normalize_site_health_evidence.py\n"
+    )
+    normalizer = (
+        ROOT / "scripts/vllm/normalize_site_health_evidence.py"
+    ).read_text(encoding="utf-8")
+    assert "core_success_at + timedelta(hours=3)" in normalizer
+    assert "checker_healthy is True and core_current" in normalizer
 
 
 def test_partial_backfill_cache_survives_failed_collector_steps() -> None:

@@ -12,6 +12,8 @@ The privileged preview workflow owns that subtree and serializes its mutations
 under the same Pages concurrency lock.
 """
 
+# cspell:ignore redef
+
 from __future__ import annotations
 
 import argparse
@@ -26,6 +28,22 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+if __package__:
+    from .publication_limits import (
+        PUBLICATION_MAX_BLOB_BYTES,
+        PUBLICATION_MAX_FILES,
+        PUBLICATION_MAX_TREE_BYTES,
+        normalize_safe_historical_limits,
+    )
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from publication_limits import (  # type: ignore[no-redef]
+        PUBLICATION_MAX_BLOB_BYTES,
+        PUBLICATION_MAX_FILES,
+        PUBLICATION_MAX_TREE_BYTES,
+        normalize_safe_historical_limits,
+    )
+
 
 MANIFEST_SCHEMA_VERSION = 1
 ATTESTATION_SCHEMA_VERSION = 1
@@ -33,9 +51,9 @@ MANIFEST_NAME = "publication_manifest.json"
 MARKER_NAME = "publication_generation.json"
 ATTESTATION_PATH = "data/vllm/ci/public_projection_attestation.json"
 EXCLUDED_PREFIXES = ("pr-preview/",)
-MAX_BLOB_BYTES = 85 * 1024 * 1024
-MAX_TREE_BYTES = 384 * 1024 * 1024
-MAX_FILES = 10_000
+MAX_BLOB_BYTES = PUBLICATION_MAX_BLOB_BYTES
+MAX_TREE_BYTES = PUBLICATION_MAX_TREE_BYTES
+MAX_FILES = PUBLICATION_MAX_FILES
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_MARKER_BYTES = 4096
 MAX_ATTESTATION_BYTES = 4096
@@ -350,7 +368,9 @@ def _normalize_descriptor(value: object, *, path: str) -> dict[str, Any]:
     return {"bytes": size, "mode": mode, "sha256": digest, "git_oid": git_oid}
 
 
-def normalize_manifest(value: object) -> dict[str, Any]:
+def normalize_manifest(
+    value: object, *, allow_safe_legacy_limits: bool = False
+) -> dict[str, Any]:
     expected = {
         "schema_version",
         "hash_algorithm",
@@ -369,22 +389,41 @@ def normalize_manifest(value: object) -> dict[str, Any]:
         raise PublicProjectionError("public projection manifest hash contract is unsupported")
     if value.get("excluded_prefixes") != list(EXCLUDED_PREFIXES):
         raise PublicProjectionError("public projection exclusions disagree with policy")
-    expected_limits = {
+    current_limits = {
         "max_blob_bytes": MAX_BLOB_BYTES,
         "max_tree_bytes": MAX_TREE_BYTES,
         "max_files": MAX_FILES,
     }
-    if value.get("limits") != expected_limits:
-        raise PublicProjectionError("public projection limits disagree with policy")
+    if allow_safe_legacy_limits:
+        try:
+            declared_limits, _legacy_limits = normalize_safe_historical_limits(
+                value.get("limits")
+            )
+        except ValueError as exc:
+            raise PublicProjectionError(
+                "public projection limits disagree with safe historical policy"
+            ) from exc
+    else:
+        if value.get("limits") != current_limits:
+            raise PublicProjectionError("public projection limits disagree with policy")
+        declared_limits = current_limits
     raw_files = value.get("files")
-    if not isinstance(raw_files, dict) or len(raw_files) > MAX_FILES:
+    if (
+        not isinstance(raw_files, dict)
+        or len(raw_files) > min(MAX_FILES, declared_limits["max_files"])
+    ):
         raise PublicProjectionError("public projection files must be a bounded object")
     files: dict[str, dict[str, Any]] = {}
     for raw_path, raw_descriptor in raw_files.items():
         path = _safe_relative_path(raw_path, label="projection path")
         if _is_excluded(path):
             raise PublicProjectionError(f"projection declares excluded path {path!r}")
-        files[path] = _normalize_descriptor(raw_descriptor, path=path)
+        descriptor = _normalize_descriptor(raw_descriptor, path=path)
+        if descriptor["bytes"] > declared_limits["max_blob_bytes"]:
+            raise PublicProjectionError(
+                f"projection descriptor for {path} exceeds its declared blob limit"
+            )
+        files[path] = descriptor
     file_count = value.get("file_count")
     total_bytes = value.get("total_bytes")
     calculated_bytes = sum(row["bytes"] for row in files.values())
@@ -394,12 +433,21 @@ def normalize_manifest(value: object) -> dict[str, Any]:
         raise PublicProjectionError("public projection total_bytes is inconsistent")
     if total_bytes > MAX_TREE_BYTES:
         raise PublicProjectionError("public projection exceeds its tree byte limit")
-    return _manifest_from_files(dict(sorted(files.items())))
+    normalized = _manifest_from_files(dict(sorted(files.items())))
+    # Preserve the declaration so canonical validation binds the exact legacy
+    # bytes.  It never changes the current caps used for descriptors or totals.
+    normalized["limits"] = declared_limits
+    return normalized
 
 
-def load_manifest(path: Path) -> tuple[dict[str, Any], bytes]:
+def load_manifest(
+    path: Path, *, allow_safe_legacy_limits: bool = False
+) -> tuple[dict[str, Any], bytes]:
     raw = _read_bounded(path, limit=MAX_MANIFEST_BYTES, label="public projection manifest")
-    manifest = normalize_manifest(_decode_json(raw, label="public projection manifest"))
+    manifest = normalize_manifest(
+        _decode_json(raw, label="public projection manifest"),
+        allow_safe_legacy_limits=allow_safe_legacy_limits,
+    )
     if raw != _canonical_json(manifest):
         raise PublicProjectionError("public projection manifest is not canonical JSON")
     return manifest, raw
@@ -487,11 +535,17 @@ def verify_local_projection(
     manifest_path: Path,
     attestation_path: Path,
     marker_path: Path,
+    *,
+    allow_safe_legacy_limits: bool = False,
 ) -> dict[str, Any]:
-    manifest, raw = load_manifest(manifest_path)
+    manifest, raw = load_manifest(
+        manifest_path, allow_safe_legacy_limits=allow_safe_legacy_limits
+    )
     attestation = load_attestation(attestation_path)
     _assert_attestation_matches(manifest, raw, attestation)
     observed = _manifest_from_files(_scan_local_tree(site_root))
+    if allow_safe_legacy_limits:
+        observed["limits"] = manifest["limits"]
     if observed != manifest:
         observed_paths = set(observed["files"])
         declared_paths = set(manifest["files"])
@@ -507,8 +561,13 @@ def verify_local_projection(
             f"changed={changed[:10]})"
         )
     marker_raw = _load_marker(marker_path, attestation)
-    if manifest["file_count"] + 2 > MAX_FILES:
+    declared_limits = manifest["limits"]
+    if manifest["file_count"] + 2 > min(MAX_FILES, declared_limits["max_files"]):
         raise PublicProjectionError("local public projection exceeds its file limit")
+    if len(raw) > min(MAX_BLOB_BYTES, declared_limits["max_blob_bytes"]):
+        raise PublicProjectionError("local projection manifest exceeds its blob limit")
+    if len(marker_raw) > min(MAX_BLOB_BYTES, declared_limits["max_blob_bytes"]):
+        raise PublicProjectionError("local projection marker exceeds its blob limit")
     if manifest["total_bytes"] + len(raw) + len(marker_raw) > MAX_TREE_BYTES:
         raise PublicProjectionError("local public projection exceeds its tree byte limit")
     return attestation
@@ -606,6 +665,7 @@ def verify_git_projection(
     attestation_path: Path,
     *,
     expected_marker_path: Path | None = None,
+    allow_safe_legacy_limits: bool = False,
 ) -> dict[str, Any]:
     """Verify an exact Pages tree while reading only its small metadata blobs."""
     root = repo_root.absolute()
@@ -626,7 +686,8 @@ def verify_git_projection(
         label="deployed projection manifest",
     )
     manifest = normalize_manifest(
-        _decode_json(manifest_raw, label="deployed projection manifest")
+        _decode_json(manifest_raw, label="deployed projection manifest"),
+        allow_safe_legacy_limits=allow_safe_legacy_limits,
     )
     if manifest_raw != _canonical_json(manifest):
         raise PublicProjectionError("deployed projection manifest is not canonical JSON")
@@ -653,8 +714,13 @@ def verify_git_projection(
             raise PublicProjectionError(
                 "deployed publication marker differs from the expected state marker"
             )
-    if manifest["file_count"] + 2 > MAX_FILES:
+    declared_limits = manifest["limits"]
+    if manifest["file_count"] + 2 > min(MAX_FILES, declared_limits["max_files"]):
         raise PublicProjectionError("deployed public projection exceeds its file limit")
+    if len(manifest_raw) > min(MAX_BLOB_BYTES, declared_limits["max_blob_bytes"]):
+        raise PublicProjectionError("deployed projection manifest exceeds its blob limit")
+    if len(marker_raw) > min(MAX_BLOB_BYTES, declared_limits["max_blob_bytes"]):
+        raise PublicProjectionError("deployed projection marker exceeds its blob limit")
     if manifest["total_bytes"] + len(manifest_raw) + len(marker_raw) > MAX_TREE_BYTES:
         raise PublicProjectionError("deployed public projection exceeds its tree byte limit")
 
@@ -706,12 +772,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     local.add_argument("--manifest", type=Path, required=True)
     local.add_argument("--attestation", type=Path, required=True)
     local.add_argument("--marker", type=Path, required=True)
+    local.add_argument(
+        "--allow-safe-legacy-limits",
+        action="store_true",
+        help="Validate a historical state projection under current hard limits",
+    )
 
     git = subparsers.add_parser("verify-git")
     git.add_argument("--repo-root", type=Path, default=Path.cwd())
     git.add_argument("--git-ref", required=True)
     git.add_argument("--attestation", type=Path, required=True)
     git.add_argument("--expected-marker", type=Path)
+    git.add_argument(
+        "--allow-safe-legacy-limits",
+        action="store_true",
+        help="Validate a historical state projection under current hard limits",
+    )
     return parser.parse_args(argv)
 
 
@@ -731,6 +807,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.manifest,
                 args.attestation,
                 args.marker,
+                allow_safe_legacy_limits=args.allow_safe_legacy_limits,
             )
             manifest = None
         elif args.command == "verify-git":
@@ -739,6 +816,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.git_ref,
                 args.attestation,
                 expected_marker_path=args.expected_marker,
+                allow_safe_legacy_limits=args.allow_safe_legacy_limits,
             )
             manifest = None
         else:  # pragma: no cover - argparse guarantees the command set.

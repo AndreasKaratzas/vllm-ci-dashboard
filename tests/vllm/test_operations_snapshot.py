@@ -7,6 +7,8 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from vllm import build_operations_snapshot as ops
 from vllm import collect_analytics as analytics
 from vllm.ci.reliability_history import (
@@ -1211,6 +1213,41 @@ def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_res
         "severity": "critical",
         "count": 6,
     }
+
+
+def test_ci_health_publication_retention_is_propagated_to_nightly(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    health_path = data_dir / "ci_health.json"
+    health = json.loads(health_path.read_text())
+    health["publication_retention"] = {
+        "policy": "retain_newest_whole_build_summaries",
+        "max_bytes": 1_048_576,
+        "complete_relative_to_source": False,
+        "aggregate_scalars_complete": True,
+        "builds": {
+            "amd": {"source": 10, "published": 4, "omitted": 6, "complete": False},
+            "upstream": {"source": 8, "published": 8, "omitted": 0, "complete": True},
+        },
+    }
+    health_path.write_text(json.dumps(health))
+
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+
+    amd_retention = payload["nightly"]["canonical_history"][
+        "ci_health_publication_retention"
+    ]
+    upstream_retention = payload["nightly"]["upstream_parity"][
+        "ci_health_publication_retention"
+    ]
+    assert amd_retention["complete_relative_to_source"] is False
+    assert amd_retention["aggregate_scalars_complete"] is True
+    assert amd_retention["builds"] == {
+        "source": 10,
+        "published": 4,
+        "omitted": 6,
+        "complete": False,
+    }
+    assert upstream_retention["complete_relative_to_source"] is True
 
 
 def test_nightly_pipeline_projects_newer_core_references_over_analytics_lkg():
@@ -5508,9 +5545,11 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     comparison = json.loads(
         (output.parent / manifest["sections"]["comparison"]["path"]).read_text()
     )["reliability"]
-    assert comparison["platform_comparison"] == payload["reliability"][
-        "platform_comparison"
-    ]
+    assert {
+        key: value
+        for key, value in comparison["platform_comparison"].items()
+        if key != "publication_retention"
+    } == payload["reliability"]["platform_comparison"]
     assert "group_catalog" not in comparison
     assert "latency_rankings" not in comparison
     assert comparison["retry_analysis"]["evidence_deferred"] is True
@@ -5565,7 +5604,14 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         (output.parent / manifest["sections"]["ownership"]["path"]).read_text()
     )["ownership"]
     assert "ownership" not in gating
-    assert ownership == payload["ownership"]
+    assert {
+        key: value
+        for key, value in ownership.items()
+        if key != "operations_publication_retention"
+    } == payload["ownership"]
+    assert ownership["operations_publication_retention"][
+        "complete_relative_to_source"
+    ] is True
 
     omni = json.loads(
         (output.parent / manifest["sections"]["omni"]["path"]).read_text()
@@ -5576,3 +5622,811 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         omni["history"]["provenance"]["source_path"]
         == "queue_timeseries.jsonl"
     )
+
+
+def _retention_observation(
+    build_number: int,
+    state: str,
+    *,
+    padding: int = 0,
+) -> dict:
+    return {
+        "source_pipeline": "ci",
+        "group_id": "group",
+        "build_number": build_number,
+        "state": state,
+        "observed_at": f"2026-04-{build_number:02d}T12:00:00Z",
+        "job_url": (
+            f"https://buildkite.com/vllm/ci/builds/{build_number}/steps/job"
+        ),
+        "padding": "x" * padding,
+    }
+
+
+def _retention_group(
+    group_id: str,
+    observations: list[dict],
+    *,
+    latest_state: str | None = None,
+) -> dict:
+    incidents = sum(ops._reliability_incident(row) for row in observations)
+    newest = max(observations, key=lambda row: row["observed_at"])
+    return {
+        "source_pipeline": "ci",
+        "id": group_id,
+        "name": f"Group {group_id}",
+        "hardware": "gpu",
+        "queues": ["gpu_queue"],
+        "runs": len(observations),
+        "passed": len(observations) - incidents,
+        "failed": incidents,
+        "soft_failed": 0,
+        "incident_count": incidents,
+        "incident_rate_pct": incidents / len(observations) * 100,
+        "mixed_outcomes": bool(incidents and incidents < len(observations)),
+        "latest_state": latest_state or newest["state"],
+        "latest_observed_at": newest["observed_at"],
+        "observation_count": len(observations),
+        "retained_observation_count": len(observations),
+        "history_truncated": False,
+        "linked_observation_count": len(observations),
+        "observations": observations,
+    }
+
+
+def test_public_retry_evidence_is_independently_bounded_and_keeps_newest(
+    monkeypatch,
+):
+    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 5000)
+    attempts = [
+        {
+            **_retention_observation(number, "passed"),
+            "name": "retry-" + "x" * 600,
+            "comparison_row_ids": [f"comparison-{number % 2}"],
+        }
+        for number in range(1, 9)
+    ]
+    recoveries = [
+        {
+            **_retention_observation(number, "passed"),
+            "name": "recovery-" + "y" * 600,
+            "failed_url": f"https://buildkite.com/vllm/ci/builds/{number}/failed",
+            "passed_url": f"https://buildkite.com/vllm/ci/builds/{number}/passed",
+        }
+        for number in (7, 9)
+    ]
+    source = {
+        "available": True,
+        "summary": {"retry_attempt_count": 8},
+        "retry_attempts": attempts,
+        "failed_then_passed_recoveries": recoveries,
+        "provenance": {"complete": True},
+    }
+
+    first = ops._bounded_public_retry_analysis(source)
+    second = ops._bounded_public_retry_analysis(source)
+
+    assert first == second
+    assert ops._json_bytes(first) <= 5000
+    assert max(row["build_number"] for row in first["retry_attempts"]) == 8
+    assert max(
+        row["build_number"]
+        for row in first["failed_then_passed_recoveries"]
+    ) == 9
+    retention = first["publication_retention"]
+    assert retention["complete_relative_to_source"] is False
+    assert retention["retry_attempts"]["source"] == 8
+    assert retention["retry_attempts"]["published"] < 8
+    assert retention["recoveries"]["source"] == 2
+    assert first["summary"]["retry_attempt_count"] == len(
+        first["retry_attempts"]
+    )
+    assert first["summary"]["failed_then_passed_recovery_count"] == len(
+        first["failed_then_passed_recoveries"]
+    )
+    assert retention["source_summary"]["retry_attempt_count"] == 8
+    assert retention["comparison_groups"]["published"] == 2
+    wrapped = ops._compact_comparison_retry_evidence({"retry_analysis": source})
+    assert ops._json_bytes(wrapped) <= 5000
+
+
+def test_bounded_retry_evidence_is_permutation_invariant(monkeypatch):
+    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 4_000)
+    attempts = [
+        {
+            **_retention_observation(10, "passed"),
+            "job_id": f"job-{letter}",
+            "name": "retry-" + letter + "x" * 600,
+        }
+        for letter in "ABCDEFGH"
+    ]
+
+    forward = ops._bounded_public_retry_analysis({
+        "retry_attempts": attempts,
+        "failed_then_passed_recoveries": [],
+    })
+    reverse = ops._bounded_public_retry_analysis({
+        "retry_attempts": list(reversed(attempts)),
+        "failed_then_passed_recoveries": [],
+    })
+
+    assert forward == reverse
+
+
+def test_oversized_retry_projection_preserves_comparison_routing(monkeypatch):
+    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 12_000)
+    monkeypatch.setattr(ops, "OPERATIONS_RELIABILITY_ROW_MAX_BYTES", 2_000)
+    attempts = [
+        {
+            **_retention_observation(number, "passed"),
+            "padding": "x" * 4_000,
+            "comparison_row_ids": [f"comparison-{number}"],
+            "comparison_eligible_row_ids": [f"eligible-{number}"],
+        }
+        for number in range(1, 5)
+    ]
+    bounded = ops._bounded_public_retry_analysis({
+        "retry_attempts": attempts,
+        "failed_then_passed_recoveries": [],
+    })
+
+    assert ops._json_bytes(bounded) <= 12_000
+    retained_ids = {
+        comparison_id
+        for row in bounded["retry_attempts"]
+        for key in ("comparison_row_ids", "comparison_eligible_row_ids")
+        for comparison_id in row[key]
+    }
+    assert retained_ids == {
+        *(f"comparison-{number}" for number in range(1, 5)),
+        *(f"eligible-{number}" for number in range(1, 5)),
+    }
+    assert bounded["publication_retention"]["comparison_groups"] == {
+        "source": 8,
+        "published": 8,
+        "omitted": 0,
+    }
+
+
+def test_full_reliability_keeps_retry_rows_while_total_section_fits(monkeypatch):
+    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 2000)
+    attempts = [
+        {
+            **_retention_observation(number, "passed"),
+            "name": "retry-" + "x" * 300,
+        }
+        for number in range(1, 10)
+    ]
+    source = {
+        "group_catalog": [],
+        "flaky_candidates": [],
+        "latency_rankings": {},
+        "retry_analysis": {
+            "summary": {"retry_attempt_count": len(attempts)},
+            "retry_attempts": attempts,
+            "failed_then_passed_recoveries": [],
+        },
+        "platform_comparison": {"rows": []},
+    }
+
+    public = ops._bounded_public_reliability(source, max_bytes=100_000)
+
+    assert public["retry_analysis"] == source["retry_analysis"]
+    assert public["publication_retention"]["complete_relative_to_source"] is True
+
+
+def test_comparison_priority_recognizes_latest_incident_fields():
+    incident = {
+        "amd": {
+            "variants": [{
+                "latest_state": "hard",
+                "latest_observed_at": "2026-04-08T12:00:00Z",
+            }]
+        }
+    }
+    passing = {
+        "amd": {
+            "variants": [{
+                "latest_state": "passed",
+                "latest_observed_at": "2026-04-09T12:00:00Z",
+            }]
+        }
+    }
+
+    assert ops._comparison_row_priority(incident, 0)[0] is True
+    assert ops._comparison_row_priority(passing, 1)[0] is False
+
+
+def test_comparison_priority_keeps_incident_when_newer_sibling_passes():
+    row = {
+        "amd": {"variants": [{
+            "latest_state": "hard",
+            "latest_observed_at": "2026-04-08T12:00:00Z",
+        }]},
+        "cuda": {"variants": [{
+            "latest_state": "passed",
+            "latest_observed_at": "2026-04-09T12:00:00Z",
+        }]},
+    }
+
+    priority = ops._comparison_row_priority(row, 0)
+
+    assert priority[0] is True
+    assert priority[1] == "2026-04-09T12:00:00Z"
+
+
+def test_comparison_section_has_independent_exact_bound():
+    comparison_rows = [
+        {
+            "id": f"row-{index}",
+            "label": f"Comparison {index}",
+            "amd": {
+                "variants": [{
+                    "latest_state": "hard" if index == 0 else "passed",
+                    "latest_observed_at": f"2026-04-{index + 1:02d}T12:00:00Z",
+                }]
+            },
+            "padding": "x" * 200_000,
+        }
+        for index in range(10)
+    ]
+    reliability = {
+        "cohort": {"id": "main", "build_numbers": list(range(50_000))},
+        "platform_comparison": {
+            "available": True,
+            "rows": comparison_rows,
+        },
+        "retry_analysis": {"summary": {}},
+    }
+
+    comparison = ops._compact_reliability_comparison(reliability)
+
+    assert ops._json_bytes({"reliability": comparison}) <= (
+        ops.OPERATIONS_COMPARISON_SECTION_MAX_BYTES
+    )
+    retained = comparison["platform_comparison"]
+    assert retained["publication_retention"]["rows"]["source"] == 10
+    assert retained["publication_retention"]["rows"]["published"] < 10
+    assert "row-0" in {row["id"] for row in retained["rows"]}
+
+
+def test_bounded_platform_comparison_is_permutation_invariant(monkeypatch):
+    monkeypatch.setattr(
+        ops,
+        "OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES",
+        700_000,
+    )
+    rows = [
+        {
+            "id": f"row-{letter}",
+            "amd": {"variants": [{
+                "latest_state": "passed",
+                "latest_observed_at": "2026-04-01T12:00:00Z",
+            }]},
+            "padding": letter + "x" * 200_000,
+        }
+        for letter in "ABCDEFGH"
+    ]
+
+    forward, forward_stats = ops._bounded_public_platform_comparison({"rows": rows})
+    reverse, reverse_stats = ops._bounded_public_platform_comparison({
+        "rows": list(reversed(rows)),
+    })
+
+    assert forward == reverse
+    assert forward_stats == reverse_stats
+
+
+def test_platform_fixed_metadata_compaction_is_declared_incomplete():
+    bounded, stats = ops._bounded_public_platform_comparison({
+        "rows": [],
+        "summary": {"padding": "x" * (600 * 1024)},
+    })
+
+    assert bounded["publication_fixed_metadata_compacted"] is True
+    assert stats["fixed_metadata_compacted"] is True
+    assert (
+        bounded["publication_retention"]["complete_relative_to_source"]
+        is False
+    )
+
+
+def test_comparison_compaction_preserves_source_relative_retention(monkeypatch):
+    monkeypatch.setattr(
+        ops,
+        "OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES",
+        700_000,
+    )
+    comparison_rows = [
+        {
+            "id": f"row-{index}",
+            "amd": {"variants": [{
+                "latest_state": "passed",
+                "latest_observed_at": f"2026-04-{index + 1:02d}T12:00:00Z",
+            }]},
+            "padding": "x" * 200_000,
+        }
+        for index in range(10)
+    ]
+    first, _stats = ops._bounded_public_platform_comparison({
+        "available": True,
+        "rows": comparison_rows,
+    })
+
+    comparison = ops._compact_reliability_comparison({
+        "platform_comparison": first,
+        "retry_analysis": {},
+    })
+    retained = comparison["platform_comparison"]["publication_retention"]
+
+    assert retained["complete_relative_to_source"] is False
+    assert retained["rows"]["source"] == 10
+    assert retained["rows"]["published"] < 10
+    assert retained["rows"]["omitted"] > 0
+
+
+def test_group_catalog_keeps_current_incidents_before_older_groups():
+    groups = [
+        _retention_group(
+            "stable-new",
+            [_retention_observation(8, "passed", padding=50_000)],
+        ),
+        _retention_group(
+            "current-incident",
+            [_retention_observation(7, "hard", padding=50_000)],
+        ),
+        _retention_group(
+            "historical-incident",
+            [_retention_observation(6, "soft", padding=50_000)],
+            latest_state="passed",
+        ),
+    ]
+
+    catalog, stats = ops._bounded_public_group_catalog(
+        groups,
+        max_bytes=1024 * 1024 + 110_000,
+    )
+
+    assert ops._json_bytes(catalog) <= 1024 * 1024 + 110_000
+    assert len(catalog) == 2
+    assert "current-incident" in {row["id"] for row in catalog}
+    assert stats["groups"] == {"source": 3, "published": 2, "omitted": 1}
+
+
+def test_group_catalog_is_permutation_invariant():
+    groups = [
+        _retention_group(
+            f"group-{letter}",
+            [_retention_observation(4, "passed", padding=20_000)],
+        )
+        for letter in "ABCD"
+    ]
+
+    forward, forward_stats = ops._bounded_public_group_catalog(
+        groups,
+        max_bytes=1024 * 1024 + 55_000,
+    )
+    reverse, reverse_stats = ops._bounded_public_group_catalog(
+        list(reversed(groups)),
+        max_bytes=1024 * 1024 + 55_000,
+    )
+
+    assert forward == reverse
+    assert forward_stats == reverse_stats
+
+
+def test_group_observations_are_permutation_invariant():
+    observations = [
+        _retention_observation(number, "hard" if number == 2 else "passed")
+        for number in range(1, 5)
+    ]
+
+    forward, forward_stats = ops._bounded_public_group_catalog([
+        _retention_group("stable", observations)
+    ])
+    reverse, reverse_stats = ops._bounded_public_group_catalog([
+        _retention_group("stable", list(reversed(observations)))
+    ])
+
+    assert forward == reverse
+    assert forward_stats == reverse_stats
+
+
+def test_group_catalog_empty_and_observed_ties_share_comparable_sort_keys():
+    observed = _retention_group(
+        "observed",
+        [{
+            **_retention_observation(0, "passed"),
+            "observed_at": "2026-04-01T12:00:00Z",
+        }],
+    )
+    empty = {
+        "source_pipeline": "ci",
+        "id": "empty",
+        "name": "Group empty",
+        "latest_state": "unknown",
+        "latest_observed_at": "2026-04-01T12:00:00Z",
+        "incident_count": 0,
+        "observations": [],
+    }
+
+    catalog, stats = ops._bounded_public_group_catalog([empty, observed])
+
+    assert {row["id"] for row in catalog} == {"empty", "observed"}
+    assert stats["groups"]["omitted"] == 0
+
+
+def test_unpublishable_group_still_counts_its_omitted_observations():
+    observations = [
+        _retention_observation(1, "hard"),
+        _retention_observation(2, "passed"),
+    ]
+
+    catalog, stats = ops._bounded_public_group_catalog([
+        {"observations": observations}
+    ])
+
+    assert catalog == []
+    assert stats["groups"] == {"source": 1, "published": 0, "omitted": 1}
+    assert stats["observations"] == {"source": 2, "published": 0, "omitted": 2}
+    assert stats["incident_observations"] == {
+        "source": 1,
+        "published": 0,
+        "omitted": 1,
+    }
+
+
+def test_group_catalog_retains_newest_then_incident_and_marks_history_incomplete():
+    group = _retention_group(
+        "priority",
+        [
+            _retention_observation(9, "passed", padding=20_000),
+            _retention_observation(8, "passed", padding=20_000),
+            _retention_observation(7, "hard", padding=20_000),
+        ],
+    )
+
+    catalog, stats = ops._bounded_public_group_catalog(
+        [group],
+        max_bytes=1024 * 1024 + 50_000,
+    )
+
+    retained = catalog[0]
+    assert {row["build_number"] for row in retained["observations"]} == {7, 9}
+    assert retained["history_truncated"] is True
+    assert retained["publication_history_complete"] is False
+    assert retained["source_retained_observation_count"] == 3
+    assert retained["retained_observation_count"] == 2
+    assert stats["incident_observations"]["published"] == 1
+
+
+def test_group_catalog_never_launders_source_truncation_as_complete():
+    group = _retention_group(
+        "source-truncated",
+        [
+            _retention_observation(8, "passed"),
+            _retention_observation(9, "hard"),
+        ],
+    )
+    # The source retained only two exact rows for five aggregate observations;
+    # one additional observation was excluded before publication.
+    group.update({
+        "observation_count": 5,
+        "history_truncated": True,
+        "excluded_observation_count": 1,
+    })
+
+    catalog, stats = ops._bounded_public_group_catalog([group])
+
+    assert stats["groups"]["omitted"] == 0
+    retained = catalog[0]
+    assert retained["runs"] == 2
+    assert retained["observation_count"] == 5
+    assert retained["source_retained_observation_count"] == 2
+    assert retained["retained_observation_count"] == 2
+    assert retained["excluded_observation_count"] == 1
+    assert retained["history_truncated"] is True
+    assert retained["publication_history_complete"] is False
+
+
+def test_pathological_observation_is_projected_instead_of_wedging(monkeypatch):
+    monkeypatch.setattr(ops, "OPERATIONS_RELIABILITY_ROW_MAX_BYTES", 1024)
+    observation = _retention_observation(9, "hard")
+    observation["message"] = "pathological" * 100_000
+    group = _retention_group("pathological", [observation])
+
+    catalog, stats = ops._bounded_public_group_catalog(
+        [group],
+        max_bytes=2 * 1024 * 1024,
+    )
+
+    assert len(catalog) == 1
+    retained = catalog[0]["observations"][0]
+    assert retained["state"] == "hard"
+    assert retained["build_number"] == 9
+    assert retained["publication_fields_truncated"] is True
+    assert stats["sanitized_observation_count"] == 1
+    assert ops._json_bytes(catalog) <= 2 * 1024 * 1024
+
+
+def test_public_reliability_exact_bound_and_honest_omission_counts():
+    groups = [
+        _retention_group(
+            str(index),
+            [
+                _retention_observation(number, state, padding=20_000)
+                for number, state in ((9, "passed"), (8, "passed"), (7, "hard"))
+            ],
+        )
+        for index in range(20)
+    ]
+    source = {
+        "available": True,
+        "cohort": {"id": "main", "build_numbers": list(range(100))},
+        "denominator": {"groups": 20, "observations": 60},
+        "summary": {"group_count": 20},
+        "group_catalog": groups,
+        "flaky_candidates": [],
+        "latency_rankings": {
+            "by_median_duration": [],
+            "by_p90_duration": [],
+            "by_max_duration": [],
+        },
+        "retry_analysis": {
+            "retry_attempts": [],
+            "failed_then_passed_recoveries": [],
+        },
+        "platform_comparison": {"available": False, "rows": []},
+    }
+    max_bytes = 400_000
+
+    first = ops._bounded_public_reliability(source, max_bytes=max_bytes)
+    second = ops._bounded_public_reliability(source, max_bytes=max_bytes)
+
+    assert first == second
+    assert ops._json_bytes({"reliability": first}) <= max_bytes
+    retention = first["publication_retention"]
+    assert retention["compacted"] is True
+    assert retention["complete_relative_to_source"] is False
+    assert retention["groups"]["source"] == 20
+    assert retention["groups"]["published"] < 20
+    assert retention["groups"]["omitted"] == (
+        20 - retention["groups"]["published"]
+    )
+
+
+def test_reliability_bound_failure_preserves_existing_generation(
+    tmp_path,
+    monkeypatch,
+):
+    payload = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)
+    output = tmp_path / "published" / "operations_v2.json"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"previous-generation")
+    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 1)
+
+    with pytest.raises(RuntimeError, match="bounded public retry evidence"):
+        ops.write_snapshot_bundle(output, payload, log=False)
+
+    assert output.read_bytes() == b"previous-generation"
+
+
+def _oversized_agent_health() -> dict:
+    node_days = []
+    failing_runs = []
+    for index in range(120):
+        day = f"2026-08-{1 + index // 6:02d}"
+        node_days.append({
+            "d": day,
+            "nd": f"node-{index:04d}",
+            "h": "MI300",
+            "a": [10, 1, 1, 0],
+            "n": [2, 0, 1, 0],
+            "padding": "n" * 400,
+        })
+    for index in range(240):
+        day = f"2026-08-{1 + index // 12:02d}"
+        failing_runs.append({
+            "d": day,
+            "nd": f"node-{index % 120:04d}",
+            "h": "MI300",
+            "s": "hard" if index % 2 else "soft",
+            "i": index % 3 == 0,
+            "ng": index % 4 == 0,
+            "bc": False,
+            "g": "group-" + "g" * 500,
+            "j": str(index),
+            "t": day + "T12:00:00Z",
+        })
+    accounting = ops._agent_health_failure_accounting(failing_runs)
+    return {
+        "generated_at": GENERATED_AT,
+        "infra_failure_count": len(failing_runs),
+        "node_days": node_days,
+        "failing_runs": failing_runs,
+        "failure_accounting": accounting,
+        "retention": {
+            "failure_evidence": {
+                "source": len(failing_runs),
+                "published": len(failing_runs),
+                "omitted": 0,
+                "complete_relative_to_source": True,
+            },
+            "failure_accounting": {"complete_relative_to_source": True},
+        },
+    }
+
+
+def _oversized_amd_test_health() -> dict:
+    groups = [
+        {
+            "id": f"group-{index:04d}",
+            "name": f"Group {index}",
+            "latest_build_number": 999 if index < 20 else 998,
+            "latest_state": "hard" if index == 0 else "passed",
+            "latest_observed_at": f"2026-08-31T12:{index % 60:02d}:00Z",
+            "runs": 30,
+            "passed": 29,
+            "hard_failed": 1,
+            "padding": "g" * 900,
+        }
+        for index in range(200)
+    ]
+    builds = [
+        {"number": index, "observed_at": f"2026-08-{index % 28 + 1:02d}T12:00:00Z", "padding": "b" * 600}
+        for index in range(100)
+    ]
+    logical = [
+        {
+            "id": f"logical-{index}",
+            "label": f"Logical {index}",
+            "state": "non_passing" if index == 0 else "passing_all",
+            "padding": "l" * 700,
+        }
+        for index in range(100)
+    ]
+    return {
+        "available": True,
+        "summary": {"latest_build_number": 999, "latest_group_count": 200},
+        "group_catalog": groups,
+        "builds": builds,
+        "latest_logical_test_groups": {"available": True, "rows": logical},
+    }
+
+
+def test_operations_amd_test_health_is_bounded_with_honest_catalog_accounting():
+    source = _oversized_amd_test_health()
+
+    first = ops._bounded_operations_amd_test_health(source, max_bytes=40_000)
+    second = ops._bounded_operations_amd_test_health(source, max_bytes=40_000)
+
+    assert first == second
+    assert ops._json_bytes({"amd_test_health": first}) <= 40_000
+    assert first["summary"] == source["summary"]
+    retention = first["operations_publication_retention"]
+    assert retention["complete_relative_to_amd_test_health"] is False
+    assert retention["aggregate_scalars_complete"] is True
+    for key in ("group_catalog", "builds", "latest_logical_test_groups"):
+        assert retention[key]["source"] == (
+            retention[key]["published"] + retention[key]["omitted"]
+        )
+        assert retention[key]["omitted"] > 0
+    assert any(row["id"] == "group-0000" for row in first["group_catalog"])
+    assert any(row["id"] == "logical-0" for row in first["latest_logical_test_groups"]["rows"])
+
+
+def test_operations_agent_health_compacts_detail_but_preserves_exact_cubes():
+    source = _oversized_agent_health()
+
+    first = ops._bounded_operations_agent_health(source, max_bytes=20_000)
+    second = ops._bounded_operations_agent_health(source, max_bytes=20_000)
+
+    assert first == second
+    assert ops._json_bytes({"amd_agent_health": first}) <= 20_000
+    retention = first["operations_publication_retention"]
+    assert retention["complete_relative_to_agent_health"] is False
+    assert retention["aggregate_accounting_complete"] is True
+    assert retention["node_days"]["omitted"] > 0
+    assert retention["failure_evidence"]["omitted_from_ledger"] > 0
+    assert sum(row["a"][0] for row in first["node_accounting_totals"]) == sum(
+        row["a"][0] for row in source["node_days"]
+    )
+    assert sum(row["c"] for row in first["failure_accounting_totals"]) == len(
+        source["failing_runs"]
+    )
+    assert first["retention"]["failure_evidence"] == {
+        "source": 240,
+        "published": 0,
+        "omitted": 240,
+        "complete_relative_to_source": False,
+        "selection": "source_priority_then_newest_operations_suffix",
+    }
+
+
+def test_operation_sections_apply_agent_health_route_budget(monkeypatch):
+    monkeypatch.setattr(ops, "OPERATIONS_AGENT_HEALTH_SECTION_MAX_BYTES", 20_000)
+
+    section = ops._operation_sections({
+        "amd_agent_health": _oversized_agent_health(),
+        "reliability": {},
+    })["amd_agent_health"]
+
+    assert ops._json_bytes(section) <= 20_000
+    assert (
+        section["amd_agent_health"]["operations_publication_retention"]
+        ["complete_relative_to_agent_health"]
+        is False
+    )
+
+
+def test_operations_collection_sections_compact_every_legal_growing_catalog() -> None:
+    bulky = "x" * 12_000
+    definition_rows = [{"label": f"definition-{index}", "detail": bulky} for index in range(300)]
+    group_rows = [
+        {"id": index, "state": "action" if index % 3 == 0 else "existing", "detail": bulky}
+        for index in range(180)
+    ]
+    gating_rows = [
+        {"id": index, "target_signal": "red" if index % 4 == 0 else "green", "detail": bulky}
+        for index in range(300)
+    ]
+    ownership_rows = [
+        {
+            "area": f"area-{index}",
+            "counts": {"incidents": index % 5 == 0, "pending_soft": 0},
+            "regressions": [{"label": bulky}],
+            "targets": [{"label": bulky}],
+        }
+        for index in range(100)
+    ]
+    sections = ops._operation_sections(
+        {
+            "definition_parity": {
+                "summary": {"total": len(definition_rows)},
+                "nvidia_only": definition_rows,
+            },
+            "test_group_parity": {
+                "summary": {"upstream_logical_groups": len(group_rows)},
+                "areas": [],
+                "groups": group_rows,
+            },
+            "gating": {
+                "target_summary": {"target_group_count": len(gating_rows)},
+                "target_groups": gating_rows,
+                "active_target_groups": gating_rows,
+            },
+            "ownership": {
+                "schema_version": 1,
+                "available": True,
+                "summary": {"areas": len(ownership_rows)},
+                "areas": ownership_rows,
+                "unmapped_targets": [],
+            },
+            "reliability": {},
+        }
+    )
+
+    for name in ("definition_parity", "test_group_parity", "gating", "ownership"):
+        assert ops._json_bytes(sections[name]) <= (
+            ops.OPERATIONS_CANARY_SECTION_MAX_BYTES[name]
+        )
+        retention = sections[name][name]["operations_publication_retention"]
+        assert retention["complete_relative_to_source"] is False
+        assert retention["aggregate_summaries_complete"] is True
+
+
+def test_capacity_projection_fails_closed_for_compacted_matrix_rows() -> None:
+    matrix_retention = {
+        "complete_relative_to_source": False,
+        "matrix_rows": {"source": 200, "published": 100, "omitted": 100},
+    }
+
+    projection = ops._exact_target_topology(
+        {},
+        {"publication_retention": matrix_retention},
+    )
+
+    assert projection["available"] is False
+    assert projection["unavailable_reason"] == "amd_test_matrix_publication_incomplete"
+    assert projection["target_topology_publication_retention"] == matrix_retention
+    assert projection["queues"] == []

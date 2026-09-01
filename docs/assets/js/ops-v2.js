@@ -216,15 +216,10 @@
   }
 
   function populationSemantics(payload) {
-    const source = payload && typeof payload === 'object' ? payload : {};
-    if (source.count_semantics === 'lower_bound') return 'lower_bound';
-    if (source.count_semantics === 'complete') return 'complete';
-    const coverage = source.source_coverage && typeof source.source_coverage === 'object'
-      ? source.source_coverage
-      : {};
-    if (coverage.population_semantics === 'lower_bound' ||
-        coverage.authoritative_complete === false) return 'lower_bound';
-    return 'complete';
+    const p = payload || {};
+    const c = p.source_coverage || {};
+    if (p.count_semantics === 'lower_bound' || c.population_semantics === 'lower_bound' || c.authoritative_complete === false || (p.publication_retention || {}).complete_relative_to_source === false) return 'lower_bound';
+    return p.count_semantics === 'complete' || (c.population_semantics === 'complete' && c.authoritative_complete === true) ? 'complete' : 'lower_bound';
   }
 
   function observedCountLabel(count, semantics) {
@@ -1280,6 +1275,7 @@
   }
 
   function openMixedOutcomeEvidence(candidate) {
+    const publicationHistoryComplete = groupPublicationHistoryComplete(candidate);
     const sourcePipeline = candidate.source_pipeline || 'ci';
     const allObservations = evidenceObservations(candidate).filter(function (row) {
       return (!row.source_pipeline || row.source_pipeline === sourcePipeline)
@@ -1289,12 +1285,12 @@
     });
     const scope = candidate.scope_label || candidate.scope || 'retained reliability window';
     const content = n('div', 'ops-evidence');
-    const notice = n('div', 'ops-evidence-note is-info');
+    const notice = n('div', 'ops-evidence-note ' + (publicationHistoryComplete ? 'is-info' : 'is-warning'));
     const hasPassing = allObservations.some(function (row) { return observationState(row) === 'passed'; });
     const hasIncidents = allObservations.some(isIncidentObservation);
     add(notice, [
       n('strong', '', hasPassing && hasIncidents ? 'Classification: mixed-outcome candidate. ' : 'Historical group evidence. '),
-      n('span', '', 'Outcome, completion, and queue-wait history below use exact ' + sourcePipeline + ' observations. Any incident rate shown is not a test-case flake probability.'),
+      n('span', '', 'Outcome, completion, and queue-wait history below use exact ' + sourcePipeline + ' observations. ' + (publicationHistoryComplete ? 'Any incident rate shown is not a test-case flake probability.' : 'This group history was byte-bounded; exact rows remain inspectable, but derived rates, percentiles, and deltas are unavailable.')),
     ]);
     content.append(notice);
 
@@ -1308,7 +1304,9 @@
     const scopeControlHost = n('div');
     const scopeToolbar = n('div', 'ops-toolbar ops-evidence-toolbar');
     scopeToolbar.append(scopeControlHost);
-    scopeToolbar.append(n('span', 'ops-panel-meta', 'Choose the complete branch=main cohort or its nightly subset.'));
+    scopeToolbar.append(n('span', 'ops-panel-meta', publicationHistoryComplete
+      ? 'Choose the complete branch=main cohort or its nightly subset.'
+      : 'Choose the published branch=main evidence or its nightly subset; omitted rows are not inferred.'));
     content.append(scopeToolbar);
     const historyHost = n('div', 'ops-stack');
     content.append(historyHost);
@@ -1337,20 +1335,21 @@
       const soft = observations.filter(function (row) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(row)); }).length;
       const incidents = observations.filter(isIncidentObservation);
       const hard = Math.max(0, incidents.length - soft);
+      const countPrefix = publicationHistoryComplete ? '' : '≥';
       const summary = n('div', 'ops-evidence-summary');
       add(summary, [
-        evidenceSummaryItem(historyMode === 'main' ? 'MAIN OBSERVATIONS' : 'NIGHTLY OBSERVATIONS', integer(observations.length)),
-        evidenceSummaryItem('PASSED', integer(passed), 'is-success'),
-        evidenceSummaryItem('HARD INCIDENTS', integer(hard), hard ? 'is-danger' : ''),
-        evidenceSummaryItem('SOFT INCIDENTS', integer(soft), soft ? 'is-warning' : ''),
-        evidenceSummaryItem('INCIDENT RATE', percent(incidents.length, observations.length), incidents.length ? 'is-warning' : 'is-success'),
+        evidenceSummaryItem(historyMode === 'main' ? 'MAIN OBSERVATIONS' : 'NIGHTLY OBSERVATIONS', countPrefix + integer(observations.length)),
+        evidenceSummaryItem('PASSED', countPrefix + integer(passed), 'is-success'),
+        evidenceSummaryItem('HARD INCIDENTS', countPrefix + integer(hard), hard ? 'is-danger' : ''),
+        evidenceSummaryItem('SOFT INCIDENTS', countPrefix + integer(soft), soft ? 'is-warning' : ''),
+        evidenceSummaryItem('INCIDENT RATE', publicationHistoryComplete ? percent(incidents.length, observations.length) : 'Unavailable', incidents.length ? 'is-warning' : 'is-success'),
       ]);
       historyHost.append(summary);
 
       const labels = observations.map(function (row) { return row.build_number ? '#' + row.build_number : shortDate(observationTimestamp(row)); });
       const evidence = observations.map(function (row) { return observationHistoryPoint(row, sourcePipeline); });
       const rollingPass = trailingPassStats(observations, 10);
-      const rollingRates = rollingPass.map(function (row) { return row.rate; });
+      const rollingRates = rollingPass.map(function (row) { return publicationHistoryComplete ? row.rate : null; });
       const currentRolling = rollingPass[rollingPass.length - 1] || {};
       const outcomeSeries = [
         {label: 'Passed run', state: 'passed', color: '#35bb78'},
@@ -1361,7 +1360,9 @@
       const chartKey = 'group-' + String(candidate.id || candidate.name || 'history').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + historyMode;
       const outcomeChart = chartPanel(
         'Outcome trend',
-        'Current trailing 10: ' + Number(currentRolling.rate || 0).toFixed(1) + '% (' + integer(currentRolling.passed) + '/' + integer(currentRolling.total) + '); bar color is the exact result',
+        publicationHistoryComplete
+          ? 'Current trailing 10: ' + Number(currentRolling.rate || 0).toFixed(1) + '% (' + integer(currentRolling.passed) + '/' + integer(currentRolling.total) + '); bar color is the exact result'
+          : 'Rate trend unavailable because the published group history is incomplete; use the exact rows below.',
         chartKey + '-outcome'
       );
       chartGrid.append(outcomeChart.root);
@@ -1674,6 +1675,104 @@
   const reliabilityCatalogCache = new WeakMap();
   const reliabilityCatalogIndexCache = new WeakMap();
 
+  function publicationCount(block, key) {
+    const raw = (block || {})[key];
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  function groupPublicationHistoryComplete(group) {
+    if (!group || typeof group !== 'object') return true;
+    const retained = Number(group.retained_observation_count);
+    const sourceRetained = Number(group.source_retained_observation_count);
+    const aggregate = Number(group.observation_count);
+    const sourceCountMatches = !Number.isFinite(retained)
+      || !Number.isFinite(sourceRetained)
+      || retained === sourceRetained;
+    const aggregateCountMatches = !Number.isFinite(aggregate)
+      || !Number.isFinite(sourceRetained)
+      || aggregate === sourceRetained;
+    return group.publication_history_complete !== false
+      && group.history_truncated !== true
+      && publicationCount(group, 'excluded_observation_count') === 0
+      && publicationCount(group, 'publication_observation_fields_truncated_count') === 0
+      && sourceCountMatches
+      && aggregateCountMatches;
+  }
+
+  function agentSourceHistoryComplete(agentHealth) {
+    const retention = ((agentHealth || {}).retention) || {};
+    const dropped = Number(retention.dropped_oldest_day_count);
+    const originalDays = Number(retention.original_day_count);
+    const retainedDays = Number(retention.retained_day_count);
+    return retention.byte_limited !== true
+      && (!Number.isFinite(dropped) || dropped === 0)
+      && (!Number.isFinite(originalDays) || !Number.isFinite(retainedDays) || originalDays === retainedDays);
+  }
+
+  function reliabilityPublicationState(reliability) {
+    const retention = ((reliability || {}).publication_retention) || {};
+    const groups = retention.groups || {};
+    const observations = retention.observations || {};
+    const catalog = Array.isArray((reliability || {}).group_catalog) ? reliability.group_catalog : [];
+    const incompleteGroupHistories = catalog.filter(function (group) {
+      return !groupPublicationHistoryComplete(group);
+    }).length;
+    const catalogIncomplete = publicationCount(groups, 'omitted') > 0
+      || publicationCount(observations, 'omitted') > 0
+      || publicationCount(retention, 'sanitized_group_count') > 0
+      || publicationCount(retention, 'sanitized_observation_count') > 0
+      || publicationCount(retention, 'unpublishable_group_count') > 0
+      || publicationCount(retention, 'unpublishable_observation_count') > 0
+      || incompleteGroupHistories > 0;
+    const state = {
+      complete: !catalogIncomplete,
+      groups: {
+        source: publicationCount(groups, 'source'),
+        published: publicationCount(groups, 'published'),
+      },
+      observations: {
+        source: publicationCount(observations, 'source'),
+        published: publicationCount(observations, 'published'),
+      },
+      incompleteGroupHistories: incompleteGroupHistories,
+    };
+    if (!catalogIncomplete) {
+      state.message = '';
+      return state;
+    }
+    state.message = 'Published reliability evidence is bounded: '
+      + integer(state.groups.published) + ' of ' + integer(state.groups.source) + ' groups and '
+      + integer(state.observations.published) + ' of ' + integer(state.observations.source) + ' exact observations are retained. '
+      + 'Catalog-wide counts are lower bounds; rates, percentiles, and anomaly deltas derived from an incomplete group history are unavailable. Source-precomputed group aggregates remain complete.';
+    return state;
+  }
+
+  function platformComparisonPublicationState(comparison) {
+    const retention = ((comparison || {}).publication_retention) || {};
+    const rows = retention.rows || {};
+    const fixedMetadataCompacted = (comparison || {}).publication_fixed_metadata_compacted === true
+      || retention.fixed_metadata_compacted === true;
+    const source = publicationCount(rows, 'source');
+    const published = publicationCount(rows, 'published');
+    const rowCoverageIncomplete = retention.complete_relative_to_source === false
+      || publicationCount(rows, 'omitted') > 0;
+    const state = {
+      complete: !rowCoverageIncomplete && !fixedMetadataCompacted,
+      aggregateAvailable: !fixedMetadataCompacted,
+      source: source,
+      published: published,
+      message: '',
+    };
+    if (fixedMetadataCompacted) {
+      state.message = 'Platform comparison summary metadata was compacted, so the aggregate comparison is unavailable until a complete source summary is published.';
+    } else if (rowCoverageIncomplete) {
+      state.message = 'Published platform comparison coverage is bounded to '
+        + integer(published) + ' of ' + integer(source) + ' rows. Metrics for each retained row and the preserved summary aggregates remain source-complete; row counts and tables cover only the published subset.';
+    }
+    return state;
+  }
+
   function reliabilityCatalog(reliability) {
     if (!reliability || typeof reliability !== 'object') return [];
     if (reliabilityCatalogCache.has(reliability)) return reliabilityCatalogCache.get(reliability);
@@ -1748,6 +1847,9 @@
     const ids = (main.group_ids || []).length ? main.group_ids : (main.variants || []).map(function (variant) { return variant.id; });
     if (!ids.length && main.id) ids.push(main.id);
     const variants = groupReliabilityRowsByIds(reliability, ids, group.label || group.name);
+    const publishedIds = new Set(variants.map(function (variant) { return String(variant.id); }));
+    const missingGroupIds = ids.filter(function (id) { return !publishedIds.has(String(id)); });
+    const publication = reliabilityPublicationState(reliability);
     const observations = [];
     variants.forEach(function (variant) {
       evidenceObservations(variant).forEach(function (observation) {
@@ -1758,7 +1860,7 @@
         }));
       });
     });
-    if (!variants.length && !observations.length) return null;
+    if (!variants.length && !observations.length && !(missingGroupIds.length && !publication.complete)) return null;
     return {
       id: 'gating-' + (group.id || group.label || group.name),
       name: group.label || group.name,
@@ -1773,6 +1875,9 @@
       observations: observations,
       variants: variants,
       group_ids: ids,
+      missing_group_ids: missingGroupIds,
+      publication_history_complete: missingGroupIds.length === 0 && variants.every(groupPublicationHistoryComplete),
+      publication_incomplete: !publication.complete,
     };
   }
 
@@ -1984,6 +2089,14 @@
       return Boolean(exactPipelineEvidenceUrl(row, 'ci'));
     });
     const content = n('div', 'ops-stack');
+    if (combined && (combined.missing_group_ids || []).length) {
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [
+        n('strong', '', 'Published reliability references are incomplete. '),
+        n('span', '', integer(combined.missing_group_ids.length) + ' requested catalog IDs are absent from the bounded publication: ' + combined.missing_group_ids.join(', ') + '. Their absence is not treated as proof that the variants do not exist.'),
+      ]);
+      content.append(warning);
+    }
     function sourceEvidenceTable(rows, fallbackPipeline, caption) {
       return dataTable([
         {label: 'Evidence', sticky: true, render: function (row) { return externalLink(row.label || row.architecture || row.source || 'Open source', exactPipelineEvidenceUrl(row, fallbackPipeline)); }},
@@ -2817,6 +2930,9 @@
       return queueTimestamp(a.generated_at) - queueTimestamp(b.generated_at);
     });
     const compactRows = compactPayloads.flatMap(decodeQueueChartHistory);
+    const chartRetention = compactPayloads.length
+      ? (compactPayloads[compactPayloads.length - 1].publication_retention || {})
+      : {};
     const compact = mergeQueueHistory(compactRows);
     const current = queueBlock.snapshot && queueBlock.snapshot.ts ? queueBlock.snapshot : null;
     const compactLastMs = compact.length ? queueTimestamp(compact[compact.length - 1].ts) : -Infinity;
@@ -2827,7 +2943,9 @@
         fallback = Array.isArray(queueBlock.history) ? queueBlock.history : [];
       }
     }
-    return mergeQueueHistory([].concat(fallback, compact, current ? [current] : []));
+    const merged = mergeQueueHistory([].concat(fallback, compact, current ? [current] : []));
+    merged.publicationRetention = chartRetention;
+    return merged;
   }
 
   function isPlainObject(value) {
@@ -2959,6 +3077,14 @@
     if (matched) return matched;
     if (pipeline === 'ci') return nightly.upstream || nightly.upstream_parity || {pipeline: pipeline, builds: []};
     return nightly.amd || nightly.canonical_history || {pipeline: pipeline, builds: []};
+  }
+
+  function ciHealthPublicationRetentionMessage(nightly) {
+    const retention = (nightly || {}).ci_health_publication_retention || {};
+    const builds = retention.builds || {};
+    if (retention.complete_relative_to_source !== false) return '';
+    return 'The CI-health reporter retained ' + integer(builds.published) + ' of '
+      + integer(builds.source) + ' newest whole build summaries. Latest-build and aggregate scalars remain source-complete; omitted historical enrichments are not inferred, and no rate or delta is derived from them.';
   }
 
   const CONFIRMED_INCIDENT_POLICY_ID = 'confirmed-incidents-v1';
@@ -3400,6 +3526,10 @@
     const allFleetWaiting = allFleetQueues.length ? allFleetQueues.reduce(function (sum, entry) { return sum + Number((entry[1] || {}).waiting || 0); }, 0) : Number(queue.total_waiting || 0);
     const allFleetRunning = allFleetQueues.length ? allFleetQueues.reduce(function (sum, entry) { return sum + Number((entry[1] || {}).running || 0); }, 0) : Number(queue.total_running || 0);
     add(host, pageHeader('Command Center', 'Current AMD operations with observed nightly failure movement and direct paths to source evidence.', ops.generated_at));
+    const ciHealthRetentionMessage = ciHealthPublicationRetentionMessage(amd);
+    if (ciHealthRetentionMessage) {
+      host.append(n('div', 'ops-evidence-note is-warning', ciHealthRetentionMessage));
+    }
     add(host, statusStrip([
       {id: 'home-amd-nightly', label: 'LATEST AMD NIGHTLY', value: nightlyState.label, meta: nightlyState.meta, tone: nightlyState.tone, url: exactPipelineBuildUrl(build, 'amd-ci'), observed: build.created_at, actionLabel: 'Open Buildkite ↗'},
       {id: 'home-upstream-parity', label: 'UPSTREAM TEST-GROUP PARITY', value: paritySummary.main_complete_groups === undefined ? 'Unavailable' : integer(paritySummary.main_complete_groups) + ' / ' + integer(paritySummary.applicable_groups) + ' on main', meta: paritySummary.upstream_logical_groups === undefined ? 'Reviewed parity inventory unavailable' : percent(paritySummary.main_complete_groups, paritySummary.applicable_groups) + ' · ' + integer(paritySummary.main_missing_groups) + ' missing', tone: Number(paritySummary.action_groups) ? 'is-warning' : 'is-success', onOpen: function () { navigateTo('ci-health', {healthView: 'parity'}); }, actionLabel: 'Open Upstream parity →'},
@@ -3428,8 +3558,8 @@
     let workData = {
       prs: [],
       issues: [],
-      prsCountSemantics: 'complete',
-      issuesCountSemantics: 'complete',
+      prsCountSemantics: 'lower_bound',
+      issuesCountSemantics: 'lower_bound',
     };
     try {
       const loaded = await Promise.all([fetchJSON('data/vllm/prs.json'), fetchJSON('data/vllm/issues.json')]);
@@ -4182,11 +4312,19 @@
     return (item || {}).incident_observation_eligible === false ? raw + ' (ignored older build)' : raw;
   }
 
+  function boundedRowsNote(host, retention, label) {
+    if ((retention || {}).complete_relative_to_source === false) {
+      host.append(n('div', 'ops-evidence-note is-warning', label + ' is bounded; totals exact, rows partial.'));
+    }
+  }
+
   function openOwnershipAreaDetail(row) {
     const counts = row.counts || {};
     const confirmedHard = counts.confirmed_hard === undefined ? counts.hard : counts.confirmed_hard;
     const confirmedSoft = counts.confirmed_soft === undefined ? counts.soft : counts.confirmed_soft;
     const content = n('div', 'ops-detail-stack');
+    const publicationDetailIncomplete = row.publication_detail_complete === false;
+    boundedRowsNote(content, {complete_relative_to_source: !publicationDetailIncomplete}, 'Ownership detail');
     content.append(statusStrip([
       {id: 'owner-area-incidents', label: 'CONFIRMED INCIDENTS', value: integer(counts.incidents), meta: integer(confirmedHard) + ' hard - ' + integer(confirmedSoft) + ' soft', tone: Number(counts.incidents) ? 'is-warning' : 'is-success'},
       {id: 'owner-area-pending-soft', label: 'PENDING SOFT OBSERVATIONS', value: integer(counts.pending_soft), meta: 'requires 2 distinct completed builds', tone: Number(counts.pending_soft) ? 'is-warning' : 'is-success'},
@@ -4214,7 +4352,7 @@
     content.append(panel(
       'Confirmed AMD incidents',
       incidents.length ? 'Confirmed incident state with exact latest AMD observation evidence' : 'No confirmed incidents',
-      dataTable(incidentColumns, incidents, integer(incidents.length) + ' confirmed incidents', {name: 'ownership-incidents', minWidth: '970px'})
+      dataTable(incidentColumns, incidents, (publicationDetailIncomplete ? '≥' : '') + integer(incidents.length) + ' published confirmed incidents', {name: 'ownership-incidents', minWidth: '970px'})
     ));
     const pendingSoft = row.pending_soft_observations || [];
     const pendingColumns = [
@@ -4227,7 +4365,7 @@
     content.append(panel(
       'Pending soft observations',
       pendingSoft.length ? 'First soft signals awaiting another distinct soft build; absent observations hold rather than advance or clear them' : 'No pending soft observations',
-      dataTable(pendingColumns, pendingSoft, integer(pendingSoft.length) + ' pending soft observations', {name: 'ownership-pending-soft', minWidth: '1010px'})
+      dataTable(pendingColumns, pendingSoft, (publicationDetailIncomplete ? '≥' : '') + integer(pendingSoft.length) + ' published pending soft observations', {name: 'ownership-pending-soft', minWidth: '1010px'})
     ));
     const gaps = row.upstream_parity_gaps || [];
     const gapColumns = [
@@ -4236,7 +4374,7 @@
     content.append(panel(
       'Upstream parity work',
       'Definitions present upstream without a one-to-one AMD definition',
-      dataTable(gapColumns, gaps, integer(gaps.length) + ' parity gaps', {name: 'ownership-parity', minWidth: '520px'})
+      dataTable(gapColumns, gaps, (publicationDetailIncomplete ? '≥' : '') + integer(gaps.length) + ' published parity gaps', {name: 'ownership-parity', minWidth: '520px'})
     ));
     openOverlay(
       row.source_file || row.area || 'CI ownership',
@@ -4261,6 +4399,8 @@
       host.append(unavailable);
       return;
     }
+    const ownershipRetention = ownership.operations_publication_retention || ownership.publication_retention || {};
+    boundedRowsNote(host, ownershipRetention, 'Ownership');
     host.append(statusStrip([
       {id: 'ownership-areas', label: 'OWNED TEST AREAS', value: integer(summary.areas), meta: 'active ranked routing chains'},
       {id: 'ownership-regressing', label: 'AREAS WITH CONFIRMED INCIDENTS', value: integer(summary.areas_with_incidents), meta: integer(summary.incidents) + ' confirmed target incidents', tone: Number(summary.areas_with_incidents) ? 'is-warning' : 'is-success'},
@@ -4317,12 +4457,14 @@
     const amd = latestAmd(ops);
     const build = (amd.builds || [])[0] || {};
     const gating = ops.gating || {};
+    const gatingRetention = gating.operations_publication_retention || {};
     const matrix = gating.matrix_summary || {};
     const uniqueHealth = matrixHealthPolicy(matrix);
     const amdHealthSummary = ((ops.amd_test_health || {}).summary) || {};
     const latestLogicalGroups = amdHealthSummary.latest_test_group_counts || {};
     const amdLatestStates = amdHealthSummary.latest_job_variant_state_counts || amdHealthSummary.latest_state_counts || {};
     const nightlyState = amdNightlyPresentation(build, amdHealthSummary, ops.generated_at);
+    if (state.healthView === 'targets') boundedRowsNote(host, gatingRetention, 'Gating');
     const viewDescriptions = {
       overview: 'Latest AMD nightly outcomes and failure movement. Logical test groups are separate from exact Buildkite job variants.',
       parity: 'Reviewed upstream logical test-group coverage on vLLM main. Runtime pass/fail is separate.',
@@ -4353,6 +4495,10 @@
     headerActions.append(button('Data freshness', function () { openHealthDataFreshness(ops); }));
     add(host, pageHeader('CI Health', viewDescriptions[state.healthView] || viewDescriptions.overview, observedAt, headerActions));
     healthTabs(host);
+    const ciHealthRetentionMessage = ciHealthPublicationRetentionMessage(amd);
+    if (ciHealthRetentionMessage) {
+      host.append(n('div', 'ops-evidence-note is-warning', ciHealthRetentionMessage));
+    }
 
     if (state.healthView === 'overview') {
       const logicalGroups = logicalTestGroupPresentation(latestLogicalGroups);
@@ -4465,6 +4611,7 @@
 
     if (state.healthView === 'parity') {
       const parity = ops.test_group_parity || {};
+      const parityRetention = parity.operations_publication_retention || {};
       const summary = parity.summary || {};
       const areas = Array.isArray(parity.areas) ? parity.areas : [];
       const source = parity.source || {};
@@ -4476,6 +4623,8 @@
       const actionTotal = Number(summary.action_groups || 0);
       const mainMissingTotal = Number(summary.main_missing_groups || 0);
       const allRows = testGroupParityRows(parity, 'all', 'all');
+
+      boundedRowsNote(host, parityRetention, 'Parity');
 
       if (!allRows.length || !upstreamTotal) {
         host.append(n('div', 'ops-evidence-note is-warning', 'The reviewed upstream test-group parity inventory is unavailable in this snapshot.'));
@@ -4708,6 +4857,7 @@
 
     if (state.healthView === 'quality' && state.healthQualityView === 'mapping') {
       const parity = ops.definition_parity || {};
+      const parityRetention = parity.operations_publication_retention || {};
       const summary = parity.summary || {};
       const source = parity.source || {};
       const comparisonRows = definitionParityComparisonRows(parity);
@@ -4716,6 +4866,7 @@
       if (state.healthPlan === 'matched') state.healthPlan = 'covered';
       if (state.healthPlan === 'unmatched') state.healthPlan = 'unlinked';
       if (state.healthPlan === 'upstream') state.healthPlan = 'all';
+      boundedRowsNote(host, parityRetention, 'Mapping');
       const note = n('div', 'ops-evidence-note is-info');
       add(note, [
         n('strong', '', 'Upstream-only source definitions are shown first. '),
@@ -5314,6 +5465,7 @@
   }
 
   function openAllGroupHistoryMap(rows, ops, reliability) {
+    const publication = reliabilityPublicationState(reliability);
     const sourceRows = rows.filter(function (row) { return groupHistoryObservations(row, 'main').length; });
     const hardware = Array.from(new Set(sourceRows.map(function (row) { return row.hardware || 'unknown'; }))).sort();
     const content = n('div', 'ops-history-map-content');
@@ -5321,7 +5473,7 @@
     const search = n('input', 'ops-input');
     search.type = 'search';
     search.placeholder = 'Filter test groups, hardware, or queue';
-    search.setAttribute('aria-label', 'Filter complete test-group history');
+    search.setAttribute('aria-label', 'Filter published test-group history');
     const hardwareSelect = n('select', 'ops-select');
     appendHardwareOptions(hardwareSelect, hardware, 'all');
     controls.append(search);
@@ -5331,6 +5483,11 @@
     controls.append(cohortHost);
     controls.append(filterHost);
     content.append(controls);
+    if (publication.message) {
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [n('strong', '', 'Bounded reliability catalog. '), n('span', '', publication.message)]);
+      content.append(warning);
+    }
     const summaryHost = n('div');
     const mapHost = n('div');
     content.append(summaryHost);
@@ -5361,7 +5518,7 @@
         const passed = observations.filter(function (observation) { return observationState(observation) === 'passed'; }).length;
         const incidents = observations.filter(isIncidentObservation).length;
         const latest = observations[observations.length - 1] || {};
-        return {row: row, observations: observations, passed: passed, incidents: incidents, latest: latest, passRate: observations.length ? passed / observations.length * 100 : null};
+        return {row: row, observations: observations, passed: passed, incidents: incidents, latest: latest, passRate: groupPublicationHistoryComplete(row) && observations.length ? passed / observations.length * 100 : null};
       }).filter(function (item) {
         if (!item.observations.length) return false;
         if (local.hardware !== 'all' && (item.row.hardware || 'unknown') !== local.hardware) return false;
@@ -5381,9 +5538,9 @@
       const medianRate = percentileValue(rates, 0.5);
       clear(summaryHost);
       summaryHost.append(statusStrip([
-        {label: 'GROUPS SHOWN', value: integer(prepared.length), meta: integer(sourceRows.length) + ' with retained main history'},
-        {label: 'EXACT RUNS VISIBLE', value: integer(totalRuns), meta: local.cohort === 'nightly' ? 'nightly observations' : 'all-main observations'},
-        {label: 'FAILING LATEST', value: integer(latestIncidents), meta: 'groups ending in a failure observation', tone: latestIncidents ? 'is-danger' : 'is-success'},
+        {label: 'GROUPS SHOWN', value: (publication.complete ? '' : '≥') + integer(prepared.length), meta: integer(sourceRows.length) + ' with published main history'},
+        {label: 'EXACT RUNS VISIBLE', value: (publication.complete ? '' : '≥') + integer(totalRuns), meta: local.cohort === 'nightly' ? 'published nightly observations' : 'published all-main observations'},
+        {label: 'FAILING LATEST', value: (publication.complete ? '' : '≥') + integer(latestIncidents), meta: 'published groups ending in a failure observation', tone: latestIncidents ? 'is-danger' : 'is-success'},
         {label: 'MEDIAN RETAINED-RUN PASS RATE', value: medianRate === null ? '-' : medianRate.toFixed(1) + '%', meta: integer(mixed) + ' groups have mixed outcomes', tone: medianRate >= 95 ? 'is-success' : medianRate >= 80 ? 'is-warning' : 'is-danger'},
       ]));
       clear(mapHost);
@@ -5401,7 +5558,7 @@
         const identity = n('div', 'ops-history-map-identity');
         identity.append(linkButton(item.row.name, function () { chooseGroup(item.row); }, 'Open selected-group history for ' + item.row.name));
         identity.append(n('span', 'ops-entity-meta', hardwareDisplayLabel(item.row.hardware) + ' - ' + (item.row.queues || []).join(', ')));
-        const rate = linkButton(item.passRate === null ? '-' : item.passRate.toFixed(1) + '%', function () { chooseGroup(item.row); }, 'Open all retained outcomes for ' + item.row.name);
+        const rate = linkButton(item.passRate === null ? 'Unavailable' : item.passRate.toFixed(1) + '%', function () { chooseGroup(item.row); }, 'Open all published outcomes for ' + item.row.name);
         rate.classList.add('ops-history-map-rate');
         const latestUrl = exactPipelineEvidenceUrl(item.latest, 'ci');
         const latest = linkedBadge(historyOutcomeLabel(item.latest), latestUrl, function () { chooseGroup(item.row); }, historyOutcomeTone(item.latest) === 'is-passed' ? 'is-success' : historyOutcomeTone(item.latest) === 'is-soft' ? 'is-warning' : 'is-danger');
@@ -5419,7 +5576,7 @@
     search.addEventListener('input', function () { local.query = search.value.trim().toLowerCase(); renderMap(); });
     hardwareSelect.addEventListener('change', function () { local.hardware = hardwareSelect.value; renderMap(); });
     renderMap();
-    openOverlay('Complete test-group history', 'All retained strict upstream groups with exact Buildkite outcomes', content, true, 'all-group-history');
+    openOverlay(publication.complete ? 'Complete test-group history' : 'Published test-group history', (publication.complete ? 'All retained' : 'Bounded published') + ' strict upstream groups with exact Buildkite outcomes', content, true, 'all-group-history');
   }
 
   function renderGroupHistoryExplorer(host, rows, ops, reliability) {
@@ -5427,6 +5584,7 @@
     const selected = chooseAnalyticsGroup(choices);
     if (!selected) return;
     state.analyticsGroupId = selected.id;
+    const selectedHistoryComplete = groupPublicationHistoryComplete(selected);
     const observations = groupHistoryObservations(selected, state.analyticsGroupCohort);
     const section = n('section', 'ops-history-explorer');
     const header = n('header', 'ops-section-header');
@@ -5466,9 +5624,16 @@
     if (latestUrl) actions.append(externalLink('Latest Buildkite job', latestUrl, 'ops-button'));
     controls.append(actions);
     section.append(controls);
+    if (!selectedHistoryComplete) {
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [n('strong', '', 'Bounded exact group history. '), n('span', '', 'Published rows and links remain exact, but omitted observations make pass rates, percentiles, streaks, and recent-versus-prior deltas unavailable for this group.')]);
+      section.append(warning);
+    }
 
     if (!observations.length) {
-      section.append(n('div', 'ops-empty', 'No exact nightly observations are retained for this strict group. Switch to All main to inspect its complete retained history.'));
+      section.append(n('div', 'ops-empty', selectedHistoryComplete
+        ? 'No exact nightly observations are retained for this strict group. Switch to All main to inspect its complete retained history.'
+        : 'No exact nightly observations are published for this strict group. Switch to All main to inspect its bounded published history; omitted rows are not inferred.'));
       host.append(section);
       return;
     }
@@ -5478,47 +5643,53 @@
     const incidents = observations.filter(isIncidentObservation);
     const hard = Math.max(0, incidents.length - soft);
     const latestResult = observations[observations.length - 1];
-    const streak = cohortPassStreak(observations);
+    const streak = selectedHistoryComplete ? cohortPassStreak(observations) : null;
     const lastIncidentIndex = observations.map(function (row) { return isIncidentObservation(row); }).lastIndexOf(true);
     const incidentDistance = lastIncidentIndex >= 0 ? observations.length - lastIncidentIndex - 1 : null;
     const lastIncidentObservation = lastIncidentIndex >= 0 ? observations[lastIncidentIndex] : null;
     const recentWindow = observations.slice(-Math.min(10, observations.length));
     const priorWindow = observations.slice(Math.max(0, observations.length - recentWindow.length * 2), observations.length - recentWindow.length);
-    const recentRate = observationPassRate(recentWindow);
-    const priorRate = observationPassRate(priorWindow);
+    const recentRate = selectedHistoryComplete ? observationPassRate(recentWindow) : null;
+    const priorRate = selectedHistoryComplete ? observationPassRate(priorWindow) : null;
     const rateDelta = recentRate !== null && priorRate !== null ? recentRate - priorRate : null;
     const completionValues = observations.map(observationDurationMinutes).filter(function (minutes) { return minutes !== null; });
-    const medianCompletion = percentileValue(completionValues, 0.5);
-    const p90Completion = percentileValue(completionValues, 0.9);
-    const overallTone = passed === observations.length ? 'is-success' : passed / observations.length >= 0.9 ? 'is-warning' : 'is-danger';
+    const medianCompletion = selectedHistoryComplete ? percentileValue(completionValues, 0.5) : null;
+    const p90Completion = selectedHistoryComplete ? percentileValue(completionValues, 0.9) : null;
+    const overallTone = !selectedHistoryComplete ? 'is-neutral' : passed === observations.length ? 'is-success' : passed / observations.length >= 0.9 ? 'is-warning' : 'is-danger';
 
     const snapshot = n('div', 'ops-history-snapshot');
     const score = n('div', 'ops-history-score ' + overallTone);
     const scoreTrack = n('div', 'ops-history-score-track');
     const scoreFill = n('div', 'ops-history-score-fill');
-    scoreFill.style.width = passed / observations.length * 100 + '%';
+    scoreFill.style.width = (selectedHistoryComplete ? passed / observations.length * 100 : 0) + '%';
     scoreTrack.append(scoreFill);
     add(score, [
       n('div', 'ops-history-fact-label', 'RETAINED-RUN PASS RATE'),
-      n('strong', 'ops-history-score-value', percent(passed, observations.length)),
-      n('div', 'ops-history-score-meta', integer(passed) + ' passed - ' + integer(hard) + ' hard - ' + integer(soft) + ' soft'),
+      n('strong', 'ops-history-score-value', selectedHistoryComplete ? percent(passed, observations.length) : 'Unavailable'),
+      n('div', 'ops-history-score-meta', (selectedHistoryComplete ? '' : '≥') + integer(passed) + ' passed - ' + (selectedHistoryComplete ? '' : '≥') + integer(hard) + ' hard - ' + (selectedHistoryComplete ? '' : '≥') + integer(soft) + ' soft'),
       scoreTrack,
     ]);
     snapshot.append(score);
 
     const currentSignal = n('div', 'ops-history-fact');
-    add(currentSignal, [n('div', 'ops-history-fact-label', 'CURRENT SIGNAL'), badge(historyOutcomeLabel(latestResult), historyOutcomeTone(latestResult) === 'is-passed' ? 'is-success' : historyOutcomeTone(latestResult) === 'is-soft' ? 'is-warning' : 'is-danger'), n('div', 'ops-history-fact-meta', integer(streak) + '-run passing streak')]);
+    add(currentSignal, [n('div', 'ops-history-fact-label', 'CURRENT SIGNAL'), badge(historyOutcomeLabel(latestResult), historyOutcomeTone(latestResult) === 'is-passed' ? 'is-success' : historyOutcomeTone(latestResult) === 'is-soft' ? 'is-warning' : 'is-danger'), n('div', 'ops-history-fact-meta', selectedHistoryComplete ? integer(streak) + '-run passing streak' : 'Passing streak unavailable from bounded history')]);
     snapshot.append(currentSignal);
 
     const incidentFact = n('div', 'ops-history-fact');
     const incidentValue = lastIncidentObservation
       ? externalLink('#' + value(lastIncidentObservation.build_number), exactPipelineEvidenceUrl(lastIncidentObservation, 'ci'), 'ops-history-fact-value ops-mono')
-      : n('strong', 'ops-history-fact-value is-success', 'None retained');
-    add(incidentFact, [n('div', 'ops-history-fact-label', 'LAST FAILURE'), incidentValue, n('div', 'ops-history-fact-meta', lastIncidentObservation ? integer(incidentDistance) + ' runs ago - ' + shortDate(observationTimestamp(lastIncidentObservation)) : 'No failures in this cohort')]);
+      : n('strong', 'ops-history-fact-value' + (selectedHistoryComplete ? ' is-success' : ''), selectedHistoryComplete ? 'None retained' : 'None published');
+    add(incidentFact, [
+      n('div', 'ops-history-fact-label', selectedHistoryComplete ? 'LAST FAILURE' : 'LATEST PUBLISHED FAILURE'),
+      incidentValue,
+      n('div', 'ops-history-fact-meta', lastIncidentObservation
+        ? integer(incidentDistance) + ' published runs ago - ' + shortDate(observationTimestamp(lastIncidentObservation))
+        : selectedHistoryComplete ? 'No failures in this retained cohort' : 'Omitted rows may contain failures'),
+    ]);
     snapshot.append(incidentFact);
 
     const recentFact = n('div', 'ops-history-fact');
-    const deltaText = rateDelta === null ? 'No prior comparison window' : (rateDelta > 0 ? '+' : '') + rateDelta.toFixed(1) + ' pp vs prior ' + integer(priorWindow.length);
+    const deltaText = !selectedHistoryComplete ? 'Unavailable from bounded history' : rateDelta === null ? 'No prior comparison window' : (rateDelta > 0 ? '+' : '') + rateDelta.toFixed(1) + ' pp vs prior ' + integer(priorWindow.length);
     add(recentFact, [n('div', 'ops-history-fact-label', 'RECENT ' + integer(recentWindow.length)), n('strong', 'ops-history-fact-value ' + (rateDelta !== null && rateDelta < 0 ? 'is-warning' : 'is-success'), recentRate === null ? '-' : recentRate.toFixed(1) + '%'), n('div', 'ops-history-fact-meta', deltaText)]);
     snapshot.append(recentFact);
 
@@ -5555,7 +5726,7 @@
       n('span', 'is-passed', integer(passed) + ' passed'),
       n('span', 'is-soft', integer(soft) + ' soft'),
       n('span', 'is-hard', integer(hard) + ' hard'),
-      n('span', '', integer(streak) + '-run current passing streak'),
+      n('span', '', selectedHistoryComplete ? integer(streak) + '-run current passing streak' : 'Passing streak unavailable'),
     ]);
     add(overview, [track, axis, overviewSummary]);
     add(timeline, [timelineHeader, overview]);
@@ -5588,12 +5759,24 @@
     }
     add(detailGrid, [timeline, incidentPanel]);
     section.append(detailGrid);
-    section.append(n('p', 'ops-evidence-method', 'The source retains up to 60 exact observations for each strict group. Empty positions in the complete map mean fewer retained runs, not inferred missing executions.'));
+    section.append(n('p', 'ops-evidence-method', selectedHistoryComplete
+      ? 'The source retains up to 60 exact observations for each strict group. Empty positions in the complete map mean fewer retained runs, not inferred missing executions.'
+      : 'The source retains up to 60 exact observations for each strict group, and this published map is additionally byte-bounded. Empty positions and omitted rows are not interpreted as missing executions.'));
     host.append(section);
   }
 
   function amdHealthGroups(amdHealth) {
     return Array.isArray((amdHealth || {}).group_catalog) ? amdHealth.group_catalog : [];
+  }
+
+  function amdHealthPublicationState(amdHealth) {
+    const retention = ((amdHealth || {}).operations_publication_retention) || {};
+    const complete = retention.complete_relative_to_amd_test_health !== false;
+    return {
+      complete: complete,
+      retention: retention,
+      prefix: complete ? '' : '≥',
+    };
   }
 
   function amdGroupObservations(row) {
@@ -5889,12 +6072,13 @@
     });
   }
 
-  function amdHealthCluster(label, count, description, meta, tone, onOpen) {
+  function amdHealthCluster(label, count, description, meta, tone, onOpen, incomplete) {
     const tile = n('button', 'ops-cluster-tile ' + (tone || ''));
     tile.type = 'button';
-    tile.setAttribute('aria-label', 'Open ' + label + ': ' + integer(count) + ' AMD job variants');
+    const renderedCount = (incomplete ? '≥' : '') + integer(count);
+    tile.setAttribute('aria-label', 'Open ' + label + ': ' + renderedCount + ' AMD job variants');
     const head = n('div', 'ops-cluster-tile-head');
-    add(head, [n('span', 'ops-cluster-label', label), n('span', 'ops-cluster-count', integer(count))]);
+    add(head, [n('span', 'ops-cluster-label', label), n('span', 'ops-cluster-count', renderedCount)]);
     add(tile, [head, n('div', 'ops-cluster-description', description), n('div', 'ops-cluster-meta', meta)]);
     tile.addEventListener('click', onOpen);
     return tile;
@@ -5904,6 +6088,7 @@
     const summary = amdHealth.summary || {};
     const groups = amdHealthGroups(amdHealth);
     const builds = Array.isArray(amdHealth.builds) ? amdHealth.builds : [];
+    const publication = amdHealthPublicationState(amdHealth);
     if (amdHealth.available !== true || !groups.length) {
       host.append(n('div', 'ops-evidence-note is-warning', 'AMD job-variant history is unavailable. No upstream result has been substituted for AMD health.'));
       return;
@@ -5942,6 +6127,15 @@
     const currentUnknown = groups.filter(function (row) { return amdLatestState(row, latestBuild) === 'unknown'; });
     const currentVariants = currentPassing.concat(currentIncidents, currentUnknown);
     const missing = groups.filter(function (row) { return amdLatestState(row, latestBuild) === 'missing'; });
+
+    if (!publication.complete) {
+      const groupRetention = publication.retention.group_catalog || {};
+      const buildRetention = publication.retention.builds || {};
+      host.append(n('div', 'ops-evidence-note is-warning', 'AMD test-health drill-down is storage-bounded: '
+        + integer(groupRetention.published) + ' of ' + integer(groupRetention.source) + ' job-variant rows and '
+        + integer(buildRetention.published) + ' of ' + integer(buildRetention.source) + ' nightly summary rows are published. '
+        + 'Top-level latest-build totals remain source-complete; catalog counts, hardware distributions, and history charts are retained-row lower bounds, and aggregate rates are unavailable.'));
+    }
 
     host.append(statusStrip([
       {id: 'amd-health-build', label: 'LATEST AMD NIGHTLY', value: latestBuild ? '#' + latestBuild : '-', meta: shortDate(summary.latest_observed_at), tone: hard ? 'is-danger' : soft ? 'is-warning' : 'is-success', url: summary.latest_build_url, actionLabel: 'Open Buildkite ↗'},
@@ -5990,13 +6184,13 @@
     const clusterHeader = n('header', 'ops-section-header');
     const clusterHeading = n('div', 'ops-section-heading');
     add(clusterHeading, [n('h2', 'ops-section-title', 'Retained AMD job-variant catalog'), n('p', 'ops-section-description', 'Start with the latest signal, then inspect exact nightly evidence for current or historical variants.')]);
-    add(clusterHeader, [clusterHeading, button('Browse all ' + integer(groups.length) + ' retained variants', function () { openAmdCatalog('Retained AMD job variants', 'Search every exact AMD job variant retained across the nightly history window', groups, amdHealth, 'all'); })]);
+    add(clusterHeader, [clusterHeading, button('Browse all ' + publication.prefix + integer(groups.length) + ' retained variants', function () { openAmdCatalog('Retained AMD job variants', 'Search exact AMD job variants retained across the nightly history window' + (publication.complete ? '' : '; the published catalog is incomplete'), groups, amdHealth, 'all'); })]);
     clusterSection.append(clusterHeader);
     const clusterGrid = n('div', 'ops-cluster-grid ops-amd-cluster-grid');
-    clusterGrid.append(amdHealthCluster('Needs attention', currentIncidents.length + currentUnknown.length, 'Soft, hard, or unresolved result in the latest nightly', integer(soft) + ' soft - ' + integer(hard) + ' hard - ' + integer(currentUnknown.length) + ' unresolved', hard ? 'is-danger' : 'is-warning', function () { openAmdCatalog('AMD variants needing attention', 'Current soft, hard, and unresolved outcomes only; historical-only names are excluded', currentVariants, amdHealth, 'attention'); }));
-    clusterGrid.append(amdHealthCluster('Passing now', currentPassing.length, 'Latest exact AMD job result passed', percent(currentPassing.length, latestVariantCount) + ' of latest job variants', 'is-success', function () { openAmdCatalog('AMD job variants passing now', 'Latest exact AMD nightly outcomes', currentPassing, amdHealth, 'passing'); }));
-    clusterGrid.append(amdHealthCluster('Mixed history', mixed.length, 'Both passing and non-passing nightlies retained', integer(summary.build_count) + ' nightlies retained', 'is-warning', function () { openAmdCatalog('AMD job variants with mixed history', 'Job variants that passed on some AMD nightlies and had raw failures on others', mixed, amdHealth, 'mixed'); }));
-    clusterGrid.append(amdHealthCluster('Historical only', missing.length, 'Older job names not present in the latest nightly', 'Not classified as current failures', 'is-neutral', function () { openAmdCatalog('Historical AMD job variants', 'Retained older names that are not part of the latest nightly observation set', missing, amdHealth, 'missing'); }));
+    clusterGrid.append(amdHealthCluster('Needs attention', currentIncidents.length + currentUnknown.length, 'Soft, hard, or unresolved result in the latest nightly', integer(soft) + ' soft - ' + integer(hard) + ' hard - ' + publication.prefix + integer(currentUnknown.length) + ' retained unresolved', hard ? 'is-danger' : 'is-warning', function () { openAmdCatalog('AMD variants needing attention', 'Current soft, hard, and unresolved outcomes only; historical-only names are excluded', currentVariants, amdHealth, 'attention'); }, !publication.complete));
+    clusterGrid.append(amdHealthCluster('Passing now', currentPassing.length, 'Latest exact AMD job result passed', publication.complete ? percent(currentPassing.length, latestVariantCount) + ' of latest job variants' : 'Aggregate share unavailable for incomplete catalog', 'is-success', function () { openAmdCatalog('AMD job variants passing now', 'Latest exact AMD nightly outcomes', currentPassing, amdHealth, 'passing'); }, !publication.complete));
+    clusterGrid.append(amdHealthCluster('Mixed history', mixed.length, 'Both passing and non-passing nightlies retained', integer(summary.build_count) + ' source nightlies; retained catalog only', 'is-warning', function () { openAmdCatalog('AMD job variants with mixed history', 'Job variants that passed on some AMD nightlies and had raw failures on others', mixed, amdHealth, 'mixed'); }, !publication.complete));
+    clusterGrid.append(amdHealthCluster('Historical only', missing.length, 'Older job names not present in the latest nightly', 'Not classified as current failures', 'is-neutral', function () { openAmdCatalog('Historical AMD job variants', 'Retained older names that are not part of the latest nightly observation set', missing, amdHealth, 'missing'); }, !publication.complete));
     clusterSection.append(clusterGrid);
     host.append(clusterSection);
 
@@ -6011,7 +6205,7 @@
       {label: 'Latest', width: '110px', render: function (row) { const latest = amdLatestState(row, latestBuild); return linkedBadge(amdStateLabel(latest), row.latest_url, function () { openAmdGroupDetail(row, amdHealth); }, toneForState(latest)); }},
       {label: 'Pass / soft / hard', numeric: true, width: '170px', render: function (row) { return linkButton(integer(row.passed) + ' / ' + integer(row.soft_failed) + ' / ' + integer(row.hard_failed), function () { openAmdGroupDetail(row, amdHealth); }); }},
       {label: 'Latest evidence', width: '160px', render: function (row) { return externalLink('#' + value(row.latest_build_number), row.latest_url, 'ops-mono'); }},
-    ], priority, integer(currentIncidents.length) + ' current AMD failure observations; use Browse all for the complete catalog', {name: 'amd-current-incidents', minWidth: '1020px'}), 'ops-amd-priority'));
+    ], priority, publication.prefix + integer(currentIncidents.length) + ' retained current AMD failure observations; use Browse all for the ' + (publication.complete ? 'complete' : 'bounded') + ' catalog', {name: 'amd-current-incidents', minWidth: '1020px'}), 'ops-amd-priority'));
   }
 
   const AGENT_WINDOW_DAYS = {'1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '60d': 60};
@@ -6120,9 +6314,6 @@
     };
   }
 
-  // Draw the per-node timeline. `range` (optional {min,max} in ms) zooms the time
-  // axis: only runs overlapping the window are shown, at a finer x scale. Returns
-  // the full (unzoomed) data bounds {min,max} so the caller can drive zoom/reset.
   function drawAgentTimeline(nodeRuns, label, chart, range) {
     const allRows = (nodeRuns || []).slice()
       .filter(function (run) { return run._start !== null; })
@@ -6140,15 +6331,12 @@
     }
     const dataMin = Math.min.apply(null, allRows.map(function (row) { return row.start; }));
     const dataMax = Math.max.apply(null, allRows.map(function (row) { return row.end; }));
-    // Rows to show + x window: a zoom range clips to overlapping runs; otherwise
-    // show everything padded.
     const rows = range
       ? allRows.filter(function (row) { return row.end >= range.min && row.start <= range.max; })
       : allRows;
     const pad = Math.max(60000, (dataMax - dataMin) * 0.02);
     const xMin = range ? range.min : dataMin - pad;
     const xMax = range ? range.max : dataMax + pad;
-    // ~26px of vertical room per shown run; the stage caps visible height and scrolls.
     chart.frame.style.setProperty('--ops-chart-height', Math.max(180, rows.length * 26) + 'px');
     const spanDays = (xMax - xMin) / 86400000;
     chart.viewport.style.minWidth = Math.min(2600, Math.max(720, Math.round(spanDays * 90))) + 'px';
@@ -6194,13 +6382,10 @@
     return {min: dataMin, max: dataMax};
   }
 
-  // Runs shown on a compact (unselected) co-failure card before the overflow hint.
   const COFAIL_COMPACT_RUNS = 3;
 
   function agentCofailureCard(event, onSelectEvent, selected) {
     const card = n('div', 'ops-cofailure-card' + (event.cross_pipeline ? ' is-cross' : '') + (selected ? ' is-selected' : ''));
-    // Clicking anywhere on the card (but not a link/button inside it) selects the
-    // event, which inflates + highlights it and zooms the timeline to it.
     card.addEventListener('click', function (e) {
       if (e.target && e.target.closest && e.target.closest('a, button')) return;
       onSelectEvent(event);
@@ -6217,14 +6402,11 @@
     if (event.cross_pipeline) head.append(n('span', 'ops-badge is-danger', 'cross-pipeline'));
     card.append(head);
     if (selected) {
-      // Finer-grained event summary, shown only on the inflated (selected) card.
       card.append(n('p', 'ops-cofailure-detail',
         integer(event.run_count) + ' runs · ' + integer(event.hard_failed) + ' hard · '
         + integer(event.soft_failed) + ' soft · pipelines: ' + (event.pipelines || []).join(', ')));
     }
     const allRuns = event.runs || [];
-    // Compact cards show only the first few runs so a busy cluster can't sprawl;
-    // the selected card inflates to the full list with per-run timing.
     const shown = selected ? allRuns : allRuns.slice(0, COFAIL_COMPACT_RUNS);
     const list = n('ul', 'ops-cofailure-runs');
     shown.forEach(function (run) {
@@ -6256,16 +6438,76 @@
     return card;
   }
 
+  function agentFailureAccountingCounts(rows, options) {
+    const totals = new Map();
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      if (String(row.d || '') < String(options.startDay || '')) return;
+      if (options.nightlyOnly && !row.ng) return;
+      if (options.excludeCancelled && row.bc) return;
+      const count = Math.max(0, Number(row.c) || 0);
+      if (!count || !row.nd || !['hard', 'soft'].includes(row.s)) return;
+      let value = totals.get(row.nd);
+      if (!value) { value = {hard: 0, soft: 0, signal: 0}; totals.set(row.nd, value); }
+      value[row.s] += count;
+      if ((options.signal === 'infra' && row.i)
+        || (options.signal === 'hard' && row.s === 'hard')
+        || options.signal === 'all') value.signal += count;
+    });
+    return totals;
+  }
+
+  function agentAggregateRunCounts(rows, options) {
+    const totals = {runs: 0, identifiedRuns: 0};
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      if (String(row.d || '') < String(options.startDay || '')) return;
+      if (options.hardware && options.hardware !== 'all' && row.h !== options.hardware) return;
+      const bucket = options.nightlyOnly ? row.n : row.a;
+      if (!Array.isArray(bucket) || !Number(bucket[0])) return;
+      totals.runs += Math.max(0, Number(bucket[0]) || 0);
+      if (row.id) totals.identifiedRuns += Math.max(0, Number(bucket[0]) || 0);
+    });
+    return totals;
+  }
+
+  function agentAggregateFailureCounts(rows, options) {
+    const totals = {hard: 0, soft: 0, signal: 0};
+    (Array.isArray(rows) ? rows : []).forEach(function (row) {
+      if (String(row.d || '') < String(options.startDay || '')) return;
+      if (options.hardware && options.hardware !== 'all' && row.h !== options.hardware) return;
+      if (options.nightlyOnly && !row.ng) return;
+      if (options.excludeCancelled && row.bc) return;
+      const count = Math.max(0, Number(row.c) || 0);
+      if (!count || !['hard', 'soft'].includes(row.s)) return;
+      totals[row.s] += count;
+      if ((options.signal === 'infra' && row.i)
+        || (options.signal === 'hard' && row.s === 'hard')
+        || options.signal === 'all') totals.signal += count;
+    });
+    return totals;
+  }
+
   function renderAmdAgentHealth(host, agentHealth) {
     const nodeDays = Array.isArray(agentHealth.node_days) ? agentHealth.node_days : [];
     const failingRaw = Array.isArray(agentHealth.failing_runs) ? agentHealth.failing_runs : [];
+    const failureAccounting = Array.isArray(agentHealth.failure_accounting) ? agentHealth.failure_accounting : [];
+    const nodeAccountingTotals = Array.isArray(agentHealth.node_accounting_totals) ? agentHealth.node_accounting_totals : [];
+    const failureAccountingTotals = Array.isArray(agentHealth.failure_accounting_totals) ? agentHealth.failure_accounting_totals : [];
+    const operationsRetention = (agentHealth || {}).operations_publication_retention || {};
+    const operationsNodeRetention = operationsRetention.node_days || {};
+    const operationsAccountingRetention = operationsRetention.failure_accounting || {};
+    const sourceRetention = (agentHealth || {}).retention || {};
+    const sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth);
+    const nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
+    const failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
+    const aggregateAccountingComplete = operationsRetention.aggregate_accounting_complete === true;
+    const evidenceRetention = (((agentHealth || {}).retention || {}).failure_evidence) || {};
+    const evidenceIncomplete = evidenceRetention.complete_relative_to_source === false
+      || ((operationsRetention.failure_evidence || {}).complete === false);
     const hardwareTypes = Array.isArray(agentHealth.hardware_types) ? agentHealth.hardware_types : [];
     const windowOptions = Array.isArray(agentHealth.window_options) ? agentHealth.window_options : [1, 3, 7, 14, 30, 60];
     const cofailOptions = Array.isArray(agentHealth.cofailure_window_options) ? agentHealth.cofailure_window_options : [30, 60, 120, 180, 360, 720, 1440];
     const endMs = new Date(agentHealth.generated_at || Date.now()).getTime();
 
-    // Pre-parse failing runs once (timestamps + reconstructed url). Each row's
-    // infra_suspect flag lets the signal toggle select the infra-only subset.
     const failing = failingRaw.map(function (r) {
       const start = Date.parse(r.t);
       const end = Date.parse(r.e);
@@ -6287,8 +6529,6 @@
       };
     });
 
-    // Local, in-place view state (avoids full-tab re-render so the search box
-    // keeps focus and the timeline chart does not flicker on every keystroke).
     let windowId = AGENT_WINDOW_DAYS[state.agentWindow] ? state.agentWindow : ((agentHealth.default_window_days || 7) + 'd');
     let gpu = (function (g) { return (g === 'all' || hardwareTypes.includes(g)) ? g : 'all'; })(state.agentGpu || 'all');
     let search = '';
@@ -6296,31 +6536,26 @@
     let cofailMins = (function (m) { return cofailOptions.includes(m) ? m : (agentHealth.default_cofailure_window_mins || 180); })(parseInt(state.agentCofail, 10));
     let excludeCancelled = state.agentExclCancel !== '0';
     let nightlyOnly = state.agentNightly === '1';
-    // Failure signal: which failing runs drive the timeline + co-failure views.
-    //   'infra' = anomalous, node-attributable subset (default)
-    //   'hard'  = every hard failure   'all' = hard + soft
     let signal = ['infra', 'hard', 'all'].includes(state.agentSignal) ? state.agentSignal : 'infra';
-    // Until the user clicks a column, the sort follows the active signal
-    // (see defaultSortKey); after an explicit click we respect their choice.
     let sort = {key: 'infra_suspect', dir: 'desc'};
     let sortExplicit = false;
     let searchTimer = null;
     let current = null;
-    // Timeline zoom: timelineRange overrides the x window ({min,max} ms), null =
-    // full span. timelineBounds is the last drawn full data span (for reset/zoom).
     let timelineRange = null;
     let timelineBounds = null;
-    // Co-failure events filter: when set, the events list is scoped to one node.
     let eventNodeFilter = '';
-    // The co-failure card the user selected directly: inflate + highlight it and
-    // keep every other card compact so the events list never dominates the page.
-    // The key is stable across re-renders (node + cluster start time).
     let selectedEventKey = '';
     function eventKey(e) { return e.node_raw + '@' + e._startMs; }
 
     add(host, pageHeaderNote());
-    // The infra-suspect criterion banner only applies to the default signal, so
-    // it's hidden (in apply()) whenever the Failure signal is Hard/All failures.
+    if (evidenceIncomplete || nodeDetailIncomplete || failureDetailIncomplete) {
+      const retentionNote = n('div', 'ops-evidence-note is-warning');
+      add(retentionNote, [
+        n('strong', '', 'Agent-health drill-down evidence is storage-bounded. '),
+        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + 'When node detail or source history is incomplete, node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
+      ]);
+      host.append(retentionNote);
+    }
     const criteriaNoteEl = criteriaNote();
     add(host, criteriaNoteEl);
     const modeHost = n('div', 'ops-agent-mode');
@@ -6334,14 +6569,12 @@
     const tableHost = n('div');
     host.append(tableHost);
 
-    // Timeline (persistent chart; only its data is redrawn).
     const timelineToolbar = n('div', 'ops-toolbar ops-agent-toolbar');
     const nodeField = n('label', 'ops-field-label', 'Timeline node ');
     const nodeSelect = n('select', 'ops-select');
     nodeSelect.setAttribute('aria-label', 'Physical node for run timeline');
     nodeField.append(nodeSelect);
     timelineToolbar.append(nodeField);
-    // Horizontal zoom controls for the time axis.
     const zoomGroup = n('div', 'ops-agent-zoom');
     function zoomButton(label, title, handler) {
       const b = n('button', 'ops-zoom-btn', label);
@@ -6384,8 +6617,6 @@
       return note;
     }
 
-    // Precise, self-contained definition of the anomaly criterion, so a reader
-    // knows exactly what "infra-suspect" / anomalous means without guessing.
     function criteriaNote() {
       const rate = Number(agentHealth.infra_suspect_min_pass_rate);
       const pct = Number.isFinite(rate) ? Math.round(rate * 100) + '%' : '50%';
@@ -6411,8 +6642,6 @@
       return field;
     }
 
-    // Prominent, global signal switch. Sits above the finer filter row because it
-    // changes what "failure" means across the timeline, co-failures and KPIs.
     function buildModeToggle() {
       clear(modeHost);
       const seg = segmented([
@@ -6526,6 +6755,27 @@
         agg.canceled += canceled;
         if (nd.h) agg.hardware = nd.h;
       });
+      const aggregateRuns = agentAggregateRunCounts(nodeAccountingTotals, {
+        startDay: startDay,
+        hardware: gpu,
+        nightlyOnly: nightlyOnly,
+      });
+      const aggregateFailures = agentAggregateFailureCounts(failureAccountingTotals, {
+        startDay: startDay,
+        hardware: gpu,
+        nightlyOnly: nightlyOnly,
+        excludeCancelled: excludeCancelled,
+        signal: signal,
+      });
+      const exactAggregateScope = aggregateAccountingComplete
+        && !sourceHistoryIncomplete
+        && nodeAccountingTotals.length > 0
+        && failureAccountingTotals.length > 0
+        && !search;
+      if (nodeDetailIncomplete && exactAggregateScope) {
+        totalRuns = aggregateRuns.runs;
+        identifiedRuns = aggregateRuns.identifiedRuns;
+      }
 
       // Failing runs in the active signal subset -> co-failure clustering +
       // per-node counts. Exclude-cancelled drops failures whose parent build was
@@ -6539,28 +6789,41 @@
       });
       const runsByNode = new Map();
       fRuns.forEach(function (r) { if (!runsByNode.has(r.node_raw)) runsByNode.set(r.node_raw, []); runsByNode.get(r.node_raw).push(r); });
-      // Every hard/soft failing run for the node in-window regardless of signal,
-      // with the SAME cancelled-build handling as fRuns. This backs the Failures
-      // column so its hard/soft counts stay consistent with the signal column
-      // (which is just the signal-matching subset of these same records): the
-      // node_days rollup can't drop failures inside auto-cancelled builds, so
-      // deriving Failures from the per-run records is what makes them agree.
-      const failByNode = new Map();
-      failing.forEach(function (r) {
-        if (r._start === null || r._start < startMs || r._start > endMs) return;
-        if (nightlyOnly && !r.nightly) return;
-        if (excludeCancelled && r.build_canceled) return;
-        if (!matchesFilter(r.hardware, r.node_raw)) return;
-        let f = failByNode.get(r.node_raw);
-        if (!f) { f = {hard: 0, soft: 0}; failByNode.set(r.node_raw, f); }
-        if (r.state === 'hard') f.hard += 1; else if (r.state === 'soft') f.soft += 1;
+      // Compact accounting remains complete even when raw link evidence is
+      // shortened. Use it for numeric failure/signal counts; raw rows remain
+      // authoritative only for timelines, distinct groups and co-failures.
+      const accountingRows = failureAccounting.filter(function (row) {
+        return matchesFilter(row.h, row.nd);
       });
-      const events = [];
+      const accountedByNode = agentFailureAccountingCounts(accountingRows, {
+        startDay: startDay,
+        nightlyOnly: nightlyOnly,
+        excludeCancelled: excludeCancelled,
+        signal: signal,
+      });
+      const failByNode = new Map();
       const signalByNode = {};
+      if (failureAccounting.length) {
+        accountedByNode.forEach(function (value, nodeRaw) {
+          failByNode.set(nodeRaw, {hard: value.hard, soft: value.soft});
+          signalByNode[nodeRaw] = value.signal;
+        });
+      } else {
+        failing.forEach(function (r) {
+          if (r._start === null || r._start < startMs || r._start > endMs) return;
+          if (nightlyOnly && !r.nightly) return;
+          if (excludeCancelled && r.build_canceled) return;
+          if (!matchesFilter(r.hardware, r.node_raw)) return;
+          let f = failByNode.get(r.node_raw);
+          if (!f) { f = {hard: 0, soft: 0}; failByNode.set(r.node_raw, f); }
+          if (r.state === 'hard') f.hard += 1; else if (r.state === 'soft') f.soft += 1;
+        });
+      }
+      const events = [];
       const groupsByNode = {};
       runsByNode.forEach(function (runs, nodeRaw) {
         const hardware = (byNode.get(nodeRaw) || {}).hardware || (runs[0] && runs[0].hardware) || '';
-        signalByNode[nodeRaw] = runs.length;
+        if (!failureAccounting.length) signalByNode[nodeRaw] = runs.length;
         groupsByNode[nodeRaw] = new Set(runs.map(function (x) { return x.group; })).size;
         clusterNodeCofailures(agentNodeLabel(nodeRaw, hardware), nodeRaw, hardware, runs, cofailMins).forEach(function (e) { events.push(e); });
       });
@@ -6570,9 +6833,8 @@
       const agents = [];
       byNode.forEach(function (agg, nodeRaw) {
         const identified = nodeRaw !== '(unidentified)';
-        // Failure counts come from the per-run failing records (so the cancelled-
-        // build toggle applies and they match the signal column); the run total /
-        // denominator still comes from the node_days rollup (its only source).
+        // Failure counts come from complete compact accounting when available;
+        // the run denominator remains the exact node_days rollup.
         const f = failByNode.get(nodeRaw) || {hard: 0, soft: 0};
         const failures = f.hard + f.soft;
         const denom = excludeCancelled ? Math.max(0, agg.runs - agg.canceled) : agg.runs;
@@ -6600,7 +6862,7 @@
           || (b.group_count - a.group_count)
           || String(b.started_at).localeCompare(String(a.started_at));
       });
-      return {agents: agents, events: events, fRuns: fRuns, totalRuns: totalRuns, identifiedRuns: identifiedRuns};
+      return {agents: agents, events: events, fRuns: fRuns, totalRuns: totalRuns, identifiedRuns: identifiedRuns, aggregateFailures: aggregateFailures, exactAggregateScope: exactAggregateScope, nodeDetailComplete: !nodeDetailIncomplete, failureDetailComplete: !failureDetailIncomplete};
     }
 
     function renderKpis(view) {
@@ -6614,11 +6876,13 @@
       const coveragePct = view.totalRuns ? (100 * view.identifiedRuns / view.totalRuns) : 0;
       const concurrent = view.events.filter(function (e) { return e.concurrent; }).length;
       const cross = view.events.filter(function (e) { return e.cross_pipeline; }).length;
+      const nodeMetricsAvailable = view.nodeDetailComplete;
+      const coverageAvailable = view.nodeDetailComplete || view.exactAggregateScope;
       kpiHost.append(statusStrip([
-        {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: integer(identifiedNodes), meta: integer(view.totalRuns) + ' runs in ' + windowId, tone: 'is-info'},
-        {id: 'agent-unreliable', label: 'NODES WITH FAILURES', value: integer(unreliable), meta: 'nodes with ' + unreliableNoun + ' failure', tone: unreliable ? 'is-warning' : 'is-success'},
-        {id: 'agent-coverage', label: 'NODE COVERAGE', value: coveragePct.toFixed(1) + '%', meta: integer(view.identifiedRuns) + ' / ' + integer(view.totalRuns) + ' runs identified', tone: coveragePct >= 50 ? 'is-success' : coveragePct > 0 ? 'is-warning' : 'is-danger'},
-        {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: integer(view.events.length), meta: integer(concurrent) + ' concurrent · ' + integer(cross) + ' cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success', onOpen: function () { eventsHost.scrollIntoView({behavior: 'smooth', block: 'start'}); }},
+        {id: 'agent-nodes', label: 'IDENTIFIED AMD NODES', value: nodeMetricsAvailable ? integer(identifiedNodes) : 'Unavailable', meta: coverageAvailable ? integer(view.totalRuns) + ' exact runs in ' + windowId : 'node detail is incomplete', tone: 'is-info'},
+        {id: 'agent-unreliable', label: 'NODES WITH FAILURES', value: nodeMetricsAvailable && view.failureDetailComplete ? integer(unreliable) : 'Unavailable', meta: view.exactAggregateScope ? integer(view.aggregateFailures.signal) + ' exact ' + signalTerm() + ' failures in aggregate' : 'node-specific accounting is incomplete', tone: unreliable ? 'is-warning' : 'is-success'},
+        {id: 'agent-coverage', label: 'NODE COVERAGE', value: coverageAvailable ? coveragePct.toFixed(1) + '%' : 'Unavailable', meta: coverageAvailable ? integer(view.identifiedRuns) + ' / ' + integer(view.totalRuns) + ' exact runs identified' : 'aggregate accounting unavailable', tone: coverageAvailable && coveragePct >= 50 ? 'is-success' : coverageAvailable && coveragePct > 0 ? 'is-warning' : 'is-danger'},
+        {id: 'agent-cofail', label: 'CO-FAILURE EVENTS', value: (evidenceIncomplete ? '≥' : '') + integer(view.events.length), meta: integer(concurrent) + ' retained concurrent · ' + integer(cross) + ' retained cross-pipeline', tone: view.events.length ? 'is-danger' : 'is-success', onOpen: function () { eventsHost.scrollIntoView({behavior: 'smooth', block: 'start'}); }},
       ]));
     }
 
@@ -6665,11 +6929,11 @@
       const columns = [
         {label: 'Physical node', sticky: true, width: '190px', sortKey: 'node', render: function (row) { return linkButton(value(row.node), function () { focusNode(row.node_raw); }, 'Show this node in the timeline and co-failure events', 'Show ' + value(row.node) + ' in the timeline and co-failure events'); }},
         {label: 'GPU', width: '62px', sortKey: 'hardware', render: function (row) { return value(row.hardware); }},
-        {label: 'Runs', numeric: true, width: '66px', sortKey: 'runs', render: function (row) { return integer(row.runs); }},
-        {label: 'Fail %', numeric: true, width: '74px', sortKey: 'incident_rate', render: function (row) { return (Number(row.incident_rate) * 100).toFixed(1) + '%'; }},
+        {label: 'Runs', numeric: true, width: '66px', sortKey: 'runs', render: function (row) { return (nodeDetailIncomplete ? '≥' : '') + integer(row.runs); }},
+        {label: 'Fail %', numeric: true, width: '74px', sortKey: 'incident_rate', render: function (row) { return nodeDetailIncomplete || failureDetailIncomplete ? 'Unavailable' : (Number(row.incident_rate) * 100).toFixed(1) + '%'; }},
         {label: 'Test group failures', numeric: true, width: '150px', sortKey: 'failures', render: function (row) {
           const cell = n('span', 'ops-failures-cell');
-          cell.append(n('span', 'ops-failures-total', integer(row.failures)));
+          cell.append(n('span', 'ops-failures-total', (failureDetailIncomplete ? '≥' : '') + integer(row.failures)));
           if (row.hard || row.soft) {
             cell.append(n('span', 'ops-failures-split', integer(row.hard) + ' hard · ' + integer(row.soft) + ' soft'));
           }
@@ -6677,12 +6941,12 @@
         }},
       ];
       if (showSignalColumn) {
-        columns.push({label: signalColumnLabel(), numeric: true, width: '132px', sortKey: 'infra_suspect', render: function (row) { return integer(row.infra_suspect); }});
+        columns.push({label: signalColumnLabel(), numeric: true, width: '132px', sortKey: 'infra_suspect', render: function (row) { return (failureDetailIncomplete ? '≥' : '') + integer(row.infra_suspect); }});
       }
       columns.push(
-        {label: 'Groups', numeric: true, width: '68px', sortKey: 'distinct_groups', render: function (row) { return integer(row.distinct_groups); }},
-        {label: 'Co-fail', numeric: true, width: '68px', sortKey: 'cofailure_event_count', render: function (row) { return integer(row.cofailure_event_count); }},
-        {label: 'Evidence', width: '86px', render: function (row) { return linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open ' + signalTerm() + ' failing runs and BuildKite logs for ' + value(row.node)); }}
+        {label: 'Groups', numeric: true, width: '68px', sortKey: 'distinct_groups', render: function (row) { return (evidenceIncomplete ? '≥' : '') + integer(row.distinct_groups); }},
+        {label: 'Co-fail', numeric: true, width: '68px', sortKey: 'cofailure_event_count', render: function (row) { return (evidenceIncomplete ? '≥' : '') + integer(row.cofailure_event_count); }},
+        {label: 'Evidence', width: '86px', render: function (row) { return row._runs.length ? linkButton('runs ↗', function () { openNodeEvidence(row); }, 'Open retained ' + signalTerm() + ' failing runs and BuildKite logs for ' + value(row.node)) : n('span', 'ops-muted', 'not retained'); }}
       );
       const table = dataTable(columns, rows, 'Per-node AMD reliability in ' + windowId, {name: 'agent-nodes', minWidth: '930px', sort: sort, onSort: onSort});
       table.classList.add('ops-agent-table');
@@ -6693,7 +6957,9 @@
     // knows exactly what each column counts without cross-referencing the toggle.
     function tableDescription(view) {
       const count = integer(view.agents.length) + ' node(s) in ' + windowId;
-      const base = 'Runs and Fail % come from the node_days rollup of every build. Test group failures counts each hard or soft failing run (with its hard/soft split) and honors the cancelled-build toggle. Groups and Co-fail are limited to that same set.';
+      const base = nodeDetailIncomplete || failureDetailIncomplete
+        ? 'Operations retained only a bounded suffix of node-granular rows. Exact date/hardware run and failure totals remain in compact accounting, but node counts and node-specific Fail % are unavailable; displayed node counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
+        : 'Runs come from the node_days rollup of every build. Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown.';
       if (signal === 'infra') {
         return count + ', sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. ' + base + ' Click a node (or Evidence) to load its timeline; sort by any column.';
       }
@@ -6704,7 +6970,7 @@
     }
 
     function timelineAgents(view) {
-      return view.agents.filter(function (agent) { return agent.identified && agent.infra_suspect; })
+      return view.agents.filter(function (agent) { return agent.identified && agent._runs.length; })
         .sort(function (a, b) { return b.cofailure_event_count - a.cofailure_event_count || b.infra_suspect - a.infra_suspect; });
     }
 
@@ -6996,6 +7262,14 @@
 
   function platformComparison(reliability) {
     const comparison = (reliability || {}).platform_comparison || {};
+    if (!platformComparisonPublicationState(comparison).aggregateAvailable) {
+      return {
+        available: false,
+        publication_incomplete_reason: platformComparisonPublicationState(comparison).message,
+        publication_retention: comparison.publication_retention || {},
+        summary: {}, matching: {}, rows: [],
+      };
+    }
     return comparison.available === true && Array.isArray(comparison.rows) ? comparison : {available: false, summary: {}, matching: {}, rows: []};
   }
 
@@ -7168,6 +7442,14 @@
         window: Object.assign(analyticsWindowBounds(ops, windowId), {completeAggregate: true, buildCount: comparison.cohort_build_count}),
       }));
     }
+    const reliabilityPublication = reliabilityPublicationState(reliability);
+    if (!reliabilityPublication.complete) {
+      return remember(Object.assign({}, comparison, {
+        available: false,
+        publication_incomplete_reason: 'Browser-derived comparison windows are unavailable because the published reliability catalog is bounded. The source-complete 30-day aggregates remain available.',
+        rows: [],
+      }));
+    }
     const bounds = analyticsWindowBounds(ops, windowId);
     const buildCount = comparisonWindowBuildCount(reliability, bounds.start, bounds.end);
     const priorBuildCount = comparisonWindowBuildCount(reliability, bounds.priorStart, bounds.priorEnd);
@@ -7305,6 +7587,20 @@
     };
   }
 
+  function comparisonRetryRetentionMessage(retry) {
+    if (!retry || retry.evidence_deferred === true) return '';
+    const retention = retry.publication_retention;
+    if (!retention || retention.complete_relative_to_source !== false) return '';
+    const attempts = retention.retry_attempts || {};
+    const recoveries = retention.recoveries || {};
+    const groups = retention.comparison_groups || {};
+    return 'Published exact retry evidence is bounded: '
+      + integer(attempts.published) + ' of ' + integer(attempts.source) + ' retry-involved attempts, '
+      + integer(recoveries.published) + ' of ' + integer(recoveries.source) + ' recoveries, and '
+      + integer(groups.published) + ' of ' + integer(groups.source) + ' comparison groups retain exact rows. '
+      + 'Aggregate retry rates remain source-complete; only the retained exact rows and links are bounded.';
+  }
+
   function openPlatformComparisonDetail(row, ops, reliability, retry, focus) {
     const amd = row.amd || {};
     const cuda = row.cuda || {};
@@ -7353,6 +7649,12 @@
     const retryRows = retryEvidenceDeferred
       ? {attempts: [], recoveries: []}
       : comparisonRetryRows(row, retry, row._window && row._window.id !== '30d' ? row._window : null);
+    const retryRetentionMessage = comparisonRetryRetentionMessage(retry);
+    if (retryRetentionMessage) {
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [n('strong', '', 'Bounded exact retry evidence. '), n('span', '', retryRetentionMessage)]);
+      content.append(warning);
+    }
     if (!retryEvidenceDeferred && (focus === 'retries' || retryRows.attempts.length || retryRows.recoveries.length)) {
       const attemptColumns = [
         {label: 'Platform', width: '90px', render: function (attempt) { return badge(attempt._platform, attempt._platform === 'AMD' ? 'is-info' : 'is-neutral'); }},
@@ -7418,12 +7720,23 @@
 
   function analyticsWindowControl(host, comparison) {
     const windowInfo = comparison.window || {};
+    const publication = platformComparisonPublicationState(comparison);
     const toolbar = n('div', 'ops-toolbar ops-analytics-window-toolbar');
-    toolbar.append(n('span', 'ops-toolbar-label', 'Complete 30-day comparison'));
+    toolbar.append(n('span', 'ops-toolbar-label', publication.complete
+      ? 'Complete 30-day comparison'
+      : 'Source-complete 30-day aggregates · bounded row coverage'));
     const context = n('span', 'ops-window-context');
-    context.textContent = integer(windowInfo.buildCount) + ' completed upstream main builds · precomputed for fast inspection';
+    context.textContent = integer(windowInfo.buildCount) + ' completed upstream main builds · '
+      + (publication.complete
+        ? 'precomputed for fast inspection'
+        : integer(publication.published) + ' / ' + integer(publication.source) + ' comparison rows published');
     toolbar.append(context);
     host.append(toolbar);
+    if (publication.message) {
+      const warning = n('div', 'ops-evidence-note is-warning');
+      add(warning, [n('strong', '', 'Bounded comparison coverage. '), n('span', '', publication.message)]);
+      host.append(warning);
+    }
   }
 
   function renderComparisonChart(host, config) {
@@ -7618,6 +7931,7 @@
     const typical = percentileValue(p90Values, 0.5);
     const slower = comparable.filter(function (row) { return Number(row.worst_p90_delta_mins) > 5; });
     const slowest = comparable[0] || {amd: {}, cuda: {}};
+    analyticsWindowControl(host, comparison);
     host.append(statusStrip([
       {label: 'AMD GROUPS TIMED', value: integer(rows.length), meta: integer(comparable.length) + ' exact CUDA pairs'},
       {label: 'TYPICAL PAIRED AMD P90', value: duration(typical), meta: 'median of exact-pair AMD group p90s'},
@@ -7727,7 +8041,7 @@
 
     if ((!scope.available || !comparison.available) && state.analyticsView !== 'nightlies') {
       const unavailable = n('div', 'ops-evidence-note is-warning');
-      add(unavailable, [n('strong', '', 'AMD/CUDA comparison unavailable. '), n('span', '', scope.detail + '. The dashboard will not substitute unmatched hardware or a different pipeline.')]);
+      add(unavailable, [n('strong', '', 'AMD/CUDA comparison unavailable. '), n('span', '', (comparison.publication_incomplete_reason || scope.detail) + '. The dashboard will not substitute unmatched hardware or a different pipeline.')]);
       host.append(unavailable);
       return;
     }
@@ -8863,7 +9177,12 @@
       || ['not_collected', 'partial', 'failed', 'error', 'incomplete', 'unavailable', 'unknown'].includes(status);
     const explicitlyComplete = selectedCoverage.complete === true
       || status === 'complete';
-    const complete = explicitlyComplete && !explicitlyIncomplete;
+    const selectedWindowId = Object.keys((payload || {}).windows || {}).find(function (windowId) {
+      return (payload.windows || {})[windowId] === windowBlock;
+    });
+    const publicationRows = ((((payload || {}).publication_retention || {}).window_rows) || {})[selectedWindowId] || {};
+    const publicationIncomplete = publicationRows.complete === false;
+    const complete = explicitlyComplete && !explicitlyIncomplete && !publicationIncomplete;
     const notes = [];
     [selectedCoverage].forEach(function (coverage) {
       ['reason', 'detail', 'limitation'].forEach(function (key) {
@@ -8882,6 +9201,9 @@
       ['oversized logs', selectedCoverage.oversize_jobs],
       ['parse failures', selectedCoverage.parse_failures],
     ].filter(function (fact) { return fact[1] !== null && fact[1] !== undefined && fact[1] !== ''; });
+    if (publicationIncomplete) {
+      notes.push('public storage retained ' + integer(publicationRows.published) + ' of ' + integer(publicationRows.source) + ' aggregate rows for this window');
+    }
     return {
       complete: complete,
       status: status || (complete ? 'complete' : 'unknown'),
@@ -9458,6 +9780,12 @@
   async function renderQueue(host, ops) {
     const queueBlock = ops.queue || {};
     const snapshot = queueBlock.snapshot || {};
+    const projection = queueBlock.operations_publication_retention || {};
+    const queueRows = projection.snapshot_queues || {}, baselineRows = projection.pressure_baseline || {};
+    const scopeTotals = ((projection.scope_totals || {})[state.queueScope]) || {};
+    const queueRowsIncomplete = queueRows.complete_relative_to_source === false;
+    const baselineRowsIncomplete = baselineRows.complete_relative_to_source === false;
+    const queueCountsExact = projection.aggregate_totals_complete === true && ['waiting', 'running', 'queue_count'].every(function (key) { return Number.isFinite(Number(scopeTotals[key])); });
     let lifecyclePayload = null;
     let lifecycleError = null;
     if (state.queueView === 'lifecycle') {
@@ -9480,6 +9808,9 @@
       if (queueRow.count_source) a.countSources.add(queueRow.count_source);
       return a;
     }, {waiting: 0, running: 0, agents: 0, agentMeasurements: 0, countSources: new Set()});
+    if (queueRowsIncomplete && queueCountsExact) {
+      sums.waiting = Number(scopeTotals.waiting); sums.running = Number(scopeTotals.running);
+    }
     const snapshotSources = snapshot.sources || snapshot.provenance || (((queueBlock.provenance || {}).snapshot || {}).sources) || {};
     const countProvenance = Array.from(sums.countSources).join(', ') || snapshotSources.counts || snapshotSources.count_source || snapshotSources.mode || 'source unavailable';
     function highestNative(metric) {
@@ -9510,6 +9841,9 @@
       controls.append(idleLabel);
     }
     host.append(controls);
+    if (projection.complete_relative_to_source === false) {
+      host.append(n('div', 'ops-evidence-note is-warning', 'Queue projection is storage-bounded. ' + (queueCountsExact ? 'Current aggregate counts remain exact' : 'Current counts are lower bounds') + '; tables, wait leaders, and pressure findings cover only published rows. Omitted detail is not treated as idle or healthy.'));
+    }
     if (state.queueView === 'lifecycle') {
       if (lifecycleError) {
         const unavailable = n('div', 'ops-error');
@@ -9526,13 +9860,15 @@
       return;
     }
     host.append(statusStrip([
-      {id: 'queue-running', label: 'RUNNING NOW', value: integer(sums.running), meta: allScopeEntries.length + ' queues in scope', onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
-      {id: 'queue-waiting', label: 'WAITING NOW', value: integer(sums.waiting), meta: 'count source: ' + countProvenance, tone: sums.waiting ? 'is-warning' : 'is-success', provenance: countProvenance, onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
-      {id: 'queue-p95-leader', label: 'BUILDKITE P95 LEADER', value: p95.queue ? duration(p95.value) : '-', meta: p95.queue ? p95.queue + ' - ' + value(waitSourceDetail(p95.row, 'p95')) : 'No p95 source - ' + integer(p95Coverage) + ' measured queues', tone: p95.queue ? 'is-warning' : 'is-neutral', onOpen: function () { p95.queue ? openQueueDetail(p95.queue, p95.row, []) : openMetricDetail({label: 'Current p95 queue leader', value: '-', meta: 'No queue in scope reported a current p95. Missing values are not zero.'}); }},
-      {id: 'queue-sampled-p95-leader', label: 'RECONSTRUCTED P95', value: sampledP95.queue ? duration(sampledP95.value) : '-', meta: sampledP95.queue ? sampledP95.queue + ' - n=' + integer(waitSampleCount(sampledP95.row)) + ' scheduled jobs' : 'No reconstructed p95 - ' + integer(sampledP95Coverage) + ' measured queues', tone: sampledP95.queue ? 'is-danger' : 'is-neutral', onOpen: function () { sampledP95.queue ? openQueueDetail(sampledP95.queue, sampledP95.row, []) : openMetricDetail({label: 'Current reconstructed p95 queue leader', value: '-', meta: 'The reconstructed series uses scheduled jobs fetched separately from Buildkite queue-native metrics.'}); }},
+      {id: 'queue-running', label: 'RUNNING NOW', value: (queueRowsIncomplete && !queueCountsExact ? '≥' : '') + integer(sums.running), meta: queueRowsIncomplete ? (queueCountsExact ? integer(scopeTotals.queue_count) + ' queues in source scope' : allScopeEntries.length + ' published queues') + ' · detail bounded' : allScopeEntries.length + ' queues in scope', onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
+      {id: 'queue-waiting', label: 'WAITING NOW', value: (queueRowsIncomplete && !queueCountsExact ? '≥' : '') + integer(sums.waiting), meta: 'count source: ' + countProvenance, tone: sums.waiting ? 'is-warning' : 'is-success', provenance: countProvenance, onOpen: function () { setRouteState('ci-queue', 'queueView', 'jobs', 'queue_view'); }},
+      {id: 'queue-p95-leader', label: (queueRowsIncomplete ? 'PUBLISHED ' : 'BUILDKITE ') + 'P95 LEADER', value: p95.queue ? duration(p95.value) : '-', meta: p95.queue ? p95.queue + ' - ' + value(waitSourceDetail(p95.row, 'p95')) : 'No p95 source - ' + integer(p95Coverage) + ' measured queues', tone: p95.queue ? 'is-warning' : 'is-neutral', onOpen: function () { p95.queue ? openQueueDetail(p95.queue, p95.row, []) : openMetricDetail({label: 'Current p95 queue leader', value: '-', meta: 'No queue in scope reported a current p95 among published rows. Missing values are not zero.'}); }},
+      {id: 'queue-sampled-p95-leader', label: (queueRowsIncomplete ? 'PUBLISHED ' : '') + 'RECONSTRUCTED P95', value: sampledP95.queue ? duration(sampledP95.value) : '-', meta: sampledP95.queue ? sampledP95.queue + ' - n=' + integer(waitSampleCount(sampledP95.row)) + ' scheduled jobs' : 'No reconstructed p95 - ' + integer(sampledP95Coverage) + ' measured queues', tone: sampledP95.queue ? 'is-danger' : 'is-neutral', onOpen: function () { sampledP95.queue ? openQueueDetail(sampledP95.queue, sampledP95.row, []) : openMetricDetail({label: 'Current reconstructed p95 queue leader', value: '-', meta: 'The reconstructed series uses jobs from published queue rows only.'}); }},
     ]));
 
     const jobs = queueBlock.queue_jobs || {};
+    const jobsRetention = jobs.publication_retention || {};
+    const jobRowsIncomplete = jobsRetention.complete_relative_to_source === false;
     const activeJobs = (jobs.pending || []).concat(jobs.running || []).filter(function (job) {
       return queueMatchesScope(job.queue);
     });
@@ -9552,12 +9888,23 @@
           + ' because ' + retainedReason + '; they are not relabeled as current.'
       ));
     }
+    if (jobRowsIncomplete) {
+      const pendingRetention = jobsRetention.pending || {};
+      const runningRetention = jobsRetention.running || {};
+      host.append(n(
+        'div',
+        'ops-evidence-note is-warning',
+        'Active-job detail is storage-bounded: ' + integer(pendingRetention.published) + ' of ' + integer(pendingRetention.source)
+          + ' pending rows and ' + integer(runningRetention.published) + ' of ' + integer(runningRetention.source)
+          + ' running rows are published. Current queue counts remain source-complete; job tables and workload counts are retained-row lower bounds.'
+      ));
+    }
 
     if (state.queueView === 'current') {
       const pressureRows = queuePressureRows(snapshot, Array.isArray(queueBlock.history) ? queueBlock.history : [], queueBlock.pressure_baseline || {});
       if (pressureRows.length) {
         const pressureTop = pressureRows.slice(0, 14);
-        const pressureChart = chartPanel('Queue pressure against retained baseline', 'Current running + waiting versus each queue\'s historical p95 load', 'queue-pressure');
+        const pressureChart = chartPanel('Queue pressure against retained baseline', 'Current running + waiting versus each published queue\'s historical p95 load' + (queueRowsIncomplete || baselineRowsIncomplete ? ' · bounded rows' : ''), 'queue-pressure');
         host.append(pressureChart.root);
         requestAnimationFrame(function () {
           drawChart('queue-pressure', pressureChart.canvas, {
@@ -9576,7 +9923,7 @@
           });
         });
         const elevatedRows = pressureRows.filter(function (row) { return row.elevated; });
-        if (elevatedRows.length) host.append(n('div', 'ops-evidence-note is-warning', integer(elevatedRows.length) + ' queues are above their retained historical p95 concurrent load. Select a queue in History to inspect its wait-time trend.'));
+        if (elevatedRows.length) host.append(n('div', 'ops-evidence-note is-warning', (queueRowsIncomplete || baselineRowsIncomplete ? 'At least ' : '') + integer(elevatedRows.length) + ' published queues are above their retained historical p95 concurrent load. Select a queue in History to inspect its wait-time trend.'));
       }
       host.append(dataTable([
         {label: 'Queue', sticky: true, render: function (item) { const name = item[0], row = item[1]; return row.queue_url ? externalLink(name, row.queue_url, 'ops-mono') : linkButton(name, function () { openQueueDetail(name, row, activeJobs); }); }},
@@ -9589,7 +9936,9 @@
         {label: 'p50 / p95 reconstructed', numeric: true, render: function (item) { const p50 = sampleWaitValue(item[1], 'p50'), p95 = sampleWaitValue(item[1], 'p95'); return linkButton((p50 === null ? '-' : duration(p50)) + ' / ' + (p95 === null ? '-' : duration(p95)), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'p99 scheduled sample', numeric: true, render: function (item) { const measured = waitValue(item[1], 'p99'); const count = waitSampleCount(item[1]); return linkButton(measured === null || measured === undefined ? '-' : duration(measured) + (count !== null ? ' - n=' + integer(count) : ''), function () { openQueueDetail(item[0], item[1], activeJobs); }); }},
         {label: 'Measurement source', render: function (item) { const row = item[1]; return linkButton([waitSourceDetail(row, 'p50'), waitSourceDetail(row, 'p95'), waitSourceDetail(row, 'p99')].filter(Boolean).filter(function (x, i, a) { return a.indexOf(x) === i; }).join(', ') || 'No wait measurement', function () { openQueueDetail(item[0], row, activeJobs); }); }},
-      ], entries, integer(entries.length) + (state.queueIncludeIdle ? ' queues including idle' : ' active or problem queues')));
+      ], entries, queueRowsIncomplete
+        ? integer(entries.length) + ' published queues; table is incomplete'
+        : integer(entries.length) + (state.queueIncludeIdle ? ' queues including idle' : ' active or problem queues')));
       return;
     }
 
@@ -9603,10 +9952,10 @@
         {label: 'Age', numeric: true, render: function (job) { return externalLink(duration(job.wait_min !== undefined ? job.wait_min : job.run_min), job.url); }},
         {label: 'Build', render: function (job) { return externalLink((job.pipeline || '?') + ' #' + value(job.build), job.build_url || buildUrl(job.pipeline, job.build), 'ops-mono'); }},
       ];
-      host.append(compactTablePanel('Active jobs', Object.entries(workloadCounts).map(function (entry) { return entry[0] + ': ' + entry[1]; }).join(' - '), jobColumns, activeJobs, {
+      host.append(compactTablePanel('Active jobs', Object.entries(workloadCounts).map(function (entry) { return entry[0] + ': ' + (jobRowsIncomplete ? '≥' : '') + entry[1]; }).join(' - '), jobColumns, activeJobs, {
         id: 'queue-jobs-browser',
         limit: 15,
-        browserSubtitle: integer(activeJobs.length) + ' exact active Buildkite jobs in the selected queue scope',
+        browserSubtitle: (jobRowsIncomplete ? '≥' : '') + integer(activeJobs.length) + ' retained exact active Buildkite jobs in the selected queue scope' + (jobRowsIncomplete ? '; list is incomplete' : ''),
         searchPlaceholder: 'Filter job, queue, workload, state, or build',
         searchText: function (job) { return [job.name, job.queue, job.workload, job.state, job.pipeline, job.build].join(' '); },
         geometry: {name: 'queue-jobs', minWidth: '980px'},
@@ -9615,6 +9964,7 @@
     }
 
     let history = await loadQueueHistory(queueBlock);
+    const queueChartRetention = history.publicationRetention || {};
     const rangeEndMs = Date.now();
     const rangeHours = state.queueRange === '30d' ? 720 : state.queueRange === '7d' ? 168 : 24;
     const rangeStartMs = rangeEndMs - rangeHours * 3600000;
@@ -9647,6 +9997,9 @@
     historyToolbar.append(queueField);
     historyToolbar.append(n('span', 'ops-evidence-method', 'Times shown in ' + (Intl.DateTimeFormat().resolvedOptions().timeZone || 'browser local time')));
     host.append(historyToolbar);
+    if (queueChartRetention.complete_relative_to_source === false) {
+      host.append(n('div', 'ops-evidence-note is-warning', 'Byte-bounded queue chart omits ' + integer(queueChartRetention.omitted_oldest_snapshot_count) + ' oldest snapshots; suffix starts ' + shortDate(queueChartRetention.retained_start) + '.'));
+    }
     const selectedHistory = state.queueHistoryQueue === 'fleet' ? history : history.filter(function (snap) {
       return Object.prototype.hasOwnProperty.call(snap.queues || {}, state.queueHistoryQueue);
     });
@@ -9857,6 +10210,7 @@
     const rows = reliabilityCatalog(reliability).filter(function (catalogRow) {
       return catalogRow && catalogRow.source_pipeline === 'ci';
     }).map(function (catalogRow) {
+      const publicationHistoryComplete = groupPublicationHistoryComplete(catalogRow);
       const observations = evidenceObservations(catalogRow).filter(function (observation) {
         const observedMs = new Date(observationTimestamp(observation) || 0).getTime();
         return observation.source_pipeline === 'ci'
@@ -9891,13 +10245,14 @@
         failed: incidents.filter(function (observation) { return ['hard', 'failed'].includes(observationState(observation)); }).length,
         soft_failed: incidents.filter(function (observation) { return ['soft', 'soft_fail', 'soft_failed'].includes(observationState(observation)); }).length,
         incident_count: incidents.length,
-        incident_rate_pct: observations.length ? incidents.length / observations.length * 100 : 0,
-        p50_min: percentileValue(durations, 0.5),
-        p90_min: percentileValue(durations, 0.9),
-        max_min: durations.length ? Math.max.apply(null, durations) : null,
+        incident_rate_pct: publicationHistoryComplete && observations.length ? incidents.length / observations.length * 100 : null,
+        p50_min: publicationHistoryComplete ? percentileValue(durations, 0.5) : null,
+        p90_min: publicationHistoryComplete ? percentileValue(durations, 0.9) : null,
+        max_min: publicationHistoryComplete && durations.length ? Math.max.apply(null, durations) : null,
         last_seen: observationTimestamp(latest),
         observations: observations,
         catalogRow: catalogRow,
+        publication_history_complete: publicationHistoryComplete,
         window: windowId,
       };
     }).filter(Boolean);
@@ -9918,6 +10273,7 @@
     const rows = reliabilityCatalog(reliability).filter(function (catalogRow) {
       return catalogRow && catalogRow.source_pipeline === 'ci';
     }).map(function (catalogRow) {
+      const publicationHistoryComplete = groupPublicationHistoryComplete(catalogRow);
       const retained = evidenceObservations(catalogRow).filter(function (observation) {
         const observedMs = new Date(observationTimestamp(observation) || 0).getTime();
         return observation.source_pipeline === 'ci'
@@ -9942,10 +10298,10 @@
       const baselineDurations = baseline.map(observationDurationMinutes).filter(function (minutes) { return minutes !== null; });
       const recentRate = cadenceRecent.length >= 4 ? executionCadencePerDay(cadenceRecent) : null;
       const baselineRate = cadenceBaseline.length >= 4 ? executionCadencePerDay(cadenceBaseline) : null;
-      const frequencyChangePct = Number(recentRate) > 0 && Number(baselineRate) > 0 ? (Number(recentRate) - Number(baselineRate)) / Number(baselineRate) * 100 : null;
+      const frequencyChangePct = publicationHistoryComplete && Number(recentRate) > 0 && Number(baselineRate) > 0 ? (Number(recentRate) - Number(baselineRate)) / Number(baselineRate) * 100 : null;
       const recentMedian = percentileValue(recentDurations, 0.5);
       const baselineMedian = percentileValue(baselineDurations, 0.5);
-      const durationChangePct = Number(baselineMedian) > 0 && recentMedian !== null ? (Number(recentMedian) - Number(baselineMedian)) / Number(baselineMedian) * 100 : null;
+      const durationChangePct = publicationHistoryComplete && Number(baselineMedian) > 0 && recentMedian !== null ? (Number(recentMedian) - Number(baselineMedian)) / Number(baselineMedian) * 100 : null;
       const incidents = recent.filter(isIncidentObservation);
       const latest = recent.slice().sort(function (a, b) { return new Date(observationTimestamp(b) || 0) - new Date(observationTimestamp(a) || 0); })[0];
       return {
@@ -9968,9 +10324,10 @@
         recentMedian: recentMedian,
         baselineMedian: baselineMedian,
         durationChangePct: durationChangePct,
-        incidentRatePct: incidents.length / recent.length * 100,
+        incidentRatePct: publicationHistoryComplete ? incidents.length / recent.length * 100 : null,
         latest: latest,
         catalogRow: catalogRow,
+        publicationHistoryComplete: publicationHistoryComplete,
       };
     }).filter(Boolean);
     return {
@@ -11031,6 +11388,8 @@
       host.append(n('div', 'ops-evidence-note is-warning', 'Interactive capacity planning is unavailable until the AMD semantic matrix, queue quota catalog, mapping aggregate, and queue history are rebuilt into the operations snapshot.'));
       return;
     }
+    const capacityRetention = capacity.capacity_publication_retention || {};
+    boundedRowsNote(host, capacityRetention, 'Capacity');
     const publishedPlacement = rawProfile.placement_profiles || capacity.placement_profiles || {};
     const defaultPlacementId = publishedPlacement.default_strategy_id || 'mi355_preferred';
     const requestedPlacementId = state.capacityPlacement || defaultPlacementId;
@@ -11754,8 +12113,29 @@
     host.append(method);
   }
 
+  function trajectorySummaryStrip(rows, publication, totalRuns, uniqueBuildCount, windowData) {
+    const slowest = rows.filter(function (row) {
+      return groupPublicationHistoryComplete(row)
+        && row.p90_min !== null
+        && row.p90_min !== undefined
+        && row.p90_min !== ''
+        && Number.isFinite(Number(row.p90_min));
+    }).sort(function (a, b) { return Number(b.p90_min) - Number(a.p90_min); })[0] || {};
+    const failing = rows.filter(function (row) {
+      return groupPublicationHistoryComplete(row) && hotnessRatePercent(row) > 0;
+    }).length;
+    const coveragePrefix = publication.complete ? '' : '≥';
+    return statusStrip([
+      {id: 'trajectory-jobs', label: 'TERMINAL OBSERVATIONS', value: coveragePrefix + integer(totalRuns), meta: coveragePrefix + integer(uniqueBuildCount) + ' builds in ' + state.trajectoryWindow, window: state.trajectoryWindow, observed: windowData.observedTo, provenance: 'reliability.group_catalog observations', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]},
+      {id: 'trajectory-groups', label: 'STRICT GROUP VARIANTS', value: coveragePrefix + integer(rows.length), meta: 'after active filters' + (publication.complete ? '' : ' · published subset'), onOpen: function () { openMetricDetail({label: 'Filtered strict group variants', value: coveragePrefix + integer(rows.length), meta: state.trajectoryWindow + ' selected window', provenance: 'reliability.group_catalog IDs', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]}); }},
+      {id: 'trajectory-incidents', label: 'VARIANTS WITH INCIDENTS', value: coveragePrefix + integer(failing), meta: publication.complete ? 'non-zero incident rate' : 'complete published histories only', tone: failing ? 'is-warning' : 'is-success', onOpen: function () { openHistoryEvidence('Variants with incidents', rows.filter(function (row) { return groupPublicationHistoryComplete(row) && hotnessRatePercent(row) > 0; }).map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: hotnessRatePercent(row).toFixed(1) + '%', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryGroupHistory(row); }}; }), 'Strict all-main group identities in the selected window', SOURCE_ASSETS.reliability); }},
+      {id: 'trajectory-slowest', label: 'SLOWEST P90', value: duration(slowest.p90_min), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.id ? openTrajectoryGroupHistory(slowest) : openMetricDetail({label: 'Slowest p90', value: '-', meta: 'No duration data in this window', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]}); }},
+    ]);
+  }
+
   async function renderTrajectory(host, ops) {
     const reliability = canonicalReliability(ops);
+    const publication = reliabilityPublicationState(reliability);
     const scope = reliabilityScopeInfo(reliability);
     const windowData = trajectoryRowsFromReliability(reliability, state.trajectoryWindow, ops.generated_at);
     const anomalyData = trajectoryAnomaliesFromReliability(reliability, state.trajectoryWindow, ops.generated_at);
@@ -11803,20 +12183,13 @@
     search.setAttribute('aria-label', 'Search workload trajectory test groups');
     search.addEventListener('change', function () { state.trajectorySearch = search.value; render('ci-hotness', true); });
     add(toolbar, [workloadSelect, hwSelect, search]); host.append(toolbar);
-    const sourceNote = n('div', 'ops-evidence-note is-info');
-    add(sourceNote, [n('strong', '', 'Upstream main terminal history. '), n('span', '', 'Windowed in the browser from ' + shortDate(windowData.observedFrom) + ' through ' + shortDate(windowData.observedTo) + '. Hardware comes from explicit job labels and queue assignment, including AMD MI mirror queues. Identities remain split by catalog ID, hardware, and queue. The source retains up to 60 observations per group, so longer windows may be truncated.')]);
+    const sourceNote = n('div', 'ops-evidence-note ' + (publication.complete ? 'is-info' : 'is-warning'));
+    add(sourceNote, [n('strong', '', publication.complete ? 'Upstream main terminal history. ' : 'Bounded upstream main history. '), n('span', '', 'Windowed in the browser from ' + shortDate(windowData.observedFrom) + ' through ' + shortDate(windowData.observedTo) + '. Hardware comes from explicit job labels and queue assignment, including AMD MI mirror queues. Identities remain split by catalog ID, hardware, and queue. The source retains up to 60 observations per group, so longer windows may be truncated.' + (publication.message ? ' ' + publication.message : ''))]);
     host.append(sourceNote);
     const totalRuns = rows.reduce(function (sum, row) { return sum + Number(row.count || 0); }, 0);
     const uniqueBuilds = new Set();
     rows.forEach(function (row) { row.observations.forEach(function (observation) { if (observation.build_number !== undefined) uniqueBuilds.add(observation.build_number); }); });
-    const slowest = rows.filter(function (row) { return Number.isFinite(Number(row.p90_min)); }).sort(function (a, b) { return Number(b.p90_min) - Number(a.p90_min); })[0] || {};
-    const failing = rows.filter(function (row) { return hotnessRatePercent(row) > 0; }).length;
-    host.append(statusStrip([
-      {id: 'trajectory-jobs', label: 'TERMINAL OBSERVATIONS', value: integer(totalRuns), meta: integer(uniqueBuilds.size) + ' builds in ' + state.trajectoryWindow, window: state.trajectoryWindow, observed: windowData.observedTo, provenance: 'reliability.group_catalog observations', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]},
-      {id: 'trajectory-groups', label: 'STRICT GROUP VARIANTS', value: integer(rows.length), meta: 'after active filters', onOpen: function () { openMetricDetail({label: 'Filtered strict group variants', value: rows.length, meta: state.trajectoryWindow + ' selected window', provenance: 'reliability.group_catalog IDs', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]}); }},
-      {id: 'trajectory-incidents', label: 'VARIANTS WITH INCIDENTS', value: integer(failing), meta: 'non-zero incident rate', tone: failing ? 'is-warning' : 'is-success', onOpen: function () { openHistoryEvidence('Variants with incidents', rows.filter(function (row) { return hotnessRatePercent(row) > 0; }).map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: hotnessRatePercent(row).toFixed(1) + '%', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryGroupHistory(row); }}; }), 'Strict all-main group identities in the selected window', SOURCE_ASSETS.reliability); }},
-      {id: 'trajectory-slowest', label: 'SLOWEST P90', value: duration(slowest.p90_min), meta: value(slowest.name, 'No duration data'), onOpen: function () { slowest.id ? openTrajectoryGroupHistory(slowest) : openMetricDetail({label: 'Slowest p90', value: '-', meta: 'No duration data in this window', sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}]}); }},
-    ]));
+    host.append(trajectorySummaryStrip(rows, publication, totalRuns, uniqueBuilds.size, windowData));
 
     let anomalyRows = anomalyData.rows.slice();
     if (state.trajectoryWorkload !== 'all') anomalyRows = anomalyRows.filter(function (row) { return row.workload === state.trajectoryWorkload; });
@@ -11843,7 +12216,7 @@
           ]},
           options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Distinct builds per day'}}, y: {grid: {display: false}}}},
           evidenceTitle: 'Test-group execution-frequency changes',
-          evidence: frequencyRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '% execution cadence', details: {latest_distinct_builds: row.cadenceRecentCount, latest_cadence_per_day: row.recentRate.toFixed(2), prior_distinct_builds: row.cadenceBaselineCount, prior_cadence_per_day: row.baselineRate === null ? '-' : row.baselineRate.toFixed(2), queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
+          evidence: frequencyRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: (row.frequencyChangePct >= 0 ? '+' : '') + row.frequencyChangePct.toFixed(0) + '% execution cadence', details: {latest_distinct_builds: row.cadenceRecentCount, latest_cadence_per_day: row.recentRate.toFixed(2), prior_distinct_builds: row.cadenceBaselineCount, prior_cadence_per_day: row.baselineRate === null ? '-' : row.baselineRate.toFixed(2), queues: row.queues.join(', '), incident_rate: row.incidentRatePct === null ? 'unavailable' : row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
         });
       });
     } else {
@@ -11861,7 +12234,7 @@
           ]},
           options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Completion minutes'}}, y: {grid: {display: false}}}},
           evidenceTitle: 'Test-group completion-time regressions',
-          evidence: durationRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: '+' + row.durationChangePct.toFixed(0) + '% median completion time', details: {recent_median: duration(row.recentMedian), baseline_median: duration(row.baselineMedian), recent_observations: row.recentCount, baseline_observations: row.baselineCount, queues: row.queues.join(', '), incident_rate: row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
+          evidence: durationRows.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: observationTimestamp(row.latest), valueSummary: '+' + row.durationChangePct.toFixed(0) + '% median completion time', details: {recent_median: duration(row.recentMedian), baseline_median: duration(row.baselineMedian), recent_observations: row.recentCount, baseline_observations: row.baselineCount, queues: row.queues.join(', '), incident_rate: row.incidentRatePct === null ? 'unavailable' : row.incidentRatePct.toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryAnomalyHistory(row, anomalyData); }}; }),
         });
       });
     } else {
@@ -11907,15 +12280,15 @@
     const top = rows.slice().sort(function (a, b) { return Number(b.count || 0) - Number(a.count || 0); }).slice(0, 15);
     const cp = chartPanel('Most active strict variants', 'Terminal observations in the selected all-main window', 'trajectory-groups');
     host.append(cp.root);
-    drawChart('trajectory-groups', cp.canvas, {type: 'bar', data: {labels: top.map(function (row) { return compactChartLabel(row, 54); }), datasets: [{label: 'Observations', data: top.map(function (row) { return row.count; }), backgroundColor: '#22b8ad'}]}, options: {indexAxis: 'y'}, evidenceTitle: 'Strict test-group execution volume', evidence: top.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: integer(row.count) + ' observations', details: {catalog_id: row.id, hardware: row.hardware, queues: row.queues.join(', '), median: duration(row.p50_min), p90: duration(row.p90_min), incident_rate: hotnessRatePercent(row).toFixed(1) + '%'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryGroupHistory(row); }}; })});
+    drawChart('trajectory-groups', cp.canvas, {type: 'bar', data: {labels: top.map(function (row) { return compactChartLabel(row, 54); }), datasets: [{label: 'Observations', data: top.map(function (row) { return row.count; }), backgroundColor: '#22b8ad'}]}, options: {indexAxis: 'y'}, evidenceTitle: 'Strict test-group execution volume', evidence: top.map(function (row) { return {id: row.id, label: row.name + ' - ' + row.hardware, timestamp: row.last_seen, valueSummary: (row.publication_history_complete ? '' : '≥') + integer(row.count) + ' observations', details: {catalog_id: row.id, hardware: row.hardware, queues: row.queues.join(', '), median: duration(row.p50_min), p90: duration(row.p90_min), incident_rate: row.publication_history_complete ? hotnessRatePercent(row).toFixed(1) + '%' : 'unavailable'}, sources: [{label: 'Open published all-main history', url: SOURCE_ASSETS.reliability}], onOpen: function () { openTrajectoryGroupHistory(row); }}; })});
     const trajectoryColumns = [
       {label: 'Test group variant', sticky: true, render: function (row) { return groupIdentityCell(row, function () { openTrajectoryGroupHistory(row); }); }},
       {label: 'Workload', render: function (row) { return linkedBadge(row.workload || 'vllm', null, function () { state.trajectoryWorkload = row.workload || 'vllm'; render('ci-hotness', true); }, row.workload === 'omni' ? 'is-info' : 'is-neutral'); }},
-      {label: 'Observations', numeric: true, render: function (row) { return linkButton(integer(row.count), function () { openTrajectoryGroupHistory(row); }, 'Inspect ' + integer(row.count) + ' observations for ' + row.name + ' on ' + row.hardware); }},
-      {label: 'Builds', numeric: true, render: function (row) { return linkButton(integer(row.build_count), function () { openTrajectoryGroupHistory(row); }, 'Inspect builds for ' + row.name + ' on ' + row.hardware); }},
+      {label: 'Observations', numeric: true, render: function (row) { return linkButton((row.publication_history_complete ? '' : '≥') + integer(row.count), function () { openTrajectoryGroupHistory(row); }, 'Inspect ' + integer(row.count) + ' published observations for ' + row.name + ' on ' + row.hardware); }},
+      {label: 'Builds', numeric: true, render: function (row) { return linkButton((row.publication_history_complete ? '' : '≥') + integer(row.build_count), function () { openTrajectoryGroupHistory(row); }, 'Inspect published builds for ' + row.name + ' on ' + row.hardware); }},
       {label: 'Median', numeric: true, render: function (row) { return linkButton(duration(row.p50_min), function () { openTrajectoryGroupHistory(row); }, 'Inspect median completion for ' + row.name + ' on ' + row.hardware); }},
       {label: 'p90', numeric: true, render: function (row) { return linkButton(duration(row.p90_min), function () { openTrajectoryGroupHistory(row); }, 'Inspect p90 completion for ' + row.name + ' on ' + row.hardware); }},
-      {label: 'Incident rate', numeric: true, render: function (row) { return linkButton(hotnessRatePercent(row).toFixed(1) + '%', function () { openTrajectoryGroupHistory(row); }, 'Inspect incidents for ' + row.name + ' on ' + row.hardware); }},
+      {label: 'Incident rate', numeric: true, render: function (row) { return linkButton(row.publication_history_complete ? hotnessRatePercent(row).toFixed(1) + '%' : 'Unavailable', function () { openTrajectoryGroupHistory(row); }, 'Inspect incidents for ' + row.name + ' on ' + row.hardware); }},
       {label: 'Last observed', render: function (row) { const latest = row.observations.slice().sort(function (a, b) { return new Date(observationTimestamp(b) || 0) - new Date(observationTimestamp(a) || 0); })[0]; return externalLink(shortDate(row.last_seen), exactPipelineEvidenceUrl(latest, 'ci')); }},
       {label: 'Evidence', render: function (row) { return linkButton(integer(row.observations.length) + ' exact links', function () { openTrajectoryGroupHistory(row); }, 'Open exact Buildkite evidence for catalog ID ' + row.id); }},
     ];
@@ -12396,6 +12769,8 @@
     const currentLedger = current.ledger || {};
     const jobs = omni.current_jobs || {};
     const mapping = omni.mapping_history || {};
+    const mappingPublication = (((mapping || {}).retention || {}).publication) || {};
+    const mappingPublicationIncomplete = mappingPublication.complete_relative_to_source === false;
     const mappingView = omniMappingWindow(mapping, state.omniMappingRange);
     const mappingBuckets = omniMappingBuckets(mappingView);
     const mappingTotals = mappingView.available
@@ -12404,6 +12779,9 @@
     const omniTotal = mappingTotals.omni || {};
     const mainTotal = mappingTotals.main || {};
     const mappingAvailable = mappingView.available;
+    const mappingRatesAvailable = mappingAvailable && mappingView.retainedComplete;
+    const mappingCountPrefix = mappingRatesAvailable ? '' : '≥';
+    const mappingPublicationRows = mappingPublication[mappingView.resolution] || {};
     const selectedMappingLabel = mappingView.selected.label;
     const jobRangeNonExhaustive = mappingView.jobCreatedRangeExhaustive === false;
     const jobRangeUnknown = mappingView.jobCreatedRangeExhaustive === null;
@@ -12467,8 +12845,8 @@
       const stats = mappingTotals[workload] || emptyOmniMappingStats();
       const content = n('div', 'ops-stack');
       content.append(statusStrip([
-        {label: 'OBSERVED MAPPINGS', value: mappingAvailable ? integer(stats.mapped_jobs) : '-', meta: mappingCountMeta},
-        {label: 'STARTED JOBS', value: mappingAvailable ? integer(stats.started_jobs) : '-', meta: mappingAvailable ? percent(stats.started_jobs, stats.mapped_jobs) + ' of mappings' : mappingView.reason},
+        {label: 'OBSERVED MAPPINGS', value: mappingAvailable ? mappingCountPrefix + integer(stats.mapped_jobs) : '-', meta: mappingCountMeta},
+        {label: 'STARTED JOBS', value: mappingAvailable ? mappingCountPrefix + integer(stats.started_jobs) : '-', meta: mappingRatesAvailable ? percent(stats.started_jobs, stats.mapped_jobs) + ' of mappings' : mappingAvailable ? 'Rate unavailable: selected bucket coverage is incomplete' : mappingView.reason},
         {label: 'GPU-SLOT REQUESTS', value: mappingAvailable ? integer(stats.mapped_gpu_slots) : '-', meta: 'Sum of configured GPU widths across observed mappings; not simultaneous use or GPU-hours'},
         {label: 'GPU-HOURS', value: mappingAvailable ? Number(stats.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}) : '-', meta: 'Finished jobs with usable durations'},
       ]));
@@ -12520,6 +12898,8 @@
           {label: 'Excluded', value: 'Perf-eval and every non-configured queue.'},
           {label: 'Resolution', value: mappingView.resolution === 'hourly' ? 'Hourly source aggregates' : mappingView.resolution === 'daily' ? 'UTC calendar-day aggregates' : 'Unavailable'},
           {label: 'Retained buckets', value: integer(mappingView.rows.length)},
+          {label: 'Publication buckets', value: mappingPublicationRows.source === undefined ? 'Not published' : integer(mappingPublicationRows.published) + ' of ' + integer(mappingPublicationRows.source) + ' ' + mappingView.resolution + ' rows'},
+          {label: 'Publication complete', value: mappingPublicationIncomplete ? 'No; oldest whole buckets were omitted to satisfy the storage cap' : 'Yes'},
           {label: 'API / UUID collection', value: apiCollectionLabel},
           {label: 'Job-created range exhaustive', value: mappingView.jobCreatedRangeExhaustive === true ? 'Yes' : mappingView.jobCreatedRangeExhaustive === false ? 'No' : 'Not published'},
           {label: 'Parent-build lookback', value: mappingView.parentBuildLookbackDays ? integer(mappingView.parentBuildLookbackDays) + ' days before the selected job-created range' : 'Not published'},
@@ -12539,7 +12919,7 @@
           {label: OMNI_REPOSITORIES.omni + ' mapped', value: mappingAvailable ? integer(omniTotal.mapped_jobs) : '-'},
           {label: OMNI_REPOSITORIES.main + ' mapped', value: mappingAvailable ? integer(mainTotal.mapped_jobs) : '-'},
           {label: 'Combined mapped jobs', value: mappingAvailable ? integer(Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : '-'},
-          {label: 'Omni share', value: mappingAvailable ? percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : '-'},
+          {label: 'Omni share', value: mappingRatesAvailable ? percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : 'Unavailable'},
           {label: 'API bucket status', value: mappingView.coverageStatus},
           {label: 'Job-created range', value: mappingView.jobCreatedRangeExhaustive === true ? 'exhaustive' : mappingView.jobCreatedRangeExhaustive === false ? 'not exhaustive' : 'not published'},
         ],
@@ -12568,9 +12948,9 @@
         id: 'omni-mi325-exposure',
         title: 'MI325 retirement exposure',
         subtitle: selectedMappingLabel + ' · retiring queues only',
-        description: integer(omniRetiringMapped) + ' of ' + integer(omniTotal.mapped_jobs) + ' observed source-window Omni mappings targeted MI325. ' + populationBoundaryText,
+        description: mappingCountPrefix + integer(omniRetiringMapped) + ' of ' + mappingCountPrefix + integer(omniTotal.mapped_jobs) + ' published source-window Omni mappings targeted MI325. ' + (mappingRatesAvailable ? '' : 'The exposure rate is unavailable because selected bucket coverage is incomplete. ') + populationBoundaryText,
         fields: [
-          {label: 'Omni exposure', value: mappingAvailable ? percent(omniRetiringMapped, omniTotal.mapped_jobs) : '-'},
+          {label: 'Omni exposure', value: mappingRatesAvailable ? percent(omniRetiringMapped, omniTotal.mapped_jobs) : 'Unavailable'},
           {label: 'Observed Omni MI325 mappings', value: mappingAvailable ? integer(omniRetiringMapped) : '-'},
           {label: 'Observed ' + OMNI_REPOSITORIES.main + ' MI325 mappings', value: mappingAvailable ? integer(mainRetiringMapped) : '-'},
           {label: 'Job-created range', value: mappingView.jobCreatedRangeExhaustive === true ? 'exhaustive' : mappingView.jobCreatedRangeExhaustive === false ? 'not exhaustive' : 'not published'},
@@ -12589,10 +12969,10 @@
     ]);
     host.append(mappingToolbar);
     host.append(statusStrip([
-      {id: 'omni-mapped-jobs', label: jobRangeNonExhaustive || jobRangeUnknown ? 'OBSERVED OMNI MAPPINGS' : 'INCOMING OMNI JOBS', value: mappingAvailable ? integer(omniTotal.mapped_jobs) : '-', meta: mappingAvailable ? integer(omniTotal.started_jobs) + ' started · ' + mappingCountMeta : mappingView.reason, tone: jobRangeNonExhaustive || jobRangeUnknown ? 'is-warning' : 'is-info', onOpen: function () { openWorkloadMappingDetail('omni', OMNI_REPOSITORIES.omni); }},
+      {id: 'omni-mapped-jobs', label: jobRangeNonExhaustive || jobRangeUnknown ? 'OBSERVED OMNI MAPPINGS' : 'INCOMING OMNI JOBS', value: mappingAvailable ? mappingCountPrefix + integer(omniTotal.mapped_jobs) : '-', meta: mappingAvailable ? mappingCountPrefix + integer(omniTotal.started_jobs) + ' started · ' + mappingCountMeta : mappingView.reason, tone: jobRangeNonExhaustive || jobRangeUnknown || !mappingRatesAvailable ? 'is-warning' : 'is-info', onOpen: function () { openWorkloadMappingDetail('omni', OMNI_REPOSITORIES.omni); }},
       {id: 'omni-gpu-demand', label: 'GPU-SLOT REQUESTS', value: mappingAvailable ? integer(omniTotal.mapped_gpu_slots) : '-', meta: mappingAvailable ? 'summed job widths · not concurrency · ' + Number(omniTotal.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}) + ' completed GPU-hours' : 'Hourly collection is required for this window', onOpen: function () { openWorkloadMappingDetail('omni', OMNI_REPOSITORIES.omni + ' GPU demand'); }},
-      {id: 'omni-mapped-share', label: 'SHARE OF OBSERVED VLLM TRAFFIC', value: mappingAvailable ? percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : '-', meta: mappingAvailable ? integer(omniTotal.mapped_jobs) + ' of ' + integer(Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) + ' source-window mappings' : 'No comparable mapping window', onOpen: openTrafficShareDetail},
-      {id: 'omni-retiring-share', label: 'MI325 RETIREMENT EXPOSURE', value: mappingAvailable ? percent(omniRetiringMapped, omniTotal.mapped_jobs) : '-', meta: mappingAvailable ? integer(omniRetiringMapped) + ' Omni · ' + integer(mainRetiringMapped) + ' ' + OMNI_REPOSITORIES.main : 'No selected-window queue evidence', tone: omniRetiringMapped ? 'is-warning' : 'is-success', onOpen: openMi325ExposureDetail},
+      {id: 'omni-mapped-share', label: 'SHARE OF OBSERVED VLLM TRAFFIC', value: mappingRatesAvailable ? percent(omniTotal.mapped_jobs, Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) : 'Unavailable', meta: mappingAvailable ? mappingCountPrefix + integer(omniTotal.mapped_jobs) + ' of ' + mappingCountPrefix + integer(Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)) + ' published source-window mappings' : 'No comparable mapping window', onOpen: openTrafficShareDetail},
+      {id: 'omni-retiring-share', label: 'MI325 RETIREMENT EXPOSURE', value: mappingRatesAvailable ? percent(omniRetiringMapped, omniTotal.mapped_jobs) : 'Unavailable', meta: mappingAvailable ? mappingCountPrefix + integer(omniRetiringMapped) + ' Omni · ' + mappingCountPrefix + integer(mainRetiringMapped) + ' ' + OMNI_REPOSITORIES.main : 'No selected-window queue evidence', tone: omniRetiringMapped ? 'is-warning' : 'is-success', onOpen: openMi325ExposureDetail},
     ]));
     const apiCoverageHeading = mappingView.coverageStatus === 'complete'
       ? 'API/UUID collection complete for the selected closed buckets. '
@@ -12609,11 +12989,11 @@
           : ''
     );
     const scopeNote = n('div', 'ops-evidence-note ' + (
-      mappingView.retainedComplete && !jobRangeNonExhaustive && !jobRangeUnknown ? 'is-info' : 'is-warning'
+      mappingView.retainedComplete && !mappingPublicationIncomplete && !jobRangeNonExhaustive && !jobRangeUnknown ? 'is-info' : 'is-warning'
     ) + ' ops-omni-coverage-note');
     add(scopeNote, [
       n('strong', '', coverageHeading),
-      n('span', '', (mappingView.reason ? mappingView.reason + ' ' : integer(mappingView.rows.length) + ' retained ' + mappingView.resolution + ' buckets; mapped and started are separate counts. ') + populationBoundaryText),
+      n('span', '', (mappingPublicationIncomplete ? 'The repository publication omitted ' + integer(mappingPublicationRows.omitted) + ' oldest ' + mappingView.resolution + ' buckets (' + integer(mappingPublicationRows.published) + ' of ' + integer(mappingPublicationRows.source) + ' published). ' : '') + (mappingView.reason ? mappingView.reason + ' ' : integer(mappingView.rows.length) + ' retained ' + mappingView.resolution + ' buckets; mapped and started are separate counts. ') + (mappingRatesAvailable ? '' : 'Rates, shares, and deltas are unavailable for incomplete selected coverage. ') + populationBoundaryText),
       linkButton('Inspect methodology', openMappingMethodology, 'Inspect mapping scope, resolution, and source coverage'),
       excludedJobs.length ? linkButton('Inspect excluded stale jobs', function () { openJobsEvidence('Excluded stale Omni jobs', excludedJobs, 'Jobs beyond the collector age threshold; retained for exact Buildkite review but excluded from active analytics'); }, 'Inspect stale Omni jobs excluded from active analytics') : null,
     ]);
@@ -12645,7 +13025,7 @@
           {label: OMNI_REPOSITORIES.omni + ' GPU-slot requests', value: integer(row.omni.mapped_gpu_slots || 0)},
           {label: OMNI_REPOSITORIES.omni + ' GPU-hours', value: Number(row.omni.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1})},
           {label: OMNI_REPOSITORIES.main + ' observed mappings', value: integer(row.main.mapped_jobs || 0)},
-          {label: 'Omni share on this queue', value: percent(row.omni.mapped_jobs, Number(row.omni.mapped_jobs || 0) + Number(row.main.mapped_jobs || 0))},
+          {label: 'Omni share on this queue', value: mappingRatesAvailable ? percent(row.omni.mapped_jobs, Number(row.omni.mapped_jobs || 0) + Number(row.main.mapped_jobs || 0)) : 'Unavailable'},
           {label: 'Lifecycle', value: row.name.startsWith('amd_mi325_') ? 'retiring' : 'active'},
           {label: 'Scope', value: contextLabel || selectedMappingLabel},
         ],
@@ -12777,7 +13157,7 @@
       queueImpact.root.querySelector('.ops-panel-body').append(dataTable([
         {label: 'Queue', sticky: true, width: '150px', render: function (row) { return linkButton(row.name, function () { openQueueMappingDetail(row); }, 'Inspect selected-window impact for ' + row.name); }},
         {label: 'Mapped', numeric: true, width: '74px', render: function (row) { return linkButton(integer(row.omni.mapped_jobs), function () { openQueueMappingDetail(row); }, 'Inspect Omni mappings on ' + row.name); }},
-        {label: 'Share', numeric: true, width: '68px', render: function (row) { return percent(row.omni.mapped_jobs, omniTotal.mapped_jobs); }},
+        {label: 'Share', numeric: true, width: '68px', render: function (row) { return mappingRatesAvailable ? percent(row.omni.mapped_jobs, omniTotal.mapped_jobs) : 'Unavailable'; }},
       ], mappingQueueRows.slice(0, 6), null, {name: 'omni-impact-preview', minWidth: '292px'}));
       overviewGrid.append(queueImpact.root);
       requestAnimationFrame(function () {
@@ -12803,7 +13183,7 @@
               id: row.name,
               label: row.name,
               valueSummary: integer(row.omni.mapped_jobs) + ' observed source-window mappings',
-              details: {repository: OMNI_REPOSITORIES.omni, mapped_jobs: row.omni.mapped_jobs, share: percent(row.omni.mapped_jobs, omniTotal.mapped_jobs)},
+              details: {repository: OMNI_REPOSITORIES.omni, mapped_jobs: row.omni.mapped_jobs, share: mappingRatesAvailable ? percent(row.omni.mapped_jobs, omniTotal.mapped_jobs) : 'Unavailable'},
               onOpen: function () { openQueueMappingDetail(row); },
             };
           }),
@@ -13146,6 +13526,7 @@
       nightlyFailureCount: nightlyFailureCount,
       amdNightlyMovement: amdNightlyMovement,
       amdNightlyPresentation: amdNightlyPresentation,
+      ciHealthPublicationRetentionMessage: ciHealthPublicationRetentionMessage,
       capacityLargestRemainder: capacityLargestRemainder,
       capacityPairedAllocation: capacityPairedAllocation,
       capacityPlacementStrategy: capacityPlacementStrategy,
@@ -13166,6 +13547,21 @@
       omniAgeBand: omniAgeBand,
       omniDailyRows: omniDailyRows,
       trajectoryFrequencySignal: trajectoryFrequencySignal,
+      comparisonRetryRetentionMessage: comparisonRetryRetentionMessage,
+      reliabilityPublicationState: reliabilityPublicationState,
+      groupPublicationHistoryComplete: groupPublicationHistoryComplete,
+      agentSourceHistoryComplete: agentSourceHistoryComplete,
+      amdHealthPublicationState: amdHealthPublicationState,
+      agentFailureAccountingCounts: agentFailureAccountingCounts,
+      agentAggregateRunCounts: agentAggregateRunCounts,
+      agentAggregateFailureCounts: agentAggregateFailureCounts,
+      platformComparisonPublicationState: platformComparisonPublicationState,
+      platformComparison: platformComparison,
+      combinedGatingReliability: combinedGatingReliability,
+      trajectoryRowsFromReliability: trajectoryRowsFromReliability,
+      trajectoryAnomaliesFromReliability: trajectoryAnomaliesFromReliability,
+      renderGroupHistoryExplorer: renderGroupHistoryExplorer,
+      trajectorySummaryStrip: trajectorySummaryStrip,
       isCanonicalAmdQueue: isCanonicalAmdQueue,
       queueMatchesScope: queueMatchesScope,
       queueLifecycleRows: queueLifecycleRows,

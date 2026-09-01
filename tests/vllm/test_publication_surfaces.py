@@ -127,6 +127,141 @@ def _git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _operations_recovery_repo(
+    tmp_path: Path,
+) -> tuple[Path, str, Path, dict[str, SurfaceSpec], dict[str, Path]]:
+    repo = tmp_path / "repo"
+    relatives = {
+        "alpha": "data/alpha.json",
+        "beta": "data/beta.json",
+    }
+    paths = {surface: repo / relative for surface, relative in relatives.items()}
+    for surface, path in paths.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"surface": surface, "generation": "baseline"}))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated source generation")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    for surface, path in paths.items():
+        path.write_text(json.dumps({"surface": surface, "generation": "candidate"}))
+    specs = {
+        surface: SurfaceSpec(required_paths=(relative,))
+        for surface, relative in relatives.items()
+    }
+    return repo, baseline, repo / "data/publication_state.json", specs, paths
+
+
+def test_operations_build_failure_restores_complete_validated_generation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, state_path, specs, paths = _operations_recovery_repo(tmp_path)
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return self.report
+
+    build_attempts = 0
+
+    def fail_candidate_once(root: Path) -> None:
+        nonlocal build_attempts
+        build_attempts += 1
+        if build_attempts == 1:
+            raise RuntimeError("candidate read model is malformed")
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", fail_candidate_once)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(repo, baseline, state_path)
+
+    assert build_attempts == 3
+    assert state["mode"] == "fallback"
+    assert set(state["fallback_surfaces"]) == set(specs)
+    assert set(state["restored_manifest"]) == set(specs)
+    assert state["final_errors"] == []
+    assert state["candidate_errors"] == [
+        {
+            "severity": "error",
+            "code": "publication-operations-build-failed",
+            "message": (
+                "the Operations read model could not be rebuilt during "
+                "candidate source generation"
+            ),
+            "path": "data/vllm/ci/operations_v2.json.gz",
+            "context": {
+                "phase": "candidate source generation",
+                "exception_type": "RuntimeError",
+                "details": "candidate read model is malformed",
+            },
+            "surfaces": ["alpha", "beta"],
+        }
+    ]
+    for surface, path in paths.items():
+        assert json.loads(path.read_text()) == {
+            "surface": surface,
+            "generation": "baseline",
+        }
+
+
+def test_operations_build_failure_blocks_if_validated_generation_cannot_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, state_path, specs, paths = _operations_recovery_repo(tmp_path)
+    secret = "super-secret-build-token"
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+    def always_fail(root: Path) -> None:
+        raise RuntimeError(f"token={secret} " + ("x" * 2000))
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", always_fail)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="cannot be rebuilt from the validated baseline",
+    ):
+        selector_module.select_publication(repo, baseline, state_path)
+
+    state = json.loads(state_path.read_text())
+    assert state["mode"] == "blocked"
+    assert set(state["fallback_surfaces"]) == set(specs)
+    assert set(state["restored_manifest"]) == set(specs)
+    assert state["final_errors"][0]["code"] == (
+        "publication-operations-build-failed"
+    )
+    assert state["final_errors"][0]["context"]["phase"] == (
+        "validated baseline retry"
+    )
+    serialized = json.dumps(state)
+    assert secret not in serialized
+    assert len(state["final_errors"][0]["context"]["details"]) <= 1000
+    for surface, path in paths.items():
+        assert json.loads(path.read_text()) == {
+            "surface": surface,
+            "generation": "baseline",
+        }
+
+
 def _write_legacy_ci_baseline(repo: Path, since: str) -> tuple[Path, dict[str, bytes]]:
     baseline_bytes: dict[str, bytes] = {}
     for relative in LEGACY_CI_SURFACE_SPEC.required_paths:
@@ -824,8 +959,10 @@ def test_restore_surface_restores_exact_and_globbed_files_atomically(
     history = repo / "data/history"
     history.mkdir(parents=True)
     exact = repo / "data/current.json"
+    optional = repo / "data/retention.json"
     retained = history / "retained.jsonl"
     exact.write_text('{"version":"baseline"}\n')
+    optional.write_text('{"floor":"baseline"}\n')
     retained.write_text('{"row":"baseline"}\n')
 
     _git(repo, "init")
@@ -836,6 +973,7 @@ def test_restore_surface_restores_exact_and_globbed_files_atomically(
     baseline = _git(repo, "rev-parse", "HEAD")
 
     exact.write_text('{"version":"candidate"}\n')
+    optional.write_text('{"floor":"candidate"}\n')
     retained.write_text('{"row":"candidate"}\n')
     candidate_only = history / "candidate-only.jsonl"
     candidate_only.write_text('{"row":"candidate-only"}\n')
@@ -845,14 +983,20 @@ def test_restore_surface_restores_exact_and_globbed_files_atomically(
         baseline,
         SurfaceSpec(
             required_paths=("data/current.json",),
+            optional_paths=("data/retention.json",),
             globs=("data/history/*.jsonl",),
         ),
     )
 
     assert exact.read_text() == '{"version":"baseline"}\n'
+    assert optional.read_text() == '{"floor":"baseline"}\n'
     assert retained.read_text() == '{"row":"baseline"}\n'
     assert not candidate_only.exists()
-    assert restored == ["data/current.json", "data/history/retained.jsonl"]
+    assert restored == [
+        "data/current.json",
+        "data/history/retained.jsonl",
+        "data/retention.json",
+    ]
 
 
 def test_restore_surface_preflights_every_required_file_before_mutating(

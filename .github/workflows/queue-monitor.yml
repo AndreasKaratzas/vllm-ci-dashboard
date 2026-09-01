@@ -413,6 +413,8 @@ jobs:
             data/vllm/ci/queue_jobs.json \
             data/vllm/ci/queue_history_chart.json \
             data/vllm/ci/operations_v2/queue.json
+          python "$GITHUB_WORKSPACE/scripts/vllm/build_queue_section.py" \
+            --validate-output "$LIVE_ROOT/data/vllm/ci/operations_v2/queue.json"
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "queue: live snapshot $(date -u +%Y-%m-%dT%H:%M)"
           QUEUE_SOURCE_SHA=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')

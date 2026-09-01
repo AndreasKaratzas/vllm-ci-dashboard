@@ -29,6 +29,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     repo_owner,
     validate_target_repo,
 )
+from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 from vllm.ci.reliability_history import (  # noqa: E402
     hydrate_reliability_observations,
     validate_all_main_reliability,
@@ -121,8 +122,11 @@ def _read_state() -> dict:
 
 
 def _write_state(state: dict) -> None:
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    write_watcher_state(
+        STATE,
+        state,
+        state_filename="open_amd_duration_regression_issues.json",
+    )
 
 
 def _read_reliability() -> dict | None:

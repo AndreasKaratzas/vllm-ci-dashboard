@@ -29,7 +29,6 @@ import math
 import os
 import re
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,6 +45,8 @@ from vllm.constants import (  # noqa: E402
     OMNI_SURGE_MULTIPLIER,
     OMNI_YAML_PATHS,
 )
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.managed_issue import (  # noqa: E402
     IssueLookupError,
     MAX_DIRECT_ISSUE_LOOKUPS,
@@ -53,6 +54,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     fetch_open_issue_candidate,
     repair_issue_labels,
 )
+from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 SNAPSHOTS = ROOT / "data" / "vllm" / "ci" / "queue_timeseries.jsonl"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_omni_surge_issues.json"
 HEURISTIC_PATH = ROOT / "data" / "vllm" / "ci" / "omni_surge_heuristic.json"
+OMNI_HEURISTIC_MAX_BYTES = writer_max_bytes("omni_surge_heuristic")
 
 GH_API = "https://api.github.com"
 RAW_BASE = "https://raw.githubusercontent.com"
@@ -248,27 +251,7 @@ def _read_state() -> dict:
 
 
 def _write_state(state: dict) -> None:
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(state, indent=2, sort_keys=True)
-    temp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=STATE.parent,
-            prefix=f".{STATE.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temp_file:
-            temp_path = Path(temp_file.name)
-            temp_file.write(payload)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-        os.replace(temp_path, STATE)
-        temp_path = None
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+    write_watcher_state(STATE, state, state_filename="open_omni_surge_issues.json")
 
 
 def _fetch_yaml(path: str) -> str | None:
@@ -339,6 +322,73 @@ def _compute_trigger(groups: list[dict]) -> tuple[int, int, dict]:
         "pool_distribution": pool_counts,
     }
     return trigger, healthy, info
+
+
+def bounded_heuristic_payload(
+    info: dict,
+    *,
+    max_bytes: int = OMNI_HEURISTIC_MAX_BYTES,
+) -> dict:
+    """Keep exact trigger scalars and a bounded deterministic pool index."""
+    if max_bytes <= 0:
+        raise ValueError("Omni heuristic byte budget must be positive")
+    raw_pools = info.get("pool_distribution")
+    source_pools = {
+        str(name): int(count)
+        for name, count in (raw_pools.items() if isinstance(raw_pools, dict) else ())
+        if str(name)
+        and isinstance(count, int)
+        and not isinstance(count, bool)
+        and count >= 0
+    }
+    prioritized = sorted(
+        source_pools,
+        key=lambda name: (-source_pools[name], name.casefold(), name),
+    )
+
+    def candidate(count: int) -> dict:
+        selected = set(prioritized[:count])
+        published = {
+            name: source_pools[name]
+            for name in sorted(selected, key=lambda value: (value.casefold(), value))
+        }
+        complete = len(published) == len(source_pools)
+        result = {
+            key: value
+            for key, value in info.items()
+            if key not in {"pool_distribution", "publication_retention"}
+        }
+        result["pool_distribution"] = published
+        result["publication_retention"] = {
+            "policy": "exact_trigger_scalars_then_largest_pool_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "trigger_scalars_complete": True,
+            "pool_distribution": {
+                "source": len(source_pools),
+                "published": len(published),
+                "omitted": len(source_pools) - len(published),
+                "complete": complete,
+            },
+        }
+        return result
+
+    low, high = 0, len(source_pools)
+    best = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "Omni heuristic fixed metadata exceeds its byte budget; preserving "
+            "the last-known-good file"
+        )
+    return best
 
 
 def _read_last_good_heuristic() -> dict | None:
@@ -470,8 +520,16 @@ def _refresh_heuristic() -> tuple[int, int, dict]:
         info["last_successful_at"] = checked_at
     else:
         info.setdefault("last_successful_at", None)
-    HEURISTIC_PATH.parent.mkdir(parents=True, exist_ok=True)
-    HEURISTIC_PATH.write_text(json.dumps(info, indent=2, sort_keys=True))
+    info = bounded_heuristic_payload(
+        info,
+        max_bytes=OMNI_HEURISTIC_MAX_BYTES,
+    )
+    write_pretty_json_lkg(
+        HEURISTIC_PATH,
+        info,
+        max_bytes=OMNI_HEURISTIC_MAX_BYTES,
+        label="Omni surge heuristic",
+    )
     return trigger, healthy, info
 
 
@@ -551,6 +609,17 @@ def _open_issue(
     title = f"Omni CI surge: {waiting} jobs waiting (threshold {heuristic['trigger']})"
     rows = "\n".join(f"| `{q}` | {n} |" for q, n in sorted(by_queue.items(), key=lambda kv: -kv[1])) or "| — | 0 |"
     pools = "\n".join(f"- `{p}`: {n}" for p, n in sorted(heuristic["pool_distribution"].items()))
+    pool_retention = (
+        (heuristic.get("publication_retention") or {}).get("pool_distribution")
+        or {}
+    )
+    omitted_pools = int(pool_retention.get("omitted") or 0)
+    pool_coverage = (
+        f"\n\n_{omitted_pools} smaller pool rows were omitted from this bounded "
+        "diagnostic; total_groups and thresholds remain exact._"
+        if omitted_pools
+        else ""
+    )
     body = (
         f"{OWNERSHIP_MARKER}\n"
         f"## Omni workload surge\n\n"
@@ -564,7 +633,8 @@ def _open_issue(
         f"- total groups counted across omni YAMLs: **{heuristic['total_groups']}**\n"
         f"- dynamic component (`ceil(groups × {OMNI_SURGE_MULTIPLIER})`): {heuristic['dynamic_component']}\n"
         f"- healthy threshold (close at or below): **{heuristic['healthy']}**\n\n"
-        f"<details><summary>Per-pool distribution from omni YAMLs</summary>\n\n{pools}\n</details>\n\n"
+        f"<details><summary>Per-pool distribution from omni YAMLs</summary>\n\n"
+        f"{pools}{pool_coverage}\n</details>\n\n"
         f"GitHub assignee: {owner_login}.\n\n"
         f"Auto-opened by `omni_surge_watcher.py` from {run_url}. Will auto-close once the "
         f"waiting count drops to {heuristic['healthy']}.\n"

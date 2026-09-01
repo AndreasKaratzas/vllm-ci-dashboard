@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from vllm import collect_queue_snapshot as cqs
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 
 class TestWaitSummary:
@@ -521,7 +522,7 @@ def _history_snapshot(ts: str) -> dict:
 
 class TestHistoryPrune:
     def test_history_budget_stays_below_repository_and_sync_limits(self):
-        assert cqs.QUEUE_HISTORY_MAX_BYTES == 64 * 1024 * 1024
+        assert cqs.QUEUE_HISTORY_MAX_BYTES == writer_max_bytes("queue_history")
         assert cqs.QUEUE_HISTORY_MAX_BYTES < 85 * 1024 * 1024
         assert cqs.QUEUE_HISTORY_MAX_BYTES < 90_000_000
 
@@ -2193,3 +2194,49 @@ class TestJobsJsonSideEffect:
             assert field in running
         assert running["state"] == "running"
         assert running["analysis_excluded"] is False
+
+    def test_jobs_file_compacts_whole_rows_with_truthful_counts(self):
+        source = {
+            "ts": "2026-04-18T12:00:00Z",
+            "details_observed_at": "2026-04-18T12:00:00Z",
+            "pending": [
+                {"id": index, "wait_min": 100 - index, "padding": "p" * 500}
+                for index in range(50)
+            ],
+            "running": [
+                {"id": index, "padding": "r" * 500}
+                for index in range(50)
+            ],
+        }
+
+        bounded = cqs._compact_queue_jobs(source, max_bytes=8_000)
+
+        assert len((json.dumps(bounded, indent=2, sort_keys=True) + "\n").encode()) <= 8_000
+        retention = bounded["publication_retention"]
+        assert retention["complete_relative_to_source"] is False
+        assert retention["pending"]["source"] == 50
+        assert retention["pending"]["published"] < 50
+        assert retention["pending"]["omitted"] == 50 - len(bounded["pending"])
+        assert bounded["pending"] == source["pending"][:len(bounded["pending"])]
+
+    def test_jobs_file_bound_failure_preserves_last_known_good(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        path = tmp_path / "queue_jobs.json"
+        path.write_bytes(b"last-known-good\n")
+        monkeypatch.setattr(cqs, "QUEUE_DETAILS_MAX_BYTES", 1)
+
+        with pytest.raises(RuntimeError, match="last-known-good"):
+            cqs._write_bounded_queue_jobs(
+                path,
+                {
+                    "ts": "2026-04-18T12:00:00Z",
+                    "details_observed_at": "2026-04-18T12:00:00Z",
+                    "pending": [],
+                    "running": [],
+                },
+            )
+
+        assert path.read_bytes() == b"last-known-good\n"

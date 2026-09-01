@@ -12,10 +12,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.bounded_json import atomic_write_bytes
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -23,6 +29,7 @@ OUTPUT = ROOT / "data" / "vllm" / "ci"
 TARGETS = OUTPUT / "gating_targets.json"
 NIGHTLIES = OUTPUT / "gating_nightlies.json"
 PROPOSALS = OUTPUT / "gating_proposals.json"
+CANDIDATES_MAX_BYTES = writer_max_bytes("gating_target_candidates")
 
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
@@ -456,6 +463,68 @@ def build_payload(
     }
 
 
+def bounded_payload(payload: dict[str, Any], *, max_bytes: int | None = None) -> dict[str, Any]:
+    """Keep actionable whole candidate rows before informational rows."""
+    if max_bytes is None:
+        max_bytes = CANDIDATES_MAX_BYTES
+    if max_bytes <= 0:
+        raise ValueError("gating target candidate byte budget must be positive")
+    rows = list(payload.get("rows") or [])
+    actionable = {"new_candidate", "likely_duplicate", "missing_from_upstream"}
+    priority = sorted(
+        range(len(rows)),
+        key=lambda index: (
+            str(rows[index].get("decision") or "") in actionable,
+            str(rows[index].get("label") or ""),
+            str(rows[index].get("queue") or ""),
+        ),
+        reverse=True,
+    )
+
+    def candidate(count: int) -> dict[str, Any]:
+        selected = set(priority[:count])
+        published = [row for index, row in enumerate(rows) if index in selected]
+        return {
+            **payload,
+            "rows": published,
+            "publication_retention": {
+                "policy": "retain_actionable_then_deterministic_whole_candidate_rows",
+                "max_bytes": max_bytes,
+                "complete_relative_to_source": len(published) == len(rows),
+                "aggregate_scalars_complete": True,
+                "rows": {
+                    "source": len(rows),
+                    "published": len(published),
+                    "omitted": len(rows) - len(published),
+                    "complete": len(published) == len(rows),
+                },
+            },
+        }
+
+    def encoded(count: int) -> bytes:
+        return (json.dumps(candidate(count), indent=2) + "\n").encode("utf-8")
+
+    full = encoded(len(rows))
+    if len(full) <= max_bytes:
+        return candidate(len(rows))
+    low, high = 0, len(rows)
+    best: dict[str, Any] | None = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len((json.dumps(attempt, indent=2) + "\n").encode("utf-8")) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "gating target candidate fixed metadata exceeds its byte budget; "
+            "preserving the last-known-good file"
+        )
+    return best
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collect AMD gating target candidates")
     parser.add_argument("--output", type=Path, default=OUTPUT)
@@ -471,7 +540,11 @@ def main() -> None:
     )
     args.output.mkdir(parents=True, exist_ok=True)
     out_path = args.output / "gating_target_candidates.json"
-    out_path.write_text(json.dumps(payload, indent=2) + "\n")
+    payload = bounded_payload(payload)
+    atomic_write_bytes(
+        out_path,
+        (json.dumps(payload, indent=2) + "\n").encode("utf-8"),
+    )
     print(
         "Wrote "
         f"{out_path} with {payload['summary']['new_candidate_count']} new candidates, "

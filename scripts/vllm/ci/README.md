@@ -42,14 +42,18 @@ pip install requests pyyaml cryptography
 
 ### Environment
 
-The `BUILDKITE_TOKEN` environment variable must be set. This is managed via GitHub Actions secrets — see the repo Settings > Secrets page. Never commit tokens to the repository.
+Live Buildkite access is managed through GitHub Actions secrets and a durable
+per-attempt request reservation. Use the applicable workflow's
+`workflow_dispatch` trigger for an operator-initiated collection. Do not export
+a token and invoke a collector directly: every token-reading CLI and shared
+client ingress requires all three workflow-created request-guard variables and
+exits with status 78 before transport when that evidence is missing or
+incomplete. Never commit tokens to the repository.
 
-```bash
-# For local development only — use a read-only token
-export BUILDKITE_TOKEN="$YOUR_TOKEN"
-```
+### Collector CLI forms
 
-### Run
+These argument forms document what the guarded Data Collection workflow runs;
+they are not an unguarded local-token runbook:
 
 ```bash
 # Collect last 7 days (default)
@@ -192,6 +196,18 @@ available as drill-down evidence but do not create a second headline metric.
 Commit-pinned AMD/upstream definition parity is a separate source-coverage
 inventory and does not affect best-hardware test-group health.
 
+The matrix consumes the exact AMD build roster frozen by `collect_ci.py` in
+the same request-bearing attempt. That private, gitignored handoff is an
+allowlisted schema-v2 projection with one retained row per source job and
+explicit zero-omission retention counts. Its checked-in limit is 64 MiB (the
+existing private roster-cache budget and below the 90 MB file boundary); the
+producer preflights the complete payload and atomically replaces the file, and
+the consumer reads at most that limit from a regular non-symlink file. Missing,
+oversized, malformed, non-exhaustive, or wrong-build handoffs cannot produce a
+new matrix. Zero-request cooldown runs do not create a handoff and retain the
+validated last-known-good matrix instead. This handoff adds no Buildkite API
+request.
+
 ## Managing Quarantine
 
 Edit `config/quarantine.yaml` to quarantine or allowlist tests:
@@ -222,7 +238,7 @@ Seven workflows divide canonical publication from focused manual/event collector
 | `daily-update.yml` | Manual | Compatibility handoff to the canonical collector; never writes generated data to `main` |
 | `ci-collect.yml` | Manual | Tokenless compatibility dispatch into the canonical guarded collector; it cannot run an independent Buildkite refresh |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
-| `queue-lifecycle.yml` | Every two hours + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
+| `queue-lifecycle.yml` | 30-minute recovery checks, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
 | `publication-watchdog.yml` | Queue Monitor, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
 
@@ -238,35 +254,52 @@ two-stage concurrency gate and before the first step can receive
 lease-conflicted state fails closed with zero Buildkite requests. A reservation
 survives cancellation and failure for 25 hours. A successful attempt is due
 again 120 minutes after its **reservation time** (start-to-start); a failed
-attempt can retry after 30 minutes. The 50-minute workflow timeout leaves more
-than one hour between the last possible request and reservation expiry, so a
-25-hour ledger proves the corresponding rolling-24-hour bound.
+attempt can retry after 30 minutes. The 50-minute workflow timeout leaves at
+least ten minutes between the last possible request's rolling-24-hour boundary
+and reservation expiry, so a 25-hour ledger proves the corresponding bound.
 
-Every permitted process also imports `scripts/sitecustomize.py` from one exact
-`PYTHONPATH`. It patches `requests.Session.send`, atomically charges the shared
-local counter before each HTTPS send to `api.buildkite.com` or
+Every token-reading CLI explicitly activates the request guard after its path
+setup, and the shared Buildkite client/config ingress covers dormant library
+callers such as `create_build`. `scripts/sitecustomize.py`, loaded from one
+exact `PYTHONPATH` in workflows, provides process-start defense in depth. The
+guard patches `requests.Session.send`, atomically charges the shared local
+counter before each HTTPS send to `api.buildkite.com` or
 `graphql.buildkite.com`, counts same-origin redirect sends, and blocks
 allowance+1 before transport. Requests adapters with hidden internal retry
 policies are rejected; application retries are charged individually. Data
 Collection reserves at most 800 starts per attempt and at most 16 guarded
 attempts in any 25 hours, for a hard rolling-24-hour safety ceiling of 12,800.
-At current volume a fresh full run is approximately 670–720 starts, or about
-8,040–8,640 starts/day on the normal two-hour cadence. Queue Lifecycle reserves
-100 starts per attempt, producing a 1,600 rolling-24-hour hard ceiling and a
-normal ceiling of 1,200/day at the two-hour cadence. These fixed allowances are
-safety limits even where a collector's older theoretical pagination limit is
-higher; exhausting an allowance degrades the affected surface to its validated
-last-known-complete baseline rather than publishing partial evidence.
+The first three completed guarded production samples used 126, 381, and 300
+starts (a 269-start mean, or about 3,228/day on the normal two-hour cadence).
+The deliberately conservative normal reservation envelope is 9,600/day.
+Queue Lifecycle reserves 100 starts per attempt, producing a 1,600
+rolling-24-hour hard ceiling and a normal reservation envelope of 1,200/day at
+the two-hour cadence. These fixed allowances are safety limits even where a
+collector's older theoretical pagination limit is higher; exhausting an
+allowance degrades the affected surface to its validated last-known-complete
+baseline rather than publishing partial evidence.
+
+Queue Lifecycle also stops API work after a 40-minute monotonic collector
+budget. Each REST timeout is capped by the remaining budget and retry sleeps
+that would cross it are skipped. Exit 75 is accepted only with a validated
+incomplete checkpoint after exact request-allowance exhaustion; the distinct
+exit 76 accepts a validated incomplete or complete checkpoint after the time
+budget. Neither status validates or publishes public lifecycle data. A
+44-minute collect-step watchdog and the 50-minute job watchdog remain hard
+backstops, while exact request reporting and private cache preparation run on
+the workflow's unconditional paths.
 
 Cache loss does not require raising the 800-start safety limit. Core CI records
 each completely parsed nightly in the integrity-bound private
 `ci-backfill-v1` Actions cache. A capped attempt always validates and saves
 monotonic complete shards, the public `ci_core` surface retains its prior
 complete generation, and the next guarded attempt restores and skips those
-shards. Individual checkpoint files are limited to 80 MiB and the newest 16
-nightly/pipeline shards are retained, covering the normal eight-day/two-pipeline
-window. The cache is gitignored and never enters the dashboard-state or Pages
-tree, so it cannot create a repository blob near GitHub's 90 MB sync limit.
+shards. Each checkpoint shard is limited to 4 MiB and the checkpoint aggregate
+shares the test-result store's 25,100,288-byte (about 24 MiB) ceiling. It keeps
+at most the newest 16 shards, dropping oldest whole UTC days until both the
+count and byte limits fit; an irreducible newest day fails closed. The cache is
+gitignored and never enters the dashboard-state or Pages tree, so it cannot
+create a repository blob near GitHub's 90 MB sync limit.
 
 Neither workflow bootstraps its ledger. At rollout, disable the corresponding
 producer, inventory every legacy run in the preceding 25 hours whose token step
@@ -338,9 +371,10 @@ files, more than 256 MiB of logical tree data, or any blob larger than 85 MiB
 submodules, non-canonical or traversing paths, malformed manifests, and a
 generated file-set/hash mismatch also fail closed. Every established state must
 also contain a hash-bound, canonical, semantically valid private projection
-attestation of at most 4 KiB. Site assembly independently
-uses the same 85 MiB per-file limit, plus a 384 MiB/10,000-file public-tree
-limit. The private `data/vllm/ci/dashboard_state.json` manifest and
+attestation of at most 4 KiB. Site assembly, projection attestations, remote
+proofs, and health proofs all use the same 85 MiB per-file and 256
+MiB/10,000-file public-tree limits. The private
+`data/vllm/ci/dashboard_state.json` manifest and
 `public_projection_attestation.json` never enter Pages. The public
 `publication_manifest.json` describes every canonical root file with its mode,
 size, SHA-256, and Git object ID; only `pr-preview/` is outside that root
@@ -350,29 +384,57 @@ code commit, and timestamp identity. Post-deploy and watchdog verification use
 the Git tree object IDs, so they fetch only the small manifest and marker rather
 than every large public blob.
 
+One validation-only rollover rule keeps both state slots usable across a limit
+reduction. After a state code commit has been proven to be an ancestor different
+from trusted `main`, the trusted current validator may accept its hash-attested
+historical manifest when the declared tree ceiling is an integer at least 256
+MiB, its blob and file-count ceilings are no weaker than today's 85 MiB/10,000-
+file policy, and the bound inventory plus metadata itself still fits today's
+256 MiB tree ceiling. Manifest creation cannot select this rule, and proof for a
+state whose code SHA equals trusted `main` remains strict. Synthetic health uses
+the same read-only rule so a safe historical generation does not become a false
+outage during rollover. Every new collector generation writes exact current
+limits; after its first rotation, the historical previous slot remains a bounded
+failover until it ages out normally.
+
 Synthetic public health additionally fetches and digest/length verifies the
-Operations manifest plus its `nightly` and `amd_test_health` default CI Health
-sections and the `diagnostics` canary. Together with the shell, publication
-metadata, and six required shell assets, this is an exact maximum of 14 HTTP
-requests per probe. The 2-of-3 confirmation therefore declares at most 42
-requests, 420 transport seconds, and 427 elapsed seconds including retry
-delays. The manifest is capped at 2 MiB and the manifest plus those three
-canaries is capped at 12,000,000 bytes. Bundle generation and the full data
-audit enforce that shared contract before publication, and the remote checker
-uses each hash-attested descriptor size as its exact read bound. A bundle that
-outgrows the browser budget therefore leaves the preceding generation intact
-instead of creating a partial or unreadable replacement.
+Operations manifest and every bounded lazy section except `reliability`; those
+thirteen JSON canaries are also strict-parsed. Together with the shell,
+publication metadata, and six required shell assets, each of the three quorum
+probes has 24 bounded resources and at most 48 HTTP starts after the single
+transient retry. Exactly the first probe that reaches the Operations routes
+also streams the complete `reliability.json` route through SHA-256 without
+retaining its body; if an earlier probe fails before route discovery, the next
+probe owns that one proof. The stream has one retry, a 60-second total deadline
+per attempt, and at most one final 10-second blocking-read overrun. The exact
+confirmation ceiling is therefore
+146 HTTP starts, 1,580 transport/deadline seconds, and 1,587 elapsed seconds
+including quorum delays. Later healthy probes must identify the same exact
+projection generation as the full stream; failure of that one full proof fails
+the complete health invocation regardless of the ordinary 2-of-3 result.
+
+The Operations manifest is capped at 2 MiB, each canary at 12 MiB, their
+combined probe bundle at 32 MiB, and the separately streamed reliability route
+at 64 MiB. Bundle generation and the full data audit enforce that shared
+contract before publication, while the remote checker uses every hash-attested
+descriptor size as its exact read bound. A bundle that outgrows the browser or
+monitor budget therefore leaves the preceding generation intact instead of
+creating a partial or unreadable replacement.
 
 Canonical publishers preserve previews without preserving stale canonical
 files: they server-prove the exact old Pages tree before fetching preview
 blobs, copy only whole `pr-preview/pr-N` cohorts into the newly assembled
-`_site`, prune older cohorts to a 192 MiB preview envelope, and recheck the
-combined 384 MiB/10,000-file Pages envelope before an orphan replacement.
-Individual preview cohorts are also limited to 192 MiB and 2,000 files, which
-admits the current roughly 144 MiB full-site preview. The expected preview
-inventory digest is certified after the initial deploy and any corruption
-redeploy. Ambiguous proof/ref movement aborts before Pages mutation; a
-definitively unsafe old Pages tree is recovered without carrying its previews.
+`_site`, prune older cohorts to a 112 MiB preview envelope, and recheck the
+combined 256 MiB/10,000-file Pages envelope before an orphan replacement.
+Individual preview cohorts are also limited to 112 MiB and 2,000 files. The
+privileged preview build removes only its redundant
+`data/vllm/ci/queue_timeseries.jsonl` fallback after trusted site assembly and
+before nesting; the live queue branch remains authoritative and the compact
+`queue_history_chart.json` stays in the preview. This keeps the current preview
+near 91 MiB and the current canonical-plus-preview tree near 226 MiB. The
+expected preview inventory digest is certified after the initial deploy and any
+corruption redeploy. Ambiguous proof/ref movement aborts before Pages mutation;
+a definitively unsafe old Pages tree is recovered without carrying its previews.
 
 State manifest schema 2 binds every generated descriptor to its Git object ID
 as well as mode, byte count, and SHA-256. It also records a content summary
@@ -511,8 +573,8 @@ validated publication.
 
 Buildkite queue freshness now uses those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to wake the lightweight `queue-monitor.yml` workflow. A webhook is never a cadence bypass: the parentless `queue-request-budget` ledger coalesces every trigger, including manual runs, before the token-bearing step. Queue-native metrics reserve two starts at most every ten minutes; the complete active-job overlay reserves twelve additional starts at most hourly. Missing, corrupt, ambiguous, or lease-conflicted budget state fails closed with zero Buildkite requests.
 
-The normal current-volume cost is about 312 requests/day: 144 one-page metric
-reads plus 24 seven-page detail scans. The exact 25-hour ledger caps outstanding
+The normal current-volume cost is about 432 requests/day: 144 one-page metric
+reads plus 24 twelve-page detail scans. The exact 25-hour ledger caps outstanding
 reservations at 650 starts. Queue Monitor times out after 20 minutes, so every
 actual start remains inside the ledger's extra one-hour hold and the same 650
 ceiling applies to every rolling 24-hour window. If the active-job connection
@@ -560,7 +622,10 @@ do not cover a complete calendar day. The public aggregate has a 5 MiB hard
 ceiling. If pathological job volume would exceed it, the oldest whole-day
 vectors are replaced deterministically by exact count/min/p50/p95/max/average
 blocks and explicit omitted-sample coverage; the manifest-bound sharded ledger
-continues to retain every underlying observation. The supported organization
+continues to retain every underlying observation in its explicitly attested
+published scope. The summary is always recomputed from that exact ledger scope;
+it never reports an observation removed by the ledger's independent byte
+retention. The supported organization
 Builds REST endpoint does not filter job event timestamps directly. The
 collector unions builds finished inside the source window, builds created
 inside it, and active-state builds created inside the bounded parent-build
@@ -569,18 +634,46 @@ retained value is therefore an exact direct job observation, while the
 aggregate separately declares residual population limits such as page-number
 drift and jobs attached to parent builds created before that horizon.
 
-The reconciled, deduplicated seven-day job-observation ledger lives only on the
-`queue-lifecycle-data` branch as daily files under `queue_lifecycle_jobs/`; it
-is neither committed to `main` nor published to Pages. Each compact row contains a hashed
+The reconciled, deduplicated job-observation ledger lives only on the
+`queue-lifecycle-data` branch under `queue_lifecycle_jobs/`; it is neither
+committed to `main` nor published to Pages. Each compact row contains a hashed
 job identity, its canonical queue, direct event timestamps, derived durations,
-outcome, and retry flags. UTC-day segmentation lets unchanged days reuse their
-existing Git objects instead of rewriting the whole ledger; a late start or
-completion can still update the segment containing that job's earliest retained
-event. The ledger deliberately omits labels, URLs, branches,
-commits, pipeline names, and other build metadata. Per-segment and total-size
-guards prevent GitHub blob-limit and repository-pressure failures.
+outcome, and retry flags. An ordinary UTC day is stored as
+`YYYY-MM-DD.jsonl.gz`. If that day's actual deterministic gzip would exceed the
+16 MiB per-file ceiling, rows sorted by job identity are recursively bisected
+into contiguous ranges named
+`YYYY-MM-DD.part-NNNNNNNNN-of-NNNNNNNNN.jsonl.gz`; part numbers start at one,
+have nine digits, are contiguous, and all declare the same total, so a missing
+final part is detectable without a manifest. No plain daily file
+accompanies a part set. Existing daily-only manifests remain valid, while newly
+written manifests declare the additive `utc_day_or_adaptive_part_v1` naming
+contract. Unchanged, unsplit days therefore retain their exact filename and
+bytes. A late start or completion can still update the segment containing that
+job's earliest retained event.
 
-Lifecycle collection runs independently once every two hours so an API or schema
+Seven days is the configured target horizon, while the manifest's additive
+`retention` object attests the exact scope that was actually published. The
+complete compressed segment directory is capped at 16 MiB (16,777,216 bytes),
+giving roughly 3.5x headroom over the current approximately 4.5 MiB ledger and
+leaving ample distance from GitHub's 90 MB warning boundary even alongside the
+separately capped 5 MiB summary. If a candidate exceeds the compressed or 512
+MiB uncompressed aggregate ceiling, the writer deterministically removes whole
+oldest UTC cohorts based on each observation's **latest** retained lifecycle
+event. This keeps a long-running job whose completion is recent. If the one
+remaining boundary day is itself too dense, the writer retains a deterministic
+newest whole-observation prefix from that day. It records exact input,
+published, and omitted counts, omitted whole latest-event days, any partial
+boundary day, actual published event bounds, and `byte_limited` completeness.
+Incremental runs carry a still-relevant omission forward; only a full
+reconciliation or the omitted event-days aging outside the configured window
+can clear it. Publication therefore fails for volume only when one canonical
+row cannot fit either hard ceiling. Compaction itself makes no Buildkite API
+request and does not change the guarded request topology. The ledger
+deliberately omits labels, URLs, branches, commits, pipeline names, and other
+build metadata.
+
+Lifecycle collection checks its durable recovery gate every 30 minutes, while
+successful request-bearing attempts remain two hours apart, so an API or schema
 failure cannot delay the ten-minute point-in-time queue monitor. Organization-
 wide finished, created, and active-build cohorts use bounded, verified REST
 pagination, and the public aggregate includes the exact source window, cohort
@@ -590,6 +683,17 @@ instead of silently publishing a partial window. Workflows pass the existing
 `BUILDKITE_TOKEN` secret to the collector as
 `BUILDKITE_API_TOKEN`; tokens must never be placed in source, generated data,
 logs, or dashboard URLs.
+
+A wall-clock-yielding attempt may use fewer than its reserved 100 request
+starts, but the durable ledger still charges all 100. Under persistently slow
+responses, sixteen partial attempts can therefore reach the 1,600-start ceiling
+before the bounded query tree is complete. Progress pauses until an older
+25-hour reservation ages out, then resumes from the exact frozen checkpoint;
+the collector never spends beyond the ceiling to recover faster. A WIP that
+still matches its content digest, canonical baseline/ref, frozen query and
+watermark, and queue identity has no elapsed-age eviction, so arbitrarily slow
+but progressing recovery survives repeated rolling-cap waits. Future query
+horizons remain invalid.
 
 ### DNS health observations
 
@@ -686,7 +790,7 @@ duplicate when the normal two-hour run is already queued or running, and a
 
 A watchdog dispatch carries the exact generation it observed. The
 three workflow groups independently retain only one pending routine, targeted
-DNS, and targeted publication-recovery wakeup. A routine burst therefore cannot
+DNS, and targeted publication-recovery wake-up. A routine burst therefore cannot
 replace a pending repair. Each surviving job then joins the FIFO
 `gh-pages-deploy` writer queue, so it cannot replace an already-pending
 deploy-only recovery or trusted preview publication. Preview synchronization
@@ -694,7 +798,7 @@ bursts are first coalesced per PR, and close events never enqueue a full-tree
 Pages rewrite, so untrusted PR churn cannot starve canonical recovery. After it
 acquires that writer lock, a
 preflight skips it if another run already advanced Pages. A separate 120-minute
-automated-trigger preflight coalesces a wakeup that arrived behind a recent publication.
+automated-trigger preflight coalesces a wake-up that arrived behind a recent publication.
 DNS keeps
 its stronger generation acknowledgement: a targeted run is skipped only once
 Pages contains that DNS generation, its full contract validates, DNS is no
@@ -732,7 +836,7 @@ recovery from their own scheduler failure domain.
 Each eligible run gives collection a 20-minute budget with a separate
 finalization reserve. Unvisited log work remains pending for a later sample
 instead of being reported as a complete zero. Pending work is ordered newest
-first, round-robined across pipeline/queue/node coordinates, and allocated in
+first, distributed round-robin across pipeline/queue/node coordinates, and allocated in
 a prefix-stable 60/40 passed/non-passing mix. That preserves the passing-job
 signals that outcome-only filtering would miss without letting one busy fleet
 consume the bounded request budget. Its public
@@ -811,9 +915,15 @@ umbrella issues in this repository:
   contains a three-hour co-failure cluster with at least three logical failures
   across at least two groups on one physical AMD node.
 
-State lives in open_amd_main_failure_issues.json,
-open_ci_main_failure_issues.json, open_amd_duration_regression_issues.json, and
-open_agent_health_issues.json.
+State lives in `open_amd_main_failure_issues.json`,
+`open_ci_main_failure_issues.json`, `open_amd_duration_regression_issues.json`,
+`open_agent_health_issues.json`, `open_ci_area_regression_issues.json`,
+`open_omni_surge_issues.json`, `open_queue_issues.json`, and
+`open_queue_zombie_issues.json`. Fixed per-ledger producer limits sum exactly to
+the dashboard state's 3 MiB watcher allocation. Every replacement is atomic;
+bounded compaction keeps all actionable issue and incident mappings, prefers
+dropping refetchable or retired cache detail, and attests any omission through
+`publication_retention` counts.
 Each watcher can update or close only the issue number in its own state file; it
 never searches for issues by label, and it verifies a watcher-specific ownership
 marker before any update or close. When a signal recovers, its watcher comments
@@ -838,7 +948,9 @@ scripts/
 
 ## Troubleshooting
 
-**"BUILDKITE_TOKEN not set"**: Ensure the token is configured in GitHub Actions secrets or exported in your local environment.
+**"BUILDKITE_TOKEN not set"**: Ensure the token is configured as a GitHub
+Actions secret and trigger the appropriate guarded workflow. Exporting a token
+alone is intentionally rejected with exit status 78.
 
 **No nightly builds found**: The script filters by build name pattern. Check that the pipeline has builds matching "AMD Full CI Run - nightly" or "Full CI run - nightly".
 

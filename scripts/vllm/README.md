@@ -7,9 +7,9 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | Script | Purpose | Trigger |
 |--------|---------|---------|
 | `collect_queue_snapshot.py` | Captures current Buildkite queue-native metrics every permitted poll and refreshes the complete active-job overlay at most hourly; incomplete detail pagination retains the last complete overlay with explicit timestamps/status | Every 10 min via `queue-monitor.yml` (detail at most hourly) |
-| `collect_queue_lifecycle.py` | Resumably collects seven-day privacy-minimized queue lifecycle events through exhaustive disjoint parent-created query units without publishing partial generations | Every two hours via `queue-lifecycle.yml` |
+| `collect_queue_lifecycle.py` | Resumably collects seven-day privacy-minimized queue lifecycle events through exhaustive disjoint parent-created query units without publishing partial generations | 30-minute recovery checks with a two-hour successful cadence via `queue-lifecycle.yml` |
 | `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every two hours via `hourly-master.yml` |
-| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Every two hours via `hourly-master.yml` |
+| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
 | `collect_gating_targets.py` | Regenerates `gating_targets.json` from the authoritative `config/vllm_amd_gating_targets.json` | Every canonical `hourly-master.yml` run |
 | `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Every two hours via `hourly-master.yml` |
@@ -27,7 +27,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `plan_queue_publication_reconcile.py` | Wakes the canonical publisher only for an invalid status or an affected Queue surface, then verifies that the requested queue generation reached Pages; the workflow separately confirms its exact durable source ref | After validated queue publication or a fresh zero-request durable retry, and before a queue-targeted canonical run |
 | `dns_request_budget.py` | Validates the parentless DNS request ledger and durably reserves a complete per-scan allowance for 25 hours before any Buildkite call, bounding actual starts below 1,000 per rolling day | Every `dns-health.yml` run, plus controlled one-time ledger initialization |
 | `request_bearing_attempt_budget.py` | Gates full Data Collection and Queue Lifecycle through independent parentless 25-hour attempt ledgers, including start-to-start success cadence, bounded failure retry, migration overlap, and read-only webhook/watchdog observation | Before every possible full-collector token exposure, plus controlled one-time initialization |
-| `buildkite_request_guard.py` | Enforces the fixed per-attempt allowance across processes by charging every exact Buildkite `requests.Session.send` before transport and rejecting hidden adapter retries | Automatically in every permitted token-bearing Python process through `scripts/sitecustomize.py` |
+| `buildkite_request_guard.py` | Enforces the fixed per-attempt allowance across processes by charging every exact Buildkite `requests.Session.send` before transport and rejecting hidden adapter retries | Explicitly at every token-reading CLI/shared client ingress, with `scripts/sitecustomize.py` as process-start defense in depth |
 | `ci/backfill_checkpoint.py` | Integrity-validates complete per-nightly CI shards so cache-loss recovery makes monotonic progress across repeated 800-request caps without publishing partial data | Restored and failure-survivingly saved by guarded Data Collection runs |
 | `plan_publication_watchdog.py` | Plans proactive canonical recovery and suppresses active/recent duplicates; durable full-collection due state comes from the separate attempt ledger rather than general publication timestamps | `publication-watchdog.yml` and generation-targeted recovery runs |
 | `dashboard_state.py` | Fully validates/materializes bounded parentless snapshots, provides OID-only metadata validation for watchdogs, creates tested root commits, writes the public marker, rotates refs, and atomically repairs a single valid slot | Canonical collection, deploy-only recovery, watchdog checks, and state rollback |
@@ -39,7 +39,14 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 
 ## Environment
 
-All scripts read the `BUILDKITE_TOKEN` from environment variables. This is managed via GitHub Actions encrypted secrets — never hardcode tokens in source files.
+Live Buildkite collectors receive `BUILDKITE_TOKEN` or
+`BUILDKITE_API_TOKEN` only from GitHub Actions after the workflow has durably
+reserved that attempt's request allowance. Every token-reading CLI and shared
+client ingress activates the guard before it can construct or send a request;
+a token with missing or incomplete guard variables exits with status 78.
+Exporting a token alone is therefore not a supported local run mode. Use the
+corresponding workflow's `workflow_dispatch` trigger, and never hardcode tokens
+in source files.
 
 The CI ownership watcher reads its only availability input from the committed
 regional working-hour profiles in `config/vllm_ci_ownership.json`. EU follows
@@ -64,10 +71,12 @@ For queue monitoring specifically, the token needs Buildkite GraphQL access so `
 
 Buildkite's queue-native p50/p95 remain the site-comparable primary values whenever they are available. The fully paginated scheduled-job reconstruction is stored and charted separately, with exact non-zombie n/N coverage, because equal counts do not prove that two sequential reads contain the same jobs or use the same percentile estimator. Queue history keeps every poll for 48 hours, then retains one actual snapshot plus every queue's primary and reconstructed p50/p95/p99 peaks and exact observation times per UTC hour for the remainder of the 30-day window.
 
-The history writer is atomic and capped at 64 MiB. If unusually wide queue
-schemas exceed that budget, it progressively coarsens only older UTC buckets
-while preserving the newest live snapshot and each retained bucket's exact
-peak envelopes; it never makes another Buildkite request to compact storage.
+The history writer is atomic and capped at 46 MiB. Its compact chart is capped
+at 6 MiB, and the pair has an exact shared 52 MiB allocation. If unusually wide
+queue schemas exceed that budget, it progressively coarsens only older UTC
+buckets while preserving the newest live snapshot and each retained bucket's
+exact peak envelopes; it never makes another Buildkite request to compact
+storage.
 
 The frequent collector force-publishes a single-commit `queue-data` branch containing only queue-owned evidence and a compact chart feed. The browser compares its current snapshot with the canonical Pages shard, uses the newer one, and falls back to the Pages history if the dedicated feed becomes stale. The verbose JSONL remains available as drill-down evidence but is not reparsed on every chart refresh.
 
@@ -90,8 +99,8 @@ Every queue trigger, including webhooks and manual dispatch, first acquires an
 exact lease on the parentless one-file `queue-request-budget` branch. Metrics
 reserve two request starts no more than once per ten minutes; active-job detail
 reserves twelve additional starts no more than hourly. At current volume the
-normal cost is about 312 requests/day (144 metric pages plus 24 seven-page
-detail scans). The 25-hour ledger permits at most 650 outstanding starts, and
+normal cost is about 432 requests/day (144 one-page metric reads plus 24
+twelve-page detail scans). The 25-hour ledger permits at most 650 outstanding starts, and
 the workflow has a 20-minute timeout, leaving more than the one-hour cushion
 needed to bound actual request starts in every rolling 24 hours. Missing,
 corrupt, ambiguous, or lease-conflicted budget state exposes no Buildkite token.
@@ -113,32 +122,69 @@ Completed units and their observations are stored in the private
 The strict checkpoint is capped at 64 MiB compressed, contains only hashed job
 identities and the same privacy projection as the durable ledger, and binds its
 content digest, exact canonical branch commit, canonical ledger digest, target
-queue-map digest, and frozen query/watermark. Missing, malformed, stale,
-wrong-base, or wrong-queue checkpoints are discarded and restarted without
-feeding bytes into the canonical ledger. A dense interval that cannot be split
-records a terminal failure so retries make no further Buildkite requests. The
+queue-map digest, and frozen query/watermark. Missing, malformed,
+future-horizon, wrong-base, or wrong-queue checkpoints are discarded and
+restarted without feeding bytes into the canonical ledger. A dense interval
+that cannot be split records a terminal failure so retries make no further
+Buildkite requests. The
 750-leaf work-tree ceiling requires at most 1,499 build responses; including
 one normal queue-discovery response per retry, it fits within sixteen
 100-start attempts (transport retries consume that same hard allowance).
+Each collector invocation has a monotonic 40-minute work budget. REST request
+timeouts shrink to the remaining budget and a retry delay is rejected before
+it could cross the deadline. The workflow also applies a 44-minute step
+watchdog beneath its 50-minute job watchdog. A deadline yield is green only
+after the checkpoint is re-read and verified against the canonical baseline;
+recovery progress remains private and cannot be published as a complete
+generation.
 
-Guard exhaustion leaves the interrupted unit pending and exits without
-touching `queue_lifecycle.json` or `queue_lifecycle_jobs`. The workflow uses an
-`always()` cache-save path with a unique immutable run key, restores the newest
-namespace entry, and retains only the eight newest entries. Once every unit is
-complete, the collector merges against the exact canonical generation at the
-original frozen query horizon and atomically builds both canonical artifacts.
+Guard exhaustion leaves the interrupted unit pending and exits 75 without
+touching `queue_lifecycle.json` or `queue_lifecycle_jobs`. A wall-clock yield
+exits 76 and may retain a complete checkpoint when the deadline lands after the
+last unit; its next attempt can publish without repeating any build query. The
+workflow uses an `always()` cache-save path with a unique immutable run key,
+restores the newest namespace entry, and retains only the eight newest entries.
+Once every unit is complete, the collector merges against the exact canonical
+generation at the original frozen query horizon and atomically builds both
+canonical artifacts.
+The private job-segment directory has a 16 MiB aggregate compressed cap and a
+512 MiB aggregate uncompressed cap. Seven days remains the target window; an
+overflow deterministically removes the oldest whole latest-event UTC cohorts,
+then (only when necessary) the oldest whole observations in the remaining
+boundary day. The public 5 MiB summary is rebuilt exclusively from the retained
+rows and publishes the exact shortened-scope and byte-limited attestation.
+Incremental recovery cannot erase that disclosure; a full reconciliation or
+natural aging beyond the configured window is required. This local compaction
+does not issue or enable additional Buildkite requests.
 Only after validation, exact guarded-request reporting, and a verified durable
 branch push is the WIP deleted; a small cached tombstone prevents an older
 completed checkpoint from resurfacing.
 
+The workflow checks its durable gate every 30 minutes while recovery is in
+progress. An incomplete attempt may reserve again only after 30 minutes; after
+a successful publication, the same ledger permits no new Buildkite-bearing
+attempt for two hours. Thus recovery can consume its existing 16-attempt,
+1,600-start rolling hard cap without increasing the normal two-hour request
+cadence, and a designed request-bound checkpoint is reported as successful
+bounded progress rather than a dashboard workflow failure.
+
+The 1,600-start ceiling remains conservative by charging the full 100-start
+reservation even when a wall-clock yield used fewer starts. Consequently,
+persistently slow responses can consume sixteen partial reservations before
+the 1,499-response work tree finishes. Collection then waits until older
+25-hour reservations expire and continues from the validated checkpoint; it
+does not raise the ceiling, discard completed units, or publish partial data.
+There is deliberately no elapsed-age eviction for a still context-valid WIP,
+so arbitrarily slow but progressing recovery survives as many rolling-cap
+waits as it needs. Future query horizons remain invalid.
+
 ### Perf-eval retention and artifact deduplication
 
 Both `data/vllm/perf_eval/events.jsonl` and its derived `perf_eval.json` have an
-exact 60 MiB writer limit. Writers serialize in memory, reject an oversized
-candidate, and atomically replace the previous file only after the candidate
-passes that byte check. This leaves 4 MiB of headroom below the 64 MiB
-perf-data ceiling and substantially more below the dashboard's 90 MB sync
-limit.
+exact 4 MiB writer limit inside a shared 8 MiB state allocation. Writers
+serialize in memory, reject an oversized candidate, and atomically replace the
+previous file only after the candidate passes that byte check. This remains
+substantially below the dashboard's 90 MB sync limit.
 
 The normal event history is a rolling 180 days with at least the latest 30
 complete nightlies. If unusually wide results reach the byte limit first, the
@@ -248,11 +294,40 @@ stable build/job/step identifiers while build URL, commit, message, and creation
 time are stored once in the build catalog. Server-side consumers hydrate the
 legacy presentation fields before building Operations data or watcher evidence,
 so browser cards and popups retain the same contract. The writer is atomic and
-enforces a 64 MiB normal operating budget (well below GitHub's 100 MiB blob
+enforces a 56 MiB normal operating budget (well below GitHub's 100 MiB blob
 limit), reporting per-component bytes and any emergency evidence compaction.
 An incremental cache projection that grows by both at least 20% and 8 MiB is
 discarded and reconciled once from the exhaustive source before it can replace
 the cache.
+
+The immutable dashboard-state tree has a checked 256 MiB ceiling. Its shared
+allocation policy reserves only 240 MiB, guaranteeing 16 MiB of global
+headroom, and gives unclassified code/config assets a separate 16 MiB envelope.
+Generated operational data is never charged to that code reserve: gating
+control (6 MiB), Operations control files (5 MiB), watcher state (3 MiB),
+GitHub Home (768 KiB), group changes (1 MiB), and small fixed operational files
+(256 KiB) have disjoint aggregate groups. The final staged-index guard checks
+every group before commit; bounded evidence writers compact whole units and
+attest source/published/omitted counts.
+
+The eight `open_*_issues.json` watcher ledgers compose inside that 3 MiB
+allocation through fixed producer envelopes: upstream-main 1 MiB; AMD-main and
+CI-area 512 KiB each; duration, queue-latency, and queue-zombie 256 KiB each;
+agent-health and Omni 128 KiB each. Their shared atomic writer preserves every
+open issue, suppression identity, and confirmed/pending incident. When needed,
+it removes only refetchable row detail, inactive ordering fences, clear area
+signals, and retired cache rows, recording exact
+source/published/omitted counts in `publication_retention`.
+
+The GitHub Home allocation is also compositional: `projects.json` and
+`releases.json` receive 32 KiB each, `prs.json` and `issues.json` receive
+320 KiB each, and the Project #39 fallback receives 64 KiB. Writers serialize
+and bound candidates before atomically replacing the last-known-good files.
+Under byte pressure they remove refetchable body/query detail before retaining
+a newest-first prefix of whole rows, retain exact source/published/omitted
+accounting, and mark the browser population as a lower bound. Retained
+same-repository issue and PR references are reconciled so compaction cannot
+create dangling links.
 
 ## Bounded last-known-good publication
 

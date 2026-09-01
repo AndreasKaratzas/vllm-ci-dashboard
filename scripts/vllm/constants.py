@@ -4,15 +4,17 @@ Everything that used to be copy-pasted across ``collect_queue_snapshot.py``,
 ``collect_hotness.py``, ``collect_analytics.py``, ``queue_issue_watcher.py``
 and friends lives here. Import from this module; do not redefine.
 
-Kept importable without side effects — no I/O, no env reads beyond what's
-already in ``scripts/vllm/ci/config`` (which owns framework-level retry /
-state-machine constants).
+Kept importable without network or process side effects. The checked-in shared
+storage-budget policy is the only import-time file read; runtime configuration
+and environment variables remain owned by their dedicated modules.
 """
 
 from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 # ---------------------------------------------------------------------------
 # Buildkite org + pipelines
@@ -172,7 +174,7 @@ QUEUE_HISTORY_ARCHIVE_BUCKET_MINUTES = 60
 # and the dashboard sync layer's 90 MB limit.  The queue collector preserves
 # the newest snapshot and coarsens older peak envelopes only when this budget
 # would otherwise be exceeded.
-QUEUE_HISTORY_MAX_BYTES = 64 * 1024 * 1024
+QUEUE_HISTORY_MAX_BYTES = writer_max_bytes("queue_history")
 
 # ---------------------------------------------------------------------------
 # queue_issue_watcher thresholds

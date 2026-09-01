@@ -1,7 +1,11 @@
+# cspell:ignore hdrs
+
 import hashlib
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -12,6 +16,12 @@ from vllm import operations_bundle_contract as bundle_contract
 
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
+
+
+def test_projection_health_proof_uses_exact_publication_ceiling() -> None:
+    assert health.PROJECTION_MAX_BLOB_BYTES == 85 * 1024 * 1024
+    assert health.PROJECTION_MAX_TREE_BYTES == 256 * 1024 * 1024
+    assert health.PROJECTION_MAX_FILES == 10_000
 
 
 def _publication(**overrides):
@@ -74,11 +84,11 @@ class Fetcher:
         organization_body = b'{"schema_version":1}\n'
         section_paths = {
             name: f"data/vllm/ci/operations_v2/{name}.json"
-            for name in health.OPERATIONS_CANARY_SECTIONS
+            for name in bundle_contract.OPERATIONS_SECTION_NAMES
         }
         section_bodies = {
             name: json.dumps({name: {"status": "healthy"}}).encode() + b"\n"
-            for name in health.OPERATIONS_CANARY_SECTIONS
+            for name in bundle_contract.OPERATIONS_SECTION_NAMES
         }
         operations_payload = {
             "schema_version": 2,
@@ -96,7 +106,7 @@ class Fetcher:
                     "path": f"operations_v2/{name}.json",
                     "bytes": len(section_bodies[name]),
                 }
-                for name in health.OPERATIONS_CANARY_SECTIONS
+                for name in bundle_contract.OPERATIONS_SECTION_NAMES
             },
         }
         operations_body = json.dumps(operations_payload).encode()
@@ -108,7 +118,7 @@ class Fetcher:
             organization_path: organization_body,
             **{
                 section_paths[name]: section_bodies[name]
-                for name in health.OPERATIONS_CANARY_SECTIONS
+                for name in bundle_contract.OPERATIONS_SECTION_NAMES
             },
         }
         descriptors = {
@@ -175,7 +185,7 @@ class Fetcher:
             health.OPERATIONS_MANIFEST_PATH: _response(operations_body),
             **{
                 section_paths[name]: _response(section_bodies[name])
-                for name in health.OPERATIONS_CANARY_SECTIONS
+                for name in bundle_contract.OPERATIONS_SECTION_NAMES
             },
         }
         self.responses.update(resources or {})
@@ -194,6 +204,23 @@ class Fetcher:
 
 def _codes(report):
     return {row["code"] for row in report["reasons"]}
+
+
+def _rebind_manifest(fetcher: Fetcher, manifest: dict[str, object]) -> bytes:
+    raw = health._canonical_json(manifest)
+    fetcher.responses[health.PUBLICATION_MANIFEST_PATH] = _response(raw)
+    marker = json.loads(fetcher.responses[health.PUBLICATION_GENERATION_PATH]["body"])
+    marker["public_projection"].update(
+        {
+            "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+            "file_count": manifest["file_count"],
+            "total_bytes": manifest["total_bytes"],
+        }
+    )
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+    return raw
 
 
 def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
@@ -217,6 +244,28 @@ def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
         }
         for name in health.OPERATIONS_CANARY_SECTIONS
     ]
+    assert report["projection"]["operations_streamed_sections"] == [
+        {
+            "name": name,
+            "path": f"data/vllm/ci/operations_v2/{name}.json",
+            "http_status": 200,
+            "bytes_read": len(
+                json.dumps({name: {"status": "healthy"}}).encode() + b"\n"
+            ),
+            "sha256": hashlib.sha256(
+                json.dumps({name: {"status": "healthy"}}).encode() + b"\n"
+            ).hexdigest(),
+            "verified": True,
+        }
+        for name in health.OPERATIONS_STREAMED_LARGE_SECTIONS
+    ]
+    assert report["projection"]["verification_scope"] == "complete"
+    assert report["projection"]["manifest_policy"] == "current"
+    assert report["projection"]["enforced_limits"] == {
+        "max_blob_bytes": health.PROJECTION_MAX_BLOB_BYTES,
+        "max_tree_bytes": health.PROJECTION_MAX_TREE_BYTES,
+        "max_files": health.PROJECTION_MAX_FILES,
+    }
     assert report["projection"]["verified_files"] == [
         "index.html",
         health.PUBLICATION_STATUS_PATH,
@@ -225,6 +274,10 @@ def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
         *[
             f"data/vllm/ci/operations_v2/{name}.json"
             for name in health.OPERATIONS_CANARY_SECTIONS
+        ],
+        *[
+            f"data/vllm/ci/operations_v2/{name}.json"
+            for name in health.OPERATIONS_STREAMED_LARGE_SECTIONS
         ],
     ]
     assert [limit for _, limit in fetcher.calls] == [
@@ -240,6 +293,10 @@ def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
                 + b"\n"
             )
             for name in health.OPERATIONS_CANARY_SECTIONS
+        ],
+        *[
+            len(json.dumps({name: {"status": "healthy"}}).encode() + b"\n")
+            for name in health.OPERATIONS_STREAMED_LARGE_SECTIONS
         ],
     ]
     for url, _ in fetcher.calls:
@@ -272,6 +329,21 @@ def test_checker_contract_tracks_the_public_status_projector():
     )
     assert health.OPERATIONS_CANARY_MAX_BYTES == (
         bundle_contract.OPERATIONS_CANARY_FILE_MAX_BYTES
+    )
+    assert health.OPERATIONS_STREAMED_LARGE_SECTIONS == (
+        bundle_contract.OPERATIONS_STREAMED_LARGE_SECTIONS
+    )
+    assert health.OPERATIONS_STREAMED_MAX_BYTES == (
+        bundle_contract.OPERATIONS_STREAMED_FILE_MAX_BYTES
+    )
+    operations_manifest = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "data/vllm/ci/operations_v2_manifest.json"
+        ).read_text()
+    )
+    assert tuple(operations_manifest["sections"]) == (
+        bundle_contract.OPERATIONS_SECTION_NAMES
     )
     assert health.PUBLICATION_MODES == build_site.PUBLICATION_MODES
     assert health.PUBLICATION_SURFACE_LABELS == frozenset(
@@ -567,7 +639,7 @@ def test_transport_error_is_structured_without_remote_exception_text():
     assert "secret-bearing" not in json.dumps(report)
 
 
-def test_production_fetch_uses_one_timeout_and_reads_only_limit_plus_one(monkeypatch):
+def test_production_fetch_uses_bounded_timeout_and_reads_only_limit_plus_one(monkeypatch):
     observed = {}
 
     class Response:
@@ -607,6 +679,337 @@ def test_production_fetch_uses_one_timeout_and_reads_only_limit_plus_one(monkeyp
     }
     assert result["body"] == b"x" * 10
     assert result["oversize"] is True
+
+
+def test_production_fetch_whole_attempt_deadline_interrupts_slow_trickle(monkeypatch):
+    opens = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _amount):
+            # Model HTTPResponse.read(amount) receiving one byte often enough
+            # that its per-recv socket timeout never fires, without returning
+            # control to the caller.
+            while True:
+                time.sleep(0.005)
+
+    class Opener:
+        def open(self, request, timeout):
+            opens.append((request.full_url, timeout))
+            return Response()
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+    monkeypatch.setattr(health, "FETCH_TIMEOUT_SECONDS", 0.03)
+    started = time.monotonic()
+
+    result = health.fetch_url("https://example.test/resource", 10)
+
+    assert time.monotonic() - started < 1.0
+    assert len(opens) == health.FETCH_ATTEMPTS == 2
+    assert all(timeout == 0.03 for _url, timeout in opens)
+    assert result == {
+        "http_status": 0,
+        "body": b"",
+        "oversize": False,
+        "error": "TimeoutError",
+        "final_url": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "first_failure",
+    [
+        URLError("transient transport failure"),
+        HTTPError(
+            "https://example.test/resource",
+            503,
+            "transient upstream failure",
+            hdrs=None,
+            fp=None,
+        ),
+    ],
+)
+def test_production_fetch_retries_one_transient_failure(monkeypatch, first_failure):
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, amount):
+            assert amount == 11
+            return b"recovered"
+
+        def getcode(self):
+            return 200
+
+        def geturl(self):
+            return "https://example.test/resource"
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append((request.full_url, timeout))
+            if len(calls) == 1:
+                raise first_failure
+            return Response()
+
+    monkeypatch.setattr(
+        health,
+        "build_opener",
+        lambda handler: (
+            Opener()
+            if isinstance(handler, health._NoRedirectHandler)
+            else pytest.fail("redirect guard was not installed")
+        ),
+    )
+
+    result = health.fetch_url("https://example.test/resource", 10)
+
+    assert calls == [
+        ("https://example.test/resource", health.FETCH_TIMEOUT_SECONDS),
+        ("https://example.test/resource", health.FETCH_TIMEOUT_SECONDS),
+    ]
+    assert result == {
+        "http_status": 200,
+        "body": b"recovered",
+        "oversize": False,
+        "error": None,
+        "final_url": "https://example.test/resource",
+    }
+
+
+def test_production_fetch_exhausts_exact_transient_attempt_bound(monkeypatch):
+    calls = []
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append((request.full_url, timeout))
+            raise URLError("secret-bearing transient failure")
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+
+    result = health.fetch_url("https://example.test/resource", 10)
+
+    assert len(calls) == health.FETCH_ATTEMPTS == 2
+    assert result == {
+        "http_status": 0,
+        "body": b"",
+        "oversize": False,
+        "error": "URLError",
+        "final_url": None,
+    }
+    assert "secret-bearing" not in repr(result)
+
+
+def test_production_fetch_does_not_retry_definitive_http_failure(monkeypatch):
+    calls = []
+
+    class Opener:
+        def open(self, request, timeout):
+            calls.append((request.full_url, timeout))
+            raise HTTPError(request.full_url, 404, "missing", hdrs=None, fp=None)
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+
+    result = health.fetch_url("https://example.test/resource", 10)
+
+    assert len(calls) == 1
+    assert result == {
+        "http_status": 404,
+        "body": b"",
+        "oversize": False,
+        "error": "HTTP 404",
+        "final_url": "https://example.test/resource",
+    }
+
+
+def test_streamed_fetch_hashes_in_bounded_chunks_without_retaining_the_body(monkeypatch):
+    payload = b"a" * (2 * 1024 * 1024 + 17)
+    reads = []
+
+    class Response:
+        def __init__(self):
+            self.offset = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, amount):
+            reads.append(amount)
+            chunk = payload[self.offset : self.offset + amount]
+            self.offset += len(chunk)
+            return chunk
+
+        def getcode(self):
+            return 200
+
+        def geturl(self):
+            return "https://example.test/reliability.json"
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == "https://example.test/reliability.json"
+            assert timeout == health.FETCH_TIMEOUT_SECONDS
+            return Response()
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+    monkeypatch.setattr(health.time, "monotonic", lambda: 0.0)
+
+    result = health.fetch_url_digest(
+        "https://example.test/reliability.json", len(payload)
+    )
+
+    assert result["bytes_read"] == len(payload)
+    assert result["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert result["oversize"] is False
+    assert max(reads) <= 1024 * 1024
+
+
+def test_streamed_fetch_total_deadline_is_enforced_across_slow_chunks(monkeypatch):
+    elapsed = {"seconds": 0.0}
+    opens = []
+    read_starts = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _amount):
+            read_starts.append(elapsed["seconds"])
+            elapsed["seconds"] += 31.0
+            return b"x"
+
+        def getcode(self):
+            return 200
+
+        def geturl(self):
+            return "https://example.test/reliability.json"
+
+    class Opener:
+        def open(self, request, timeout):
+            opens.append((request.full_url, timeout))
+            return Response()
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+    monkeypatch.setattr(health.time, "monotonic", lambda: elapsed["seconds"])
+
+    result = health.fetch_url_digest(
+        "https://example.test/reliability.json", 1024
+    )
+
+    assert len(opens) == health.FETCH_ATTEMPTS == 2
+    assert result["http_status"] == 0
+    assert result["error"] == "TimeoutError"
+    assert result["bytes_read"] == 0
+    # In both attempts, the second chunk begins before the 60-second deadline
+    # and finishes after it. The mandatory post-read check catches that overrun.
+    assert read_starts == [0.0, 31.0, 62.0, 93.0]
+    assert elapsed["seconds"] == 124.0
+
+
+def test_streamed_fetch_whole_attempt_deadline_interrupts_one_slow_read(monkeypatch):
+    opens = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _amount):
+            # A buffered read can internally consume endless sub-timeout bytes.
+            # The process timer must interrupt it even though this method never
+            # returns for the ordinary monotonic checks around the read.
+            while True:
+                time.sleep(0.005)
+
+    class Opener:
+        def open(self, request, timeout):
+            opens.append((request.full_url, timeout))
+            return Response()
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+    monkeypatch.setattr(health, "FETCH_TIMEOUT_SECONDS", 0.03)
+    monkeypatch.setattr(health, "STREAM_TOTAL_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(health, "STREAM_ATTEMPT_MAX_SECONDS", 0.08)
+    started = time.monotonic()
+
+    result = health.fetch_url_digest(
+        "https://example.test/reliability.json", 1024
+    )
+
+    assert time.monotonic() - started < 1.0
+    assert len(opens) == health.FETCH_ATTEMPTS == 2
+    assert all(timeout == 0.03 for _url, timeout in opens)
+    assert result == {
+        "http_status": 0,
+        "bytes_read": 0,
+        "sha256": None,
+        "oversize": False,
+        "error": "TimeoutError",
+        "final_url": None,
+    }
+
+
+def test_streamed_fetch_uses_one_transient_retry_then_succeeds(monkeypatch):
+    payload = b"reliability-proof\n"
+    opens = []
+
+    class Response:
+        def __init__(self):
+            self.sent = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _amount):
+            if self.sent:
+                return b""
+            self.sent = True
+            return payload
+
+        def getcode(self):
+            return 200
+
+        def geturl(self):
+            return "https://example.test/reliability.json"
+
+    class Opener:
+        def open(self, request, timeout):
+            opens.append((request.full_url, timeout))
+            if len(opens) == 1:
+                raise URLError("transient")
+            return Response()
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+    monkeypatch.setattr(health.time, "monotonic", lambda: 0.0)
+
+    result = health.fetch_url_digest(
+        "https://example.test/reliability.json", len(payload)
+    )
+
+    assert len(opens) == health.FETCH_ATTEMPTS == 2
+    assert result["http_status"] == 200
+    assert result["bytes_read"] == len(payload)
+    assert result["sha256"] == hashlib.sha256(payload).hexdigest()
 
 
 def test_invalid_site_url_and_age_are_rejected_before_fetch():
@@ -727,6 +1130,84 @@ class AttemptFetcher:
         return self.base(url, max_bytes)
 
 
+class GenerationAttemptFetcher:
+    def __init__(self, generations):
+        self.generations = list(generations)
+        self.fetchers = {}
+        for index, generation in enumerate(dict.fromkeys(self.generations), start=1):
+            fetcher = Fetcher()
+            marker_response = fetcher.responses[health.PUBLICATION_GENERATION_PATH]
+            marker = json.loads(marker_response["body"])
+            marker["generation_id"] = f"generation-{generation}"
+            marker["state_sha"] = f"{index:x}" * 40
+            marker["state_tree"] = f"{index + 4:x}" * 40
+            marker_response["body"] = json.dumps(marker).encode()
+            self.fetchers[generation] = fetcher
+
+    def __call__(self, url, max_bytes):
+        token = parse_qs(urlsplit(url).query)["health_check"][0]
+        attempt = int(token.split("-")[1])
+        generation = self.generations[attempt - 1]
+        return self.fetchers[generation](url, max_bytes)
+
+    def reliability_call_count(self):
+        reliability_path = "data/vllm/ci/operations_v2/reliability.json"
+        return sum(
+            urlsplit(url).path.endswith(reliability_path)
+            for fetcher in self.fetchers.values()
+            for url, _limit in fetcher.calls
+        )
+
+
+@pytest.mark.parametrize("generations", [("a", "a", "b"), ("a", "b", "b")])
+def test_confirmation_streams_the_modal_generation_during_one_rollover(generations):
+    fetcher = GenerationAttemptFetcher(generations)
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is True
+    assert report["confirmation"]["healthy_count"] == 3
+    assert report["confirmation"]["streamed_projection_attempt"] == 2
+    assert report["confirmation"]["complete_projection_attempt"] == 2
+    assert report["confirmation"]["matching_projection_healthy_count"] == 2
+    assert [
+        probe["streamed_projection_attempted"]
+        for probe in report["confirmation"]["probes"]
+    ] == [False, True, False]
+    assert fetcher.reliability_call_count() == 1
+
+
+def test_confirmation_falls_back_to_probe_three_when_middle_cannot_stream():
+    fetcher = AttemptFetcher({2})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is True
+    assert report["confirmation"]["healthy_count"] == 2
+    assert report["confirmation"]["streamed_projection_attempt"] == 3
+    assert report["confirmation"]["complete_projection_attempt"] == 3
+    assert report["confirmation"]["matching_projection_healthy_count"] == 2
+    assert [
+        probe["streamed_projection_attempted"]
+        for probe in report["confirmation"]["probes"]
+    ] == [False, False, True]
+    reliability_path = "data/vllm/ci/operations_v2/reliability.json"
+    assert sum(
+        urlsplit(url).path.endswith(reliability_path)
+        for url, _limit in fetcher.base.calls
+    ) == 1
+
+
 def test_confirmation_tolerates_one_transient_failure_with_fresh_cache_tokens():
     fetcher = AttemptFetcher({1})
 
@@ -747,8 +1228,42 @@ def test_confirmation_tolerates_one_transient_failure_with_fresh_cache_tokens():
         True,
         True,
     ]
+    assert report["confirmation"]["streamed_projection_attempt"] == 2
+    assert report["confirmation"]["complete_projection_attempt"] == 2
+    assert report["confirmation"]["complete_projection_verified"] is True
+    assert report["confirmation"]["matching_projection_healthy_count"] == 2
+    reliability_path = "data/vllm/ci/operations_v2/reliability.json"
+    assert sum(
+        urlsplit(url).path.endswith(reliability_path)
+        for url, _limit in fetcher.base.calls
+    ) == 1
+    assert [
+        probe["streamed_projection_attempted"]
+        for probe in report["confirmation"]["probes"]
+    ] == [False, True, False]
     assert {token.split("-")[1] for token in fetcher.tokens} == {"1", "2", "3"}
     assert len(set(fetcher.tokens)) == 3
+
+
+def test_confirmation_fails_globally_when_the_single_full_reliability_stream_fails():
+    reliability_path = "data/vllm/ci/operations_v2/reliability.json"
+    fetcher = Fetcher(resources={reliability_path: _response(b"corrupt")})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["confirmation"]["healthy_count"] == 2
+    assert report["confirmation"]["complete_projection_verified"] is False
+    assert "complete-projection-required" in _codes(report)
+    assert sum(
+        urlsplit(url).path.endswith(reliability_path)
+        for url, _limit in fetcher.calls
+    ) == 1
 
 
 def test_confirmation_reports_a_bounded_quorum_failure():
@@ -763,10 +1278,23 @@ def test_confirmation_reports_a_bounded_quorum_failure():
     assert report["overall_status"] == "confirmed_unhealthy"
     assert report["confirmation"]["confirmed"] is True
     assert report["confirmation"]["healthy_count"] == 1
-    assert report["confirmation"]["max_requests"] == 42
-    assert report["confirmation"]["max_transport_seconds"] == 420
+    assert health.REQUESTS_PER_PROBE == 48
+    assert health.STREAMED_REQUESTS_PER_CONFIRMATION == 2
+    assert health.MAX_CONFIRMATION_REQUESTS == (
+        health.CONFIRMATION_ATTEMPTS * health.REQUESTS_PER_PROBE
+        + health.STREAMED_REQUESTS_PER_CONFIRMATION
+    )
+    assert health.MAX_CONFIRMATION_TRANSPORT_SECONDS == (
+        health.CONFIRMATION_ATTEMPTS
+        * health.REQUESTS_PER_PROBE
+        * health.FETCH_TIMEOUT_SECONDS
+        + health.STREAMED_REQUESTS_PER_CONFIRMATION
+        * health.STREAM_ATTEMPT_MAX_SECONDS
+    )
+    assert report["confirmation"]["max_requests"] == 146
+    assert report["confirmation"]["max_transport_seconds"] == 1580
     assert report["confirmation"]["retry_delays_seconds"] == [0.0, 2.0, 5.0]
-    assert report["confirmation"]["max_elapsed_seconds"] == 427
+    assert report["confirmation"]["max_elapsed_seconds"] == 1587
     assert "confirmation-quorum" in _codes(report)
 
 
@@ -846,6 +1374,14 @@ def test_confirmed_publication_outage_keeps_nullable_diagnostics_empty():
                 (_response(b"corrupt"), "projection-integrity"),
             )
         ],
+        *[
+            (f"data/vllm/ci/operations_v2/{name}.json", response, expected)
+            for name in health.OPERATIONS_STREAMED_LARGE_SECTIONS
+            for response, expected in (
+                (_response(status=404), "operations-streamed-http"),
+                (_response(b"corrupt"), "projection-integrity"),
+            )
+        ],
     ],
 )
 def test_missing_or_corrupt_projection_metadata_and_assets_fail(path, response, expected):
@@ -875,18 +1411,53 @@ def test_operations_manifest_requires_every_default_route_canary(canary_name):
         health._normalize_operations_manifest(operations, projection)
 
 
+def test_operations_manifest_requires_the_large_streamed_section_descriptor():
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    descriptor = operations["sections"].pop("reliability")
+    projection["files"].pop(f"data/vllm/ci/{descriptor['path']}")
+
+    with pytest.raises(
+        health._ProjectionFailure,
+        match="exact supported section inventory",
+    ):
+        health._normalize_operations_manifest(operations, projection)
+
+
+def test_checker_streams_and_verifies_large_reliability_route():
+    fetcher = Fetcher()
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    requested_paths = {urlsplit(url).path for url, _limit in fetcher.calls}
+    reliability_path = "data/vllm/ci/operations_v2/reliability.json"
+    assert any(path.endswith(reliability_path) for path in requested_paths)
+    assert any(
+        path.endswith(reliability_path)
+        for path in report["projection"]["verified_files"]
+    )
+    assert report["projection"]["operations_streamed_sections"][0]["verified"] is True
+    assert report["projection"]["application_section_count"] == len(
+        bundle_contract.OPERATIONS_SECTION_NAMES
+    )
+    assert report["healthy"] is True
+
+
 def test_operations_manifest_rejects_an_unbounded_canary_bundle():
     fetcher = Fetcher()
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
     projection = json.loads(
         fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
     )
-    descriptor = operations["sections"]["amd_test_health"]
-    oversized = bundle_contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES
-    descriptor["bytes"] = oversized
-    projection["files"][
-        "data/vllm/ci/operations_v2/amd_test_health.json"
-    ]["bytes"] = oversized
+    for canary_name in health.OPERATIONS_CANARY_SECTIONS[:3]:
+        descriptor = operations["sections"][canary_name]
+        descriptor["bytes"] = bundle_contract.OPERATIONS_CANARY_FILE_MAX_BYTES
+        projection["files"][f"data/vllm/ci/{descriptor['path']}"]["bytes"] = (
+            bundle_contract.OPERATIONS_CANARY_FILE_MAX_BYTES
+        )
 
     with pytest.raises(health._ProjectionFailure, match="canary bundle") as exc:
         health._normalize_operations_manifest(operations, projection)
@@ -1015,9 +1586,92 @@ def test_verified_projection_reports_the_exact_manifest_digest():
     assert report["projection"]["file_count"] == (
         4
         + len(health.CRITICAL_ASSET_PATHS)
-        + len(health.OPERATIONS_CANARY_SECTIONS)
+        + len(bundle_contract.OPERATIONS_SECTION_NAMES)
     )
     assert report["projection"]["total_bytes"] > 0
+
+
+def test_health_accepts_only_hash_bound_safe_historical_tree_declaration():
+    fetcher = Fetcher()
+    manifest = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    manifest["limits"]["max_tree_bytes"] = health.PROJECTION_MAX_TREE_BYTES + 1
+    legacy_raw = health._canonical_json(manifest)
+    fetcher.responses[health.PUBLICATION_MANIFEST_PATH] = _response(legacy_raw)
+
+    unbound = health.check_site_health(now=NOW, fetch=fetcher)
+    assert unbound["healthy"] is False
+    assert "projection-attestation" in _codes(unbound)
+
+    _rebind_manifest(fetcher, manifest)
+    bound = health.check_site_health(now=NOW, fetch=fetcher)
+    assert bound["healthy"] is True
+    assert bound["projection"]["manifest_policy"] == "safe-historical-read-only"
+    assert bound["projection"]["total_bytes"] <= health.PROJECTION_MAX_TREE_BYTES
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {
+            "max_blob_bytes": health.PROJECTION_MAX_BLOB_BYTES + 1,
+            "max_tree_bytes": health.PROJECTION_MAX_TREE_BYTES + 1,
+            "max_files": health.PROJECTION_MAX_FILES,
+        },
+        {
+            "max_blob_bytes": health.PROJECTION_MAX_BLOB_BYTES,
+            "max_tree_bytes": health.PROJECTION_MAX_TREE_BYTES - 1,
+            "max_files": health.PROJECTION_MAX_FILES,
+        },
+        {
+            "max_blob_bytes": health.PROJECTION_MAX_BLOB_BYTES,
+            "max_tree_bytes": health.PROJECTION_MAX_TREE_BYTES + 1,
+            "max_files": health.PROJECTION_MAX_FILES + 1,
+        },
+        {
+            "max_blob_bytes": health.PROJECTION_MAX_BLOB_BYTES,
+            "max_tree_bytes": False,
+            "max_files": health.PROJECTION_MAX_FILES,
+        },
+    ],
+)
+def test_health_rejects_unsafe_historical_limit_declarations(
+    limits: dict[str, object],
+):
+    fetcher = Fetcher()
+    manifest = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    manifest["limits"] = limits
+    _rebind_manifest(fetcher, manifest)
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is False
+    assert "manifest-contract" in _codes(report)
+
+
+def test_health_legacy_compatibility_never_expands_actual_tree_cap():
+    fetcher = Fetcher()
+    manifest = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    manifest["limits"]["max_tree_bytes"] = health.PROJECTION_MAX_TREE_BYTES + 1
+    descriptors = list(manifest["files"].values())
+    for descriptor, size in zip(
+        descriptors,
+        (
+            health.PROJECTION_MAX_BLOB_BYTES,
+            health.PROJECTION_MAX_BLOB_BYTES,
+            health.PROJECTION_MAX_BLOB_BYTES,
+            2 * 1024 * 1024,
+        ),
+    ):
+        descriptor["bytes"] = size
+    manifest["total_bytes"] = sum(row["bytes"] for row in descriptors)
+    _rebind_manifest(fetcher, manifest)
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is False
+    # The marker's bound total is independently capped before the manifest is
+    # considered, so the oversized actual inventory cannot reach compatibility.
+    assert "generation-contract" in _codes(report)
 
 
 def test_manifest_must_be_canonical_even_when_marker_attests_its_digest():

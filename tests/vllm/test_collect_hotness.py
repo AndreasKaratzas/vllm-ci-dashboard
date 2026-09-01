@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from vllm import collect_hotness as ch
+from vllm.bounded_json import pretty_json_bytes
 
 
 def _iso(dt: datetime) -> str:
@@ -111,6 +112,64 @@ class TestStats:
         assert out["p50_min"] == 6.0  # idx = int(10 * 50/100) = 5 → values[5]
         assert out["p90_min"] == 10.0  # idx = int(10 * 90/100) = 9 → values[9]
         assert out["max_min"] == 10.0
+
+
+def _oversized_hotness_payload() -> dict:
+    windows = {}
+    for hours in (1, 3, 24, 72):
+        rows = [
+            {"group": f"group-{index}", "count": 100 - index, "padding": "x" * 400}
+            for index in range(8)
+        ]
+        windows[f"{hours}h"] = {
+            "window_hours": hours,
+            "jobs_in_window": 100,
+            "test_groups": rows,
+            "branches": [
+                {"branch": f"branch-{index}", "builds": 10, "padding": "y" * 300}
+                for index in range(4)
+            ],
+            "queues": [{"queue": "amd_mi300x", "count": 100}],
+        }
+    return {
+        "generated_at": "2026-09-01T00:00:00Z",
+        "window_hours": 3,
+        "builds_examined": 100,
+        "test_groups": windows["3h"]["test_groups"],
+        "branches": windows["3h"]["branches"],
+        "queues": windows["3h"]["queues"],
+        "windows": windows,
+    }
+
+
+def test_hotness_compaction_keeps_whole_ranked_prefixes_and_discloses_omission():
+    source = _oversized_hotness_payload()
+
+    bounded = ch.compact_hotness_for_publication(source, max_bytes=7_000)
+
+    assert len(pretty_json_bytes(bounded)) <= 7_000
+    retention = bounded["publication_retention"]
+    assert retention["complete_relative_to_source"] is False
+    for window, raw in source["windows"].items():
+        for field in ch.HOTNESS_ROW_FIELDS:
+            counts = retention["windows"][window][field]
+            assert counts["source"] == len(raw[field])
+            assert counts["published"] == len(bounded["windows"][window][field])
+            assert counts["omitted"] == counts["source"] - counts["published"]
+            assert bounded["windows"][window][field] == raw[field][: counts["published"]]
+    assert bounded["test_groups"] == bounded["windows"]["3h"]["test_groups"]
+
+
+def test_hotness_writer_preserves_lkg_when_fixed_metadata_cannot_fit(tmp_path):
+    path = tmp_path / "hotness.json"
+    path.write_text('{"generation":"last-known-good"}\n')
+    source = _oversized_hotness_payload()
+    source["irreducible"] = "z" * 2_000
+
+    with pytest.raises(RuntimeError, match="fixed metadata exceeds"):
+        ch.write_hotness(path, source, max_bytes=500)
+
+    assert json.loads(path.read_text()) == {"generation": "last-known-good"}
 
 
 def _job(

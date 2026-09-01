@@ -485,6 +485,29 @@ def test_amd_watcher_ignores_older_build_discovered_after_newer_result():
     assert held["group_watermarks"]["late-old-build"]["build_number"] == 40
 
 
+def test_amd_watcher_prunes_order_fences_older_than_retained_catalog():
+    state = amd._default_state()
+    state["initialized"] = True
+    state["group_watermarks"] = {
+        "retired-group": {
+            "build_number": 1,
+            "order_at": "2026-06-01T00:00:00Z",
+            "created_at": "2026-06-01T00:00:00Z",
+            "finished_at": "2026-06-01T01:00:00Z",
+            "result": "passed",
+            "commit": "",
+        }
+    }
+    reliability = _amd_reliability(
+        [_amd_build(40, "2026-07-17T12:00:00Z")],
+        [],
+    )
+
+    updated = amd.advance_incidents(reliability, state)
+
+    assert updated["group_watermarks"] == {}
+
+
 def test_amd_watcher_migrates_v1_order_fence_before_processing_late_build():
     reliability = _amd_reliability(
         [

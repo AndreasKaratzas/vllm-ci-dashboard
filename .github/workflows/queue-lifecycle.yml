@@ -3,12 +3,13 @@ name: Queue Lifecycle Monitor (2h)
 on:
   schedule:
     # Lifecycle queries are substantially heavier than point-in-time queue
-    # metrics. Keep them independent from both the 10-minute queue poll and
-    # the canonical Pages build so a transient API failure cannot stale either.
-    - cron: '47 */2 * * *'
+    # metrics. Check the durable gate every 30 minutes so a bounded private
+    # checkpoint can resume promptly. Successful attempts remain hard-gated
+    # to one per two hours, so the extra schedules make zero Buildkite calls.
+    - cron: '17,47 * * * *'
   repository_dispatch:
     # Optional external wake-up; the durable attempt ledger still enforces the
-    # two-hour cadence and rolling Buildkite request ceiling.
+    # success/retry cadences and rolling Buildkite request ceiling.
     types: [queue_lifecycle_tick]
   workflow_dispatch:
 
@@ -32,7 +33,39 @@ jobs:
         with:
           ref: main
 
+      - name: Reserve guarded Queue Lifecycle attempt
+        id: request-attempt
+        env:
+          ATTEMPT_ID: lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/queue-lifecycle-attempt.outputs"
+          : > "$OUTPUTS"
+          python3 scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/queue_lifecycle_attempt_budget.json reserve \
+            --attempt-id "$ATTEMPT_ID" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-run-attempt "${{ github.run_attempt }}" \
+            --event-name "${{ github.event_name }}" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "request_start_allowance" {print $2}' "$OUTPUTS")
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|success_gated|retry_gated|cap_gated)$ ]] || \
+             [ "$ALLOWANCE" != 100 ]; then
+            echo "::error::Attempt ledger returned malformed gate outputs."
+            exit 1
+          fi
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+
+      - name: Report bounded request gate
+        if: steps.request-attempt.outputs.request_mode != 'reserved'
+        run: >-
+          echo "Queue lifecycle made zero Buildkite requests:
+          ${{ steps.request-attempt.outputs.request_mode }} until
+          ${{ steps.request-attempt.outputs.available_at }}."
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
         with:
           python-version: '3.12.13'
           cache: 'pip'
@@ -41,10 +74,30 @@ jobs:
             pyproject.toml
 
       - name: Install dependencies
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
         run: pip install -c constraints.txt requests
+
+      - name: Initialize exact Buildkite request guard
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          ATTEMPT_ID: lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          ALLOWANCE: ${{ steps.request-attempt.outputs.request_start_allowance }}
+        run: |
+          set -euo pipefail
+          GUARD_FILE="$RUNNER_TEMP/lifecycle-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance "$ALLOWANCE"
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+          } >> "$GITHUB_ENV"
 
       - name: Restore durable lifecycle observations
         id: lifecycle-baseline
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           # A missing branch is the expected first-run bootstrap. Every other
           # lookup/fetch/read failure is fatal: publishing an empty orphan
@@ -80,49 +133,6 @@ jobs:
             exit "$LIFECYCLE_DATA_STATUS"
           fi
 
-      - name: Reserve guarded Queue Lifecycle attempt
-        id: request-attempt
-        env:
-          ATTEMPT_ID: lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          set -euo pipefail
-          OUTPUTS="$RUNNER_TEMP/queue-lifecycle-attempt.outputs"
-          : > "$OUTPUTS"
-          python scripts/vllm/request_bearing_attempt_budget.py \
-            --config config/queue_lifecycle_attempt_budget.json reserve \
-            --attempt-id "$ATTEMPT_ID" \
-            --workflow-run-id "${{ github.run_id }}" \
-            --workflow-run-attempt "${{ github.run_attempt }}" \
-            --event-name "${{ github.event_name }}" \
-            --github-output "$OUTPUTS"
-          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
-          ALLOWANCE=$(awk -F= '$1 == "request_start_allowance" {print $2}' "$OUTPUTS")
-          if [[ ! "$REQUEST_MODE" =~ ^(reserved|success_gated|retry_gated|cap_gated)$ ]] || \
-             [ "$ALLOWANCE" != 100 ]; then
-            echo "::error::Attempt ledger returned malformed gate outputs."
-            exit 1
-          fi
-          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
-          if [ "$REQUEST_MODE" = reserved ]; then
-            GUARD_FILE="$RUNNER_TEMP/lifecycle-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
-            python scripts/vllm/buildkite_request_guard.py initialize \
-              --file "$GUARD_FILE" \
-              --attempt-id "$ATTEMPT_ID" \
-              --allowance "$ALLOWANCE"
-            {
-              echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
-              echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
-              echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
-            } >> "$GITHUB_ENV"
-          fi
-
-      - name: Report bounded request gate
-        if: steps.request-attempt.outputs.request_mode != 'reserved'
-        run: >-
-          echo "Queue lifecycle made zero Buildkite requests:
-          ${{ steps.request-attempt.outputs.request_mode }} until
-          ${{ steps.request-attempt.outputs.available_at }}."
-
       # LIFECYCLE-WIP-CACHE-BOUNDARY: the checkpoint contains only hashed,
       # schema-validated observations and exact half-open query-unit cursors.
       # It is gitignored and never installed into the durable data branch.
@@ -150,14 +160,36 @@ jobs:
 
       - name: Collect canonical AMD queue lifecycle
         id: collect-lifecycle
+        # Independent backstop for interpreter/setup drift around the
+        # collector's 40-minute internal monotonic deadline.
+        timeout-minutes: 44
         if: steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_API_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           LIFECYCLE_BASELINE_REF: ${{ steps.lifecycle-baseline.outputs.baseline_ref }}
-        run: >-
-          python scripts/vllm/collect_queue_lifecycle.py
-          --checkpoint "$LIFECYCLE_CHECKPOINT"
-          --baseline-ref "$LIFECYCLE_BASELINE_REF"
+        run: |
+          # Exit 75 means the exact request-start allowance was consumed with
+          # incomplete validated WIP. Exit 76 means the 40-minute collection
+          # budget ended with validated WIP, which may already be complete.
+          # Both are successful private progress; every other non-zero status
+          # remains a hard workflow failure.
+          set +e
+          python scripts/vllm/collect_queue_lifecycle.py \
+            --checkpoint "$LIFECYCLE_CHECKPOINT" \
+            --baseline-ref "$LIFECYCLE_BASELINE_REF"
+          LIFECYCLE_STATUS=$?
+          set -e
+          if [ "$LIFECYCLE_STATUS" -eq 0 ]; then
+            echo "collection_complete=true" >> "$GITHUB_OUTPUT"
+          elif [ "$LIFECYCLE_STATUS" -eq 75 ]; then
+            echo "collection_complete=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Lifecycle collection used its request allowance and saved resumable progress."
+          elif [ "$LIFECYCLE_STATUS" -eq 76 ]; then
+            echo "collection_complete=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Lifecycle collection reached its wall-clock budget and saved validated progress."
+          else
+            exit "$LIFECYCLE_STATUS"
+          fi
 
       - name: Read exact guarded Buildkite request total
         id: request-guard-report
@@ -176,7 +208,7 @@ jobs:
         id: lifecycle-validation
         if: >-
           steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.collect-lifecycle.outcome == 'success' &&
+          steps.collect-lifecycle.outputs.collection_complete == 'true' &&
           steps.request-guard-report.outcome == 'success'
         run: |
           python -m json.tool data/vllm/ci/queue_lifecycle.json >/dev/null
@@ -191,7 +223,7 @@ jobs:
         id: lifecycle-publication
         if: >-
           steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.collect-lifecycle.outcome == 'success' &&
+          steps.collect-lifecycle.outputs.collection_complete == 'true' &&
           steps.request-guard-report.outcome == 'success' &&
           steps.lifecycle-validation.outcome == 'success'
         env:

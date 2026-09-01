@@ -79,20 +79,24 @@ Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles re
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
 
-To run manually:
+Tokenless collection, transformation, and validation steps can be run manually:
+
+Live Buildkite collectors are intentionally excluded from this list. Trigger
+the guarded **Data Collection**, **Queue Monitor**, **Queue Lifecycle Monitor**,
+or **DNS Health Monitor** workflow with `workflow_dispatch` instead. A direct
+process that can see `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` exits with
+status 78 unless the workflow has supplied a complete durable request-guard
+reservation; exporting a token alone is not a supported local run mode.
 
 ```bash
 pip install requests pyyaml
 python scripts/collect.py
-python scripts/collect_ci.py --days 8 --pipeline both --output data/vllm/ci/
-python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
 python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
 python scripts/vllm/collect_ownership_parity.py --input-dir data/vllm/ci --output data/vllm/ci
 python scripts/vllm/build_test_group_parity.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
-python scripts/vllm/collect_queue_snapshot.py
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
 python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json.gz
 python scripts/vllm/build_queue_section.py

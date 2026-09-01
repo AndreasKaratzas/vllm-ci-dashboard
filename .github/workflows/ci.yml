@@ -30,6 +30,9 @@ jobs:
       - name: Enforce tracked Git blob budget
         run: python scripts/vllm/check_git_blob_sizes.py --root .
 
+      - name: Enforce composed dashboard-state budget
+        run: python scripts/vllm/check_dashboard_state_storage_budget.py --root .
+
       - name: Ruff lint
         run: ruff check scripts tests
 

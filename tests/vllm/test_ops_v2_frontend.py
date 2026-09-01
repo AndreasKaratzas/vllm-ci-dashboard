@@ -1,6 +1,6 @@
 """Static contracts for the vLLM AMD CI Operations frontend boundary."""
 
-# cspell:ignore xoxb
+# cspell:ignore Untimed xoxb
 
 import gzip
 import json
@@ -51,6 +51,76 @@ def test_ops_v2_javascript_has_valid_syntax():
     assert result.returncode == 0, result.stderr
 
 
+def test_agent_health_compact_accounting_keeps_counts_exact_and_labels_evidence():
+    assert "Agent-health drill-down evidence is storage-bounded." in OPS_JS
+    assert "node-specific failure rates are unavailable" in OPS_JS
+    assert "compact accounting is exact only for that retained suffix" in OPS_JS
+    assert "operationsAccountingRetention.complete === false || sourceHistoryIncomplete" in OPS_JS
+    assert "agentAggregateRunCounts" in OPS_JS
+    assert "agentAggregateFailureCounts" in OPS_JS
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox);
+const count = sandbox.window.OpsV2Test.agentFailureAccountingCounts;
+const rows = [
+  {d: '2026-08-31', nd: 'node-a', s: 'hard', i: 1, ng: 1, bc: 0, c: 3},
+  {d: '2026-08-31', nd: 'node-a', s: 'soft', i: 0, ng: 0, bc: 0, c: 5},
+  {d: '2026-08-31', nd: 'node-a', s: 'hard', i: 1, ng: 1, bc: 1, c: 7},
+  {d: '2026-08-20', nd: 'node-a', s: 'hard', i: 1, ng: 1, bc: 0, c: 11},
+];
+let totals = count(rows, {startDay: '2026-08-30', nightlyOnly: false, excludeCancelled: true, signal: 'infra'}).get('node-a');
+assert.equal(totals.hard, 3);
+assert.equal(totals.soft, 5);
+assert.equal(totals.signal, 3);
+totals = count(rows, {startDay: '2026-08-30', nightlyOnly: true, excludeCancelled: false, signal: 'all'}).get('node-a');
+assert.equal(totals.hard, 10);
+assert.equal(totals.soft, 0);
+assert.equal(totals.signal, 10);
+const sourceComplete = sandbox.window.OpsV2Test.agentSourceHistoryComplete;
+assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 60}}), true);
+assert.equal(sourceComplete({retention: {byte_limited: true, dropped_oldest_day_count: 2, original_day_count: 60, retained_day_count: 58}}), false);
+assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 59}}), false);
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_omni_storage_retention_disables_incomplete_window_rates():
+    assert "mappingPublication.complete_relative_to_source === false" in OPS_JS
+    assert "const mappingRatesAvailable = mappingAvailable && mappingView.retainedComplete" in OPS_JS
+    assert "Rates, shares, and deltas are unavailable for incomplete selected coverage." in OPS_JS
+    assert "value: mappingRatesAvailable ? percent(omniTotal.mapped_jobs" in OPS_JS
+
+
+def test_ci_health_reporter_retention_is_disclosed_without_inferred_rates():
+    assert "ciHealthPublicationRetentionMessage" in OPS_JS
+    assert "no rate or delta is derived from them" in OPS_JS
+
+
+def test_amd_test_health_publication_retention_discloses_lower_bound_catalogs():
+    assert "AMD test-health drill-down is storage-bounded" in OPS_JS
+    assert "catalog counts, hardware distributions, and history charts are retained-row lower bounds" in OPS_JS
+    assert "Aggregate share unavailable for incomplete catalog" in OPS_JS
+
+
 def test_home_workbench_marks_bounded_populations_as_lower_bounds():
     assert "Issues (' + observedCountLabel(" in OPS_JS
     assert "PRs (' + observedCountLabel(" in OPS_JS
@@ -78,7 +148,11 @@ assert.equal(helpers.populationSemantics({count_semantics: 'lower_bound'}), 'low
 assert.equal(helpers.populationSemantics({
   source_coverage: {authoritative_complete: false},
 }), 'lower_bound');
-assert.equal(helpers.populationSemantics({}), 'complete');
+assert.equal(helpers.populationSemantics({
+  count_semantics: 'complete',
+  publication_retention: {complete_relative_to_source: false},
+}), 'lower_bound');
+assert.equal(helpers.populationSemantics({}), 'lower_bound');
 assert.equal(helpers.observedCountLabel(12, 'complete'), '12');
 assert.equal(helpers.observedCountLabel(12, 'lower_bound'), '≥12');
 """
@@ -97,6 +171,8 @@ def test_queue_ui_distinguishes_current_metrics_from_retained_job_details():
     assert "retained_due_to_error" in OPS_JS
     assert "jobs.details_observed_at || jobs.ts" in OPS_JS
     assert "they are not relabeled as current" in OPS_JS
+    assert "Active-job detail is storage-bounded" in OPS_JS
+    assert "job tables and workload counts are retained-row lower bounds" in OPS_JS
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
@@ -231,7 +307,9 @@ def test_current_operations_payloads_are_bounded(ops_data, ops_manifest):
         section_bytes[name]
         for name in bundle_contract.OPERATIONS_CANARY_SECTIONS
     )
-    assert section_bytes["queue"] < 6_000_000
+    assert section_bytes["queue"] <= (
+        bundle_contract.OPERATIONS_CANARY_SECTION_MAX_BYTES["queue"]
+    )
     assert manifest_bytes < OPS_DATA_PATH.stat().st_size * 0.05
 
 
@@ -1839,7 +1917,7 @@ def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
     assert "'active_jobs', 'webhook', 'job_scan'" in OPS_JS
     assert "countProvenance" in OPS_JS
     assert "count source: ' + countProvenance" in OPS_JS
-    assert "BUILDKITE P95 LEADER" in OPS_JS
+    assert "(queueRowsIncomplete ? 'PUBLISHED ' : 'BUILDKITE ') + 'P95 LEADER'" in OPS_JS
     assert "RECONSTRUCTED P95" in OPS_JS
     assert "p95 Buildkite" in OPS_JS
     assert "p95 reconstructed" in OPS_JS
@@ -1854,6 +1932,10 @@ def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
     assert "queueBlock.history_summary" in OPS_JS
     assert "archive_sample_wait_peaks" in OPS_JS
     assert "history_observation_only" in OPS_JS
+    assert "Queue projection is storage-bounded" in OPS_JS
+    assert "pressure findings cover only published rows" in OPS_JS
+    assert "Omitted detail is not treated as idle or healthy" in OPS_JS
+    assert "(queueRowsIncomplete ? 'PUBLISHED ' : 'BUILDKITE ')" in OPS_JS
 
 
 def test_queue_history_refreshes_and_exposes_collection_gaps_and_timezone():
@@ -2260,6 +2342,19 @@ assert.equal(helpers.queueDnsWindow(livePayload, '7d').id, '24h');
 const coverage = helpers.queueDnsCoverage(livePayload, livePayload.windows['3h']);
 assert.equal(coverage.complete, true);
 assert.equal(helpers.queueDnsDisplayCount(0, coverage), '0');
+const publicationBoundedPayload = Object.assign({}, livePayload, {
+  publication_retention: {
+    complete_relative_to_source: false,
+    window_rows: {'3h': {source: 10, published: 4, omitted: 6, complete: false}},
+  },
+});
+const publicationBoundedCoverage = helpers.queueDnsCoverage(
+  publicationBoundedPayload,
+  publicationBoundedPayload.windows['3h'],
+);
+assert.equal(publicationBoundedCoverage.complete, false);
+assert.ok(publicationBoundedCoverage.notes.join(' ').includes('4 of 10 aggregate rows'));
+assert.equal(helpers.queueDnsDisplayCount(2, publicationBoundedCoverage), '≥ 2');
 const retainedPartialPayload = Object.assign({}, livePayload, {
   coverage: {
     status: 'partial', complete: false, discovery_complete: true,
@@ -2947,6 +3042,335 @@ def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
     assert "Open passing log" in OPS_JS
     assert "comparisonGroupById(reliability, variant.group_id)" in OPS_JS
     assert "exactPipelineEvidenceUrl(attempt, 'ci')" in OPS_JS
+
+
+def test_bounded_retry_evidence_disclosure_only_after_exact_load():
+    assert "function comparisonRetryRetentionMessage" in OPS_JS
+    assert "Bounded exact retry evidence." in OPS_JS
+    assert "Aggregate retry rates remain source-complete" in OPS_JS
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const disclosure = sandbox.window.OpsV2Test.comparisonRetryRetentionMessage;
+const retention = {
+  complete_relative_to_source: false,
+  retry_attempts: {published: 7, source: 10},
+  recoveries: {published: 2, source: 4},
+  comparison_groups: {published: 3, source: 5},
+};
+
+assert.equal(disclosure({evidence_deferred: true, publication_retention: retention}), '');
+assert.equal(disclosure({publication_retention: {complete_relative_to_source: true}}), '');
+assert.equal(disclosure({}), '');
+const message = disclosure({publication_retention: retention});
+assert.ok(message.includes('7 of 10 retry-involved attempts'));
+assert.ok(message.includes('2 of 4 recoveries'));
+assert.ok(message.includes('3 of 5 comparison groups retain exact rows'));
+assert.ok(message.includes('Aggregate retry rates remain source-complete'));
+assert.ok(message.includes('only the retained exact rows and links are bounded'));
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_bounded_reliability_consumers_fail_closed_or_disclose_coverage():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true, innerWidth: 1280},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+
+const retainedGroup = {
+  id: 'kept',
+  name: 'Kept group',
+  source_pipeline: 'ci',
+  publication_history_complete: false,
+  observations: [{
+    source_pipeline: 'ci',
+    build_number: 10,
+    state: 'passed',
+    observed_at: '2026-09-01T11:00:00Z',
+    job_url: 'https://buildkite.com/vllm/ci/builds/10/steps/job',
+  }],
+};
+const reliability = {
+  available: true,
+  source_pipeline: 'ci',
+  cohort: {available: true, observed_from: '2026-08-01T12:00:00Z', observed_to: '2026-09-01T12:00:00Z'},
+  group_catalog: [retainedGroup],
+  publication_retention: {
+    groups: {source: 2, published: 1, omitted: 1},
+    observations: {source: 5, published: 1, omitted: 4},
+  },
+};
+const catalogState = helpers.reliabilityPublicationState(reliability);
+assert.equal(catalogState.complete, false);
+assert.ok(catalogState.message.includes('1 of 2 groups'));
+assert.ok(catalogState.message.includes('1 of 5 exact observations'));
+assert.ok(catalogState.message.includes('rates, percentiles, and anomaly deltas'));
+assert.equal(helpers.groupPublicationHistoryComplete(retainedGroup), false);
+assert.equal(helpers.groupPublicationHistoryComplete({
+  publication_history_complete: true,
+  history_truncated: true,
+  observation_count: 5,
+  source_retained_observation_count: 2,
+  retained_observation_count: 2,
+}), false);
+assert.equal(helpers.groupPublicationHistoryComplete({
+  publication_history_complete: true,
+  history_truncated: false,
+  excluded_observation_count: 1,
+  observation_count: 2,
+  source_retained_observation_count: 2,
+  retained_observation_count: 2,
+}), false);
+assert.equal(helpers.groupPublicationHistoryComplete({
+  publication_history_complete: true,
+  history_truncated: false,
+  excluded_observation_count: 0,
+  observation_count: 3,
+  source_retained_observation_count: 3,
+  retained_observation_count: 3,
+}), true);
+
+const comparisonState = helpers.platformComparisonPublicationState({
+  publication_retention: {
+    complete_relative_to_source: false,
+    rows: {source: 10, published: 3, omitted: 7},
+  },
+});
+assert.equal(comparisonState.complete, false);
+assert.ok(comparisonState.message.includes('3 of 10 rows'));
+assert.ok(comparisonState.message.includes('preserved summary aggregates remain source-complete'));
+
+const compactedComparison = helpers.platformComparison({platform_comparison: {
+  available: true,
+  rows: [],
+  summary: {},
+  publication_fixed_metadata_compacted: true,
+  publication_retention: {complete_relative_to_source: false, rows: {source: 0, published: 0, omitted: 0}},
+}});
+assert.equal(compactedComparison.available, false);
+assert.ok(compactedComparison.publication_incomplete_reason.includes('summary metadata was compacted'));
+
+const combined = helpers.combinedGatingReliability({
+  id: 'target',
+  label: 'Target',
+  main_reliability: {group_ids: ['kept', 'omitted']},
+}, reliability);
+assert.deepEqual(Array.from(combined.missing_group_ids), ['omitted']);
+assert.equal(combined.publication_history_complete, false);
+
+const anomaly = helpers.trajectoryAnomaliesFromReliability(
+  reliability,
+  '24h',
+  '2026-09-01T12:00:00Z'
+).rows[0];
+assert.equal(anomaly.publicationHistoryComplete, false);
+assert.equal(anomaly.frequencyChangePct, null);
+assert.equal(anomaly.durationChangePct, null);
+assert.equal(anomaly.incidentRatePct, null);
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+    assert "Source-complete 30-day aggregates · bounded row coverage" in OPS_JS
+    assert "Published test-group history" in OPS_JS
+    assert "Complete test-group history" in OPS_JS
+
+
+def test_bounded_group_history_and_trajectory_dom_fail_closed():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+
+class TextNode {
+  constructor(text) {
+    this.nodeType = 3;
+    this.textContent = String(text);
+    this.parentNode = null;
+  }
+}
+
+class Element {
+  constructor(tagName) {
+    this.nodeType = 1;
+    this.tagName = String(tagName).toUpperCase();
+    this.className = '';
+    this.childNodes = [];
+    this.parentNode = null;
+    this.attributes = {};
+    this.dataset = {};
+    this.style = {setProperty: function () {}};
+    this._text = '';
+    this.classList = {
+      add: (...names) => {
+        const existing = this.className.split(/\s+/).filter(Boolean);
+        names.forEach(function (name) { if (name && !existing.includes(name)) existing.push(name); });
+        this.className = existing.join(' ');
+      },
+    };
+  }
+  append(...children) {
+    children.forEach((child) => {
+      const node = child && child.nodeType ? child : new TextNode(child);
+      node.parentNode = this;
+      this.childNodes.push(node);
+    });
+  }
+  appendChild(child) { this.append(child); return child; }
+  removeChild(child) {
+    const index = this.childNodes.indexOf(child);
+    if (index >= 0) this.childNodes.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name]; }
+  addEventListener() {}
+  focus() {}
+  get firstChild() { return this.childNodes[0] || null; }
+  get lastChild() { return this.childNodes[this.childNodes.length - 1] || null; }
+  get textContent() {
+    return this._text + this.childNodes.map(function (child) { return child.textContent; }).join('');
+  }
+  set textContent(value) {
+    this._text = String(value);
+    this.childNodes = [];
+  }
+}
+
+const document = {
+  createElement: function (tagName) { return new Element(tagName); },
+  createTextNode: function (text) { return new TextNode(text); },
+  addEventListener: function () {},
+};
+const sandbox = {
+  window: {
+    __OPS_V2_TEST__: true,
+    innerWidth: 1280,
+    location: {href: 'https://example.test/#ci-analytics'},
+  },
+  document: document,
+  console: console,
+  URL: URL,
+  requestAnimationFrame: function () {},
+};
+vm.createContext(sandbox);
+vm.runInContext(source, sandbox, {filename: process.argv[1]});
+const helpers = sandbox.window.OpsV2Test;
+
+const partialGroup = {
+  id: 'partial',
+  name: 'Partial group',
+  source_pipeline: 'ci',
+  publication_history_complete: false,
+  observations: [{
+    source_pipeline: 'ci',
+    build_kind: 'main',
+    build_number: 10,
+    state: 'passed',
+    observed_at: '2026-09-01T11:00:00Z',
+    job_url: 'https://buildkite.com/vllm/ci/builds/10/steps/job-10',
+  }],
+};
+const reliability = {
+  group_catalog: [partialGroup],
+  publication_retention: {
+    groups: {source: 1, published: 1, omitted: 0},
+    observations: {source: 5, published: 1, omitted: 4},
+  },
+};
+
+sandbox.window.OpsV2.state.analyticsGroupCohort = 'main';
+const historyHost = document.createElement('div');
+helpers.renderGroupHistoryExplorer(historyHost, [partialGroup], {}, reliability);
+const historyText = historyHost.textContent;
+assert.ok(historyText.includes('LATEST PUBLISHED FAILURE'));
+assert.ok(historyText.includes('None published'));
+assert.ok(historyText.includes('Omitted rows may contain failures'));
+assert.ok(historyText.includes('Passing streak unavailable'));
+assert.ok(historyText.includes('published map'));
+assert.equal(historyText.includes('No failures in this cohort'), false);
+assert.equal(historyText.includes('-run current passing streak'), false);
+assert.equal(historyText.includes('complete map'), false);
+
+sandbox.window.OpsV2.state.analyticsGroupCohort = 'nightly';
+const emptyNightlyHost = document.createElement('div');
+helpers.renderGroupHistoryExplorer(emptyNightlyHost, [partialGroup], {}, reliability);
+assert.ok(emptyNightlyHost.textContent.includes('bounded published history'));
+assert.equal(emptyNightlyHost.textContent.includes('complete retained history'), false);
+
+const completeTimed = {
+  id: 'complete', name: 'Complete group', hardware: 'mi300',
+  p90_min: 12, publication_history_complete: true, incident_rate_pct: 0,
+};
+const partialUntimed = {
+  id: 'partial', name: 'Partial group', hardware: 'mi300',
+  p90_min: null, publication_history_complete: false, incident_rate_pct: null,
+};
+const mixedSummary = helpers.trajectorySummaryStrip(
+  [partialUntimed, completeTimed], {complete: false}, 2, 2,
+  {observedTo: '2026-09-01T12:00:00Z'}
+).textContent;
+assert.ok(/SLOWEST P90.*12m.*Complete group/.test(mixedSummary));
+assert.equal(mixedSummary.includes('Partial group'), false);
+
+const partialOnlySummary = helpers.trajectorySummaryStrip(
+  [partialUntimed], {complete: false}, 1, 1,
+  {observedTo: '2026-09-01T12:00:00Z'}
+).textContent;
+assert.ok(/SLOWEST P90.*-.*No duration data/.test(partialOnlySummary));
+assert.equal(partialOnlySummary.includes('Partial group'), false);
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.live_data

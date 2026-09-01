@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import sys
 import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
@@ -29,11 +30,34 @@ import requests
 import yaml
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+
+
 log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
 CAPACITY_CONFIG_PATH = ROOT / "config" / "vllm_amd_queue_capacity.json"
+CAPACITY_MONITOR_MAX_BYTES = writer_max_bytes("capacity_monitor")
+
+CAPACITY_GROUP_INDEX_FIELDS = (
+    "key",
+    "label",
+    "area",
+    "yaml_file",
+    "yaml_index",
+    "device",
+    "queue",
+    "in_capacity_scope",
+    "parallelism",
+    "timeout_in_minutes",
+    "optional",
+    "dependency_file_count",
+    "dependency_lines",
+)
 
 GITHUB_REPO = "vllm-project/vllm"
 GITHUB_REF = "main"
@@ -810,6 +834,96 @@ def build_capacity_payload(
     }
 
 
+def bounded_capacity_payload(
+    payload: dict[str, Any],
+    *,
+    max_bytes: int = CAPACITY_MONITOR_MAX_BYTES,
+) -> dict[str, Any]:
+    """Bound the publication while preserving exact aggregate capacity totals.
+
+    Full group rows are preferred. Under byte pressure, refetchable dependency
+    path lists are removed first; only then are whole group-index rows omitted.
+    The summary, queue/family rollups, and projection remain exact for the full
+    source definition set, and retention metadata distinguishes those aggregates
+    from the bounded group-detail index.
+    """
+    source_groups = sorted(
+        (dict(row) for row in payload.get("groups") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            str(row.get("yaml_file") or ""),
+            int(row.get("yaml_index") or 0),
+            str(row.get("key") or ""),
+        ),
+    )
+
+    def candidate(*, published_count: int, compact_details: bool) -> dict[str, Any]:
+        rows = source_groups[:published_count]
+        if compact_details:
+            rows = [
+                {key: row.get(key) for key in CAPACITY_GROUP_INDEX_FIELDS if key in row}
+                for row in rows
+            ]
+        result = dict(payload)
+        result["groups"] = rows
+        result["publication_retention"] = {
+            "policy": "aggregate_first_deterministic_group_index_v1",
+            "max_bytes": max_bytes,
+            "aggregate_summaries_complete": True,
+            "group_index": {
+                "source": len(source_groups),
+                "published": len(rows),
+                "omitted": len(source_groups) - len(rows),
+                "complete_relative_to_source": len(rows) == len(source_groups),
+            },
+            "group_details": {
+                "source": len(source_groups),
+                "published_full": 0 if compact_details else len(rows),
+                "compacted": len(rows) if compact_details else 0,
+                "complete_relative_to_source": (
+                    not compact_details and len(rows) == len(source_groups)
+                ),
+            },
+            "complete_relative_to_source": (
+                not compact_details and len(rows) == len(source_groups)
+            ),
+        }
+        return result
+
+    complete = candidate(
+        published_count=len(source_groups),
+        compact_details=False,
+    )
+    if len(pretty_json_bytes(complete)) <= max_bytes:
+        return complete
+
+    compact = candidate(
+        published_count=len(source_groups),
+        compact_details=True,
+    )
+    if len(pretty_json_bytes(compact)) <= max_bytes:
+        return compact
+
+    low = 0
+    high = len(source_groups)
+    best: dict[str, Any] | None = None
+    while low <= high:
+        middle = (low + high) // 2
+        current = candidate(published_count=middle, compact_details=True)
+        if len(pretty_json_bytes(current)) <= max_bytes:
+            best = current
+            low = middle + 1
+        else:
+            high = middle - 1
+    if best is None:
+        irreducible = candidate(published_count=0, compact_details=True)
+        raise RuntimeError(
+            "capacity monitor fixed aggregates exceed their byte budget; preserving "
+            "the last-known-good file: "
+            f"{len(pretty_json_bytes(irreducible))} > {max_bytes} bytes"
+        )
+    return best
+
+
 def _candidate_repo_roots(explicit: str | None) -> list[Path]:
     candidates: list[Path] = []
     if explicit:
@@ -926,7 +1040,16 @@ def main() -> None:
         )
 
     out_path = output / "capacity_monitor.json"
-    out_path.write_text(json.dumps(payload, indent=2))
+    published = bounded_capacity_payload(
+        payload,
+        max_bytes=CAPACITY_MONITOR_MAX_BYTES,
+    )
+    write_pretty_json_lkg(
+        out_path,
+        published,
+        max_bytes=CAPACITY_MONITOR_MAX_BYTES,
+        label="capacity monitor snapshot",
+    )
     log.info(
         "Wrote %s with %d AMD mirror groups across %d capacity queues",
         out_path,

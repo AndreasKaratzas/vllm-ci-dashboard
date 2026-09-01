@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -365,6 +366,54 @@ def test_atomic_state_replace_failure_preserves_previous_file(tmp_path, monkeypa
 
     assert state_path.read_bytes() == original
     assert list(tmp_path.glob(f".{state_path.name}.*.tmp")) == []
+
+
+def test_ownership_status_overflow_preserves_previous_file(tmp_path, monkeypatch):
+    status_path = tmp_path / "ci_ownership.json"
+    status_path.write_text("existing-ownership")
+    monkeypatch.setattr(watcher, "STATUS", status_path)
+    monkeypatch.setattr(watcher, "CI_OWNERSHIP_MAX_BYTES", 1)
+
+    with pytest.raises(RuntimeError, match="CI ownership fixed aggregates exceed"):
+        watcher._write_json(status_path, {"areas": []})
+
+    assert status_path.read_text() == "existing-ownership"
+    assert list(tmp_path.glob(f".{status_path.name}.*.tmp")) == []
+
+
+def test_ownership_status_compacts_rows_and_keeps_exact_summary() -> None:
+    areas = [
+        {
+            "area": f"area-{index:04d}",
+            "counts": {
+                "incidents": 1 if index == 499 else 0,
+                "pending_soft": 0,
+                "upstream_parity_gaps": 0,
+            },
+            "targets": [{"label": "x" * 2_000}],
+            "regressions": [{"label": "x" * 2_000}] if index == 499 else [],
+            "pending_soft_observations": [],
+            "upstream_parity_gaps": [],
+        }
+        for index in range(500)
+    ]
+    source = {
+        "schema_version": 1,
+        "available": True,
+        "summary": {"areas": len(areas), "incidents": 1},
+        "areas": areas,
+        "unmapped_targets": [],
+    }
+
+    bounded = watcher._bounded_ownership_status(source, max_bytes=50_000)
+
+    encoded = (json.dumps(bounded, indent=2, sort_keys=True) + "\n").encode()
+    assert len(encoded) <= 50_000
+    assert bounded["summary"] == source["summary"]
+    retention = bounded["publication_retention"]
+    assert retention["aggregate_summary_complete"] is True
+    assert retention["area_rows"]["omitted"] > 0
+    assert bounded["areas"][0]["area"] == "area-0499"
 
 
 def test_peak_escalation_clears_manual_close_suppression():

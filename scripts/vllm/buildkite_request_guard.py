@@ -29,10 +29,20 @@ SCHEMA_VERSION = 1
 API_HOSTS = frozenset({"api.buildkite.com", "graphql.buildkite.com"})
 SAFE_ATTEMPT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}")
 MAX_ALLOWANCE = 10_000
+GUARD_ENV_NAMES = (
+    "BUILDKITE_REQUEST_GUARD_FILE",
+    "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
+    "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
+)
+TOKEN_ENV_NAMES = ("BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN")
 
 
 class BuildkiteRequestGuardError(RuntimeError):
     """A request could not be proven to fit the reserved local allowance."""
+
+
+class BuildkiteRequestAllowanceExhausted(BuildkiteRequestGuardError):
+    """The exact valid local counter has no remaining request starts."""
 
 
 def _canonical_payload(*, attempt_id: str, allowance: int, starts: int) -> bytes:
@@ -187,7 +197,7 @@ def consume(path: Path, *, attempt_id: str, allowance: int) -> int:
         ):
             raise BuildkiteRequestGuardError("request guard state is not canonical JSON")
         if state["request_starts"] >= allowance:
-            raise BuildkiteRequestGuardError(
+            raise BuildkiteRequestAllowanceExhausted(
                 f"Buildkite request-start allowance exhausted at {allowance}; "
                 "request was blocked before transport"
             )
@@ -278,20 +288,24 @@ def install(path: Path, *, attempt_id: str, allowance: int) -> None:
 
 
 def install_from_environment() -> None:
-    guard_names = (
-        "BUILDKITE_REQUEST_GUARD_FILE",
-        "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
-        "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
-    )
-    token_names = ("BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN")
     raw_path = os.getenv("BUILDKITE_REQUEST_GUARD_FILE", "")
     raw_attempt = os.getenv("BUILDKITE_REQUEST_GUARD_ATTEMPT_ID", "")
     raw_allowance = os.getenv("BUILDKITE_REQUEST_GUARD_ALLOWANCE", "")
-    if not any(name in os.environ for name in (*guard_names, *token_names)):
+    if not any(name in os.environ for name in (*GUARD_ENV_NAMES, *TOKEN_ENV_NAMES)):
         return
     if not raw_path or not raw_attempt or not raw_allowance.isdigit():
         raise BuildkiteRequestGuardError("request guard environment is incomplete")
     install(Path(raw_path), attempt_id=raw_attempt, allowance=int(raw_allowance))
+
+
+def install_from_environment_or_exit() -> None:
+    """Activate the guard for a direct CLI, exiting 78 before its body on error."""
+    try:
+        install_from_environment()
+    except BaseException as exc:
+        sys.stderr.write(f"fatal Buildkite request guard activation error: {exc}\n")
+        sys.stderr.flush()
+        raise SystemExit(78) from exc
 
 
 def _append_outputs(path: Path | None, values: Mapping[str, object]) -> None:

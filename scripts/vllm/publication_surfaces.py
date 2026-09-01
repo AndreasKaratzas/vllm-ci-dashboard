@@ -57,6 +57,7 @@ CI_CORE_SURFACE_SPEC = SurfaceSpec(
         "data/vllm/ci/parity_key_overrides.json",
         "data/vllm/ci/quarantine.json",
         "data/vllm/ci/shard_base_catalog.json",
+        "data/vllm/ci/test_results/retention.json",
     ),
     globs=("data/vllm/ci/test_results/*.jsonl",),
 )
@@ -355,6 +356,7 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     # a defect that can be hidden by rolling back one source surface.
     "operations-source-ambiguous": _OPS_GLOBAL,
     # Agent-health section.
+    "operations-agent-health-accounting": _OPS_AGENT_HEALTH,
     "operations-agent-health-cofail-default": _OPS_AGENT_HEALTH,
     "operations-agent-health-failing-state": _OPS_AGENT_HEALTH,
     "operations-agent-health-infra-flag": _OPS_AGENT_HEALTH,

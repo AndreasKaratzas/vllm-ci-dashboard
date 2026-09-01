@@ -28,9 +28,9 @@ jobs:
   recover:
     runs-on: ubuntu-24.04
     # Exact state/code/Pages proofs and a failed Site Health completion can
-    # compose with the 427-second three-probe bound. Twenty minutes covers the
-    # full sequential transport contract plus checkout/fetch/dispatch overhead.
-    timeout-minutes: 20
+    # compose with the checker's 1,587-second transport/deadline bound. Preserve
+    # more than five minutes for Git proofs and recovery dispatch afterward.
+    timeout-minutes: 35
     permissions:
       actions: write
       contents: read
@@ -472,12 +472,17 @@ jobs:
             echo "Pages does not carry the exact current state/code marker."
             exit 0
           fi
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$STATE_CODE_SHA" != "$TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
           if ! GIT_NO_LAZY_FETCH=1 python \
             scripts/vllm/public_projection.py verify-git \
             --repo-root . \
             --git-ref origin/gh-pages \
             --attestation "$STATE_ATTESTATION" \
-            --expected-marker "$EXPECTED_MARKER"; then
+            --expected-marker "$EXPECTED_MARKER" \
+            "${PROJECTION_COMPAT_ARGS[@]}"; then
             route_state_pages_mismatch
             echo "Pages does not carry the exact state-bound public projection."
             exit 0
@@ -637,7 +642,7 @@ jobs:
           esac
           gh api \
             -H "Accept: application/vnd.github+json" \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?per_page=100" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&per_page=100" \
             > "$RUNNER_TEMP/selected-recovery-runs.json"
 
       - name: Plan deduplicated targeted recovery

@@ -251,5 +251,5 @@ def test_production_limits_are_below_repository_boundaries() -> None:
     assert operations.OPERATIONS_RAW_WRITE_MAX_BYTES == 85 * 1024 * 1024
     assert operations.OPERATIONS_DECOMPRESSED_MAX_BYTES == 256 * 1024 * 1024
     assert operations.OPERATIONS_GZIP_MAX_BYTES < 90_000_000
-    assert bundle_contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 12_000_000
+    assert bundle_contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024
     assert bundle_contract.OPERATIONS_CANARY_FILE_MAX_BYTES < 90_000_000

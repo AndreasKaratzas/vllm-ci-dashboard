@@ -31,11 +31,12 @@ def test_deploy_tries_previous_after_every_deterministic_candidate_gate() -> Non
         "scripts/build_site.py",
         "public_projection.py create",
         "write-public-marker",
-        "public_projection.py verify-local",
+        'public_projection.py" verify-local',
         "repair-slots",
     )
     positions = [script.index(gate) for gate in ordered_gates]
     assert positions == sorted(positions)
+    assert '"$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local' in script
     assert script.index("git clean -ffdx") < script.index(
         "git checkout --force --detach"
     )

@@ -415,6 +415,74 @@ def test_org_summary_projects_daily_wait_vectors_and_rolling_counts() -> None:
     ) == daily["sample_count"]
 
 
+def test_org_summary_preserves_structured_byte_limited_lifecycle_scope() -> None:
+    lifecycle = _lifecycle()
+    ledger_scope = {
+        "schema_version": 1,
+        "policy": "newest_latest_event_suffix_v1",
+        "configured_days": 1,
+        "configured_event_start": "2026-08-19T22:00:00Z",
+        "end_exclusive": "2026-08-20T22:00:00Z",
+        "max_compressed_bytes": 16 * 1024 * 1024,
+        "input_job_observations": 6,
+        "published_job_observations": 4,
+        "omitted_from_input_job_observations": 2,
+        "omitted_whole_day_job_observations": 1,
+        "omitted_whole_latest_event_days": ["2026-08-19"],
+        "partial_latest_event_day": "2026-08-20",
+        "partial_day_input_job_observations": 5,
+        "partial_day_published_job_observations": 4,
+        "carried_forward_omitted_latest_event_days": [],
+        "byte_limited": True,
+        "complete_relative_to_input": False,
+        "complete_relative_to_configured_window": False,
+        "published_latest_event_days": ["2026-08-20"],
+        "published_latest_event_start": "2026-08-20T20:10:00Z",
+        "published_latest_event_end": "2026-08-20T21:55:00Z",
+    }
+    lifecycle["retention"].update(
+        {
+            "byte_limited": True,
+            "actual_published_latest_event_start": ledger_scope[
+                "published_latest_event_start"
+            ],
+            "actual_published_latest_event_end": ledger_scope[
+                "published_latest_event_end"
+            ],
+            "ledger_scope": ledger_scope,
+        }
+    )
+    lifecycle["coverage"]["reason"] += " The durable ledger is byte-limited."
+
+    queues = ops.build_org_summary(_payload(), lifecycle)["queues"]
+    daily = queues["daily_served_job_waits"]
+    assert daily["available"] is True
+    assert daily["retention"] == {
+        "kind": "rolling",
+        "days": 1,
+        "start": "2026-08-19T22:00:00Z",
+        "end_exclusive": "2026-08-20T22:00:00Z",
+        "byte_limited": True,
+        "complete_relative_to_configured_window": False,
+        "actual_published_latest_event_start": "2026-08-20T20:10:00Z",
+        "actual_published_latest_event_end": "2026-08-20T21:55:00Z",
+        "omitted_whole_latest_event_days": ["2026-08-19"],
+        "partial_latest_event_day": "2026-08-20",
+        "ledger_scope": ledger_scope,
+    }
+    assert daily["coverage"]["byte_limited"] is True
+    assert daily["coverage"]["complete_relative_to_configured_window"] is False
+    assert queues["recent_completed_window"]["coverage"] == {
+        "status": "partial_observation",
+        "complete": False,
+        "reason": lifecycle["coverage"]["reason"],
+        "byte_limited": True,
+        "complete_relative_to_configured_window": False,
+        "actual_published_latest_event_start": "2026-08-20T20:10:00Z",
+        "actual_published_latest_event_end": "2026-08-20T21:55:00Z",
+    }
+
+
 def test_org_summary_marks_daily_waits_unavailable_without_dropping_rolling_counts() -> None:
     lifecycle = _lifecycle()
     lifecycle.pop("daily_wait_times")
@@ -617,25 +685,57 @@ def test_snapshot_bundle_references_oversized_exact_wait_vectors_without_duplica
     assert exact == waits
 
 
-def test_snapshot_bundle_writes_an_org_summary_over_budget_for_audit_routing(
+def test_snapshot_bundle_preserves_lkg_when_org_summary_exceeds_budget(
     tmp_path, monkeypatch
 ) -> None:
     data_dir = tmp_path / "data" / "vllm" / "ci"
     data_dir.mkdir(parents=True)
     output = data_dir / "operations_v2.json"
     (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
+    summary_path = data_dir / ops.ORG_SUMMARY_NAME
+    manifest_path = data_dir / ops.OPERATIONS_MANIFEST_NAME
+    summary_path.write_text("existing-summary")
+    manifest_path.write_text("existing-manifest")
     monkeypatch.setattr(ops, "ORG_SUMMARY_MAX_BYTES", 1)
 
-    ops.write_snapshot_bundle(output, _payload(), log=False)
+    with pytest.raises(RuntimeError, match="organization summary exceeds"):
+        ops.write_snapshot_bundle(output, _payload(), log=False)
 
-    summary_path = data_dir / ops.ORG_SUMMARY_NAME
-    assert summary_path.exists()
-    assert summary_path.stat().st_size > 1
-    checked = DashboardAudit(tmp_path)
-    checked.audit_operations_bundle()
-    assert "operations-bundle-org-summary-budget" in {
-        finding.code for finding in checked.report.findings
+    assert summary_path.read_text() == "existing-summary"
+    assert manifest_path.read_text() == "existing-manifest"
+    assert not output.exists()
+
+
+def test_org_summary_compacts_queue_rows_but_preserves_exact_totals() -> None:
+    rows = [
+        {
+            "queue": f"queue-{index:04d}-" + "x" * 500,
+            "waiting_jobs": index % 2,
+            "running_jobs": 1,
+            "wait_source": "y" * 500,
+        }
+        for index in range(200)
+    ]
+    source = {
+        "schema_version": ops.ORG_SUMMARY_SCHEMA_VERSION,
+        "queues": {
+            "scope": {"queue_count": len(rows), "queue_ids": [row["queue"] for row in rows]},
+            "current": {"waiting_jobs": 100, "running_jobs": 200},
+            "by_queue": rows,
+        },
+        "test_group_parity": {"summary": {"total": 10}},
+        "parity_targets": {"reviewed": {"total": 20}},
     }
+
+    bounded = ops._bounded_org_summary(source, max_bytes=20_000)
+
+    assert ops._json_bytes(bounded) <= 20_000
+    assert bounded["queues"]["current"] == source["queues"]["current"]
+    retention = bounded["publication_retention"]
+    assert retention["aggregate_totals_complete"] is True
+    assert retention["queue_rows"]["published"] < len(rows)
+    assert retention["queue_rows"]["omitted"] > 0
+    assert retention["complete_relative_to_source"] is False
 
 
 def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:

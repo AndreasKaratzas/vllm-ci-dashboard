@@ -104,9 +104,9 @@ jobs:
               raise SystemExit(
                   f"static preview input has {len(files)} files (max 10000)"
               )
-          if total > 384 * 1024 * 1024:
+          if total > 256 * 1024 * 1024:
               raise SystemExit(
-                  f"static preview input is {total} bytes (max {384 * 1024 * 1024})"
+                  f"static preview input is {total} bytes (max {256 * 1024 * 1024})"
               )
           print(f"Static preview input: {len(files)} files, {total} bytes")
           PY
@@ -140,6 +140,21 @@ jobs:
           PAGES_NEXT="$RUNNER_TEMP/pages-next"
           rm -rf "$NEW_PREVIEW" "$PAGES_NEXT" trusted-base/_pages_publish
           mv trusted-base/_site "$NEW_PREVIEW"
+          # The live queue branch is authoritative for the full JSONL history,
+          # and the compact queue_history_chart.json remains in this preview.
+          # Drop only the redundant canonical fallback before nesting the site;
+          # this keeps one preview within its 112 MiB cohort budget.
+          PREVIEW_QUEUE_FALLBACK="$NEW_PREVIEW/data/vllm/ci/queue_timeseries.jsonl"
+          PREVIEW_QUEUE_CHART="$NEW_PREVIEW/data/vllm/ci/queue_history_chart.json"
+          if [ ! -f "$PREVIEW_QUEUE_FALLBACK" ] || [ -L "$PREVIEW_QUEUE_FALLBACK" ]; then
+            echo "::error::Assembled preview queue fallback is missing or unsafe."
+            exit 1
+          fi
+          if [ ! -f "$PREVIEW_QUEUE_CHART" ] || [ -L "$PREVIEW_QUEUE_CHART" ]; then
+            echo "::error::Assembled preview compact queue chart is missing or unsafe."
+            exit 1
+          fi
+          rm -- "$PREVIEW_QUEUE_FALLBACK"
           mkdir -p "$PAGES_NEXT"
           python -I trusted-base/scripts/vllm/github_git_proof.py hydrate-ref \
             --repository "$GITHUB_REPOSITORY" \

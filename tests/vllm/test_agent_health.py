@@ -22,6 +22,7 @@ import pytest
 
 from vllm import build_operations_snapshot as ops
 from vllm import collect_agent_health as ah
+from vllm.audit_dashboard_data import DashboardAudit
 from vllm.constants import amd_gpu_hardware
 from vllm.ci.log_parser import extract_node, node_from_agent
 
@@ -439,7 +440,7 @@ def test_agent_health_generation_is_bounded_by_dropping_oldest_whole_days():
     assert generation["payload"]["node_day_count"] == 1
     assert generation["payload"]["infra_failure_count"] == 40
     assert generation["payload"]["retention"] == {
-        "policy": "drop_oldest_whole_days",
+        "policy": "drop_oldest_whole_days_then_bound_exact_failure_evidence",
         "configured_days": ah.MAX_WINDOW_DAYS,
         "original_day_count": 3,
         "retained_day_count": 1,
@@ -449,6 +450,19 @@ def test_agent_health_generation_is_bounded_by_dropping_oldest_whole_days():
         "byte_limited": True,
         "max_file_bytes": 60_000,
         "max_generation_bytes": 120_000,
+        "failure_evidence": {
+            "source": 40,
+            "published": 40,
+            "omitted": 0,
+            "complete_relative_to_source": True,
+            "selection": "newest_then_infra_suspect_then_recency",
+        },
+        "failure_accounting": {
+            "source": 40,
+            "accounted": 40,
+            "rows": 4,
+            "complete_relative_to_source": True,
+        },
     }
 
     repeated = ah._prepare_generation(
@@ -461,11 +475,11 @@ def test_agent_health_generation_is_bounded_by_dropping_oldest_whole_days():
     assert repeated["encoded"] == generation["encoded"]
 
 
-def test_agent_health_refuses_partial_newest_day_before_publication():
+def test_agent_health_refuses_newest_day_only_if_compact_accounting_cannot_fit():
     day = "2026-07-14"
     failures = [_retained_failure(day, index, padding=1000) for index in range(5)]
 
-    with pytest.raises(RuntimeError, match="newest whole day cannot fit"):
+    with pytest.raises(RuntimeError, match="compact accounting cannot fit"):
         ah._prepare_generation(
             [_retained_node_day(day)],
             failures,
@@ -473,6 +487,58 @@ def test_agent_health_refuses_partial_newest_day_before_publication():
             max_file_bytes=1_000,
             max_generation_bytes=2_000,
         )
+
+
+def test_agent_health_compacts_newest_day_links_but_preserves_exact_accounting():
+    day = "2026-07-14"
+    failures = [_retained_failure(day, index, padding=1000) for index in range(20)]
+
+    generation = ah._prepare_generation(
+        [_retained_node_day(day)],
+        failures,
+        NOW,
+        max_file_bytes=12_000,
+        max_generation_bytes=20_000,
+    )
+
+    payload = generation["payload"]
+    evidence = payload["retention"]["failure_evidence"]
+    accounting = payload["retention"]["failure_accounting"]
+    assert evidence["source"] == 20
+    assert 0 < evidence["published"] < evidence["source"]
+    assert evidence["omitted"] == evidence["source"] - evidence["published"]
+    assert evidence["complete_relative_to_source"] is False
+    assert accounting == {
+        "source": 20,
+        "accounted": 20,
+        "rows": 4,
+        "complete_relative_to_source": True,
+    }
+    assert payload["infra_failure_count"] == 20
+    assert payload["published_failure_evidence_count"] == evidence["published"]
+    assert sum(row["c"] for row in payload["failure_accounting"]) == 20
+    assert failures[-1]["j"] in {row["j"] for row in generation["failing"]}
+    assert all(size <= 12_000 for size in generation["file_sizes"].values())
+    assert generation["total_bytes"] <= 20_000
+
+    valid_audit = DashboardAudit(Path("."))
+    valid_audit.audit_agent_health(
+        {"amd_agent_health": payload},
+        "data/vllm/ci/operations_v2.json",
+    )
+    assert "operations-agent-health-accounting" not in {
+        finding.code for finding in valid_audit.report.errors
+    }
+
+    payload["failure_accounting"][0]["c"] += 1
+    invalid_audit = DashboardAudit(Path("."))
+    invalid_audit.audit_agent_health(
+        {"amd_agent_health": payload},
+        "data/vllm/ci/operations_v2.json",
+    )
+    assert "operations-agent-health-accounting" in {
+        finding.code for finding in invalid_audit.report.errors
+    }
 
 
 def test_agent_health_generation_publication_writes_exact_bounded_files(tmp_path):
@@ -567,7 +633,7 @@ def test_agent_health_failed_rollback_preserves_the_only_prior_backup(
 
 def test_agent_health_storage_caps_stay_below_dashboard_sync_limit():
     assert ah.AGENT_HEALTH_MAX_FILE_BYTES == 32 * 1024 * 1024
-    assert ah.AGENT_HEALTH_MAX_GENERATION_BYTES == 64 * 1024 * 1024
+    assert ah.AGENT_HEALTH_MAX_GENERATION_BYTES == 16 * 1024 * 1024
     assert ah.AGENT_HEALTH_MAX_FILE_BYTES < 90_000_000
     assert ah.AGENT_HEALTH_MAX_GENERATION_BYTES < 90_000_000
 

@@ -525,5 +525,8 @@ def test_state_write_uses_atomic_replace(isolated_state, monkeypatch):
 
     assert len(replacements) == 1
     assert replacements[0][1] == state
-    assert json.loads(state.read_text()) == {"open": {}, "last_run": "now"}
+    persisted = json.loads(state.read_text())
+    assert persisted["open"] == {}
+    assert persisted["last_run"] == "now"
+    assert persisted["publication_retention"]["complete_relative_to_source"] is True
     assert list(state.parent.glob(f".{state.name}.*")) == []

@@ -35,6 +35,10 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import install_from_environment_or_exit  # noqa: E402
+
+install_from_environment_or_exit()
+
 from vllm.constants import (  # noqa: E402
     AMD_PIPELINES,
     BK_API_BASE,
@@ -44,6 +48,11 @@ from vllm.constants import (  # noqa: E402
     is_amd_queue,
     is_excluded_queue,
 )
+from vllm.bounded_json import (  # noqa: E402
+    atomic_write_bytes,
+    pretty_json_bytes,
+)
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.utils import (  # noqa: E402
     classify_workload,
     hardware_from_job_name,
@@ -58,6 +67,8 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 OUTPUT = Path(__file__).resolve().parent.parent.parent / "data" / "vllm" / "ci" / "hotness.json"
+HOTNESS_MAX_BYTES = writer_max_bytes("hotness")
+HOTNESS_ROW_FIELDS = ("test_groups", "branches", "queues")
 
 # Normalize job names to a stable group key.
 #
@@ -368,6 +379,121 @@ def collect_hotness(token: str) -> dict:
     }
 
 
+def compact_hotness_for_publication(
+    source: dict,
+    *,
+    max_bytes: int = HOTNESS_MAX_BYTES,
+) -> dict:
+    """Retain deterministic highest-activity row prefixes within a byte cap."""
+    if max_bytes <= 0:
+        raise ValueError("hotness byte budget must be positive")
+    source_windows = source.get("windows")
+    if not isinstance(source_windows, dict):
+        raise ValueError("hotness windows must be an object")
+    default_key = f"{int(source.get('window_hours') or HOTNESS_WINDOW_HOURS)}h"
+    if default_key not in source_windows:
+        raise ValueError("hotness default window is missing")
+
+    source_counts = {
+        str(window): {
+            field: len(payload.get(field) or [])
+            for field in HOTNESS_ROW_FIELDS
+        }
+        for window, payload in source_windows.items()
+        if isinstance(payload, dict)
+    }
+    maximum_rows = max(
+        (
+            count
+            for counts in source_counts.values()
+            for count in counts.values()
+        ),
+        default=0,
+    )
+
+    def candidate(row_cap: int) -> dict:
+        windows: dict[str, dict] = {}
+        retained_counts: dict[str, dict] = {}
+        for window, raw in source_windows.items():
+            if not isinstance(raw, dict):
+                continue
+            bounded = {
+                key: value
+                for key, value in raw.items()
+                if key not in HOTNESS_ROW_FIELDS
+            }
+            counts: dict[str, dict] = {}
+            for field in HOTNESS_ROW_FIELDS:
+                rows = list(raw.get(field) or [])
+                published = min(len(rows), row_cap)
+                bounded[field] = rows[:published]
+                counts[field] = {
+                    "source": len(rows),
+                    "published": published,
+                    "omitted": len(rows) - published,
+                    "complete": published == len(rows),
+                }
+            windows[str(window)] = bounded
+            retained_counts[str(window)] = counts
+
+        default_window = windows[default_key]
+        result = {
+            key: value
+            for key, value in source.items()
+            if key not in (*HOTNESS_ROW_FIELDS, "windows", "publication_retention")
+        }
+        result.update(
+            {
+                field: default_window[field]
+                for field in HOTNESS_ROW_FIELDS
+            }
+        )
+        result["windows"] = windows
+        complete = all(
+            row["complete"]
+            for counts in retained_counts.values()
+            for row in counts.values()
+        )
+        result["publication_retention"] = {
+            "policy": "retain_highest_activity_whole_rows_per_window",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "windows": retained_counts,
+        }
+        return result
+
+    smallest = candidate(0)
+    if len(pretty_json_bytes(smallest)) > max_bytes:
+        raise RuntimeError(
+            "hotness fixed metadata exceeds its byte budget; preserving the "
+            "last-known-good file"
+        )
+    low = 0
+    high = maximum_rows
+    while low < high:
+        middle = (low + high + 1) // 2
+        if len(pretty_json_bytes(candidate(middle))) <= max_bytes:
+            low = middle
+        else:
+            high = middle - 1
+    return candidate(low)
+
+
+def write_hotness(
+    path: Path,
+    source: dict,
+    *,
+    max_bytes: int = HOTNESS_MAX_BYTES,
+) -> dict:
+    """Compact and atomically publish hotness while preserving the LKG."""
+    bounded = compact_hotness_for_publication(source, max_bytes=max_bytes)
+    encoded = pretty_json_bytes(bounded)
+    if len(encoded) > max_bytes:
+        raise RuntimeError("hotness serializer exceeded its byte budget")
+    atomic_write_bytes(path, encoded)
+    return bounded
+
+
 def main():
     token = os.getenv("BUILDKITE_TOKEN")
     if not token:
@@ -376,13 +502,12 @@ def main():
 
     log.info("Collecting hotness windows=%s pipelines=%s", HOTNESS_WINDOWS_HOURS, AMD_PIPELINES)
     data = collect_hotness(token)
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(data, indent=2))
+    published = write_hotness(OUTPUT, data)
     log.info(
         "Wrote hotness: %d groups, %d branches, %d queues -> %s",
-        len(data["test_groups"]),
-        len(data["branches"]),
-        len(data["queues"]),
+        len(published["test_groups"]),
+        len(published["branches"]),
+        len(published["queues"]),
         OUTPUT,
     )
 

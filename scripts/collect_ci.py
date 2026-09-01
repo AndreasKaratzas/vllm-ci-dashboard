@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Collect CI test data from Buildkite and generate dashboard JSON files.
 
-Usage:
-    export BUILDKITE_TOKEN="bkua_..."
+Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/collect_ci.py --days 8 --output data/vllm/ci/
     python scripts/collect_ci.py --days 1                    # daily incremental
     python scripts/collect_ci.py --dry-run                   # preview what would be fetched
@@ -21,6 +20,10 @@ from pathlib import Path
 # Add scripts/ to path so ci/ package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from vllm.buildkite_request_guard import install_from_environment_or_exit
+
+install_from_environment_or_exit()
+
 from vllm.ci import config as cfg
 from vllm.ci.buildkite_client import (
     fetch_build_detail,
@@ -36,6 +39,16 @@ from vllm.ci.backfill_checkpoint import (
 )
 from vllm.ci.log_parser import parse_job_results
 from vllm.buildkite_request_guard import BuildkiteRequestGuardError
+from vllm.amd_nightly_handoff import (
+    compact_amd_build_snapshot as _compact_amd_build_snapshot,
+    write_amd_nightly_snapshot,
+)
+from vllm.bounded_json import (
+    atomic_write_bytes,
+    pretty_json_bytes,
+    write_pretty_json_lkg,
+)
+from vllm.dashboard_storage_budget import writer_max_bytes
 from vllm.ci.dns_classification_cache import (
     DnsClassificationCache,
     load_optional_dns_classification_cache,
@@ -51,6 +64,8 @@ from vllm.ci.analyzer import (
 )
 from vllm.ci.reporter import (
     prune_old_results,
+    retained_result_start,
+    validate_result_retention,
     write_ci_health,
     write_failure_trends,
     write_flaky_tests,
@@ -71,7 +86,11 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
 QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
-AMD_NIGHTLY_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
+CONFIG_PARITY_MAX_BYTES = writer_max_bytes("config_parity_pair") // 2
+PROJECT_TEST_RESULTS_MAX_BYTES = writer_max_bytes("project_test_results")
+SHARD_BASE_CATALOG_MAX_BYTES = writer_max_bytes("shard_base_catalog")
+PARITY_KEY_OVERRIDES_MAX_BYTES = writer_max_bytes("parity_key_overrides")
+SHARD_BASES_MAX_BYTES = writer_max_bytes("shard_bases")
 DNS_CLASSIFICATION_CACHE = Path(".cache") / "dns-classifications-v1"
 COMPLETE_JOB_STATES = frozenset(
     set(cfg.TERMINAL_STATES)
@@ -390,6 +409,181 @@ def _shard_catalog_evidence(
     }
 
 
+def bounded_shard_base_catalog(
+    catalog: dict,
+    *,
+    max_bytes: int = SHARD_BASE_CATALOG_MAX_BYTES,
+) -> dict:
+    """Bound refetchable catalog detail without inventing complete evidence.
+
+    Normalization bases and per-pipeline ownership are control inputs and are
+    never truncated. Under pressure, the exact job roster is withdrawn first
+    and the evidence is explicitly made provisional; only then are whole
+    definition-detail rows omitted. Consumers can still normalize safely but
+    must skip absence claims when either detail population is incomplete.
+    """
+    if max_bytes <= 0:
+        raise ValueError("shard-base catalog byte budget must be positive")
+    source_definitions = sorted(
+        (dict(row) for row in catalog.get("definitions") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            str(row.get("pipeline") or ""),
+            str(row.get("base") or ""),
+            str(row.get("source_file") or ""),
+            str(row.get("definition_id") or ""),
+        ),
+    )
+    evidence = dict(catalog.get("evidence") or {})
+    source_job_names = sorted({
+        str(name) for name in evidence.get("job_names") or [] if str(name)
+    })
+    prioritized_definitions = sorted(
+        source_definitions,
+        key=lambda row: (
+            str(row.get("pipeline") or "") != "amd",
+            row.get("optional") is True,
+            str(row.get("base") or ""),
+            str(row.get("definition_id") or ""),
+        ),
+    )
+
+    def candidate(definition_count: int, *, retain_roster: bool) -> dict:
+        selected = {
+            (
+                str(row.get("pipeline") or ""),
+                str(row.get("base") or ""),
+                str(row.get("source_file") or ""),
+                str(row.get("definition_id") or ""),
+            )
+            for row in prioritized_definitions[:definition_count]
+        }
+        definitions = [
+            row
+            for row in source_definitions
+            if (
+                str(row.get("pipeline") or ""),
+                str(row.get("base") or ""),
+                str(row.get("source_file") or ""),
+                str(row.get("definition_id") or ""),
+            )
+            in selected
+        ]
+        published_evidence = dict(evidence)
+        if retain_roster:
+            published_job_names = source_job_names
+            published_evidence["job_names"] = published_job_names
+        else:
+            published_job_names = []
+            published_evidence["job_names"] = []
+            published_evidence["roster_complete"] = False
+            published_evidence["result_file"] = ""
+        definitions_complete = len(definitions) == len(source_definitions)
+        roster_complete = len(published_job_names) == len(source_job_names)
+        complete = definitions_complete and roster_complete
+        result = {
+            key: value
+            for key, value in catalog.items()
+            if key not in {"definitions", "evidence", "publication_retention"}
+        }
+        result["definitions"] = definitions
+        result["evidence"] = published_evidence
+        result["publication_retention"] = {
+            "policy": "exact_controls_then_roster_then_required_definition_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "normalization_controls_complete": True,
+            "definitions": {
+                "source": len(source_definitions),
+                "published": len(definitions),
+                "omitted": len(source_definitions) - len(definitions),
+                "complete": definitions_complete,
+            },
+            "evidence_job_names": {
+                "source": len(source_job_names),
+                "published": len(published_job_names),
+                "omitted": len(source_job_names) - len(published_job_names),
+                "complete": roster_complete,
+            },
+        }
+        return result
+
+    complete = candidate(len(source_definitions), retain_roster=True)
+    if len(pretty_json_bytes(complete)) <= max_bytes:
+        return complete
+
+    without_roster = candidate(len(source_definitions), retain_roster=False)
+    if len(pretty_json_bytes(without_roster)) <= max_bytes:
+        return without_roster
+
+    low, high = 0, len(source_definitions)
+    best = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep, retain_roster=False)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "shard-base catalog control metadata exceeds its byte budget; "
+            "preserving the last-known-good files"
+        )
+    return best
+
+
+def write_definition_controls(
+    output_dir: Path,
+    *,
+    shard_bases: list,
+    shard_catalog: dict,
+    parity_key_overrides: dict,
+    shard_bases_max_bytes: int = SHARD_BASES_MAX_BYTES,
+    catalog_max_bytes: int = SHARD_BASE_CATALOG_MAX_BYTES,
+    overrides_max_bytes: int = PARITY_KEY_OVERRIDES_MAX_BYTES,
+) -> dict:
+    """Preflight the complete control set, then atomically replace each file."""
+    bounded_catalog = bounded_shard_base_catalog(
+        shard_catalog,
+        max_bytes=catalog_max_bytes,
+    )
+    control_outputs = (
+        (
+            output_dir / "shard_bases.json",
+            pretty_json_bytes(shard_bases),
+            shard_bases_max_bytes,
+            "shard-base normalization controls",
+        ),
+        (
+            output_dir / "shard_base_catalog.json",
+            pretty_json_bytes(bounded_catalog),
+            catalog_max_bytes,
+            "shard-base catalog",
+        ),
+        (
+            output_dir / "parity_key_overrides.json",
+            pretty_json_bytes(parity_key_overrides),
+            overrides_max_bytes,
+            "parity-key override controls",
+        ),
+    )
+    oversized_controls = [
+        f"{label}: {len(encoded)} > {maximum} bytes"
+        for _path, encoded, maximum, label in control_outputs
+        if len(encoded) > maximum
+    ]
+    if oversized_controls:
+        raise RuntimeError(
+            "definition controls exceed their composable byte budgets; "
+            "preserving the last-known-good files: "
+            + "; ".join(oversized_controls)
+        )
+    for path, encoded, _maximum, _label in control_outputs:
+        atomic_write_bytes(path, encoded)
+    return bounded_catalog
+
+
 def _completed_result_entries(
     entries: list[tuple[int, str, list[TestResult]]],
     fetched_builds: list[dict],
@@ -566,6 +760,7 @@ def collect_pipeline(
     for f in results_dir.glob("*.jsonl"):
         if f.stem.endswith(f"_{pipeline_key}"):
             existing_dates.add(f.stem.rsplit("_", 1)[0])
+    retention_floor = retained_result_start(results_dir)
 
     results_by_build: dict[int, list[TestResult]] = {}
     slug = cfg.PIPELINES[pipeline_key]["slug"]
@@ -585,6 +780,14 @@ def collect_pipeline(
         date = nightly_date(created)
         state = build.get("state", "")
         detail_hydrated_from_api = False
+
+        if retention_floor is not None and date < retention_floor:
+            log.info(
+                "  Build #%d (%s): older than byte-bounded retained suffix; skipping",
+                build_num,
+                date,
+            )
+            continue
 
         verify_candidate = _should_verify_cache_coverage(
             build_num,
@@ -637,6 +840,14 @@ def collect_pipeline(
                 continue
             if build_num in _cached_build_numbers(jsonl_path):
                 jsonl_path.unlink()
+                # Keep the durable retention attestation on the exact same
+                # shard generation after deliberately invalidating stale
+                # canonical evidence.
+                prune_old_results(
+                    results_dir,
+                    max_days=cfg.HISTORY_DAYS,
+                    allow_generation_change=True,
+                )
                 existing_dates.discard(date)
                 log.warning(
                     "  Build #%d (%s): invalidated cached canonical JSONL "
@@ -699,6 +910,11 @@ def collect_pipeline(
             jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
             if build_num in _cached_build_numbers(jsonl_path):
                 jsonl_path.unlink()
+                prune_old_results(
+                    results_dir,
+                    max_days=cfg.HISTORY_DAYS,
+                    allow_generation_change=True,
+                )
                 existing_dates.discard(date)
                 log.warning(
                     "  Build #%d (%s): invalidated cached canonical JSONL "
@@ -758,10 +974,16 @@ def collect_pipeline(
         )
 
         if build_results:
-            results_by_build[build_num] = build_results
             result_path = write_test_results(
                 build_results, date, pipeline_key, results_dir
             )
+            if result_path is None:
+                # The complete historical build is older than the bounded
+                # retained suffix. It is intentionally neither summarized nor
+                # checkpointed, and the retention marker prevents refetching
+                # it on subsequent runs.
+                continue
+            results_by_build[build_num] = build_results
             if backfill_checkpoint_dir is not None:
                 # This call happens only after every selected job future for
                 # the build completed.  Guard exhaustion propagates before
@@ -966,77 +1188,6 @@ def _extend_parity_side_hardware(
     return added
 
 
-def _compact_amd_build_snapshot(build: dict) -> dict:
-    """Return the PII-free AMD build fields needed by the matrix collector."""
-    build_fields = (
-        "number",
-        "state",
-        "branch",
-        "commit",
-        "created_at",
-        "finished_at",
-        "message",
-        "web_url",
-    )
-    job_fields = (
-        "type",
-        "id",
-        "name",
-        "state",
-        "soft_failed",
-        "retried_in_job_id",
-        "web_url",
-    )
-    snapshot = {
-        key: build[key]
-        for key in build_fields
-        if key in build and build[key] is not None
-    }
-    jobs = []
-    for raw_job in build.get("jobs") or []:
-        if not isinstance(raw_job, dict):
-            continue
-        job = {
-            key: raw_job[key]
-            for key in job_fields
-            if key in raw_job and raw_job[key] is not None
-        }
-        queue_rules = [
-            str(rule)
-            for rule in raw_job.get("agent_query_rules") or []
-            if str(rule).startswith("queue=")
-        ]
-        if queue_rules:
-            job["agent_query_rules"] = queue_rules
-        raw_step = raw_job.get("step") or {}
-        step_id = raw_step.get("id") if isinstance(raw_step, dict) else None
-        if step_id:
-            job["step"] = {"id": step_id}
-        jobs.append(job)
-    snapshot["jobs"] = jobs
-    return snapshot
-
-
-def write_amd_nightly_snapshot(build: dict, output_dir: Path) -> Path:
-    """Freeze the selected AMD nightly roster for downstream collectors."""
-    path = output_dir / AMD_NIGHTLY_SNAPSHOT
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": 1,
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "pipeline": "amd-ci",
-        "build": _compact_amd_build_snapshot(build),
-    }
-    path.write_text(json.dumps(payload, indent=2))
-    log.info(
-        "Wrote frozen AMD nightly snapshot %s for build #%s with %d jobs",
-        path,
-        payload["build"].get("number"),
-        len(payload["build"]["jobs"]),
-    )
-    return path
-
-
 def _append_private_cache_outputs(
     path: Path,
     *,
@@ -1079,6 +1230,10 @@ def main():
     cache_dir = output_dir / ".cache"
     backfill_checkpoint_dir = cache_dir / "ci-backfill-v1"
     if not args.dry_run:
+        # Authenticate the public shard generation before a private checkpoint
+        # is allowed to change it.  Otherwise compaction could launder a stale
+        # or cross-generation retention floor into a fresh-looking marker.
+        validate_result_retention(results_dir)
         try:
             restored_backfill_shards = restore_complete_shards(
                 backfill_checkpoint_dir,
@@ -1093,6 +1248,14 @@ def main():
                 "Restored %d complete CI backfill shards from private cache",
                 restored_backfill_shards,
             )
+        # A private checkpoint may contain shards older than the public
+        # byte-bounded suffix. Compact it before deciding which Buildkite logs
+        # this run still needs, and persist the durable floor used below.
+        prune_old_results(
+            results_dir,
+            max_days=cfg.HISTORY_DAYS,
+            allow_generation_change=True,
+        )
     dns_cache_path = args.dns_classification_cache or output_dir / DNS_CLASSIFICATION_CACHE
     dns_classification_cache = None
     cache_was_reset = False
@@ -1245,15 +1408,6 @@ def main():
             verified_complete=evidence_verified_complete,
         )
         shard_bases = shard_catalog.get("normalization_bases", [])
-        shard_path = output_dir / "shard_bases.json"
-        shard_path.write_text(json.dumps(shard_bases, indent=2))
-        log.info("Wrote shard_bases.json (%d bases: %s)", len(shard_bases), shard_bases)
-        shard_catalog_path = output_dir / "shard_base_catalog.json"
-        shard_catalog_path.write_text(json.dumps(shard_catalog, indent=2))
-        log.info(
-            "Wrote shard_base_catalog.json (%d definitions)",
-            len(shard_catalog.get("definitions", [])),
-        )
         # Install the newly fetched shard catalog before deriving any keys.
         # Both extractors normalize labels through analyzer._normalize_job_name;
         # using the previous on-disk catalog here could create stale route keys.
@@ -1264,9 +1418,6 @@ def main():
         )
         set_shard_bases(shard_bases)
         parity_key_overrides = extract_parity_key_overrides()
-        override_path = output_dir / "parity_key_overrides.json"
-        override_path.write_text(json.dumps(parity_key_overrides, indent=2))
-        log.info("Wrote parity_key_overrides.json (%d overrides)", len(parity_key_overrides))
         runtime_group_commit, runtime_group_keys = (
             extract_amd_runtime_group_key_map()
         )
@@ -1280,6 +1431,22 @@ def main():
             "Installed %d AMD runtime group routes for config commit %s",
             len(runtime_group_keys),
             runtime_group_commit or "unavailable",
+        )
+        bounded_catalog = write_definition_controls(
+            output_dir,
+            shard_bases=shard_bases,
+            shard_catalog=shard_catalog,
+            parity_key_overrides=parity_key_overrides,
+        )
+        log.info("Wrote shard_bases.json (%d bases: %s)", len(shard_bases), shard_bases)
+        log.info(
+            "Wrote shard_base_catalog.json (%d/%d definitions)",
+            len(bounded_catalog.get("definitions", [])),
+            len(shard_catalog.get("definitions", [])),
+        )
+        log.info(
+            "Wrote parity_key_overrides.json (%d overrides)",
+            len(parity_key_overrides),
         )
     else:
         # Reuse the last published, commit-tagged definition identities when a
@@ -1324,6 +1491,11 @@ def main():
                 "normalized-label fallback semantics"
             )
 
+    # Bound the durable shard set before loading it into derived summaries.
+    # The reporter removes only complete oldest UTC days, so every row used by
+    # this generation still has an exact retained source shard.
+    prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS)
+
     # Phase 2: Load all results (existing + new) for analysis
     log.info("=== Running analysis ===")
 
@@ -1342,6 +1514,11 @@ def main():
         for bn, results in all_results.get(pk, {}).items():
             if bn not in existing_build_nums and results:
                 date = results[0].date
+                if not (results_dir / f"{date}_{pk}.jsonl").exists():
+                    # Aggregate byte compaction may have removed an old
+                    # backfill day. Do not derive a summary from a source
+                    # shard that this generation will not publish.
+                    continue
                 pipeline_results.append((bn, date, results))
 
         pipeline_results.sort(key=lambda x: x[1])
@@ -1375,6 +1552,12 @@ def main():
             ),
             None,
         )
+        if amd_build_num and amd_snapshot_build is None:
+            raise RuntimeError(
+                "Selected AMD nightly build "
+                f"#{amd_build_num} is absent from the hydrated build cohort; "
+                "refusing an incomplete matrix handoff"
+            )
         if amd_snapshot_build and not amd_snapshot_build.get("jobs"):
             try:
                 detail = fetch_build_detail("amd", amd_build_num)
@@ -1389,12 +1572,21 @@ def main():
                     exc,
                 )
         if amd_snapshot_build and amd_snapshot_build.get("jobs"):
-            write_amd_nightly_snapshot(amd_snapshot_build, output_dir)
+            snapshot_path = write_amd_nightly_snapshot(
+                amd_snapshot_build, output_dir
+            )
+            log.info(
+                "Wrote exhaustive frozen AMD nightly snapshot %s for build "
+                "#%s with %d jobs",
+                snapshot_path,
+                amd_snapshot_build.get("number"),
+                len(amd_snapshot_build["jobs"]),
+            )
         elif amd_snapshot_build:
-            log.warning(
-                "AMD build #%s has no hydrated job roster; leaving the frozen "
-                "snapshot absent so downstream collection uses existing analytics",
-                amd_build_num,
+            raise RuntimeError(
+                "AMD build "
+                f"#{amd_build_num} has no hydrated job roster; refusing an "
+                "incomplete matrix handoff"
             )
 
     latest_upstream: list[TestResult] = []
@@ -1715,10 +1907,20 @@ def main():
     if not args.skip_config_parity:
         log.info("Running YAML config parity analysis (fetching from upstream)...")
         from vllm.config_parity import build_config_parity
+        from vllm.collect_ownership_parity import bounded_config_parity_payload
         config_parity = build_config_parity()
         if "error" not in config_parity:
+            config_parity = bounded_config_parity_payload(
+                config_parity,
+                max_bytes=CONFIG_PARITY_MAX_BYTES,
+            )
             config_parity_path = output_dir / "config_parity.json"
-            config_parity_path.write_text(json.dumps(config_parity, indent=2))
+            write_pretty_json_lkg(
+                config_parity_path,
+                config_parity,
+                max_bytes=CONFIG_PARITY_MAX_BYTES,
+                label="configuration parity snapshot",
+            )
             log.info(
                 "Wrote config_parity.json (family coverage: %.1f%%, "
                 "parity-node coverage: %.1f%%, avg similarity: %.1f%%)",
@@ -1735,9 +1937,6 @@ def main():
         else:
             log.warning("Config parity failed: %s", config_parity["error"])
 
-    # Prune old JSONL files
-    prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS)
-
     # Sync CI data to standard project-level files for compatibility
     # (CONTRIBUTING.md expects data/vllm/test_results.json and data/vllm/parity_report.json)
     project_dir = output_dir.parent  # data/vllm/
@@ -1749,7 +1948,12 @@ def main():
             latest_upstream_signal,
         )
         tr_path = project_dir / "test_results.json"
-        tr_path.write_text(json.dumps(test_results, indent=2))
+        write_pretty_json_lkg(
+            tr_path,
+            test_results,
+            max_bytes=PROJECT_TEST_RESULTS_MAX_BYTES,
+            label="project test-result compatibility summary",
+        )
         log.info(
             "Wrote %s (synced from CI data; pass rate uses pytest assertions, "
             "excluding skipped)",
@@ -1760,8 +1964,7 @@ def main():
     ci_parity = output_dir / "parity_report.json"
     proj_parity = project_dir / "parity_report.json"
     if ci_parity.exists():
-        import shutil
-        shutil.copy2(ci_parity, proj_parity)
+        atomic_write_bytes(proj_parity, ci_parity.read_bytes())
         log.info("Synced parity_report.json to %s", proj_parity)
 
     # Print summary

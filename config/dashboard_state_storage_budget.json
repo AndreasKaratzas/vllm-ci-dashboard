@@ -1,0 +1,362 @@
+{
+  "schema_version": 1,
+  "state_policy": "config/dashboard_state.json",
+  "required_headroom_bytes": 16777216,
+  "unmanaged_max_bytes": 16777216,
+  "groups": {
+    "agent_health": {
+      "max_bytes": 16777216,
+      "patterns": [
+        "data/vllm/ci/agent_health.json",
+        "data/vllm/ci/agent_health/*.jsonl"
+      ]
+    },
+    "analytics": {
+      "max_bytes": 67108864,
+      "patterns": [
+        "data/vllm/ci/analytics.json"
+      ]
+    },
+    "gating_nightlies": {
+      "max_bytes": 6291456,
+      "patterns": [
+        "data/vllm/ci/gating_nightlies.json"
+      ]
+    },
+    "hotness": {
+      "max_bytes": 4194304,
+      "patterns": [
+        "data/vllm/ci/hotness.json"
+      ]
+    },
+    "ci_derived": {
+      "max_bytes": 7340032,
+      "patterns": [
+        "data/vllm/ci/ci_health.json",
+        "data/vllm/ci/failure_trends.json",
+        "data/vllm/ci/flaky_tests.json",
+        "data/vllm/ci/parity_report.json",
+        "data/vllm/parity_report.json"
+      ]
+    },
+    "current_definitions": {
+      "max_bytes": 8388608,
+      "patterns": [
+        "data/vllm/ci/amd_test_matrix.json",
+        "data/vllm/ci/config_parity.json",
+        "data/vllm/ci/ownership_config_parity.json",
+        "data/vllm/ci/test_group_parity.json"
+      ]
+    },
+    "perf_eval": {
+      "max_bytes": 8388608,
+      "patterns": [
+        "data/vllm/perf_eval/events.jsonl",
+        "data/vllm/perf_eval/perf_eval.json"
+      ]
+    },
+    "queue": {
+      "max_bytes": 54525952,
+      "patterns": [
+        "data/vllm/ci/queue_timeseries.jsonl",
+        "data/vllm/ci/queue_history_chart.json"
+      ]
+    },
+    "test_results": {
+      "max_bytes": 25165824,
+      "patterns": [
+        "data/vllm/ci/test_results/*.jsonl",
+        "data/vllm/ci/test_results/retention.json"
+      ]
+    },
+    "workload_mapping": {
+      "max_bytes": 4194304,
+      "patterns": [
+        "data/vllm/ci/workload_mapping.json"
+      ]
+    },
+    "dns_failures": {
+      "max_bytes": 8388608,
+      "patterns": [
+        "data/vllm/ci/dns_failures.json"
+      ]
+    },
+    "queue_details": {
+      "max_bytes": 2097152,
+      "patterns": [
+        "data/vllm/ci/queue_jobs.json"
+      ]
+    },
+    "queue_lifecycle_summary": {
+      "max_bytes": 5242880,
+      "patterns": [
+        "data/vllm/ci/queue_lifecycle.json"
+      ]
+    },
+    "ci_gating_control": {
+      "max_bytes": 6291456,
+      "patterns": [
+        "data/vllm/ci/gating_proposals.json",
+        "data/vllm/ci/gating_target_candidates.json",
+        "data/vllm/ci/gating_targets.json"
+      ]
+    },
+    "operations_control": {
+      "max_bytes": 5242880,
+      "patterns": [
+        "data/vllm/ci/operations_v2_manifest.json",
+        "data/vllm/ci/org_summary.json",
+        "data/vllm/ci/capacity_monitor.json",
+        "data/vllm/ci/ci_ownership.json"
+      ]
+    },
+    "watcher_state": {
+      "max_bytes": 3145728,
+      "patterns": [
+        "data/vllm/ci/open_ci_main_failure_issues.json",
+        "data/vllm/ci/open_amd_main_failure_issues.json",
+        "data/vllm/ci/open_ci_area_regression_issues.json",
+        "data/vllm/ci/open_amd_duration_regression_issues.json",
+        "data/vllm/ci/open_agent_health_issues.json",
+        "data/vllm/ci/open_omni_surge_issues.json",
+        "data/vllm/ci/open_queue_issues.json",
+        "data/vllm/ci/open_queue_zombie_issues.json"
+      ]
+    },
+    "github_home": {
+      "max_bytes": 786432,
+      "patterns": [
+        "data/site/projects.json",
+        "data/vllm/issues.json",
+        "data/vllm/prs.json",
+        "data/vllm/releases.json",
+        "data/vllm/ci/project_items.json"
+      ]
+    },
+    "ci_changes": {
+      "max_bytes": 1048576,
+      "patterns": [
+        "data/vllm/ci/group_changes.json"
+      ]
+    },
+    "operational_misc": {
+      "max_bytes": 262144,
+      "patterns": [
+        "data/vllm/test_results.json",
+        "data/vllm/ci/shard_base_catalog.json",
+        "data/vllm/ci/parity_key_overrides.json",
+        "data/vllm/ci/publication_state.json",
+        "data/vllm/ci/shard_bases.json",
+        "data/vllm/ci/omni_surge_heuristic.json",
+        "data/vllm/ci/quarantine.json",
+        "data/vllm/ci/last_collected_at.txt"
+      ]
+    }
+  },
+  "writer_limits": {
+    "agent_health_generation": {
+      "group": "agent_health",
+      "max_bytes": 16777216
+    },
+    "analytics": {
+      "group": "analytics",
+      "max_bytes": 58720256
+    },
+    "gating_nightlies": {
+      "group": "gating_nightlies",
+      "max_bytes": 6291456
+    },
+    "hotness": {
+      "group": "hotness",
+      "max_bytes": 4194304
+    },
+    "ci_health": {
+      "group": "ci_derived",
+      "max_bytes": 1048576
+    },
+    "ci_parity_pair": {
+      "group": "ci_derived",
+      "max_bytes": 4194304
+    },
+    "failure_trends": {
+      "group": "ci_derived",
+      "max_bytes": 1048576
+    },
+    "flaky_tests": {
+      "group": "ci_derived",
+      "max_bytes": 1048576
+    },
+    "amd_test_matrix": {
+      "group": "current_definitions",
+      "max_bytes": 3145728
+    },
+    "config_parity_pair": {
+      "group": "current_definitions",
+      "max_bytes": 4194304
+    },
+    "test_group_parity": {
+      "group": "current_definitions",
+      "max_bytes": 1048576
+    },
+    "perf_eval_events": {
+      "group": "perf_eval",
+      "max_bytes": 4194304
+    },
+    "perf_eval_summary": {
+      "group": "perf_eval",
+      "max_bytes": 4194304
+    },
+    "queue_history": {
+      "group": "queue",
+      "max_bytes": 48234496
+    },
+    "queue_history_chart": {
+      "group": "queue",
+      "max_bytes": 6291456
+    },
+    "test_result_shard": {
+      "group": "test_results",
+      "max_bytes": 4194304
+    },
+    "test_result_store": {
+      "group": "test_results",
+      "max_bytes": 25100288
+    },
+    "test_result_retention": {
+      "group": "test_results",
+      "max_bytes": 65536
+    },
+    "workload_mapping": {
+      "group": "workload_mapping",
+      "max_bytes": 4194304
+    },
+    "dns_failures": {
+      "group": "dns_failures",
+      "max_bytes": 8388608
+    },
+    "queue_details": {
+      "group": "queue_details",
+      "max_bytes": 2097152
+    },
+    "queue_lifecycle_summary": {
+      "group": "queue_lifecycle_summary",
+      "max_bytes": 5242880
+    },
+    "group_changes": {
+      "group": "ci_changes",
+      "max_bytes": 1048576
+    },
+    "gating_proposals": {
+      "group": "ci_gating_control",
+      "max_bytes": 3145728
+    },
+    "gating_target_candidates": {
+      "group": "ci_gating_control",
+      "max_bytes": 2097152
+    },
+    "gating_targets": {
+      "group": "ci_gating_control",
+      "max_bytes": 1048576
+    },
+    "operations_manifest": {
+      "group": "operations_control",
+      "max_bytes": 2097152
+    },
+    "org_summary": {
+      "group": "operations_control",
+      "max_bytes": 1048576
+    },
+    "capacity_monitor": {
+      "group": "operations_control",
+      "max_bytes": 1048576
+    },
+    "ci_ownership": {
+      "group": "operations_control",
+      "max_bytes": 1048576
+    },
+    "ci_main_failure_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 1048576
+    },
+    "amd_main_failure_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 524288
+    },
+    "ci_area_regression_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 524288
+    },
+    "amd_duration_regression_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 262144
+    },
+    "agent_health_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 131072
+    },
+    "omni_surge_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 131072
+    },
+    "queue_issue_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 262144
+    },
+    "queue_zombie_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 262144
+    },
+    "github_home_projects": {
+      "group": "github_home",
+      "max_bytes": 32768
+    },
+    "github_home_prs": {
+      "group": "github_home",
+      "max_bytes": 327680
+    },
+    "github_home_issues": {
+      "group": "github_home",
+      "max_bytes": 327680
+    },
+    "github_home_project_items": {
+      "group": "github_home",
+      "max_bytes": 65536
+    },
+    "github_home_releases": {
+      "group": "github_home",
+      "max_bytes": 32768
+    },
+    "project_test_results": {
+      "group": "operational_misc",
+      "max_bytes": 8192
+    },
+    "shard_base_catalog": {
+      "group": "operational_misc",
+      "max_bytes": 131072
+    },
+    "parity_key_overrides": {
+      "group": "operational_misc",
+      "max_bytes": 16384
+    },
+    "publication_state": {
+      "group": "operational_misc",
+      "max_bytes": 65536
+    },
+    "shard_bases": {
+      "group": "operational_misc",
+      "max_bytes": 8192
+    },
+    "omni_surge_heuristic": {
+      "group": "operational_misc",
+      "max_bytes": 8192
+    },
+    "quarantine_report": {
+      "group": "operational_misc",
+      "max_bytes": 16384
+    },
+    "last_collected_at": {
+      "group": "operational_misc",
+      "max_bytes": 1024
+    }
+  }
+}

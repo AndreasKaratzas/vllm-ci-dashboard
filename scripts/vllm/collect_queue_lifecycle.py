@@ -9,8 +9,9 @@ timestamps instead.  It deliberately keeps the three concepts separate:
 * ``served`` is a direct ``started_at`` event; and
 * ``completed`` is a direct ``finished_at`` event.
 
-The compact daily gzip job segments are published atomically after a stable-ID
-merge and seven-day prune. Publishing is fail-closed: incomplete query units,
+The compact daily, adaptively sub-sharded gzip job segments are published
+atomically after a stable-ID merge and seven-day prune. Publishing is
+fail-closed: incomplete query units,
 unresolved target queues, missing job UUIDs, or malformed retained history
 abort before either output is replaced. Guard-limited runs resume a frozen,
 privacy-projected private checkpoint. Successful two-hour runs advance a
@@ -33,6 +34,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time as time_module
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -40,17 +42,25 @@ from pathlib import Path
 # Allow direct execution as ``python scripts/vllm/collect_queue_lifecycle.py``.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import (  # noqa: E402
+    BuildkiteRequestAllowanceExhausted,
+    install_from_environment_or_exit,
+)
+
+install_from_environment_or_exit()
+
 from vllm.ci.utils import parse_iso, percentile, queue_from_rules  # noqa: E402
 from vllm.collect_workload_mapping import (  # noqa: E402
+    BuildkiteRequestDeadlineExceeded,
     PER_PAGE as REST_PAGE_SIZE,
     _request_build_page,
 )
-from vllm.buildkite_request_guard import BuildkiteRequestGuardError  # noqa: E402
 from vllm.constants import (  # noqa: E402
     AMD_METRIC_TARGET_QUEUES,
     BK_CLUSTER_UUID,
     BK_ORG,
 )
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,14 +92,15 @@ INCREMENTAL_QUERY_MODE = "incremental_overlap_cohort_union"
 # expected retained volume. Reaching this bound is an incomplete collection,
 # never a reason to publish a truncated series.
 REST_PAGE_SAFETY_CAP = 100
-# Bound the complete retained cache below the dashboard/repository 90 MB sync
-# ceiling as well as bounding each daily shard independently.  Use the same
-# 85 MiB ceiling as every other tracked publication path; importantly this is
-# also below 90,000,000 decimal bytes.
-MAX_COMPRESSED_LEDGER_BYTES = 85 * 1024 * 1024
-MAX_COMPRESSED_SEGMENT_BYTES = 32 * 1024 * 1024
+# The private parentless data branch must remain comfortably below GitHub's
+# repository-size warning boundary even when it is composed with its summary
+# and Git metadata.  The writer deterministically shortens the oldest retained
+# event-time suffix before publishing rather than allowing this aggregate cap
+# to become a permanent failure mode.
+MAX_COMPRESSED_LEDGER_BYTES = 16 * 1024 * 1024
+MAX_COMPRESSED_SEGMENT_BYTES = MAX_COMPRESSED_LEDGER_BYTES
 MAX_UNCOMPRESSED_LEDGER_BYTES = 512 * 1024 * 1024
-MAX_SUMMARY_BYTES = 5 * 1024 * 1024
+MAX_SUMMARY_BYTES = writer_max_bytes("queue_lifecycle_summary")
 CHECKPOINT_SCHEMA_VERSION = 1
 CHECKPOINT_PRODUCER = "vllm_queue_lifecycle_wip"
 MAX_CHECKPOINT_COMPRESSED_BYTES = 64 * 1024 * 1024
@@ -100,9 +111,94 @@ CHECKPOINT_WRITE_HEADROOM_BYTES = 2 * 1024 * 1024
 # request per retry fit within sixteen 100-start guarded attempts. This binds
 # the resumable work tree to the durable 25-hour attempt-ledger capacity.
 MAX_CHECKPOINT_QUERY_UNITS = 750
-CHECKPOINT_MAX_AGE_HOURS = 48
 CHECKPOINT_GUARD_EXIT = 75
-_SEGMENT_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.jsonl\.gz$")
+CHECKPOINT_WALL_CLOCK_EXIT = 76
+# Stop API work early enough for the workflow to validate and persist the
+# private checkpoint, report the exact request count, and run cache cleanup
+# before the independent 50-minute job watchdog fires.
+LIFECYCLE_WALL_CLOCK_SECONDS = 40 * 60
+SEGMENT_FORMAT = "daily_deterministic_gzip_jsonl"
+SEGMENT_NAMING = "utc_day_or_adaptive_part_v1"
+LEDGER_RETENTION_SCHEMA_VERSION = 1
+LEDGER_RETENTION_POLICY = "newest_latest_event_suffix_v1"
+SEGMENT_PARTITIONING = "earliest_retained_event_utc_day_then_sorted_job_id_recursive_bisection"
+_SEGMENT_PART_WIDTH = 9
+_SEGMENT_NAME_RE = re.compile(
+    r"^(?P<day>\d{4}-\d{2}-\d{2})"
+    r"(?:\.part-(?P<part>\d{9})-of-(?P<total>\d{9}))?\.jsonl\.gz$"
+)
+
+
+class LifecycleWallClockYield(RuntimeError):
+    """The bounded collector yielded after preserving resumable progress."""
+
+
+class _LedgerAggregateLimitExceeded(RuntimeError):
+    """A reducible candidate generation exceeds an aggregate byte ceiling."""
+
+
+def _require_lifecycle_time(deadline_monotonic: float | None) -> None:
+    if deadline_monotonic is not None and time_module.monotonic() >= deadline_monotonic:
+        raise LifecycleWallClockYield(
+            "queue lifecycle wall-clock budget ended with durable progress"
+        )
+
+
+def _lifecycle_page_fetcher(page_fetcher, *, deadline_monotonic: float | None):
+    """Return a fetcher that cannot begin a page beyond the lifecycle deadline."""
+
+    def fetch(path: str, token: str, params: dict) -> list[dict]:
+        _require_lifecycle_time(deadline_monotonic)
+        if page_fetcher is not None:
+            return page_fetcher(path, token, params)
+        try:
+            return _request_build_page(
+                path,
+                token,
+                params,
+                deadline_monotonic=deadline_monotonic,
+            )
+        except BuildkiteRequestDeadlineExceeded as exc:
+            raise LifecycleWallClockYield(
+                "queue lifecycle REST request reached the wall-clock deadline"
+            ) from exc
+
+    return fetch
+
+
+def _segment_names_valid(names: Iterable[str]) -> bool:
+    """Accept legacy daily names or one canonical adaptive part set per day."""
+    grouped: dict[str, list[tuple[int, int] | None]] = {}
+    seen: set[str] = set()
+    for name in names:
+        if not isinstance(name, str) or name in seen:
+            return False
+        seen.add(name)
+        match = _SEGMENT_NAME_RE.fullmatch(name)
+        if match is None:
+            return False
+        part = match.group("part")
+        grouped.setdefault(match.group("day"), []).append(
+            (int(part), int(match.group("total"))) if part is not None else None
+        )
+    for parts in grouped.values():
+        if None in parts:
+            if parts != [None]:
+                return False
+            continue
+        # A one-file day always uses the legacy daily name. Every adaptive
+        # filename carries the common total so even a missing final blob is
+        # detectable during manifest-free local recovery.
+        typed_parts = [part for part in parts if part is not None]
+        totals = {total for _, total in typed_parts}
+        if len(totals) != 1:
+            return False
+        total = next(iter(totals))
+        if total < 2 or len(typed_parts) != total:
+            return False
+        if sorted(part for part, _ in typed_parts) != list(range(1, total + 1)):
+            return False
+    return True
 
 
 def _segment_generation_sha(segment_metadata: dict[str, dict]) -> str:
@@ -114,15 +210,156 @@ def _segment_generation_sha(segment_metadata: dict[str, dict]) -> str:
     ).hexdigest()
 
 
+def _ledger_retention_complete(retention: object, *, job_observations: int) -> bool:
+    """Validate the additive, exact retained-scope attestation.
+
+    A missing attestation remains valid for legacy daily-only generations.
+    Once present, all counts and completeness claims are fail-closed.
+    """
+    if not isinstance(retention, dict):
+        return False
+    if (
+        retention.get("schema_version") != LEDGER_RETENTION_SCHEMA_VERSION
+        or retention.get("policy") != LEDGER_RETENTION_POLICY
+        or retention.get("configured_days") != RETENTION_DAYS
+        or retention.get("max_compressed_bytes") != MAX_COMPRESSED_LEDGER_BYTES
+    ):
+        return False
+    start = parse_iso(retention.get("configured_event_start"))
+    end = parse_iso(retention.get("end_exclusive"))
+    if (
+        start is None
+        or end is None
+        or start.tzinfo is None
+        or end.tzinfo is None
+        or end.astimezone(timezone.utc) - start.astimezone(timezone.utc)
+        != timedelta(days=RETENTION_DAYS)
+    ):
+        return False
+
+    integer_fields = (
+        "input_job_observations",
+        "published_job_observations",
+        "omitted_from_input_job_observations",
+        "omitted_whole_day_job_observations",
+        "partial_day_input_job_observations",
+        "partial_day_published_job_observations",
+    )
+    if any(
+        not isinstance(retention.get(field), int)
+        or isinstance(retention.get(field), bool)
+        or retention[field] < 0
+        for field in integer_fields
+    ):
+        return False
+    source_count = retention["input_job_observations"]
+    published_count = retention["published_job_observations"]
+    omitted_count = retention["omitted_from_input_job_observations"]
+    if (
+        published_count != job_observations
+        or source_count != published_count + omitted_count
+    ):
+        return False
+
+    def canonical_days(field: str) -> list[str] | None:
+        values = retention.get(field)
+        if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+            return None
+        if values != sorted(set(values)):
+            return None
+        if any(
+            _retention_day_in_window(
+                value,
+                retention_start=start.astimezone(timezone.utc),
+                end_exclusive=end.astimezone(timezone.utc),
+            )
+            is None
+            for value in values
+        ):
+            return None
+        return values
+
+    omitted_days = canonical_days("omitted_whole_latest_event_days")
+    carried_days = canonical_days("carried_forward_omitted_latest_event_days")
+    published_days = canonical_days("published_latest_event_days")
+    if omitted_days is None or carried_days is None or published_days is None:
+        return False
+    if set(omitted_days) & set(published_days):
+        return False
+
+    partial_day = retention.get("partial_latest_event_day")
+    partial_input = retention["partial_day_input_job_observations"]
+    partial_published = retention["partial_day_published_job_observations"]
+    if partial_day is None:
+        if partial_input or partial_published:
+            return False
+    elif (
+        _retention_day_in_window(
+            partial_day,
+            retention_start=start.astimezone(timezone.utc),
+            end_exclusive=end.astimezone(timezone.utc),
+        )
+        is None
+        or partial_day not in published_days
+        or partial_day in omitted_days
+        or not (0 < partial_published < partial_input)
+    ):
+        return False
+    if omitted_count != (
+        retention["omitted_whole_day_job_observations"]
+        + partial_input
+        - partial_published
+    ):
+        return False
+
+    boolean_fields = (
+        "byte_limited",
+        "complete_relative_to_input",
+        "complete_relative_to_configured_window",
+    )
+    if any(type(retention.get(field)) is not bool for field in boolean_fields):
+        return False
+    current_limited = omitted_count > 0
+    byte_limited = retention["byte_limited"]
+    if (
+        retention["complete_relative_to_input"] is not (not current_limited)
+        or retention["complete_relative_to_configured_window"] is not (not byte_limited)
+        or byte_limited is not bool(current_limited or carried_days)
+    ):
+        return False
+
+    published_start = parse_iso(retention.get("published_latest_event_start"))
+    published_end = parse_iso(retention.get("published_latest_event_end"))
+    if published_count == 0:
+        return not published_days and published_start is None and published_end is None
+    return bool(
+        published_days
+        and published_start is not None
+        and published_end is not None
+        and published_start.tzinfo is not None
+        and published_end.tzinfo is not None
+        and start <= published_start <= published_end < end
+    )
+
+
 def _ledger_manifest_complete(ledger: object) -> bool:
-    if not isinstance(ledger, dict) or ledger.get("format") != "daily_deterministic_gzip_jsonl":
+    if not isinstance(ledger, dict) or ledger.get("format") != SEGMENT_FORMAT:
         return False
     segments = ledger.get("segments")
     if not isinstance(segments, dict) or ledger.get("segment_count") != len(segments):
         return False
+    if not _segment_names_valid(segments):
+        return False
+    naming_fields_present = "segment_naming" in ledger or "partitioning" in ledger
+    has_adaptive_parts = any(".part-" in name for name in segments)
+    if naming_fields_present or has_adaptive_parts:
+        if (
+            ledger.get("segment_naming") != SEGMENT_NAMING
+            or ledger.get("partitioning") != SEGMENT_PARTITIONING
+        ):
+            return False
     if any(
-        not _SEGMENT_NAME_RE.fullmatch(str(name))
-        or not isinstance(row, dict)
+        not isinstance(row, dict)
         or not isinstance(row.get("compressed_bytes"), int)
         or not isinstance(row.get("uncompressed_bytes"), int)
         or not isinstance(row.get("job_observations"), int)
@@ -130,10 +367,10 @@ def _ledger_manifest_complete(ledger: object) -> bool:
         or row["uncompressed_bytes"] < 0
         or row["job_observations"] < 0
         or not re.fullmatch(r"[0-9a-f]{64}", str(row.get("sha256") or ""))
-        for name, row in segments.items()
+        for row in segments.values()
     ):
         return False
-    return bool(
+    volume_complete = bool(
         ledger.get("total_compressed_bytes")
         == sum(row["compressed_bytes"] for row in segments.values())
         and ledger.get("total_uncompressed_bytes")
@@ -141,6 +378,13 @@ def _ledger_manifest_complete(ledger: object) -> bool:
         and ledger.get("job_observations")
         == sum(row["job_observations"] for row in segments.values())
         and ledger.get("generation_sha256") == _segment_generation_sha(segments)
+    )
+    if not volume_complete:
+        return False
+    retention = ledger.get("retention")
+    return retention is None or _ledger_retention_complete(
+        retention,
+        job_observations=ledger["job_observations"],
     )
 
 
@@ -667,8 +911,8 @@ def read_job_directory(path: Path) -> list[dict]:
     if not path.is_dir():
         raise RuntimeError(f"queue lifecycle ledger path is not a directory: {path}")
     segment_paths = sorted(path.iterdir())
-    if any(
-        not item.is_file() or not _SEGMENT_NAME_RE.fullmatch(item.name) for item in segment_paths
+    if any(not item.is_file() for item in segment_paths) or not _segment_names_valid(
+        item.name for item in segment_paths
     ):
         raise RuntimeError(f"queue lifecycle ledger directory contains an unexpected entry: {path}")
     sizes = [item.stat().st_size for item in segment_paths]
@@ -824,23 +1068,70 @@ def _atomic_write_text(path: Path, text: str) -> None:
             os.unlink(temporary_name)
 
 
-def encode_job_ledger(rows: Iterable[dict]) -> bytes:
-    text = "".join(
-        json.dumps(_validate_observation(row), sort_keys=True, separators=(",", ":")) + "\n"
-        for row in rows
+def _observation_line(row: dict) -> bytes:
+    return (
+        json.dumps(
+            _validate_observation(row),
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
     ).encode("utf-8")
+
+
+def _encode_job_lines(lines: list[bytes]) -> tuple[bytes, int]:
+    text = b"".join(lines)
     if len(text) > MAX_UNCOMPRESSED_LEDGER_BYTES:
         raise RuntimeError("uncompressed queue lifecycle ledger exceeds the safety limit")
     buffer = io.BytesIO()
     with gzip.GzipFile(fileobj=buffer, mode="wb", filename="", mtime=0, compresslevel=9) as archive:
         archive.write(text)
-    compressed = buffer.getvalue()
+    return buffer.getvalue(), len(text)
+
+
+def encode_job_ledger(rows: Iterable[dict]) -> bytes:
+    compressed, _ = _encode_job_lines([_observation_line(row) for row in rows])
     if len(compressed) > MAX_COMPRESSED_SEGMENT_BYTES:
         raise RuntimeError(
             f"compressed queue lifecycle segment is {len(compressed)} bytes; "
             f"limit is {MAX_COMPRESSED_SEGMENT_BYTES}"
         )
     return compressed
+
+
+def _adaptive_day_payloads(segment_rows: list[dict]) -> list[tuple[bytes, int, int]]:
+    """Encode a day, bisecting sorted IDs until every gzip blob fits.
+
+    The actual deterministic gzip size decides every split. This does not
+    assume compressed size is monotonic as rows are added, and a recursive
+    leaf can fail only when its sole canonical observation is itself larger
+    than the per-file bound.
+    """
+    ordered = sorted(segment_rows, key=lambda row: row["job_id"])
+    lines = [_observation_line(row) for row in ordered]
+
+    def encode_range(start: int, end: int) -> list[tuple[bytes, int, int]]:
+        uncompressed = sum(len(line) for line in lines[start:end])
+        if uncompressed > MAX_UNCOMPRESSED_LEDGER_BYTES:
+            if end - start == 1:
+                raise RuntimeError(
+                    "single queue lifecycle observation cannot fit the uncompressed "
+                    f"ledger safety limit of {MAX_UNCOMPRESSED_LEDGER_BYTES} bytes"
+                )
+            midpoint = start + (end - start) // 2
+            return encode_range(start, midpoint) + encode_range(midpoint, end)
+        payload, uncompressed = _encode_job_lines(lines[start:end])
+        if len(payload) <= MAX_COMPRESSED_SEGMENT_BYTES:
+            return [(payload, end - start, uncompressed)]
+        if end - start == 1:
+            raise RuntimeError(
+                "single queue lifecycle observation cannot fit the compressed "
+                f"per-file safety limit of {MAX_COMPRESSED_SEGMENT_BYTES} bytes"
+            )
+        midpoint = start + (end - start) // 2
+        return encode_range(start, midpoint) + encode_range(midpoint, end)
+
+    return encode_range(0, len(lines))
 
 
 def _segment_day(row: dict, retention_start: datetime, end_exclusive: datetime) -> str:
@@ -855,9 +1146,24 @@ def _segment_day(row: dict, retention_start: datetime, end_exclusive: datetime) 
     return min(retained).date().isoformat()
 
 
-def encode_job_segments(
+def _latest_retained_event(
+    row: dict, retention_start: datetime, end_exclusive: datetime
+) -> datetime:
+    retained = [
+        _require_datetime(row["timestamps"][key], key)
+        for key in ("runnable_at", "started_at", "finished_at")
+        if row["timestamps"].get(key)
+        and retention_start <= _require_datetime(row["timestamps"][key], key) < end_exclusive
+    ]
+    if not retained:
+        raise RuntimeError(f"job {row['job_id']} has no retained lifecycle event")
+    return max(retained)
+
+
+def _encode_job_segments_exact(
     rows: Iterable[dict], *, retention_start: datetime, end_exclusive: datetime
 ) -> tuple[dict[str, bytes], dict]:
+    """Encode one candidate generation or signal that its aggregate is reducible."""
     partitioned: dict[str, list[dict]] = {}
     for value in rows:
         row = _validate_observation(value)
@@ -868,40 +1174,43 @@ def encode_job_segments(
     total = 0
     total_uncompressed = 0
     for day, segment_rows in sorted(partitioned.items()):
-        name = f"{day}.jsonl.gz"
-        segment_uncompressed = sum(
-            len(
-                (
-                    json.dumps(
-                        _validate_observation(row),
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    )
-                    + "\n"
-                ).encode("utf-8")
-            )
-            for row in segment_rows
-        )
-        total_uncompressed += segment_uncompressed
+        day_uncompressed = sum(len(_observation_line(row)) for row in segment_rows)
+        total_uncompressed += day_uncompressed
         if total_uncompressed > MAX_UNCOMPRESSED_LEDGER_BYTES:
-            raise RuntimeError(
+            raise _LedgerAggregateLimitExceeded(
                 "uncompressed queue lifecycle segments exceed the total safety limit"
             )
-        payload = encode_job_ledger(sorted(segment_rows, key=lambda row: row["job_id"]))
-        total += len(payload)
-        if total > MAX_COMPRESSED_LEDGER_BYTES:
-            raise RuntimeError("compressed queue lifecycle segments exceed the total safety limit")
-        digest = hashlib.sha256(payload).hexdigest()
-        payloads[name] = payload
-        segment_metadata[name] = {
-            "compressed_bytes": len(payload),
-            "job_observations": len(segment_rows),
-            "uncompressed_bytes": segment_uncompressed,
-            "sha256": digest,
-        }
+        day_payloads = _adaptive_day_payloads(segment_rows)
+        part_total = len(day_payloads)
+        for part_index, (payload, row_count, uncompressed) in enumerate(day_payloads, start=1):
+            name = (
+                f"{day}.jsonl.gz"
+                if part_total == 1
+                else (
+                    f"{day}.part-{part_index:0{_SEGMENT_PART_WIDTH}d}"
+                    f"-of-{part_total:0{_SEGMENT_PART_WIDTH}d}.jsonl.gz"
+                )
+            )
+            total += len(payload)
+            if total > MAX_COMPRESSED_LEDGER_BYTES:
+                raise _LedgerAggregateLimitExceeded(
+                    "compressed queue lifecycle segments exceed the total safety limit"
+                )
+            digest = hashlib.sha256(payload).hexdigest()
+            payloads[name] = payload
+            segment_metadata[name] = {
+                "compressed_bytes": len(payload),
+                "job_observations": row_count,
+                "uncompressed_bytes": uncompressed,
+                "sha256": digest,
+            }
+    if not _segment_names_valid(payloads):
+        raise RuntimeError("adaptive queue lifecycle segment names are not canonical")
     generation = _segment_generation_sha(segment_metadata)
     metadata = {
-        "format": "daily_deterministic_gzip_jsonl",
+        "format": SEGMENT_FORMAT,
+        "segment_naming": SEGMENT_NAMING,
+        "partitioning": SEGMENT_PARTITIONING,
         "segment_count": len(payloads),
         "job_observations": sum(row["job_observations"] for row in segment_metadata.values()),
         "total_compressed_bytes": total,
@@ -911,6 +1220,250 @@ def encode_job_segments(
         "max_total_bytes": MAX_COMPRESSED_LEDGER_BYTES,
         "segments": segment_metadata,
     }
+    return payloads, metadata
+
+
+def _retention_day_in_window(
+    value: object, *, retention_start: datetime, end_exclusive: datetime
+) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if retention_start.date() <= parsed.date() < end_exclusive.date() or (
+        parsed.date() == end_exclusive.date() and end_exclusive.time() != datetime.min.time()
+    ):
+        return value
+    return None
+
+
+def _carried_byte_limited_days(
+    prior_retention_scopes: Iterable[dict],
+    *,
+    retention_start: datetime,
+    end_exclusive: datetime,
+) -> list[str]:
+    days: set[str] = set()
+    for scope in prior_retention_scopes:
+        if not isinstance(scope, dict) or scope.get("byte_limited") is not True:
+            continue
+        for field in (
+            "omitted_whole_latest_event_days",
+            "carried_forward_omitted_latest_event_days",
+        ):
+            values = scope.get(field)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                day = _retention_day_in_window(
+                    value,
+                    retention_start=retention_start,
+                    end_exclusive=end_exclusive,
+                )
+                if day is not None:
+                    days.add(day)
+        partial = _retention_day_in_window(
+            scope.get("partial_latest_event_day"),
+            retention_start=retention_start,
+            end_exclusive=end_exclusive,
+        )
+        if partial is not None:
+            days.add(partial)
+    return sorted(days)
+
+
+def _ledger_retention_metadata(
+    source_rows: list[dict],
+    retained_rows: list[dict],
+    *,
+    retention_start: datetime,
+    end_exclusive: datetime,
+    prior_retention_scopes: Iterable[dict],
+    reset_prior_incompleteness: bool,
+) -> dict:
+    source_by_day: dict[str, list[dict]] = {}
+    retained_by_day: dict[str, list[dict]] = {}
+    for row in source_rows:
+        day = _latest_retained_event(row, retention_start, end_exclusive).date().isoformat()
+        source_by_day.setdefault(day, []).append(row)
+    for row in retained_rows:
+        day = _latest_retained_event(row, retention_start, end_exclusive).date().isoformat()
+        retained_by_day.setdefault(day, []).append(row)
+
+    omitted_whole_days = sorted(set(source_by_day) - set(retained_by_day))
+    partial_days = sorted(
+        day
+        for day in set(source_by_day) & set(retained_by_day)
+        if len(retained_by_day[day]) < len(source_by_day[day])
+    )
+    if len(partial_days) > 1:
+        raise RuntimeError("queue lifecycle retention produced multiple partial boundary days")
+    partial_day = partial_days[0] if partial_days else None
+    omitted_whole_observations = sum(len(source_by_day[day]) for day in omitted_whole_days)
+    partial_input = len(source_by_day.get(partial_day, [])) if partial_day else 0
+    partial_published = len(retained_by_day.get(partial_day, [])) if partial_day else 0
+    current_omitted = len(source_rows) - len(retained_rows)
+    if current_omitted != omitted_whole_observations + partial_input - partial_published:
+        raise RuntimeError("queue lifecycle retention omission accounting is inconsistent")
+
+    carried_days = (
+        []
+        if reset_prior_incompleteness
+        else _carried_byte_limited_days(
+            prior_retention_scopes,
+            retention_start=retention_start,
+            end_exclusive=end_exclusive,
+        )
+    )
+    current_limited = current_omitted > 0
+    byte_limited = bool(current_limited or carried_days)
+    latest_events = [
+        _latest_retained_event(row, retention_start, end_exclusive) for row in retained_rows
+    ]
+    return {
+        "schema_version": LEDGER_RETENTION_SCHEMA_VERSION,
+        "policy": LEDGER_RETENTION_POLICY,
+        "configured_days": RETENTION_DAYS,
+        "configured_event_start": _utc_iso(retention_start),
+        "end_exclusive": _utc_iso(end_exclusive),
+        "max_compressed_bytes": MAX_COMPRESSED_LEDGER_BYTES,
+        "input_job_observations": len(source_rows),
+        "published_job_observations": len(retained_rows),
+        "omitted_from_input_job_observations": current_omitted,
+        "omitted_whole_day_job_observations": omitted_whole_observations,
+        "omitted_whole_latest_event_days": omitted_whole_days,
+        "partial_latest_event_day": partial_day,
+        "partial_day_input_job_observations": partial_input,
+        "partial_day_published_job_observations": partial_published,
+        "carried_forward_omitted_latest_event_days": carried_days,
+        "byte_limited": byte_limited,
+        "complete_relative_to_input": not current_limited,
+        "complete_relative_to_configured_window": not byte_limited,
+        "published_latest_event_days": sorted(retained_by_day),
+        "published_latest_event_start": (
+            _utc_iso(min(latest_events)) if latest_events else None
+        ),
+        "published_latest_event_end": (
+            _utc_iso(max(latest_events)) if latest_events else None
+        ),
+    }
+
+
+def _prepare_job_segments(
+    rows: Iterable[dict],
+    *,
+    retention_start: datetime,
+    end_exclusive: datetime,
+    prior_retention_scopes: Iterable[dict] = (),
+    reset_prior_incompleteness: bool = False,
+) -> tuple[list[dict], dict[str, bytes], dict]:
+    """Return the newest deterministic observation suffix that fits all caps."""
+    source_rows = sorted(
+        (_validate_observation(value) for value in rows),
+        key=lambda row: row["job_id"],
+    )
+
+    def attempt(candidate: list[dict]) -> tuple[dict[str, bytes], dict] | None:
+        try:
+            return _encode_job_segments_exact(
+                candidate,
+                retention_start=retention_start,
+                end_exclusive=end_exclusive,
+            )
+        except _LedgerAggregateLimitExceeded:
+            return None
+
+    encoded = attempt(source_rows)
+    retained_rows = source_rows
+    if encoded is None:
+        by_latest_day: dict[str, list[dict]] = {}
+        for row in source_rows:
+            day = _latest_retained_event(
+                row, retention_start, end_exclusive
+            ).date().isoformat()
+            by_latest_day.setdefault(day, []).append(row)
+        ordered_days = sorted(by_latest_day)
+        for first_retained_day in range(1, len(ordered_days)):
+            retained_rows = sorted(
+                (
+                    row
+                    for day in ordered_days[first_retained_day:]
+                    for row in by_latest_day[day]
+                ),
+                key=lambda row: row["job_id"],
+            )
+            encoded = attempt(retained_rows)
+            if encoded is not None:
+                break
+
+        if encoded is None:
+            if not ordered_days:
+                raise RuntimeError("empty queue lifecycle ledger cannot exceed its byte cap")
+            boundary_rows = sorted(
+                by_latest_day[ordered_days[-1]], key=lambda row: row["job_id"]
+            )
+            # The secondary stable sort retains ascending IDs for equal event
+            # timestamps while selecting the latest observations first.
+            boundary_rows.sort(
+                key=lambda row: _latest_retained_event(
+                    row, retention_start, end_exclusive
+                ),
+                reverse=True,
+            )
+            one = attempt(boundary_rows[:1])
+            if one is None:
+                raise RuntimeError(
+                    "single queue lifecycle observation cannot fit the aggregate "
+                    f"ledger safety limits ({MAX_COMPRESSED_LEDGER_BYTES} compressed, "
+                    f"{MAX_UNCOMPRESSED_LEDGER_BYTES} uncompressed bytes)"
+                )
+            retained_rows = boundary_rows[:1]
+            encoded = one
+            low = 2
+            high = len(boundary_rows)
+            while low <= high:
+                midpoint = (low + high) // 2
+                candidate = boundary_rows[:midpoint]
+                candidate_encoded = attempt(candidate)
+                if candidate_encoded is None:
+                    high = midpoint - 1
+                else:
+                    retained_rows = candidate
+                    encoded = candidate_encoded
+                    low = midpoint + 1
+
+    if encoded is None:  # pragma: no cover - all branches above establish a fit
+        raise RuntimeError("queue lifecycle retention did not produce a bounded generation")
+    retained_rows = sorted(retained_rows, key=lambda row: row["job_id"])
+    payloads, metadata = encoded
+    metadata["retention"] = _ledger_retention_metadata(
+        source_rows,
+        retained_rows,
+        retention_start=retention_start,
+        end_exclusive=end_exclusive,
+        prior_retention_scopes=prior_retention_scopes,
+        reset_prior_incompleteness=reset_prior_incompleteness,
+    )
+    return retained_rows, payloads, metadata
+
+
+def encode_job_segments(
+    rows: Iterable[dict],
+    *,
+    retention_start: datetime,
+    end_exclusive: datetime,
+    prior_retention_scopes: Iterable[dict] = (),
+    reset_prior_incompleteness: bool = False,
+) -> tuple[dict[str, bytes], dict]:
+    _, payloads, metadata = _prepare_job_segments(
+        rows,
+        retention_start=retention_start,
+        end_exclusive=end_exclusive,
+        prior_retention_scopes=prior_retention_scopes,
+        reset_prior_incompleteness=reset_prior_incompleteness,
+    )
     return payloads, metadata
 
 
@@ -1290,8 +1843,8 @@ def _validate_checkpoint_context(
     frozen_end = _require_datetime(
         state["query"]["query_end_exclusive"], "checkpoint query_end_exclusive"
     )
-    if frozen_end > now or now - frozen_end > timedelta(hours=CHECKPOINT_MAX_AGE_HOURS):
-        raise RuntimeError("queue lifecycle checkpoint query horizon is stale or future")
+    if frozen_end > now:
+        raise RuntimeError("queue lifecycle checkpoint query horizon is future")
     if state["query"] != _checkpoint_query(previous, query_end=frozen_end):
         raise RuntimeError(
             "queue lifecycle checkpoint query is not bound to the canonical watermark"
@@ -1441,9 +1994,13 @@ def _resume_lifecycle_query_units(
     state: dict,
     queue_by_id: dict[str, str],
     page_fetcher=None,
+    deadline_monotonic: float | None = None,
 ) -> dict:
     """Advance exhaustive offset-free query leaves one API response at a time."""
-    fetch_page = page_fetcher or _request_build_page
+    fetch_page = _lifecycle_page_fetcher(
+        page_fetcher,
+        deadline_monotonic=deadline_monotonic,
+    )
     path = f"/organizations/{BK_ORG}/builds"
     common = {
         "include_retried_jobs": "true",
@@ -1463,6 +2020,7 @@ def _resume_lifecycle_query_units(
     )
 
     while True:
+        _require_lifecycle_time(deadline_monotonic)
         try:
             index = next(
                 index
@@ -1509,6 +2067,7 @@ def _resume_lifecycle_query_units(
                 _write_checkpoint(checkpoint_path, state)
                 raise
             _write_checkpoint(checkpoint_path, state)
+            _require_lifecycle_time(deadline_monotonic)
             log.info(
                 "Split full lifecycle %s interval %s -> %s",
                 unit["cohort"],
@@ -1536,6 +2095,7 @@ def _resume_lifecycle_query_units(
         # The cursor and the privacy projection become durable together. A
         # killed write cannot advance one without the other.
         _write_checkpoint(checkpoint_path, state)
+        _require_lifecycle_time(deadline_monotonic)
         log.info(
             "Completed lifecycle %s interval %s -> %s (%d builds, %d target jobs)",
             unit["cohort"],
@@ -1612,6 +2172,7 @@ def _collect_rest_lifecycle_resumable(
     baseline_ref: str | None = None,
     page_fetcher=None,
     queue_page_fetcher=None,
+    deadline_monotonic: float | None = None,
 ) -> tuple[dict, list[dict], dict, dict, dict]:
     baseline_sha256 = _baseline_sha256(existing)
     baseline_ref = baseline_ref or f"local-{baseline_sha256}"
@@ -1632,11 +2193,15 @@ def _collect_rest_lifecycle_resumable(
             + state["terminal_error"]
         )
     if state is None or not all(unit["complete"] for unit in state["units"]):
-        if queue_page_fetcher is None:
+        if queue_page_fetcher is None and deadline_monotonic is None:
             queue_by_id, queue_discovery = fetch_rest_target_queues(token)
         else:
             queue_by_id, queue_discovery = fetch_rest_target_queues(
-                token, page_fetcher=queue_page_fetcher
+                token,
+                page_fetcher=_lifecycle_page_fetcher(
+                    queue_page_fetcher,
+                    deadline_monotonic=deadline_monotonic,
+                ),
             )
         queue_identity = _queue_identity_sha256(queue_by_id)
         if state is not None and state["queue_identity_sha256"] != queue_identity:
@@ -1655,12 +2220,14 @@ def _collect_rest_lifecycle_resumable(
         else:
             state["queue_discovery"] = queue_discovery
         _write_checkpoint(checkpoint_path, state)
+        _require_lifecycle_time(deadline_monotonic)
         state = _resume_lifecycle_query_units(
             token,
             checkpoint_path=checkpoint_path,
             state=state,
             queue_by_id=queue_by_id,
             page_fetcher=page_fetcher,
+            deadline_monotonic=deadline_monotonic,
         )
 
     if not all(unit["complete"] for unit in state["units"]):
@@ -1693,9 +2260,9 @@ def _publish_generation(
     old_generation_moved = False
     new_generation_installed = False
     try:
+        if not _segment_names_valid(segment_payloads):
+            raise RuntimeError("invalid lifecycle segment name set")
         for name, payload in sorted(segment_payloads.items()):
-            if not _SEGMENT_NAME_RE.fullmatch(name):
-                raise RuntimeError(f"invalid lifecycle segment name {name!r}")
             _atomic_write_bytes(stage / name, payload)
         if jobs_path.exists():
             if not jobs_path.is_dir():
@@ -1988,9 +2555,12 @@ def _job_directory_generation(path: Path) -> str:
     if not path.is_dir():
         return ""
     metadata: dict[str, dict] = {}
-    for item in sorted(path.iterdir()):
-        if not item.is_file() or not _SEGMENT_NAME_RE.fullmatch(item.name):
-            return ""
+    items = sorted(path.iterdir())
+    if any(not item.is_file() for item in items) or not _segment_names_valid(
+        item.name for item in items
+    ):
+        return ""
+    for item in items:
         size = item.stat().st_size
         metadata[item.name] = {
             "compressed_bytes": size,
@@ -2046,9 +2616,8 @@ def validate_local_ledger_generation(*, jobs_path: Path, summary_path: Path) -> 
     if jobs_path.exists() and not jobs_path.is_dir():
         raise RuntimeError(f"queue lifecycle ledger path is not a directory: {jobs_path}")
     segment_paths = sorted(jobs_path.iterdir()) if jobs_path.exists() else []
-    if any(
-        not item.is_file() or not _SEGMENT_NAME_RE.fullmatch(item.name)
-        for item in segment_paths
+    if any(not item.is_file() for item in segment_paths) or not _segment_names_valid(
+        item.name for item in segment_paths
     ):
         raise RuntimeError(
             f"queue lifecycle ledger directory contains an unexpected entry: {jobs_path}"
@@ -2116,6 +2685,37 @@ def validate_local_ledger_generation(*, jobs_path: Path, summary_path: Path) -> 
     )
     if retention_end - retention_start != timedelta(days=RETENTION_DAYS):
         raise RuntimeError("queue lifecycle summary retention window is inconsistent")
+    ledger_retention = ledger.get("retention")
+    if ledger_retention is not None:
+        if (
+            retention.get("ledger_scope") != ledger_retention
+            or retention.get("byte_limited") is not ledger_retention["byte_limited"]
+            or retention.get("actual_published_latest_event_start")
+            != ledger_retention["published_latest_event_start"]
+            or retention.get("actual_published_latest_event_end")
+            != ledger_retention["published_latest_event_end"]
+            or (summary.get("coverage") or {}).get("ledger_retention")
+            != ledger_retention
+        ):
+            raise RuntimeError(
+                "queue lifecycle summary retained scope does not match the ledger"
+            )
+        latest_events = [
+            _latest_retained_event(row, retention_start, retention_end)
+            for row in observations
+        ]
+        actual_days = sorted({value.date().isoformat() for value in latest_events})
+        if (
+            ledger_retention["published_job_observations"] != len(observations)
+            or ledger_retention["published_latest_event_days"] != actual_days
+            or ledger_retention["published_latest_event_start"]
+            != (_utc_iso(min(latest_events)) if latest_events else None)
+            or ledger_retention["published_latest_event_end"]
+            != (_utc_iso(max(latest_events)) if latest_events else None)
+        ):
+            raise RuntimeError(
+                "queue lifecycle ledger retained scope does not match its observations"
+            )
     expected_daily = _daily_wait_times(observations, retention_start, retention_end)
     actual_daily = summary.get("daily_wait_times")
     if not isinstance(actual_daily, dict):
@@ -2253,6 +2853,11 @@ def build_summary(
     window_start = now - timedelta(hours=ROLLING_WINDOW_HOURS)
     totals, queues = _scoped_metrics(observations, window_start, now)
     previous_provenance = previous_provenance or {}
+    ledger_retention = (
+        dict(ledger.get("retention"))
+        if isinstance(ledger, dict) and isinstance(ledger.get("retention"), dict)
+        else {}
+    )
     last_query_end = (
         collection.get("query_end_exclusive")
         if collection
@@ -2306,17 +2911,23 @@ def build_summary(
     # jobs can still be dynamically added to a build after its unit is read.
     # Parents older than the bounded horizon also remain unknowable.
     complete = False
+    coverage_reason = (
+        "All organization-wide disjoint query units and target queue IDs were collected, but "
+        "jobs added after a unit completed and jobs belonging to parent builds before the "
+        "bounded source horizon cannot be proven absent. Direct observed event "
+        "timestamps remain exact."
+        if api_complete
+        else "No complete current API collection covers the rolling window."
+    )
+    if ledger_retention.get("byte_limited") is True:
+        coverage_reason += (
+            " The durable ledger is byte-limited; aggregates cover only the exact "
+            "published latest-event suffix attested by retention.ledger_scope."
+        )
     coverage = {
         "complete": complete,
         "status": "partial_observation",
-        "reason": (
-            "All organization-wide disjoint query units and target queue IDs were collected, but "
-            "jobs added after a unit completed and jobs belonging to parent builds before the "
-            "bounded source horizon cannot be proven absent. Direct observed event "
-            "timestamps remain exact."
-            if api_complete
-            else "No complete current API collection covers the rolling window."
-        ),
+        "reason": coverage_reason,
         "api_complete": api_complete,
         "api_collection_performed": collection is not None,
         "target_queue_scope_complete": bool(queue_discovery_complete and source_complete),
@@ -2370,6 +2981,7 @@ def build_summary(
         "observed_start": _utc_iso(min(observed_times)) if observed_times else None,
         "observed_end": _utc_iso(max(observed_times)) if observed_times else None,
         "timestamp_fields": retained_timestamp_coverage,
+        "ledger_retention": ledger_retention,
     }
 
     return {
@@ -2423,6 +3035,14 @@ def build_summary(
             "days": RETENTION_DAYS,
             "event_start": _utc_iso(retention_start),
             "end_exclusive": _utc_iso(now),
+            "byte_limited": bool(ledger_retention.get("byte_limited")),
+            "actual_published_latest_event_start": ledger_retention.get(
+                "published_latest_event_start"
+            ),
+            "actual_published_latest_event_end": ledger_retention.get(
+                "published_latest_event_end"
+            ),
+            "ledger_scope": ledger_retention,
         },
     }
 
@@ -2442,7 +3062,8 @@ def _encode_summary(summary: dict) -> str:
         compacted_dates: list[str] = []
         # Remove only complete per-day vectors, oldest first. The exact count
         # and distribution summary remain public and the durable ledger keeps
-        # every underlying observation. This turns pathological job volume
+        # every underlying observation in its attested retained scope. This
+        # turns pathological job volume
         # into explicitly reduced detail instead of a permanent publication
         # failure once the JSON blob reaches its hard ceiling.
         for row in days:
@@ -2494,6 +3115,7 @@ def collect_lifecycle(
     baseline_ref: str | None = None,
     page_fetcher=None,
     queue_page_fetcher=None,
+    deadline_monotonic: float | None = None,
 ) -> dict:
     if not token.strip():
         raise RuntimeError("BUILDKITE_API_TOKEN is required")
@@ -2516,6 +3138,7 @@ def collect_lifecycle(
             baseline_ref=baseline_ref,
             page_fetcher=page_fetcher,
             queue_page_fetcher=queue_page_fetcher,
+            deadline_monotonic=deadline_monotonic,
         )
         query = checkpoint["query"]
         # A resumed generation describes only its originally frozen horizon.
@@ -2541,11 +3164,15 @@ def collect_lifecycle(
         active_parent_query_start = current - timedelta(
             days=RETENTION_DAYS + PARENT_BUILD_LOOKBACK_DAYS
         )
-        if queue_page_fetcher is None:
+        if queue_page_fetcher is None and deadline_monotonic is None:
             queue_by_id, queue_discovery = fetch_rest_target_queues(token)
         else:
             queue_by_id, queue_discovery = fetch_rest_target_queues(
-                token, page_fetcher=queue_page_fetcher
+                token,
+                page_fetcher=_lifecycle_page_fetcher(
+                    queue_page_fetcher,
+                    deadline_monotonic=deadline_monotonic,
+                ),
             )
         fetch_kwargs = {
             "query_start": query_start,
@@ -2553,8 +3180,11 @@ def collect_lifecycle(
             "active_created_from": active_parent_query_start,
             "queue_by_id": queue_by_id,
         }
-        if page_fetcher is not None:
-            fetch_kwargs["page_fetcher"] = page_fetcher
+        if page_fetcher is not None or deadline_monotonic is not None:
+            fetch_kwargs["page_fetcher"] = _lifecycle_page_fetcher(
+                page_fetcher,
+                deadline_monotonic=deadline_monotonic,
+            )
         jobs, source_coverage = fetch_rest_lifecycle_jobs(token, **fetch_kwargs)
         unique_job_count = len(jobs)
         incoming, timestamp_coverage = observations_from_jobs(
@@ -2563,6 +3193,7 @@ def collect_lifecycle(
             end_exclusive=current,
         )
         del jobs
+    _require_lifecycle_time(deadline_monotonic)
     retention_start = current - timedelta(days=RETENTION_DAYS)
     query_mode = query_plan["query_mode"]
     log.info(
@@ -2581,10 +3212,16 @@ def collect_lifecycle(
         end_exclusive=current,
     )
     del existing, incoming
-    segment_payloads, ledger = encode_job_segments(
+    retained, segment_payloads, ledger = _prepare_job_segments(
         merged,
         retention_start=retention_start,
         end_exclusive=current,
+        prior_retention_scopes=[
+            ((previous.get("ledger") or {}).get("retention") or {})
+        ],
+        # A complete full-window query is the only collection that can replace
+        # a carried byte-limited omission claim with fresh source evidence.
+        reset_prior_incompleteness=query_mode == FULL_QUERY_MODE,
     )
     collection = {
         "complete": True,
@@ -2608,7 +3245,7 @@ def collect_lifecycle(
         "target_queues": list(AMD_METRIC_TARGET_QUEUES),
     }
     summary = build_summary(
-        merged,
+        retained,
         now=current,
         collection=collection,
         previous_provenance=previous,
@@ -2617,6 +3254,7 @@ def collect_lifecycle(
     # All network, validation, aggregation, and serialization work has
     # succeeded before either public artifact is replaced.
     summary_text = _encode_summary(summary)
+    _require_lifecycle_time(deadline_monotonic)
     _publish_generation(jobs_path, segment_payloads, summary_path, summary_text)
     return summary
 
@@ -2662,12 +3300,14 @@ def _git_ref_jobs(
     if any(
         not path.startswith(prefix)
         or "/" in path[len(prefix) :]
-        or not _SEGMENT_NAME_RE.fullmatch(path[len(prefix) :])
         for path in paths
     ):
         raise RuntimeError(f"lifecycle segment directory at {git_ref} contains an invalid path")
+    names = [path[len(prefix) :] for path in paths]
+    if not _segment_names_valid(names):
+        raise RuntimeError(f"lifecycle segment directory at {git_ref} contains an invalid path")
     expected_segments = (expected_ledger or {}).get("segments") or {}
-    if expected_segments and set(expected_segments) != {path[len(prefix) :] for path in paths}:
+    if expected_segments and set(expected_segments) != set(names):
         raise RuntimeError(f"lifecycle segment manifest mismatch at {git_ref}")
 
     rows: list[dict] = []
@@ -2821,13 +3461,19 @@ def maintain_job_ledger(
     # it with an unrelated newer summary from main. The checks above reject a
     # missing, malformed, incomplete, or generation-mismatched remote summary.
     previous = remote_provenance if git_ref else local_provenance
-    segment_payloads, ledger = encode_job_segments(
+    prior_retention_scopes = [
+        ((provenance.get("ledger") or {}).get("retention") or {})
+        for provenance in (remote_provenance, local_provenance)
+        if isinstance(provenance, dict)
+    ]
+    retained, segment_payloads, ledger = _prepare_job_segments(
         merged,
         retention_start=retention_start,
         end_exclusive=current,
+        prior_retention_scopes=prior_retention_scopes,
     )
     summary = build_summary(
-        merged,
+        retained,
         now=current,
         collection=None,
         previous_provenance=previous,
@@ -2865,10 +3511,11 @@ def restore_exact_job_ledger(
         retention_start=current - timedelta(days=RETENTION_DAYS),
         end_exclusive=current,
     )
-    segment_payloads, ledger = encode_job_segments(
+    retained, segment_payloads, ledger = _prepare_job_segments(
         retained,
         retention_start=current - timedelta(days=RETENTION_DAYS),
         end_exclusive=current,
+        prior_retention_scopes=[remote_ledger.get("retention") or {}],
     )
     if ledger["generation_sha256"] != remote_ledger["generation_sha256"]:
         raise RuntimeError(f"lifecycle generation at {git_ref} changes at its bound horizon")
@@ -2890,6 +3537,78 @@ def restore_exact_job_ledger(
         _encode_summary(summary),
     )
     return summary
+
+
+def _validate_resumable_progress(
+    *,
+    checkpoint_path: Path | None,
+    jobs_path: Path,
+    summary_path: Path,
+    baseline_ref: str | None,
+    require_incomplete: bool,
+    reason: str,
+    now: datetime | None = None,
+) -> dict:
+    """Prove a bounded-progress exit left a context-bound usable checkpoint."""
+    if checkpoint_path is None or baseline_ref is None:
+        raise RuntimeError(f"{reason} has no bound lifecycle checkpoint context")
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(
+        microsecond=0
+    )
+    existing = read_job_directory(jobs_path)
+    previous = _safe_previous_provenance(summary_path, jobs_path=jobs_path)
+    state = _validate_checkpoint_context(
+        _decode_checkpoint_file(checkpoint_path),
+        baseline_sha256=_baseline_sha256(existing),
+        baseline_ref=baseline_ref,
+        previous=previous,
+        now=current,
+    )
+    if state["terminal_error"] is not None:
+        raise RuntimeError(f"{reason} left a terminal lifecycle checkpoint")
+    if require_incomplete and all(unit["complete"] for unit in state["units"]):
+        raise RuntimeError(f"{reason} did not leave resumable lifecycle work")
+    return state
+
+
+def validate_resumable_allowance_exhaustion(
+    *,
+    checkpoint_path: Path | None,
+    jobs_path: Path,
+    summary_path: Path,
+    baseline_ref: str | None,
+    now: datetime | None = None,
+) -> dict:
+    """Prove allowance exhaustion left one usable, incomplete checkpoint."""
+    return _validate_resumable_progress(
+        checkpoint_path=checkpoint_path,
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        baseline_ref=baseline_ref,
+        require_incomplete=True,
+        reason="Buildkite allowance exhaustion",
+        now=now,
+    )
+
+
+def validate_resumable_wall_clock_yield(
+    *,
+    checkpoint_path: Path | None,
+    jobs_path: Path,
+    summary_path: Path,
+    baseline_ref: str | None,
+    now: datetime | None = None,
+) -> dict:
+    """Prove a wall-clock yield left a usable incomplete or complete WIP."""
+    return _validate_resumable_progress(
+        checkpoint_path=checkpoint_path,
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        baseline_ref=baseline_ref,
+        require_incomplete=False,
+        reason="Lifecycle wall-clock yield",
+        now=now,
+    )
 
 
 def main() -> int:
@@ -2974,6 +3693,7 @@ def main() -> int:
             git_ref=args.merge_jobs_git_ref,
         )
     else:
+        deadline_monotonic = time_module.monotonic() + LIFECYCLE_WALL_CLOCK_SECONDS
         try:
             summary = collect_lifecycle(
                 os.environ.get("BUILDKITE_API_TOKEN", ""),
@@ -2981,10 +3701,26 @@ def main() -> int:
                 summary_path=args.output,
                 checkpoint_path=args.checkpoint,
                 baseline_ref=args.baseline_ref,
+                deadline_monotonic=deadline_monotonic,
             )
-        except BuildkiteRequestGuardError as exc:
+        except BuildkiteRequestAllowanceExhausted as exc:
+            validate_resumable_allowance_exhaustion(
+                checkpoint_path=args.checkpoint,
+                jobs_path=args.jobs_output,
+                summary_path=args.output,
+                baseline_ref=args.baseline_ref,
+            )
             log.warning("Lifecycle request allowance ended with resumable WIP: %s", exc)
             return CHECKPOINT_GUARD_EXIT
+        except LifecycleWallClockYield as exc:
+            validate_resumable_wall_clock_yield(
+                checkpoint_path=args.checkpoint,
+                jobs_path=args.jobs_output,
+                summary_path=args.output,
+                baseline_ref=args.baseline_ref,
+            )
+            log.warning("Lifecycle wall-clock ended with validated WIP: %s", exc)
+            return CHECKPOINT_WALL_CLOCK_EXIT
     log.info(
         "Wrote %d compact job observations; rolling %dh incoming=%d served=%d completed=%d",
         summary["coverage"]["job_observation_count"],

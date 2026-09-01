@@ -19,6 +19,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm import config_parity
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -32,6 +34,187 @@ TEST_AREAS_API = (
     "https://api.github.com/repos/vllm-project/vllm/"
     "contents/.buildkite/test_areas"
 )
+OWNERSHIP_CONFIG_PARITY_MAX_BYTES = writer_max_bytes("config_parity_pair") // 2
+CONFIG_PARITY_ROW_COLLECTIONS = (
+    "matches",
+    "inline_mirror_variants",
+    "additional_variants",
+    "amd_only",
+    "nvidia_only",
+    "mirrors",
+)
+CONFIG_PARITY_DUPLICATE_COLLECTIONS = frozenset({"mirrors"})
+
+
+def _canonical_row_key(row: dict[str, Any]) -> str:
+    return json.dumps(row, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _config_parity_priority(
+    collection: str,
+    row: dict[str, Any],
+) -> tuple[int, float, str]:
+    """Rank actionable definition rows ahead of informational matches."""
+    collection_rank = {
+        "amd_only": 6,
+        "nvidia_only": 5,
+        "additional_variants": 4,
+        "matches": 3,
+        "inline_mirror_variants": 2,
+    }
+    color = str(row.get("color") or "").casefold()
+    color_rank = {"red": 3.0, "yellow": 2.0, "green": 1.0}.get(color, 2.0)
+    try:
+        similarity = float(row.get("command_similarity"))
+    except (TypeError, ValueError):
+        similarity = 0.0
+    # Low similarity is more actionable. The canonical row encoding is a
+    # stable final tie-breaker and makes compaction permutation-invariant.
+    action_score = color_rank + max(0.0, 1.0 - similarity)
+    return collection_rank.get(collection, 0), action_score, _canonical_row_key(row)
+
+
+def bounded_config_parity_payload(
+    report: dict[str, Any],
+    *,
+    max_bytes: int,
+) -> dict[str, Any]:
+    """Bound one configuration-parity report using whole logical rows.
+
+    Refetchable mirror rows duplicate target evidence already represented in
+    the parity collections, so they are removed first. If the remaining
+    source still exceeds the cap, actionable gaps are retained before matched
+    informational rows. Scalar source totals remain exact and every list has
+    explicit original/retained/omitted accounting.
+    """
+    if max_bytes <= 0:
+        raise ValueError("configuration parity byte budget must be positive")
+    collections = {
+        name: sorted(
+            (
+                dict(row)
+                for row in report.get(name) or []
+                if isinstance(row, dict)
+            ),
+            key=_canonical_row_key,
+        )
+        for name in CONFIG_PARITY_ROW_COLLECTIONS
+    }
+    duplicate_rows = [
+        (name, index, row)
+        for name in CONFIG_PARITY_ROW_COLLECTIONS
+        if name in CONFIG_PARITY_DUPLICATE_COLLECTIONS
+        for index, row in enumerate(collections[name])
+    ]
+    core_rows = sorted(
+        (
+            (name, index, row)
+            for name in CONFIG_PARITY_ROW_COLLECTIONS
+            if name not in CONFIG_PARITY_DUPLICATE_COLLECTIONS
+            for index, row in enumerate(collections[name])
+        ),
+        key=lambda item: _config_parity_priority(item[0], item[2]),
+        reverse=True,
+    )
+
+    def candidate(core_count: int, duplicate_count: int) -> dict[str, Any]:
+        selected_core = {
+            (name, index)
+            for name, index, _row in core_rows[:core_count]
+        }
+        selected_duplicate = {
+            (name, index)
+            for name, index, _row in duplicate_rows[:duplicate_count]
+        }
+        published: dict[str, list[dict[str, Any]]] = {}
+        for name in CONFIG_PARITY_ROW_COLLECTIONS:
+            selected = (
+                selected_duplicate
+                if name in CONFIG_PARITY_DUPLICATE_COLLECTIONS
+                else selected_core
+            )
+            published[name] = [
+                row
+                for index, row in enumerate(collections[name])
+                if (name, index) in selected
+            ]
+        complete = all(
+            len(published[name]) == len(collections[name])
+            for name in CONFIG_PARITY_ROW_COLLECTIONS
+        )
+        result = {
+            key: value
+            for key, value in report.items()
+            if key not in {*CONFIG_PARITY_ROW_COLLECTIONS, "publication_retention"}
+        }
+        result.update(published)
+        result["publication_retention"] = {
+            "policy": "drop_duplicate_targets_then_actionable_whole_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "aggregate_summary_complete": True,
+            "collections": {
+                name: {
+                    "source": len(collections[name]),
+                    "published": len(published[name]),
+                    "omitted": len(collections[name]) - len(published[name]),
+                    "complete_relative_to_source": (
+                        len(published[name]) == len(collections[name])
+                    ),
+                }
+                for name in CONFIG_PARITY_ROW_COLLECTIONS
+            },
+        }
+        return result
+
+    def fits(core_count: int, duplicate_count: int) -> bool:
+        return len(pretty_json_bytes(candidate(core_count, duplicate_count))) <= max_bytes
+
+    # The complete report is the preferred projection.
+    if fits(len(core_rows), len(duplicate_rows)):
+        return candidate(len(core_rows), len(duplicate_rows))
+
+    # Duplicated mirror targets are the first eviction tier.
+    low, high = 0, len(duplicate_rows)
+    best_duplicate = -1
+    while low <= high:
+        keep = (low + high) // 2
+        if fits(len(core_rows), keep):
+            best_duplicate = keep
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best_duplicate >= 0:
+        return candidate(len(core_rows), best_duplicate)
+
+    # Retain the largest actionable-priority prefix of all non-duplicate rows.
+    low, high = 0, len(core_rows)
+    best_core = -1
+    while low <= high:
+        keep = (low + high) // 2
+        if fits(keep, 0):
+            best_core = keep
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best_core < 0:
+        raise RuntimeError(
+            "configuration parity fixed metadata exceeds its byte budget; "
+            "preserving the last-known-good file"
+        )
+
+    # With the maximum core row count fixed, use any remaining space for the
+    # deterministic duplicate prefix without sacrificing actionable evidence.
+    low, high = 0, len(duplicate_rows)
+    best_duplicate = 0
+    while low <= high:
+        keep = (low + high) // 2
+        if fits(best_core, keep):
+            best_duplicate = keep
+            low = keep + 1
+        else:
+            high = keep - 1
+    return candidate(best_core, best_duplicate)
 
 
 def matrix_commit_sha(matrix: dict[str, Any]) -> str:
@@ -138,9 +321,17 @@ def collect_ownership_parity(input_dir: Path, output_dir: Path) -> Path:
             f"expected {commit_sha}, received {reported_sha or '<missing>'}"
         )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    report = bounded_config_parity_payload(
+        report,
+        max_bytes=OWNERSHIP_CONFIG_PARITY_MAX_BYTES,
+    )
     output_path = output_dir / OUTPUT_FILENAME
-    output_path.write_text(json.dumps(report, indent=2) + "\n")
+    write_pretty_json_lkg(
+        output_path,
+        report,
+        max_bytes=OWNERSHIP_CONFIG_PARITY_MAX_BYTES,
+        label="ownership configuration parity snapshot",
+    )
     return output_path
 
 
@@ -157,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path = collect_ownership_parity(args.input_dir, args.output)
     except (
         OSError,
+        RuntimeError,
         ValueError,
         json.JSONDecodeError,
         requests.RequestException,

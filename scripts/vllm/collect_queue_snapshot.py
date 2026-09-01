@@ -30,6 +30,10 @@ import requests
 # executed as ``python scripts/vllm/collect_queue_snapshot.py``.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import install_from_environment_or_exit  # noqa: E402
+
+install_from_environment_or_exit()
+
 from vllm.constants import (  # noqa: E402
     AMD_METRIC_TARGET_QUEUES,
     BK_API_BASE,
@@ -47,6 +51,7 @@ from vllm.constants import (  # noqa: E402
     queue_history_reset_datetime,
 )
 from vllm.ci.utils import classify_workload, parse_iso, percentile, queue_from_rules  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
@@ -61,6 +66,7 @@ OUTPUT = (
     / "queue_timeseries.jsonl"
 )
 HISTORY_REPO_PATH = "data/vllm/ci/queue_timeseries.jsonl"
+QUEUE_DETAILS_MAX_BYTES = writer_max_bytes("queue_details")
 
 # Buildkite URL rewrite: the jobs endpoint returns hash-anchored URLs that
 # 404 in the step canvas; re-point them so dashboard links land on the output tab.
@@ -2088,6 +2094,7 @@ def _load_complete_job_overlay(path: Path) -> dict | None:
         "details_observed_at": observed_at,
         "pending": pending,
         "running": running,
+        "publication_retention": payload.get("publication_retention"),
     }
 
 
@@ -2111,6 +2118,95 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     finally:
         if temporary_name and os.path.exists(temporary_name):
             os.unlink(temporary_name)
+
+
+def _compact_queue_jobs(
+    source: dict,
+    *,
+    max_bytes: int | None = None,
+) -> dict:
+    """Retain deterministic whole active-job rows under the detail cap."""
+    if max_bytes is None:
+        max_bytes = QUEUE_DETAILS_MAX_BYTES
+    if max_bytes <= 0:
+        raise ValueError("queue-detail byte budget must be positive")
+    pending = list(source.get("pending") or [])
+    running = list(source.get("running") or [])
+    previous = source.get("publication_retention") or {}
+    previous_pending = previous.get("pending") or {}
+    previous_running = previous.get("running") or {}
+    pending_source = previous_pending.get("source")
+    running_source = previous_running.get("source")
+    if not isinstance(pending_source, int) or isinstance(pending_source, bool):
+        pending_source = len(pending)
+    if not isinstance(running_source, int) or isinstance(running_source, bool):
+        running_source = len(running)
+    pending_source = max(pending_source, len(pending))
+    running_source = max(running_source, len(running))
+    prior_complete = previous.get("complete_relative_to_source") is not False
+
+    def candidate(ratio: int) -> dict:
+        pending_count = len(pending) * ratio // 1_000_000
+        running_count = len(running) * ratio // 1_000_000
+        published_pending = pending[:pending_count]
+        published_running = running[:running_count]
+        result = {
+            key: value
+            for key, value in source.items()
+            if key not in {"pending", "running", "publication_retention"}
+        }
+        result["pending"] = published_pending
+        result["running"] = published_running
+        result["publication_retention"] = {
+            "policy": "retain_longest_waiting_and_source_order_whole_job_rows",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": (
+                prior_complete
+                and len(published_pending) == pending_source
+                and len(published_running) == running_source
+            ),
+            "queue_snapshot_counts_complete": True,
+            "pending": {
+                "source": pending_source,
+                "published": len(published_pending),
+                "omitted": pending_source - len(published_pending),
+                "complete": prior_complete and len(published_pending) == pending_source,
+            },
+            "running": {
+                "source": running_source,
+                "published": len(published_running),
+                "omitted": running_source - len(published_running),
+                "complete": prior_complete and len(published_running) == running_source,
+            },
+        }
+        return result
+
+    full = candidate(1_000_000)
+    if len((json.dumps(full, indent=2, sort_keys=True) + "\n").encode()) <= max_bytes:
+        return full
+    low = 0
+    high = 999_999
+    best: dict | None = None
+    while low <= high:
+        ratio = (low + high) // 2
+        attempt = candidate(ratio)
+        if len((json.dumps(attempt, indent=2, sort_keys=True) + "\n").encode()) <= max_bytes:
+            best = attempt
+            low = ratio + 1
+        else:
+            high = ratio - 1
+    if best is None:
+        raise RuntimeError(
+            "queue-detail fixed metadata exceeds its byte budget; preserving "
+            "the last-known-good file"
+        )
+    return best
+
+
+def _write_bounded_queue_jobs(path: Path, source: dict) -> dict:
+    bounded = _compact_queue_jobs(source)
+    _write_json_atomic(path, bounded)
+    return bounded
 
 
 def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) -> None:
@@ -2578,11 +2674,15 @@ def collect_snapshot(
         ),
         "running": retained_running,
     }
-    _write_json_atomic(jobs_path, jobs_data)
+    if not details_complete and prior_jobs is not None and prior_jobs.get(
+        "publication_retention"
+    ):
+        jobs_data["publication_retention"] = prior_jobs["publication_retention"]
+    published_jobs = _write_bounded_queue_jobs(jobs_path, jobs_data)
     log.info(
         "Wrote %d pending + %d running jobs to %s (%s, observed %s)",
-        len(retained_pending),
-        len(retained_running),
+        len(published_jobs["pending"]),
+        len(published_jobs["running"]),
         jobs_path,
         details_status,
         details_observed_at,

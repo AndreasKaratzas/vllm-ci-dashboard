@@ -21,6 +21,11 @@ from vllm.ci.public_analytics import (
     compact_public_analytics_json,
     project_public_analytics,
 )
+from vllm.publication_limits import (
+    PUBLICATION_MAX_BLOB_BYTES,
+    PUBLICATION_MAX_FILES,
+    PUBLICATION_MAX_TREE_BYTES,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,9 +36,9 @@ CACHE_BUST_RE = re.compile(r"\?v=\d+")
 CACHE_BUST_VALUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
 PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
-SITE_FILE_MAX_BYTES = 85 * 1024 * 1024
-SITE_TOTAL_MAX_BYTES = 384 * 1024 * 1024
-SITE_MAX_FILES = 10_000
+SITE_FILE_MAX_BYTES = PUBLICATION_MAX_BLOB_BYTES
+SITE_TOTAL_MAX_BYTES = PUBLICATION_MAX_TREE_BYTES
+SITE_MAX_FILES = PUBLICATION_MAX_FILES
 PROJECTOR_SERIALIZERS: dict[str, Callable[[object], str]] = {
     PUBLIC_ANALYTICS_PROJECTOR_ID: compact_public_analytics_json,
 }

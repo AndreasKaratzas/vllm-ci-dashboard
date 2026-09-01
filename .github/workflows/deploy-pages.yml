@@ -65,6 +65,8 @@ jobs:
             "$TRUSTED_VALIDATOR_DIR/dashboard_state.py"
           install -m 0644 scripts/vllm/public_projection.py \
             "$TRUSTED_VALIDATOR_DIR/public_projection.py"
+          install -m 0644 scripts/vllm/publication_limits.py \
+            "$TRUSTED_VALIDATOR_DIR/publication_limits.py"
           install -m 0644 scripts/vllm/github_git_proof.py \
             "$TRUSTED_VALIDATOR_DIR/github_git_proof.py"
           install -m 0644 config/dashboard_state.json \
@@ -668,11 +670,17 @@ jobs:
         run: |
           set -euo pipefail
           trap 'status=$?; trap - ERR; echo "failed_stage=projection" >> "$GITHUB_OUTPUT"; echo "failed_status=$status" >> "$GITHUB_OUTPUT"; exit "$status"' ERR
-          "$CANDIDATE_PYTHON" scripts/vllm/public_projection.py verify-local \
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
             --site-root _site \
             --manifest _site/publication_manifest.json \
             --attestation data/vllm/ci/public_projection_attestation.json \
-            --marker _site/publication_generation.json
+            --marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
 
       - name: Reproduce current candidate failure in isolation
         id: current-reproduction
@@ -797,6 +805,10 @@ jobs:
           fi
 
           cd "$RETRY_ROOT"
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
           retry_operations_timestamp() {
             RETRY_GENERATED_AT=$("$CANDIDATE_PYTHON" - <<'PY'
           import json
@@ -914,11 +926,13 @@ jobs:
           fi
           if [ "$retry_status" -eq 0 ]; then
             if run_retry_stage projection \
-              "$CANDIDATE_PYTHON" scripts/vllm/public_projection.py verify-local \
+              "$CANDIDATE_PYTHON" \
+              "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
               --site-root _site \
               --manifest _site/publication_manifest.json \
               --attestation data/vllm/ci/public_projection_attestation.json \
-              --marker _site/publication_generation.json; then
+              --marker _site/publication_generation.json \
+              "${PROJECTION_COMPAT_ARGS[@]}"; then
               :
             else
               retry_status=$?
@@ -1078,11 +1092,17 @@ jobs:
             --public-attestation data/vllm/ci/public_projection_attestation.json \
             --publication-status _site/data/vllm/ci/publication_status.json \
             --output _site/publication_generation.json
-          "$ROLLBACK_VENV/bin/python" scripts/vllm/public_projection.py verify-local \
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$ROLLBACK_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          "$ROLLBACK_VENV/bin/python" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
             --site-root _site \
             --manifest _site/publication_manifest.json \
             --attestation data/vllm/ci/public_projection_attestation.json \
-            --marker _site/publication_generation.json
+            --marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
 
           # Only a candidate that passed materialization, deterministic rebuild,
           # audit, site assembly, marker creation, and exact projection may be
@@ -1214,11 +1234,17 @@ jobs:
           echo "DASHBOARD_PREVIEW_DIGEST=$EXPECTED_PREVIEW_DIGEST" >> "$GITHUB_ENV"
           # Preview files are deliberately excluded, so this proves composing
           # them did not change one canonical state-bound byte.
-          "$CANDIDATE_PYTHON" scripts/vllm/public_projection.py verify-local \
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
             --site-root _site \
             --manifest _site/publication_manifest.json \
             --attestation data/vllm/ci/public_projection_attestation.json \
-            --marker _site/publication_generation.json
+            --marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
 
       - name: Deploy exact state to GitHub Pages
         id: pages-deploy
@@ -1284,12 +1310,17 @@ jobs:
             echo "::error::Published Pages did not preserve the exact bounded preview subtree."
             exit 1
           fi
-          if ! GIT_NO_LAZY_FETCH=1 python \
-            scripts/vllm/public_projection.py verify-git \
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          if ! GIT_NO_LAZY_FETCH=1 "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-git \
               --repo-root . \
               --git-ref origin/gh-pages \
               --attestation data/vllm/ci/public_projection_attestation.json \
-              --expected-marker _site/publication_generation.json; then
+              --expected-marker _site/publication_generation.json \
+              "${PROJECTION_COMPAT_ARGS[@]}"; then
             echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
             echo "::error::Published Pages failed exact projection verification."
             exit 1
@@ -1346,11 +1377,17 @@ jobs:
           RECOVERED_PREVIEW_DIGEST=$(awk -F= \
             '$1 == "pages_preview_digest" {print $2}' "$RECOVERY_PROOF_OUTPUT")
           [ "$RECOVERED_PREVIEW_DIGEST" = "$DASHBOARD_PREVIEW_DIGEST" ]
-          GIT_NO_LAZY_FETCH=1 python scripts/vllm/public_projection.py verify-git \
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          GIT_NO_LAZY_FETCH=1 "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-git \
             --repo-root . \
             --git-ref origin/gh-pages \
             --attestation data/vllm/ci/public_projection_attestation.json \
-            --expected-marker _site/publication_generation.json
+            --expected-marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
           echo "Confirmed the recovered exact state-bound public projection."
 
       - name: Enforce final exact-state deployment validation

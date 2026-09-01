@@ -31,6 +31,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     repo_owner,
     validate_target_repo,
 )
+from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 
 
 logging.basicConfig(
@@ -102,8 +103,7 @@ def _read_state() -> dict:
 
 
 def _write_state(state: dict) -> None:
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+    write_watcher_state(STATE, state, state_filename="open_agent_health_issues.json")
 
 
 def _is_fresh(payload: dict, now: datetime) -> bool:

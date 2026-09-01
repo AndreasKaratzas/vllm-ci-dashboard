@@ -5,6 +5,9 @@ from __future__ import annotations
 import io
 import tarfile
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from vllm import collect_capacity_monitor as ccm
 
@@ -392,6 +395,58 @@ def test_capacity_branch_ref_resolves_to_full_sha(monkeypatch) -> None:
     assert calls == [
         f"https://api.github.com/repos/{ccm.GITHUB_REPO}/commits/main"
     ]
+
+
+def test_capacity_writer_preserves_lkg_on_byte_overflow(tmp_path, monkeypatch) -> None:
+    repo = _fake_repo(tmp_path)
+    output = tmp_path / "output"
+    output.mkdir()
+    published = output / "capacity_monitor.json"
+    published.write_text("existing-capacity")
+    monkeypatch.setattr(
+        ccm,
+        "parse_args",
+        lambda: SimpleNamespace(
+            output=str(output),
+            repo_root=str(repo),
+            github_repo=ccm.GITHUB_REPO,
+            ref=ccm.GITHUB_REF,
+            theoretical_groups=None,
+        ),
+    )
+    monkeypatch.setattr(ccm, "CAPACITY_MONITOR_MAX_BYTES", 1)
+
+    with pytest.raises(RuntimeError, match="capacity monitor fixed aggregates exceed"):
+        ccm.main()
+
+    assert published.read_text() == "existing-capacity"
+    assert list(output.glob(".capacity_monitor.json.*.tmp")) == []
+
+
+def test_capacity_payload_compacts_detail_then_group_rows_with_exact_summary(
+    tmp_path,
+) -> None:
+    payload = ccm.build_capacity_payload(_fake_repo(tmp_path))
+    template = payload["groups"][0]
+    payload["groups"] = [
+        {
+            **template,
+            "key": f"group-{index:04d}",
+            "yaml_index": index,
+            "source_file_dependencies": ["x" * 2_000],
+        }
+        for index in range(500)
+    ]
+    expected_summary = payload["summary"]
+
+    bounded = ccm.bounded_capacity_payload(payload, max_bytes=50_000)
+
+    assert len(ccm.pretty_json_bytes(bounded)) <= 50_000
+    assert bounded["summary"] == expected_summary
+    retention = bounded["publication_retention"]
+    assert retention["aggregate_summaries_complete"] is True
+    assert retention["complete_relative_to_source"] is False
+    assert retention["group_index"]["omitted"] > 0
 
 
 def test_local_vllm_checkout_has_capacity_scoped_amd_mirrors() -> None:

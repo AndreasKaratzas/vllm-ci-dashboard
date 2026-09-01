@@ -44,6 +44,10 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import install_from_environment_or_exit  # noqa: E402
+
+install_from_environment_or_exit()
+
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
 from vllm.ci.perf_eval_webhook import (  # noqa: E402
     ARTIFACT_INDEX_EVENT,

@@ -1,20 +1,35 @@
 #!/usr/bin/env python3
 """Fail before publication when a tracked Git blob approaches GitHub's limit."""
 
+# cspell:ignore redef
+
 from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+if __package__:
+    from .publication_limits import (
+        PUBLICATION_MAX_BLOB_BYTES,
+        PUBLICATION_MAX_TREE_BYTES,
+    )
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from publication_limits import (  # type: ignore[no-redef]
+        PUBLICATION_MAX_BLOB_BYTES,
+        PUBLICATION_MAX_TREE_BYTES,
+    )
 
 
 # Keep a deliberate cushion below the dashboard's 90 MB sync ceiling.  Using
 # 85 MiB also stays below 90,000,000 decimal bytes, so the guard is safe no
 # matter which unit a hosting/sync layer uses when it reports "90 MB".
-DEFAULT_MAX_BYTES = 85 * 1024 * 1024
+DEFAULT_MAX_BYTES = PUBLICATION_MAX_BLOB_BYTES
 DEFAULT_WARNING_BYTES = 75 * 1024 * 1024
-DEFAULT_MAX_TREE_BYTES = 256 * 1024 * 1024
+DEFAULT_MAX_TREE_BYTES = PUBLICATION_MAX_TREE_BYTES
 
 
 @dataclass(frozen=True)

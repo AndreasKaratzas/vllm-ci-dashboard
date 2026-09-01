@@ -5,8 +5,7 @@ Produces:
 - data/vllm/ci/builds_analytics.json — per-build summary with job matrix
 - data/vllm/ci/jobs_analytics.json — per-job failure/duration rankings
 
-Usage:
-    export BUILDKITE_TOKEN="bkua_..."
+Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/vllm/collect_analytics.py --days 30
 """
 
@@ -29,8 +28,15 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import (  # noqa: E402
+    BuildkiteRequestGuardError,
+    install_from_environment_or_exit,
+)
+
+install_from_environment_or_exit()
+
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
-from vllm.buildkite_request_guard import BuildkiteRequestGuardError  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.analytics_cache import (  # noqa: E402
     CACHE_DIR_NAME,
     CACHE_SCHEMA_VERSION,
@@ -84,6 +90,7 @@ ANALYTICS_NIGHTLY_LIMIT = 30
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
 GATING_NIGHTLY_LIMIT = 30
+GATING_NIGHTLIES_MAX_BYTES = writer_max_bytes("gating_nightlies")
 # GitHub rejects individual blobs at 100 MiB. Keep the private collector
 # artifact below that boundary with enough headroom for byte/display-unit
 # differences and fail before replacing the validated baseline.
@@ -92,7 +99,7 @@ GITHUB_BLOB_MAX_BYTES = 100 * 1024 * 1024
 # larger compatibility ceiling remains visible as an emergency invariant, but
 # candidate monoliths are compacted to (or rejected above) this operating
 # target before they can replace the baseline.
-PRIVATE_ANALYTICS_TARGET_BYTES = 64 * 1024 * 1024
+PRIVATE_ANALYTICS_TARGET_BYTES = writer_max_bytes("analytics")
 PRIVATE_ANALYTICS_MAX_BYTES = 85 * 1024 * 1024
 # Evidence is newest-first. These deterministic levels preserve recent popup
 # history while giving the writer progressively stronger ways to stay inside
@@ -1912,17 +1919,64 @@ def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], ge
     }
     for slug in ("ci", "amd-ci"):
         block = all_data.get(slug) or {}
+        source_builds = block.get("builds") or []
+        selected_builds = [
+            gating_build_summary(build)
+            for build in source_builds[:GATING_NIGHTLY_LIMIT]
+        ]
         payload[slug] = {
             "pipeline": slug,
             "display_name": block.get("display_name") or PIPELINES.get(slug, slug),
-            "builds": [
-                gating_build_summary(build)
-                for build in (block.get("builds") or [])[:GATING_NIGHTLY_LIMIT]
-            ],
+            "builds": selected_builds,
+            "retention": {
+                "policy": "drop_oldest_complete_builds",
+                "configured_build_limit": GATING_NIGHTLY_LIMIT,
+                "source_build_count": len(source_builds),
+                "selected_build_count": len(selected_builds),
+                "retained_build_count": len(selected_builds),
+                "omitted_by_count_limit": max(0, len(source_builds) - len(selected_builds)),
+                "omitted_by_byte_limit": 0,
+                "byte_limited": False,
+                "max_bytes": GATING_NIGHTLIES_MAX_BYTES,
+            },
         }
+
+    def serialized() -> str:
+        return _compact_json(payload) + "\n"
+
+    candidate = serialized()
+    while len(candidate.encode("utf-8")) > GATING_NIGHTLIES_MAX_BYTES:
+        # Each list is newest-first. Remove from the longer retained suffix so
+        # both pipelines keep comparable recent coverage, and never publish a
+        # partial build or discard the newest build of a nonempty pipeline.
+        removable = [
+            slug for slug in ("ci", "amd-ci") if len(payload[slug]["builds"]) > 1
+        ]
+        if not removable:
+            required = len(candidate.encode("utf-8"))
+            raise IncompleteAnalyticsCollection(
+                "gating_nightlies.json cannot fit its byte budget while "
+                "preserving the newest complete build for each pipeline: "
+                f"{required} > {GATING_NIGHTLIES_MAX_BYTES} bytes",
+                {
+                    "collector": "ci_analytics",
+                    "artifact": "gating_nightlies.json",
+                    "reason_class": "payload-budget",
+                    "serialized_bytes": required,
+                    "max_bytes": GATING_NIGHTLIES_MAX_BYTES,
+                },
+            )
+        slug = max(removable, key=lambda item: (len(payload[item]["builds"]), item))
+        payload[slug]["builds"].pop()
+        retention = payload[slug]["retention"]
+        retention["retained_build_count"] = len(payload[slug]["builds"])
+        retention["omitted_by_byte_limit"] += 1
+        retention["byte_limited"] = True
+        candidate = serialized()
+
     out_path = output / "gating_nightlies.json"
-    _atomic_write_text(out_path, _compact_json(payload) + "\n")
-    log.info("Wrote %s", out_path)
+    _atomic_write_text(out_path, candidate)
+    log.info("Wrote %s (%d bytes)", out_path, len(candidate.encode("utf-8")))
 
 
 def _legacy_reliability_migration_error(
@@ -1953,7 +2007,7 @@ def _migrate_preserved_reliability_v1(payload: dict) -> tuple[dict, dict[str, An
 
     First-rollout fallback can preserve the prior monolith when Buildkite is
     unavailable. Schema v1 repeats catalog metadata and derivable URLs in every
-    observation, so carrying it through the 64 MiB writer would otherwise
+    observation, so carrying it through the configured bounded writer would otherwise
     invoke emergency history retention. Normalize those validated blocks to
     the schema-v2 reference form first and verify canonical hydration parity.
     """
@@ -2348,8 +2402,8 @@ def _prepare_private_analytics(
             _compact_json(failure_diagnostics),
         )
         raise IncompleteAnalyticsCollection(
-            "Private analytics payload exceeds the 64 MiB normal operating "
-            "budget after deterministic compaction: "
+            "Private analytics payload exceeds the configured normal operating "
+            f"budget ({effective_target} bytes) after deterministic compaction: "
             f"{serialized_bytes} > {effective_target} bytes",
             failure_diagnostics,
         )

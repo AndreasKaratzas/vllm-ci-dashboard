@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import requests
 import pytest
 
@@ -311,6 +313,38 @@ def test_atomic_output_limit_preserves_prior_snapshot(tmp_path, monkeypatch):
 
     assert path.read_bytes() == prior
     assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
+
+
+def test_atomic_output_drops_refetchable_cache_before_public_proposals(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "gating_proposals.json"
+    payload = {
+        "summary": {"proposal_pr_count": 2},
+        "collection": {
+            "candidate_cache": {
+                "pr_count": 8,
+                "pull_requests": [
+                    {"number": number, "padding": "c" * 700}
+                    for number in range(10, 18)
+                ],
+            }
+        },
+        "pull_requests": [
+            {"number": number, "padding": "p" * 700}
+            for number in (1, 2)
+        ],
+    }
+    monkeypatch.setattr(cgp, "MAX_OUTPUT_BYTES", 3_000)
+
+    cgp.write_payload_atomic(path, payload)
+
+    published = json.loads(path.read_text())
+    assert [row["number"] for row in published["pull_requests"]] == [1, 2]
+    retention = published["publication_retention"]
+    assert retention["pull_requests"]["complete"] is True
+    assert retention["candidate_cache"]["omitted"] > 0
+    assert path.stat().st_size <= 3_000
 
 
 def test_collect_pr_ignores_closed_prs():

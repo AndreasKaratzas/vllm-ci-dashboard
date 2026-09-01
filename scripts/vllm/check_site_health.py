@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Synthetic liveness check for the published dashboard and its data plane."""
 
+# cspell:ignore getitimer ITIMER setitimer SIGALRM signum
+
 from __future__ import annotations
 
 import argparse
@@ -9,9 +11,11 @@ import json
 import math
 import os
 import re
+import signal
 import sys
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -26,8 +30,17 @@ from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_FILE_MAX_BYTES,
     OPERATIONS_CANARY_SECTIONS,
     OPERATIONS_MANIFEST_MAX_BYTES,
+    OPERATIONS_SECTION_NAMES,
+    OPERATIONS_STREAMED_FILE_MAX_BYTES,
+    OPERATIONS_STREAMED_LARGE_SECTIONS,
     OperationsBundleContractError,
     validate_operations_canary_budget,
+)
+from vllm.publication_limits import (  # noqa: E402
+    PUBLICATION_MAX_BLOB_BYTES,
+    PUBLICATION_MAX_FILES,
+    PUBLICATION_MAX_TREE_BYTES,
+    normalize_safe_historical_limits,
 )
 
 
@@ -42,6 +55,10 @@ PUBLICATION_MANIFEST_PATH = "publication_manifest.json"
 OPERATIONS_MANIFEST_PATH = "data/vllm/ci/operations_v2_manifest.json"
 DEFAULT_MAX_PUBLICATION_AGE_HOURS = 3.0
 FETCH_TIMEOUT_SECONDS = 10
+FETCH_ATTEMPTS = 2
+STREAM_TOTAL_TIMEOUT_SECONDS = 60
+STREAM_ATTEMPT_MAX_SECONDS = STREAM_TOTAL_TIMEOUT_SECONDS + FETCH_TIMEOUT_SECONDS
+RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 CONFIRMATION_ATTEMPTS = 3
 CONFIRMATION_QUORUM = 2
 CONFIRMATION_DELAYS_SECONDS = (0.0, 2.0, 5.0)
@@ -53,15 +70,16 @@ MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 ASSET_MAX_BYTES = 4 * 1024 * 1024
 # Backwards-compatible public name used by the probe/test request accounting.
 OPERATIONS_CANARY_MAX_BYTES = OPERATIONS_CANARY_FILE_MAX_BYTES
+OPERATIONS_STREAMED_MAX_BYTES = OPERATIONS_STREAMED_FILE_MAX_BYTES
 REPORT_MAX_BYTES = 64 * 1024
 MARKDOWN_MAX_BYTES = 16 * 1024
 BOOTSTRAP_CONFIG_MAX_BYTES = 4096
 BOOTSTRAP_EVIDENCE_MAX_BYTES = 16 * 1024
 BOOTSTRAP_EVIDENCE_MAX_AGE = timedelta(minutes=10)
 BOOTSTRAP_REF_FETCH_TIMEOUT_SECONDS = 10
-PROJECTION_MAX_BLOB_BYTES = 85 * 1024 * 1024
-PROJECTION_MAX_TREE_BYTES = 384 * 1024 * 1024
-PROJECTION_MAX_FILES = 10_000
+PROJECTION_MAX_BLOB_BYTES = PUBLICATION_MAX_BLOB_BYTES
+PROJECTION_MAX_TREE_BYTES = PUBLICATION_MAX_TREE_BYTES
+PROJECTION_MAX_FILES = PUBLICATION_MAX_FILES
 CRITICAL_ASSET_PATHS = (
     "assets/css/dashboard.css",
     "assets/css/ops-v2.css",
@@ -70,8 +88,27 @@ CRITICAL_ASSET_PATHS = (
     "assets/js/dashboard-nav.js",
     "assets/js/ops-v2.js",
 )
-REQUESTS_PER_PROBE = (
+BASE_RESOURCES_PER_PROBE = (
     5 + len(CRITICAL_ASSET_PATHS) + len(OPERATIONS_CANARY_SECTIONS)
+)
+# Every probe verifies the bounded critical routes. Exactly one probe also
+# streams each large route through its full digest, keeping the normal hourly
+# monitor to one reliability download while making that proof mandatory.
+RESOURCES_PER_PROBE = BASE_RESOURCES_PER_PROBE
+REQUESTS_PER_PROBE = RESOURCES_PER_PROBE * FETCH_ATTEMPTS
+STREAMED_REQUESTS_PER_CONFIRMATION = (
+    len(OPERATIONS_STREAMED_LARGE_SECTIONS) * FETCH_ATTEMPTS
+)
+MAX_CONFIRMATION_REQUESTS = (
+    CONFIRMATION_ATTEMPTS * REQUESTS_PER_PROBE
+    + STREAMED_REQUESTS_PER_CONFIRMATION
+)
+MAX_CONFIRMATION_TRANSPORT_SECONDS = (
+    CONFIRMATION_ATTEMPTS * REQUESTS_PER_PROBE * FETCH_TIMEOUT_SECONDS
+    + STREAMED_REQUESTS_PER_CONFIRMATION * STREAM_ATTEMPT_MAX_SECONDS
+)
+MAX_CONFIRMATION_ELAPSED_SECONDS = (
+    MAX_CONFIRMATION_TRANSPORT_SECONDS + sum(CONFIRMATION_DELAYS_SECONDS)
 )
 MAX_SHELL_ASSET_REFERENCES = 256
 MAX_OPERATIONS_SECTIONS = 64
@@ -107,6 +144,7 @@ PUBLICATION_SURFACE_LABELS = frozenset({
 })
 
 Fetch = Callable[[str, int], dict[str, Any]]
+DigestFetch = Callable[[str, int], dict[str, Any]]
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 
@@ -161,6 +199,57 @@ class _NoRedirectHandler(HTTPRedirectHandler):
     ) -> None:
         del req, fp, code, msg, headers, newurl
         return None
+
+
+@contextmanager
+def _whole_attempt_deadline(seconds: float):
+    """Interrupt one complete urllib attempt at an actual wall-clock bound.
+
+    ``socket.settimeout`` (and urllib's ``timeout=`` argument) is an inactivity
+    timeout for each blocking socket operation. A peer can therefore keep a
+    buffered ``HTTPResponse.read()`` alive indefinitely by delivering another
+    byte before every socket timeout. The production monitor is pinned to an
+    Ubuntu runner, so a process timer provides the independent wall-clock
+    interrupt that the confirmation/job timeout calculation requires.
+
+    Refuse to borrow a caller's active real-time timer. Silently replacing one
+    would weaken whichever deadline fires first; failing closed is safer than
+    performing an unbounded health request in an unsupported execution context.
+    """
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("whole-attempt deadline must be positive and finite")
+    if not all(
+        hasattr(signal, name)
+        for name in ("SIGALRM", "ITIMER_REAL", "getitimer", "setitimer")
+    ):
+        raise OSError("whole-attempt wall-clock deadlines are unavailable")
+    try:
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    except (AttributeError, OSError, ValueError) as exc:
+        raise OSError("whole-attempt wall-clock deadlines are unavailable") from exc
+    if previous_timer != (0.0, 0.0):
+        raise OSError("an existing process wall-clock deadline is already active")
+
+    def deadline_exceeded(_signum: int, _frame: Any) -> None:
+        raise TimeoutError("HTTP attempt exceeded its whole-attempt deadline")
+
+    try:
+        signal.signal(signal.SIGALRM, deadline_exceeded)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+    except (OSError, ValueError) as exc:
+        # ``signal.signal`` is main-thread-only. Production invokes the probe
+        # in the main interpreter; other contexts fail closed without transport.
+        try:
+            signal.signal(signal.SIGALRM, previous_handler)
+        except (OSError, ValueError):
+            pass
+        raise OSError("whole-attempt wall-clock deadlines are unavailable") from exc
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous_handler)
 
 
 def _iso_utc(value: datetime) -> str:
@@ -248,43 +337,149 @@ def _same_origin_url(site_url: str, relative_path: str) -> str:
 
 
 def fetch_url(url: str, max_bytes: int) -> dict[str, Any]:
-    """Fetch a bounded public resource and convert all transport errors to data."""
-    request = Request(
-        url,
-        headers={
-            "Cache-Control": "no-cache, no-store, max-age=0",
-            "Pragma": "no-cache",
-            "User-Agent": "vllm-ci-dashboard-site-health/1",
-        },
-    )
-    try:
-        with build_opener(_NoRedirectHandler()).open(
-            request, timeout=FETCH_TIMEOUT_SECONDS
-        ) as response:
-            body = response.read(max_bytes + 1)
+    """Fetch one bounded resource with one bounded transient retry."""
+    for attempt in range(FETCH_ATTEMPTS):
+        request = Request(
+            url,
+            headers={
+                "Cache-Control": "no-cache, no-store, max-age=0",
+                "Pragma": "no-cache",
+                "User-Agent": "vllm-ci-dashboard-site-health/1",
+            },
+        )
+        try:
+            with _whole_attempt_deadline(FETCH_TIMEOUT_SECONDS):
+                with build_opener(_NoRedirectHandler()).open(
+                    request, timeout=FETCH_TIMEOUT_SECONDS
+                ) as response:
+                    body = response.read(max_bytes + 1)
+                    return {
+                        "http_status": int(response.getcode() or 0),
+                        "body": body[:max_bytes],
+                        "oversize": len(body) > max_bytes,
+                        "error": None,
+                        "final_url": response.geturl(),
+                    }
+        except HTTPError as exc:
+            status = int(exc.code or 0)
+            if attempt + 1 < FETCH_ATTEMPTS and status in RETRYABLE_HTTP_STATUSES:
+                continue
             return {
-                "http_status": int(response.getcode() or 0),
-                "body": body[:max_bytes],
-                "oversize": len(body) > max_bytes,
-                "error": None,
-                "final_url": response.geturl(),
+                "http_status": status,
+                "body": b"",
+                "oversize": False,
+                "error": f"HTTP {status}",
+                "final_url": exc.geturl(),
             }
-    except HTTPError as exc:
+        except (URLError, TimeoutError, OSError) as exc:
+            if attempt + 1 < FETCH_ATTEMPTS:
+                continue
+            return {
+                "http_status": 0,
+                "body": b"",
+                "oversize": False,
+                "error": type(exc).__name__,
+                "final_url": None,
+            }
+    raise AssertionError("bounded fetch loop completed without a result")
+
+
+def fetch_url_digest(url: str, max_bytes: int) -> dict[str, Any]:
+    """Stream one bounded resource into an exact SHA-256/length proof.
+
+    Large Operations routes must be verified as actually served by Pages, but
+    retaining a 64 MiB response three times in the monitor is unnecessary. The
+    read stops after ``max_bytes + 1`` and never stores more than one MiB.
+    """
+    if type(max_bytes) is not int or max_bytes <= 0:
+        raise ValueError("digest fetch byte limit must be a positive integer")
+    for attempt in range(FETCH_ATTEMPTS):
+        request = Request(
+            url,
+            headers={
+                "Cache-Control": "no-cache, no-store, max-age=0",
+                "Pragma": "no-cache",
+                "User-Agent": "vllm-ci-dashboard-site-health/1",
+            },
+        )
+        try:
+            # The outer 70-second deadline composes the existing 10-second
+            # connect/header allowance with the 60-second body-stream bound.
+            # It also interrupts a single buffered read that keeps receiving
+            # sub-timeout trickle bytes and therefore never returns to Python.
+            with _whole_attempt_deadline(STREAM_ATTEMPT_MAX_SECONDS):
+                with build_opener(_NoRedirectHandler()).open(
+                    request, timeout=FETCH_TIMEOUT_SECONDS
+                ) as response:
+                    deadline = time.monotonic() + STREAM_TOTAL_TIMEOUT_SECONDS
+                    digest = hashlib.sha256()
+                    bytes_read = 0
+                    while bytes_read <= max_bytes:
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("streamed digest exceeded its total deadline")
+                        remaining = max_bytes + 1 - bytes_read
+                        chunk = response.read(min(1024 * 1024, remaining))
+                        if not isinstance(chunk, bytes):
+                            raise OSError("stream returned non-byte content")
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError("streamed digest exceeded its total deadline")
+                        if not chunk:
+                            break
+                        bytes_read += len(chunk)
+                        digest.update(chunk)
+                    oversize = bytes_read > max_bytes
+                    return {
+                        "http_status": int(response.getcode() or 0),
+                        "bytes_read": bytes_read,
+                        "sha256": None if oversize else digest.hexdigest(),
+                        "oversize": oversize,
+                        "error": None,
+                        "final_url": response.geturl(),
+                    }
+        except HTTPError as exc:
+            status = int(exc.code or 0)
+            if attempt + 1 < FETCH_ATTEMPTS and status in RETRYABLE_HTTP_STATUSES:
+                continue
+            return {
+                "http_status": status,
+                "bytes_read": 0,
+                "sha256": None,
+                "oversize": False,
+                "error": f"HTTP {status}",
+                "final_url": exc.geturl(),
+            }
+        except (URLError, TimeoutError, OSError) as exc:
+            if attempt + 1 < FETCH_ATTEMPTS:
+                continue
+            return {
+                "http_status": 0,
+                "bytes_read": 0,
+                "sha256": None,
+                "oversize": False,
+                "error": type(exc).__name__,
+                "final_url": None,
+            }
+    raise AssertionError("bounded digest fetch loop completed without a result")
+
+
+def _digest_fetch_adapter(fetch: Fetch) -> DigestFetch:
+    """Adapt injected bounded-body test transports to streamed evidence."""
+
+    def digest_fetch(url: str, max_bytes: int) -> dict[str, Any]:
+        response = fetch(url, max_bytes)
+        body = response.get("body")
+        bounded = body if isinstance(body, bytes) else b""
+        oversize = response.get("oversize") is True or len(bounded) > max_bytes
         return {
-            "http_status": int(exc.code or 0),
-            "body": b"",
-            "oversize": False,
-            "error": f"HTTP {int(exc.code or 0)}",
-            "final_url": exc.geturl(),
+            "http_status": response.get("http_status"),
+            "bytes_read": len(bounded),
+            "sha256": None if oversize else hashlib.sha256(bounded).hexdigest(),
+            "oversize": oversize,
+            "error": response.get("error"),
+            "final_url": response.get("final_url"),
         }
-    except (URLError, TimeoutError, OSError) as exc:
-        return {
-            "http_status": 0,
-            "body": b"",
-            "oversize": False,
-            "error": type(exc).__name__,
-            "final_url": None,
-        }
+
+    return digest_fetch
 
 
 def _reason(code: str, message: str) -> dict[str, str]:
@@ -369,6 +564,71 @@ def _response_body(
                 f"{label} escaped its exact same-origin path.",
             )
     return body
+
+
+def _verify_streamed_descriptor(
+    manifest: Mapping[str, Any],
+    path: str,
+    response: Mapping[str, Any],
+    *,
+    requested_url: str,
+    limit: int,
+    label: str,
+) -> tuple[int, str]:
+    """Verify a streamed response against its exact public descriptor."""
+    status = int(response.get("http_status") or 0)
+    if status != 200:
+        raise _ProjectionFailure(
+            "operations-streamed-http", f"{label} returned HTTP {status}."
+        )
+    if response.get("oversize") is True:
+        raise _ProjectionFailure(
+            "operations-streamed-oversize", f"{label} exceeded {limit} bytes."
+        )
+    final_url = response.get("final_url")
+    if final_url is not None:
+        if not isinstance(final_url, str):
+            raise _ProjectionFailure(
+                "operations-streamed-redirect", f"{label} returned an invalid final URL."
+            )
+        expected = urlsplit(requested_url)
+        final = urlsplit(final_url)
+        if (
+            final.scheme != expected.scheme
+            or final.netloc != expected.netloc
+            or final.path != expected.path
+            or final.username is not None
+            or final.password is not None
+        ):
+            raise _ProjectionFailure(
+                "operations-streamed-redirect",
+                f"{label} escaped its exact same-origin path.",
+            )
+
+    files = manifest.get("files")
+    descriptor = files.get(path) if isinstance(files, dict) else None
+    declared_size = descriptor.get("bytes") if isinstance(descriptor, dict) else None
+    expected_digest = descriptor.get("sha256") if isinstance(descriptor, dict) else None
+    bytes_read = response.get("bytes_read")
+    observed_digest = response.get("sha256")
+    if (
+        type(declared_size) is not int
+        or not 0 < declared_size <= limit
+        or type(bytes_read) is not int
+        or bytes_read < 0
+        or not isinstance(expected_digest, str)
+        or SHA256_RE.fullmatch(expected_digest) is None
+        or not isinstance(observed_digest, str)
+        or SHA256_RE.fullmatch(observed_digest) is None
+    ):
+        raise _ProjectionFailure(
+            "projection-file-bound", f"Critical publication file {path} lacked bounded digest evidence."
+        )
+    if bytes_read != declared_size or observed_digest != expected_digest:
+        raise _ProjectionFailure(
+            "projection-integrity", f"Critical publication file {path} failed exact verification."
+        )
+    return bytes_read, observed_digest
 
 
 def _safe_manifest_path(value: object) -> str:
@@ -487,6 +747,24 @@ def _normalize_generation_marker(value: object) -> dict[str, Any]:
     }
 
 
+def _normalize_manifest_limits(value: object) -> tuple[dict[str, int], bool]:
+    """Validate current limits or the narrow read-only rollover contract.
+
+    A historical projection may have declared a larger tree ceiling.  That
+    declaration is never authoritative here: descriptors and totals remain
+    bounded by today's limits below.  Blob and file-count declarations must be
+    at least as restrictive as today's policy.  The boolean identifies the
+    historical compatibility case for health evidence. Manifest creation never
+    calls this helper; publication proof requires its explicit historical flag.
+    """
+    try:
+        return normalize_safe_historical_limits(value)
+    except ValueError as exc:
+        raise _ProjectionFailure(
+            "manifest-contract", "Publication manifest policy was malformed."
+        ) from exc
+
+
 def _normalize_manifest(value: object) -> dict[str, Any]:
     expected = {
         "schema_version",
@@ -498,11 +776,6 @@ def _normalize_manifest(value: object) -> dict[str, Any]:
         "total_bytes",
         "files",
     }
-    expected_limits = {
-        "max_blob_bytes": PROJECTION_MAX_BLOB_BYTES,
-        "max_tree_bytes": PROJECTION_MAX_TREE_BYTES,
-        "max_files": PROJECTION_MAX_FILES,
-    }
     if (
         not isinstance(value, dict)
         or set(value) != expected
@@ -510,13 +783,16 @@ def _normalize_manifest(value: object) -> dict[str, Any]:
         or value.get("hash_algorithm") != "sha256"
         or value.get("git_object_format") != "sha1"
         or value.get("excluded_prefixes") != ["pr-preview/"]
-        or value.get("limits") != expected_limits
     ):
         raise _ProjectionFailure(
             "manifest-contract", "Publication manifest policy was malformed."
         )
+    declared_limits, _legacy_limits = _normalize_manifest_limits(value.get("limits"))
     raw_files = value.get("files")
-    if not isinstance(raw_files, dict) or len(raw_files) > PROJECTION_MAX_FILES:
+    if (
+        not isinstance(raw_files, dict)
+        or len(raw_files) > min(PROJECTION_MAX_FILES, declared_limits["max_files"])
+    ):
         raise _ProjectionFailure(
             "manifest-contract", "Publication manifest file map was malformed."
         )
@@ -545,7 +821,9 @@ def _normalize_manifest(value: object) -> dict[str, Any]:
         oid = raw_descriptor.get("git_oid")
         if (
             type(size) is not int
-            or not 0 <= size <= PROJECTION_MAX_BLOB_BYTES
+            or not 0
+            <= size
+            <= min(PROJECTION_MAX_BLOB_BYTES, declared_limits["max_blob_bytes"])
             or mode not in {"100644", "100755"}
             or not isinstance(digest, str)
             or SHA256_RE.fullmatch(digest) is None
@@ -580,7 +858,7 @@ def _normalize_manifest(value: object) -> dict[str, Any]:
         "hash_algorithm": "sha256",
         "git_object_format": "sha1",
         "excluded_prefixes": ["pr-preview/"],
-        "limits": expected_limits,
+        "limits": declared_limits,
         "file_count": len(files),
         "total_bytes": total,
         "files": dict(sorted(files.items())),
@@ -614,7 +892,13 @@ def _verify_descriptor(
 def _normalize_operations_manifest(
     value: object,
     projection_manifest: Mapping[str, Any],
-) -> tuple[list[str], dict[str, str], dict[str, int]]:
+) -> tuple[
+    list[str],
+    dict[str, str],
+    dict[str, int],
+    dict[str, str],
+    dict[str, int],
+]:
     """Validate the browser's bounded Operations entry point and shard map."""
     expected = {
         "schema_version",
@@ -743,11 +1027,25 @@ def _normalize_operations_manifest(
             + ", ".join(missing_canaries)
             + ".",
         )
+    if set(raw_sections) != set(OPERATIONS_SECTION_NAMES):
+        raise _ProjectionFailure(
+            "operations-manifest-contract",
+            "Operations application manifest did not declare the exact supported "
+            "section inventory.",
+        )
     canary_paths = {
         name: named_section_paths[name] for name in OPERATIONS_CANARY_SECTIONS
     }
     canary_sizes = {
         name: raw_sections[name]["bytes"] for name in OPERATIONS_CANARY_SECTIONS
+    }
+    streamed_paths = {
+        name: named_section_paths[name]
+        for name in OPERATIONS_STREAMED_LARGE_SECTIONS
+    }
+    streamed_sizes = {
+        name: raw_sections[name]["bytes"]
+        for name in OPERATIONS_STREAMED_LARGE_SECTIONS
     }
     operations_descriptor = projected_files.get(OPERATIONS_MANIFEST_PATH)
     try:
@@ -758,12 +1056,18 @@ def _normalize_operations_manifest(
                 else -1
             ),
             section_bytes={
-                name: canary_sizes[name] for name in OPERATIONS_CANARY_SECTIONS
+                name: raw_sections[name]["bytes"] for name in OPERATIONS_SECTION_NAMES
             },
         )
     except OperationsBundleContractError as exc:
         raise _ProjectionFailure("operations-canary-budget", str(exc)) from exc
-    return [organization_path, *sorted(section_paths)], canary_paths, canary_sizes
+    return (
+        [organization_path, *sorted(section_paths)],
+        canary_paths,
+        canary_sizes,
+        streamed_paths,
+        streamed_sizes,
+    )
 
 
 def _critical_asset_references(site_url: str, site_body: bytes) -> dict[str, str]:
@@ -1121,8 +1425,10 @@ def check_site_health(
     max_publication_age_hours: float = DEFAULT_MAX_PUBLICATION_AGE_HOURS,
     now: datetime | None = None,
     fetch: Fetch = fetch_url,
+    stream_fetch: DigestFetch | None = None,
     cache_token: str | None = None,
     allow_legacy_metadata_absence: bool = False,
+    verify_streamed_sections: bool = True,
 ) -> dict[str, Any]:
     """Return one deterministic, bounded projection-integrity probe."""
     if not math.isfinite(max_publication_age_hours) or max_publication_age_hours <= 0:
@@ -1142,6 +1448,12 @@ def check_site_health(
         raise ValueError("cache token must be a safe bounded identifier")
     if not isinstance(allow_legacy_metadata_absence, bool):
         raise ValueError("legacy metadata policy must be boolean")
+    if not isinstance(verify_streamed_sections, bool):
+        raise ValueError("streamed section verification policy must be boolean")
+    if stream_fetch is None:
+        stream_fetch = (
+            fetch_url_digest if fetch is fetch_url else _digest_fetch_adapter(fetch)
+        )
     base_url = _normalize_site_url(site_url)
     publication_url = _publication_url(base_url)
     generation_url = _same_origin_url(base_url, PUBLICATION_GENERATION_PATH)
@@ -1500,6 +1812,18 @@ def check_site_health(
             {"name": name, "path": None, "http_status": None}
             for name in OPERATIONS_CANARY_SECTIONS
         ],
+        "operations_streamed_sections": [
+            {
+                "name": name,
+                "path": None,
+                "http_status": None,
+                "bytes_read": None,
+                "sha256": None,
+                "verified": False,
+            }
+            for name in OPERATIONS_STREAMED_LARGE_SECTIONS
+        ],
+        "verification_scope": "none",
         "application_section_count": None,
         "verified_files": [],
     }
@@ -1509,7 +1833,13 @@ def check_site_health(
         and manifest_http == 404
     )
     if legacy_bootstrap:
-        projection.update({"mode": "legacy-bootstrap", "verified": False})
+        projection.update(
+            {
+                "mode": "legacy-bootstrap",
+                "verified": False,
+                "verification_scope": "legacy-bootstrap",
+            }
+        )
     else:
         metadata_http_valid = True
         if generation_http != 200:
@@ -1579,7 +1909,18 @@ def check_site_health(
                         "Publication generation did not bind the exact manifest digest and totals.",
                     )
                 if (
-                    manifest["file_count"] + 2 > PROJECTION_MAX_FILES
+                    manifest["file_count"] + 2
+                    > min(PROJECTION_MAX_FILES, manifest["limits"]["max_files"])
+                    or len(manifest_raw)
+                    > min(
+                        PROJECTION_MAX_BLOB_BYTES,
+                        manifest["limits"]["max_blob_bytes"],
+                    )
+                    or len(generation_raw)
+                    > min(
+                        PROJECTION_MAX_BLOB_BYTES,
+                        manifest["limits"]["max_blob_bytes"],
+                    )
                     or manifest["total_bytes"] + len(manifest_raw) + len(generation_raw)
                     > PROJECTION_MAX_TREE_BYTES
                 ):
@@ -1658,15 +1999,19 @@ def check_site_health(
                     operations_raw,
                     limit=OPERATIONS_MANIFEST_MAX_BYTES,
                 )
-                application_paths, canary_paths, canary_sizes = (
-                    _normalize_operations_manifest(
-                        _strict_json(
-                            operations_raw,
-                            code="operations-manifest-json",
-                            label="Operations application manifest",
-                        ),
-                        manifest,
-                    )
+                (
+                    application_paths,
+                    canary_paths,
+                    canary_sizes,
+                    streamed_paths,
+                    streamed_sizes,
+                ) = _normalize_operations_manifest(
+                    _strict_json(
+                        operations_raw,
+                        code="operations-manifest-json",
+                        label="Operations application manifest",
+                    ),
+                    manifest,
                 )
                 verified_files.append(OPERATIONS_MANIFEST_PATH)
                 canary_rows = projection["operations_canaries"]
@@ -1709,15 +2054,73 @@ def check_site_health(
                             f"Operations {canary_name} canary section was not an object.",
                         )
                     verified_files.append(canary_path)
+                streamed_rows = projection["operations_streamed_sections"]
+                for streamed_row in streamed_rows:
+                    streamed_name = streamed_row["name"]
+                    streamed_path = streamed_paths[streamed_name]
+                    streamed_size = streamed_sizes[streamed_name]
+                    streamed_row["path"] = streamed_path
+                    if not verify_streamed_sections:
+                        continue
+                    streamed_url = _same_origin_url(base_url, streamed_path)
+                    streamed_request_url = _cache_bust_token(
+                        streamed_url, cache_token
+                    )
+                    streamed_response = stream_fetch(
+                        streamed_request_url,
+                        streamed_size,
+                    )
+                    streamed_row["http_status"] = int(
+                        streamed_response.get("http_status") or 0
+                    )
+                    bytes_read, observed_digest = _verify_streamed_descriptor(
+                        manifest,
+                        streamed_path,
+                        streamed_response,
+                        requested_url=streamed_request_url,
+                        limit=OPERATIONS_STREAMED_MAX_BYTES,
+                        label=f"Operations {streamed_name} streamed section",
+                    )
+                    streamed_row.update(
+                        {
+                            "bytes_read": bytes_read,
+                            "sha256": observed_digest,
+                            "verified": True,
+                        }
+                    )
+                    verified_files.append(streamed_path)
+                complete_projection = verify_streamed_sections and all(
+                    row.get("verified") is True for row in streamed_rows
+                )
                 projection.update(
                     {
-                        "mode": "verified",
-                        "verified": True,
+                        "mode": (
+                            "verified" if complete_projection else "critical-routes-verified"
+                        ),
+                        "verified": complete_projection,
+                        "verification_scope": (
+                            "complete" if complete_projection else "critical-routes"
+                        ),
                         "generation_id": marker["generation_id"],
                         "state_sha": marker["state_sha"],
                         "state_tree": marker["state_tree"],
                         "code_sha": marker["code_sha"],
                         "manifest_sha256": manifest_digest,
+                        "manifest_policy": (
+                            "current"
+                            if manifest["limits"]
+                            == {
+                                "max_blob_bytes": PROJECTION_MAX_BLOB_BYTES,
+                                "max_tree_bytes": PROJECTION_MAX_TREE_BYTES,
+                                "max_files": PROJECTION_MAX_FILES,
+                            }
+                            else "safe-historical-read-only"
+                        ),
+                        "enforced_limits": {
+                            "max_blob_bytes": PROJECTION_MAX_BLOB_BYTES,
+                            "max_tree_bytes": PROJECTION_MAX_TREE_BYTES,
+                            "max_files": PROJECTION_MAX_FILES,
+                        },
                         "file_count": manifest["file_count"],
                         "total_bytes": manifest["total_bytes"],
                         "application_section_count": len(application_paths) - 1,
@@ -1749,18 +2152,46 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _projection_identity(probe: Mapping[str, Any]) -> tuple[str, str, str, str, str] | None:
+    projection = probe.get("projection")
+    if not isinstance(projection, Mapping):
+        return None
+    values = (
+        projection.get("generation_id"),
+        projection.get("state_sha"),
+        projection.get("state_tree"),
+        projection.get("code_sha"),
+        projection.get("manifest_sha256"),
+    )
+    generation_id, state_sha, state_tree, code_sha, manifest_sha256 = values
+    if (
+        not isinstance(generation_id, str)
+        or GENERATION_RE.fullmatch(generation_id) is None
+        or not all(
+            isinstance(value, str) and FULL_SHA_RE.fullmatch(value) is not None
+            for value in (state_sha, state_tree, code_sha)
+        )
+        or not isinstance(manifest_sha256, str)
+        or SHA256_RE.fullmatch(manifest_sha256) is None
+    ):
+        return None
+    return values
+
+
 def confirm_site_health(
     site_url: str = DEFAULT_SITE_URL,
     *,
     max_publication_age_hours: float = DEFAULT_MAX_PUBLICATION_AGE_HOURS,
     fetch: Fetch = fetch_url,
+    stream_fetch: DigestFetch | None = None,
     clock: Clock = _utc_now,
     sleep: Sleeper = time.sleep,
     allow_legacy_metadata_absence: bool = False,
 ) -> dict[str, Any]:
-    """Confirm liveness with a deterministic 2-of-3 bounded quorum."""
+    """Confirm liveness with a 2-of-3 quorum and one mandatory full stream."""
     probes: list[dict[str, Any]] = []
     summaries: list[dict[str, Any]] = []
+    streamed_projection_attempt: int | None = None
     for attempt in range(1, CONFIRMATION_ATTEMPTS + 1):
         delay = CONFIRMATION_DELAYS_SECONDS[attempt - 1]
         if delay:
@@ -1771,13 +2202,24 @@ def confirm_site_health(
         checked_at = checked_at.astimezone(timezone.utc)
         epoch_microseconds = int(checked_at.timestamp() * 1_000_000)
         cache_token = f"probe-{attempt}-{epoch_microseconds}"
+        # Bind the one full streamed proof to the middle sample. If one normal
+        # deployment rolls A->B during the three-probe window, the middle is in
+        # the 2-of-3 modal generation for both A,A,B and A,B,B. Probe three is
+        # the bounded fallback only when probe two failed before reaching the
+        # stream; a stream that was attempted and failed already used its exact
+        # internal request/retry allowance.
+        verify_streamed_sections = attempt == 2 or (
+            attempt == 3 and streamed_projection_attempt is None
+        )
         probe = check_site_health(
             site_url,
             max_publication_age_hours=max_publication_age_hours,
             now=checked_at,
             fetch=fetch,
+            stream_fetch=stream_fetch,
             cache_token=cache_token,
             allow_legacy_metadata_absence=allow_legacy_metadata_absence,
+            verify_streamed_sections=verify_streamed_sections,
         )
         probes.append(probe)
         site = probe.get("site") if isinstance(probe.get("site"), dict) else {}
@@ -1791,6 +2233,16 @@ def confirm_site_health(
             if isinstance(probe.get("projection"), dict)
             else {}
         )
+        raw_streamed_rows = projection.get("operations_streamed_sections")
+        stream_was_attempted = bool(
+            isinstance(raw_streamed_rows, list)
+            and any(
+                isinstance(row, dict) and row.get("http_status") is not None
+                for row in raw_streamed_rows
+            )
+        )
+        if stream_was_attempted and streamed_projection_attempt is None:
+            streamed_projection_attempt = attempt
         raw_reasons = probe.get("reasons")
         reason_codes = []
         if isinstance(raw_reasons, list):
@@ -1810,16 +2262,68 @@ def confirm_site_health(
                 "manifest_http": projection.get("manifest_http"),
                 "projection_mode": projection.get("mode"),
                 "projection_verified": projection.get("verified") is True,
+                "complete_projection": (
+                    projection.get("mode") == "verified"
+                    and projection.get("verified") is True
+                    and projection.get("verification_scope") == "complete"
+                ),
+                "streamed_projection_attempted": stream_was_attempted,
+                "matches_complete_projection": False,
                 "reason_codes": reason_codes,
             }
         )
 
     healthy_count = sum(probe.get("healthy") is True for probe in probes)
-    confirmed_healthy = healthy_count >= CONFIRMATION_QUORUM
-    matching = [
-        probe for probe in probes if (probe.get("healthy") is True) is confirmed_healthy
+    complete_projection_attempts = [
+        index
+        for index, probe in enumerate(probes, start=1)
+        if isinstance(probe.get("projection"), dict)
+        and probe["projection"].get("mode") == "verified"
+        and probe["projection"].get("verified") is True
+        and probe["projection"].get("verification_scope") == "complete"
     ]
-    representative = dict((matching or probes)[-1])
+    complete_projection_attempt = (
+        complete_projection_attempts[0]
+        if len(complete_projection_attempts) == 1
+        else None
+    )
+    full_projection_verified = complete_projection_attempt is not None
+    full_probe = (
+        probes[complete_projection_attempt - 1]
+        if complete_projection_attempt is not None
+        else {}
+    )
+    full_projection = (
+        full_probe.get("projection") if isinstance(full_probe.get("projection"), dict) else {}
+    )
+    full_identity = _projection_identity(full_probe) if full_projection_verified else None
+    matching_projection_healthy_count = 0
+    for probe, summary in zip(probes, summaries):
+        matches = full_identity is not None and _projection_identity(probe) == full_identity
+        summary["matches_complete_projection"] = matches
+        if matches and probe.get("healthy") is True:
+            matching_projection_healthy_count += 1
+    confirmed_healthy = (
+        healthy_count >= CONFIRMATION_QUORUM
+        and full_projection_verified
+        and matching_projection_healthy_count >= CONFIRMATION_QUORUM
+    )
+    if confirmed_healthy:
+        matching = [
+            probe
+            for probe in probes
+            if probe.get("healthy") is True
+            and full_identity is not None
+            and _projection_identity(probe) == full_identity
+        ]
+        representative = dict(matching[-1])
+        # The representative's ordinary probe may have skipped the large body.
+        # It is the same exact generation, so retain the first probe's complete
+        # streamed projection as the confirmation-level projection evidence.
+        representative["projection"] = dict(full_projection)
+    else:
+        unhealthy = [probe for probe in probes if probe.get("healthy") is not True]
+        representative = dict((unhealthy or probes)[-1])
     if confirmed_healthy:
         reasons: list[dict[str, str]] = []
     else:
@@ -1840,15 +2344,34 @@ def confirm_site_health(
                 if key not in seen and len(reasons) < 40:
                     seen.add(key)
                     reasons.append(_reason(code, message))
-        reasons.append(
-            _reason(
-                "confirmation-quorum",
-                (
-                    f"Only {healthy_count} of {CONFIRMATION_ATTEMPTS} bounded probes "
-                    f"were healthy; {CONFIRMATION_QUORUM} were required."
-                ),
+        if healthy_count < CONFIRMATION_QUORUM:
+            reasons.append(
+                _reason(
+                    "confirmation-quorum",
+                    (
+                        f"Only {healthy_count} of {CONFIRMATION_ATTEMPTS} bounded probes "
+                        f"were healthy; {CONFIRMATION_QUORUM} were required."
+                    ),
+                )
             )
-        )
+        if not full_projection_verified:
+            reasons.append(
+                _reason(
+                    "complete-projection-required",
+                    "The mandatory streamed full-projection verification did not pass.",
+                )
+            )
+        elif matching_projection_healthy_count < CONFIRMATION_QUORUM:
+            reasons.append(
+                _reason(
+                    "projection-generation-quorum",
+                    (
+                        f"Only {matching_projection_healthy_count} healthy probes matched "
+                        "the fully streamed projection generation; "
+                        f"{CONFIRMATION_QUORUM} were required."
+                    ),
+                )
+            )
     representative.update(
         {
             "schema_version": 1,
@@ -1863,16 +2386,16 @@ def confirm_site_health(
                 "required_healthy": CONFIRMATION_QUORUM,
                 "healthy_count": healthy_count,
                 "unhealthy_count": len(probes) - healthy_count,
-                "max_requests": CONFIRMATION_ATTEMPTS * REQUESTS_PER_PROBE,
+                "streamed_projection_attempt": streamed_projection_attempt,
+                "complete_projection_attempt": complete_projection_attempt,
+                "complete_projection_verified": full_projection_verified,
+                "matching_projection_healthy_count": matching_projection_healthy_count,
+                "required_matching_projection_healthy": CONFIRMATION_QUORUM,
+                "max_requests": MAX_CONFIRMATION_REQUESTS,
                 "per_request_timeout_seconds": FETCH_TIMEOUT_SECONDS,
-                "max_transport_seconds": CONFIRMATION_ATTEMPTS
-                * REQUESTS_PER_PROBE
-                * FETCH_TIMEOUT_SECONDS,
+                "max_transport_seconds": MAX_CONFIRMATION_TRANSPORT_SECONDS,
                 "retry_delays_seconds": list(CONFIRMATION_DELAYS_SECONDS),
-                "max_elapsed_seconds": CONFIRMATION_ATTEMPTS
-                * REQUESTS_PER_PROBE
-                * FETCH_TIMEOUT_SECONDS
-                + sum(CONFIRMATION_DELAYS_SECONDS),
+                "max_elapsed_seconds": MAX_CONFIRMATION_ELAPSED_SECONDS,
                 "probes": summaries,
             },
             "reasons": reasons,
@@ -1962,6 +2485,17 @@ def markdown_report(report: dict[str, Any]) -> str:
             for row in raw_canaries
             if isinstance(row, dict)
         ) or "unknown"
+    raw_streamed = projection.get("operations_streamed_sections")
+    streamed_summary = "unknown"
+    if isinstance(raw_streamed, list) and raw_streamed:
+        streamed_summary = ", ".join(
+            (
+                f"{safe(row.get('name'))} · {safe(row.get('http_status'))} · "
+                f"{safe(row.get('bytes_read'))} bytes · verified={safe(row.get('verified'))}"
+            )
+            for row in raw_streamed
+            if isinstance(row, dict)
+        ) or "unknown"
     lines = [
         "## Latest synthetic probe",
         "",
@@ -1982,6 +2516,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"| Projection files / bytes | {safe(projection.get('file_count'))} / {safe(projection.get('total_bytes'))} |",
         f"| Operations manifest HTTP | {safe(projection.get('operations_manifest_http'))} |",
         f"| Operations canaries | {canary_summary} |",
+        f"| Operations streamed routes | {streamed_summary} |",
         f"| Operations section descriptors | {safe(projection.get('application_section_count'))} |",
         "",
         "### Findings",
@@ -2054,6 +2589,18 @@ def _internal_error_report(site_url: str) -> dict[str, Any]:
                 {"name": name, "path": None, "http_status": None}
                 for name in OPERATIONS_CANARY_SECTIONS
             ],
+            "operations_streamed_sections": [
+                {
+                    "name": name,
+                    "path": None,
+                    "http_status": None,
+                    "bytes_read": None,
+                    "sha256": None,
+                    "verified": False,
+                }
+                for name in OPERATIONS_STREAMED_LARGE_SECTIONS
+            ],
+            "verification_scope": "none",
             "application_section_count": None,
             "verified_files": [],
         },
@@ -2065,16 +2612,16 @@ def _internal_error_report(site_url: str) -> dict[str, Any]:
             "required_healthy": CONFIRMATION_QUORUM,
             "healthy_count": 0,
             "unhealthy_count": 0,
-            "max_requests": CONFIRMATION_ATTEMPTS * REQUESTS_PER_PROBE,
+            "streamed_projection_attempt": None,
+            "complete_projection_attempt": None,
+            "complete_projection_verified": False,
+            "matching_projection_healthy_count": 0,
+            "required_matching_projection_healthy": CONFIRMATION_QUORUM,
+            "max_requests": MAX_CONFIRMATION_REQUESTS,
             "per_request_timeout_seconds": FETCH_TIMEOUT_SECONDS,
-            "max_transport_seconds": CONFIRMATION_ATTEMPTS
-            * REQUESTS_PER_PROBE
-            * FETCH_TIMEOUT_SECONDS,
+            "max_transport_seconds": MAX_CONFIRMATION_TRANSPORT_SECONDS,
             "retry_delays_seconds": list(CONFIRMATION_DELAYS_SECONDS),
-            "max_elapsed_seconds": CONFIRMATION_ATTEMPTS
-            * REQUESTS_PER_PROBE
-            * FETCH_TIMEOUT_SECONDS
-            + sum(CONFIRMATION_DELAYS_SECONDS),
+            "max_elapsed_seconds": MAX_CONFIRMATION_ELAPSED_SECONDS,
             "probes": [],
         },
         "reasons": [

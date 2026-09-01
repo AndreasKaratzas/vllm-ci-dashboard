@@ -18,6 +18,7 @@ import requests
 
 from . import config as cfg
 from ..buildkite_request_guard import BuildkiteRequestGuardError
+from ..private_ci_cache_budget import PRIVATE_CI_CACHE_BUDGET
 
 log = logging.getLogger(__name__)
 
@@ -25,8 +26,12 @@ NIGHTLY_ROSTER_CACHE_DIR = "nightly-rosters-v2"
 NIGHTLY_ROSTER_CACHE_SCHEMA_VERSION = 2
 LEGACY_NIGHTLY_ROSTER_CACHE_DIRS = ("nightly-rosters-v1",)
 NIGHTLY_ROSTER_RETENTION_DAYS = 16
-NIGHTLY_ROSTER_MAX_SHARD_BYTES = 8 * 1024 * 1024
-NIGHTLY_ROSTER_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+NIGHTLY_ROSTER_MAX_SHARD_BYTES = (
+    PRIVATE_CI_CACHE_BUDGET.nightly_roster_max_shard_bytes
+)
+NIGHTLY_ROSTER_MAX_TOTAL_BYTES = (
+    PRIVATE_CI_CACHE_BUDGET.nightly_roster_max_total_bytes
+)
 _ROSTER_PIPELINE_KEYS = frozenset({"amd", "upstream"})
 _ROSTER_SHARD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d+)\.json$")
 _ROSTER_ENVELOPE_FIELDS = frozenset({"schema_version", "build"})

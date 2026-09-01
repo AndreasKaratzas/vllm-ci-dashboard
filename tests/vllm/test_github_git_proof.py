@@ -283,27 +283,94 @@ def test_materialize_pages_prefix_fetches_only_proven_preview_blobs(
     assert not (destination / "index.html").exists()
 
 
-def test_pages_bounds_accept_one_current_size_preview_with_headroom(
+def test_pages_bounds_accept_one_compacted_preview_with_headroom(
     monkeypatch, tmp_path
 ) -> None:
-    # Production's full preview is currently about 143.7 MiB.  The policy
-    # deliberately admits one such preview alongside a similarly-sized root,
-    # while the final 384 MiB bound still prevents cumulative growth.
+    # The canonical root is currently about 135 MiB. Removing the redundant
+    # queue-history fallback keeps a preview near 91 MiB and the pair below the
+    # exact 256 MiB final publication ceiling.
     mib = 1024 * 1024
     files = {
-        "index.html": 144 * mib,
-        "pr-preview/pr-101/index.html": 144 * mib,
+        "index.html": 70 * mib,
+        "data/current.json": 65 * mib,
+        "pr-preview/pr-101/index.html": 50 * mib,
+        "pr-preview/pr-101/data/current.json": 41 * mib,
     }
-    (tmp_path / "pr-preview/pr-101").mkdir(parents=True)
+    (tmp_path / "data").mkdir()
+    (tmp_path / "pr-preview/pr-101/data").mkdir(parents=True)
     (tmp_path / "index.html").touch()
+    (tmp_path / "data/current.json").touch()
     (tmp_path / "pr-preview/pr-101/index.html").touch()
+    (tmp_path / "pr-preview/pr-101/data/current.json").touch()
     monkeypatch.setattr(proof, "_local_page_files", lambda root: dict(files))
     monkeypatch.setattr(proof, "_local_preview_digest", lambda root, rows: "a" * 64)
     summary = proof.bound_pages_directory(tmp_path, protected_preview="pr-101")
-    assert summary["preview_bytes"] == 144 * mib
-    assert summary["total_bytes"] == 288 * mib
+    assert summary["preview_bytes"] == 91 * mib
+    assert summary["total_bytes"] == 226 * mib
     assert summary["preview_count"] == 1
-    assert proof.MAX_SINGLE_PREVIEW_BYTES == 192 * mib
+    assert proof.MAX_PAGES_BLOB_BYTES == 85 * mib
+    assert proof.MAX_PAGES_TREE_BYTES == 256 * mib
+    assert proof.MAX_PREVIEW_BYTES == 112 * mib
+    assert proof.MAX_SINGLE_PREVIEW_BYTES == 112 * mib
+
+
+def test_pages_bounds_reject_oversized_protected_preview(
+    monkeypatch, tmp_path
+) -> None:
+    mib = 1024 * 1024
+    files = {
+        "index.html": 1,
+        "pr-preview/pr-101/one.bin": 60 * mib,
+        "pr-preview/pr-101/two.bin": 53 * mib,
+    }
+    (tmp_path / "pr-preview/pr-101").mkdir(parents=True)
+    for relative in files:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+    monkeypatch.setattr(proof, "_local_page_files", lambda root: dict(files))
+
+    with pytest.raises(proof.InvalidProof, match="protected preview.*cohort limit"):
+        proof.bound_pages_directory(tmp_path, protected_preview="pr-101")
+
+
+def test_pages_bounds_apply_dynamic_final_tree_limit_to_protected_preview(
+    monkeypatch, tmp_path
+) -> None:
+    mib = 1024 * 1024
+    files = {
+        "index.html": 75 * mib,
+        "data/current.json": 75 * mib,
+        "pr-preview/pr-101/one.bin": 55 * mib,
+        "pr-preview/pr-101/two.bin": 55 * mib,
+    }
+    for relative in files:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch()
+    monkeypatch.setattr(proof, "_local_page_files", lambda root: dict(files))
+
+    with pytest.raises(proof.InvalidProof, match="final Pages envelope"):
+        proof.bound_pages_directory(tmp_path, protected_preview="pr-101")
+
+
+def test_pages_bounds_prune_only_whole_preview_cohorts(
+    monkeypatch, tmp_path
+) -> None:
+    (tmp_path / "index.html").write_text("root\n")
+    for number in (100, 101):
+        preview = tmp_path / f"pr-preview/pr-{number}"
+        preview.mkdir(parents=True)
+        (preview / "index.html").write_text(f"preview {number}\n")
+        (preview / "asset.js").write_text("asset\n")
+    monkeypatch.setattr(proof, "MAX_PREVIEW_COUNT", 1)
+
+    summary = proof.bound_pages_directory(tmp_path, protected_preview="pr-101")
+
+    assert summary["preview_count"] == 1
+    assert not (tmp_path / "pr-preview/pr-100").exists()
+    assert (tmp_path / "pr-preview/pr-101/index.html").is_file()
+    assert (tmp_path / "pr-preview/pr-101/asset.js").is_file()
 
 
 def test_compare_ancestor_is_strict_and_stream_cap_is_explicit(monkeypatch) -> None:

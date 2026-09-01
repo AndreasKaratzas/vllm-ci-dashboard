@@ -11,6 +11,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from vllm import (
+    check_git_blob_sizes,
+    check_site_health,
+    github_git_proof,
+    public_projection,
+)
+from vllm import publication_limits
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = ROOT / "config" / "public_data_manifest.json"
@@ -340,7 +348,7 @@ def test_site_assembly_excludes_private_raw_state_and_retired_artifacts(
 def test_site_assembly_enforces_sub_ninety_mb_file_budget(tmp_path: Path) -> None:
     assert BUILD_SITE.SITE_FILE_MAX_BYTES == 85 * 1024 * 1024
     assert BUILD_SITE.SITE_FILE_MAX_BYTES < 90_000_000
-    assert BUILD_SITE.SITE_TOTAL_MAX_BYTES == 384 * 1024 * 1024
+    assert BUILD_SITE.SITE_TOTAL_MAX_BYTES == 256 * 1024 * 1024
     assert BUILD_SITE.SITE_MAX_FILES == 10_000
     (tmp_path / "small.json").write_bytes(b"x" * 8)
     BUILD_SITE.validate_site_file_sizes(tmp_path, max_bytes=8)
@@ -348,6 +356,81 @@ def test_site_assembly_enforces_sub_ninety_mb_file_budget(tmp_path: Path) -> Non
 
     with pytest.raises(RuntimeError, match="large.json"):
         BUILD_SITE.validate_site_file_sizes(tmp_path, max_bytes=8)
+
+
+def test_every_publication_boundary_uses_the_shared_hard_limits() -> None:
+    mib = 1024 * 1024
+    assert publication_limits.PUBLICATION_MAX_BLOB_BYTES == 85 * mib
+    assert publication_limits.PUBLICATION_MAX_TREE_BYTES == 256 * mib
+    assert publication_limits.PUBLICATION_MAX_FILES == 10_000
+    assert publication_limits.PREVIEW_MAX_BYTES == 112 * mib
+    assert publication_limits.SINGLE_PREVIEW_MAX_BYTES == 112 * mib
+
+    assert (
+        BUILD_SITE.SITE_FILE_MAX_BYTES,
+        BUILD_SITE.SITE_TOTAL_MAX_BYTES,
+        BUILD_SITE.SITE_MAX_FILES,
+    ) == (
+        publication_limits.PUBLICATION_MAX_BLOB_BYTES,
+        publication_limits.PUBLICATION_MAX_TREE_BYTES,
+        publication_limits.PUBLICATION_MAX_FILES,
+    )
+    assert check_git_blob_sizes.DEFAULT_MAX_BYTES == (
+        publication_limits.PUBLICATION_MAX_BLOB_BYTES
+    )
+    assert check_git_blob_sizes.DEFAULT_MAX_TREE_BYTES == (
+        publication_limits.PUBLICATION_MAX_TREE_BYTES
+    )
+    assert (
+        public_projection.MAX_BLOB_BYTES,
+        public_projection.MAX_TREE_BYTES,
+        public_projection.MAX_FILES,
+    ) == (
+        publication_limits.PUBLICATION_MAX_BLOB_BYTES,
+        publication_limits.PUBLICATION_MAX_TREE_BYTES,
+        publication_limits.PUBLICATION_MAX_FILES,
+    )
+    assert (
+        check_site_health.PROJECTION_MAX_BLOB_BYTES,
+        check_site_health.PROJECTION_MAX_TREE_BYTES,
+        check_site_health.PROJECTION_MAX_FILES,
+    ) == (
+        publication_limits.PUBLICATION_MAX_BLOB_BYTES,
+        publication_limits.PUBLICATION_MAX_TREE_BYTES,
+        publication_limits.PUBLICATION_MAX_FILES,
+    )
+    for profile_name in ("pages", "pages-orphan"):
+        profile = github_git_proof.PROFILES[profile_name]
+        assert profile.max_blob_bytes == publication_limits.PUBLICATION_MAX_BLOB_BYTES
+        assert profile.max_tree_bytes == publication_limits.PUBLICATION_MAX_TREE_BYTES
+        assert profile.max_files == publication_limits.PUBLICATION_MAX_FILES
+    assert github_git_proof.MAX_PREVIEW_BYTES == publication_limits.PREVIEW_MAX_BYTES
+    assert (
+        github_git_proof.MAX_SINGLE_PREVIEW_BYTES
+        == publication_limits.SINGLE_PREVIEW_MAX_BYTES
+    )
+
+
+def test_no_legacy_oversized_pages_ceiling_remains() -> None:
+    roots = (
+        ROOT / ".github/workflows",
+        ROOT / "config",
+        ROOT / "dashboards",
+        ROOT / "docs",
+        ROOT / "scripts",
+    )
+    excluded = ROOT / "scripts/vllm/collect_queue_lifecycle.py"
+    forbidden = ("384 * 1024 * 1024", "402653184", "384 MiB", "384MiB")
+    violations: list[str] = []
+    for root in roots:
+        for path in root.rglob("*"):
+            if path == excluded or path.suffix not in {".json", ".md", ".py", ".yaml", ".yml"}:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                if token in text:
+                    violations.append(f"{path.relative_to(ROOT)}: {token}")
+    assert violations == []
 
 
 def test_site_assembly_enforces_aggregate_and_file_count_budgets(

@@ -7,8 +7,10 @@ import json
 
 import pytest
 
+from vllm.amd_nightly_handoff import write_amd_nightly_snapshot
 from vllm.collect_amd_test_matrix import (
     aggregate_state,
+    bounded_matrix_payload,
     build_buildkite_job_index,
     build_hotness_job_index,
     build_latest_job_index,
@@ -22,6 +24,7 @@ from vllm.collect_amd_test_matrix import (
     merge_latest_job_indexes,
     _parity_state_for_arch,
     parse_steps,
+    publish_matrix,
     strip_shard_index,
     yaml_url_for_build,
 )
@@ -59,6 +62,62 @@ steps:
 """
 
 
+def _oversized_matrix_payload() -> dict:
+    rows = []
+    health_groups = []
+    classifications = []
+    for index, status in enumerate(("passing", "failed", "waiting", "unknown")):
+        row_id = f"row-{index}"
+        health_id = f"health-{index}"
+        rows.append({
+            "id": row_id,
+            "title": f"Group {index}",
+            "yaml_order": index,
+            "cells": {"mi355": {"exists": True, "latest_state": status}},
+            "commands": ["pytest " + ("x" * 2_500)],
+        })
+        health_groups.append({
+            "id": health_id,
+            "title": f"Group {index}",
+            "status": status,
+            "member_row_ids": [row_id],
+            "members": [{"row_id": row_id, "detail": "x" * 1_000}],
+        })
+        classifications.append({
+            "row_id": row_id,
+            "health_group_id": health_id,
+            "classification": "separate_gate",
+        })
+    best_hardware = {
+        "included_groups": 4,
+        "health_group_count": 4,
+        "passing_groups": 1,
+        "failing_groups": 1,
+        "waiting_groups": 1,
+        "unknown_groups": 1,
+        "group_ids": [group["id"] for group in health_groups],
+    }
+    return {
+        "generated_at": "2026-09-01T00:00:00Z",
+        "source": {"yaml_url": "https://example.invalid/test-amd.yaml"},
+        "summary": {
+            "unique_groups": 4,
+            "definition_rows": 4,
+            "health_group_count": 4,
+            "health_policies": {"best_hardware": best_hardware},
+        },
+        "architectures": [{"id": "mi355", "group_count": 4}],
+        "areas": ["Kernels"],
+        "duplicate_policy": {},
+        "best_hardware_policy": {
+            "mi355_classification": classifications,
+        },
+        "health_groups": health_groups,
+        "duplicate_groups": [],
+        "rows": rows,
+    }
+
+
 def test_default_yaml_url_is_pinned_to_the_observed_build_commit():
     commit = "7f599d78546819948c32f2b23d913507bbb38875"
 
@@ -72,11 +131,8 @@ def test_default_yaml_url_is_pinned_to_the_observed_build_commit():
 
 
 def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
-    snapshot_path = tmp_path / "amd_nightly_snapshot.json"
-    snapshot_path.write_text(json.dumps({
-        "schema_version": 1,
-        "pipeline": "amd-ci",
-        "build": {
+    snapshot_path = write_amd_nightly_snapshot(
+        {
             "number": 10972,
             "commit": "a" * 40,
             "jobs": [
@@ -96,7 +152,8 @@ def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
                 },
             ],
         },
-    }))
+        tmp_path,
+    )
     analytics = {
         "amd-ci": {
             "builds": [{
@@ -120,21 +177,20 @@ def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
 
 
 def test_frozen_snapshot_rejects_wrong_build(tmp_path):
-    snapshot_path = tmp_path / "amd_nightly_snapshot.json"
-    snapshot_path.write_text(json.dumps({
-        "schema_version": 1,
-        "pipeline": "amd-ci",
-        "build": {"number": 10971, "jobs": []},
-    }))
+    snapshot_path = write_amd_nightly_snapshot(
+        {"number": 10971, "jobs": []}, tmp_path
+    )
 
     with pytest.raises(ValueError, match=r"expected #10972, found #10971"):
         load_frozen_build_snapshot(snapshot_path, 10972)
 
 
-def test_missing_frozen_snapshot_uses_collected_analytics_without_network(tmp_path):
+def test_missing_required_frozen_snapshot_fails_closed_without_network(tmp_path):
     analytics_index = {"mi300": {"engine": [{"state": "passed"}]}}
 
-    assert load_frozen_build_snapshot(tmp_path / "missing.json", 10972) is None
+    with pytest.raises(ValueError, match="Required frozen AMD build snapshot"):
+        load_frozen_build_snapshot(tmp_path / "missing.json", 10972)
+    assert load_frozen_build_snapshot(tmp_path / "missing.json", None) is None
     assert frozen_or_analytics_job_index(analytics_index, None, []) is analytics_index
 
 
@@ -1097,3 +1153,60 @@ def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
     assert {group["title"] for group in alias_groups} == aliases
     assert all(group["architectures"] == ["mi300", "mi355"] for group in alias_groups)
     assert all(group["gate_kind"] == "generic_best_hardware" for group in alias_groups)
+
+
+def test_bounded_matrix_retains_incident_cohorts_and_exact_source_counts():
+    source = _oversized_matrix_payload()
+
+    bounded = bounded_matrix_payload(source, max_bytes=9_000)
+    encoded = (json.dumps(bounded, indent=2) + "\n").encode()
+    retention = bounded["publication_retention"]
+    statuses = {group["status"] for group in bounded["health_groups"]}
+
+    assert len(encoded) <= 9_000
+    assert retention["complete_relative_to_source"] is False
+    assert retention["aggregate_source_counts_complete"] is True
+    assert retention["matrix_rows"]["source"] == 4
+    assert retention["matrix_rows"]["published"] == len(bounded["rows"])
+    assert retention["matrix_rows"]["omitted"] == 4 - len(bounded["rows"])
+    assert "failed" in statuses
+    assert "passing" not in statuses
+    assert bounded["summary"]["source_health_group_count"] == 4
+    assert bounded["summary"]["health_group_count"] == len(
+        bounded["health_groups"]
+    )
+    assert (
+        bounded["summary"]["health_policies"]["best_hardware"][
+            "health_group_details_complete"
+        ]
+        is False
+    )
+
+
+def test_bounded_matrix_is_permutation_invariant():
+    source = _oversized_matrix_payload()
+    reversed_source = dict(source)
+    for name in ("rows", "health_groups", "duplicate_groups"):
+        reversed_source[name] = list(reversed(source[name]))
+    reversed_policy = dict(source["best_hardware_policy"])
+    reversed_policy["mi355_classification"] = list(
+        reversed(reversed_policy["mi355_classification"])
+    )
+    reversed_source["best_hardware_policy"] = reversed_policy
+
+    assert bounded_matrix_payload(
+        source,
+        max_bytes=9_000,
+    ) == bounded_matrix_payload(reversed_source, max_bytes=9_000)
+
+
+def test_matrix_publication_preserves_lkg_when_fixed_metadata_cannot_fit(
+    tmp_path,
+):
+    output = tmp_path / "amd_test_matrix.json"
+    output.write_text('{"generation":"last-known-good"}\n')
+
+    with pytest.raises(RuntimeError, match="exceeds its byte budget"):
+        publish_matrix(output, _oversized_matrix_payload(), max_bytes=64)
+
+    assert json.loads(output.read_text()) == {"generation": "last-known-good"}

@@ -467,6 +467,23 @@ class TestCollectProjectIncludesProjectIssues:
         snapshot = json.loads(
             (tmp_path / "data/vllm/ci/project_items.json").read_text()
         )
+        retention = snapshot.pop("publication_retention")
+        assert retention["rows"] == {
+            "source": 1,
+            "published": 1,
+            "omitted": 0,
+            "complete_relative_to_source": True,
+        }
+        assert retention["complete_relative_to_source"] is True
+        assert snapshot.pop("total_count") == 1
+        snapshot_coverage = snapshot["source_coverage"]
+        assert snapshot_coverage.pop("query_count") == 0
+        assert snapshot_coverage.pop("query_retention") == {
+            "source": 0,
+            "published": 0,
+            "omitted": 0,
+            "complete_relative_to_source": True,
+        }
         assert snapshot == {
             "generated_at": "2026-08-22T10:00:00Z",
             "items_by_number": {

@@ -32,6 +32,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     reconcile_managed_issue,
     validate_target_repo,
 )
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.ownership import (  # noqa: E402
     apply_incident_hysteresis,
     build_ownership_status,
@@ -41,6 +42,7 @@ from vllm.ci.ownership import (  # noqa: E402
     matrix_runtime_targets,
     parse_timestamp,
 )
+from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 
 
 logging.basicConfig(
@@ -59,6 +61,7 @@ OWNERSHIP_PARITY = DATA / "ownership_config_parity.json"
 MATRIX = DATA / "amd_test_matrix.json"
 STATE = DATA / "open_ci_area_regression_issues.json"
 STATUS = DATA / "ci_ownership.json"
+CI_OWNERSHIP_MAX_BYTES = writer_max_bytes("ci_ownership")
 MAX_SOURCE_AGE = timedelta(hours=3)
 MAX_NIGHTLY_AGE = timedelta(hours=36)
 FUTURE_SKEW = timedelta(minutes=15)
@@ -254,7 +257,26 @@ def _read_state() -> dict:
 
 def _write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    if path == STATE:
+        write_watcher_state(
+            path,
+            value,
+            state_filename="open_ci_area_regression_issues.json",
+        )
+        return
+    published = (
+        _bounded_ownership_status(value, max_bytes=CI_OWNERSHIP_MAX_BYTES)
+        if path == STATUS
+        else value
+    )
+    payload = json.dumps(published, indent=2, sort_keys=True) + "\n"
+    payload_bytes = payload.encode("utf-8")
+    if path == STATUS and len(payload_bytes) > CI_OWNERSHIP_MAX_BYTES:
+        raise RuntimeError(
+            "CI ownership snapshot exceeds its byte budget; preserving the "
+            "last-known-good file: "
+            f"{len(payload_bytes)} > {CI_OWNERSHIP_MAX_BYTES} bytes"
+        )
     temp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -274,6 +296,149 @@ def _write_json(path: Path, value: dict) -> None:
     finally:
         if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+
+
+def _bounded_ownership_status(
+    value: dict,
+    *,
+    max_bytes: int = CI_OWNERSHIP_MAX_BYTES,
+) -> dict:
+    """Publish exact totals plus the richest deterministic area detail that fits."""
+    source_areas = sorted(
+        (dict(row) for row in value.get("areas") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            -int(bool((row.get("counts") or {}).get("incidents"))),
+            -int(bool((row.get("counts") or {}).get("pending_soft"))),
+            -int(bool((row.get("counts") or {}).get("upstream_parity_gaps"))),
+            str(row.get("area") or row.get("source_file") or "").casefold(),
+        ),
+    )
+    source_unmapped = [
+        dict(row)
+        for row in value.get("unmapped_targets") or []
+        if isinstance(row, dict)
+    ]
+    visible_detail_fields = (
+        "regressions",
+        "pending_soft_observations",
+        "upstream_parity_gaps",
+    )
+    source_detail_count = sum(
+        len(row.get(field) or [])
+        for row in source_areas
+        for field in visible_detail_fields
+    )
+
+    def candidate(
+        *,
+        area_count: int,
+        keep_visible_details: bool,
+        keep_full_rows: bool,
+    ) -> dict:
+        rows = []
+        for source in source_areas[:area_count]:
+            row = dict(source)
+            if not keep_full_rows:
+                row.pop("targets", None)
+                if not keep_visible_details:
+                    for field in visible_detail_fields:
+                        row[field] = []
+            row["publication_detail_complete"] = keep_visible_details
+            rows.append(row)
+        result = dict(value)
+        result["areas"] = rows
+        result["unmapped_targets"] = source_unmapped if keep_full_rows else []
+        published_detail_count = (
+            sum(
+                len(row.get(field) or [])
+                for row in rows
+                for field in visible_detail_fields
+            )
+            if keep_visible_details
+            else 0
+        )
+        result["publication_retention"] = {
+            "policy": "aggregate_first_priority_area_rows_v1",
+            "max_bytes": max_bytes,
+            "aggregate_summary_complete": True,
+            "area_rows": {
+                "source": len(source_areas),
+                "published": len(rows),
+                "omitted": len(source_areas) - len(rows),
+                "complete_relative_to_source": len(rows) == len(source_areas),
+            },
+            "visible_detail_rows": {
+                "source": source_detail_count,
+                "published": published_detail_count,
+                "omitted": source_detail_count - published_detail_count,
+                "complete_relative_to_source": (
+                    keep_visible_details and len(rows) == len(source_areas)
+                ),
+            },
+            "unmapped_target_rows": {
+                "source": len(source_unmapped),
+                "published": len(source_unmapped) if keep_full_rows else 0,
+                "omitted": 0 if keep_full_rows else len(source_unmapped),
+                "complete_relative_to_source": keep_full_rows,
+            },
+            "complete_relative_to_source": (
+                keep_full_rows and len(rows) == len(source_areas)
+            ),
+        }
+        return result
+
+    def encoded_size(payload: dict) -> int:
+        return len((json.dumps(payload, indent=2, sort_keys=True) + "\n").encode())
+
+    complete = candidate(
+        area_count=len(source_areas),
+        keep_visible_details=True,
+        keep_full_rows=True,
+    )
+    if encoded_size(complete) <= max_bytes:
+        return complete
+    visible = candidate(
+        area_count=len(source_areas),
+        keep_visible_details=True,
+        keep_full_rows=False,
+    )
+    if encoded_size(visible) <= max_bytes:
+        return visible
+    shells = candidate(
+        area_count=len(source_areas),
+        keep_visible_details=False,
+        keep_full_rows=False,
+    )
+    if encoded_size(shells) <= max_bytes:
+        return shells
+
+    low = 0
+    high = len(source_areas)
+    best: dict | None = None
+    while low <= high:
+        middle = (low + high) // 2
+        current = candidate(
+            area_count=middle,
+            keep_visible_details=False,
+            keep_full_rows=False,
+        )
+        if encoded_size(current) <= max_bytes:
+            best = current
+            low = middle + 1
+        else:
+            high = middle - 1
+    if best is None:
+        irreducible = candidate(
+            area_count=0,
+            keep_visible_details=False,
+            keep_full_rows=False,
+        )
+        raise RuntimeError(
+            "CI ownership fixed aggregates exceed their byte budget; preserving "
+            "the last-known-good file: "
+            f"{encoded_size(irreducible)} > {max_bytes} bytes"
+        )
+    return best
 
 
 def _md(value: Any) -> str:

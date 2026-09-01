@@ -6,6 +6,14 @@ This module is for framework-level configuration only.
 
 import os
 
+from ..buildkite_request_guard import install_from_environment_or_exit
+
+
+# This module is the shared ingress for Buildkite REST/log helpers, including
+# dormant library callers such as ``create_build``.  Direct imports must enforce
+# the same guard contract as workflow entry points before capturing a token.
+install_from_environment_or_exit()
+
 # Buildkite API
 BK_API_BASE = "https://api.buildkite.com/v2"
 BK_TOKEN = os.getenv("BUILDKITE_TOKEN", "")

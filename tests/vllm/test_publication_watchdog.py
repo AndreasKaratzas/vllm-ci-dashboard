@@ -39,6 +39,7 @@ def _run(
     conclusion=None,
     recovery_key=None,
     display_title=None,
+    head_branch="main",
 ):
     if status == "completed" and conclusion is None:
         conclusion = "failure"
@@ -48,6 +49,7 @@ def _run(
             display_title += f" [recovery:{recovery_key}]"
     row = {
         "id": run_id,
+        "head_branch": head_branch,
         "status": status,
         "created_at": (NOW - timedelta(minutes=age_minutes)).isoformat(),
         "run_started_at": None,
@@ -359,6 +361,16 @@ def test_invalid_publication_status_fails_open_to_recovery(payload) -> None:
     ],
 )
 def test_untrusted_or_unknown_run_state_fails_closed(row) -> None:
+    with pytest.raises(ValueError, match="invalid row"):
+        watchdog.parse_workflow_runs({"workflow_runs": [row]}, now=NOW)
+
+
+@pytest.mark.parametrize("head_branch", [None, "feature/runtime-test"])
+def test_workflow_run_evidence_requires_exact_main_branch(head_branch) -> None:
+    row = _run(age_minutes=10, status="in_progress", head_branch=head_branch)
+    if head_branch is None:
+        row.pop("head_branch")
+
     with pytest.raises(ValueError, match="invalid row"):
         watchdog.parse_workflow_runs({"workflow_runs": [row]}, now=NOW)
 

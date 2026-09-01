@@ -1,17 +1,70 @@
 """Shared bounded-consumability contract for public Operations shards."""
 
+# cspell:ignore UNFETCHED
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 
+from vllm.dashboard_storage_budget import writer_max_bytes
 
-# These are the independent routes exercised by the synthetic health check.
-# The first two are fetched together by the default CI-health overview; the
-# diagnostics shard proves that a second lazy route is usable as well.
-OPERATIONS_CANARY_SECTIONS = ("nightly", "amd_test_health", "diagnostics")
-OPERATIONS_CANARY_BUNDLE_MAX_BYTES = 12_000_000
-OPERATIONS_CANARY_FILE_MAX_BYTES = OPERATIONS_CANARY_BUNDLE_MAX_BYTES
-OPERATIONS_MANIFEST_MAX_BYTES = 2 * 1024 * 1024
+
+# Keep the complete lazy-section inventory explicit. A new public route must
+# choose a bounded probe policy here instead of silently becoming an untested
+# file in the deployed projection.
+OPERATIONS_SECTION_NAMES = (
+    "nightly",
+    "amd_test_health",
+    "amd_agent_health",
+    "reliability",
+    "comparison",
+    "comparison_retry_evidence",
+    "definition_parity",
+    "test_group_parity",
+    "gating",
+    "ownership",
+    "queue",
+    "trajectory",
+    "omni",
+    "diagnostics",
+)
+
+# Reliability is a separately bounded 64 MiB drill-down payload. The synthetic
+# monitor streams it through SHA-256 verification without retaining the body in
+# memory, while every smaller lazy route is fetched and strict-JSON parsed.
+OPERATIONS_STREAMED_LARGE_SECTIONS = ("reliability",)
+# Compatibility spelling used by health/audit tests and downstream consumers.
+OPERATIONS_UNFETCHED_LARGE_SECTIONS = frozenset(OPERATIONS_STREAMED_LARGE_SECTIONS)
+OPERATIONS_STREAMED_FILE_MAX_BYTES = 64 * 1024 * 1024
+OPERATIONS_CANARY_SECTIONS = tuple(
+    name
+    for name in OPERATIONS_SECTION_NAMES
+    if name not in OPERATIONS_STREAMED_LARGE_SECTIONS
+)
+OPERATIONS_CANARY_BUNDLE_MAX_BYTES = 32 * 1024 * 1024
+OPERATIONS_CANARY_FILE_MAX_BYTES = 12 * 1024 * 1024
+OPERATIONS_MANIFEST_MAX_BYTES = writer_max_bytes("operations_manifest")
+# Agent health has a 16 MiB private-source allowance but is embedded alongside
+# every other eagerly parsed canary. Its public projection therefore owns only
+# one quarter of the shared bundle ceiling.
+# These allocations are exhaustive and additive. Together with the 2 MiB
+# manifest allowance they equal the 32 MiB canary envelope, so independently
+# legal route files can never form an illegal synthetic-monitor response set.
+OPERATIONS_CANARY_SECTION_MAX_BYTES = {
+    "nightly": 2 * 1024 * 1024,
+    "amd_test_health": 8 * 1024 * 1024,
+    "amd_agent_health": 8 * 1024 * 1024,
+    "comparison": 1_310_720,
+    "comparison_retry_evidence": 4 * 1024 * 1024,
+    "definition_parity": 1 * 1024 * 1024,
+    "test_group_parity": 512 * 1024,
+    "gating": 2 * 1024 * 1024,
+    "ownership": 512 * 1024,
+    "queue": 1 * 1024 * 1024,
+    "trajectory": 512 * 1024,
+    "omni": 1 * 1024 * 1024,
+    "diagnostics": 256 * 1024,
+}
 
 
 class OperationsBundleContractError(ValueError):
@@ -23,7 +76,7 @@ def validate_operations_canary_budget(
     manifest_bytes: int,
     section_bytes: Mapping[str, object],
 ) -> int:
-    """Return the bounded canary byte total or raise on an invalid contract."""
+    """Return the bounded canary byte total or raise on an invalid bundle."""
     if type(manifest_bytes) is not int or not 0 < manifest_bytes <= (
         OPERATIONS_MANIFEST_MAX_BYTES
     ):
@@ -31,14 +84,30 @@ def validate_operations_canary_budget(
             "Operations manifest exceeds its bounded read budget"
         )
 
+    if set(section_bytes) != set(OPERATIONS_SECTION_NAMES):
+        raise OperationsBundleContractError(
+            "Operations bundle does not declare the exact supported section inventory"
+        )
+
     total = manifest_bytes
     for name in OPERATIONS_CANARY_SECTIONS:
         size = section_bytes.get(name)
-        if type(size) is not int or not 0 < size <= OPERATIONS_CANARY_FILE_MAX_BYTES:
+        section_limit = OPERATIONS_CANARY_SECTION_MAX_BYTES.get(
+            name,
+            OPERATIONS_CANARY_FILE_MAX_BYTES,
+        )
+        if type(size) is not int or not 0 < size <= section_limit:
             raise OperationsBundleContractError(
-                f"Operations canary section {name!r} has an invalid byte size"
+                "Operations canary bundle section "
+                f"{name!r} has an invalid byte size (limit {section_limit})"
             )
         total += size
+    for name in OPERATIONS_STREAMED_LARGE_SECTIONS:
+        size = section_bytes.get(name)
+        if type(size) is not int or not 0 < size <= OPERATIONS_STREAMED_FILE_MAX_BYTES:
+            raise OperationsBundleContractError(
+                f"Operations streamed section {name!r} has an invalid byte size"
+            )
     if total > OPERATIONS_CANARY_BUNDLE_MAX_BYTES:
         raise OperationsBundleContractError(
             "Operations canary bundle is "

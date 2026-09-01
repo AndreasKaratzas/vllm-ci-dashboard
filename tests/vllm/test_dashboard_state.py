@@ -97,10 +97,18 @@ def make_state(
     *,
     generation: str,
     value: int,
+    projection_attestation: dict[str, object] | None = None,
 ) -> state.ValidatedState:
     (root / "data/vllm/ci/current.json").write_text(json.dumps({"value": value}) + "\n")
     (root / projection.ATTESTATION_PATH).write_text(
-        json.dumps(PUBLIC_PROJECTION, sort_keys=True, separators=(",", ":")) + "\n"
+        json.dumps(
+            PUBLIC_PROJECTION
+            if projection_attestation is None
+            else projection_attestation,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
     )
     (root / "dashboards/summary.md").write_text(f"dashboard {value}\n")
     (root / "README.md").write_text(f"readme {value}\n")
@@ -1480,6 +1488,133 @@ def init_existing_repo_contents(root: Path) -> str:
 def remote_sha(root: Path, branch: str) -> str | None:
     output = git(root, "ls-remote", "--refs", "origin", f"refs/heads/{branch}")
     return output.split()[0] if output else None
+
+
+def test_two_historical_slots_seed_exact_current_generation_and_preserve_rollback(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+) -> None:
+    legacy_site = tmp_path / "legacy-site"
+    legacy_site.mkdir()
+    (legacy_site / "index.html").write_text("historical dashboard\n")
+    legacy_manifest_path = legacy_site / projection.MANIFEST_NAME
+    projection.create_manifest(legacy_site, legacy_manifest_path)
+    legacy_manifest = json.loads(legacy_manifest_path.read_text())
+    legacy_manifest["limits"]["max_tree_bytes"] = projection.MAX_TREE_BYTES + 1
+    legacy_raw = projection._canonical_json(legacy_manifest)
+    legacy_manifest_path.write_bytes(legacy_raw)
+    legacy_attestation = projection._attestation_for_manifest(
+        legacy_manifest, legacy_raw
+    )
+    with pytest.raises(projection.PublicProjectionError, match="limits disagree"):
+        projection.load_manifest(legacy_manifest_path)
+    projection.load_manifest(
+        legacy_manifest_path, allow_safe_legacy_limits=True
+    )
+
+    repo = tmp_path / "repo"
+    remote = tmp_path / "remote.git"
+    repo.mkdir()
+    code_sha = init_repo(repo)
+    subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+    git(repo, "remote", "add", "origin", str(remote))
+
+    old_previous = make_state(
+        repo,
+        policy,
+        code_sha,
+        generation="rollover.old-previous",
+        value=2,
+        projection_attestation=legacy_attestation,
+    )
+    state.rotate_state_refs(
+        repo,
+        policy,
+        new_state_sha=old_previous.state_sha,
+        expected_current_sha=None,
+        expected_previous_sha=None,
+    )
+    old_current = make_state(
+        repo,
+        policy,
+        code_sha,
+        generation="rollover.old-current",
+        value=3,
+        projection_attestation=legacy_attestation,
+    )
+    state.rotate_state_refs(
+        repo,
+        policy,
+        new_state_sha=old_current.state_sha,
+        expected_current_sha=old_previous.state_sha,
+        expected_previous_sha=old_previous.state_sha,
+    )
+
+    # Both historical slots remain valid hydration baselines under today's
+    # actual attestation count/tree caps.
+    for snapshot in (old_current, old_previous):
+        assert state.validate_state_ref(
+            repo, snapshot.state_sha, policy, expected_code_sha=code_sha
+        ).state_sha == snapshot.state_sha
+    state.materialize_generated_roots(
+        repo, old_current.state_sha, policy, expected_code_sha=code_sha
+    )
+    assert json.loads((repo / "data/vllm/ci/current.json").read_text()) == {"value": 3}
+
+    current_site = tmp_path / "current-site"
+    current_site.mkdir()
+    (current_site / "index.html").write_text("current dashboard\n")
+    current_manifest_path = current_site / projection.MANIFEST_NAME
+    current_attestation_path = repo / projection.ATTESTATION_PATH
+    current_manifest = projection.create_manifest(current_site, current_manifest_path)
+    current_attestation = projection.write_attestation(
+        current_manifest_path, current_attestation_path
+    )
+    assert current_manifest["limits"]["max_tree_bytes"] == projection.MAX_TREE_BYTES
+
+    marker = current_site / projection.MARKER_NAME
+    marker.write_text(
+        json.dumps(
+            {"schema_version": 2, "public_projection": current_attestation},
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    projection.verify_local_projection(
+        current_site, current_manifest_path, current_attestation_path, marker
+    )
+
+    exact_current = make_state(
+        repo,
+        policy,
+        code_sha,
+        generation="rollover.exact-current",
+        value=4,
+        projection_attestation=current_attestation,
+    )
+    state.rotate_state_refs(
+        repo,
+        policy,
+        new_state_sha=exact_current.state_sha,
+        expected_current_sha=old_current.state_sha,
+        expected_previous_sha=old_previous.state_sha,
+    )
+    assert remote_sha(repo, policy.branch) == exact_current.state_sha
+    assert remote_sha(repo, policy.previous_branch) == old_current.state_sha
+
+    # The first exact generation does not strand its historical failover slot.
+    rollback = state.materialize_generated_roots(
+        repo, old_current.state_sha, policy, expected_code_sha=code_sha
+    )
+    assert rollback.state_sha == old_current.state_sha
+    restored = state.materialize_generated_roots(
+        repo, exact_current.state_sha, policy, expected_code_sha=code_sha
+    )
+    assert restored.state_sha == exact_current.state_sha
+    assert projection.load_attestation(repo / projection.ATTESTATION_PATH) == (
+        current_attestation
+    )
 
 
 def test_rotation_honors_post_cutover_bootstrap_gate(

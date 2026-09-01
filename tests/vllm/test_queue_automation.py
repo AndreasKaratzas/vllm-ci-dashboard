@@ -623,6 +623,14 @@ class TestQueueMonitorWorkflow:
         )
         assert "push --force origin HEAD:queue-data" not in publish["run"]
         assert "QUEUE_SOURCE_SHA=$(git -C \"$LIVE_ROOT\" rev-parse" in publish["run"]
+        assert 'scripts/vllm/build_queue_section.py"' in publish["run"]
+        assert (
+            '--validate-output "$LIVE_ROOT/data/vllm/ci/operations_v2/queue.json"'
+            in publish["run"]
+        )
+        assert publish["run"].index("--validate-output") < publish["run"].index(
+            "check_git_blob_sizes.py"
+        )
         assert "git ls-remote --refs origin refs/heads/queue-data" in publish["run"]
         assert 'if [ "$REMOTE_QUEUE_SHA" != "$QUEUE_SOURCE_SHA" ]' in publish["run"]
         assert 'echo "queue_generation=${{ steps.queue-generation.outputs.generated_at }}"' in publish[
@@ -824,18 +832,39 @@ class TestQueueLifecycleWorkflow:
     def workflow(self):
         return yaml.safe_load((WORKFLOWS / "queue-lifecycle.yml").read_text())
 
-    def test_runs_every_two_hours_on_an_independent_lock(self, workflow):
+    def test_checks_recovery_gate_every_thirty_minutes_on_an_independent_lock(
+        self, workflow
+    ):
         triggers = workflow.get(True, {})
         crons = [row.get("cron") for row in triggers.get("schedule", [])]
-        assert "47 */2 * * *" in crons
+        assert crons == ["17,47 * * * *"]
         assert workflow["concurrency"]["group"] == "queue-lifecycle-data-publish"
         assert workflow["concurrency"]["cancel-in-progress"] is False
 
+        # The frequent schedule is tokenless unless the independent durable
+        # attempt ledger authorizes the two-hour success cadence or a
+        # 30-minute retry for an incomplete checkpoint.
+        policy = json.loads(
+            (ROOT / "config/queue_lifecycle_attempt_budget.json").read_text()
+        )
+        assert policy["success_interval_minutes"] == 120
+        assert policy["failed_retry_interval_minutes"] == 30
+        assert policy["request_start_allowance"] == 100
+        assert policy["max_request_bearing_attempts"] == 16
+
     def test_restores_established_ledger_fail_closed(self, workflow):
         steps = workflow["jobs"]["lifecycle"]["steps"]
-        restore = next(
-            step for step in steps if step.get("name") == "Restore durable lifecycle observations"
-        )["run"]
+        by_name = {step.get("name"): step for step in steps}
+        names = [step.get("name") for step in steps]
+        restore_step = by_name["Restore durable lifecycle observations"]
+        restore = restore_step["run"]
+        assert names.index("Reserve guarded Queue Lifecycle attempt") < names.index(
+            "Restore durable lifecycle observations"
+        )
+        assert (
+            restore_step["if"]
+            == "steps.request-attempt.outputs.request_mode == 'reserved'"
+        )
         assert "git ls-remote --exit-code --refs origin refs/heads/queue-lifecycle-data" in restore
         assert (
             "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
@@ -846,6 +875,42 @@ class TestQueueLifecycleWorkflow:
         assert "baseline_ref=bootstrap" in restore
         assert "refusing to publish" in restore
 
+    def test_gated_attempt_skips_runtime_and_durable_ledger_restore(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        names = [step.get("name") for step in steps]
+        reserve_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Reserve guarded Queue Lifecycle attempt"
+        )
+        assert reserve_index == 1
+        for step in steps:
+            if step.get("name") in {
+                "Install dependencies",
+                "Initialize exact Buildkite request guard",
+                "Restore durable lifecycle observations",
+            } or str(step.get("uses", "")).startswith("actions/setup-python@"):
+                assert (
+                    step["if"]
+                    == "steps.request-attempt.outputs.request_mode == 'reserved'"
+                )
+        reserve = steps[reserve_index]["run"]
+        initialize = next(
+            step
+            for step in steps
+            if step.get("name") == "Initialize exact Buildkite request guard"
+        )
+        assert "buildkite_request_guard.py initialize" not in reserve
+        assert "buildkite_request_guard.py initialize" in initialize["run"]
+        setup_index = next(
+            index
+            for index, step in enumerate(steps)
+            if str(step.get("uses", "")).startswith("actions/setup-python@")
+        )
+        assert setup_index < names.index("Install dependencies") < names.index(
+            "Initialize exact Buildkite request guard"
+        ) < names.index("Restore durable lifecycle observations")
+
     def test_collects_only_with_secret_environment(self, workflow):
         steps = workflow["jobs"]["lifecycle"]["steps"]
         collect = next(
@@ -854,6 +919,29 @@ class TestQueueLifecycleWorkflow:
         assert "BUILDKITE_API_TOKEN" in collect.get("env", {})
         assert "collect_queue_lifecycle.py" in collect.get("run", "")
         assert "--full-backfill" not in collect.get("run", "")
+        assert workflow["jobs"]["lifecycle"]["timeout-minutes"] == 50
+        assert collect["timeout-minutes"] == 44
+
+    def test_bounded_yields_are_successful_private_progress(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        collect = by_name["Collect canonical AMD queue lifecycle"]
+        script = collect["run"]
+        assert 'if [ "$LIFECYCLE_STATUS" -eq 0 ]' in script
+        assert 'elif [ "$LIFECYCLE_STATUS" -eq 75 ]' in script
+        assert 'elif [ "$LIFECYCLE_STATUS" -eq 76 ]' in script
+        assert script.count('echo "collection_complete=false"') == 2
+        assert 'exit "$LIFECYCLE_STATUS"' in script
+        for step_name in (
+            "Validate retained lifecycle evidence",
+            "Publish durable lifecycle evidence",
+        ):
+            condition = by_name[step_name]["if"]
+            assert (
+                "steps.collect-lifecycle.outputs.collection_complete == 'true'"
+                in condition
+            )
+            assert "steps.collect-lifecycle.outcome == 'success'" not in condition
 
     def test_private_checkpoint_is_resumable_bounded_and_never_published(self, workflow):
         steps = workflow["jobs"]["lifecycle"]["steps"]

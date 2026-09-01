@@ -7,6 +7,8 @@ GitHub's size-bearing Git database API before a workflow fetches any blob OID.
 It also provides one stream-capped, strictly-shaped ancestry comparison.
 """
 
+# cspell:ignore redef
+
 from __future__ import annotations
 
 import argparse
@@ -25,6 +27,30 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+if __package__:
+    from .publication_limits import (
+        PREVIEW_MAX_BYTES,
+        PREVIEW_MAX_COUNT,
+        PREVIEW_MAX_FILES,
+        PUBLICATION_MAX_BLOB_BYTES,
+        PUBLICATION_MAX_FILES,
+        PUBLICATION_MAX_TREE_BYTES,
+        SINGLE_PREVIEW_MAX_BYTES,
+        SINGLE_PREVIEW_MAX_FILES,
+    )
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from publication_limits import (  # type: ignore[no-redef]
+        PREVIEW_MAX_BYTES,
+        PREVIEW_MAX_COUNT,
+        PREVIEW_MAX_FILES,
+        PUBLICATION_MAX_BLOB_BYTES,
+        PUBLICATION_MAX_FILES,
+        PUBLICATION_MAX_TREE_BYTES,
+        SINGLE_PREVIEW_MAX_BYTES,
+        SINGLE_PREVIEW_MAX_FILES,
+    )
+
 
 API_VERSION = "2022-11-28"
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -40,14 +66,14 @@ PAGES_MARKER_PATH = "publication_generation.json"
 PAGES_STATUS_PATH = "data/vllm/ci/publication_status.json"
 PAGES_PREVIEW_PREFIX = "pr-preview/"
 PAGES_PREVIEW_RE = re.compile(r"pr-[1-9][0-9]*")
-MAX_PAGES_BLOB_BYTES = 85 * 1024 * 1024
-MAX_PAGES_TREE_BYTES = 384 * 1024 * 1024
-MAX_PAGES_FILES = 10_000
-MAX_PREVIEW_BYTES = 192 * 1024 * 1024
-MAX_PREVIEW_FILES = 4_000
-MAX_PREVIEW_COUNT = 50
-MAX_SINGLE_PREVIEW_BYTES = 192 * 1024 * 1024
-MAX_SINGLE_PREVIEW_FILES = 2_000
+MAX_PAGES_BLOB_BYTES = PUBLICATION_MAX_BLOB_BYTES
+MAX_PAGES_TREE_BYTES = PUBLICATION_MAX_TREE_BYTES
+MAX_PAGES_FILES = PUBLICATION_MAX_FILES
+MAX_PREVIEW_BYTES = PREVIEW_MAX_BYTES
+MAX_PREVIEW_FILES = PREVIEW_MAX_FILES
+MAX_PREVIEW_COUNT = PREVIEW_MAX_COUNT
+MAX_SINGLE_PREVIEW_BYTES = SINGLE_PREVIEW_MAX_BYTES
+MAX_SINGLE_PREVIEW_FILES = SINGLE_PREVIEW_MAX_FILES
 
 
 class ProofError(RuntimeError):

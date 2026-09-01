@@ -12,6 +12,12 @@ from urllib.parse import quote
 
 import yaml
 
+from vllm.bounded_json import atomic_write_bytes, pretty_json_bytes
+from vllm.github_home_bundle import (
+    bounded_project_items_payload,
+    publish_collection,
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "projects.yaml"
 DATA = ROOT / "data"
@@ -679,8 +685,10 @@ def fetch_project_open_issues(repo):
     ]
 
 
-def write_project_items_snapshot(issues, source_coverage=None):
-    """Persist the read-only Project #39 fallback used by the Home collector."""
+def _project_items_snapshot_payload(
+    issues, source_coverage=None, *, generated_at=None
+):
+    """Build the read-only Project #39 fallback used by the Home collector."""
     items = {}
     for issue in issues:
         number = issue.get("number")
@@ -694,23 +702,24 @@ def write_project_items_snapshot(issues, source_coverage=None):
             "title": issue.get("title") or "",
             "url": issue.get("html_url") or "",
         }
-    path = _project_items_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     coverage = source_coverage or _source_coverage_snapshot()
-    path.write_text(
-        json.dumps(
-            {
-                "generated_at": now_iso(),
-                "items_by_number": items,
-                "project": f"{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
-                "project_url": PROJECT_URL,
-                "count_semantics": coverage["population_semantics"],
-                "source_coverage": coverage,
-            },
-            indent=2,
-        )
-        + "\n"
+    return {
+        "generated_at": generated_at or now_iso(),
+        "items_by_number": items,
+        "project": f"{PROJECT_ORG}/projects/{PROJECT_NUMBER}",
+        "project_url": PROJECT_URL,
+        "count_semantics": coverage["population_semantics"],
+        "source_coverage": coverage,
+    }
+
+
+def write_project_items_snapshot(issues, source_coverage=None):
+    """Atomically persist a bounded standalone Project #39 fallback."""
+    path = _project_items_path()
+    payload = bounded_project_items_payload(
+        _project_items_snapshot_payload(issues, source_coverage)
     )
+    atomic_write_bytes(path, pretty_json_bytes(payload))
 
 
 def fetch_project_open_issues_from_snapshot(repo):
@@ -1343,22 +1352,26 @@ def collect_project(name, cfg):
     # publication selector to retain.
     collected_at = now_iso()
     source_coverage = _source_coverage_snapshot()
-    if repo == "vllm-project/vllm":
-        write_project_items_snapshot(project_issues, source_coverage)
-    with open(project_dir / "prs.json", "w") as f:
-        json.dump(
-            {
+    project_items_payload = _project_items_snapshot_payload(
+        project_issues,
+        source_coverage,
+        generated_at=collected_at,
+    )
+    publish_collection(
+        {
+            "prs": project_dir / "prs.json",
+            "issues": project_dir / "issues.json",
+            "releases": project_dir / "releases.json",
+            "project_items": _project_items_path(),
+        },
+        {
+            "prs": {
                 "collected_at": collected_at,
                 "prs": prs,
                 "count_semantics": source_coverage["population_semantics"],
                 "source_coverage": source_coverage,
             },
-            f,
-            indent=2,
-        )
-    with open(project_dir / "issues.json", "w") as f:
-        json.dump(
-            {
+            "issues": {
                 "collected_at": collected_at,
                 "issues": sorted(
                     issues, key=lambda i: i["updated_at"], reverse=True
@@ -1366,11 +1379,13 @@ def collect_project(name, cfg):
                 "count_semantics": source_coverage["population_semantics"],
                 "source_coverage": source_coverage,
             },
-            f,
-            indent=2,
-        )
-    with open(project_dir / "releases.json", "w") as f:
-        json.dump({"collected_at": collected_at, "releases": releases}, f, indent=2)
+            "releases": {
+                "collected_at": collected_at,
+                "releases": releases,
+            },
+            "project_items": project_items_payload,
+        },
+    )
 
     print(f"  {len(prs)} PRs, {len(issues)} issues, {len(releases)} releases")
 

@@ -6,15 +6,22 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg
+from vllm.dashboard_storage_budget import writer_max_bytes
+
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG = ROOT / "config" / "vllm_amd_gating_targets.json"
 OUTPUT = ROOT / "data" / "vllm" / "ci"
+GATING_TARGETS_MAX_BYTES = writer_max_bytes("gating_targets")
 NVIDIA_HARDWARE_ALIAS_RE = re.compile(
     r":nvidia:|\b(?:A100|H100|H200|B200|DGX)\b|\(L4\)", re.IGNORECASE
 )
@@ -109,6 +116,126 @@ def build_payload(groups: list[dict[str, Any]], config_path: Path = CONFIG) -> d
     }
 
 
+def _signal_retention(
+    source: list[dict[str, Any]],
+    published: list[dict[str, Any]],
+    field: str,
+) -> dict[str, dict[str, int]]:
+    """Return exact source/published/omitted counts for one signal field."""
+    source_counts = Counter(str(row.get(field) or "unknown") for row in source)
+    published_counts = Counter(
+        str(row.get(field) or "unknown") for row in published
+    )
+    signals = sorted(source_counts)
+    return {
+        signal: {
+            "source": source_counts[signal],
+            "published": published_counts[signal],
+            "omitted": source_counts[signal] - published_counts[signal],
+        }
+        for signal in signals
+    }
+
+
+def bounded_payload(
+    payload: dict[str, Any],
+    *,
+    max_bytes: int = GATING_TARGETS_MAX_BYTES,
+) -> dict[str, Any]:
+    """Retain actionable whole target rows under the configured byte cap.
+
+    The summary always describes the complete reviewed configuration.  When
+    detail has to be omitted, explicit retention metadata prevents a bounded
+    row index from being interpreted as the complete target population.
+    """
+    if max_bytes <= 0:
+        raise ValueError("gating target byte budget must be positive")
+    source_groups = sorted(
+        (dict(row) for row in payload.get("groups") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            int(row.get("id") or 0),
+            str(row.get("label") or "").casefold(),
+        ),
+    )
+    signal_rank = {
+        "red": 5,
+        "purple": 4,
+        "yellow": 3,
+        "gray": 2,
+        "unknown": 1,
+        "green": 0,
+    }
+
+    def priority(row: dict[str, Any]) -> tuple[int, int, str]:
+        signals = (
+            str(row.get(field) or "unknown").casefold()
+            for field in ("gating_signal", "pf_signal", "assigned_signal")
+        )
+        return (
+            max(signal_rank.get(signal, 1) for signal in signals),
+            -int(row.get("id") or 0),
+            str(row.get("label") or "").casefold(),
+        )
+
+    prioritized = sorted(source_groups, key=priority, reverse=True)
+
+    def candidate(count: int) -> dict[str, Any]:
+        selected_ids = {
+            (int(row.get("id") or 0), str(row.get("label") or ""))
+            for row in prioritized[:count]
+        }
+        published = [
+            row
+            for row in source_groups
+            if (int(row.get("id") or 0), str(row.get("label") or ""))
+            in selected_ids
+        ]
+        complete = len(published) == len(source_groups)
+        result = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"groups", "publication_retention"}
+        }
+        result["groups"] = published
+        result["publication_retention"] = {
+            "policy": "actionable_signal_then_canonical_whole_target_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "aggregate_summary_complete": True,
+            "groups": {
+                "source": len(source_groups),
+                "published": len(published),
+                "omitted": len(source_groups) - len(published),
+                "complete_relative_to_source": complete,
+            },
+            "by_gating_signal": _signal_retention(
+                source_groups, published, "gating_signal"
+            ),
+            "by_pf_signal": _signal_retention(source_groups, published, "pf_signal"),
+            "by_assigned_signal": _signal_retention(
+                source_groups, published, "assigned_signal"
+            ),
+        }
+        return result
+
+    low, high = 0, len(source_groups)
+    best: dict[str, Any] | None = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "gating target fixed metadata exceeds its byte budget; preserving "
+            "the last-known-good file"
+        )
+    return best
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Publish AMD gating target list")
     parser.add_argument("--config", type=Path, default=CONFIG)
@@ -116,10 +243,18 @@ def main() -> None:
     args = parser.parse_args()
 
     groups = load_targets(args.config)
-    payload = build_payload(groups, args.config)
+    payload = bounded_payload(
+        build_payload(groups, args.config),
+        max_bytes=GATING_TARGETS_MAX_BYTES,
+    )
     args.output.mkdir(parents=True, exist_ok=True)
     out_path = args.output / "gating_targets.json"
-    out_path.write_text(json.dumps(payload, indent=2) + "\n")
+    write_pretty_json_lkg(
+        out_path,
+        payload,
+        max_bytes=GATING_TARGETS_MAX_BYTES,
+        label="gating targets",
+    )
     print(f"Wrote {out_path} with {len(groups)} target groups")
 
 

@@ -17,11 +17,17 @@ import json
 import logging
 import os
 import re
+import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -36,6 +42,148 @@ UPSTREAM_DIR = ".buildkite/test_areas"
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
+GROUP_CHANGES_MAX_BYTES = writer_max_bytes("group_changes")
+
+
+def _retain_source_window_cache(
+    changes: list[dict],
+    no_change_shas: set[str],
+    commits: list[dict],
+    *,
+    cutoff_date: str,
+) -> tuple[list[dict], set[str]]:
+    """Keep cache state only for the declared source window.
+
+    ``--days`` has always described the public history window, but older
+    versions appended cached rows forever.  Change rows carry dates and can be
+    pruned without another request.  No-change rows historically stored only
+    a SHA, so retain those only while they are present in this run's bounded
+    source cohort; dropping one merely causes a safe re-check on a later run.
+    """
+    current_shas = {
+        str(commit.get("sha") or "")
+        for commit in commits
+        if isinstance(commit, dict) and commit.get("sha")
+    }
+    retained_changes = [
+        row
+        for row in changes
+        if isinstance(row, dict)
+        and isinstance(row.get("date"), str)
+        and row["date"] >= cutoff_date
+    ]
+    return retained_changes, no_change_shas & current_shas
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    encoded = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
+    temporary_name = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            temporary.write(encoded)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name and os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+
+
+def _compact_group_changes_for_publication(
+    source: dict,
+    *,
+    max_bytes: int | None = None,
+) -> dict:
+    """Retain newest whole change rows, then a bounded cache SHA set."""
+    if max_bytes is None:
+        max_bytes = GROUP_CHANGES_MAX_BYTES
+    if max_bytes <= 0:
+        raise ValueError("group-change byte budget must be positive")
+    source_changes = list(source.get("changes") or [])
+    source_no_change = list(dict.fromkeys(
+        str(sha) for sha in source.get("_no_change_shas") or [] if str(sha)
+    ))
+
+    def candidate(change_start: int, no_change_count: int) -> dict:
+        changes = source_changes[change_start:]
+        no_change = source_no_change[:no_change_count]
+        result = {
+            key: value
+            for key, value in source.items()
+            if key not in {
+                "changes",
+                "_no_change_shas",
+                "publication_retention",
+                "total_changes",
+                "source_total_changes",
+            }
+        }
+        result["source_total_changes"] = len(source_changes)
+        result["total_changes"] = len(changes)
+        result["changes"] = changes
+        result["_no_change_shas"] = no_change
+        result["publication_retention"] = {
+            "policy": "retain_newest_whole_change_rows_then_cache_sha_entries",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": (
+                change_start == 0 and no_change_count == len(source_no_change)
+            ),
+            "changes": {
+                "source": len(source_changes),
+                "published": len(changes),
+                "omitted": change_start,
+                "complete": change_start == 0,
+            },
+            "no_change_cache": {
+                "source": len(source_no_change),
+                "published": len(no_change),
+                "omitted": len(source_no_change) - len(no_change),
+                "complete": no_change_count == len(source_no_change),
+            },
+        }
+        return result
+
+    # The no-change SHA list is a request-saving cache and can be reconstructed;
+    # preserve public history rows ahead of it. Keep its deterministic newest-
+    # first prefix only when the complete public history still fits.
+    low = 0
+    high = len(source_no_change)
+    best: dict | None = None
+    while low <= high:
+        count = (low + high) // 2
+        attempt = candidate(0, count)
+        if len((json.dumps(attempt, indent=2) + "\n").encode("utf-8")) <= max_bytes:
+            best = attempt
+            low = count + 1
+        else:
+            high = count - 1
+    if best is not None:
+        return best
+
+    change_start = 0
+    bounded = candidate(change_start, 0)
+    while len((json.dumps(bounded, indent=2) + "\n").encode("utf-8")) > max_bytes:
+        if change_start >= len(source_changes):
+            raise RuntimeError(
+                "group-change fixed metadata exceeds its byte budget; preserving "
+                "the last-known-good file"
+            )
+        change_start += 1
+        bounded = candidate(change_start, 0)
+    return bounded
+
+
+def _write_bounded_group_changes(path: Path, source: dict) -> dict:
+    bounded = _compact_group_changes_for_publication(source)
+    _write_json_atomic(path, bounded)
+    return bounded
 
 
 def _gh_headers():
@@ -238,6 +386,17 @@ def main():
     commits = _get_commits_touching_yaml(args.days)
     log.info("Found %d unique commits", len(commits))
 
+    cutoff_date = (
+        datetime.now(timezone.utc) - timedelta(days=max(1, args.days))
+    ).date().isoformat()
+    cached_changes, cached_no_change_shas = _retain_source_window_cache(
+        cached_changes,
+        cached_no_change_shas,
+        commits,
+        cutoff_date=cutoff_date,
+    )
+    cached_shas = {str(change.get("sha") or "") for change in cached_changes}
+
     changes = list(cached_changes)
     no_change_shas = set(cached_no_change_shas)
     new_processed = 0
@@ -311,10 +470,25 @@ def main():
         "days": args.days,
         "total_changes": len(unique_changes),
         "changes": unique_changes,
-        "_no_change_shas": sorted(no_change_shas),
+        # Cache priority is newest source-cohort commit first. Any residual
+        # legacy SHA not present in this run is appended deterministically.
+        "_no_change_shas": [
+            str(commit["sha"])
+            for commit in reversed(commits)
+            if str(commit.get("sha") or "") in no_change_shas
+        ] + sorted(
+            no_change_shas
+            - {str(commit.get("sha") or "") for commit in commits}
+        ),
     }
-    out_path.write_text(json.dumps(result, indent=2))
-    log.info("Wrote %s (%d changes, %d new)", out_path, len(unique_changes), new_processed)
+    published = _write_bounded_group_changes(out_path, result)
+    log.info(
+        "Wrote %s (%d of %d changes, %d new)",
+        out_path,
+        len(published["changes"]),
+        len(unique_changes),
+        new_processed,
+    )
 
 
 if __name__ == "__main__":

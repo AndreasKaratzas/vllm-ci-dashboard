@@ -78,6 +78,23 @@ def commit_site(site: Path) -> str:
     return git(site, "rev-parse", "HEAD")
 
 
+def rewrite_as_safe_historical_projection(
+    site: Path, manifest: Path, attestation: Path
+) -> dict[str, object]:
+    payload = json.loads(manifest.read_text())
+    payload["limits"]["max_tree_bytes"] = projection.MAX_TREE_BYTES + 1
+    raw = projection._canonical_json(payload)
+    manifest.write_bytes(raw)
+    bound = projection._attestation_for_manifest(payload, raw)
+    attestation.write_bytes(projection._canonical_json(bound))
+    marker = json.loads((site / projection.MARKER_NAME).read_text())
+    marker["public_projection"] = bound
+    (site / projection.MARKER_NAME).write_text(
+        json.dumps(marker, indent=2, sort_keys=True) + "\n"
+    )
+    return bound
+
+
 def test_local_and_git_tree_round_trip_excludes_only_preview_subtree(tmp_path: Path) -> None:
     site = tmp_path / "_site"
     (site / "pr-preview/pr-17").mkdir(parents=True)
@@ -91,6 +108,11 @@ def test_local_and_git_tree_round_trip_excludes_only_preview_subtree(tmp_path: P
     bound = projection.write_attestation(manifest, attestation)
     assert set(created["files"]) == {"data/current.json", "index.html"}
     assert created["excluded_prefixes"] == ["pr-preview/"]
+    assert created["limits"] == {
+        "max_blob_bytes": 85 * 1024 * 1024,
+        "max_tree_bytes": 256 * 1024 * 1024,
+        "max_files": 10_000,
+    }
 
     marker = site / projection.MARKER_NAME
     marker.write_text(
@@ -202,6 +224,127 @@ def test_manifest_and_attestation_are_strict_and_canonical(tmp_path: Path) -> No
             attestation,
             site / projection.MARKER_NAME,
         )
+
+
+def test_safe_historical_limits_are_opt_in_read_only_and_current_creation_resumes(
+    tmp_path: Path,
+) -> None:
+    site, manifest, attestation, _bound = make_site(tmp_path)
+    historical_bound = rewrite_as_safe_historical_projection(site, manifest, attestation)
+    marker = site / projection.MARKER_NAME
+
+    with pytest.raises(projection.PublicProjectionError, match="limits disagree"):
+        projection.verify_local_projection(site, manifest, attestation, marker)
+    assert (
+        projection.verify_local_projection(
+            site,
+            manifest,
+            attestation,
+            marker,
+            allow_safe_legacy_limits=True,
+        )
+        == historical_bound
+    )
+
+    commit_site(site)
+    with pytest.raises(projection.PublicProjectionError, match="limits disagree"):
+        projection.verify_git_projection(site, "HEAD", attestation)
+    assert (
+        projection.verify_git_projection(
+            site,
+            "HEAD",
+            attestation,
+            allow_safe_legacy_limits=True,
+        )
+        == historical_bound
+    )
+
+    # The compatibility flag never affects writers. The next generation is
+    # exact current policy and validates without the historical opt-in.
+    projection.create_manifest(site, manifest)
+    current_bound = projection.write_attestation(manifest, attestation)
+    marker_payload = json.loads(marker.read_text())
+    marker_payload["public_projection"] = current_bound
+    marker.write_text(json.dumps(marker_payload, indent=2, sort_keys=True) + "\n")
+    current, _raw = projection.load_manifest(manifest)
+    assert current["limits"] == {
+        "max_blob_bytes": projection.MAX_BLOB_BYTES,
+        "max_tree_bytes": projection.MAX_TREE_BYTES,
+        "max_files": projection.MAX_FILES,
+    }
+    assert projection.verify_local_projection(site, manifest, attestation, marker) == current_bound
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {
+            "max_blob_bytes": projection.MAX_BLOB_BYTES + 1,
+            "max_tree_bytes": projection.MAX_TREE_BYTES + 1,
+            "max_files": projection.MAX_FILES,
+        },
+        {
+            "max_blob_bytes": projection.MAX_BLOB_BYTES,
+            "max_tree_bytes": projection.MAX_TREE_BYTES - 1,
+            "max_files": projection.MAX_FILES,
+        },
+        {
+            "max_blob_bytes": projection.MAX_BLOB_BYTES,
+            "max_tree_bytes": projection.MAX_TREE_BYTES + 1,
+            "max_files": projection.MAX_FILES + 1,
+        },
+        {
+            "max_blob_bytes": projection.MAX_BLOB_BYTES,
+            "max_tree_bytes": True,
+            "max_files": projection.MAX_FILES,
+        },
+    ],
+)
+def test_safe_historical_limit_compatibility_rejects_weaker_or_malformed_policy(
+    tmp_path: Path, limits: dict[str, object]
+) -> None:
+    _site, manifest, _attestation, _bound = make_site(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["limits"] = limits
+    manifest.write_bytes(projection._canonical_json(payload))
+
+    with pytest.raises(projection.PublicProjectionError, match="historical policy"):
+        projection.load_manifest(manifest, allow_safe_legacy_limits=True)
+
+
+def test_safe_historical_limit_compatibility_still_enforces_current_actual_bounds(
+    tmp_path: Path,
+) -> None:
+    _site, manifest, _attestation, _bound = make_site(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["limits"]["max_tree_bytes"] = projection.MAX_TREE_BYTES + 1
+
+    declared_too_small = json.loads(json.dumps(payload))
+    declared_too_small["limits"]["max_blob_bytes"] = 1
+    manifest.write_bytes(projection._canonical_json(declared_too_small))
+    with pytest.raises(projection.PublicProjectionError, match="declared blob limit"):
+        projection.load_manifest(manifest, allow_safe_legacy_limits=True)
+
+    oversized = json.loads(json.dumps(payload))
+    template = next(iter(oversized["files"].values()))
+    oversized["files"] = {
+        f"large-{index}.bin": {**template, "bytes": size}
+        for index, size in enumerate(
+            (
+                projection.MAX_BLOB_BYTES,
+                projection.MAX_BLOB_BYTES,
+                projection.MAX_BLOB_BYTES,
+                2 * 1024 * 1024,
+            )
+        )
+    }
+    oversized["file_count"] = len(oversized["files"])
+    oversized["total_bytes"] = sum(
+        descriptor["bytes"] for descriptor in oversized["files"].values()
+    )
+    manifest.write_bytes(projection._canonical_json(oversized))
+    with pytest.raises(projection.PublicProjectionError, match="tree byte limit"):
+        projection.load_manifest(manifest, allow_safe_legacy_limits=True)
 
 
 def test_git_verification_detects_blob_mode_file_set_and_gitlink_changes(

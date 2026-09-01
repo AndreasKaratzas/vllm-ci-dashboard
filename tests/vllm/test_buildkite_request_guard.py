@@ -74,7 +74,9 @@ def test_zero_allowance_is_a_valid_deny_all_guard(
     session = requests.Session()
 
     session.send(prepared("https://github.com/example"))
-    with pytest.raises(guard.BuildkiteRequestGuardError, match="blocked before transport"):
+    with pytest.raises(
+        guard.BuildkiteRequestAllowanceExhausted, match="blocked before transport"
+    ):
         session.send(prepared("https://api.buildkite.com/v2/builds"))
 
     assert transported == ["https://github.com/example"]

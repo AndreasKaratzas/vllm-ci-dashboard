@@ -123,6 +123,7 @@ class RecoveryDecision:
 @dataclass(frozen=True)
 class WorkflowRun:
     run_id: int
+    head_branch: str
     status: str
     created_at: datetime
     run_started_at: datetime | None
@@ -230,6 +231,7 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
         if not isinstance(row, dict):
             raise ValueError("workflow run state contains a non-object row")
         run_id = row.get("id")
+        head_branch = row.get("head_branch")
         status = row.get("status")
         created_at = _parse_timestamp(row.get("created_at"))
         run_started_value = row.get("run_started_at")
@@ -243,6 +245,7 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
         if (
             type(run_id) is not int
             or run_id <= 0
+            or head_branch != "main"
             or not isinstance(status, str)
             or status not in RUN_STATUSES
             or created_at is None
@@ -260,13 +263,14 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
             raise ValueError("workflow run state contains an invalid row")
         runs.append(
             WorkflowRun(
-                run_id,
-                status,
-                created_at,
-                run_started_at,
-                updated_at,
-                conclusion,
-                parsed_recovery_key,
+                run_id=run_id,
+                head_branch=head_branch,
+                status=status,
+                created_at=created_at,
+                run_started_at=run_started_at,
+                updated_at=updated_at,
+                conclusion=conclusion,
+                recovery_key=parsed_recovery_key,
             )
         )
     return tuple(runs)

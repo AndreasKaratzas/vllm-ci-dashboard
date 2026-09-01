@@ -330,6 +330,32 @@ def _queue_lifecycle_audit_payload(now: datetime | None = None) -> dict:
     )
 
 
+@pytest.mark.parametrize(
+    ("age_hours", "expected_stale"),
+    (
+        (17.9, False),
+        (18.1, True),
+    ),
+)
+def test_queue_lifecycle_staleness_matches_bounded_recovery_window(
+    tmp_path, age_hours, expected_stale
+):
+    payload = _queue_lifecycle_audit_payload(
+        datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    )
+    output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
+    output.parent.mkdir(parents=True)
+    output.write_text(json.dumps(payload))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_queue_lifecycle()
+
+    stale = "queue-lifecycle-stale" in {
+        finding.code for finding in audit.report.warnings
+    }
+    assert stale is expected_stale
+
+
 def test_queue_lifecycle_audit_validates_daily_wait_vector_counts(tmp_path):
     payload = _queue_lifecycle_audit_payload()
     output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
@@ -637,6 +663,36 @@ def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
     mixed_generation.audit_queue_data(validate_derived=True)
     assert "queue-jobs-detail-status" in {
         finding.code for finding in mixed_generation.report.errors
+    }
+
+
+def test_queue_only_audit_enforces_exact_operations_section_cap(tmp_path):
+    queue_dir = tmp_path / "data" / "vllm" / "ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    snapshot = {
+        "ts": now.isoformat().replace("+00:00", "Z"),
+        "queues": {"amd_mi300_1": {"waiting": 0, "running": 0}},
+        "total_waiting": 0,
+        "total_running": 0,
+        "sources": {"counts": "test-fixture"},
+    }
+    (queue_dir / "queue_timeseries.jsonl").write_text(json.dumps(snapshot) + "\n")
+    (queue_dir / "queue_jobs.json").write_text(
+        json.dumps({"ts": snapshot["ts"], "pending": [], "running": []})
+    )
+    queue_section_module.main(["--input-dir", str(queue_dir)])
+    section_path = queue_dir / "operations_v2" / "queue.json"
+    section_path.write_bytes(
+        section_path.read_bytes().rstrip()
+        + b" " * queue_section_module.QUEUE_SECTION_MAX_BYTES
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_queue_data(validate_derived=True)
+
+    assert "operations-queue-payload-budget" in {
+        finding.code for finding in audit.report.errors
     }
 
 
@@ -3824,4 +3880,81 @@ def test_workflow_audit_enforces_private_analytics_cache_boundary(tmp_path):
     exposed.audit_workflows()
     assert "private-analytics-cache-publication" in {
         finding.code for finding in exposed.report.errors
+    }
+
+
+def test_test_result_retention_audit_rejects_cross_generation_marker(
+    tmp_path: Path,
+) -> None:
+    from vllm.ci import reporter
+
+    results = tmp_path / "data/vllm/ci/test_results"
+    results.mkdir(parents=True)
+    (results / "2026-08-31_amd.jsonl").write_text('{"row":1}\n')
+    reporter.prune_old_results(results, max_days=365)
+    marker_path = results / reporter.TEST_RESULT_RETENTION_FILE
+    marker = json.loads(marker_path.read_text())
+    marker["retained_start"] = "2099-01-01"
+    marker_path.write_text(json.dumps(marker))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_test_result_retention()
+
+    finding = next(
+        finding
+        for finding in audit.report.errors
+        if finding.code == "test-result-retention-invalid"
+    )
+    assert finding.path == "data/vllm/ci/test_results/retention.json"
+
+
+def test_bounded_publication_retention_audit_accepts_reconciled_metadata(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "data/vllm/ci/group_changes.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "publication_retention": {
+            "max_bytes": 10_000,
+            "complete_relative_to_source": False,
+            "changes": {
+                "source": 3,
+                "published": 2,
+                "omitted": 1,
+                "complete": False,
+            },
+        },
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_bounded_publication_retention()
+
+    assert "storage-retention-invalid" not in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_bounded_publication_retention_audit_rejects_false_completeness(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "data/vllm/ci/group_changes.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "publication_retention": {
+            "max_bytes": 10_000,
+            "complete_relative_to_source": True,
+            "changes": {
+                "source": 3,
+                "published": 2,
+                "omitted": 1,
+                "complete": True,
+            },
+        },
+    }))
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_bounded_publication_retention()
+
+    assert "storage-retention-invalid" in {
+        finding.code for finding in audit.report.errors
     }

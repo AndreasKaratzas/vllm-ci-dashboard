@@ -20,8 +20,11 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.bounded_json import atomic_write_bytes  # noqa: E402
 from vllm.constants import is_excluded_queue  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.operations_bundle_contract import (  # noqa: E402
+    OPERATIONS_CANARY_SECTION_MAX_BYTES,
     OperationsBundleContractError,
     validate_operations_canary_budget,
 )
@@ -50,6 +53,7 @@ from vllm.pipelines import (  # noqa: E402
     UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
     upstream_scheduled_gating_kind,
 )
+from vllm.queue_section_projection import compact_queue_section  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -63,11 +67,29 @@ OPERATIONS_GZIP_SUFFIX = ".json.gz"
 OPERATIONS_GZIP_MAX_BYTES = 64 * 1024 * 1024
 OPERATIONS_RAW_WRITE_MAX_BYTES = 85 * 1024 * 1024
 OPERATIONS_DECOMPRESSED_MAX_BYTES = 256 * 1024 * 1024
+# Keep the largest public reliability asset comfortably below both the site
+# assembler's 85 MiB ceiling and GitHub's large-file warning.  The subordinate
+# budgets are used only after the complete source no longer fits; together they
+# leave several MiB for fixed metadata and JSON framing.
+OPERATIONS_RELIABILITY_SECTION_MAX_BYTES = 64 * 1024 * 1024
+OPERATIONS_RELIABILITY_CATALOG_MAX_BYTES = 48 * 1024 * 1024
+OPERATIONS_RETRY_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024
+OPERATIONS_RELIABILITY_DERIVED_MAX_BYTES = 2 * 1024 * 1024
+OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES = 768 * 1024
+OPERATIONS_COMPARISON_SECTION_MAX_BYTES = 1_250_000
+OPERATIONS_RELIABILITY_ROW_MAX_BYTES = 256 * 1024
+OPERATIONS_RELIABILITY_GROUP_MAX_BYTES = 768 * 1024
+# The source agent-health generation is allowed to use 16 MiB.  Its public
+# Operations route shares a 32 MiB eagerly parsed canary budget with every
+# non-reliability route, so it needs a smaller independent projection.
+OPERATIONS_AGENT_HEALTH_SECTION_MAX_BYTES = 8 * 1024 * 1024
+OPERATIONS_AMD_TEST_HEALTH_SECTION_MAX_BYTES = 8 * 1024 * 1024
 OPERATIONS_MANIFEST_NAME = "operations_v2_manifest.json"
 OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
+QUEUE_HISTORY_CHART_MAX_BYTES = writer_max_bytes("queue_history_chart")
 ORG_SUMMARY_NAME = "org_summary.json"
-ORG_SUMMARY_MAX_BYTES = 2 * 1024 * 1024
+ORG_SUMMARY_MAX_BYTES = writer_max_bytes("org_summary")
 ORG_SUMMARY_SCHEMA_VERSION = 6
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 NIGHTLY_BUILD_LIMIT = 30
@@ -4362,6 +4384,17 @@ def _gating(
         str((row.get("runtime_resolution") or {}).get("status") or "unknown")
         for row in active_groups
     )
+    input_retention = {
+        "gating_targets": targets.get("publication_retention") or {},
+        "gating_target_candidates": candidates.get("publication_retention") or {},
+        "amd_test_matrix": matrix.get("publication_retention") or {},
+        "definition_parity": definition_parity.get("publication_retention") or {},
+    }
+    input_complete = all(
+        not retention
+        or retention.get("complete_relative_to_source") is not False
+        for retention in input_retention.values()
+    )
     return {
         "definitions": {
             "reviewed_plan": "Intent from the reviewed target configuration; not an ownership assignment.",
@@ -4416,6 +4449,11 @@ def _gating(
         "active_target_groups": active_groups,
         "candidate_summary": candidate_summary,
         "matrix_summary": matrix_summary,
+        "publication_retention": {
+            "policy": "derived_from_bounded_source_surfaces_v1",
+            "source_surfaces": input_retention,
+            "complete_relative_to_source": input_complete,
+        },
     }
 
 
@@ -4747,7 +4785,21 @@ def _upstream_scheduled_gating(
     capacity: Any,
 ) -> dict:
     """Aggregate exact upstream daily/nightly runs against configured AMD groups."""
-    configured_groups = _upstream_scheduled_capacity_groups(capacity)
+    capacity_retention = (
+        capacity.get("publication_retention")
+        if isinstance(capacity, dict)
+        and isinstance(capacity.get("publication_retention"), dict)
+        else {}
+    )
+    group_index_retention = capacity_retention.get("group_index") or {}
+    capacity_group_index_complete = (
+        group_index_retention.get("complete_relative_to_source") is not False
+    )
+    configured_groups = (
+        _upstream_scheduled_capacity_groups(capacity)
+        if capacity_group_index_complete
+        else []
+    )
     configured_queues = sorted({row["queue"] for row in configured_groups})
     accepted, reason, source_builds, source_provenance = (
         _upstream_scheduled_source_validation(pipeline_analytics)
@@ -4805,7 +4857,9 @@ def _upstream_scheduled_gating(
         for kind in ("nightly", "daily")
     }
     unavailable_reason = "" if runs else (
-        reason
+        "capacity_group_index_incomplete"
+        if not capacity_group_index_complete
+        else reason
         if not accepted
         else (
             "configured_gating_groups_missing"
@@ -4840,6 +4894,7 @@ def _upstream_scheduled_gating(
             "builds_provenance_key": "ci.all_main_reliability.provenance",
             "groups_path": SOURCE_FILES["capacity_monitor"],
             "groups_key": "groups",
+            "groups_publication_retention": capacity_retention,
             "accepted": accepted,
             "reason": reason or None,
         },
@@ -7290,6 +7345,21 @@ def _exact_target_topology(
     are active. Parallelism is expanded into command jobs, and queue width
     converts those jobs into simultaneous GPU slots.
     """
+    matrix_retention = amd_test_matrix.get("publication_retention") or {}
+    if matrix_retention.get("complete_relative_to_source") is False:
+        return {
+            "available": False,
+            "unavailable_reason": "amd_test_matrix_publication_incomplete",
+            "method": "exact_one_cell_per_semantic_matrix_row",
+            "source_path": SOURCE_FILES["amd_test_matrix"],
+            "capacity_publication_retention": (
+                capacity.get("publication_retention") or {}
+            ),
+            "target_topology_publication_retention": matrix_retention,
+            "queues": [],
+            "families": [],
+            "scenarios": [],
+        }
     catalog = _queue_capacity_catalog(capacity)
     preference = _normalize_architecture_preference(architecture_preference)
     placement = _target_placement_demand(
@@ -7662,6 +7732,7 @@ def _exact_target_topology(
             ),
         },
         "linear_sensitivity": projection,
+        "capacity_publication_retention": capacity.get("publication_retention") or {},
         "caveat": (
             "The linear sensitivity preserves the current mirror mix and is not the "
             "hardware answer. Exact matrix topology is used for the target because "
@@ -7868,6 +7939,405 @@ def _amd_agent_health(data_dir: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
+def _agent_health_row_key(row: dict) -> tuple[str, str, str]:
+    return (
+        str(row.get("d") or ""),
+        str(row.get("nd") or ""),
+        json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+    )
+
+
+def _agent_health_node_accounting(node_days: list[dict]) -> list[dict]:
+    """Build exact date/hardware run totals without retaining node identities."""
+    totals: dict[tuple[str, str, bool], list[list[int]]] = {}
+    for row in node_days:
+        if not isinstance(row, dict):
+            continue
+        key = (
+            str(row.get("d") or ""),
+            str(row.get("h") or ""),
+            str(row.get("nd") or "") != "(unidentified)",
+        )
+        buckets = totals.setdefault(key, [[0, 0, 0, 0], [0, 0, 0, 0]])
+        for bucket_index, field in enumerate(("a", "n")):
+            values = row.get(field)
+            if not isinstance(values, list):
+                continue
+            # Preserve the collector's modern [runs, soft, hard, cancelled]
+            # representation while accepting its legacy three-value rows.
+            normalized = [0, 0, 0, 0]
+            for index, value in enumerate(values[:4]):
+                if isinstance(value, int) and not isinstance(value, bool):
+                    normalized[index] = value
+            if len(values) == 3:
+                normalized = [normalized[0], 0, normalized[1], normalized[2]]
+            for index, value in enumerate(normalized):
+                buckets[bucket_index][index] += value
+    return [
+        {"d": day, "h": hardware, "id": identified, "a": values[0], "n": values[1]}
+        for (day, hardware, identified), values in sorted(totals.items())
+    ]
+
+
+def _agent_health_failure_accounting(failing_runs: list[dict]) -> list[dict]:
+    counts: Counter = Counter()
+    for row in failing_runs:
+        if not isinstance(row, dict):
+            continue
+        counts[(
+            str(row.get("d") or ""),
+            str(row.get("nd") or ""),
+            str(row.get("h") or ""),
+            str(row.get("s") or ""),
+            bool(row.get("i")),
+            bool(row.get("ng")),
+            bool(row.get("bc")),
+        )] += 1
+    return [
+        {
+            "d": day,
+            "nd": node,
+            "h": hardware,
+            "s": state,
+            "i": int(infra),
+            "ng": nightly,
+            "bc": cancelled,
+            "c": count,
+        }
+        for (
+            day, node, hardware, state, infra, nightly, cancelled,
+        ), count in sorted(counts.items())
+    ]
+
+
+def _agent_health_failure_totals(accounting: list[dict]) -> list[dict]:
+    """Collapse per-node accounting to a fixed-cardinality exact filter cube."""
+    counts: Counter = Counter()
+    for row in accounting:
+        if not isinstance(row, dict):
+            continue
+        count = row.get("c")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            continue
+        counts[(
+            str(row.get("d") or ""),
+            str(row.get("h") or ""),
+            str(row.get("s") or ""),
+            bool(row.get("i")),
+            bool(row.get("ng")),
+            bool(row.get("bc")),
+        )] += count
+    return [
+        {
+            "d": day,
+            "h": hardware,
+            "s": state,
+            "i": int(infra),
+            "ng": nightly,
+            "bc": cancelled,
+            "c": count,
+        }
+        for (day, hardware, state, infra, nightly, cancelled), count
+        in sorted(counts.items())
+    ]
+
+
+def _bounded_operations_agent_health(
+    value: Any,
+    *,
+    max_bytes: int | None = None,
+) -> dict:
+    """Project agent health into its public route without losing ledger totals."""
+    if max_bytes is None:
+        max_bytes = OPERATIONS_AGENT_HEALTH_SECTION_MAX_BYTES
+    if max_bytes <= 0:
+        raise ValueError("Operations agent-health byte budget must be positive")
+    source = value if isinstance(value, dict) else {}
+    node_days = sorted(
+        (row for row in source.get("node_days") or [] if isinstance(row, dict)),
+        key=_agent_health_row_key,
+    )
+    failing_runs = sorted(
+        (row for row in source.get("failing_runs") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            str(row.get("d") or ""),
+            str(row.get("t") or ""),
+            str(row.get("j") or ""),
+            _agent_health_row_key(row),
+        ),
+    )
+    raw_accounting = source.get("failure_accounting")
+    accounting = sorted(
+        (
+            row for row in raw_accounting or []
+            if isinstance(row, dict)
+        ),
+        key=_agent_health_row_key,
+    )
+    source_evidence_retention = (
+        (source.get("retention") or {}).get("failure_evidence") or {}
+    )
+    source_failure_total = source_evidence_retention.get("source")
+    if not isinstance(source_failure_total, int) or isinstance(source_failure_total, bool):
+        source_failure_total = source.get("infra_failure_count")
+    if not isinstance(source_failure_total, int) or isinstance(source_failure_total, bool):
+        source_failure_total = len(failing_runs)
+    source_failure_total = max(source_failure_total, len(failing_runs))
+
+    if not accounting and source_failure_total == len(failing_runs):
+        accounting = _agent_health_failure_accounting(failing_runs)
+    accounted_total = sum(
+        row.get("c", 0)
+        for row in accounting
+        if isinstance(row.get("c"), int) and not isinstance(row.get("c"), bool)
+    )
+    source_accounting_retention = (
+        (source.get("retention") or {}).get("failure_accounting") or {}
+    )
+    accounting_complete = (
+        accounted_total == source_failure_total
+        and source_accounting_retention.get("complete_relative_to_source") is not False
+    )
+
+    node_totals = _agent_health_node_accounting(node_days)
+    failure_totals = _agent_health_failure_totals(accounting)
+    fixed = {
+        key: item
+        for key, item in source.items()
+        if key not in {
+            "node_days",
+            "failing_runs",
+            "failure_accounting",
+            "node_accounting_totals",
+            "failure_accounting_totals",
+            "operations_publication_retention",
+        }
+    }
+
+    def candidate(node_count: int, failure_count: int, accounting_count: int) -> dict:
+        published_node_days = node_days[-node_count:] if node_count else []
+        published_failures = failing_runs[-failure_count:] if failure_count else []
+        published_accounting = accounting[-accounting_count:] if accounting_count else []
+        evidence_complete = (
+            source_evidence_retention.get("complete_relative_to_source") is not False
+            and failure_count == len(failing_runs)
+            and source_failure_total == len(failing_runs)
+        )
+        result = dict(fixed)
+        result["node_days"] = published_node_days
+        result["failing_runs"] = published_failures
+        result["failure_accounting"] = published_accounting
+        result["node_accounting_totals"] = node_totals
+        result["failure_accounting_totals"] = failure_totals
+        result["published_failure_evidence_count"] = len(published_failures)
+        retention = dict(result.get("retention") or {})
+        retention["failure_evidence"] = {
+            "source": source_failure_total,
+            "published": len(published_failures),
+            "omitted": source_failure_total - len(published_failures),
+            "complete_relative_to_source": evidence_complete,
+            "selection": "source_priority_then_newest_operations_suffix",
+        }
+        result["retention"] = retention
+        result["operations_publication_retention"] = {
+            "policy": "retain_exact_aggregate_accounting_then_newest_whole_rows",
+            "max_bytes": max_bytes,
+            "complete_relative_to_agent_health": (
+                node_count == len(node_days)
+                and failure_count == len(failing_runs)
+                and accounting_count == len(accounting)
+            ),
+            "aggregate_accounting_complete": accounting_complete,
+            "node_days": {
+                "source": len(node_days),
+                "published": len(published_node_days),
+                "omitted": len(node_days) - len(published_node_days),
+                "complete": node_count == len(node_days),
+            },
+            "failure_evidence": {
+                "source_agent_health": len(failing_runs),
+                "source_ledger": source_failure_total,
+                "published": len(published_failures),
+                "omitted_from_agent_health": len(failing_runs) - len(published_failures),
+                "omitted_from_ledger": source_failure_total - len(published_failures),
+                "complete": evidence_complete,
+            },
+            "failure_accounting": {
+                "source": len(accounting),
+                "published": len(published_accounting),
+                "omitted": len(accounting) - len(published_accounting),
+                "complete": accounting_count == len(accounting),
+            },
+        }
+        return result
+
+    full = candidate(len(node_days), len(failing_runs), len(accounting))
+    if _json_bytes({"amd_agent_health": full}) <= max_bytes:
+        return full
+
+    # Link evidence is the least compact and has complete count cubes behind it.
+    low = 0
+    high = len(failing_runs)
+    best: dict | None = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(len(node_days), keep, len(accounting))
+        if _json_bytes({"amd_agent_health": attempt}) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is not None:
+        return best
+
+    # If node-granular ledgers themselves are too large, keep aligned newest
+    # suffixes only as drill-down evidence. The aggregate cubes above remain
+    # exact for date/hardware/window totals and the UI suppresses node rates.
+    low = 0
+    high = 1_000_000
+    best = None
+    while low <= high:
+        ratio = (low + high) // 2
+        node_count = len(node_days) * ratio // 1_000_000
+        accounting_count = len(accounting) * ratio // 1_000_000
+        attempt = candidate(node_count, 0, accounting_count)
+        if _json_bytes({"amd_agent_health": attempt}) <= max_bytes:
+            best = attempt
+            low = ratio + 1
+        else:
+            high = ratio - 1
+    if best is None:
+        raise RuntimeError(
+            "Operations agent-health exact aggregate accounting cannot fit its "
+            f"{max_bytes}-byte public section budget"
+        )
+    return best
+
+
+def _bounded_operations_amd_test_health(
+    value: Any,
+    *,
+    max_bytes: int | None = None,
+) -> dict:
+    """Bound AMD drill-down catalogs while preserving source summary scalars."""
+    if max_bytes is None:
+        max_bytes = OPERATIONS_AMD_TEST_HEALTH_SECTION_MAX_BYTES
+    if max_bytes <= 0:
+        raise ValueError("Operations AMD test-health byte budget must be positive")
+    source = dict(value) if isinstance(value, dict) else {}
+    source_groups = list(source.get("group_catalog") or [])
+    source_builds = list(source.get("builds") or [])
+    inventory = dict(source.get("latest_logical_test_groups") or {})
+    source_logical = list(inventory.get("rows") or [])
+    latest_build = int((source.get("summary") or {}).get("latest_build_number") or 0)
+    incident_states = {
+        "soft", "soft_fail", "soft_failed", "hard", "incident", "error",
+        "failed", "timed_out", "broken", "canceled",
+    }
+    group_priority = sorted(
+        range(len(source_groups)),
+        key=lambda index: (
+            int(source_groups[index].get("latest_build_number") or 0) == latest_build,
+            str(source_groups[index].get("latest_state") or "").lower()
+            in incident_states,
+            str(source_groups[index].get("latest_observed_at") or ""),
+            str(source_groups[index].get("id") or source_groups[index].get("name") or ""),
+        ),
+        reverse=True,
+    )
+    build_priority = sorted(
+        range(len(source_builds)),
+        key=lambda index: (
+            str(source_builds[index].get("observed_at") or ""),
+            int(source_builds[index].get("number") or 0),
+        ),
+        reverse=True,
+    )
+    logical_priority = sorted(
+        range(len(source_logical)),
+        key=lambda index: (
+            str(source_logical[index].get("state") or "")
+            in {"non_passing", "partial", "unresolved"},
+            str(source_logical[index].get("label") or source_logical[index].get("logical_key") or ""),
+        ),
+        reverse=True,
+    )
+
+    def selected_rows(rows: list, priority: list[int], ratio: int) -> list:
+        count = len(rows) * ratio // 1_000_000
+        selected = set(priority[:count])
+        return [row for index, row in enumerate(rows) if index in selected]
+
+    def candidate(ratio: int) -> dict:
+        groups = selected_rows(source_groups, group_priority, ratio)
+        builds = selected_rows(source_builds, build_priority, ratio)
+        logical = selected_rows(source_logical, logical_priority, ratio)
+        result = {
+            key: item
+            for key, item in source.items()
+            if key not in {
+                "group_catalog",
+                "builds",
+                "latest_logical_test_groups",
+                "operations_publication_retention",
+            }
+        }
+        result["group_catalog"] = groups
+        result["builds"] = builds
+        result["latest_logical_test_groups"] = {**inventory, "rows": logical}
+        accounting = {
+            "group_catalog": {
+                "source": len(source_groups),
+                "published": len(groups),
+                "omitted": len(source_groups) - len(groups),
+                "complete": len(groups) == len(source_groups),
+            },
+            "builds": {
+                "source": len(source_builds),
+                "published": len(builds),
+                "omitted": len(source_builds) - len(builds),
+                "complete": len(builds) == len(source_builds),
+            },
+            "latest_logical_test_groups": {
+                "source": len(source_logical),
+                "published": len(logical),
+                "omitted": len(source_logical) - len(logical),
+                "complete": len(logical) == len(source_logical),
+            },
+        }
+        result["operations_publication_retention"] = {
+            "policy": "retain_current_failures_and_newest_whole_rows",
+            "max_bytes": max_bytes,
+            "complete_relative_to_amd_test_health": all(
+                row["complete"] for row in accounting.values()
+            ),
+            "aggregate_scalars_complete": True,
+            **accounting,
+        }
+        return result
+
+    full = candidate(1_000_000)
+    if _json_bytes({"amd_test_health": full}) <= max_bytes:
+        return full
+    low = 0
+    high = 999_999
+    best: dict | None = None
+    while low <= high:
+        ratio = (low + high) // 2
+        attempt = candidate(ratio)
+        if _json_bytes({"amd_test_health": attempt}) <= max_bytes:
+            best = attempt
+            low = ratio + 1
+        else:
+            high = ratio - 1
+    if best is None:
+        raise RuntimeError(
+            "Unable to build bounded Operations AMD test-health section while "
+            "preserving aggregate scalars"
+        )
+    return best
+
+
 def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dict:
     data_dir = Path(data_dir)
     paths = {name: data_dir / filename for name, filename in SOURCE_FILES.items()}
@@ -7883,6 +8353,22 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     upstream_parity = _nightly_pipeline(
         "ci", analytics.get("ci") or {}, ci_health.get("upstream") or {},
     )
+    ci_health_retention = ci_health.get("publication_retention") or {}
+    ci_health_build_retention = ci_health_retention.get("builds") or {}
+    if isinstance(ci_health_retention, dict) and ci_health_retention:
+        for nightly, side in ((amd_nightly, "amd"), (upstream_parity, "upstream")):
+            nightly["ci_health_publication_retention"] = {
+                "policy": ci_health_retention.get("policy"),
+                "max_bytes": ci_health_retention.get("max_bytes"),
+                "complete_relative_to_source": (
+                    (ci_health_build_retention.get(side) or {}).get("complete")
+                    is not False
+                ),
+                "aggregate_scalars_complete": (
+                    ci_health_retention.get("aggregate_scalars_complete") is True
+                ),
+                "builds": ci_health_build_retention.get(side) or {},
+            }
     definition_parity = loaded.get("config_parity") or {}
     amd_test_health = _amd_test_health(
         data_dir,
@@ -8071,8 +8557,9 @@ def _compact_queue_history(history: list[dict]) -> list[dict]:
 def _compact_queue(queue: dict) -> dict:
     """Publish current state; history stays in its lazy JSONL asset.
 
-    At a ten-minute cadence, repeating every queue row here would exhaust the
-    section's six-megabyte publication budget in less than an hour.
+    At a ten-minute cadence, repeating every history row here would exhaust the
+    section's 1 MiB publication budget. The shared section projector
+    separately bounds current queue, baseline, and active-job rows.
     """
     compact = dict(queue)
     compact["history"] = []
@@ -8186,9 +8673,59 @@ def build_queue_history_chart(history: list[dict], generated_at: str | None = No
     }
 
 
-def write_queue_history_chart(path: Path, history: list[dict], generated_at: str | None = None) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_encoded_json(build_queue_history_chart(history, generated_at)))
+def _bounded_queue_history_chart(
+    history: list[dict],
+    generated_at: str | None = None,
+    *,
+    max_bytes: int = QUEUE_HISTORY_CHART_MAX_BYTES,
+) -> tuple[dict, bytes]:
+    """Keep the largest newest whole-snapshot suffix that fits the chart budget."""
+    source = list(history)
+
+    def candidate(retained_count: int) -> tuple[dict, bytes]:
+        retained = source[len(source) - retained_count :] if retained_count else []
+        payload = build_queue_history_chart(retained, generated_at)
+        payload["publication_retention"] = {
+            "policy": "newest_whole_snapshots_within_byte_budget_v1",
+            "max_bytes": max_bytes,
+            "source_snapshot_count": len(source),
+            "published_snapshot_count": len(retained),
+            "omitted_oldest_snapshot_count": len(source) - len(retained),
+            "complete_relative_to_source": len(retained) == len(source),
+            "retained_start": retained[0].get("ts") if retained else None,
+            "retained_end": retained[-1].get("ts") if retained else None,
+        }
+        encoded = _encoded_json(payload).encode("utf-8")
+        return payload, encoded
+
+    low = 0
+    high = len(source)
+    best: tuple[dict, bytes] | None = None
+    while low <= high:
+        middle = (low + high) // 2
+        payload, encoded = candidate(middle)
+        if len(encoded) <= max_bytes:
+            best = payload, encoded
+            low = middle + 1
+        else:
+            high = middle - 1
+    if best is None:
+        _payload, encoded = candidate(0)
+        raise RuntimeError(
+            "Queue history chart metadata exceeds its byte budget; preserving "
+            "the last-known-good file: "
+            f"{len(encoded)} > {max_bytes} bytes"
+        )
+    return best
+
+
+def write_queue_history_chart(
+    path: Path,
+    history: list[dict],
+    generated_at: str | None = None,
+) -> None:
+    _payload, encoded = _bounded_queue_history_chart(history, generated_at)
+    atomic_write_bytes(path, encoded)
 
 
 def _diagnostic_section(payload: dict) -> dict:
@@ -8291,6 +8828,1148 @@ def _operations_shell(payload: dict) -> dict:
     }
 
 
+_RELIABILITY_INCIDENT_STATES = {
+    "hard", "soft", "incident", "error", "failed", "failing", "soft_fail",
+    "soft_failed", "timed_out", "broken", "canceled", "expired",
+}
+_RELIABILITY_OBSERVATION_KEYS = (
+    "source_pipeline", "group_id", "build_number", "build_url", "build_kind",
+    "commit", "message", "state", "result", "status", "terminal_state",
+    "observed_at", "finished_at", "created_at", "date", "job_url", "url",
+    "step_url", "job_id", "step_id", "queue", "wall_duration_mins",
+    "test_duration_mins", "wait_mins", "end_to_end_mins", "duration_basis",
+    "duration_mins", "tests", "passed_tests", "failed_tests", "skipped_tests",
+)
+_RELIABILITY_GROUP_SUMMARY_KEYS = (
+    "source_pipeline", "id", "group_ids", "name", "raw_names", "step_key",
+    "hardware", "queues", "build_count", "runs", "passed", "failed",
+    "soft_failed", "incident_count", "incident_rate_pct", "fail_rate",
+    "mixed_outcomes", "latest_state", "latest_observed_at", "latest_url",
+    "last_incident", "green_streak", "nightly_green_streak",
+    "median_wall_mins", "p90_wall_mins", "max_wall_mins", "median_test_mins",
+    "p90_test_mins", "max_test_mins", "median_wait_mins", "p90_wait_mins",
+    "max_wait_mins", "median_end_to_end_mins", "p90_end_to_end_mins",
+    "max_end_to_end_mins", "median_dur", "p90_dur", "max_dur",
+    "duration_basis", "observation_count", "retained_observation_count",
+    "history_truncated", "excluded_observation_count",
+    "linked_observation_count", "retry_evidence_observation_count",
+    "evidence_type",
+)
+_RELIABILITY_RETRY_ROW_KEYS = (
+    "source_pipeline", "group_id", "build_number", "step", "name", "state",
+    "observed_at", "timestamp_source", "job_id", "url", "retry_type",
+    "retry_source", "build_url", "job_url", "failed_job_id", "passed_job_id",
+    "failed_url", "passed_url", "failed_job_url", "passed_job_url",
+    "comparison_platform", "comparison_key", "comparison_group_id",
+    "comparison_identity_method", "comparison_row_ids",
+    "comparison_eligible_row_ids",
+)
+
+
+def _json_bytes(payload: Any) -> int:
+    """Return the exact byte count used by public compact JSON files."""
+    return len(_encoded_json(payload).encode("utf-8"))
+
+
+def _bounded_public_text(value: Any, limit: int = 4096) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)] + "\u2026"
+
+
+def _reliability_row_state(row: dict) -> str:
+    return str(
+        row.get("state")
+        or row.get("result")
+        or row.get("status")
+        or row.get("latest_state")
+        or "unknown"
+    ).lower()
+
+
+def _reliability_incident(row: dict) -> bool:
+    return _reliability_row_state(row) in _RELIABILITY_INCIDENT_STATES
+
+
+def _reliability_row_stable_id(row: dict) -> str:
+    return hashlib.sha256(_encoded_json(row).encode("utf-8")).hexdigest()
+
+
+def _reliability_row_sort_key(row: dict, index: int = 0) -> tuple[str, int, str]:
+    observed_at = str(
+        row.get("observed_at")
+        or row.get("finished_at")
+        or row.get("created_at")
+        or row.get("date")
+        or row.get("latest_observed_at")
+        or ""
+    )
+    build_number = row.get("build_number")
+    if not isinstance(build_number, int) or isinstance(build_number, bool):
+        build_number = 0
+    # Never use source-list position as a cap-selection tie-break. Upstream
+    # pagination and dictionary assembly can reorder otherwise identical
+    # evidence, which must not churn the bounded public projection.
+    return observed_at, build_number, _reliability_row_stable_id(row)
+
+
+def _project_reliability_row(
+    row: Any,
+    keys: tuple[str, ...],
+) -> tuple[dict | None, bool]:
+    """Bound a single evidence row without allowing it to wedge publication."""
+    if not isinstance(row, dict):
+        return None, False
+    if _json_bytes(row) <= OPERATIONS_RELIABILITY_ROW_MAX_BYTES:
+        return row, False
+    projected: dict[str, Any] = {}
+    string_limit = max(
+        32,
+        min(4096, OPERATIONS_RELIABILITY_ROW_MAX_BYTES // 16),
+    )
+    for key in keys:
+        value = row.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            projected[key] = _bounded_public_text(value, string_limit)
+        elif isinstance(value, (int, float, bool)):
+            projected[key] = value
+        elif key in {
+            "comparison_row_ids", "comparison_eligible_row_ids",
+        } and isinstance(value, list):
+            projected[key] = [
+                _bounded_public_text(item, 512)
+                for item in value[:128]
+                if isinstance(item, (str, int)) and not isinstance(item, bool)
+            ]
+    projected["publication_fields_truncated"] = True
+    if _json_bytes(projected) > OPERATIONS_RELIABILITY_ROW_MAX_BYTES:
+        return None, True
+    return projected, True
+
+
+def _project_group_summary(group: dict) -> tuple[dict | None, bool]:
+    summary = {key: value for key, value in group.items() if key != "observations"}
+    if _json_bytes(summary) <= OPERATIONS_RELIABILITY_GROUP_MAX_BYTES:
+        return summary, False
+
+    projected: dict[str, Any] = {}
+    for key in _RELIABILITY_GROUP_SUMMARY_KEYS:
+        value = group.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            projected[key] = _bounded_public_text(value)
+        elif isinstance(value, (int, float, bool)):
+            projected[key] = value
+        elif key in {"group_ids", "raw_names", "queues"} and isinstance(value, list):
+            projected[key] = [
+                _bounded_public_text(item, 512)
+                for item in value[:64]
+                if isinstance(item, (str, int))
+            ]
+        elif key == "last_incident":
+            incident, _truncated = _project_reliability_row(
+                value,
+                _RELIABILITY_OBSERVATION_KEYS,
+            )
+            if incident is not None:
+                projected[key] = incident
+    projected["publication_fields_truncated"] = True
+    if _json_bytes(projected) > OPERATIONS_RELIABILITY_GROUP_MAX_BYTES:
+        return None, True
+    return projected, True
+
+
+def _bounded_public_cohort(
+    value: Any,
+    *,
+    max_bytes: int = 1024 * 1024,
+) -> tuple[dict, bool]:
+    cohort = value if isinstance(value, dict) else {}
+    if _json_bytes(cohort) <= max_bytes:
+        return cohort, False
+    scalar_keys = (
+        "id", "available", "label", "build_count",
+        "canonical_nightly_build_count", "non_nightly_main_build_count",
+        "other_main_build_count", "window_days", "observed_from", "observed_to",
+        "selection",
+    )
+    projected: dict[str, Any] = {}
+    for key in scalar_keys:
+        item = cohort.get(key)
+        if isinstance(item, str):
+            projected[key] = _bounded_public_text(item)
+        elif isinstance(item, (int, float, bool)) or item is None:
+            projected[key] = item
+    if isinstance(cohort.get("composition"), dict):
+        projected["composition"] = {
+            key: item
+            for key, item in cohort["composition"].items()
+            if isinstance(item, (int, float, bool)) or item is None
+        }
+    build_numbers = [
+        item for item in cohort.get("build_numbers") or []
+        if isinstance(item, int) and not isinstance(item, bool)
+    ]
+    projected["build_numbers"] = build_numbers[-8192:]
+    projected["publication_build_numbers_truncated"] = (
+        len(projected["build_numbers"]) < len(build_numbers)
+    )
+    while _json_bytes(projected) > max_bytes and projected["build_numbers"]:
+        projected["build_numbers"] = projected["build_numbers"][
+            len(projected["build_numbers"]) // 2:
+        ]
+        projected["publication_build_numbers_truncated"] = True
+    if _json_bytes(projected) > max_bytes:
+        projected.pop("build_numbers", None)
+        projected["publication_build_numbers_truncated"] = True
+    return projected, True
+
+
+def _bounded_retry_provenance(value: Any) -> tuple[dict, bool]:
+    provenance = value if isinstance(value, dict) else {}
+    if _json_bytes(provenance) <= 512 * 1024:
+        return provenance, False
+    projected: dict[str, Any] = {}
+    for key in (
+        "source_path", "source_key", "source_pipeline", "complete", "reason",
+        "evidence_kind",
+    ):
+        item = provenance.get(key)
+        if isinstance(item, str):
+            projected[key] = _bounded_public_text(item)
+        elif isinstance(item, (int, float, bool)) or item is None:
+            projected[key] = item
+    numbers = [
+        item for item in provenance.get("cohort_build_numbers") or []
+        if isinstance(item, int) and not isinstance(item, bool)
+    ]
+    projected["cohort_build_numbers"] = numbers[-4096:]
+    projected["publication_build_numbers_truncated"] = (
+        len(projected["cohort_build_numbers"]) < len(numbers)
+    )
+    while (
+        _json_bytes(projected) > 512 * 1024
+        and projected["cohort_build_numbers"]
+    ):
+        retained = projected["cohort_build_numbers"]
+        projected["cohort_build_numbers"] = retained[len(retained) // 2:]
+        projected["publication_build_numbers_truncated"] = True
+    return projected, True
+
+
+def _retry_retention_metadata(
+    source: dict,
+    attempts: list[dict],
+    recoveries: list[dict],
+    *,
+    source_bytes: int,
+    sanitized_rows: int,
+    provenance_compacted: bool,
+) -> dict:
+    source_attempts = source.get("retry_attempts") or []
+    source_recoveries = source.get("failed_then_passed_recoveries") or []
+    source_attempt_count = len(source_attempts) if isinstance(source_attempts, list) else 0
+    source_recovery_count = (
+        len(source_recoveries) if isinstance(source_recoveries, list) else 0
+    )
+    source_comparison_ids = {
+        str(comparison_id)
+        for row in (*source_attempts, *source_recoveries)
+        if isinstance(row, dict)
+        for key in ("comparison_row_ids", "comparison_eligible_row_ids")
+        for comparison_id in (
+            row.get(key) if isinstance(row.get(key), list) else []
+        )
+        if comparison_id not in (None, "")
+    }
+    published_comparison_ids = {
+        str(comparison_id)
+        for row in (*attempts, *recoveries)
+        for key in ("comparison_row_ids", "comparison_eligible_row_ids")
+        for comparison_id in (
+            row.get(key) if isinstance(row.get(key), list) else []
+        )
+        if comparison_id not in (None, "")
+    }
+    complete = (
+        len(attempts) == source_attempt_count
+        and len(recoveries) == source_recovery_count
+        and sanitized_rows == 0
+        and not provenance_compacted
+    )
+    return {
+        "schema_version": 1,
+        "strategy": "newest-explicit-retry-evidence-v1",
+        "max_bytes": OPERATIONS_RETRY_EVIDENCE_MAX_BYTES,
+        "source_bytes": source_bytes,
+        "complete_relative_to_source": complete,
+        "retry_attempts": {
+            "source": source_attempt_count,
+            "published": len(attempts),
+            "omitted": max(0, source_attempt_count - len(attempts)),
+        },
+        "recoveries": {
+            "source": source_recovery_count,
+            "published": len(recoveries),
+            "omitted": max(0, source_recovery_count - len(recoveries)),
+        },
+        "comparison_groups": {
+            "source": len(source_comparison_ids),
+            "published": len(published_comparison_ids),
+            "omitted": max(
+                0,
+                len(source_comparison_ids - published_comparison_ids),
+            ),
+        },
+        "source_summary": {
+            key: (source.get("summary") or {}).get(key)
+            for key in (
+                "builds_evaluated", "builds_with_retries", "retry_attempt_count",
+                "failed_then_passed_recovery_count", "linked_retry_attempt_count",
+                "linked_recovery_count",
+            )
+            if key in (source.get("summary") or {})
+        },
+        "sanitized_row_count": sanitized_rows,
+        "provenance_compacted": provenance_compacted,
+    }
+
+
+def _bounded_public_retry_analysis(value: Any) -> dict:
+    source = value if isinstance(value, dict) else {}
+    source_bytes = _json_bytes(source)
+    source_attempts = source.get("retry_attempts") or []
+    source_recoveries = source.get("failed_then_passed_recoveries") or []
+    source_attempts = source_attempts if isinstance(source_attempts, list) else []
+    source_recoveries = source_recoveries if isinstance(source_recoveries, list) else []
+    complete_candidate = dict(source)
+    complete_candidate["publication_retention"] = _retry_retention_metadata(
+        source,
+        source_attempts,
+        source_recoveries,
+        source_bytes=source_bytes,
+        sanitized_rows=0,
+        provenance_compacted=False,
+    )
+    wrapper_reserve = min(
+        16 * 1024,
+        max(128, OPERATIONS_RETRY_EVIDENCE_MAX_BYTES // 20),
+    )
+    payload_max_bytes = max(
+        1,
+        OPERATIONS_RETRY_EVIDENCE_MAX_BYTES - wrapper_reserve,
+    )
+    if _json_bytes(complete_candidate) <= payload_max_bytes:
+        return complete_candidate
+
+    provenance, provenance_compacted = _bounded_retry_provenance(
+        source.get("provenance")
+    )
+    base = {
+        key: source.get(key)
+        for key in (
+            "schema_version", "generated_at", "available", "evidence_type",
+            "summary",
+        )
+        if key in source
+    }
+    base["provenance"] = provenance
+    prepared: dict[str, list[dict]] = {"attempt": [], "recovery": []}
+    for kind, rows in (
+        ("attempt", source_attempts),
+        ("recovery", source_recoveries),
+    ):
+        for index, row in enumerate(rows):
+            projected, sanitized = _project_reliability_row(
+                row,
+                _RELIABILITY_RETRY_ROW_KEYS,
+            )
+            if projected is None:
+                continue
+            prepared[kind].append({
+                "index": index,
+                "row": projected,
+                "sanitized": sanitized,
+                "sort_key": _reliability_row_sort_key(projected, index),
+                "comparison_ids": {
+                    str(comparison_id)
+                    for key in (
+                        "comparison_row_ids", "comparison_eligible_row_ids",
+                    )
+                    for comparison_id in (
+                        projected.get(key)
+                        if isinstance(projected.get(key), list)
+                        else []
+                    )
+                    if comparison_id not in (None, "")
+                },
+            })
+
+    selected: set[tuple[str, int]] = set()
+    addition_order: list[tuple[str, int]] = []
+    empty_meta = _retry_retention_metadata(
+        source,
+        [],
+        [],
+        source_bytes=source_bytes,
+        sanitized_rows=0,
+        provenance_compacted=provenance_compacted,
+    )
+    empty_candidate = {
+        **base,
+        "retry_attempts": [],
+        "failed_then_passed_recoveries": [],
+        "publication_retention": empty_meta,
+    }
+    used = _json_bytes(empty_candidate)
+    selection_limit = max(0, payload_max_bytes - wrapper_reserve)
+
+    def add(item: dict, kind: str) -> None:
+        nonlocal used
+        identity = (kind, int(item["index"]))
+        if identity in selected:
+            return
+        increment = _json_bytes(item["row"]) + 1
+        if used + increment > selection_limit:
+            return
+        selected.add(identity)
+        addition_order.append(identity)
+        used += increment
+
+    # Keep a current signal from each evidence kind before filling the shared
+    # budget by recency. Recoveries win only an exact timestamp tie.
+    for kind in ("recovery", "attempt"):
+        if prepared[kind]:
+            add(max(prepared[kind], key=lambda item: item["sort_key"]), kind)
+    comparison_winners: dict[str, tuple[dict, str]] = {}
+    for kind in ("recovery", "attempt"):
+        for item in prepared[kind]:
+            for comparison_id in item["comparison_ids"]:
+                current = comparison_winners.get(comparison_id)
+                if current is None or item["sort_key"] > current[0]["sort_key"]:
+                    comparison_winners[comparison_id] = (item, kind)
+    pinned = sorted(
+        comparison_winners.values(),
+        key=lambda pair: (pair[0]["sort_key"], pair[1] == "recovery"),
+        reverse=True,
+    )
+    for item, kind in pinned:
+        add(item, kind)
+    optional = [
+        (item, kind)
+        for kind in ("recovery", "attempt")
+        for item in prepared[kind]
+        if (kind, int(item["index"])) not in selected
+    ]
+    optional.sort(key=lambda pair: (pair[1], pair[0]["index"]))
+    optional.sort(
+        key=lambda pair: (pair[0]["sort_key"], pair[1] == "recovery"),
+        reverse=True,
+    )
+    for item, kind in optional:
+        add(item, kind)
+
+    def build_candidate() -> dict:
+        selected_attempts = [
+            item for item in prepared["attempt"]
+            if ("attempt", int(item["index"])) in selected
+        ]
+        selected_recoveries = [
+            item for item in prepared["recovery"]
+            if ("recovery", int(item["index"])) in selected
+        ]
+        attempts = [
+            item["row"]
+            for item in sorted(
+                selected_attempts,
+                key=lambda item: item["sort_key"],
+                reverse=True,
+            )
+        ]
+        recoveries = [
+            item["row"]
+            for item in sorted(
+                selected_recoveries,
+                key=lambda item: item["sort_key"],
+                reverse=True,
+            )
+        ]
+        published_sanitized = sum(
+            int(item["sanitized"])
+            for kind in ("attempt", "recovery")
+            for item in prepared[kind]
+            if (kind, int(item["index"])) in selected
+        )
+        published_summary = dict(base.get("summary") or {})
+        published_summary.update({
+            "builds_with_retries": len({
+                row.get("build_number")
+                for row in attempts
+                if row.get("build_number")
+            }),
+            "retry_attempt_count": len(attempts),
+            "failed_then_passed_recovery_count": len(recoveries),
+            "linked_retry_attempt_count": sum(
+                bool(row.get("job_url")) for row in attempts
+            ),
+            "linked_recovery_count": sum(
+                bool(row.get("failed_url") and row.get("passed_url"))
+                for row in recoveries
+            ),
+        })
+        return {
+            **base,
+            "summary": published_summary,
+            "retry_attempts": attempts,
+            "failed_then_passed_recoveries": recoveries,
+            "publication_retention": _retry_retention_metadata(
+                source,
+                attempts,
+                recoveries,
+                source_bytes=source_bytes,
+                sanitized_rows=published_sanitized,
+                provenance_compacted=provenance_compacted,
+            ),
+        }
+
+    candidate = build_candidate()
+    while _json_bytes(candidate) > payload_max_bytes and addition_order:
+        selected.remove(addition_order.pop())
+        candidate = build_candidate()
+    if _json_bytes(candidate) > payload_max_bytes:
+        raise RuntimeError("Unable to build bounded public retry evidence")
+    return candidate
+
+
+def _published_group_row(descriptor: dict) -> dict:
+    observations = [
+        item["row"]
+        for item in sorted(
+            descriptor["observations"],
+            key=lambda item: item["sort_key"],
+        )
+        if item["index"] in descriptor["selected"]
+    ]
+    source_count = descriptor["source_observation_count"]
+    sanitized_count = sum(
+        int(item["sanitized"])
+        for item in descriptor["observations"]
+        if item["index"] in descriptor["selected"]
+    )
+    row = dict(descriptor["summary"])
+    source_history_truncated = bool(row.get("history_truncated"))
+    excluded_observation_count = max(
+        0, int(row.get("excluded_observation_count") or 0)
+    )
+    aggregate_observation_count = max(
+        0, int(row.get("observation_count") or source_count)
+    )
+    source_history_complete = (
+        not source_history_truncated
+        and excluded_observation_count == 0
+        and aggregate_observation_count == source_count
+    )
+    row.update({
+        "retained_observation_count": len(observations),
+        "history_truncated": source_history_truncated
+        or len(observations) < source_count
+        or sanitized_count > 0,
+        "linked_observation_count": sum(
+            bool(observation.get("job_url")) for observation in observations
+        ),
+        "observations": observations,
+        "source_retained_observation_count": source_count,
+        "publication_history_complete": (
+            source_history_complete
+            and len(observations) == source_count
+            and sanitized_count == 0
+        ),
+        "publication_observation_fields_truncated_count": sanitized_count,
+    })
+    return row
+
+
+def _bounded_public_group_catalog(
+    value: Any,
+    *,
+    max_bytes: int = OPERATIONS_RELIABILITY_CATALOG_MAX_BYTES,
+) -> tuple[list[dict], dict]:
+    source_groups = value if isinstance(value, list) else []
+    descriptors: list[dict] = []
+    source_observations = 0
+    source_incidents = 0
+    unavailable_observations = 0
+    unavailable_groups = 0
+    for group_index, group in enumerate(source_groups):
+        if not isinstance(group, dict):
+            unavailable_groups += 1
+            continue
+        raw_observations = group.get("observations") or []
+        raw_observations = (
+            raw_observations if isinstance(raw_observations, list) else []
+        )
+        source_observations += len(raw_observations)
+        source_incidents += sum(
+            _reliability_incident(row)
+            for row in raw_observations
+            if isinstance(row, dict)
+        )
+        identity_value = group.get("id") or group.get("name")
+        if identity_value in (None, ""):
+            unavailable_groups += 1
+            continue
+        identity = str(identity_value)
+        summary, summary_sanitized = _project_group_summary(group)
+        if summary is None:
+            unavailable_groups += 1
+            continue
+        observations = []
+        for observation_index, observation in enumerate(raw_observations):
+            projected, sanitized = _project_reliability_row(
+                observation,
+                _RELIABILITY_OBSERVATION_KEYS,
+            )
+            if projected is None:
+                unavailable_observations += 1
+                continue
+            observations.append({
+                "index": observation_index,
+                "row": projected,
+                "sanitized": sanitized,
+                "incident": _reliability_incident(projected),
+                "sort_key": _reliability_row_sort_key(
+                    projected,
+                    observation_index,
+                ),
+            })
+        newest = max(observations, key=lambda item: item["sort_key"], default=None)
+        selected = {int(newest["index"])} if newest is not None else set()
+        canonical_key = (
+            identity,
+            hashlib.sha256(
+                (
+                    _encoded_json(summary)
+                    + "|"
+                    + "|".join(sorted(
+                        _reliability_row_stable_id(item["row"])
+                        for item in observations
+                    ))
+                ).encode("utf-8")
+            ).hexdigest(),
+        )
+        descriptors.append({
+            "index": group_index,
+            "summary": summary,
+            "summary_sanitized": summary_sanitized,
+            "observations": observations,
+            "selected": selected,
+            "newest_index": int(newest["index"]) if newest is not None else None,
+            "latest_sort_key": newest["sort_key"] if newest is not None else (
+                str(group.get("latest_observed_at") or ""), 0, canonical_key[1]
+            ),
+            "current_incident": bool(
+                newest and newest["incident"]
+            ) or str(group.get("latest_state") or "").lower() in (
+                _RELIABILITY_INCIDENT_STATES
+            ),
+            "has_incidents": bool(group.get("incident_count"))
+            or any(item["incident"] for item in observations),
+            "incident_count": int(group.get("incident_count") or 0),
+            "identity": identity,
+            "canonical_key": canonical_key,
+            "source_observation_count": len(raw_observations),
+        })
+
+    # Stable identity ordering supplies deterministic ties; the second stable
+    # sort makes current failures and recent groups survive first under pressure.
+    descriptors.sort(key=lambda item: item["canonical_key"])
+    descriptors.sort(
+        key=lambda item: (
+            item["current_incident"],
+            item["has_incidents"],
+            item["latest_sort_key"],
+            item["incident_count"],
+        ),
+        reverse=True,
+    )
+    selected_groups: list[dict] = []
+    selection_limit = max(0, max_bytes - 1024 * 1024)
+    used = 3
+    for descriptor in descriptors:
+        row = _published_group_row(descriptor)
+        row_bytes = _json_bytes(row)
+        if row_bytes > OPERATIONS_RELIABILITY_GROUP_MAX_BYTES:
+            unavailable_groups += 1
+            continue
+        increment = row_bytes + int(bool(selected_groups))
+        if used + increment > selection_limit:
+            continue
+        selected_groups.append(descriptor)
+        used += increment
+
+    optional: list[tuple[dict, dict]] = []
+    for descriptor in selected_groups:
+        optional.extend(
+            (descriptor, item)
+            for item in descriptor["observations"]
+            if item["index"] != descriptor["newest_index"]
+        )
+    optional.sort(
+        key=lambda pair: (pair[0]["identity"], pair[1]["index"])
+    )
+    optional.sort(
+        key=lambda pair: (pair[1]["incident"], pair[1]["sort_key"]),
+        reverse=True,
+    )
+    addition_order: list[tuple[dict, int]] = []
+    for descriptor, item in optional:
+        increment = _json_bytes(item["row"]) + 1
+        if used + increment > selection_limit:
+            continue
+        descriptor["selected"].add(int(item["index"]))
+        addition_order.append((descriptor, int(item["index"])))
+        used += increment
+
+    def build_catalog() -> list[dict]:
+        return [
+            _published_group_row(descriptor)
+            for descriptor in sorted(
+                selected_groups,
+                key=lambda item: item["canonical_key"],
+            )
+        ]
+
+    catalog = build_catalog()
+    while _json_bytes(catalog) > max_bytes and addition_order:
+        descriptor, observation_index = addition_order.pop()
+        descriptor["selected"].remove(observation_index)
+        catalog = build_catalog()
+    while _json_bytes(catalog) > max_bytes and selected_groups:
+        selected_groups.pop()
+        catalog = build_catalog()
+    if _json_bytes(catalog) > max_bytes:
+        raise RuntimeError("Unable to build bounded public reliability catalog")
+
+    published_observations = sum(len(row.get("observations") or []) for row in catalog)
+    published_incidents = sum(
+        _reliability_incident(observation)
+        for row in catalog
+        for observation in row.get("observations") or []
+    )
+    sanitized_groups = sum(bool(item["summary_sanitized"]) for item in selected_groups)
+    sanitized_observations = sum(
+        int(item["sanitized"])
+        for descriptor in selected_groups
+        for item in descriptor["observations"]
+        if item["index"] in descriptor["selected"]
+    )
+    return catalog, {
+        "groups": {
+            "source": len(source_groups),
+            "published": len(catalog),
+            "omitted": max(0, len(source_groups) - len(catalog)),
+        },
+        "observations": {
+            "source": source_observations,
+            "published": published_observations,
+            "omitted": max(0, source_observations - published_observations),
+        },
+        "incident_observations": {
+            "source": source_incidents,
+            "published": published_incidents,
+            "omitted": max(0, source_incidents - published_incidents),
+        },
+        "sanitized_group_count": sanitized_groups,
+        "sanitized_observation_count": sanitized_observations,
+        "unpublishable_group_count": unavailable_groups,
+        "unpublishable_observation_count": unavailable_observations,
+    }
+
+
+def _reliability_group_summary(row: dict) -> dict:
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in {
+            "observations", "raw_names", "last_incident",
+            "source_retained_observation_count", "publication_history_complete",
+            "publication_observation_fields_truncated_count",
+        }
+    } | {
+        "evidence_ref": row.get("id"),
+        "last_incident": row.get("last_incident"),
+    }
+
+
+def _bounded_public_derived_rows(
+    catalog: list[dict],
+    source: dict,
+) -> tuple[list[dict], dict, dict]:
+    summaries = [_reliability_group_summary(row) for row in catalog]
+    candidates = [row for row in summaries if row.get("mixed_outcomes")]
+    candidates.sort(
+        key=lambda row: (
+            float(row.get("incident_rate_pct") or 0),
+            int(row.get("incident_count") or 0),
+            int(row.get("runs") or 0),
+            str(row.get("name") or ""),
+        ),
+        reverse=True,
+    )
+    latency = [row for row in summaries if row.get("median_dur") is not None]
+    lists = {
+        "flaky_candidates": candidates,
+        "by_median_duration": sorted(
+            latency,
+            key=lambda row: (
+                float(row.get("median_dur") or 0), str(row.get("name") or "")
+            ),
+            reverse=True,
+        ),
+        "by_p90_duration": sorted(
+            latency,
+            key=lambda row: (
+                float(row.get("p90_dur") or 0), str(row.get("name") or "")
+            ),
+            reverse=True,
+        ),
+        "by_max_duration": sorted(
+            latency,
+            key=lambda row: (
+                float(row.get("max_dur") or 0), str(row.get("name") or "")
+            ),
+            reverse=True,
+        ),
+    }
+    per_list_budget = OPERATIONS_RELIABILITY_DERIVED_MAX_BYTES // len(lists) - 4096
+    published: dict[str, list[dict]] = {}
+    for name, rows in lists.items():
+        selected: list[dict] = []
+        used = 3
+        for row in rows:
+            row_bytes = _json_bytes(row)
+            if row_bytes > OPERATIONS_RELIABILITY_ROW_MAX_BYTES:
+                continue
+            increment = row_bytes + int(bool(selected))
+            if used + increment > per_list_budget:
+                continue
+            selected.append(row)
+            used += increment
+        published[name] = selected
+    latency_source = source.get("latency_rankings") or {}
+    latency_source = latency_source if isinstance(latency_source, dict) else {}
+    source_counts = {
+        "flaky_candidates": len(source.get("flaky_candidates") or []),
+        **{
+            key: len(latency_source.get(key) or [])
+            for key in (
+                "by_median_duration", "by_p90_duration", "by_max_duration",
+            )
+        },
+    }
+    stats = {
+        key: {
+            "source": source_counts[key],
+            "published": len(published[key]),
+            "omitted": max(0, source_counts[key] - len(published[key])),
+        }
+        for key in source_counts
+    }
+    return (
+        published["flaky_candidates"],
+        {
+            key: published[key]
+            for key in (
+                "by_median_duration", "by_p90_duration", "by_max_duration",
+            )
+        },
+        stats,
+    )
+
+
+def _comparison_row_priority(row: dict, index: int) -> tuple[bool, str, str]:
+    variants = []
+    for side in ("amd", "cuda"):
+        block = row.get(side) or {}
+        if isinstance(block, dict) and isinstance(block.get("variants"), list):
+            variants.extend(item for item in block["variants"] if isinstance(item, dict))
+    latest = max(
+        variants,
+        key=lambda item: _reliability_row_sort_key(item),
+        default={},
+    )
+    return (
+        any(_reliability_incident(variant) for variant in variants),
+        str(latest.get("latest_observed_at") or latest.get("observed_at") or ""),
+        _reliability_row_stable_id(row),
+    )
+
+
+def _bounded_public_platform_comparison(value: Any) -> tuple[dict, dict]:
+    source = value if isinstance(value, dict) else {}
+    rows = source.get("rows") or []
+    rows = rows if isinstance(rows, list) else []
+    base = {
+        key: source.get(key)
+        for key in (
+            "available", "source_pipeline", "cohort_build_count", "summary",
+            "matching",
+        )
+        if key in source
+    }
+    source_bytes = _json_bytes(source)
+    fixed_metadata_compacted = False
+    if _json_bytes(base) > 512 * 1024:
+        base = {
+            "available": bool(source.get("available")),
+            "source_pipeline": _bounded_public_text(source.get("source_pipeline"), 128),
+            "cohort_build_count": source.get("cohort_build_count"),
+            "summary": {},
+            "matching": {},
+            "publication_fixed_metadata_compacted": True,
+        }
+        fixed_metadata_compacted = True
+    prepared = []
+    oversized = 0
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or _json_bytes(row) > (
+            OPERATIONS_RELIABILITY_ROW_MAX_BYTES
+        ):
+            oversized += 1
+            continue
+        prepared.append({
+            "index": index,
+            "row": row,
+            "priority": _comparison_row_priority(row, index),
+            "stable_id": _reliability_row_stable_id(row),
+        })
+    prepared.sort(key=lambda item: item["priority"], reverse=True)
+    selected = []
+    used = _json_bytes({**base, "rows": []})
+    selection_limit = OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES - 16 * 1024
+    for item in prepared:
+        increment = _json_bytes(item["row"]) + int(bool(selected))
+        if used + increment > selection_limit:
+            continue
+        selected.append(item)
+        used += increment
+    published_rows = [
+        item["row"]
+        for item in sorted(
+            selected,
+            key=lambda item: (item["priority"], item["stable_id"]),
+            reverse=True,
+        )
+    ]
+    stats = {
+        "source": len(rows),
+        "published": len(published_rows),
+        "omitted": max(0, len(rows) - len(published_rows)),
+        "oversized_or_invalid": oversized,
+        "fixed_metadata_compacted": fixed_metadata_compacted,
+    }
+    candidate = {
+        **base,
+        "rows": published_rows,
+        "publication_retention": {
+            "schema_version": 1,
+            "strategy": "current-incident-then-newest-comparison-rows-v1",
+            "max_bytes": OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES,
+            "source_bytes": source_bytes,
+            "complete_relative_to_source": (
+                len(published_rows) == len(rows)
+                and not fixed_metadata_compacted
+            ),
+            "rows": stats,
+        },
+    }
+    while (
+        _json_bytes(candidate) > OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES
+        and selected
+    ):
+        selected.pop()
+        published_rows = [
+            item["row"]
+            for item in sorted(
+                selected,
+                key=lambda item: (item["priority"], item["stable_id"]),
+                reverse=True,
+            )
+        ]
+        candidate["rows"] = published_rows
+        stats["published"] = len(published_rows)
+        stats["omitted"] = len(rows) - len(published_rows)
+        candidate["publication_retention"]["complete_relative_to_source"] = False
+    if _json_bytes(candidate) > OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES:
+        raise RuntimeError("Unable to build bounded platform comparison evidence")
+    return candidate, stats
+
+
+def _reliability_source_counts(reliability: dict) -> dict:
+    groups = reliability.get("group_catalog") or []
+    groups = groups if isinstance(groups, list) else []
+    observations = [
+        observation
+        for group in groups
+        if isinstance(group, dict)
+        for observation in (
+            group.get("observations")
+            if isinstance(group.get("observations"), list)
+            else []
+        )
+        if isinstance(observation, dict)
+    ]
+    return {
+        "groups": len(groups),
+        "observations": len(observations),
+        "incident_observations": sum(
+            _reliability_incident(observation) for observation in observations
+        ),
+    }
+
+
+def _bounded_public_reliability(
+    value: Any,
+    *,
+    max_bytes: int = OPERATIONS_RELIABILITY_SECTION_MAX_BYTES,
+) -> dict:
+    """Return an honest, deterministic, byte-bounded browser projection.
+
+    Aggregate rates and denominators stay source-derived. Only exact evidence
+    rows are reduced, and every reduction is declared both globally and on an
+    affected group. The caller encodes every section before writing, so a hard
+    failure here preserves the prior published generation.
+    """
+    source = value if isinstance(value, dict) else {}
+    source_section_bytes = _json_bytes({"reliability": source})
+    source_counts = _reliability_source_counts(source)
+    source_retry = source.get("retry_analysis") or {}
+    source_attempts = (
+        source_retry.get("retry_attempts")
+        if isinstance(source_retry, dict)
+        and isinstance(source_retry.get("retry_attempts"), list)
+        else []
+    )
+    source_recoveries = (
+        source_retry.get("failed_then_passed_recoveries")
+        if isinstance(source_retry, dict)
+        and isinstance(source_retry.get("failed_then_passed_recoveries"), list)
+        else []
+    )
+    complete_retry_retention = _retry_retention_metadata(
+        source_retry if isinstance(source_retry, dict) else {},
+        source_attempts,
+        source_recoveries,
+        source_bytes=_json_bytes(source_retry),
+        sanitized_rows=0,
+        provenance_compacted=False,
+    )
+    full = dict(source)
+    full["publication_retention"] = {
+        "schema_version": 1,
+        "strategy": "bounded-browser-reliability-v1",
+        "max_section_bytes": max_bytes,
+        "source_section_bytes": source_section_bytes,
+        "complete_relative_to_source": True,
+        "compacted": False,
+        "groups": {
+            "source": source_counts["groups"],
+            "published": source_counts["groups"],
+            "omitted": 0,
+        },
+        "observations": {
+            "source": source_counts["observations"],
+            "published": source_counts["observations"],
+            "omitted": 0,
+        },
+        "incident_observations": {
+            "source": source_counts["incident_observations"],
+            "published": source_counts["incident_observations"],
+            "omitted": 0,
+        },
+        "retry_evidence": complete_retry_retention,
+    }
+    if _json_bytes({"reliability": full}) <= max_bytes:
+        return full
+
+    retry = _bounded_public_retry_analysis(source_retry)
+    retry_retention = retry.get("publication_retention") or {}
+    cohort, cohort_compacted = _bounded_public_cohort(source.get("cohort"))
+    fixed = {
+        key: source.get(key)
+        for key in (
+            "available", "source_pipeline", "evidence_definitions", "denominator",
+            "summary",
+        )
+        if key in source
+    }
+    fixed["cohort"] = cohort
+    catalog_budgets = (
+        min(OPERATIONS_RELIABILITY_CATALOG_MAX_BYTES, max_bytes // 4 * 3),
+        min(40 * 1024 * 1024, max_bytes // 8 * 5),
+        min(24 * 1024 * 1024, max_bytes // 2),
+        min(8 * 1024 * 1024, max_bytes // 4),
+        min(2 * 1024 * 1024, max_bytes // 8),
+    )
+    last_size = 0
+    for catalog_budget in dict.fromkeys(budget for budget in catalog_budgets if budget > 0):
+        catalog, catalog_stats = _bounded_public_group_catalog(
+            source.get("group_catalog"),
+            max_bytes=catalog_budget,
+        )
+        flaky, latency, derived_stats = _bounded_public_derived_rows(catalog, source)
+        comparison, comparison_stats = _bounded_public_platform_comparison(
+            source.get("platform_comparison")
+        )
+        complete = (
+            catalog_stats["groups"]["omitted"] == 0
+            and catalog_stats["observations"]["omitted"] == 0
+            and catalog_stats["sanitized_group_count"] == 0
+            and catalog_stats["sanitized_observation_count"] == 0
+            and all(item["omitted"] == 0 for item in derived_stats.values())
+            and comparison_stats["omitted"] == 0
+            and not comparison_stats["fixed_metadata_compacted"]
+            and bool(retry_retention.get("complete_relative_to_source", True))
+            and not cohort_compacted
+        )
+        retention = {
+            "schema_version": 1,
+            "strategy": (
+                "current-incident-groups-then-newest-incidents-then-newest-v1"
+            ),
+            "max_section_bytes": max_bytes,
+            "catalog_max_bytes": catalog_budget,
+            "source_section_bytes": source_section_bytes,
+            "complete_relative_to_source": complete,
+            "compacted": True,
+            **catalog_stats,
+            "derived_rows": derived_stats,
+            "platform_comparison_rows": comparison_stats,
+            "retry_evidence": retry_retention,
+            "cohort_compacted": cohort_compacted,
+        }
+        candidate = {
+            **fixed,
+            "group_catalog": catalog,
+            "flaky_candidates": flaky,
+            "latency_rankings": latency,
+            "retry_analysis": retry,
+            "platform_comparison": comparison,
+            "publication_retention": retention,
+        }
+        last_size = _json_bytes({"reliability": candidate})
+        if last_size <= max_bytes:
+            return candidate
+    raise RuntimeError(
+        "Unable to build bounded public reliability section: "
+        f"{last_size} bytes exceeds {max_bytes} bytes"
+    )
+
+
 def _compact_reliability_comparison(reliability: dict) -> dict:
     """Publish comparison UI data without the 30-day observation ledger.
 
@@ -8299,7 +9978,27 @@ def _compact_reliability_comparison(reliability: dict) -> dict:
     are loaded only by views that actually inspect those histories.
     """
     retry = reliability.get("retry_analysis") or {}
-    return {
+    platform_source = reliability.get("platform_comparison")
+    # A reliability section that crossed its own cap has already bounded this
+    # block and attached source-relative retention metadata. A second pass
+    # would describe the retained rows as the source and could incorrectly
+    # relabel partial evidence as complete.
+    if (
+        isinstance(platform_source, dict)
+        and isinstance(platform_source.get("publication_retention"), dict)
+        and _json_bytes(platform_source)
+        <= OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES
+    ):
+        platform_comparison = platform_source
+    else:
+        platform_comparison, _comparison_stats = (
+            _bounded_public_platform_comparison(platform_source)
+        )
+    cohort, _cohort_compacted = _bounded_public_cohort(
+        reliability.get("cohort"),
+        max_bytes=256 * 1024,
+    )
+    result = {
         key: reliability.get(key)
         for key in (
             "schema_version",
@@ -8309,12 +10008,13 @@ def _compact_reliability_comparison(reliability: dict) -> dict:
             "scope",
             "observation_scope",
             "denominator_scope",
-            "cohort",
             "denominator",
             "evidence_definitions",
-            "platform_comparison",
+            "publication_retention",
         )
     } | {
+        "cohort": cohort,
+        "platform_comparison": platform_comparison,
         "retry_analysis": {
             key: retry.get(key)
             for key in (
@@ -8324,15 +10024,25 @@ def _compact_reliability_comparison(reliability: dict) -> dict:
                 "evidence_type",
                 "summary",
                 "provenance",
+                "publication_retention",
             )
         } | {"evidence_deferred": True}
     }
+    if _json_bytes({"reliability": result}) > OPERATIONS_COMPARISON_SECTION_MAX_BYTES:
+        raise RuntimeError("Unable to build bounded public comparison section")
+    return result
 
 
 def _compact_comparison_retry_evidence(reliability: dict) -> dict:
     """Publish exact retry rows separately from the fast comparison tables."""
-    retry = reliability.get("retry_analysis") or {}
-    return {
+    retry_source = reliability.get("retry_analysis") or {}
+    retry = (
+        retry_source
+        if isinstance(retry_source, dict)
+        and isinstance(retry_source.get("publication_retention"), dict)
+        else _bounded_public_retry_analysis(retry_source)
+    )
+    result = {
         "reliability": {
             "retry_analysis": {
                 key: retry.get(key)
@@ -8345,32 +10055,229 @@ def _compact_comparison_retry_evidence(reliability: dict) -> dict:
                     "provenance",
                     "retry_attempts",
                     "failed_then_passed_recoveries",
+                    "publication_retention",
                 )
             } | {"evidence_deferred": False}
         }
     }
+    if _json_bytes(result) > OPERATIONS_RETRY_EVIDENCE_MAX_BYTES:
+        raise RuntimeError("Unable to build bounded comparison retry evidence section")
+    return result
+
+
+def _bounded_operations_collection_payload(
+    value: Any,
+    *,
+    section_name: str,
+    payload_key: str,
+    collection_keys: tuple[str, ...],
+    row_priority: Any,
+    row_transform: Any = None,
+) -> dict:
+    """Bound independently growing row catalogs while preserving exact summaries."""
+    source = value if isinstance(value, dict) else {}
+    active_collection_keys = tuple(key for key in collection_keys if key in source)
+    source_lists = {
+        key: [row for row in source.get(key) or []]
+        for key in active_collection_keys
+    }
+    tagged = [
+        (key, index, row)
+        for key in active_collection_keys
+        for index, row in enumerate(source_lists[key])
+    ]
+    tagged.sort(
+        key=lambda item: (
+            row_priority(item[0], item[2]),
+            item[0],
+            item[1],
+        )
+    )
+    source_retention = source.get("publication_retention") or {}
+    source_complete = source_retention.get("complete_relative_to_source") is not False
+    max_bytes = OPERATIONS_CANARY_SECTION_MAX_BYTES[section_name]
+
+    def candidate(retained_count: int) -> tuple[dict, int]:
+        selected = {(key, index) for key, index, _row in tagged[:retained_count]}
+        result = dict(source)
+        collections: dict[str, dict[str, Any]] = {}
+        for key in active_collection_keys:
+            rows = [
+                (row_transform(key, row) if row_transform else row)
+                for index, row in enumerate(source_lists[key])
+                if (key, index) in selected
+            ]
+            result[key] = rows
+            collections[key] = {
+                "source": len(source_lists[key]),
+                "published": len(rows),
+                "omitted": len(source_lists[key]) - len(rows),
+                "complete_relative_to_source": len(rows) == len(source_lists[key]),
+            }
+        result["operations_publication_retention"] = {
+            "policy": "priority_whole_rows_with_exact_source_aggregates_v1",
+            "max_bytes": max_bytes,
+            "source_publication_complete": source_complete,
+            "aggregate_summaries_complete": True,
+            "collections": collections,
+            "complete_relative_to_source": (
+                source_complete and retained_count == len(tagged)
+            ),
+        }
+        section = {payload_key: result}
+        return result, _json_bytes(section)
+
+    complete, size = candidate(len(tagged))
+    if size <= max_bytes:
+        return complete
+    low = 0
+    high = len(tagged)
+    best: dict | None = None
+    while low <= high:
+        middle = (low + high) // 2
+        current, current_size = candidate(middle)
+        if current_size <= max_bytes:
+            best = current
+            low = middle + 1
+        else:
+            high = middle - 1
+    if best is None:
+        _empty, irreducible_size = candidate(0)
+        raise RuntimeError(
+            f"Operations {section_name} fixed aggregates exceed their section "
+            f"budget: {irreducible_size} > {max_bytes} bytes"
+        )
+    return best
+
+
+def _definition_row_priority(collection: str, row: Any) -> tuple[int, str]:
+    priority = {
+        "amd_only": 0,
+        "nvidia_only": 0,
+        "additional_variants": 1,
+        "inline_mirror_variants": 2,
+        "mirrors": 3,
+        "matches": 4,
+    }.get(collection, 5)
+    return priority, json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def _test_group_row_priority(collection: str, row: Any) -> tuple[int, str]:
+    state = str((row or {}).get("state") or "") if isinstance(row, dict) else ""
+    priority = -1 if collection == "areas" else {
+        "action": 0,
+        "unsupported": 1,
+        "existing": 2,
+    }.get(state, 3)
+    return priority, json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def _gating_row_priority(collection: str, row: Any) -> tuple[int, str]:
+    item = row if isinstance(row, dict) else {}
+    signals = {
+        str(item.get(key) or "").lower()
+        for key in (
+            "target_signal",
+            "source_signal",
+            "readiness_signal",
+            "gating_signal",
+            "latest_amd_state",
+        )
+    }
+    priority = 0 if signals & {"red", "failed", "soft_failed", "blocked"} else 1
+    return priority, collection + json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def _ownership_row_priority(collection: str, row: Any) -> tuple[int, str]:
+    item = row if isinstance(row, dict) else {}
+    counts = item.get("counts") or {}
+    if collection == "unmapped_targets":
+        priority = 2
+    elif int(counts.get("incidents") or 0):
+        priority = 0
+    elif int(counts.get("pending_soft") or 0):
+        priority = 1
+    elif int(counts.get("upstream_parity_gaps") or 0):
+        priority = 2
+    else:
+        priority = 3
+    return priority, json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def _compact_operations_ownership_row(collection: str, row: Any) -> Any:
+    if collection != "areas" or not isinstance(row, dict):
+        return row
+    compact = dict(row)
+    # ``targets`` duplicates the exact counts and the incident/pending lists;
+    # no Operations consumer reads it.
+    compact.pop("targets", None)
+    return compact
 
 
 def _operation_sections(payload: dict) -> dict[str, dict]:
     reliability = payload.get("reliability") or {}
+    public_reliability = _bounded_public_reliability(reliability)
+    definition_parity = _bounded_operations_collection_payload(
+        payload.get("definition_parity") or {},
+        section_name="definition_parity",
+        payload_key="definition_parity",
+        collection_keys=(
+            "matches",
+            "inline_mirror_variants",
+            "additional_variants",
+            "amd_only",
+            "nvidia_only",
+            "mirrors",
+        ),
+        row_priority=_definition_row_priority,
+    )
+    test_group_parity = _bounded_operations_collection_payload(
+        payload.get("test_group_parity") or {},
+        section_name="test_group_parity",
+        payload_key="test_group_parity",
+        collection_keys=("areas", "groups"),
+        row_priority=_test_group_row_priority,
+    )
+    gating = _bounded_operations_collection_payload(
+        payload.get("gating") or {},
+        section_name="gating",
+        payload_key="gating",
+        collection_keys=("target_groups", "active_target_groups"),
+        row_priority=_gating_row_priority,
+    )
+    ownership = _bounded_operations_collection_payload(
+        payload.get("ownership") or {},
+        section_name="ownership",
+        payload_key="ownership",
+        collection_keys=("areas", "unmapped_targets"),
+        row_priority=_ownership_row_priority,
+        row_transform=_compact_operations_ownership_row,
+    )
+    queue = compact_queue_section(_compact_queue(payload.get("queue") or {}))
     return {
         "nightly": {"nightly": _compact_nightly(payload.get("nightly") or {})},
-        "amd_test_health": {"amd_test_health": payload.get("amd_test_health") or {}},
-        "amd_agent_health": {"amd_agent_health": payload.get("amd_agent_health") or {}},
-        "reliability": {"reliability": reliability},
+        "amd_test_health": {
+            "amd_test_health": _bounded_operations_amd_test_health(
+                payload.get("amd_test_health") or {}
+            )
+        },
+        "amd_agent_health": {
+            "amd_agent_health": _bounded_operations_agent_health(
+                payload.get("amd_agent_health") or {}
+            )
+        },
+        "reliability": {"reliability": public_reliability},
         "comparison": {
-            "reliability": _compact_reliability_comparison(reliability)
+            "reliability": _compact_reliability_comparison(public_reliability)
         },
         "comparison_retry_evidence": _compact_comparison_retry_evidence(
-            reliability
+            public_reliability
         ),
-        "definition_parity": {"definition_parity": payload.get("definition_parity") or {}},
-        "test_group_parity": {
-            "test_group_parity": payload.get("test_group_parity") or {}
-        },
-        "gating": {"gating": payload.get("gating") or {}},
-        "ownership": {"ownership": payload.get("ownership") or {}},
-        "queue": {"queue": _compact_queue(payload.get("queue") or {})},
+        "definition_parity": {"definition_parity": definition_parity},
+        "test_group_parity": {"test_group_parity": test_group_parity},
+        "gating": {"gating": gating},
+        "ownership": {"ownership": ownership},
+        "queue": queue,
         "trajectory": {"trajectory": payload.get("trajectory") or {}},
         "omni": {"omni": payload.get("omni") or {}},
         "diagnostics": _diagnostic_section(payload),
@@ -8689,6 +10596,9 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
     lifecycle_window = queue_lifecycle.get("window") or {}
     lifecycle_coverage = queue_lifecycle.get("coverage") or {}
     lifecycle_retention = queue_lifecycle.get("retention") or {}
+    lifecycle_ledger_scope = lifecycle_retention.get("ledger_scope")
+    if not isinstance(lifecycle_ledger_scope, dict):
+        lifecycle_ledger_scope = None
     lifecycle_scope = queue_lifecycle.get("scope") or {}
     lifecycle_daily_waits = queue_lifecycle.get("daily_wait_times") or {}
     lifecycle_retention_days = (
@@ -8821,7 +10731,7 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
         else None
     )
 
-    return {
+    result = {
         "schema_id": "oss-project-ci-summary",
         "schema_version": ORG_SUMMARY_SCHEMA_VERSION,
         "generated_at": payload.get("generated_at"),
@@ -9046,7 +10956,21 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     "status": lifecycle_coverage.get("status"),
                     "complete": bool(lifecycle_coverage.get("complete")),
                     "reason": lifecycle_coverage.get("reason"),
-                },
+                } | ({
+                    "byte_limited": lifecycle_ledger_scope.get("byte_limited") is True,
+                    "complete_relative_to_configured_window": (
+                        lifecycle_ledger_scope.get(
+                            "complete_relative_to_configured_window"
+                        )
+                        is True
+                    ),
+                    "actual_published_latest_event_start": lifecycle_ledger_scope.get(
+                        "published_latest_event_start"
+                    ),
+                    "actual_published_latest_event_end": lifecycle_ledger_scope.get(
+                        "published_latest_event_end"
+                    ),
+                } if lifecycle_ledger_scope is not None else {}),
             },
             "daily_served_job_waits": {
                 "available": daily_wait_available,
@@ -9068,7 +10992,28 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                     "days": lifecycle_retention_days,
                     "start": lifecycle_retention.get("event_start"),
                     "end_exclusive": lifecycle_retention.get("end_exclusive"),
-                },
+                } | ({
+                    "byte_limited": lifecycle_ledger_scope.get("byte_limited") is True,
+                    "complete_relative_to_configured_window": (
+                        lifecycle_ledger_scope.get(
+                            "complete_relative_to_configured_window"
+                        )
+                        is True
+                    ),
+                    "actual_published_latest_event_start": lifecycle_ledger_scope.get(
+                        "published_latest_event_start"
+                    ),
+                    "actual_published_latest_event_end": lifecycle_ledger_scope.get(
+                        "published_latest_event_end"
+                    ),
+                    "omitted_whole_latest_event_days": lifecycle_ledger_scope.get(
+                        "omitted_whole_latest_event_days"
+                    ),
+                    "partial_latest_event_day": lifecycle_ledger_scope.get(
+                        "partial_latest_event_day"
+                    ),
+                    "ledger_scope": lifecycle_ledger_scope,
+                } if lifecycle_ledger_scope is not None else {}),
                 "coverage": {
                     "status": lifecycle_coverage.get("status"),
                     "complete": bool(lifecycle_coverage.get("complete")),
@@ -9078,7 +11023,15 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
                         ) or {}).get("exact_for_observed_events"))
                     ),
                     "reason": lifecycle_coverage.get("reason"),
-                },
+                } | ({
+                    "byte_limited": lifecycle_ledger_scope.get("byte_limited") is True,
+                    "complete_relative_to_configured_window": (
+                        lifecycle_ledger_scope.get(
+                            "complete_relative_to_configured_window"
+                        )
+                        is True
+                    ),
+                } if lifecycle_ledger_scope is not None else {}),
                 "sample_count": (
                     daily_wait_sample_count if daily_wait_available else None
                 ),
@@ -9151,6 +11104,104 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
             },
         },
     }
+    return _bounded_org_summary(result)
+
+
+def _bounded_org_summary(
+    value: dict,
+    *,
+    max_bytes: int = ORG_SUMMARY_MAX_BYTES,
+) -> dict:
+    """Retain exact rollups and the largest deterministic queue-detail subset."""
+    if _json_bytes(value) <= max_bytes:
+        return value
+    queues = value.get("queues") or {}
+    source_rows = sorted(
+        (dict(row) for row in queues.get("by_queue") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            -int(
+                any(
+                    int(row.get(field) or 0) > 0
+                    for field in (
+                        "waiting_jobs",
+                        "running_jobs",
+                        "zombie_waiting_jobs",
+                        "zombie_running_jobs",
+                    )
+                )
+            ),
+            str(row.get("queue") or ""),
+        ),
+    )
+
+    def candidate(retained_count: int, *, compact_maps: bool) -> dict:
+        result = dict(value)
+        queue_block = dict(queues)
+        rows = source_rows[:retained_count]
+        queue_block["by_queue"] = rows
+        scope = dict(queue_block.get("scope") or {})
+        scope["queue_ids"] = [str(row.get("queue") or "") for row in rows]
+        queue_block["scope"] = scope
+        result["queues"] = queue_block
+        omitted_maps: list[str] = []
+        if compact_maps:
+            parity = dict(result.get("test_group_parity") or {})
+            summary = dict(parity.get("summary") or {})
+            for key in list(summary):
+                if isinstance(summary[key], (dict, list)):
+                    summary.pop(key)
+                    omitted_maps.append(f"test_group_parity.summary.{key}")
+            parity["summary"] = summary
+            parity["rocm_inventory"] = {}
+            result["test_group_parity"] = parity
+            targets = dict(result.get("parity_targets") or {})
+            reviewed = dict(targets.get("reviewed") or {})
+            for key in (
+                "current_coverage_signal",
+                "target_readiness_signal",
+                "platform_readiness_signal",
+            ):
+                if reviewed.get(key):
+                    reviewed[key] = {}
+                    omitted_maps.append(f"parity_targets.reviewed.{key}")
+            targets["reviewed"] = reviewed
+            result["parity_targets"] = targets
+        result["publication_retention"] = {
+            "policy": "exact_aggregates_priority_queue_rows_v1",
+            "max_bytes": max_bytes,
+            "aggregate_totals_complete": True,
+            "queue_rows": {
+                "source": len(source_rows),
+                "published": len(rows),
+                "omitted": len(source_rows) - len(rows),
+                "complete_relative_to_source": len(rows) == len(source_rows),
+            },
+            "omitted_classification_maps": omitted_maps,
+            "complete_relative_to_source": (
+                len(rows) == len(source_rows) and not omitted_maps
+            ),
+        }
+        return result
+
+    for compact_maps in (False, True):
+        low = 0
+        high = len(source_rows)
+        best: dict | None = None
+        while low <= high:
+            middle = (low + high) // 2
+            current = candidate(middle, compact_maps=compact_maps)
+            if _json_bytes(current) <= max_bytes:
+                best = current
+                low = middle + 1
+            else:
+                high = middle - 1
+        if best is not None:
+            return best
+    irreducible = candidate(0, compact_maps=True)
+    raise RuntimeError(
+        "Operations organization summary fixed aggregates exceed their byte "
+        f"budget: {_json_bytes(irreducible)} > {max_bytes} bytes"
+    )
 
 
 def write_snapshot_bundle(
@@ -9224,6 +11275,12 @@ def write_snapshot_bundle(
     # lifecycle source, avoiding a second large copy in every publication.
     org_summary_encoded = _encoded_json(org_summary)
     org_summary_bytes = len(org_summary_encoded.encode("utf-8"))
+    if org_summary_bytes > ORG_SUMMARY_MAX_BYTES:
+        raise RuntimeError(
+            "Operations organization summary exceeds its byte budget; preserving "
+            "the last-known-good generation: "
+            f"{org_summary_bytes} > {ORG_SUMMARY_MAX_BYTES} bytes"
+        )
 
     manifest = {
         "schema_version": payload.get("schema_version"),
@@ -9251,6 +11308,12 @@ def write_snapshot_bundle(
     except OperationsBundleContractError as exc:
         raise RuntimeError(str(exc)) from exc
 
+    queue_history = list((payload.get("queue") or {}).get("history") or [])
+    _queue_chart, queue_chart_encoded = _bounded_queue_history_chart(
+        queue_history,
+        str(queue_history[-1].get("ts") or "") if queue_history else None,
+    )
+
     # All monolith and browser-consumability checks happen before any output is
     # mutated. The remaining writes describe the exact precomputed generation.
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -9264,15 +11327,10 @@ def write_snapshot_bundle(
         if stale not in expected_paths:
             stale.unlink()
     org_summary_path = output.parent / ORG_SUMMARY_NAME
-    org_summary_path.write_text(org_summary_encoded)
-    manifest_path.write_text(manifest_encoded)
+    atomic_write_bytes(org_summary_path, org_summary_encoded.encode("utf-8"))
+    atomic_write_bytes(manifest_path, manifest_encoded.encode("utf-8"))
     chart_path = output.parent / QUEUE_HISTORY_CHART_NAME
-    queue_history = list((payload.get("queue") or {}).get("history") or [])
-    write_queue_history_chart(
-        chart_path,
-        queue_history,
-        str(queue_history[-1].get("ts") or "") if queue_history else None,
-    )
+    atomic_write_bytes(chart_path, queue_chart_encoded)
     if log:
         if write_monolith:
             print(

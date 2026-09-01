@@ -18,11 +18,15 @@ from pathlib import Path, PurePosixPath
 import pytest
 import yaml
 
+from vllm import check_site_health as site_health
 from vllm.publication_surfaces import surface_for_path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 SCRIPTS_DIR = REPO_ROOT / "scripts"
+SITE_HEALTH_NORMALIZER = (
+    SCRIPTS_DIR / "vllm" / "normalize_site_health_evidence.py"
+)
 
 ACTION_PINS = {
     "actions/cache/restore": "55cc8345863c7cc4c66a329aec7e433d2d1c52a9",  # action revision
@@ -538,15 +542,14 @@ class TestWorkflowYAML:
                 )
                 assert validation.get("continue-on-error") is True
                 validation_script = validation.get("run", "")
-                assert "scripts/vllm/public_projection.py verify-git" in (
-                    validation_script
-                )
+                assert "public_projection.py" in validation_script
+                assert "verify-git" in validation_script
                 assert "--git-ref origin/gh-pages" in validation_script
                 assert "--attestation" in validation_script
                 assert "--expected-marker" in validation_script
                 assert "github_git_proof.py hydrate-ref" in validation_script
                 assert "--profile pages" in validation_script
-                assert "GIT_NO_LAZY_FETCH=1 python" in validation_script
+                assert "GIT_NO_LAZY_FETCH=1" in validation_script
                 assert "hydrate_status=$?" in validation_script
                 assert '[ "$hydrate_status" -eq 2 ]' in validation_script
                 assert (
@@ -598,13 +601,14 @@ class TestWorkflowYAML:
                     in recovery_condition
                 )
                 recovery_script = recovery.get("run", "")
-                assert "scripts/vllm/public_projection.py verify-git" in recovery_script
+                assert "public_projection.py" in recovery_script
+                assert "verify-git" in recovery_script
                 assert "--git-ref origin/gh-pages" in recovery_script
                 assert "--attestation" in recovery_script
                 assert "--expected-marker" in recovery_script
                 assert "github_git_proof.py hydrate-ref" in recovery_script
                 assert "--profile pages" in recovery_script
-                assert "GIT_NO_LAZY_FETCH=1 python" in recovery_script
+                assert "GIT_NO_LAZY_FETCH=1" in recovery_script
                 assert recovery.get("env") == {"GH_TOKEN": "${{ github.token }}"}
 
                 final = next(
@@ -1515,6 +1519,10 @@ class TestHourlyMasterWorkflow:
         assert (
             "--build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json"
             in matrix["run"]
+        )
+        assert (
+            "steps.request-attempt.outputs.request_mode == 'reserved'"
+            in matrix["if"]
         )
 
     def test_ci_collect_calls_collect_gating_proposals(self):
@@ -2931,7 +2939,8 @@ class TestHourlyMasterWorkflow:
         assert "trusted-base/scripts/vllm/check_git_blob_sizes.py" in copy
         assert "--root pr-input" in copy
         assert "10_000" in copy
-        assert "384 * 1024 * 1024" in copy
+        assert "256 * 1024 * 1024" in copy
+        assert "384 * 1024 * 1024" not in copy
         assert "cp -a pr-input/docs trusted-base/docs" in copy
         assert "cp -a pr-input/data trusted-base/data" in copy
 
@@ -2957,6 +2966,28 @@ class TestHourlyMasterWorkflow:
             if step.get("name") == "Compose exact bounded Pages tree"
         )
         assert assemble < compose < publish
+        compose_script = steps[compose]["run"]
+        preview_fallback = (
+            'PREVIEW_QUEUE_FALLBACK="$NEW_PREVIEW/data/vllm/ci/'
+            'queue_timeseries.jsonl"'
+        )
+        preview_chart = (
+            'PREVIEW_QUEUE_CHART="$NEW_PREVIEW/data/vllm/ci/'
+            'queue_history_chart.json"'
+        )
+        assembled = 'mv trusted-base/_site "$NEW_PREVIEW"'
+        nested = 'mv "$NEW_PREVIEW" "$PAGES_NEXT/pr-preview/$PREVIEW_NAME"'
+        assert preview_fallback in compose_script
+        assert preview_chart in compose_script
+        assert '[ ! -f "$PREVIEW_QUEUE_CHART" ]' in compose_script
+        assert 'rm -- "$PREVIEW_QUEUE_FALLBACK"' in compose_script
+        assert "queue_history_chart.json" in compose_script
+        assert (
+            compose_script.index(assembled)
+            < compose_script.index(preview_fallback)
+            < compose_script.index('rm -- "$PREVIEW_QUEUE_FALLBACK"')
+            < compose_script.index(nested)
+        )
         assert steps[publish]["with"]["publish_dir"] == "./trusted-base/_pages_publish"
         assert steps[publish]["with"]["keep_files"] is False
         assert steps[publish]["with"]["force_orphan"] is True
@@ -3111,7 +3142,11 @@ class TestPublicationWatchdogWorkflow:
             "cancel-in-progress": False,
         }
         job = workflow["jobs"]["recover"]
-        assert job["timeout-minutes"] == 20
+        assert job["timeout-minutes"] == 35
+        assert (
+            job["timeout-minutes"] * 60
+            >= site_health.MAX_CONFIRMATION_ELAPSED_SECONDS + 5 * 60
+        )
         assert job["permissions"] == {"actions": "write", "contents": "read"}
 
     def test_uses_trusted_main_and_bounded_canonical_state(self):
@@ -3225,7 +3260,10 @@ class TestPublicationWatchdogWorkflow:
         )
         assert "is_dns_only_degraded" in route_script
         assert "cmp -s \"$EXPECTED_MARKER\" \"$DEPLOYED_MARKER\"" in route_script
-        assert "actions/workflows/$WORKFLOW_FILE/runs?per_page=100" in reads["run"]
+        assert (
+            "actions/workflows/$WORKFLOW_FILE/runs?branch=main&per_page=100"
+            in reads["run"]
+        )
         assert "plan_publication_watchdog.py" in plan["run"]
         assert "--workflow-runs" in plan["run"]
         assert '--recovery-target "$RECOVERY_TARGET"' in plan["run"]
@@ -3586,7 +3624,11 @@ class TestSiteHealthWorkflow:
             "group": "site-health-monitor",
             "cancel-in-progress": False,
         }
-        assert workflow["jobs"]["check"]["timeout-minutes"] == 10
+        job = workflow["jobs"]["check"]
+        assert job["if"] == "github.ref == 'refs/heads/main'"
+        assert job["timeout-minutes"] == 35
+        checker_max_elapsed = site_health.MAX_CONFIRMATION_ELAPSED_SECONDS
+        assert job["timeout-minutes"] * 60 >= checker_max_elapsed + 5 * 60
 
         text = _load_workflow_text("health-check.yml")
         for forbidden in (
@@ -3615,6 +3657,10 @@ class TestSiteHealthWorkflow:
         ]
         assert names == expected
         assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[0]["uses"])
+        assert steps[0]["with"] == {
+            "ref": "main",
+            "persist-credentials": False,
+        }
         assert steps[1]["uses"] == (
             "actions/setup-python@" + ACTION_PINS["actions/setup-python"]
         )
@@ -3641,21 +3687,46 @@ class TestSiteHealthWorkflow:
             "--markdown-output \"$DETAILS_PATH\"",
         ):
             assert token in checker["run"]
+        assert checker["env"]["REPORT_PATH"].endswith(
+            "/site-health-checker-report.json"
+        )
+        assert checker["env"]["EFFECTIVE_REPORT_PATH"].endswith(
+            "/site-health-report.json"
+        )
+        assert 'for variable in ("REPORT_PATH", "EFFECTIVE_REPORT_PATH")' in checker[
+            "run"
+        ]
 
         normalize = steps[names.index("Normalize bounded health evidence")]
         assert normalize["if"] == "always()"
         assert normalize["id"] == "health-result"
-        assert "max_report_bytes = 64 * 1024" in normalize["run"]
-        assert "report_path.write_bytes(encoded)" in normalize["run"]
-        assert "if not required[key].strip()" in normalize["run"]
-        assert 'confirmation.get("max_requests") != 42' in normalize["run"]
-        assert 'confirmation.get("max_transport_seconds") != 420' in normalize["run"]
-        assert 'confirmation.get("max_elapsed_seconds") != 427' in normalize["run"]
-        assert 'projection.get("operations_canaries") != [' in normalize["run"]
-        for name in ("nightly", "amd_test_health", "diagnostics"):
-            assert f'"name": "{name}"' in normalize["run"]
-            assert f'operations_v2/{name}.json' in normalize["run"]
-        assert "_legacy_bootstrap_allowed" in normalize["run"]
+        assert normalize["run"] == (
+            "set -euo pipefail\n"
+            "python scripts/vllm/normalize_site_health_evidence.py\n"
+        )
+        normalizer = SITE_HEALTH_NORMALIZER.read_text()
+        assert "max_report_bytes = 64 * 1024" in normalizer
+        assert "effective_report_tmp.write_bytes(encoded)" in normalizer
+        assert "os.replace(effective_report_tmp, effective_report_path)" in normalizer
+        assert normalizer.rindex(
+            "os.replace(effective_report_tmp, effective_report_path)"
+        ) > normalizer.rindex('output.write(f"summary={summary}\\n")')
+        assert normalize["env"]["REPORT_PATH"].endswith(
+            "/site-health-checker-report.json"
+        )
+        assert normalize["env"]["EFFECTIVE_REPORT_PATH"].endswith(
+            "/site-health-report.json"
+        )
+        assert "if not required[key].strip()" in normalizer
+        assert "MAX_CONFIRMATION_REQUESTS" in normalizer
+        assert "MAX_CONFIRMATION_TRANSPORT_SECONDS" in normalizer
+        assert "MAX_CONFIRMATION_ELAPSED_SECONDS" in normalizer
+        assert "and core_observation_valid" in normalizer
+        assert 'projection.get("operations_canaries")' in normalizer
+        assert "for name in OPERATIONS_CANARY_SECTIONS" in normalizer
+        assert "for name in OPERATIONS_STREAMED_LARGE_SECTIONS" in normalizer
+        assert 'f"data/vllm/ci/operations_v2/{name}.json"' in normalizer
+        assert "_legacy_bootstrap_allowed" in normalizer
 
         bootstrap_policy = json.loads(
             (REPO_ROOT / "config/dashboard_bootstrap.json").read_text()
@@ -3676,6 +3747,9 @@ class TestSiteHealthWorkflow:
         enforce = steps[names.index("Enforce synthetic health result")]
         assert reconcile["if"] == "always()"
         assert re.fullmatch(r"actions/github-script@[0-9a-f]{40}", reconcile["uses"])
+        assert reconcile["env"]["NORMALIZE_OUTCOME"] == (
+            "${{ steps.health-result.outcome }}"
+        )
         assert enforce["if"] == "always()"
         assert "RECONCILE_OUTCOME" in enforce["env"]
         assert "RECONCILED" in enforce["env"]
@@ -3687,7 +3761,7 @@ class TestSiteHealthWorkflow:
         names = [step.get("name") for step in steps]
         normalize = steps[names.index("Normalize bounded health evidence")]
         checker = steps[names.index("Run synthetic site health check")]
-        script = normalize["run"]
+        script = SITE_HEALTH_NORMALIZER.read_text()
         for output in (
             "CHECKER_HEALTHY",
             "OVERALL_STATUS",
@@ -3736,9 +3810,7 @@ class TestSiteHealthWorkflow:
         assert '"healthy": False' in checker["run"]
 
     def test_normalizer_cross_checks_typed_report_fields_with_outputs(self):
-        _, steps = self._steps()
-        names = [step.get("name") for step in steps]
-        script = steps[names.index("Normalize bounded health evidence")]["run"]
+        script = SITE_HEALTH_NORMALIZER.read_text()
         for token in (
             "def parse_nonnegative_int_output",
             "raw_value != str(value) or value < 0",
@@ -3756,7 +3828,7 @@ class TestSiteHealthWorkflow:
             'f"report {label} disagreed with checker output"',
             "datetime.fromisoformat",
             "parsed_generated_at.tzinfo is None",
-            "not math.isfinite(report_age)",
+            "not is_finite_number(report_age)",
             "not math.isfinite(output_age)",
             'required["age_hours"] != str(report_age)',
             "report publication age disagreed with checker output",
@@ -3815,9 +3887,10 @@ class TestSiteHealthWorkflow:
         assert "github.rest.issues.addLabels" in script
         assert "labels: [labelName]" in script
         assert "${{" not in script
-        assert "actions/runs/" in normalize["run"]
-        assert "/deployments" in normalize["run"]
-        assert "html.escape(details" in normalize["run"]
+        normalizer = SITE_HEALTH_NORMALIZER.read_text()
+        assert "actions/runs/" in normalizer
+        assert "/deployments" in normalizer
+        assert "html.escape(details" in normalizer
 
     def test_issue_requires_confirmed_in_run_quorum_before_mutation(self):
         _, steps = self._steps()
@@ -3825,7 +3898,8 @@ class TestSiteHealthWorkflow:
         script = steps[names.index("Reconcile marker-owned site health issue")]["with"]["script"]
         for token in (
             "const confirmed = process.env.CONFIRMED === 'true'",
-            "if (!confirmed)",
+            "const normalizationSucceeded = process.env.NORMALIZE_OUTCOME === 'success'",
+            "if (!normalizationSucceeded || !confirmed)",
             "issue state is unchanged",
             "const state = healthy ? 'closed' : 'open'",
             "The in-run 2-of-3 healthy quorum confirmed recovery",
@@ -3838,11 +3912,10 @@ class TestSiteHealthWorkflow:
             assert token in script
         assert "owned.find(issue => issue.state === 'open')" not in script
         assert "site-health-state:recovery=" not in script
-        assert script.index("if (!confirmed)") < script.index(
+        assert script.index("if (!normalizationSucceeded || !confirmed)") < script.index(
             "github.rest.issues.getLabel"
         )
-        normalize = steps[names.index("Normalize bounded health evidence")]
-        assert "does not post hourly comments" in normalize["run"]
+        assert "does not post hourly comments" in SITE_HEALTH_NORMALIZER.read_text()
 
     def test_hourly_master_does_not_claim_to_replace_health_monitor(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -4150,6 +4223,8 @@ class TestDeployDataFreshness:
             if step.get("name") == "Restore exact validated dashboard state"
         )
         assert "git ls-remote --exit-code --refs" in script
+        assert "scripts/vllm/publication_limits.py" in script
+        assert '"$TRUSTED_VALIDATOR_DIR/publication_limits.py"' in script
         assert "dashboard_state.py validate-ref" in script
         assert "--expected-code-sha" in script
         assert "dashboard_state.py" in script and "materialize --ref" in script
@@ -4223,6 +4298,81 @@ class TestDeployDataFreshness:
         assert '--generated-at "$OPS_GENERATED_AT"' in rebuild
         assert 'git diff --exit-code "$DASHBOARD_STATE_SHA"' in rebuild
         assert "git add -f" not in rebuild
+
+    def test_safe_legacy_projection_proof_is_historical_state_only(self):
+        deploy = _load_workflow("deploy-pages.yml")
+        deploy_steps = next(iter(deploy["jobs"].values())).get("steps", [])
+        by_name = {step.get("name"): str(step.get("run") or "") for step in deploy_steps}
+
+        state_guard = (
+            'if [ "$DASHBOARD_STATE_CODE_SHA" != '
+            '"$DASHBOARD_TRUSTED_MAIN_SHA" ]; then'
+        )
+        for name in (
+            "Verify exact local public projection",
+            "Reproduce current candidate failure in isolation",
+            "Preserve only bounded PR previews",
+            "Post-deploy state and bundle validation",
+            "Confirm exact-state recovery",
+        ):
+            script = by_name[name]
+            assert state_guard in script
+            assert script.index(state_guard) < script.index(
+                "--allow-safe-legacy-limits"
+            )
+            assert '"$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py"' in script
+
+        rollback = by_name["Try fully deployable rollback candidate"]
+        rollback_guard = (
+            'if [ "$ROLLBACK_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then'
+        )
+        assert rollback.index(rollback_guard) < rollback.index(
+            "--allow-safe-legacy-limits"
+        )
+        assert '"$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py"' in rollback
+
+        # Candidate code may reproduce a historical manifest, but no creation
+        # command can opt into the validation-only compatibility switch.
+        for script in by_name.values():
+            for command in script.splitlines():
+                if "public_projection.py create" in command:
+                    assert "allow-safe-legacy-limits" not in command
+
+        watchdog = _load_workflow("publication-watchdog.yml")
+        watchdog_script = next(
+            step["run"]
+            for step in next(iter(watchdog["jobs"].values()))["steps"]
+            if step.get("id") == "recovery-route"
+        )
+        watchdog_guard = 'if [ "$STATE_CODE_SHA" != "$TRUSTED_MAIN_SHA" ]; then'
+        assert watchdog_script.index(watchdog_guard) < watchdog_script.index(
+            "--allow-safe-legacy-limits"
+        )
+
+        hourly = _load_workflow("hourly-master.yml")
+        finalizer_script = next(
+            step["run"]
+            for step in hourly["jobs"]["queue-reconcile-finalizer"]["steps"]
+            if step.get("name") == "Prove already-canonical queue publication"
+        )
+        finalizer_guard = 'if [ "$CODE_SHA" != "$TRUSTED_MAIN_SHA" ]; then'
+        assert finalizer_script.index(finalizer_guard) < finalizer_script.index(
+            "--allow-safe-legacy-limits"
+        )
+
+        canonical_steps = next(iter(hourly["jobs"].values()))["steps"]
+        canonical_create = next(
+            str(step.get("run") or "")
+            for step in canonical_steps
+            if step.get("name") == "Bind exact public projection into dashboard state"
+        )
+        canonical_verify = next(
+            str(step.get("run") or "")
+            for step in canonical_steps
+            if step.get("name") == "Verify exact local public projection"
+        )
+        assert "--allow-safe-legacy-limits" not in canonical_create
+        assert "--allow-safe-legacy-limits" not in canonical_verify
 
     def test_queue_history_uses_durable_producer_then_retention(self):
         data = _load_workflow("hourly-master.yml")
@@ -4554,7 +4704,12 @@ class TestWorkflowPipInstallMatchesImports:
         for top in list(out):
             candidate = SCRIPTS_DIR / f"{top}.py"
             candidate_dir = SCRIPTS_DIR / top
-            if candidate.exists() or (candidate_dir / "__init__.py").exists():
+            sibling = path.parent / f"{top}.py"
+            if (
+                candidate.exists()
+                or (candidate_dir / "__init__.py").exists()
+                or sibling.exists()
+            ):
                 out.discard(top)
         return out
 

@@ -115,6 +115,7 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
         surface_for_path("data/vllm/ci/test_results/domain-contract.jsonl")
         == "ci_core"
     )
+    assert surface_for_path("data/vllm/ci/test_results/retention.json") == "ci_core"
 
 
 def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
@@ -147,6 +148,7 @@ def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
         "data/vllm/ci/parity_key_overrides.json",
         "data/vllm/ci/quarantine.json",
         "data/vllm/ci/shard_base_catalog.json",
+        "data/vllm/ci/test_results/retention.json",
     }
 
     assert LEGACY_CI_SURFACE == "ci"

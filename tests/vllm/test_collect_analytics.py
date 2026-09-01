@@ -93,6 +93,7 @@ def test_analytics_writer_rejects_over_budget_payload_without_replacing_baseline
         ca.write_analytics(output, {"ci": {"sentinel": "x" * 64}})
 
     assert output.read_bytes() == before
+    assert "configured normal operating budget (32 bytes)" in str(exc_info.value)
     assert exc_info.value.provenance["collector"] == "ci_analytics"
     assert exc_info.value.provenance["reason_class"] == "payload-budget"
     assert exc_info.value.provenance["serialized_bytes"] > 32
@@ -105,7 +106,7 @@ def test_analytics_writer_rejects_over_budget_payload_without_replacing_baseline
 
 
 def test_private_analytics_budget_has_github_headroom():
-    assert ca.PRIVATE_ANALYTICS_TARGET_BYTES == 64 * 1024 * 1024
+    assert ca.PRIVATE_ANALYTICS_TARGET_BYTES == 56 * 1024 * 1024
     assert ca.PRIVATE_ANALYTICS_MAX_BYTES == 85 * 1024 * 1024
     assert ca.PRIVATE_ANALYTICS_MAX_BYTES < 90_000_000
     assert ca.PRIVATE_ANALYTICS_TARGET_BYTES < ca.PRIVATE_ANALYTICS_MAX_BYTES
@@ -1895,6 +1896,51 @@ class TestWindowedAnalyticsMain:
         assert len(payload["ci"]["builds"]) == ca.GATING_NIGHTLY_LIMIT
         assert len(payload["amd-ci"]["builds"]) == ca.GATING_NIGHTLY_LIMIT
         assert payload["ci"]["builds"][-1]["number"] == ca.GATING_NIGHTLY_LIMIT - 1
+
+    def test_gating_nightlies_drop_only_oldest_complete_builds_to_byte_cap(
+        self, tmp_path, monkeypatch
+    ):
+        builds = [
+            _build(i, i * 0.5, [_job(f"Job {i} " + "x" * 500, 40)])
+            for i in range(6)
+        ]
+        all_data = {
+            "ci": {"display_name": "Upstream CI", "builds": builds},
+            "amd-ci": {"display_name": "AMD CI", "builds": builds},
+        }
+        monkeypatch.setattr(ca, "GATING_NIGHTLIES_MAX_BYTES", 3500)
+
+        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
+
+        raw = (tmp_path / "gating_nightlies.json").read_bytes()
+        payload = json.loads(raw)
+        assert len(raw) <= 3500
+        for slug in ("ci", "amd-ci"):
+            retained = payload[slug]["builds"]
+            retention = payload[slug]["retention"]
+            assert retained
+            assert retained[0]["number"] == 0
+            assert retention["retained_build_count"] == len(retained)
+            assert retention["omitted_by_byte_limit"] == 6 - len(retained)
+            assert retention["byte_limited"] is True
+
+    def test_gating_nightlies_impossible_candidate_preserves_lkg(
+        self, tmp_path, monkeypatch
+    ):
+        output = tmp_path / "gating_nightlies.json"
+        output.write_text('{"generation":"last-known-good"}\n')
+        before = output.read_bytes()
+        builds = [_build(1, 0.5, [_job("x" * 500, 40)])]
+        all_data = {
+            "ci": {"display_name": "Upstream CI", "builds": builds},
+            "amd-ci": {"display_name": "AMD CI", "builds": builds},
+        }
+        monkeypatch.setattr(ca, "GATING_NIGHTLIES_MAX_BYTES", 128)
+
+        with pytest.raises(ca.IncompleteAnalyticsCollection, match="cannot fit"):
+            ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
+
+        assert output.read_bytes() == before
 
     def test_summary_counts_soft_failed_jobs_as_failures(self):
         builds = [

@@ -1154,6 +1154,37 @@ def test_public_writer_preserves_canonical_window_order(tmp_path: Path):
     assert path.read_bytes().endswith(b"\n")
 
 
+def test_public_dns_projection_compacts_whole_rows_with_exact_totals():
+    source = dns.build_public_output(_state([_positive_record(1)]))
+    padded_rows = [
+        {"queue": "amd_mi300_1", "node": f"node-{index}", "padding": "x" * 500}
+        for index in range(40)
+    ]
+    source["windows"]["720h"]["rows"] = padded_rows
+    source["windows"]["720h"]["totals"]["affected_jobs"] = 40
+
+    bounded = dns.compact_public_output(source, max_bytes=8_000)
+
+    assert len(dns._public_output_bytes(bounded)) <= 8_000
+    assert bounded["windows"]["720h"]["totals"]["affected_jobs"] == 40
+    rows = bounded["publication_retention"]["window_rows"]["720h"]
+    assert rows["source"] == 40
+    assert rows["published"] < 40
+    assert rows["omitted"] == 40 - rows["published"]
+    assert rows["complete"] is False
+
+
+def test_public_dns_bound_failure_preserves_last_known_good(tmp_path, monkeypatch):
+    path = tmp_path / "dns_failures.json"
+    path.write_bytes(b"last-known-good\n")
+    monkeypatch.setattr(dns, "PUBLIC_OUTPUT_MAX_BYTES", 1)
+
+    with pytest.raises(RuntimeError, match="last-known-good"):
+        dns.write_public_output(path, dns.build_public_output(_state([])))
+
+    assert path.read_bytes() == b"last-known-good\n"
+
+
 class _FakeResponse:
     def __init__(
         self,

@@ -41,6 +41,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
+from ..dashboard_storage_budget import writer_max_bytes
+
 log = logging.getLogger(__name__)
 
 PERF_EVAL_PIPELINE_SLUG = "perf-eval"
@@ -365,10 +367,13 @@ def normalize(headers: dict, body: dict) -> Optional[dict]:
 # Durable event store
 # ---------------------------------------------------------------------------
 
-# Stay comfortably below the repository's 64 MiB perf-data ceiling and far
-# below the dashboard sync layer's 90 MB limit. Both the event log and derived
-# payload use this exact pre-replacement guard.
-PERF_EVAL_MAX_BYTES = 60 * 1024 * 1024
+# The event log and derived payload receive separate 4 MiB allocations inside
+# the shared 8 MiB perf-eval state group. Both writers enforce this exact
+# pre-replacement guard and remain far below the dashboard's 90 MB sync limit.
+PERF_EVAL_MAX_BYTES = min(
+    writer_max_bytes("perf_eval_events"),
+    writer_max_bytes("perf_eval_summary"),
+)
 
 # Six months normally remain available for trend inspection. If an unusually
 # wide workload set reaches the byte budget first, deterministic policies below

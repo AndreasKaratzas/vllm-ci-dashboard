@@ -37,8 +37,7 @@ Assembled output (read by build_operations_snapshot and published atomically
 with the two-file ledger):
     data/vllm/ci/agent_health.json
 
-Usage:
-    export BUILDKITE_TOKEN="bkua_..."
+Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/vllm/collect_agent_health.py --days 60 --output data/vllm/ci/  # backfill
     python scripts/vllm/collect_agent_health.py --days 3                           # incremental
     python scripts/vllm/collect_agent_health.py --dry-run --days 7
@@ -60,10 +59,15 @@ from pathlib import Path
 # Add scripts/ to path so the vllm package is importable when run directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import install_from_environment_or_exit
+
+install_from_environment_or_exit()
+
 from vllm.ci import config as cfg
 from vllm.ci.buildkite_client import _paginate
 from vllm.ci.log_parser import node_from_agent
 from vllm.constants import amd_gpu_hardware
+from vllm.dashboard_storage_budget import writer_max_bytes
 from vllm.pipelines import (
     BK_ORG as VLLM_ORG,
     NIGHTLY_NAME_PATTERNS_BY_SLUG,
@@ -88,7 +92,7 @@ INFRA_FAILURES_JSONL = "infra_failures.jsonl"
 # the dashboard sync layer's 90 MB ceiling. The assembled JSON repeats the two
 # private ledgers, so the aggregate cap also keeps repository growth bounded.
 AGENT_HEALTH_MAX_FILE_BYTES = 32 * 1024 * 1024
-AGENT_HEALTH_MAX_GENERATION_BYTES = 64 * 1024 * 1024
+AGENT_HEALTH_MAX_GENERATION_BYTES = writer_max_bytes("agent_health_generation")
 
 # Retain the same window the frontend can display. Anything older is pruned.
 MAX_WINDOW_DAYS = 60
@@ -453,6 +457,36 @@ def _encoded_json(payload: dict) -> bytes:
     ).encode("utf-8")
 
 
+def _failure_accounting_rows(failing: list[dict]) -> list[dict]:
+    """Retain exact filterable counts even when raw link evidence is compacted."""
+    counts: Counter = Counter()
+    for row in failing:
+        key = (
+            str(row.get("d") or ""),
+            str(row.get("nd") or ""),
+            str(row.get("h") or ""),
+            str(row.get("s") or ""),
+            1 if row.get("i") else 0,
+            1 if row.get("ng") else 0,
+            1 if row.get("bc") else 0,
+        )
+        counts[key] += 1
+    return [
+        {
+            "d": day,
+            "nd": node,
+            "h": hardware,
+            "s": state,
+            "i": infra,
+            "ng": nightly,
+            "bc": build_canceled,
+            "c": count,
+        }
+        for (day, node, hardware, state, infra, nightly, build_canceled), count
+        in sorted(counts.items())
+    ]
+
+
 def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cutoff_day: str,
                   key) -> list[dict]:
     """Replace all stored rows on/after ``earliest_day`` with fresh ones, prune < cutoff."""
@@ -472,7 +506,19 @@ def _assemble(
     now: datetime,
     *,
     retention: dict | None = None,
+    failure_accounting: list[dict] | None = None,
+    source_failure_count: int | None = None,
 ) -> dict:
+    accounting = (
+        failure_accounting
+        if failure_accounting is not None
+        else _failure_accounting_rows(failing)
+    )
+    accounted_failures = sum(int(row.get("c") or 0) for row in accounting)
+    if source_failure_count is None:
+        source_failure_count = accounted_failures
+    if accounted_failures != source_failure_count:
+        raise RuntimeError("agent-health compact accounting does not reconcile")
     hardware_types = sorted({r["h"] for r in node_days if r.get("h")})
     total_runs = sum(r["a"][0] for r in node_days)
     payload = {
@@ -490,9 +536,11 @@ def _assemble(
         "infra_suspect_min_samples": INFRA_SUSPECT_MIN_SAMPLES,
         "total_runs": total_runs,
         "node_day_count": len(node_days),
-        "infra_failure_count": len(failing),
+        "infra_failure_count": source_failure_count,
+        "published_failure_evidence_count": len(failing),
         "node_days": sorted(node_days, key=lambda r: (r["d"], r["nd"])),
         "failing_runs": sorted(failing, key=lambda r: (r.get("t") or "", r.get("j") or "")),
+        "failure_accounting": accounting,
     }
     if retention is not None:
         payload["retention"] = retention
@@ -516,7 +564,7 @@ def _prepare_generation(
     max_file_bytes: int = AGENT_HEALTH_MAX_FILE_BYTES,
     max_generation_bytes: int = AGENT_HEALTH_MAX_GENERATION_BYTES,
 ) -> dict:
-    """Drop oldest whole days until one exact generation fits all budgets."""
+    """Fit one honest generation by bounding days, then exact link evidence."""
     if max_file_bytes <= 0 or max_generation_bytes <= 0:
         raise ValueError("agent-health byte budgets must be positive")
 
@@ -554,54 +602,126 @@ def _prepare_generation(
                 if str(row.get("d") or "")
             }
         )
-        retention = {
-            "policy": "drop_oldest_whole_days",
-            "configured_days": MAX_WINDOW_DAYS,
-            "original_day_count": len(original_days),
-            "retained_day_count": len(retained_days),
-            "retained_start": retained_days[0] if retained_days else None,
-            "retained_end": retained_days[-1] if retained_days else None,
-            "dropped_oldest_day_count": len(dropped_days),
-            "byte_limited": bool(dropped_days),
-            "max_file_bytes": max_file_bytes,
-            "max_generation_bytes": max_generation_bytes,
-        }
-        payload = _assemble(
-            retained_node_days,
-            retained_failing,
-            now,
-            retention=retention,
-        )
-        encoded = {
-            NODE_DAYS_JSONL: _encoded_jsonl(retained_node_days),
-            INFRA_FAILURES_JSONL: _encoded_jsonl(retained_failing),
-            OUTPUT_JSON: _encoded_json(payload),
-        }
-        file_sizes = {name: len(value) for name, value in encoded.items()}
-        total_bytes = sum(file_sizes.values())
-        if (
-            all(size <= max_file_bytes for size in file_sizes.values())
-            and total_bytes <= max_generation_bytes
-        ):
+        source_failing = list(retained_failing)
+        failure_accounting = _failure_accounting_rows(source_failing)
+
+        def candidate(published_failing: list[dict]) -> dict:
+            published_failing = sorted(
+                published_failing,
+                key=lambda row: (
+                    str(row.get("d") or ""),
+                    str(row.get("t") or ""),
+                    str(row.get("j") or ""),
+                    _row_sort_key(row),
+                ),
+            )
+            omitted = len(source_failing) - len(published_failing)
+            retention = {
+                "policy": "drop_oldest_whole_days_then_bound_exact_failure_evidence",
+                "configured_days": MAX_WINDOW_DAYS,
+                "original_day_count": len(original_days),
+                "retained_day_count": len(retained_days),
+                "retained_start": retained_days[0] if retained_days else None,
+                "retained_end": retained_days[-1] if retained_days else None,
+                "dropped_oldest_day_count": len(dropped_days),
+                "byte_limited": bool(dropped_days or omitted),
+                "max_file_bytes": max_file_bytes,
+                "max_generation_bytes": max_generation_bytes,
+                "failure_evidence": {
+                    "source": len(source_failing),
+                    "published": len(published_failing),
+                    "omitted": omitted,
+                    "complete_relative_to_source": omitted == 0,
+                    "selection": "newest_then_infra_suspect_then_recency",
+                },
+                "failure_accounting": {
+                    "source": len(source_failing),
+                    "accounted": sum(row["c"] for row in failure_accounting),
+                    "rows": len(failure_accounting),
+                    "complete_relative_to_source": True,
+                },
+            }
+            payload = _assemble(
+                retained_node_days,
+                published_failing,
+                now,
+                retention=retention,
+                failure_accounting=failure_accounting,
+                source_failure_count=len(source_failing),
+            )
+            encoded = {
+                NODE_DAYS_JSONL: _encoded_jsonl(retained_node_days),
+                INFRA_FAILURES_JSONL: _encoded_jsonl(published_failing),
+                OUTPUT_JSON: _encoded_json(payload),
+            }
+            file_sizes = {name: len(value) for name, value in encoded.items()}
             return {
                 "node_days": retained_node_days,
-                "failing": retained_failing,
+                "failing": published_failing,
                 "payload": payload,
                 "encoded": encoded,
                 "file_sizes": file_sizes,
-                "total_bytes": total_bytes,
+                "total_bytes": sum(file_sizes.values()),
                 "dropped_days": tuple(dropped_days),
             }
 
-        # Preserve at least the newest complete UTC day. If a single day is
-        # itself larger than the cap, fail before replacing the last-known-good
-        # generation rather than silently publishing a partial day.
+        def fits(generation: dict) -> bool:
+            return (
+                all(
+                    size <= max_file_bytes
+                    for size in generation["file_sizes"].values()
+                )
+                and generation["total_bytes"] <= max_generation_bytes
+            )
+
+        complete = candidate(source_failing)
+        if fits(complete):
+            return complete
+
         if len(retained_days) <= 1:
+            newest_first = sorted(
+                source_failing,
+                key=lambda row: (
+                    str(row.get("t") or ""),
+                    str(row.get("j") or ""),
+                    _row_sort_key(row),
+                ),
+                reverse=True,
+            )
+            priority: list[dict] = []
+            selected_ids: set[int] = set()
+            if newest_first:
+                priority.append(newest_first[0])
+                selected_ids.add(id(newest_first[0]))
+            for row in newest_first:
+                if row.get("i") and id(row) not in selected_ids:
+                    priority.append(row)
+                    selected_ids.add(id(row))
+            for row in newest_first:
+                if id(row) not in selected_ids:
+                    priority.append(row)
+                    selected_ids.add(id(row))
+
+            low = 0
+            high = len(priority)
+            bounded: dict | None = None
+            while low <= high:
+                retained_count = (low + high) // 2
+                attempt = candidate(priority[:retained_count])
+                if fits(attempt):
+                    bounded = attempt
+                    low = retained_count + 1
+                else:
+                    high = retained_count - 1
+            if bounded is not None:
+                return bounded
             raise RuntimeError(
-                "agent-health newest whole day cannot fit the byte budgets: "
-                f"files={file_sizes}, total={total_bytes}, "
+                "agent-health newest whole day compact accounting cannot fit "
+                "the byte budgets without losing ledger counts: "
+                f"files={complete['file_sizes']}, total={complete['total_bytes']}, "
                 f"max_file={max_file_bytes}, max_generation={max_generation_bytes}"
             )
+
         oldest_day = retained_days[0]
         dropped_days.append(oldest_day)
         retained_node_days = [

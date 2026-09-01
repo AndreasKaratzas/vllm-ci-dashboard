@@ -13,10 +13,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -30,6 +36,7 @@ AREA_COUNT_FIELDS = ("existing", "unsupported", "action")
 ROCM_INVENTORY_MILESTONES = ("main",)
 ROCM_INVENTORY_POPULATIONS = ("physical_definitions", "logical_groups")
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+TEST_GROUP_PARITY_MAX_BYTES = writer_max_bytes("test_group_parity")
 
 
 def _nonempty_string(value: Any, context: str) -> str:
@@ -294,6 +301,94 @@ def build_payload(
     }
 
 
+def bounded_payload(
+    payload: dict[str, Any],
+    *,
+    max_bytes: int = TEST_GROUP_PARITY_MAX_BYTES,
+) -> dict[str, Any]:
+    """Keep whole actionable inventory rows within the writer allocation.
+
+    ``summary`` and ``areas`` remain exact for the fully reviewed inventory.
+    The row index is separately accounted so omitted existing rows can never
+    turn a partial publication into an apparent all-clear.
+    """
+    if max_bytes <= 0:
+        raise ValueError("test-group parity byte budget must be positive")
+    source_groups = sorted(
+        (dict(row) for row in payload.get("groups") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            int(row.get("id") or 0),
+            str(row.get("title") or "").casefold(),
+        ),
+    )
+    state_priority = {"action": 3, "unsupported": 2, "existing": 1}
+    prioritized = sorted(
+        source_groups,
+        key=lambda row: (
+            state_priority.get(str(row.get("state") or ""), 0),
+            -int(row.get("id") or 0),
+            str(row.get("title") or "").casefold(),
+        ),
+        reverse=True,
+    )
+    source_by_state = Counter(str(row.get("state") or "unknown") for row in source_groups)
+
+    def candidate(count: int) -> dict[str, Any]:
+        selected_ids = {int(row.get("id") or 0) for row in prioritized[:count]}
+        published = [
+            row for row in source_groups if int(row.get("id") or 0) in selected_ids
+        ]
+        published_by_state = Counter(
+            str(row.get("state") or "unknown") for row in published
+        )
+        complete = len(published) == len(source_groups)
+        result = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"groups", "publication_retention"}
+        }
+        result["groups"] = published
+        result["publication_retention"] = {
+            "policy": "action_then_unsupported_then_existing_whole_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "aggregate_summary_complete": True,
+            "area_rollups_complete": True,
+            "groups": {
+                "source": len(source_groups),
+                "published": len(published),
+                "omitted": len(source_groups) - len(published),
+                "complete_relative_to_source": complete,
+            },
+            "by_state": {
+                state: {
+                    "source": source_by_state[state],
+                    "published": published_by_state[state],
+                    "omitted": source_by_state[state] - published_by_state[state],
+                }
+                for state in sorted(source_by_state)
+            },
+        }
+        return result
+
+    low, high = 0, len(source_groups)
+    best: dict[str, Any] | None = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "test-group parity fixed metadata exceeds its byte budget; preserving "
+            "the last-known-good file"
+        )
+    return best
+
+
 def publish(
     config_path: Path = CONFIG,
     output_dir: Path = OUTPUT,
@@ -302,14 +397,21 @@ def publish(
 ) -> tuple[Path, dict[str, Any]]:
     """Validate the review and write ``test_group_parity.json``."""
     review = load_review(config_path)
-    payload = build_payload(
-        review,
-        config_path,
-        generated_at=generated_at,
+    payload = bounded_payload(
+        build_payload(
+            review,
+            config_path,
+            generated_at=generated_at,
+        ),
+        max_bytes=TEST_GROUP_PARITY_MAX_BYTES,
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "test_group_parity.json"
-    output_path.write_text(json.dumps(payload, indent=2) + "\n")
+    write_pretty_json_lkg(
+        output_path,
+        payload,
+        max_bytes=TEST_GROUP_PARITY_MAX_BYTES,
+        label="test-group parity snapshot",
+    )
     return output_path, payload
 
 

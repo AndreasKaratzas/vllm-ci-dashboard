@@ -24,7 +24,6 @@ import logging
 import os
 import re
 import sys
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,6 +45,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     fetch_open_issue_candidate,
     repair_issue_labels,
 )
+from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -283,27 +283,7 @@ def _read_state() -> dict:
 
 
 def _write_state(state: dict) -> None:
-    STATE.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(state, indent=2, sort_keys=True)
-    temp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=STATE.parent,
-            prefix=f".{STATE.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temp_file:
-            temp_path = Path(temp_file.name)
-            temp_file.write(payload)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-        os.replace(temp_path, STATE)
-        temp_path = None
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+    write_watcher_state(STATE, state, state_filename="open_queue_issues.json")
 
 
 def _format_metric_row(label: str, value: str | int) -> str:

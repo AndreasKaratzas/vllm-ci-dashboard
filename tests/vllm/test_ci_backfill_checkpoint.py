@@ -123,3 +123,33 @@ def test_repeated_guard_exhaustion_makes_finite_monotonic_backfill_progress(
     final_results = tmp_path / "final"
     assert checkpoint.restore_complete_shards(root, final_results) == 5
     assert sorted(path.name for path in final_results.glob("*.jsonl")) == build_names
+
+
+def test_checkpoint_repeatedly_drops_oldest_whole_days_at_byte_cap(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "checkpoint"
+    source_dir = tmp_path / "results"
+    probe = source_dir / "2026-08-01_amd.jsonl"
+    write_shard(probe, build_number=1, rows=4)
+    shard_bytes = probe.stat().st_size
+    monkeypatch.setattr(checkpoint, "MAX_TOTAL_BYTES", shard_bytes * 2 + 16)
+
+    for day in range(1, 7):
+        for pipeline in ("amd", "upstream"):
+            shard = source_dir / f"2026-08-{day:02d}_{pipeline}.jsonl"
+            write_shard(
+                shard,
+                build_number=day * 10 + (pipeline == "upstream"),
+                pipeline=pipeline,
+                rows=4,
+            )
+            checkpoint.record_complete_shard(root, shard)
+            stats = checkpoint.validate(root)
+            assert stats["bytes"] <= checkpoint.MAX_TOTAL_BYTES
+
+    restored = tmp_path / "restored"
+    restored_count = checkpoint.restore_complete_shards(root, restored)
+    retained = sorted(path.name for path in restored.glob("*.jsonl"))
+    assert restored_count == 2
+    assert retained == ["2026-08-06_amd.jsonl", "2026-08-06_upstream.jsonl"]

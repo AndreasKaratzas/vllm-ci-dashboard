@@ -18,9 +18,11 @@ JSON, so this needs only one request per build (no per-job log downloads) and
 covers every AMD GPU queue (mi250/mi300/mi325/mi355). Resolved nodes overwrite
 any previously stored value so the authoritative agent tag wins.
 
-Requires ``BUILDKITE_TOKEN``. Reads Buildkite and rewrites local JSONL only.
+Requires ``BUILDKITE_TOKEN`` plus a complete durable request-guard reservation.
+An exported token alone exits 78 before transport. Reads Buildkite and rewrites
+local JSONL only.
 
-Usage:
+Guarded workflow CLI form:
     python scripts/vllm/backfill_agent_nodes.py --days 8
     python scripts/vllm/backfill_agent_nodes.py --days 8 --dry-run
 """
@@ -36,6 +38,10 @@ from pathlib import Path
 
 # Add scripts/ to path so the vllm package is importable when run directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.buildkite_request_guard import install_from_environment_or_exit
+
+install_from_environment_or_exit()
 
 from vllm.ci import config as cfg
 from vllm.ci.buildkite_client import fetch_build_detail, fetch_build_jobs

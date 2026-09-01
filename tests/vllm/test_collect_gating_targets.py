@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 import re
 
 from vllm import collect_gating_targets as cgt
@@ -127,3 +128,57 @@ def test_generated_payload_summarizes_targets() -> None:
     assert payload["summary"]["by_gating_signal"]
     assert payload["summary"]["by_pf_signal"]
     assert payload["summary"]["by_assigned_signal"]
+
+
+def test_bounded_payload_retains_actionable_whole_rows_with_exact_accounting() -> None:
+    groups = []
+    for index in range(1, 81):
+        signal = "red" if index <= 30 else "green"
+        groups.append({
+            "id": index,
+            "label": f"Target {index:03d}",
+            "area": "models",
+            "gating_signal": signal,
+            "pf_signal": "yellow" if index <= 10 else signal,
+            "assigned_signal": signal,
+            "source_signal": signal,
+            "readiness_signal": signal,
+            "target_signal": signal,
+            "owner": "rocm",
+            "note": "detail-" + ("x" * 240),
+        })
+    source = cgt.build_payload(groups)
+
+    bounded = cgt.bounded_payload(source, max_bytes=8_000)
+    encoded = (json.dumps(bounded, indent=2) + "\n").encode()
+    retention = bounded["publication_retention"]
+
+    assert len(encoded) <= 8_000
+    assert 0 < len(bounded["groups"]) < len(groups)
+    assert retention["complete_relative_to_source"] is False
+    assert retention["aggregate_summary_complete"] is True
+    assert retention["groups"] == {
+        "source": 80,
+        "published": len(bounded["groups"]),
+        "omitted": 80 - len(bounded["groups"]),
+        "complete_relative_to_source": False,
+    }
+    assert sum(
+        row["published"]
+        for row in retention["by_gating_signal"].values()
+    ) == len(bounded["groups"])
+    assert all(row["gating_signal"] == "red" for row in bounded["groups"])
+
+
+def test_bounded_payload_is_permutation_invariant() -> None:
+    groups = cgt.load_targets()
+    generated_at = "2026-09-01T00:00:00Z"
+    forward = cgt.build_payload(groups)
+    reverse = cgt.build_payload(list(reversed(groups)))
+    forward["generated_at"] = generated_at
+    reverse["generated_at"] = generated_at
+
+    assert cgt.bounded_payload(forward, max_bytes=20_000) == cgt.bounded_payload(
+        reverse,
+        max_bytes=20_000,
+    )

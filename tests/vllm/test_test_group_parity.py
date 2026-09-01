@@ -129,6 +129,43 @@ def test_publish_writes_validated_payload(tmp_path: Path) -> None:
     assert output_path.read_text().endswith("\n")
 
 
+def test_publish_compacts_oversized_definition_snapshot_truthfully(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output_path = tmp_path / "test_group_parity.json"
+    output_path.write_text('{"generation":"last-known-good"}\n')
+    monkeypatch.setattr(parity, "TEST_GROUP_PARITY_MAX_BYTES", 16_000)
+
+    path, payload = parity.publish(output_dir=tmp_path, generated_at=GENERATED_AT)
+
+    assert path == output_path
+    assert output_path.stat().st_size <= 16_000
+    assert json.loads(output_path.read_text()) == payload
+    retention = payload["publication_retention"]
+    assert retention["complete_relative_to_source"] is False
+    assert retention["aggregate_summary_complete"] is True
+    assert retention["groups"]["source"] == 191
+    assert retention["groups"]["published"] == len(payload["groups"])
+    assert retention["groups"]["omitted"] == 191 - len(payload["groups"])
+    assert retention["by_state"]["action"]["published"] == 24
+    assert {row["state"] for row in payload["groups"]} == {"action"}
+
+
+def test_publish_preserves_lkg_when_even_fixed_metadata_exceeds_cap(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    output_path = tmp_path / "test_group_parity.json"
+    output_path.write_text('{"generation":"last-known-good"}\n')
+    monkeypatch.setattr(parity, "TEST_GROUP_PARITY_MAX_BYTES", 128)
+
+    with pytest.raises(RuntimeError, match="exceeds its byte budget"):
+        parity.publish(output_dir=tmp_path, generated_at=GENERATED_AT)
+
+    assert json.loads(output_path.read_text()) == {"generation": "last-known-good"}
+
+
 def test_operations_views_publish_compact_and_full_parity_projections() -> None:
     parity_payload = parity.build_payload(
         parity.load_review(), generated_at=GENERATED_AT

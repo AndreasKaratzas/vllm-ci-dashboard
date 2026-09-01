@@ -7,6 +7,8 @@ from pathlib import Path
 
 import yaml
 
+from vllm.github_home_bundle import publish_projects
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "projects.yaml"
 DATA = ROOT / "data"
@@ -465,7 +467,7 @@ def render_site_data(config):
         if "build_workflows" in cfg:
             out["projects"][name]["build_workflows"] = cfg["build_workflows"]
     path = SITE_DATA / "projects.json"
-    path.write_text(json.dumps(out, indent=2) + "\n")
+    publish_projects(path, out)
     print(f"Generated {path}")
 
 

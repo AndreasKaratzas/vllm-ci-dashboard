@@ -36,6 +36,7 @@ from vllm.ci.reliability_history import (  # noqa: E402
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
+from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 
 
 logging.basicConfig(
@@ -112,6 +113,7 @@ def _default_state() -> dict:
         "schema_version": 2,
         "initialized": False,
         "processed_build_numbers": [],
+        "processed_through": {},
         "group_watermarks": {},
         "active": {},
         "pending_soft": {},
@@ -193,6 +195,12 @@ def _read_state(path: Path = STATE) -> dict:
         for number in raw.get("processed_build_numbers") or []
         if isinstance(number, int) and not isinstance(number, bool) and number > 0
     ]
+    raw_processed_through = raw.get("processed_through")
+    state["processed_through"] = (
+        dict(raw_processed_through)
+        if isinstance(raw_processed_through, dict)
+        else {}
+    )
     state["active"] = {
         str(group_id): _normalize_entry(row)
         for group_id, row in (raw.get("active") or {}).items()
@@ -211,9 +219,13 @@ def _read_state(path: Path = STATE) -> dict:
     return state
 
 
-def _write_state(state: dict, path: Path = STATE) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+def _write_state(
+    state: dict,
+    path: Path = STATE,
+    *,
+    state_filename: str = "open_amd_main_failure_issues.json",
+) -> None:
+    write_watcher_state(path, state, state_filename=state_filename)
 
 
 def _read_reliability(pipeline: str = PIPELINE) -> dict | None:
@@ -352,6 +364,7 @@ def _readable_state_copy(state: dict) -> dict:
     )
     normalized["initialized"] = bool(state.get("initialized"))
     normalized["processed_build_numbers"] = list(state.get("processed_build_numbers") or [])
+    normalized["processed_through"] = dict(state.get("processed_through") or {})
     normalized["active"] = {
         str(group_id): _normalize_entry(row)
         for group_id, row in (state.get("active") or {}).items()
@@ -507,6 +520,12 @@ def advance_incidents(
         key=lambda number: build_rank(catalog_by_number[number]),
     )
     processed = set(updated.get("processed_build_numbers") or [])
+    processed_through = dict(updated.get("processed_through") or {})
+    processed_through_rank = (
+        _build_source_rank(processed_through)
+        if processed_through.get("number")
+        else None
+    )
     active = dict(updated.get("active") or {})
     pending_soft = dict(updated.get("pending_soft") or {})
     watermarks = dict(updated.get("group_watermarks") or {})
@@ -535,7 +554,14 @@ def advance_incidents(
             to_process = [int(newest["number"])] if newest else []
         processed = set(cohort_numbers)
         updated["initialized"] = True
+        historical_only: set[int] = set()
     else:
+        historical_only = {
+            number
+            for number in cohort_numbers - processed
+            if processed_through_rank is not None
+            and build_rank(catalog_by_number[number]) <= processed_through_rank
+        }
         to_process = sorted(
             cohort_numbers - processed,
             key=lambda number: build_rank(catalog_by_number[number]),
@@ -544,6 +570,34 @@ def advance_incidents(
 
     for number in to_process:
         for group_id, row in observations.get(number, {}).items():
+            if number in historical_only:
+                if track_commit_range:
+                    incident = active.get(group_id) or pending_soft.get(group_id) or {}
+                    bad_number = int(incident.get("bad_build_number") or 0)
+                    bad_row = observations.get(bad_number, {}).get(group_id)
+                    if (
+                        row.get("result") == "passed"
+                        and incident
+                        and not incident.get("good_commit")
+                        and bad_row
+                        and bad_number in catalog_by_number
+                    ):
+                        incident.update(
+                            _commit_range(
+                                group_id,
+                                bad_number,
+                                bad_row,
+                                incident,
+                                ordered_numbers,
+                                observations,
+                                catalog_by_number,
+                            )
+                        )
+                        if group_id in active:
+                            active[group_id] = incident
+                        else:
+                            pending_soft[group_id] = incident
+                continue
             incoming_watermark = _watermark(catalog_by_number[number], row)
             current_watermark = watermarks.get(group_id) or {}
             if current_watermark and _watermark_rank(incoming_watermark) <= _watermark_rank(
@@ -617,10 +671,43 @@ def advance_incidents(
                 ):
                     watermarks[group_id] = incoming_watermark
 
+    # Ordering fences older than the bounded reliability catalog cannot guard
+    # any build this watcher can still observe. Retaining them forever made a
+    # renamed test group a permanent state-tree row. Active incidents remain
+    # protected even if their source build has just aged out.
+    minimum_catalog_rank = min(
+        (build_rank(build) for build in catalog),
+        default=None,
+    )
+    protected_groups = set(active) | set(pending_soft)
+    watermarks = {
+        group_id: row
+        for group_id, row in watermarks.items()
+        if group_id in protected_groups
+        or minimum_catalog_rank is None
+        or _watermark_rank(row) >= minimum_catalog_rank
+    }
+
     updated["active"] = active
     updated["pending_soft"] = pending_soft
     updated["group_watermarks"] = watermarks
     updated["processed_build_numbers"] = sorted(processed & cohort_numbers)
+    newest_processed = max(catalog, key=build_rank, default=None)
+    if newest_processed is not None and (
+        processed_through_rank is None
+        or build_rank(newest_processed) > processed_through_rank
+    ):
+        updated["processed_through"] = {
+            "number": int(newest_processed["number"]),
+            "created_at": str(
+                newest_processed.get("created_at")
+                or newest_processed.get("finished_at")
+                or ""
+            ),
+            "finished_at": str(newest_processed.get("finished_at") or ""),
+        }
+    else:
+        updated["processed_through"] = processed_through
     return updated
 
 
@@ -881,7 +968,15 @@ def run_watcher(config: WatcherConfig) -> int:
     )
     reconciled["schema_version"] = 2
     reconciled["signal_fingerprint_version"] = 2
-    _write_state(reconciled, config.state)
+    _write_state(
+        reconciled,
+        config.state,
+        state_filename=(
+            "open_ci_main_failure_issues.json"
+            if config.pipeline == "ci"
+            else "open_amd_main_failure_issues.json"
+        ),
+    )
     log.info(
         "%s main watcher evaluated %d confirmed and %d pending-soft strict groups; "
         "issue=%s suppressed=%s",

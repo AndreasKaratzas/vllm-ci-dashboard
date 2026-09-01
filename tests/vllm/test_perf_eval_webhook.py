@@ -214,7 +214,7 @@ def _store_perf_event(
 
 
 def test_store_limits_leave_headroom_and_cover_artifact_lookback():
-    assert w.PERF_EVAL_MAX_BYTES == 60 * 1024 * 1024
+    assert w.PERF_EVAL_MAX_BYTES == 4 * 1024 * 1024
     assert w.PERF_EVAL_MAX_BYTES < 64 * 1024 * 1024
     assert w.PERF_EVAL_MAX_BYTES < 90_000_000
     assert w.enforced_byte_budget(100 * 1024 * 1024) == w.PERF_EVAL_MAX_BYTES

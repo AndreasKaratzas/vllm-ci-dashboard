@@ -29,6 +29,10 @@ import requests
 # Make ``vllm`` importable when this file is invoked directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.buildkite_request_guard import install_from_environment_or_exit  # noqa: E402
+
+install_from_environment_or_exit()
+
 from vllm.ci.dns_failures import (  # noqa: E402
     MAX_LOG_BYTES,
     PIPELINES,

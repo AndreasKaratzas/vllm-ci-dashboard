@@ -59,6 +59,8 @@ from collect_ci import (  # noqa: E402
     write_amd_nightly_snapshot,
 )
 from vllm.ci.models import TestResult  # noqa: E402
+from vllm.ci import reporter as reporter_module  # noqa: E402
+from vllm.ci.reporter import prune_old_results  # noqa: E402
 
 
 def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
@@ -561,6 +563,38 @@ class TestCanonicalResultPublication:
         assert not (tmp_path / "test_results" / "2026-08-17_upstream.jsonl").exists()
         parse_results.assert_not_called()
 
+    def test_byte_limited_floor_skips_old_build_details_on_repeated_runs(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(reporter_module, "TEST_RESULT_STORE_MAX_BYTES", 80)
+        monkeypatch.setattr(reporter_module, "TEST_RESULT_SHARD_MAX_BYTES", 100)
+        results_dir = tmp_path / "test_results"
+        results_dir.mkdir()
+        (results_dir / "2026-08-17_upstream.jsonl").write_bytes(b"x" * 80)
+        (results_dir / "2026-08-18_upstream.jsonl").write_bytes(b"x" * 80)
+        assert prune_old_results(
+            results_dir,
+            max_days=365,
+            max_total_bytes=80,
+            max_shard_bytes=100,
+        ) == 1
+        summary = self._build(state="passed", job_state="passed")
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch(
+                "collect_ci.fetch_build_detail",
+                side_effect=AssertionError("old retained-out build was re-fetched"),
+            ) as fetch_detail,
+            patch("collect_ci.parse_job_results") as parse_results,
+        ):
+            for _ in range(2):
+                _, results = collect_pipeline("upstream", 8, tmp_path)
+                assert results == {}
+
+        fetch_detail.assert_not_called()
+        parse_results.assert_not_called()
+
     def test_running_retry_invalidates_its_cached_canonical_jsonl(self, tmp_path):
         summary = self._build(state="running", job_state="running")
         detail = json.loads(json.dumps(summary))
@@ -924,6 +958,16 @@ class TestFrozenAmdNightlySnapshot:
         path = write_amd_nightly_snapshot(build, tmp_path)
         assert path == tmp_path / ".cache" / "amd_nightly_snapshot.json"
         payload = json.loads(path.read_text())
-        assert payload["schema_version"] == 1
+        assert payload["schema_version"] == 2
         assert payload["pipeline"] == "amd-ci"
         assert payload["build"] == compact
+        assert payload["publication_retention"]["job_rows"] == {
+            "source": 1,
+            "published": 1,
+            "omitted": 0,
+            "complete_relative_to_source": True,
+        }
+        assert (
+            payload["publication_retention"]["complete_relative_to_source"]
+            is True
+        )

@@ -44,6 +44,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     fallback_dependency_closure,
     ignored_watcher_state_paths,
 )
+from vllm.dashboard_storage_budget import group_max_bytes  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 VLLM = DATA / "vllm"
@@ -78,6 +79,11 @@ OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     "project_items": 36,
 }
 PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
+# A dense lifecycle reconciliation is explicitly resumable across at most 16
+# 100-request attempts. Because 50-minute workflow runs are serialized, that
+# bound can take 13h20 after the first due attempt. Add the normal two-hour
+# cadence lead and two hours of scheduler/runner headroom, then round up.
+QUEUE_LIFECYCLE_MAX_AGE_HOURS = 18
 QUEUE_LIVE_SURFACE = "queue"
 QUEUE_COMPANION_SURFACES = frozenset({
     "queue_capacity",
@@ -891,11 +897,14 @@ class DashboardAudit:
         self.audit_publication_surface_files()
         self.audit_data_inventory()
         self.audit_publication_size()
+        self.audit_bounded_publication_retention()
+        self.audit_github_home_bundle()
         self.audit_operations_v2()
         self.audit_operations_bundle()
         self.audit_home_pr_issue_data()
         self.audit_ci_health()
         self.audit_root_test_results()
+        self.audit_test_result_retention()
         self.audit_shard_bases()
         self.audit_gating_target_candidates()
         self.audit_analytics()
@@ -912,6 +921,150 @@ class DashboardAudit:
             return str(path.relative_to(self.root))
         except ValueError:
             return str(path)
+
+    def audit_bounded_publication_retention(self) -> None:
+        """Validate optional writer-emitted omission accounting recursively."""
+        locations = {
+            "data/site/projects.json": ("publication_retention",),
+            "data/vllm/prs.json": ("publication_retention",),
+            "data/vllm/issues.json": ("publication_retention",),
+            "data/vllm/releases.json": ("publication_retention",),
+            "data/vllm/ci/project_items.json": ("publication_retention",),
+            "data/vllm/ci/hotness.json": ("publication_retention",),
+            "data/vllm/ci/workload_mapping.json": ("retention", "publication"),
+            "data/vllm/ci/group_changes.json": ("publication_retention",),
+            "data/vllm/ci/ci_health.json": ("publication_retention",),
+            "data/vllm/ci/failure_trends.json": ("publication_retention",),
+            "data/vllm/ci/flaky_tests.json": ("publication_retention",),
+            "data/vllm/ci/parity_report.json": ("publication_retention",),
+            "data/vllm/ci/dns_failures.json": ("publication_retention",),
+            "data/vllm/ci/queue_jobs.json": ("publication_retention",),
+            "data/vllm/ci/gating_proposals.json": ("publication_retention",),
+            "data/vllm/ci/gating_target_candidates.json": ("publication_retention",),
+            "data/vllm/ci/shard_base_catalog.json": ("publication_retention",),
+            "data/vllm/ci/publication_state.json": ("publication_retention",),
+            "data/vllm/ci/omni_surge_heuristic.json": ("publication_retention",),
+            "data/vllm/ci/quarantine.json": ("publication_retention",),
+        }
+
+        def account_rows(value: object, prefix: str = "") -> list[tuple[str, dict]]:
+            rows: list[tuple[str, dict]] = []
+            if not isinstance(value, dict):
+                return rows
+            if {"source", "published", "omitted"}.issubset(value):
+                rows.append((prefix or "retention", value))
+            for key, child in value.items():
+                if isinstance(child, dict):
+                    rows.extend(account_rows(child, f"{prefix}.{key}".strip(".")))
+            return rows
+
+        for relpath, keys in locations.items():
+            payload = self.load_json(relpath, {})
+            if not isinstance(payload, dict):
+                continue
+            block: object = payload
+            for key in keys:
+                block = block.get(key) if isinstance(block, dict) else None
+            # Compatibility: old last-known-good generations predate the bound.
+            # Every new writer generation emits this block and is audited here.
+            if block is None:
+                continue
+            if not isinstance(block, dict):
+                self.error(
+                    "storage-retention-invalid",
+                    "publication retention metadata must be an object",
+                    relpath,
+                )
+                continue
+            max_bytes = block.get("max_bytes")
+            if (
+                isinstance(max_bytes, bool)
+                or not isinstance(max_bytes, int)
+                or max_bytes <= 0
+            ):
+                self.error(
+                    "storage-retention-invalid",
+                    "publication retention max_bytes must be a positive integer",
+                    relpath,
+                )
+            else:
+                source_path = self.root / relpath
+                if source_path.exists() and source_path.stat().st_size > max_bytes:
+                    self.error(
+                        "storage-retention-invalid",
+                        f"published file exceeds its attested {max_bytes}-byte bound",
+                        relpath,
+                    )
+            rows = account_rows(block)
+            if not rows:
+                self.error(
+                    "storage-retention-invalid",
+                    "publication retention has no source/published/omitted accounting",
+                    relpath,
+                )
+            for label, row in rows:
+                source = row.get("source")
+                published = row.get("published")
+                omitted = row.get("omitted")
+                valid_counts = all(
+                    isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value >= 0
+                    for value in (source, published, omitted)
+                )
+                complete = row.get("complete")
+                if not valid_counts or source != published + omitted:
+                    self.error(
+                        "storage-retention-invalid",
+                        f"{label} retention counts do not reconcile",
+                        relpath,
+                    )
+                if complete is not None and (
+                    not isinstance(complete, bool) or complete != (omitted == 0)
+                ):
+                    self.error(
+                        "storage-retention-invalid",
+                        f"{label} completeness does not match omitted rows",
+                        relpath,
+                    )
+            complete = block.get("complete_relative_to_source")
+            if complete is not None and not isinstance(complete, bool):
+                self.error(
+                    "storage-retention-invalid",
+                    "complete_relative_to_source must be boolean",
+                    relpath,
+                )
+            elif isinstance(complete, bool) and rows:
+                all_complete = all(row.get("omitted") == 0 for _label, row in rows)
+                if complete != all_complete:
+                    self.error(
+                        "storage-retention-invalid",
+                        "top-level completeness does not match omitted rows",
+                        relpath,
+                    )
+
+    def audit_github_home_bundle(self) -> None:
+        """Enforce the aggregate Home allocation independently of git staging."""
+        relpaths = (
+            "data/site/projects.json",
+            "data/vllm/prs.json",
+            "data/vllm/issues.json",
+            "data/vllm/releases.json",
+            "data/vllm/ci/project_items.json",
+        )
+        existing = [self.root / relpath for relpath in relpaths]
+        total_bytes = sum(path.stat().st_size for path in existing if path.exists())
+        max_bytes = group_max_bytes("github_home")
+        if total_bytes > max_bytes:
+            self.error(
+                "github-home-bundle-budget",
+                f"GitHub Home bundle is {total_bytes} bytes; budget is {max_bytes}",
+                "data/vllm",
+            )
+        self.report.metrics["github_home_bundle"] = {
+            "bytes": total_bytes,
+            "max_bytes": max_bytes,
+        }
 
     def add(
         self,
@@ -3843,10 +3996,11 @@ class DashboardAudit:
         """Cross-check the pre-aggregated AMD CI agent-health block.
 
         collect_agent_health.py walks every build across all branches in the AMD
-        pipelines and ships compact per-node/day reliability rollups plus the raw
-        infra-suspect failing runs; the frontend aggregates the table and clusters
-        co-failure events client-side. This audits the aggregated block's meta,
-        rollup shape, and the AMD scoping of the shipped failing runs.
+        pipelines and ships compact per-node/day reliability rollups plus bounded
+        exact failing-run evidence. Compact accounting keeps table counts exact
+        when link evidence is shortened; the frontend clusters only retained
+        evidence client-side. This audits the block's meta, accounting, rollup
+        shape, and the AMD scoping of the shipped failing runs.
         """
         agent_health = _mapping(payload.get("amd_agent_health"))
         if not agent_health:
@@ -3900,7 +4054,7 @@ class DashboardAudit:
                 relpath,
             )
 
-        # Every shipped failing run must be an infra-suspect AMD GPU failure.
+        # Every shipped exact failure-evidence row must remain AMD-GPU scoped.
         failing = _rows(agent_health.get("failing_runs"))
         non_amd = [
             _mapping(run).get("q")
@@ -3937,6 +4091,52 @@ class DashboardAudit:
                 relpath,
             )
 
+        accounting = _rows(agent_health.get("failure_accounting"))
+        if accounting:
+            malformed_accounting = []
+            accounted = 0
+            for raw_row in accounting:
+                row = _mapping(raw_row)
+                count = row.get("c")
+                if (
+                    not row.get("d")
+                    or not row.get("nd")
+                    or row.get("s") not in ("hard", "soft")
+                    or row.get("i") not in (0, 1)
+                    or row.get("ng") not in (0, 1)
+                    or row.get("bc") not in (0, 1)
+                    or not _is_nonnegative_int(count)
+                    or count <= 0
+                ):
+                    malformed_accounting.append(row)
+                    continue
+                accounted += count
+            source_count = _safe_int(agent_health.get("infra_failure_count"))
+            published_count = _safe_int(
+                agent_health.get("published_failure_evidence_count")
+            )
+            retention = _mapping(agent_health.get("retention"))
+            evidence_retention = _mapping(retention.get("failure_evidence"))
+            accounting_retention = _mapping(retention.get("failure_accounting"))
+            if malformed_accounting or (
+                accounted != source_count
+                or published_count != len(failing)
+                or _safe_int(evidence_retention.get("source")) != source_count
+                or _safe_int(evidence_retention.get("published")) != len(failing)
+                or _safe_int(evidence_retention.get("omitted"))
+                != source_count - len(failing)
+                or bool(evidence_retention.get("complete_relative_to_source"))
+                != (source_count == len(failing))
+                or _safe_int(accounting_retention.get("accounted")) != source_count
+                or accounting_retention.get("complete_relative_to_source") is not True
+            ):
+                self.error(
+                    "operations-agent-health-accounting",
+                    "agent-health compact failure accounting does not reconcile "
+                    "with source and published evidence counts",
+                    relpath,
+                )
+
     def audit_operations_bundle(self) -> None:
         # Keep optional full-audit dependencies out of the DNS-only entrypoint.
         # The isolated DNS publisher deliberately validates under ``python -S``
@@ -3948,6 +4148,7 @@ class DashboardAudit:
             build_org_summary,
         )
         from vllm.operations_bundle_contract import (
+            OPERATIONS_CANARY_SECTION_MAX_BYTES,
             OPERATIONS_CANARY_SECTIONS,
             OPERATIONS_MANIFEST_MAX_BYTES,
             OperationsBundleContractError,
@@ -4222,7 +4423,7 @@ class DashboardAudit:
         canary_bundle_bytes = manifest_size + sum(
             section_sizes.get(name, 0) for name in OPERATIONS_CANARY_SECTIONS
         )
-        queue_budget = 6_000_000
+        queue_budget = OPERATIONS_CANARY_SECTION_MAX_BYTES["queue"]
         if manifest_size > OPERATIONS_MANIFEST_MAX_BYTES:
             self.error(
                 "operations-home-payload-budget",
@@ -4286,6 +4487,39 @@ class DashboardAudit:
             self.error("home-shape", "prs.json/issues.json must contain list payloads")
             return
 
+        def retention_block(payload: object) -> dict[str, Any]:
+            if not isinstance(payload, dict):
+                return {}
+            block = payload.get("publication_retention")
+            return block if isinstance(block, dict) else {}
+
+        prs_retention = retention_block(prs_payload)
+        issues_retention = retention_block(issues_payload)
+        for label, payload, retention in (
+            ("prs", prs_payload, prs_retention),
+            ("issues", issues_payload, issues_retention),
+        ):
+            rows_account = retention.get("rows") or {}
+            source_aggregates = retention.get("source_aggregates") or {}
+            if retention and (
+                retention.get("aggregate_counts_complete") is not True
+                or source_aggregates.get("total") != rows_account.get("source")
+            ):
+                self.error(
+                    "home-retention-aggregates",
+                    f"{label}.json source aggregates do not reconcile with retention",
+                    f"data/vllm/{label}.json",
+                )
+            if (
+                retention.get("complete_relative_to_source") is False
+                and payload.get("count_semantics") != "lower_bound"
+            ):
+                self.error(
+                    "home-retention-semantics",
+                    f"{label}.json omits detail but is not marked lower_bound",
+                    f"data/vllm/{label}.json",
+                )
+
         repo = "vllm-project/vllm"
         pr_by_number = {p.get("number"): p for p in prs if isinstance(p, dict)}
         issue_by_number = {i.get("number"): i for i in issues if isinstance(i, dict)}
@@ -4347,7 +4581,16 @@ class DashboardAudit:
                     "data/vllm/prs.json",
                 )
             ci_issue_numbers = pr.get("ci_issue_numbers") or []
-            if bool(pr.get("is_ci_pr")) != bool(ci_issue_numbers):
+            relationships_complete = (
+                (prs_retention.get("relationship_refs") or {}).get(
+                    "complete_relative_to_source"
+                )
+                is not False
+            )
+            if (
+                bool(pr.get("is_ci_pr")) != bool(ci_issue_numbers)
+                and not (pr.get("is_ci_pr") and not relationships_complete)
+            ):
                 self.error(
                     "ci-pr-tag",
                     f"PR #{number} has inconsistent is_ci_pr and ci_issue_numbers",
@@ -4367,12 +4610,18 @@ class DashboardAudit:
                 self.error("rocm-custom-tag", f"PR #{number} is ROCm but missing custom ROCm tag")
 
         open_prs = [p for p in prs if (p.get("state") or "").lower() == "open"]
+        prs_source = ((prs_retention.get("rows") or {}).get("source"))
+        issues_source = ((issues_retention.get("rows") or {}).get("source"))
         self.report.metrics["home"] = {
             "prs": len(prs),
+            "source_prs": prs_source if isinstance(prs_source, int) else len(prs),
             "open_prs": len(open_prs),
             "ci_prs": sum(1 for p in open_prs if p.get("is_ci_pr")),
             "rocm_prs": sum(1 for p in open_prs if p.get("is_rocm_pr")),
             "project_issues": len(issues),
+            "source_project_issues": (
+                issues_source if isinstance(issues_source, int) else len(issues)
+            ),
             "linked_issue_pr_refs": linked_refs,
         }
 
@@ -4670,6 +4919,38 @@ class DashboardAudit:
                 "test_pass_rate_pct": summary.get("test_pass_rate_pct"),
             }
         self.report.metrics["root_test_results"] = metrics
+
+    def audit_test_result_retention(self) -> None:
+        """Require the private byte-limited floor to attest its exact shards."""
+        relative = "data/vllm/ci/test_results/retention.json"
+        path = self.root / relative
+        if not path.exists():
+            return
+        from vllm.ci.reporter import validate_result_retention
+
+        try:
+            marker = validate_result_retention(path.parent)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error(
+                "test-result-retention-invalid",
+                f"test-result retention marker is not bound to its exact shards: {exc}",
+                relative,
+            )
+            return
+        if marker is None:
+            self.error(
+                "test-result-retention-invalid",
+                "test-result retention marker disappeared during validation",
+                relative,
+            )
+            return
+        self.report.metrics["test_result_retention"] = {
+            "byte_limited": marker["byte_limited"],
+            "retained_start": marker["retained_start"],
+            "retained_end": marker["retained_end"],
+            "shard_count": marker["shard_count"],
+            "shard_bytes": marker["shard_bytes"],
+        }
 
     def audit_gating_target_candidates(self) -> None:
         payload = self.load_json("data/vllm/ci/gating_target_candidates.json", {})
@@ -6600,15 +6881,18 @@ class DashboardAudit:
         data_dir = self.root / "data/vllm/ci"
         try:
             from vllm.build_operations_snapshot import (
+                _bounded_queue_history_chart,
                 _filter_queue_snapshot,
-                build_queue_history_chart,
                 load_queue_history,
             )
-            from vllm.build_queue_section import build_queue_section
+            from vllm.build_queue_section import (
+                build_queue_section,
+                validate_queue_section_file,
+            )
 
             history = load_queue_history(data_dir / "queue_timeseries.jsonl")
             expected_section = build_queue_section(data_dir)
-            expected_chart = build_queue_history_chart(
+            expected_chart, _encoded_chart = _bounded_queue_history_chart(
                 [_filter_queue_snapshot(row) for row in history],
                 history[-1].get("ts") if history else None,
             )
@@ -6619,6 +6903,15 @@ class DashboardAudit:
                 history_relpath,
             )
             return
+
+        try:
+            validate_queue_section_file(self.root / section_relpath)
+        except Exception as exc:
+            self.error(
+                "operations-queue-payload-budget",
+                f"Queue section failed its exact producer contract: {exc}",
+                section_relpath,
+            )
 
         section = self.load_json(section_relpath, {})
         if section != expected_section:
@@ -6710,7 +7003,7 @@ class DashboardAudit:
             self.error("queue-lifecycle-generated-at", "invalid generated_at", path)
         else:
             age_hours = (datetime.now(timezone.utc) - generated_at).total_seconds() / 3600
-            if age_hours > 6:
+            if age_hours > QUEUE_LIFECYCLE_MAX_AGE_HOURS:
                 self.warning(
                     "queue-lifecycle-stale",
                     f"queue lifecycle aggregate is {age_hours:.1f}h old",

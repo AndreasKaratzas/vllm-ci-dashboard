@@ -25,6 +25,8 @@ from typing import Any, Iterable, Mapping
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.audit_dashboard_data import DashboardAudit  # noqa: E402
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
+from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
@@ -44,6 +46,7 @@ from vllm.publication_surfaces import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STATE = Path("data/vllm/ci/publication_state.json")
+PUBLICATION_STATE_MAX_BYTES = writer_max_bytes("publication_state")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 FALLBACK_MAX_AGE_HOURS = 36
 DECLARED_SURFACE_NAMES = frozenset(SURFACE_SPECS)
@@ -1682,8 +1685,100 @@ def _apply_surface_state(
     })
 
 
+def bounded_publication_state(
+    state: dict,
+    *,
+    max_bytes: int = PUBLICATION_STATE_MAX_BYTES,
+) -> dict:
+    """Bound diagnostic finding rows while preserving selector control state.
+
+    Surface clocks, fallback manifests, restored paths, failure streaks, and
+    incident policy remain exact because they drive recovery. Only redundant
+    persisted diagnostic rows are eligible for omission; the live in-memory
+    selector still emits workflow outputs from its complete findings.
+    """
+    if max_bytes <= 0:
+        raise ValueError("publication-state byte budget must be positive")
+    fields = (
+        "final_errors",
+        "candidate_errors",
+        "final_degradations",
+        "candidate_degradations",
+    )
+    source = {
+        field: list(state.get(field) or [])
+        for field in fields
+    }
+    prioritized = [
+        (field, index)
+        for field in fields
+        for index in range(len(source[field]))
+    ]
+
+    def candidate(count: int) -> dict:
+        selected = set(prioritized[:count])
+        published = {
+            field: [
+                row
+                for index, row in enumerate(source[field])
+                if (field, index) in selected
+            ]
+            for field in fields
+        }
+        result = {
+            key: value
+            for key, value in state.items()
+            if key not in {*fields, "publication_retention"}
+        }
+        result.update(published)
+        counts = {
+            field: {
+                "source": len(source[field]),
+                "published": len(published[field]),
+                "omitted": len(source[field]) - len(published[field]),
+                "complete": len(source[field]) == len(published[field]),
+            }
+            for field in fields
+        }
+        complete = all(row["complete"] for row in counts.values())
+        result["publication_retention"] = {
+            "policy": "exact_recovery_controls_then_priority_diagnostic_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "recovery_controls_complete": True,
+            "diagnostic_findings": counts,
+        }
+        return result
+
+    low, high = 0, len(prioritized)
+    best = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "publication-state recovery controls exceed their byte budget; "
+            "preserving the last-known-good state"
+        )
+    return best
+
+
 def _write_state(path: Path, state: dict) -> None:
-    _atomic_write(path, (json.dumps(state, indent=2, sort_keys=True) + "\n").encode())
+    bounded = bounded_publication_state(
+        state,
+        max_bytes=PUBLICATION_STATE_MAX_BYTES,
+    )
+    write_pretty_json_lkg(
+        path,
+        bounded,
+        max_bytes=PUBLICATION_STATE_MAX_BYTES,
+        label="publication selector state",
+    )
 
 
 def _emit_outputs(state: dict) -> None:
@@ -1768,6 +1863,31 @@ def _rebuild_operations(root: Path) -> None:
         cwd=root,
         check=True,
     )
+
+
+def _operations_build_failure_record(
+    exc: Exception,
+    surfaces: Iterable[str],
+    *,
+    phase: str,
+) -> dict[str, Any]:
+    """Return bounded, redacted evidence for a derived-model build failure."""
+    normalized_phase = _bounded_text(phase, limit=80) or "unknown"
+    return {
+        "severity": "error",
+        "code": "publication-operations-build-failed",
+        "message": (
+            "the Operations read model could not be rebuilt during "
+            f"{normalized_phase}"
+        ),
+        "path": "data/vllm/ci/operations_v2.json.gz",
+        "context": {
+            "phase": normalized_phase,
+            "exception_type": _bounded_text(type(exc).__name__, limit=80),
+            "details": _safe_detail_text(exc),
+        },
+        "surfaces": sorted({str(surface) for surface in surfaces if str(surface)}),
+    }
 
 
 def select_publication(
@@ -1937,6 +2057,7 @@ def select_publication(
         forced | retry_surfaces
     )
     restored: dict[str, list[str]] = {}
+    previous: dict | None = None
     state = {
         "schema_version": 2,
         "surface_contract_version": SURFACE_CONTRACT_VERSION,
@@ -1976,6 +2097,82 @@ def select_publication(
         "restored_paths": {},
         "restored_manifest": {},
     }
+
+    def restore_active_fallback() -> None:
+        """Atomically restore and attest every not-yet-restored fallback lane."""
+        nonlocal previous
+        previous = prior_state()
+        _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+        _raise_if_fallback_expired(state["fallback_since"], now)
+        additional = fallback - set(restored)
+        preflight = {
+            surface: _baseline_payloads(
+                root,
+                baseline_ref,
+                SURFACE_SPECS[surface],
+            )
+            for surface in sorted(additional)
+        }
+        for surface in sorted(additional):
+            restored[surface] = restore_surface(
+                root,
+                baseline_ref,
+                SURFACE_SPECS[surface],
+                preflight=preflight[surface],
+            )
+        state["restored_paths"] = dict(restored)
+        state["restored_manifest"] = _surface_manifest(root, restored)
+        # A fallback-aware audit is authorized only after the restored source
+        # generation has been hash-attested in durable selector state.
+        _write_state(state_path, state)
+
+    def rebuild_operations_with_baseline_recovery() -> None:
+        """Rebuild once, restoring the complete validated source on failure.
+
+        The derived builder does not own a publication surface. A malformed
+        candidate can therefore fail before the semantic audit has enough
+        information to route the defect. The only safe automatic recovery is
+        to restore every declared source transaction as one generation and
+        retry exactly once. Failure of that validated generation remains a
+        hard stop because no newer unvalidated code/data combination may be
+        published in its place.
+        """
+        nonlocal fallback
+        try:
+            _rebuild_operations(root)
+            return
+        except Exception as exc:
+            all_surfaces = _closed_fallback_surfaces(SURFACE_SPECS)
+            candidate_errors.append(
+                _operations_build_failure_record(
+                    exc,
+                    all_surfaces,
+                    phase="candidate source generation",
+                )
+            )
+            state["candidate_errors"] = candidate_errors
+            fallback = all_surfaces
+            fresh_degraded.difference_update(fallback)
+            restore_active_fallback()
+
+        try:
+            _rebuild_operations(root)
+        except Exception as retry_exc:
+            terminal = _operations_build_failure_record(
+                retry_exc,
+                fallback,
+                phase="validated baseline retry",
+            )
+            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
+            state["mode"] = "blocked"
+            state["final_errors"] = [terminal]
+            state["final_degradations"] = []
+            _write_state(state_path, state)
+            _emit_outputs(state)
+            raise RuntimeError(
+                "the Operations read model cannot be rebuilt from the "
+                "validated baseline source generation"
+            ) from retry_exc
 
     try:
         previous_for_policy = prior_state() if forced or retry_observations else None
@@ -2131,32 +2328,12 @@ def select_publication(
             )
 
         if fallback:
-            previous = prior_state()
-            _apply_surface_state(state, fresh_degraded, fallback, previous, now)
-            _raise_if_fallback_expired(state["fallback_since"], now)
-            preflight = {
-                surface: _baseline_payloads(root, baseline_ref, SURFACE_SPECS[surface])
-                for surface in sorted(fallback)
-            }
-            for surface in sorted(fallback):
-                restored[surface] = restore_surface(
-                    root,
-                    baseline_ref,
-                    SURFACE_SPECS[surface],
-                    preflight=preflight[surface],
-                )
-
-            # The semantic audit below sees an intentional mixed-generation
-            # tree. Persist and hash-attest the already restored transactions
-            # before allowing narrowly scoped fallback-aware invariants.
-            state["restored_paths"] = dict(restored)
-            state["restored_manifest"] = _surface_manifest(root, restored)
-            _write_state(state_path, state)
+            restore_active_fallback()
 
         # Build the candidate read model after any command-level or parse-level
         # quarantine, then use the full cross-surface audit to discover semantic
         # transaction failures such as matrix/health count drift.
-        _rebuild_operations(root)
+        rebuild_operations_with_baseline_recovery()
         candidate = DashboardAudit(
             root,
             allow_publication_fallback=bool(restored),
@@ -2212,29 +2389,8 @@ def select_publication(
         # surface. The fallback set grows monotonically, so this is bounded by
         # the number of declared publication surfaces.
         while True:
-            additional = fallback - set(restored)
-            preflight = {
-                surface: _baseline_payloads(
-                    root,
-                    baseline_ref,
-                    SURFACE_SPECS[surface],
-                )
-                for surface in sorted(additional)
-            }
-            for surface in sorted(additional):
-                restored[surface] = restore_surface(
-                    root,
-                    baseline_ref,
-                    SURFACE_SPECS[surface],
-                    preflight=preflight[surface],
-                )
-            state["restored_paths"] = dict(restored)
-            state["restored_manifest"] = _surface_manifest(root, restored)
-            # State must exist before each fallback-aware audit so bounded
-            # stale-source and cross-generation handling is authorized only
-            # for the transactions already restored and hash-attested here.
-            _write_state(state_path, state)
-            _rebuild_operations(root)
+            restore_active_fallback()
+            rebuild_operations_with_baseline_recovery()
             final = DashboardAudit(
                 root,
                 allow_publication_fallback=True,
@@ -2322,7 +2478,7 @@ def select_publication(
                 else [{
                     "severity": "error",
                     "code": "publication-selection-failed",
-                    "message": str(exc),
+                    "message": _safe_detail_text(exc),
                     "path": DEFAULT_STATE.as_posix(),
                     "surfaces": [],
                 }]

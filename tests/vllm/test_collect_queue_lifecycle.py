@@ -1,5 +1,7 @@
 """Focused tests for the compact AMD queue lifecycle collector."""
 
+# cspell:ignore reencode
+
 from __future__ import annotations
 
 import gzip
@@ -13,18 +15,17 @@ import pytest
 
 from vllm import collect_queue_lifecycle as lifecycle
 from vllm.constants import AMD_METRIC_TARGET_QUEUES
+from vllm.dashboard_storage_budget import writer_max_bytes
 
 
 NOW = datetime(2026, 8, 11, 20, 0, tzinfo=timezone.utc)
 
 
 def test_retained_ledger_budget_stays_below_repository_sync_ceiling() -> None:
-    assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES == 85 * 1024 * 1024
+    assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES == 16 * 1024 * 1024
     assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES < 90_000_000
-    assert (
-        lifecycle.MAX_COMPRESSED_SEGMENT_BYTES
-        < lifecycle.MAX_COMPRESSED_LEDGER_BYTES
-    )
+    assert lifecycle.MAX_COMPRESSED_SEGMENT_BYTES <= lifecycle.MAX_COMPRESSED_LEDGER_BYTES
+    assert lifecycle.MAX_SUMMARY_BYTES == writer_max_bytes("queue_lifecycle_summary")
 
 
 def _queue_ids() -> dict[str, str]:
@@ -667,6 +668,316 @@ def test_deterministic_gzip_handles_measured_7d_volume_well_below_90mib():
     )
 
 
+def test_dense_day_adaptively_subshards_deterministically_and_remains_auditable(
+    monkeypatch, tmp_path
+):
+    observations = []
+    for index in range(32):
+        row = json.loads(json.dumps(_observation()))
+        row["job_id"] = hashlib.sha256(f"dense-day-{index}".encode()).hexdigest()
+        observations.append(row)
+
+    single_row_limit = max(len(lifecycle.encode_job_ledger([row])) for row in observations)
+    assert len(lifecycle.encode_job_ledger(observations)) > single_row_limit
+    monkeypatch.setattr(lifecycle, "MAX_COMPRESSED_SEGMENT_BYTES", single_row_limit)
+
+    with pytest.raises(RuntimeError, match="compressed queue lifecycle segment"):
+        lifecycle.encode_job_ledger(observations)
+    segments, ledger = lifecycle.encode_job_segments(
+        reversed(observations),
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    expected_names = [
+        f"2026-08-11.part-{index:09d}-of-{len(segments):09d}.jsonl.gz"
+        for index in range(1, len(segments) + 1)
+    ]
+    assert len(segments) >= 2
+    assert list(segments) == expected_names
+    assert all(len(payload) <= single_row_limit for payload in segments.values())
+    assert ledger["format"] == lifecycle.SEGMENT_FORMAT
+    assert ledger["segment_naming"] == lifecycle.SEGMENT_NAMING
+    assert ledger["partitioning"] == lifecycle.SEGMENT_PARTITIONING
+    assert ledger["job_observations"] == len(observations)
+    assert ledger["total_compressed_bytes"] == sum(map(len, segments.values()))
+    assert ledger["total_uncompressed_bytes"] == sum(
+        len(gzip.decompress(payload)) for payload in segments.values()
+    )
+    assert lifecycle._ledger_manifest_complete(ledger)
+    unversioned_adaptive_ledger = dict(ledger)
+    unversioned_adaptive_ledger.pop("segment_naming")
+    unversioned_adaptive_ledger.pop("partitioning")
+    assert not lifecycle._ledger_manifest_complete(unversioned_adaptive_ledger)
+
+    decoded = [
+        row
+        for payload in segments.values()
+        for row in lifecycle.decode_job_ledger(payload, source="adaptive test segment")
+    ]
+    assert [row["job_id"] for row in decoded] == sorted(row["job_id"] for row in observations)
+    assert len({row["job_id"] for row in decoded}) == len(observations)
+
+    repeated_segments, repeated_ledger = lifecycle.encode_job_segments(
+        observations,
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    assert repeated_segments == segments
+    assert repeated_ledger == ledger
+
+    jobs_path = tmp_path / "jobs"
+    jobs_path.mkdir()
+    for name, payload in segments.items():
+        (jobs_path / name).write_bytes(payload)
+    summary = lifecycle.build_summary(
+        observations,
+        now=NOW,
+        collection=None,
+        ledger=ledger,
+    )
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(lifecycle._encode_summary(summary))
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path, summary_path=summary_path
+    ) == (len(segments), len(observations))
+
+    truncated_path = tmp_path / "truncated-jobs"
+    truncated_path.mkdir()
+    for name, payload in list(segments.items())[:-1]:
+        (truncated_path / name).write_bytes(payload)
+    with pytest.raises(RuntimeError, match="unexpected entry"):
+        lifecycle.read_job_directory(truncated_path)
+    assert lifecycle._job_directory_generation(truncated_path) == ""
+
+    monkeypatch.setattr(
+        lifecycle,
+        "MAX_COMPRESSED_LEDGER_BYTES",
+        ledger["total_compressed_bytes"] - 1,
+    )
+    bounded_segments, bounded_ledger = lifecycle.encode_job_segments(
+        observations,
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    assert bounded_ledger["total_compressed_bytes"] <= (
+        ledger["total_compressed_bytes"] - 1
+    )
+    assert 0 < bounded_ledger["job_observations"] < len(observations)
+    assert sum(
+        len(lifecycle.decode_job_ledger(payload, source=name))
+        for name, payload in bounded_segments.items()
+    ) == bounded_ledger["job_observations"]
+    retention = bounded_ledger["retention"]
+    assert retention["byte_limited"] is True
+    assert retention["complete_relative_to_input"] is False
+    assert retention["complete_relative_to_configured_window"] is False
+    assert retention["omitted_whole_latest_event_days"] == []
+    assert retention["partial_latest_event_day"] == "2026-08-11"
+    assert retention["omitted_from_input_job_observations"] == (
+        len(observations) - bounded_ledger["job_observations"]
+    )
+    assert lifecycle._ledger_manifest_complete(bounded_ledger)
+
+
+def test_adaptive_subsharding_fails_only_for_an_irreducible_oversized_row(
+    monkeypatch,
+):
+    row = _observation()
+    single_row_bytes = len(lifecycle.encode_job_ledger([row]))
+    monkeypatch.setattr(lifecycle, "MAX_COMPRESSED_SEGMENT_BYTES", single_row_bytes - 1)
+
+    with pytest.raises(RuntimeError, match="single queue lifecycle observation cannot fit"):
+        lifecycle.encode_job_segments(
+            [row],
+            retention_start=NOW - timedelta(days=7),
+            end_exclusive=NOW,
+        )
+
+
+def test_aggregate_cap_drops_oldest_latest_event_days_and_attests_exact_scope(
+    monkeypatch, tmp_path
+):
+    def observation_for_day(index: int, day: int) -> dict:
+        return _observations_for(
+            _job(
+                uuid=f"retention-{index}",
+                runnable_at=f"2026-08-{day:02d}T10:00:00Z",
+                started_at=f"2026-08-{day:02d}T10:10:00Z",
+                finished_at=f"2026-08-{day:02d}T11:00:00Z",
+            )
+        )[0]
+
+    observations = [
+        observation_for_day(1, 9),
+        observation_for_day(2, 10),
+        observation_for_day(3, 11),
+    ]
+    newest_payloads, _ = lifecycle.encode_job_segments(
+        observations[-1:],
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    newest_size = sum(map(len, newest_payloads.values()))
+    monkeypatch.setattr(lifecycle, "MAX_COMPRESSED_LEDGER_BYTES", newest_size)
+
+    retained, payloads, ledger = lifecycle._prepare_job_segments(
+        reversed(observations),
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    assert [row["job_id"] for row in retained] == [observations[-1]["job_id"]]
+    assert list(payloads) == ["2026-08-11.jsonl.gz"]
+    assert ledger["total_compressed_bytes"] == newest_size
+    scope = ledger["retention"]
+    assert scope["configured_days"] == 7
+    assert scope["published_latest_event_days"] == ["2026-08-11"]
+    assert scope["omitted_whole_latest_event_days"] == ["2026-08-09", "2026-08-10"]
+    assert scope["omitted_whole_day_job_observations"] == 2
+    assert scope["partial_latest_event_day"] is None
+    assert scope["omitted_from_input_job_observations"] == 2
+    assert scope["byte_limited"] is True
+
+    summary = lifecycle.build_summary(retained, now=NOW, collection=None, ledger=ledger)
+    assert summary["coverage"]["job_observation_count"] == 1
+    assert summary["coverage"]["ledger_retention"] == scope
+    assert summary["retention"]["days"] == 7
+    assert summary["retention"]["byte_limited"] is True
+    assert summary["retention"]["ledger_scope"] == scope
+
+    jobs_path = tmp_path / "jobs"
+    jobs_path.mkdir()
+    for name, payload in payloads.items():
+        (jobs_path / name).write_bytes(payload)
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(lifecycle._encode_summary(summary))
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+    ) == (1, 1)
+
+    tampered = json.loads(summary_path.read_text())
+    tampered["retention"]["byte_limited"] = False
+    summary_path.write_text(json.dumps(tampered))
+    with pytest.raises(RuntimeError, match="retained scope"):
+        lifecycle.validate_local_ledger_generation(
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+        )
+
+
+def test_byte_limited_scope_survives_incremental_reencode_until_full_reset(monkeypatch):
+    observations = []
+    for index, day in enumerate((9, 10, 11), start=1):
+        observations.extend(
+            _observations_for(
+                _job(
+                    uuid=f"carry-{index}",
+                    runnable_at=f"2026-08-{day:02d}T10:00:00Z",
+                    started_at=f"2026-08-{day:02d}T10:10:00Z",
+                    finished_at=f"2026-08-{day:02d}T11:00:00Z",
+                )
+            )
+        )
+    newest_payloads, _ = lifecycle.encode_job_segments(
+        observations[-1:],
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "MAX_COMPRESSED_LEDGER_BYTES",
+        sum(map(len, newest_payloads.values())),
+    )
+    retained, _, compacted = lifecycle._prepare_job_segments(
+        observations,
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+
+    incrementally_retained, _, incremental = lifecycle._prepare_job_segments(
+        retained,
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+        prior_retention_scopes=[compacted["retention"]],
+    )
+    assert incrementally_retained == retained
+    incremental_scope = incremental["retention"]
+    assert incremental_scope["omitted_from_input_job_observations"] == 0
+    assert incremental_scope["complete_relative_to_input"] is True
+    assert incremental_scope["complete_relative_to_configured_window"] is False
+    assert incremental_scope["byte_limited"] is True
+    assert incremental_scope["carried_forward_omitted_latest_event_days"] == [
+        "2026-08-09",
+        "2026-08-10",
+    ]
+
+    _, _, reconciled = lifecycle._prepare_job_segments(
+        retained,
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+        prior_retention_scopes=[compacted["retention"]],
+        reset_prior_incompleteness=True,
+    )
+    assert reconciled["retention"]["byte_limited"] is False
+    assert reconciled["retention"]["complete_relative_to_configured_window"] is True
+
+
+def test_segment_naming_accepts_legacy_manifests_but_rejects_incomplete_part_sets():
+    _, ledger = lifecycle.encode_job_segments(
+        [_observation()],
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    legacy_ledger = dict(ledger)
+    legacy_ledger.pop("segment_naming")
+    legacy_ledger.pop("partitioning")
+    assert lifecycle._ledger_manifest_complete(legacy_ledger)
+    assert lifecycle._segment_names_valid(["2026-08-11.jsonl.gz"])
+    assert lifecycle._segment_names_valid(
+        [
+            "2026-08-11.part-000000001-of-000000002.jsonl.gz",
+            "2026-08-11.part-000000002-of-000000002.jsonl.gz",
+        ]
+    )
+    assert not lifecycle._segment_names_valid(
+        [
+            "2026-08-11.jsonl.gz",
+            "2026-08-11.part-000000001-of-000000002.jsonl.gz",
+        ]
+    )
+    assert not lifecycle._segment_names_valid(["2026-08-11.part-000000001-of-000000002.jsonl.gz"])
+    assert not lifecycle._segment_names_valid(
+        [
+            "2026-08-11.part-000000001-of-000000003.jsonl.gz",
+            "2026-08-11.part-000000002-of-000000003.jsonl.gz",
+        ]
+    )
+    assert not lifecycle._segment_names_valid(
+        [
+            "2026-08-11.part-000000001-of-000000003.jsonl.gz",
+            "2026-08-11.part-000000003-of-000000003.jsonl.gz",
+        ]
+    )
+    assert not lifecycle._segment_names_valid(
+        [
+            "2026-08-11.part-000000000-of-000000002.jsonl.gz",
+            "2026-08-11.part-000000001-of-000000002.jsonl.gz",
+        ]
+    )
+    assert not lifecycle._segment_names_valid(
+        [
+            "2026-08-11.part-000000001-of-000000002.jsonl.gz",
+            "2026-08-11.part-000000002-of-000000003.jsonl.gz",
+        ]
+    )
+    assert not lifecycle._segment_names_valid(
+        [
+            "2026-08-11.part-0000000001-of-0000000002.jsonl.gz",
+            "2026-08-11.part-0000000002-of-0000000002.jsonl.gz",
+        ]
+    )
+
+
 def test_unchanged_old_day_segment_is_byte_identical_when_current_day_changes():
     old = _observations_for(
         _job(
@@ -692,7 +1003,7 @@ def test_unchanged_old_day_segment_is_byte_identical_when_current_day_changes():
 
 def test_compressed_size_guard_fails_before_publication(monkeypatch):
     monkeypatch.setattr(lifecycle, "MAX_COMPRESSED_LEDGER_BYTES", 64)
-    with pytest.raises(RuntimeError, match="total safety limit"):
+    with pytest.raises(RuntimeError, match="single queue lifecycle observation.*aggregate"):
         lifecycle.encode_job_segments(
             [_observation()], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
         )
@@ -831,6 +1142,68 @@ def test_periodic_full_reconciliation_replaces_incremental_window(monkeypatch, t
     assert provenance["last_successful_query_mode"] == lifecycle.FULL_QUERY_MODE
     assert provenance["last_full_reconciliation_end"] == lifecycle._utc_iso(NOW)
     assert provenance["collection"]["selection_reason"] == "periodic_full_reconciliation"
+
+
+def test_collection_summary_is_recomputed_from_exact_byte_bounded_ledger(
+    monkeypatch, tmp_path
+):
+    observations = []
+    for index, day in enumerate((9, 10, 11), start=1):
+        observations.extend(
+            _observations_for(
+                _job(
+                    uuid=f"bounded-collection-{index}",
+                    runnable_at=f"2026-08-{day:02d}T10:00:00Z",
+                    started_at=f"2026-08-{day:02d}T10:10:00Z",
+                    finished_at=f"2026-08-{day:02d}T11:00:00Z",
+                )
+            )
+        )
+    newest_payloads, _ = lifecycle.encode_job_segments(
+        observations[-1:],
+        retention_start=NOW - timedelta(days=7),
+        end_exclusive=NOW,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "MAX_COMPRESSED_LEDGER_BYTES",
+        sum(map(len, newest_payloads.values())),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "fetch_rest_target_queues",
+        lambda token: (_queue_by_id(), {"complete": True, "pages": 1}),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "fetch_rest_lifecycle_jobs",
+        lambda token, **kwargs: (
+            {str(index): {} for index in range(len(observations))},
+            {"complete": True, "cohorts": {}},
+        ),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "observations_from_jobs",
+        lambda jobs, **kwargs: (observations, {"jobs": len(observations)}),
+    )
+
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    summary = lifecycle.collect_lifecycle(
+        "token",
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        now=NOW,
+    )
+
+    assert summary["provenance"]["ledger"]["job_observations"] == 1
+    assert summary["coverage"]["job_observation_count"] == 1
+    assert summary["coverage"]["ledger_retention"]["byte_limited"] is True
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+    ) == (1, 1)
 
 
 def test_unbound_legacy_watermark_falls_back_to_full_reconciliation(monkeypatch, tmp_path):
@@ -1357,7 +1730,7 @@ def test_guard_exhaustion_checkpoints_progress_and_repeated_runs_finish_once(tmp
     def fetch_page(path, token, params):
         assert params["page"] == 1
         if remaining["requests"] == 0:
-            raise lifecycle.BuildkiteRequestGuardError("allowance exhausted")
+            raise lifecycle.BuildkiteRequestAllowanceExhausted("allowance exhausted")
         remaining["requests"] -= 1
         start = lifecycle._require_datetime(params["created_from"], "created_from")
         end = lifecycle._require_datetime(params["created_to"], "created_to")
@@ -1372,7 +1745,7 @@ def test_guard_exhaustion_checkpoints_progress_and_repeated_runs_finish_once(tmp
     for attempt in range(3):
         remaining["requests"] = 1
         if attempt < 2:
-            with pytest.raises(lifecycle.BuildkiteRequestGuardError):
+            with pytest.raises(lifecycle.BuildkiteRequestAllowanceExhausted):
                 lifecycle.collect_lifecycle(
                     "token",
                     jobs_path=jobs_path,
@@ -1416,6 +1789,259 @@ def test_guard_exhaustion_checkpoints_progress_and_repeated_runs_finish_once(tmp
     lifecycle.clear_lifecycle_checkpoint(checkpoint_path)
     assert not checkpoint_path.exists()
     assert lifecycle._checkpoint_cache_marker(checkpoint_path).is_file()
+
+
+def test_wall_clock_yield_persists_split_before_stopping(tmp_path, monkeypatch):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    summary_path.write_text("sentinel")
+    clock = {"value": 0.0}
+    requested_intervals = []
+
+    monkeypatch.setattr(
+        lifecycle.time_module,
+        "monotonic",
+        lambda: clock["value"],
+    )
+
+    def full_page(path, token, params):
+        requested_intervals.append((params["created_from"], params["created_to"]))
+        clock["value"] = 11.0
+        return [{"jobs": []} for _ in range(lifecycle.REST_PAGE_SIZE)]
+
+    def queue_page(path, token, params):
+        return [
+            {"id": f"id:{queue}", "key": queue}
+            for queue in AMD_METRIC_TARGET_QUEUES
+        ]
+
+    with pytest.raises(lifecycle.LifecycleWallClockYield):
+        lifecycle.collect_lifecycle(
+            "token",
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            now=NOW,
+            checkpoint_path=checkpoint_path,
+            baseline_ref="bootstrap",
+            page_fetcher=full_page,
+            queue_page_fetcher=queue_page,
+            deadline_monotonic=10.0,
+        )
+
+    assert len(requested_intervals) == 1
+    state = lifecycle._decode_checkpoint_file(checkpoint_path)
+    assert state["split_requests"] == 1
+    assert requested_intervals[0] not in {
+        (unit["created_from"], unit["created_to"]) for unit in state["units"]
+    }
+    assert summary_path.read_text() == "sentinel"
+    assert not jobs_path.exists()
+    assert lifecycle.validate_resumable_wall_clock_yield(
+        checkpoint_path=checkpoint_path,
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        baseline_ref="bootstrap",
+        now=NOW,
+    )["split_requests"] == 1
+
+
+def test_wall_clock_yield_accepts_complete_checkpoint_and_retry_makes_no_build_request(
+    tmp_path, monkeypatch
+):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    summary_path.write_text("sentinel")
+    queue_by_id = _queue_by_id()
+    state = lifecycle._new_checkpoint(
+        baseline_sha256=lifecycle._baseline_sha256([]),
+        baseline_ref="bootstrap",
+        previous={},
+        query_end=NOW,
+        queue_by_id=queue_by_id,
+        queue_discovery={
+            "complete": True,
+            "pages": 1,
+            "target_queue_count": len(queue_by_id),
+        },
+    )
+    for unit in state["units"][:-1]:
+        unit["complete"] = True
+    lifecycle._write_checkpoint(checkpoint_path, state)
+
+    clock = {"value": 0.0}
+    build_calls = []
+    queue_calls = []
+    monkeypatch.setattr(
+        lifecycle.time_module,
+        "monotonic",
+        lambda: clock["value"],
+    )
+
+    def final_page(path, token, params):
+        build_calls.append(dict(params))
+        clock["value"] = 11.0
+        return [{"jobs": [_rest_job(uuid="deadline-job")]}]
+
+    def queue_page(path, token, params):
+        queue_calls.append(dict(params))
+        return [
+            {"id": f"id:{queue}", "key": queue}
+            for queue in AMD_METRIC_TARGET_QUEUES
+        ]
+
+    with pytest.raises(lifecycle.LifecycleWallClockYield):
+        lifecycle.collect_lifecycle(
+            "token",
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            now=NOW,
+            checkpoint_path=checkpoint_path,
+            baseline_ref="bootstrap",
+            page_fetcher=final_page,
+            queue_page_fetcher=queue_page,
+            deadline_monotonic=10.0,
+        )
+
+    completed = lifecycle._decode_checkpoint_file(checkpoint_path)
+    assert all(unit["complete"] for unit in completed["units"])
+    assert len(completed["observations"]) == 1
+    assert summary_path.read_text() == "sentinel"
+    lifecycle.validate_resumable_wall_clock_yield(
+        checkpoint_path=checkpoint_path,
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        baseline_ref="bootstrap",
+        now=NOW,
+    )
+    with pytest.raises(RuntimeError, match="did not leave resumable lifecycle work"):
+        lifecycle.validate_resumable_allowance_exhaustion(
+            checkpoint_path=checkpoint_path,
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            baseline_ref="bootstrap",
+            now=NOW,
+        )
+
+    clock["value"] = 0.0
+
+    def unexpected_build_page(path, token, params):
+        raise AssertionError("a complete checkpoint must not repeat a build request")
+
+    def unexpected_queue_page(path, token, params):
+        raise AssertionError("a complete checkpoint must not repeat queue discovery")
+
+    summary = lifecycle.collect_lifecycle(
+        "token",
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        now=NOW + timedelta(minutes=1),
+        checkpoint_path=checkpoint_path,
+        baseline_ref="bootstrap",
+        page_fetcher=unexpected_build_page,
+        queue_page_fetcher=unexpected_queue_page,
+        deadline_monotonic=10.0,
+    )
+
+    assert len(build_calls) == 1
+    assert len(queue_calls) == 1
+    assert summary["generated_at"] == lifecycle._utc_iso(NOW)
+    assert summary["coverage"]["job_observation_count"] == 1
+
+
+def test_expired_wall_clock_without_checkpoint_is_not_resumable(tmp_path, monkeypatch):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    summary_path.write_text("sentinel")
+    calls = []
+    monkeypatch.setattr(lifecycle.time_module, "monotonic", lambda: 10.0)
+
+    with pytest.raises(lifecycle.LifecycleWallClockYield):
+        lifecycle.collect_lifecycle(
+            "token",
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            now=NOW,
+            checkpoint_path=checkpoint_path,
+            baseline_ref="bootstrap",
+            queue_page_fetcher=lambda *args: calls.append(args),
+            deadline_monotonic=10.0,
+        )
+
+    assert calls == []
+    assert not checkpoint_path.exists()
+    assert summary_path.read_text() == "sentinel"
+    with pytest.raises(RuntimeError, match="could not open bounded checkpoint"):
+        lifecycle.validate_resumable_wall_clock_yield(
+            checkpoint_path=checkpoint_path,
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            baseline_ref="bootstrap",
+            now=NOW,
+        )
+
+
+def test_old_context_bound_checkpoint_remains_resumable_across_cap_waits(tmp_path):
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    baseline_sha256 = lifecycle._baseline_sha256([])
+    state = lifecycle._new_checkpoint(
+        baseline_sha256=baseline_sha256,
+        baseline_ref="bootstrap",
+        previous={},
+        query_end=NOW,
+        queue_by_id=_queue_by_id(),
+        queue_discovery={
+            "complete": True,
+            "pages": 1,
+            "target_queue_count": len(AMD_METRIC_TARGET_QUEUES),
+        },
+    )
+    lifecycle._write_checkpoint(checkpoint_path, state)
+
+    resumed = lifecycle._load_checkpoint(
+        checkpoint_path,
+        baseline_sha256=baseline_sha256,
+        baseline_ref="bootstrap",
+        previous={},
+        now=NOW + timedelta(days=365),
+    )
+
+    assert resumed is not None
+    assert resumed["content_sha256"] == state["content_sha256"]
+    assert resumed["query"]["query_end_exclusive"] == lifecycle._utc_iso(NOW)
+    assert checkpoint_path.is_file()
+
+
+def test_future_checkpoint_horizon_remains_fail_closed(tmp_path):
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    baseline_sha256 = lifecycle._baseline_sha256([])
+    state = lifecycle._new_checkpoint(
+        baseline_sha256=baseline_sha256,
+        baseline_ref="bootstrap",
+        previous={},
+        query_end=NOW + timedelta(seconds=1),
+        queue_by_id=_queue_by_id(),
+        queue_discovery={
+            "complete": True,
+            "pages": 1,
+            "target_queue_count": len(AMD_METRIC_TARGET_QUEUES),
+        },
+    )
+    lifecycle._write_checkpoint(checkpoint_path, state)
+
+    assert (
+        lifecycle._load_checkpoint(
+            checkpoint_path,
+            baseline_sha256=baseline_sha256,
+            baseline_ref="bootstrap",
+            previous={},
+            now=NOW,
+        )
+        is None
+    )
+    assert not checkpoint_path.exists()
 
 
 def test_corrupt_or_wrong_baseline_checkpoint_is_discarded_without_contamination(tmp_path):

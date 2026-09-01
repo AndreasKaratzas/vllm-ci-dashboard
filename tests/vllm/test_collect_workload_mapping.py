@@ -7,8 +7,10 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 import requests
+import pytest
 
 from vllm import collect_workload_mapping as cwm
+from vllm.bounded_json import pretty_json_bytes
 
 
 NOW = datetime(2026, 7, 29, 18, 35, tzinfo=timezone.utc)
@@ -178,6 +180,92 @@ def test_request_build_page_does_not_retry_non_retryable_auth_error(monkeypatch)
     else:
         raise AssertionError("401 response must fail without retry")
 
+    assert sleeps == []
+
+
+def test_request_build_page_expired_deadline_starts_no_transport(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cwm.time_module, "monotonic", lambda: 10.0)
+    monkeypatch.setattr(
+        cwm.requests,
+        "get",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(
+        cwm.BuildkiteRequestDeadlineExceeded,
+        match="before the next transport start",
+    ):
+        cwm._request_build_page(
+            "/builds",
+            "token",
+            {"page": 1},
+            deadline_monotonic=10.0,
+        )
+
+    assert calls == []
+
+
+def test_request_build_page_caps_timeout_to_remaining_deadline(monkeypatch):
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{"number": 1}]
+
+    request_kwargs = []
+    monkeypatch.setattr(cwm.time_module, "monotonic", lambda: 10.0)
+    monkeypatch.setattr(
+        cwm.requests,
+        "get",
+        lambda *args, **kwargs: request_kwargs.append(kwargs) or Response(),
+    )
+
+    rows = cwm._request_build_page(
+        "/builds",
+        "token",
+        {"page": 1},
+        deadline_monotonic=15.0,
+    )
+
+    assert rows == [{"number": 1}]
+    assert request_kwargs[0]["timeout"] == 5.0
+
+
+def test_request_build_page_does_not_sleep_or_retry_across_deadline(monkeypatch):
+    class Response:
+        status_code = 429
+        headers = {"Retry-After": "10"}
+
+        def raise_for_status(self):
+            raise requests.HTTPError("HTTP 429", response=self)
+
+    calls = []
+    sleeps = []
+    monkeypatch.setattr(cwm.time_module, "monotonic", lambda: 0.0)
+    monkeypatch.setattr(
+        cwm.requests,
+        "get",
+        lambda *args, **kwargs: calls.append(kwargs) or Response(),
+    )
+    monkeypatch.setattr(cwm.time_module, "sleep", sleeps.append)
+
+    with pytest.raises(
+        cwm.BuildkiteRequestDeadlineExceeded,
+        match="retry delay would cross",
+    ):
+        cwm._request_build_page(
+            "/builds",
+            "token",
+            {"page": 1},
+            deadline_monotonic=5.0,
+        )
+
+    assert len(calls) == 1
     assert sleeps == []
 
 
@@ -673,6 +761,68 @@ def test_retention_and_coverage_publish_exact_ranges() -> None:
     assert payload["coverage"]["hourly"]["start"] == "2026-07-22T18:00:00Z"
     assert payload["coverage"]["hourly"]["observed_through"] == cwm._utc_iso(NOW)
     assert payload["retention"] == {"hourly_days": 7, "daily_days": 90}
+
+
+def test_retention_cannot_expand_the_bounded_publication_window() -> None:
+    with pytest.raises(ValueError, match="retention_days may not exceed"):
+        cwm.collect_workload_mapping(
+            "token",
+            _config(),
+            now=NOW,
+            retention_days=91,
+            page_fetcher=_slice_aware_fetcher({}),
+        )
+
+
+def test_workload_mapping_compaction_drops_oldest_whole_buckets() -> None:
+    source = {
+        "schema_version": 2,
+        "generated_at": "2026-09-01T00:00:00Z",
+        "retention": {"hourly_days": 7, "daily_days": 90},
+        "totals": {"omni": {"mapped_jobs": 99}, "main": {"mapped_jobs": 88}},
+        "hourly": [
+            {
+                "hour": f"2026-08-31T0{index}:00:00Z",
+                "padding": "h" * 1_000,
+            }
+            for index in range(5)
+        ],
+        "daily": [
+            {"date": f"2026-08-{27 + index:02d}", "padding": "d" * 1_000}
+            for index in range(5)
+        ],
+    }
+
+    bounded = cwm.compact_workload_mapping_for_publication(
+        source,
+        max_bytes=5_000,
+    )
+
+    assert len(pretty_json_bytes(bounded)) <= 5_000
+    retention = bounded["retention"]["publication"]
+    assert retention["complete_relative_to_source"] is False
+    assert retention["aggregate_scalars_complete"] is True
+    assert retention["hourly"]["published"] == len(bounded["hourly"])
+    assert retention["daily"]["published"] == len(bounded["daily"])
+    assert bounded["hourly"] == source["hourly"][retention["hourly"]["omitted"]:]
+    assert bounded["daily"] == source["daily"][retention["daily"]["omitted"]:]
+    assert bounded["totals"] == source["totals"]
+
+
+def test_workload_mapping_writer_preserves_lkg_on_irreducible_overflow(tmp_path) -> None:
+    path = tmp_path / "workload_mapping.json"
+    path.write_text('{"generation":"last-known-good"}\n')
+    source = {
+        "retention": {"hourly_days": 7, "daily_days": 90},
+        "irreducible": "x" * 2_000,
+        "hourly": [],
+        "daily": [],
+    }
+
+    with pytest.raises(RuntimeError, match="fixed metadata exceeds"):
+        cwm.write_workload_mapping(path, source, max_bytes=500)
+
+    assert json.loads(path.read_text()) == {"generation": "last-known-good"}
 
 
 def test_short_forced_query_does_not_claim_full_retention_coverage() -> None:
