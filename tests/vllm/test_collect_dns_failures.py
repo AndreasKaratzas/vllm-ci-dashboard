@@ -22,6 +22,35 @@ from vllm.ci import dns_failures as dns
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
 
 
+def test_private_state_budget_stays_below_encrypted_git_blob_ceiling():
+    assert dns.MAX_COMPRESSED_STATE_BYTES == 63 * 1024 * 1024
+    assert dns.MAX_COMPRESSED_STATE_BYTES < 90_000_000
+
+
+def test_state_writer_rejects_oversize_compressed_output(monkeypatch):
+    monkeypatch.setattr(dns, "MAX_COMPRESSED_STATE_BYTES", 1)
+    with pytest.raises(dns.StateValidationError, match="compressed state exceeds"):
+        dns.state_bytes(dns.empty_state(NOW, NOW - timedelta(hours=720)))
+
+
+def test_state_writer_rejects_oversize_decompressed_output(monkeypatch):
+    monkeypatch.setattr(dns, "MAX_DECOMPRESSED_STATE_BYTES", 1)
+    with pytest.raises(dns.StateValidationError, match="decompressed state exceeds"):
+        dns.state_bytes(dns.empty_state(NOW, NOW - timedelta(hours=720)))
+
+
+def test_state_reader_uses_bounded_streaming_decompression(monkeypatch):
+    state = dns.empty_state(NOW, NOW - timedelta(hours=720))
+    compressed = dns.state_bytes(state)
+
+    def reject_unbounded_decompression(_compressed: bytes) -> bytes:
+        pytest.fail("state reader used unbounded gzip.decompress")
+
+    monkeypatch.setattr(dns.gzip, "decompress", reject_unbounded_decompression)
+
+    assert dns.state_from_bytes(compressed) == state
+
+
 def _timestamp(*, hours: float = 0, seconds: float = 0) -> str:
     return dns.iso_timestamp(NOW + timedelta(hours=hours, seconds=seconds))
 

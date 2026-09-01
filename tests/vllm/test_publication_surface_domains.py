@@ -201,6 +201,10 @@ def test_private_watcher_ledgers_have_no_publication_surface_owner() -> None:
         ("data/vllm/ci/gating_targets.json", {"ci_gating"}),
         ("data/vllm/ci/group_changes.json", {"ci_changes"}),
         ("data/vllm/ci/hotness.json", {"ci_hotness"}),
+        ("data/vllm/ci/queue_timeseries.jsonl", {"queue"}),
+        ("data/vllm/ci/capacity_monitor.json", {"queue_capacity"}),
+        ("data/vllm/ci/workload_mapping.json", {"queue_workload"}),
+        ("data/vllm/ci/omni_surge_heuristic.json", {"queue_omni"}),
         ("data/vllm/ci/dns_failures.json", {"dns_health"}),
     ),
 )
@@ -217,18 +221,28 @@ def test_path_specific_findings_route_to_the_owning_domain(
     (
         ("operations-stale-source", "analytics", {"ci_analytics"}),
         ("operations-stale-source", "gating_targets", {"ci_gating"}),
+        ("operations-stale-source", "queue_timeseries", {"queue"}),
+        ("operations-stale-source", "queue_jobs", {"queue"}),
+        ("operations-stale-source", "capacity_monitor", {"queue_capacity"}),
+        ("operations-stale-source", "workload_mapping", {"queue_workload"}),
+        ("operations-stale-source", "omni_heuristic", {"queue_omni"}),
+        ("operations-stale-source", "omni_issue_state", {"queue_omni"}),
         ("operations-source-schema", "group_changes", {"ci_changes"}),
         (
             "operations-gating-runtime-resolution",
             None,
-            {"ci_core", "ci_gating", "queue"},
+            {"ci_core", "ci_gating", "queue_capacity"},
         ),
         (
             "operations-gating-history-source-pipeline",
             None,
-            {"ci_analytics", "ci_gating", "queue"},
+            {"ci_analytics", "ci_gating", "queue_capacity"},
         ),
-        ("operations-active-target-count", None, {"ci_gating", "queue"}),
+        (
+            "operations-active-target-count",
+            None,
+            {"ci_gating", "queue_capacity"},
+        ),
         ("operations-canonical-target-count", None, {"ci_gating"}),
         ("operations-trajectory-scope", None, {"ci_analytics"}),
         (
@@ -280,16 +294,37 @@ def test_generic_findings_route_to_their_consuming_domains(
     (
         (
             "operations-home-payload-budget",
-            {"ci_analytics", "ci_core", "queue"},
+            {
+                "ci_analytics",
+                "ci_core",
+                "queue",
+                "queue_capacity",
+                "queue_omni",
+                "queue_workload",
+            },
         ),
         (
             "operations-health-payload-budget",
-            {"ci_analytics", "ci_core", "queue"},
+            {
+                "ci_analytics",
+                "ci_core",
+                "queue",
+                "queue_capacity",
+                "queue_omni",
+                "queue_workload",
+            },
         ),
         ("operations-queue-payload-budget", {"queue"}),
         (
             "operations-bundle-org-summary-budget",
-            {"ci_analytics", "ci_core", "ci_gating", "queue", "queue_lifecycle"},
+            {
+                "ci_analytics",
+                "ci_core",
+                "ci_gating",
+                "queue",
+                "queue_capacity",
+                "queue_lifecycle",
+            },
         ),
         (
             "operations-comparison-retry-evidence-payload-budget",

@@ -22,8 +22,11 @@ from cryptography.fernet import Fernet, InvalidToken
 
 KEY_ENV = "DNS_STATE_ENCRYPTION_KEY"
 PLAINTEXT_CONTEXT = b"vllm-ci-dns-scan-state-v1\0"
-MAX_PLAINTEXT_BYTES = 64 * 1024 * 1024
-MAX_CIPHERTEXT_BYTES = 96 * 1024 * 1024
+# A 63 MiB plaintext plus Fernet framing/base64 is at most 88,080,504
+# bytes. Keep both sides of the transform beneath the repository's common
+# 85 MiB Git-blob guard (and therefore beneath 90,000,000 decimal bytes).
+MAX_PLAINTEXT_BYTES = 63 * 1024 * 1024
+MAX_CIPHERTEXT_BYTES = 85 * 1024 * 1024
 
 
 class StateCryptoError(RuntimeError):
@@ -44,7 +47,10 @@ def encrypt_state(plaintext: bytes, key: str | bytes) -> bytes:
         raise StateCryptoError("state plaintext must be non-empty bytes")
     if len(plaintext) > MAX_PLAINTEXT_BYTES:
         raise StateCryptoError("state plaintext exceeds the bounded size")
-    return _fernet(key).encrypt(PLAINTEXT_CONTEXT + plaintext)
+    ciphertext = _fernet(key).encrypt(PLAINTEXT_CONTEXT + plaintext)
+    if len(ciphertext) > MAX_CIPHERTEXT_BYTES:
+        raise StateCryptoError("state ciphertext exceeds the bounded size")
+    return ciphertext
 
 
 def decrypt_state(ciphertext: bytes, key: str | bytes) -> bytes:

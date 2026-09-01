@@ -13,7 +13,8 @@ from pathlib import PurePosixPath
 from typing import Any, Iterable
 
 
-SURFACE_CONTRACT_VERSION = 4
+PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION = 4
+SURFACE_CONTRACT_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -102,26 +103,60 @@ CI_HOTNESS_SURFACE_SPEC = SurfaceSpec(
 )
 
 
+# Live queue observations are produced independently every ten minutes and can
+# be canonically republished without Buildkite access.  The three companion
+# inputs below are produced by separate, slower collectors with independent
+# failure modes.  Keeping those transactions separate prevents an old capacity
+# or workload snapshot from rolling back a newer, already validated live queue
+# generation.
+QUEUE_LIVE_SURFACE_SPEC = SurfaceSpec(
+    required_paths=(
+        "data/vllm/ci/queue_jobs.json",
+        "data/vllm/ci/queue_timeseries.jsonl",
+    ),
+    optional_paths=(
+        "data/vllm/ci/open_queue_issues.json",
+        "data/vllm/ci/open_queue_zombie_issues.json",
+    ),
+)
+QUEUE_CAPACITY_SURFACE_SPEC = SurfaceSpec(
+    required_paths=("data/vllm/ci/capacity_monitor.json",),
+)
+QUEUE_WORKLOAD_SURFACE_SPEC = SurfaceSpec(
+    required_paths=("data/vllm/ci/workload_mapping.json",),
+)
+QUEUE_OMNI_SURFACE_SPEC = SurfaceSpec(
+    required_paths=("data/vllm/ci/omni_surge_heuristic.json",),
+    optional_paths=("data/vllm/ci/open_omni_surge_issues.json",),
+)
+
+# Contract v4 treated all four queue producer domains as one transaction.  A
+# v4 fallback proof must be checked against this exact monolith before its
+# hashes and clocks can be partitioned into the v5 child transactions.
+PRE_QUEUE_SPLIT_SURFACE_SPEC = SurfaceSpec(
+    required_paths=(
+        *QUEUE_CAPACITY_SURFACE_SPEC.required_paths,
+        *QUEUE_OMNI_SURFACE_SPEC.required_paths,
+        *QUEUE_LIVE_SURFACE_SPEC.required_paths,
+        *QUEUE_WORKLOAD_SURFACE_SPEC.required_paths,
+    ),
+    optional_paths=(
+        *QUEUE_OMNI_SURFACE_SPEC.optional_paths,
+        *QUEUE_LIVE_SURFACE_SPEC.optional_paths,
+    ),
+)
+
+
 SURFACE_SPECS: dict[str, SurfaceSpec] = {
     "ci_core": CI_CORE_SURFACE_SPEC,
     "ci_analytics": CI_ANALYTICS_SURFACE_SPEC,
     "ci_gating": CI_GATING_SURFACE_SPEC,
     "ci_changes": CI_CHANGES_SURFACE_SPEC,
     "ci_hotness": CI_HOTNESS_SURFACE_SPEC,
-    "queue": SurfaceSpec(
-        required_paths=(
-            "data/vllm/ci/capacity_monitor.json",
-            "data/vllm/ci/omni_surge_heuristic.json",
-            "data/vllm/ci/queue_jobs.json",
-            "data/vllm/ci/queue_timeseries.jsonl",
-            "data/vllm/ci/workload_mapping.json",
-        ),
-        optional_paths=(
-            "data/vllm/ci/open_omni_surge_issues.json",
-            "data/vllm/ci/open_queue_issues.json",
-            "data/vllm/ci/open_queue_zombie_issues.json",
-        ),
-    ),
+    "queue": QUEUE_LIVE_SURFACE_SPEC,
+    "queue_capacity": QUEUE_CAPACITY_SURFACE_SPEC,
+    "queue_workload": QUEUE_WORKLOAD_SURFACE_SPEC,
+    "queue_omni": QUEUE_OMNI_SURFACE_SPEC,
     "queue_lifecycle": SurfaceSpec(
         required_paths=("data/vllm/ci/queue_lifecycle.json",),
     ),
@@ -254,13 +289,13 @@ SOURCE_SURFACES = {
     "gating_targets": "ci_gating",
     "gating_target_candidates": "ci_gating",
     "amd_test_matrix": "ci_core",
-    "capacity_monitor": "queue",
+    "capacity_monitor": "queue_capacity",
     "queue_timeseries": "queue",
     "queue_jobs": "queue",
-    "workload_mapping": "queue",
+    "workload_mapping": "queue_workload",
     "group_changes": "ci_changes",
-    "omni_heuristic": "queue",
-    "omni_issue_state": "queue",
+    "omni_heuristic": "queue_omni",
+    "omni_issue_state": "queue_omni",
     "project_items": "github_home",
     "ci_ownership": "ci_core",
 }
@@ -274,17 +309,29 @@ _OPS_ANALYTICS = frozenset({"ci_analytics"})
 _OPS_CORE = frozenset({"ci_core"})
 _OPS_GATING = frozenset({"ci_gating"})
 _OPS_QUEUE = frozenset({"queue"})
+_OPS_QUEUE_CAPACITY = frozenset({"queue_capacity"})
+_OPS_QUEUE_CHILDREN = frozenset({
+    "queue",
+    "queue_capacity",
+    "queue_omni",
+    "queue_workload",
+})
 _OPS_AGENT_HEALTH = frozenset({"agent_health"})
 _OPS_ANALYTICS_CORE = frozenset({"ci_analytics", "ci_core"})
-_OPS_ANALYTICS_CORE_QUEUE = frozenset({"ci_analytics", "ci_core", "queue"})
-_OPS_GATING_QUEUE = frozenset({"ci_gating", "queue"})
-_OPS_CORE_GATING_QUEUE = frozenset({"ci_core", "ci_gating", "queue"})
-_OPS_ANALYTICS_GATING_QUEUE = frozenset({"ci_analytics", "ci_gating", "queue"})
+_OPS_ANALYTICS_CORE_QUEUE = frozenset({"ci_analytics", "ci_core"}) | (
+    _OPS_QUEUE_CHILDREN
+)
+_OPS_GATING_QUEUE = _OPS_GATING | _OPS_QUEUE_CAPACITY
+_OPS_CORE_GATING_QUEUE = _OPS_CORE | _OPS_GATING | _OPS_QUEUE_CAPACITY
+_OPS_ANALYTICS_GATING_QUEUE = (
+    _OPS_ANALYTICS | _OPS_GATING | _OPS_QUEUE_CAPACITY
+)
 _OPS_ORG_SUMMARY_PRODUCERS = frozenset({
     "ci_analytics",
     "ci_core",
     "ci_gating",
     "queue",
+    "queue_capacity",
     "queue_lifecycle",
 })
 _OPS_RETIRED_QUEUE_PRODUCERS = frozenset({
@@ -293,8 +340,7 @@ _OPS_RETIRED_QUEUE_PRODUCERS = frozenset({
     "ci_changes",
     "ci_core",
     "ci_gating",
-    "queue",
-})
+}) | _OPS_QUEUE_CHILDREN
 
 CONTEXTUAL_OPERATIONS_FINDING_CODES = frozenset({
     "operations-source-from-future",

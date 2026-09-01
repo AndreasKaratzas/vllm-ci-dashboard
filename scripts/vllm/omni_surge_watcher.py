@@ -444,7 +444,7 @@ def _refresh_heuristic() -> tuple[int, int, dict]:
 
     This is deliberately independent from the queue snapshot and issue
     automation so publication validation can refresh the heuristic before it
-    decides whether the queue surface is usable.
+    decides whether the Omni publication surface is usable.
     """
     all_groups: list[dict] = []
     fetched_paths: list[str] = []
@@ -481,7 +481,7 @@ def _heuristic_is_usable(info: dict) -> bool:
     A retained heuristic remains useful to suppress unsafe alert mutations,
     but it must not make a collection run look current.  Returning nonzero for
     every incomplete source refresh lets the publication selector quarantine
-    the whole queue transaction under its bounded fallback policy.
+    the queue_omni transaction under its bounded fallback policy.
     """
     try:
         total = int(info.get("total_groups") or 0)

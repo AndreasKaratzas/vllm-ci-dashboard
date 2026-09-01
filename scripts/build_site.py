@@ -50,7 +50,10 @@ PUBLICATION_SURFACE_LABELS = {
     "github_home": "Project activity",
     "perf_eval": "Performance evaluation",
     "queue": "Queue health",
+    "queue_capacity": "Queue capacity",
     "queue_lifecycle": "Queue lifecycle",
+    "queue_omni": "Omni queue surge",
+    "queue_workload": "Queue workload mapping",
 }
 
 

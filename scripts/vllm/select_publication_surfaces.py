@@ -31,6 +31,8 @@ from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_SURFACE_ALIASES,
     PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+    PRE_QUEUE_SPLIT_SURFACE_SPEC,
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -81,6 +83,16 @@ UPSTREAM_RETRY_CANDIDATE_AUDITS = (
     "audit_analytics",
     "audit_amd_matrix",
 )
+QUEUE_LIVE_SURFACE = "queue"
+QUEUE_COMPANION_SURFACES = frozenset({
+    "queue_capacity",
+    "queue_omni",
+    "queue_workload",
+})
+QUEUE_SPLIT_SURFACES = frozenset({
+    QUEUE_LIVE_SURFACE,
+    *QUEUE_COMPANION_SURFACES,
+})
 
 
 class FallbackExpiredError(RuntimeError):
@@ -888,6 +900,24 @@ def _pre_analytics_expansion(surface: str) -> frozenset[str]:
     return frozenset({surface})
 
 
+def _pre_queue_split_surface_names() -> set[str]:
+    """Return the exact active surface domain used by contract v4."""
+    return set(SURFACE_SPECS) - set(QUEUE_COMPANION_SURFACES)
+
+
+def _pre_queue_split_spec(surface: str) -> SurfaceSpec:
+    """Resolve one v4 surface without trusting the narrower v5 queue spec."""
+    if surface == QUEUE_LIVE_SURFACE:
+        return PRE_QUEUE_SPLIT_SURFACE_SPEC
+    return SURFACE_SPECS[surface]
+
+
+def _queue_split_expansion(surface: str) -> frozenset[str]:
+    if surface == QUEUE_LIVE_SURFACE:
+        return QUEUE_SPLIT_SURFACES
+    return frozenset({surface})
+
+
 def _expanded_earliest_clock(
     raw_since: Mapping[str, str],
     surfaces: Iterable[str],
@@ -929,7 +959,7 @@ def _migrate_pre_analytics_v2_state(
     fallback = payload.get("fallback_surfaces")
     degraded_since = payload.get("degraded_since")
     fallback_since = payload.get("fallback_since")
-    allowed = set(SURFACE_SPECS)
+    allowed = _pre_queue_split_surface_names()
     if (
         mode not in {"current", "degraded", "fallback", "mixed"}
         or not isinstance(degraded, list)
@@ -965,7 +995,7 @@ def _migrate_pre_analytics_v2_state(
         )
         return {
             **payload,
-            "surface_contract_version": SURFACE_CONTRACT_VERSION,
+            "surface_contract_version": PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
             "mode": _publication_mode(set(expanded_fresh_clock), set()),
             "degraded_surfaces": sorted(expanded_fresh_clock),
             "fresh_degraded_surfaces": sorted(expanded_fresh_clock),
@@ -989,7 +1019,7 @@ def _migrate_pre_analytics_v2_state(
         elif surface == "ci_gating":
             spec = PRE_ANALYTICS_CI_GATING_SURFACE_SPEC
         else:
-            spec = SURFACE_SPECS[surface]
+            spec = _pre_queue_split_spec(surface)
         entries = _validate_baseline_manifest(
             root, ref, surface, spec, manifest[surface]
         )
@@ -1011,7 +1041,7 @@ def _migrate_pre_analytics_v2_state(
             owners = [
                 target
                 for target in targets
-                if _spec_owns_path(SURFACE_SPECS[target], relative)
+                if _spec_owns_path(_pre_queue_split_spec(target), relative)
             ]
             if len(owners) != 1:
                 raise RuntimeError(
@@ -1026,7 +1056,11 @@ def _migrate_pre_analytics_v2_state(
             partitioned[owner][relative] = descriptor
 
     for surface, entries in partitioned.items():
-        expected = _baseline_expected_paths(root, ref, SURFACE_SPECS[surface])
+        expected = _baseline_expected_paths(
+            root,
+            ref,
+            _pre_queue_split_spec(surface),
+        )
         missing = expected - set(entries)
         allowed_missing = set()
         if surface == "ci_gating":
@@ -1051,7 +1085,7 @@ def _migrate_pre_analytics_v2_state(
     expanded_fresh = set(expanded_degraded_clock) - set(expanded_fallback_clock)
     return {
         **payload,
-        "surface_contract_version": SURFACE_CONTRACT_VERSION,
+        "surface_contract_version": PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
         "mode": _publication_mode(expanded_fresh, set(expanded_fallback_clock)),
         "degraded_surfaces": sorted(expanded_degraded_clock),
         "fresh_degraded_surfaces": sorted(expanded_fresh),
@@ -1060,6 +1094,141 @@ def _migrate_pre_analytics_v2_state(
         "fallback_since": expanded_fallback_clock,
         "restored_paths": {
             surface: sorted(entries) for surface, entries in partitioned.items()
+        },
+        "restored_manifest": partitioned,
+    }
+
+
+def _migrate_pre_queue_split_v2_state(
+    root: Path,
+    ref: str,
+    payload: dict,
+) -> dict:
+    """Validate and partition a contract-v4 monolithic queue transaction."""
+    if (
+        payload.get("schema_version") != 2
+        or payload.get("surface_contract_version")
+        != PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+    ):
+        raise RuntimeError(
+            "validated baseline does not use the pre-queue-split surface contract"
+        )
+
+    mode = payload.get("mode")
+    degraded = payload.get("degraded_surfaces")
+    fresh = payload.get("fresh_degraded_surfaces")
+    fallback = payload.get("fallback_surfaces")
+    degraded_since = payload.get("degraded_since")
+    fallback_since = payload.get("fallback_since")
+    allowed = _pre_queue_split_surface_names()
+    if (
+        mode not in {"current", "degraded", "fallback", "mixed"}
+        or not isinstance(degraded, list)
+        or not isinstance(fresh, list)
+        or not isinstance(fallback, list)
+        or any(
+            not isinstance(surface, str) or surface not in allowed
+            for surface in [*degraded, *fresh, *fallback]
+        )
+        or len(set(degraded)) != len(degraded)
+        or len(set(fresh)) != len(fresh)
+        or len(set(fallback)) != len(fallback)
+        or set(fresh) & set(fallback)
+        or set(degraded) != set(fresh) | set(fallback)
+        or not isinstance(degraded_since, dict)
+        or set(degraded_since) != set(degraded)
+        or any(_parse_utc(value) is None for value in degraded_since.values())
+        or not isinstance(fallback_since, dict)
+        or set(fallback_since) != set(fallback)
+        or any(_parse_utc(value) is None for value in fallback_since.values())
+        or mode != _publication_mode(set(fresh), set(fallback))
+    ):
+        raise RuntimeError("validated baseline publication state is inconsistent")
+
+    manifest = payload.get("restored_manifest")
+    restored_paths = payload.get("restored_paths")
+    if not fallback:
+        if manifest not in (None, {}) or restored_paths not in (None, {}):
+            raise RuntimeError(
+                "non-fallback baseline state declares restored content"
+            )
+        partitioned: dict[str, dict] = {}
+    else:
+        if not isinstance(manifest, dict) or set(manifest) != set(fallback):
+            raise RuntimeError(
+                "fallback baseline state has an incomplete restore manifest"
+            )
+        if restored_paths is not None and (
+            not isinstance(restored_paths, dict)
+            or set(restored_paths) != set(fallback)
+        ):
+            raise RuntimeError(
+                "fallback baseline state has incomplete restored paths"
+            )
+
+        validated: dict[str, dict] = {}
+        for surface in fallback:
+            entries = _validate_baseline_manifest(
+                root,
+                ref,
+                surface,
+                _pre_queue_split_spec(surface),
+                manifest[surface],
+            )
+            if restored_paths is not None and _migrated_restored_paths(
+                surface,
+                restored_paths.get(surface),
+            ) != sorted(entries):
+                raise RuntimeError(
+                    f"fallback baseline restored paths for {surface} are inconsistent"
+                )
+            validated[surface] = entries
+
+        expansions = {
+            surface: _queue_split_expansion(surface)
+            for surface in fallback
+        }
+        partitioned = _partition_baseline_manifest(
+            root,
+            ref,
+            validated,
+            expansions,
+        )
+
+    degraded_expansions = {
+        surface: _queue_split_expansion(surface)
+        for surface in degraded
+    }
+    fallback_expansions = {
+        surface: _queue_split_expansion(surface)
+        for surface in fallback
+    }
+    expanded_degraded_clock = _expand_clock(
+        degraded_since,
+        degraded_expansions,
+    )
+    expanded_fallback_clock = _expand_clock(
+        fallback_since,
+        fallback_expansions,
+    )
+    expanded_fallback = set(expanded_fallback_clock)
+    if _closed_fallback_surfaces(expanded_fallback) != expanded_fallback:
+        raise RuntimeError(
+            "validated baseline fallback omits a required dependent surface"
+        )
+    expanded_fresh = set(expanded_degraded_clock) - expanded_fallback
+    return {
+        **payload,
+        "surface_contract_version": SURFACE_CONTRACT_VERSION,
+        "mode": _publication_mode(expanded_fresh, expanded_fallback),
+        "degraded_surfaces": sorted(expanded_degraded_clock),
+        "fresh_degraded_surfaces": sorted(expanded_fresh),
+        "fallback_surfaces": sorted(expanded_fallback),
+        "degraded_since": expanded_degraded_clock,
+        "fallback_since": expanded_fallback_clock,
+        "restored_paths": {
+            surface: sorted(entries)
+            for surface, entries in partitioned.items()
         },
         "restored_manifest": partitioned,
     }
@@ -1101,6 +1270,7 @@ def _baseline_publication_state(
         raise RuntimeError("validated baseline publication state has an invalid schema")
 
     schema_version = payload["schema_version"]
+    surface_contract_version = payload.get("surface_contract_version")
     mode = payload.get("mode")
     degraded = payload.get("degraded_surfaces")
     degraded_since = payload.get("degraded_since")
@@ -1123,10 +1293,55 @@ def _baseline_publication_state(
     if (
         schema_version == 2
         and _uses_declared_surface_domain()
-        and payload.get("surface_contract_version") != SURFACE_CONTRACT_VERSION
+        and surface_contract_version is not None
+        and type(surface_contract_version) is not int
+    ):
+        raise RuntimeError(
+            "validated baseline publication state uses an invalid surface contract"
+        )
+
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
+        and surface_contract_version is None
         and {"ci_core", "ci_gating"} & set(degraded)
     ):
-        return _migrate_pre_analytics_v2_state(root, ref, payload)
+        payload = _migrate_pre_analytics_v2_state(root, ref, payload)
+        surface_contract_version = payload.get("surface_contract_version")
+
+    # Early schema-v2 states did not carry a surface-contract version.  When
+    # none of their pre-analytics CI transactions needed expansion above,
+    # their remaining ownership domain is exactly the contract-v4 domain.
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
+        and surface_contract_version is None
+    ):
+        payload = {
+            **payload,
+            "surface_contract_version": PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+        }
+        surface_contract_version = PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
+        and surface_contract_version == PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+    ):
+        payload = _migrate_pre_queue_split_v2_state(root, ref, payload)
+        surface_contract_version = payload.get("surface_contract_version")
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
+        and surface_contract_version != SURFACE_CONTRACT_VERSION
+    ):
+        raise RuntimeError(
+            "validated baseline publication state uses an unsupported surface contract"
+        )
+
+    mode = payload.get("mode")
+    degraded = payload.get("degraded_surfaces")
+    degraded_since = payload.get("degraded_since")
 
     manifest = payload.get("restored_manifest")
     restored_paths = payload.get("restored_paths")

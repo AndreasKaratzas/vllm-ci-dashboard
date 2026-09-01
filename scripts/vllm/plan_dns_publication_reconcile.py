@@ -29,8 +29,11 @@ PUBLICATION_SURFACE_LABELS = frozenset(
         "DNS health",
         "Performance evaluation",
         "Project activity",
+        "Omni queue surge",
+        "Queue capacity",
         "Queue health",
         "Queue lifecycle",
+        "Queue workload mapping",
     }
 )
 PUBLICATION_REQUIRED_FIELDS = frozenset(

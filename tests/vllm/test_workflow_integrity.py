@@ -1440,11 +1440,17 @@ class TestHourlyMasterWorkflow:
         )
         assert restore_index < collect_index < heuristic_index < selector < second_build
         collect = steps[collect_index]
-        assert 'run_surface_collector queue "AMD workload mappings"' in collect["run"]
+        assert (
+            'run_surface_collector queue_workload "AMD workload mappings"'
+            in collect["run"]
+        )
         assert "python scripts/vllm/collect_workload_mapping.py" in collect["run"]
 
         heuristic = steps[heuristic_index]
-        assert 'run_surface_collector queue "Omni surge heuristic"' in heuristic["run"]
+        assert (
+            'run_surface_collector queue_omni "Omni surge heuristic"'
+            in heuristic["run"]
+        )
         assert (
             "python scripts/vllm/omni_surge_watcher.py --heuristic-only"
             in heuristic["run"]
@@ -1556,7 +1562,16 @@ class TestHourlyMasterWorkflow:
         assert "VLLM_CONFIG_SHA" in resolve["run"]
         assert "[0-9a-f]{40}" in resolve["run"]
         assert 'env_file.write(f"VLLM_CONFIG_SHA={sha}\\n")' in resolve["run"]
+        assert (
+            'record_surface_failure queue_capacity "vLLM config snapshot"'
+            in resolve["run"]
+        )
+        assert "record_surface_failure queue \"vLLM config snapshot\"" not in resolve[
+            "run"
+        ]
         assert '--ref "$VLLM_CONFIG_SHA"' in capacity["run"]
+        assert "surface_is_current queue_capacity" in capacity["run"]
+        assert "run_surface_collector queue_capacity" in capacity["run"]
         # GITHUB_ENV values are inherited by every later collection step,
         # including config_parity inside collect_ci.
         assert "VLLM_CONFIG_SHA" not in (collect_ci.get("env") or {})
@@ -1636,7 +1651,9 @@ class TestHourlyMasterWorkflow:
         for name, surface in (
             ("Sync queue data from durable live branch", "queue"),
             ("Normalize and prune queue history", "queue"),
-            ("Refresh Omni surge heuristic", "queue"),
+            ("Collect queue capacity monitor", "queue_capacity"),
+            ("Collect vLLM/Omni AMD workload mappings", "queue_workload"),
+            ("Refresh Omni surge heuristic", "queue_omni"),
             ("Collect CI data", "ci_core"),
             ("Collect AMD agent health (all builds, all branches)", "agent_health"),
             ("Validate private perf-eval event store", "perf_eval"),
@@ -1670,10 +1687,12 @@ class TestHourlyMasterWorkflow:
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
         baseline = steps[names.index("Capture immutable main code")]["run"]
-        assert (
-            "ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
-            "agent_health|dns_health|github_home|perf_eval"
-        ) in baseline
+        allowed_surfaces = (
+            "ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|"
+            "queue_capacity|queue_workload|queue_omni|queue_lifecycle|agent_health|"
+            "dns_health|github_home|perf_eval"
+        )
+        assert baseline.count(allowed_surfaces) == 2
 
         expected_collectors = {
             "Collect CI data": "ci_core",
@@ -1685,6 +1704,9 @@ class TestHourlyMasterWorkflow:
             "Collect AMD gating target candidate audit": "ci_gating",
             "Collect test group changes": "ci_changes",
             "Collect AMD hotness (3d window)": "ci_hotness",
+            "Collect queue capacity monitor": "queue_capacity",
+            "Collect vLLM/Omni AMD workload mappings": "queue_workload",
+            "Refresh Omni surge heuristic": "queue_omni",
         }
         for name, surface in expected_collectors.items():
             assert f"run_surface_collector {surface}" in steps[names.index(name)][
@@ -2059,32 +2081,48 @@ class TestHourlyMasterWorkflow:
         selector = names.index("Select validated publication surfaces")
         live_audit = names.index("Live publication audit")
         watcher_surfaces = (
-            ("Watch queue latency (open/close issues)", "queue"),
-            ("Watch zombie queue jobs (open/close issues)", "queue"),
-            ("Watch Omni workload surge (open/close issues)", "queue"),
+            ("Watch queue latency (open/close issues)", ("queue",)),
+            ("Watch zombie queue jobs (open/close issues)", ("queue",)),
+            (
+                "Watch Omni workload surge (open/close issues)",
+                ("queue", "queue_omni"),
+            ),
             (
                 "Watch AMD main test-group failures (open/close issue)",
-                "ci_analytics",
+                ("ci_analytics",),
             ),
             (
                 "Watch upstream CI main test-group failures (open/close issue)",
-                "ci_analytics",
+                ("ci_analytics",),
             ),
-            ("Watch AMD main duration regressions (open/close issue)", "ci_analytics"),
-            ("Watch AMD CI agent health (open/close issue)", "agent_health"),
-            ("Watch AMD CI test-area regressions (ranked owners)", "ci_core"),
+            (
+                "Watch AMD main duration regressions (open/close issue)",
+                ("ci_analytics",),
+            ),
+            ("Watch AMD CI agent health (open/close issue)", ("agent_health",)),
+            (
+                "Watch AMD CI test-area regressions (ranked owners)",
+                ("ci_core",),
+            ),
         )
-        for name, surface in watcher_surfaces:
+        for name, surfaces in watcher_surfaces:
             watcher = steps[names.index(name)]
             assert names.index(name) > selector
             assert names.index(name) < live_audit
             condition = watcher.get("if", "")
             assert "publication-selector.outcome == 'success'" in condition
             assert "degraded_surfaces" in condition
-            assert f",{surface}," in condition
-        assert steps[names.index("Watch Omni workload surge (open/close issues)")][
-            "run"
-        ] == "python scripts/vllm/omni_surge_watcher.py --issues-only"
+            for surface in surfaces:
+                assert f",{surface}," in condition
+        omni_watcher = steps[
+            names.index("Watch Omni workload surge (open/close issues)")
+        ]
+        assert ",queue_capacity," not in omni_watcher["if"]
+        assert ",queue_workload," not in omni_watcher["if"]
+        assert (
+            omni_watcher["run"]
+            == "python scripts/vllm/omni_surge_watcher.py --issues-only"
+        )
         assert selector < names.index("Render dashboards after publication selection")
         assert names.index(
             "Rebuild v2 operations snapshot with selected issue state"

@@ -33,6 +33,8 @@ from vllm.publication_surfaces import (
     LEGACY_CI_SURFACE_SPEC,
     PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+    PRE_QUEUE_SPLIT_SURFACE_SPEC,
     SurfaceSpec,
 )
 
@@ -1632,6 +1634,50 @@ def _write_publication_state(root: Path, payload: dict) -> Path:
     return path
 
 
+def _write_pre_queue_split_fallback_state(
+    root: Path,
+    *,
+    fallback_since: str | None = None,
+) -> tuple[Path, dict[str, Path]]:
+    paths: dict[str, Path] = {}
+    entries = {}
+    for relative in (
+        *PRE_QUEUE_SPLIT_SURFACE_SPEC.required_paths,
+        *PRE_QUEUE_SPLIT_SURFACE_SPEC.optional_paths,
+    ):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"selection": "v4-queue-fallback", "path": relative})
+            + "\n"
+        )
+        paths[relative] = path
+        entries[relative] = _manifest_descriptor(path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = fallback_since or now
+    state_path = _write_publication_state(
+        root,
+        {
+            "schema_version": 2,
+            "surface_contract_version": (
+                PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+            ),
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["queue"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["queue"],
+            "degraded_since": {"queue": since},
+            "fallback_since": {"queue": since},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {"queue": entries},
+            "restored_paths": {"queue": sorted(entries)},
+        },
+    )
+    return state_path, paths
+
+
 def _write_attested_split_fallback_state(
     root: Path,
     fallback_surface: str | tuple[str, ...],
@@ -2213,6 +2259,225 @@ def test_schema_v2_rejects_legacy_ci_alias(tmp_path):
     assert [finding.code for finding in audit.report.errors] == [
         "publication-state-invalid"
     ]
+
+
+def test_schema_v2_rejects_unknown_explicit_surface_contract(tmp_path):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "surface_contract_version": 999,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "degraded",
+            "degraded_surfaces": ["ci_core"],
+            "fresh_degraded_surfaces": ["ci_core"],
+            "fallback_surfaces": [],
+            "degraded_since": {"ci_core": now},
+            "fallback_since": {},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {},
+            "restored_paths": {},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
+
+
+@pytest.mark.parametrize("invalid_contract", [5.0, True, "5"])
+def test_schema_v2_rejects_non_integer_surface_contract(
+    tmp_path,
+    invalid_contract,
+):
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "surface_contract_version": invalid_contract,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "current",
+            "degraded_surfaces": [],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": [],
+            "degraded_since": {},
+            "fallback_since": {},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {},
+            "restored_paths": {},
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
+    assert "invalid surface contract" in audit.report.errors[0].message
+
+
+def test_pre_queue_split_schema_v2_manifest_is_verified_then_partitioned(
+    tmp_path,
+):
+    state_path, _paths = _write_pre_queue_split_fallback_state(tmp_path)
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({
+        "queue",
+        "queue_capacity",
+        "queue_omni",
+        "queue_workload",
+    })
+    assert audit.report.errors == []
+
+
+def test_pre_queue_split_schema_v2_manifest_is_hash_verified_before_partition(
+    tmp_path,
+):
+    state_path, paths = _write_pre_queue_split_fallback_state(tmp_path)
+    paths["data/vllm/ci/workload_mapping.json"].write_text(
+        '{"selection":"tampered"}\n'
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert "publication-fallback-manifest-mismatch" in {
+        finding.code for finding in audit.report.errors
+    }
+
+
+def test_pre_queue_split_schema_v2_inherits_fallback_clock_for_every_child(
+    tmp_path,
+):
+    expired = (datetime.now(timezone.utc) - timedelta(hours=37)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    state_path, _paths = _write_pre_queue_split_fallback_state(
+        tmp_path,
+        fallback_since=expired,
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    expired_findings = [
+        finding
+        for finding in audit.report.errors
+        if finding.code == "publication-fallback-expired"
+    ]
+    assert {finding.context["surface"] for finding in expired_findings} == {
+        "queue",
+        "queue_capacity",
+        "queue_omni",
+        "queue_workload",
+    }
+
+
+def test_pre_analytics_and_pre_queue_split_fallbacks_migrate_sequentially(
+    tmp_path,
+):
+    manifests = {}
+    for surface, spec in (
+        ("ci_core", PRE_ANALYTICS_CI_CORE_SURFACE_SPEC),
+        ("ci_gating", PRE_ANALYTICS_CI_GATING_SURFACE_SPEC),
+        ("queue", PRE_QUEUE_SPLIT_SURFACE_SPEC),
+    ):
+        entries = {}
+        for relative in spec.required_paths:
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"selection": "legacy-combined", "path": relative})
+                + "\n"
+            )
+            entries[relative] = _manifest_descriptor(path)
+        manifests[surface] = entries
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["ci_core", "ci_gating", "queue"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["ci_core", "ci_gating", "queue"],
+            "degraded_since": {
+                surface: now for surface in manifests
+            },
+            "fallback_since": {
+                surface: now for surface in manifests
+            },
+            "fallback_max_age_hours": 36,
+            "restored_manifest": manifests,
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in manifests.items()
+            },
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({
+        "ci_analytics",
+        "ci_core",
+        "ci_gating",
+        "queue",
+        "queue_capacity",
+        "queue_omni",
+        "queue_workload",
+    })
+    assert audit.report.errors == []
+
+
+def test_active_queue_split_schema_v2_fallback_is_not_re_expanded(tmp_path):
+    workload = tmp_path / "data/vllm/ci/workload_mapping.json"
+    workload.parent.mkdir(parents=True)
+    workload.write_text('{"selection":"v5-workload-fallback"}\n')
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = _write_publication_state(
+        tmp_path,
+        {
+            "schema_version": 2,
+            "surface_contract_version": audit_module.SURFACE_CONTRACT_VERSION,
+            "generated_at": now,
+            "baseline_ref": "0" * 40,
+            "mode": "fallback",
+            "degraded_surfaces": ["queue_workload"],
+            "fresh_degraded_surfaces": [],
+            "fallback_surfaces": ["queue_workload"],
+            "degraded_since": {"queue_workload": now},
+            "fallback_since": {"queue_workload": now},
+            "fallback_max_age_hours": 36,
+            "restored_manifest": {
+                "queue_workload": {
+                    "data/vllm/ci/workload_mapping.json": (
+                        _manifest_descriptor(workload)
+                    ),
+                },
+            },
+            "restored_paths": {
+                "queue_workload": ["data/vllm/ci/workload_mapping.json"],
+            },
+        },
+    )
+
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({"queue_workload"})
+    assert audit.report.errors == []
 
 
 def test_pre_analytics_schema_v2_manifest_is_verified_then_split(tmp_path):

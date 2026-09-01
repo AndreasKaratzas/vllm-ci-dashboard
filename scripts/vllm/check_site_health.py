@@ -99,8 +99,11 @@ PUBLICATION_SURFACE_LABELS = frozenset({
     "DNS health",
     "Performance evaluation",
     "Project activity",
+    "Omni queue surge",
+    "Queue capacity",
     "Queue health",
     "Queue lifecycle",
+    "Queue workload mapping",
 })
 
 Fetch = Callable[[str, int], dict[str, Any]]

@@ -17,6 +17,18 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "vllm" / "ci" / "dns_state_crypto.py"
 
 
+def test_encrypted_state_limits_stay_below_repository_sync_ceiling():
+    assert crypto.MAX_PLAINTEXT_BYTES == 63 * 1024 * 1024
+    assert crypto.MAX_CIPHERTEXT_BYTES == 85 * 1024 * 1024
+    assert crypto.MAX_CIPHERTEXT_BYTES < 90_000_000
+
+
+def test_encrypt_rejects_ciphertext_above_the_output_limit(monkeypatch):
+    monkeypatch.setattr(crypto, "MAX_CIPHERTEXT_BYTES", 1)
+    with pytest.raises(crypto.StateCryptoError, match="ciphertext exceeds"):
+        crypto.encrypt_state(b"state", Fernet.generate_key())
+
+
 def test_authenticated_state_round_trip_is_randomized_and_private(tmp_path: Path):
     key = Fernet.generate_key()
     plaintext = b"\x1f\x8b sanitized state with negative-job coordinates"

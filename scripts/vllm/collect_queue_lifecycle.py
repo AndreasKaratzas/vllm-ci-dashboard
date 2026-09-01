@@ -82,7 +82,11 @@ INCREMENTAL_QUERY_MODE = "incremental_overlap_cohort_union"
 # expected retained volume. Reaching this bound is an incomplete collection,
 # never a reason to publish a truncated series.
 REST_PAGE_SAFETY_CAP = 100
-MAX_COMPRESSED_LEDGER_BYTES = 90 * 1024 * 1024
+# Bound the complete retained cache below the dashboard/repository 90 MB sync
+# ceiling as well as bounding each daily shard independently.  Use the same
+# 85 MiB ceiling as every other tracked publication path; importantly this is
+# also below 90,000,000 decimal bytes.
+MAX_COMPRESSED_LEDGER_BYTES = 85 * 1024 * 1024
 MAX_COMPRESSED_SEGMENT_BYTES = 32 * 1024 * 1024
 MAX_UNCOMPRESSED_LEDGER_BYTES = 512 * 1024 * 1024
 MAX_SUMMARY_BYTES = 5 * 1024 * 1024

@@ -18,6 +18,15 @@ from vllm.constants import AMD_METRIC_TARGET_QUEUES
 NOW = datetime(2026, 8, 11, 20, 0, tzinfo=timezone.utc)
 
 
+def test_retained_ledger_budget_stays_below_repository_sync_ceiling() -> None:
+    assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES == 85 * 1024 * 1024
+    assert lifecycle.MAX_COMPRESSED_LEDGER_BYTES < 90_000_000
+    assert (
+        lifecycle.MAX_COMPRESSED_SEGMENT_BYTES
+        < lifecycle.MAX_COMPRESSED_LEDGER_BYTES
+    )
+
+
 def _queue_ids() -> dict[str, str]:
     return {queue: f"id:{queue}" for queue in AMD_METRIC_TARGET_QUEUES}
 

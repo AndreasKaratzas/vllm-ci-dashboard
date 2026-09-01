@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 import re
 import uuid
@@ -31,6 +32,8 @@ LOG_CLOCK_TOLERANCE_SECONDS = 60
 MAX_LOG_BYTES = 16 * 1024 * 1024
 PUBLIC_EVIDENCE_LIMIT = 3000
 PUBLIC_EVIDENCE_BYTE_BUDGET = 5 * 1024 * 1024
+MAX_COMPRESSED_STATE_BYTES = 63 * 1024 * 1024
+MAX_DECOMPRESSED_STATE_BYTES = 256 * 1024 * 1024
 
 PIPELINES = ("amd-ci", "ci")
 JOB_STATES = ("passed", "soft", "hard")
@@ -1049,19 +1052,25 @@ def state_bytes(payload: object) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8") + b"\n"
-    return gzip.compress(encoded, compresslevel=9, mtime=0)
+    if len(encoded) > MAX_DECOMPRESSED_STATE_BYTES:
+        raise StateValidationError("decompressed state exceeds the safety limit")
+    compressed = gzip.compress(encoded, compresslevel=9, mtime=0)
+    if len(compressed) > MAX_COMPRESSED_STATE_BYTES:
+        raise StateValidationError("compressed state exceeds the safety limit")
+    return compressed
 
 
 def state_from_bytes(compressed: bytes) -> dict:
     if not isinstance(compressed, bytes):
         raise StateValidationError("compressed state must be bytes")
-    if len(compressed) > 64 * 1024 * 1024:
+    if len(compressed) > MAX_COMPRESSED_STATE_BYTES:
         raise StateValidationError("compressed state exceeds the safety limit")
     try:
-        decoded = gzip.decompress(compressed)
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as stream:
+            decoded = stream.read(MAX_DECOMPRESSED_STATE_BYTES + 1)
     except (gzip.BadGzipFile, EOFError, OSError) as exc:
         raise StateValidationError("state is not valid gzip") from exc
-    if len(decoded) > 256 * 1024 * 1024:
+    if len(decoded) > MAX_DECOMPRESSED_STATE_BYTES:
         raise StateValidationError("decompressed state exceeds the safety limit")
     try:
         payload = json.loads(decoded.decode("utf-8"))

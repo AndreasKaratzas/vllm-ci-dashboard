@@ -22,6 +22,8 @@ from vllm.publication_surfaces import (
     LEGACY_CI_SURFACE_SPEC,
     PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+    PRE_QUEUE_SPLIT_SURFACE_SPEC,
     SOURCE_SURFACES,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -36,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_surface_contract_version_has_one_owner() -> None:
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 4
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 5
     assert (
         selector_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
@@ -164,6 +166,46 @@ def _manifest_descriptor(payload: bytes) -> dict[str, int | str]:
         "bytes": len(payload),
         "sha256": hashlib.sha256(payload).hexdigest(),
     }
+
+
+def _write_v4_queue_fallback_baseline(
+    repo: Path,
+    since: str,
+) -> tuple[Path, dict[str, bytes]]:
+    baseline_bytes: dict[str, bytes] = {}
+    for relative in (
+        *PRE_QUEUE_SPLIT_SURFACE_SPEC.required_paths,
+        *PRE_QUEUE_SPLIT_SURFACE_SPEC.optional_paths,
+    ):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = (
+            json.dumps({"selection": "v4-baseline", "path": relative}) + "\n"
+        ).encode()
+        path.write_bytes(payload)
+        baseline_bytes[relative] = payload
+
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    manifest = {
+        relative: _manifest_descriptor(payload)
+        for relative, payload in baseline_bytes.items()
+    }
+    state_path.write_text(json.dumps({
+        "schema_version": 2,
+        "surface_contract_version": PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+        "generated_at": since,
+        "baseline_ref": "0" * 40,
+        "mode": "fallback",
+        "degraded_surfaces": ["queue"],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": ["queue"],
+        "degraded_since": {"queue": since},
+        "fallback_since": {"queue": since},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {"queue": sorted(manifest)},
+        "restored_manifest": {"queue": manifest},
+    }))
+    return state_path, baseline_bytes
 
 
 def test_refresh_only_dns_recovers_without_clearing_unrelated_fallback(
@@ -2022,7 +2064,7 @@ def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
 
     assert migrated is not None
     expected = {"ci_core", "ci_analytics", "ci_gating"}
-    assert migrated["surface_contract_version"] == 4
+    assert migrated["surface_contract_version"] == 5
     assert set(migrated["fallback_surfaces"]) == expected
     assert migrated["fallback_since"] == {
         surface: since for surface in expected
@@ -2034,6 +2076,442 @@ def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
     assert "data/vllm/ci/gating_nightlies.json" in migrated[
         "restored_manifest"
     ]["ci_gating"]
+
+
+def test_contract_v5_ci_core_fallback_is_not_reinterpreted_as_pre_analytics(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entries: dict[str, dict[str, int | str]] = {}
+    for relative in SURFACE_SPECS["ci_core"].required_paths:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = (json.dumps({"path": relative}) + "\n").encode()
+        path.write_bytes(payload)
+        entries[relative] = _manifest_descriptor(payload)
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps({
+        "schema_version": 2,
+        "surface_contract_version": surfaces_module.SURFACE_CONTRACT_VERSION,
+        "generated_at": since,
+        "baseline_ref": "0" * 40,
+        "mode": "fallback",
+        "degraded_surfaces": ["ci_core"],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": ["ci_core"],
+        "degraded_since": {"ci_core": since},
+        "fallback_since": {"ci_core": since},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {"ci_core": sorted(entries)},
+        "restored_manifest": {"ci_core": entries},
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "contract-v5 ci-core fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    validated = selector_module._baseline_publication_state(
+        repo,
+        baseline,
+        state_path,
+    )
+
+    assert validated is not None
+    assert validated["surface_contract_version"] == 5
+    assert validated["degraded_surfaces"] == ["ci_core"]
+    assert validated["fallback_surfaces"] == ["ci_core"]
+    assert set(validated["restored_manifest"]) == {"ci_core"}
+
+
+def test_unknown_surface_contract_is_not_reinterpreted_as_pre_analytics(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps({
+        "schema_version": 2,
+        "surface_contract_version": 999,
+        "generated_at": since,
+        "baseline_ref": "0" * 40,
+        "mode": "degraded",
+        "degraded_surfaces": ["ci_core"],
+        "fresh_degraded_surfaces": ["ci_core"],
+        "fallback_surfaces": [],
+        "degraded_since": {"ci_core": since},
+        "fallback_since": {},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {},
+        "restored_manifest": {},
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "unknown surface contract")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="unsupported surface contract"):
+        selector_module._baseline_publication_state(
+            repo,
+            baseline,
+            state_path,
+        )
+
+
+@pytest.mark.parametrize("invalid_contract", [5.0, True, "5"])
+def test_non_integer_surface_contract_is_rejected(
+    tmp_path: Path,
+    invalid_contract: object,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps({
+        "schema_version": 2,
+        "surface_contract_version": invalid_contract,
+        "generated_at": since,
+        "baseline_ref": "0" * 40,
+        "mode": "current",
+        "degraded_surfaces": [],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": [],
+        "degraded_since": {},
+        "fallback_since": {},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {},
+        "restored_manifest": {},
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "invalid surface contract")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="invalid surface contract"):
+        selector_module._baseline_publication_state(repo, baseline, state_path)
+
+
+def test_v4_queue_fallback_is_partitioned_before_live_only_refresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, baseline_bytes = _write_v4_queue_fallback_baseline(repo, since)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "contract-v4 queue fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    candidate_live: dict[str, bytes] = {}
+    for relative in SURFACE_SPECS["queue"].required_paths:
+        payload = (
+            json.dumps({"selection": "live-candidate", "path": relative}) + "\n"
+        ).encode()
+        (repo / relative).write_bytes(payload)
+        candidate_live[relative] = payload
+
+    class CleanAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(errors=[], degradations=[])
+
+    monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        refresh_only_surface="queue",
+    )
+
+    companions = {"queue_capacity", "queue_omni", "queue_workload"}
+    assert state["surface_contract_version"] == 5
+    assert set(state["degraded_surfaces"]) == companions
+    assert state["fresh_degraded_surfaces"] == []
+    assert set(state["fallback_surfaces"]) == companions
+    assert state["degraded_since"] == {
+        surface: since for surface in companions
+    }
+    assert state["fallback_since"] == {
+        surface: since for surface in companions
+    }
+    assert set(state["restored_manifest"]) == companions
+    assert set(state["restored_paths"]) == companions
+    assert "queue" not in state["restored_manifest"]
+
+    for relative, payload in candidate_live.items():
+        assert (repo / relative).read_bytes() == payload
+    for surface in companions:
+        expected = {
+            relative
+            for relative in baseline_bytes
+            if relative in {
+                *SURFACE_SPECS[surface].required_paths,
+                *SURFACE_SPECS[surface].optional_paths,
+            }
+        }
+        assert set(state["restored_manifest"][surface]) == expected
+        assert set(state["restored_paths"][surface]) == expected
+        for relative in expected:
+            assert (repo / relative).read_bytes() == baseline_bytes[relative]
+
+
+def test_v5_stale_companions_cannot_roll_back_live_queue_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, baseline_bytes = _write_v4_queue_fallback_baseline(repo, since)
+    state_path.write_text(json.dumps({
+        "schema_version": 2,
+        "surface_contract_version": surfaces_module.SURFACE_CONTRACT_VERSION,
+        "generated_at": since,
+        "baseline_ref": "0" * 40,
+        "mode": "current",
+        "degraded_surfaces": [],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": [],
+        "degraded_since": {},
+        "fallback_since": {},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {},
+        "restored_manifest": {},
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "contract-v5 current queue surfaces")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    candidate_live: dict[str, bytes] = {}
+    for relative in SURFACE_SPECS["queue"].required_paths:
+        payload = (
+            json.dumps({"selection": "live-candidate", "path": relative}) + "\n"
+        ).encode()
+        (repo / relative).write_bytes(payload)
+        candidate_live[relative] = payload
+
+    stale_findings = [
+        Finding(
+            "error",
+            "operations-stale-source",
+            f"{source} is stale",
+            "data/vllm/ci/operations_v2.json",
+            {"source": source},
+        )
+        for source in (
+            "capacity_monitor",
+            "omni_heuristic",
+            "workload_mapping",
+        )
+    ]
+
+    class CompanionStaleAudit:
+        def __init__(self, *args, **kwargs):
+            self.allow_fallback = kwargs.get("allow_publication_fallback") is True
+            self.report = SimpleNamespace(errors=[], degradations=[])
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                errors=[] if self.allow_fallback else stale_findings,
+                degradations=[],
+            )
+
+    monkeypatch.setattr(selector_module, "DashboardAudit", CompanionStaleAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        refresh_only_surface="queue",
+    )
+
+    companions = {"queue_capacity", "queue_omni", "queue_workload"}
+    assert set(state["fallback_surfaces"]) == companions
+    assert "queue" not in state["degraded_surfaces"]
+    assert set(state["restored_manifest"]) == companions
+    for relative, payload in candidate_live.items():
+        assert (repo / relative).read_bytes() == payload
+    for surface in companions:
+        for relative in (
+            *SURFACE_SPECS[surface].required_paths,
+            *SURFACE_SPECS[surface].optional_paths,
+        ):
+            assert (repo / relative).read_bytes() == baseline_bytes[relative]
+
+
+def test_v4_queue_fallback_migration_rejects_unverified_monolith(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, _ = _write_v4_queue_fallback_baseline(repo, since)
+    state = json.loads(state_path.read_text())
+    state["restored_manifest"]["queue"][
+        "data/vllm/ci/workload_mapping.json"
+    ]["sha256"] = "0" * 64
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "tampered contract-v4 queue fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="does not match its manifest"):
+        selector_module._baseline_publication_state(
+            repo,
+            baseline,
+            state_path,
+        )
+
+
+def test_v4_queue_fallback_migration_rejects_missing_manifest_path(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, _ = _write_v4_queue_fallback_baseline(repo, since)
+    missing = "data/vllm/ci/workload_mapping.json"
+    state = json.loads(state_path.read_text())
+    del state["restored_manifest"]["queue"][missing]
+    state["restored_paths"]["queue"].remove(missing)
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "incomplete contract-v4 queue fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="manifest path set.*inconsistent"):
+        selector_module._baseline_publication_state(
+            repo,
+            baseline,
+            state_path,
+        )
+
+
+def test_v4_fresh_degraded_queue_expands_clocks_without_restore_proof(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    state_path, _ = _write_v4_queue_fallback_baseline(repo, since)
+    state = json.loads(state_path.read_text())
+    state.update({
+        "mode": "degraded",
+        "degraded_surfaces": ["queue"],
+        "fresh_degraded_surfaces": ["queue"],
+        "fallback_surfaces": [],
+        "degraded_since": {"queue": since},
+        "fallback_since": {},
+        "restored_paths": {},
+        "restored_manifest": {},
+    })
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "fresh-degraded contract-v4 queue")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    migrated = selector_module._baseline_publication_state(
+        repo,
+        baseline,
+        state_path,
+    )
+
+    assert migrated is not None
+    assert migrated["surface_contract_version"] == 5
+    assert migrated["mode"] == "degraded"
+    assert set(migrated["degraded_surfaces"]) == selector_module.QUEUE_SPLIT_SURFACES
+    assert set(migrated["fresh_degraded_surfaces"]) == (
+        selector_module.QUEUE_SPLIT_SURFACES
+    )
+    assert migrated["fallback_surfaces"] == []
+    assert migrated["degraded_since"] == {
+        surface: since for surface in selector_module.QUEUE_SPLIT_SURFACES
+    }
+    assert migrated["fallback_since"] == {}
+    assert migrated["restored_paths"] == {}
+    assert migrated["restored_manifest"] == {}
+
+
+def test_v4_mixed_queue_fallback_preserves_independent_non_queue_clock(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    queue_since = "2026-08-31T01:02:03Z"
+    dns_since = "2026-08-31T04:05:06Z"
+    state_path, _ = _write_v4_queue_fallback_baseline(repo, queue_since)
+    state = json.loads(state_path.read_text())
+    state.update({
+        "mode": "mixed",
+        "degraded_surfaces": ["dns_health", "queue"],
+        "fresh_degraded_surfaces": ["dns_health"],
+        "fallback_surfaces": ["queue"],
+        "degraded_since": {
+            "dns_health": dns_since,
+            "queue": queue_since,
+        },
+        "fallback_since": {"queue": queue_since},
+    })
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "mixed contract-v4 queue fallback")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    migrated = selector_module._baseline_publication_state(
+        repo,
+        baseline,
+        state_path,
+    )
+
+    assert migrated is not None
+    companions = selector_module.QUEUE_SPLIT_SURFACES
+    assert migrated["surface_contract_version"] == 5
+    assert migrated["mode"] == "mixed"
+    assert migrated["fresh_degraded_surfaces"] == ["dns_health"]
+    assert set(migrated["fallback_surfaces"]) == companions
+    assert set(migrated["degraded_surfaces"]) == {"dns_health", *companions}
+    assert migrated["degraded_since"] == {
+        "dns_health": dns_since,
+        **{surface: queue_since for surface in companions},
+    }
+    assert migrated["fallback_since"] == {
+        surface: queue_since for surface in companions
+    }
+    assert set(migrated["restored_paths"]) == companions
+    assert set(migrated["restored_manifest"]) == companions
 
 
 def test_schema_v2_state_drops_independently_mutated_watcher_ledger(
@@ -2215,7 +2693,7 @@ def test_clean_candidate_writes_schema_v2_current_state(
     assert source.read_text() == '{"version":"candidate"}\n'
     assert state == {
         "schema_version": 2,
-        "surface_contract_version": 4,
+        "surface_contract_version": 5,
         "generated_at": state["generated_at"],
         "baseline_ref": baseline,
         "mode": "current",

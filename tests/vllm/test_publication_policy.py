@@ -20,6 +20,9 @@ README_RENDERER = ROOT / "scripts" / "render.py"
 VLLM_SCRIPTS_README = ROOT / "scripts" / "vllm" / "README.md"
 DASHBOARD_AUDIT = ROOT / "dashboards" / "dashboard-audit.md"
 GITIGNORE = ROOT / ".gitignore"
+OPERATIONS_MANIFEST_PATH = (
+    ROOT / "data" / "vllm" / "ci" / "operations_v2_manifest.json"
+)
 
 
 def _load_build_site_module():
@@ -501,6 +504,28 @@ def test_publication_status_projection_labels_split_and_legacy_ci_surfaces() -> 
     ]
 
 
+def test_publication_status_projection_labels_split_queue_surfaces() -> None:
+    payload = BUILD_SITE.project_publication_status({
+        "mode": "degraded",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "degraded_surfaces": [
+            "queue",
+            "queue_capacity",
+            "queue_workload",
+            "queue_omni",
+            "queue_lifecycle",
+        ],
+    })
+
+    assert payload["affected_surfaces"] == [
+        "Omni queue surge",
+        "Queue capacity",
+        "Queue health",
+        "Queue lifecycle",
+        "Queue workload mapping",
+    ]
+
+
 def test_docs_cannot_smuggle_an_unlisted_data_file_into_site(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -734,6 +759,11 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         for pattern in manifest["never_publish_patterns"]
     )
     assert "data/vllm/ci/dns_health/" in GITIGNORE.read_text().splitlines()
+
+
+def test_tracked_operations_manifest_names_only_the_bounded_monolith() -> None:
+    manifest = json.loads(OPERATIONS_MANIFEST_PATH.read_text())
+    assert manifest["monolith"] == "operations_v2.json.gz"
 
 
 @pytest.mark.live_data

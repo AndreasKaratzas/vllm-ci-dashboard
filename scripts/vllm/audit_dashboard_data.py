@@ -35,6 +35,8 @@ from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_SURFACE_ALIASES,
     PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+    PRE_QUEUE_SPLIT_SURFACE_SPEC,
     SOURCE_SURFACES,
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
@@ -76,6 +78,16 @@ OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     "project_items": 36,
 }
 PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
+QUEUE_LIVE_SURFACE = "queue"
+QUEUE_COMPANION_SURFACES = frozenset({
+    "queue_capacity",
+    "queue_omni",
+    "queue_workload",
+})
+QUEUE_SPLIT_SURFACES = frozenset({
+    QUEUE_LIVE_SURFACE,
+    *QUEUE_COMPANION_SURFACES,
+})
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SHARD_EVIDENCE_REQUIRED_KEYS = frozenset({
     "pipeline",
@@ -251,6 +263,18 @@ def _publication_fallback_closure(surfaces: set[str]) -> set[str]:
     if not _uses_declared_publication_domain():
         return set(surfaces)
     return set(fallback_dependency_closure(surfaces))
+
+
+def _pre_queue_split_surface_names() -> set[str]:
+    """Return the exact active surface-name domain used by contract v4."""
+    return set(SURFACE_SPECS) - set(QUEUE_COMPANION_SURFACES)
+
+
+def _pre_queue_split_spec(surface: str) -> SurfaceSpec:
+    """Resolve one v4 surface without trusting the narrower v5 queue spec."""
+    if surface == QUEUE_LIVE_SURFACE:
+        return PRE_QUEUE_SPLIT_SURFACE_SPEC
+    return SURFACE_SPECS[surface]
 
 
 def _publication_spec_owns_path(spec: SurfaceSpec, relative: str) -> bool:
@@ -1215,7 +1239,43 @@ class DashboardAudit:
             fresh_raw = state.get("fresh_degraded_surfaces")
             fallback_raw = state.get("fallback_surfaces")
             fallback_since = state.get("fallback_since")
-            allowed_v2 = set(SURFACE_SPECS)
+            surface_contract_version = state.get("surface_contract_version")
+            if (
+                _uses_declared_publication_domain()
+                and surface_contract_version is not None
+                and type(surface_contract_version) is not int
+            ):
+                return reject(
+                    "schema-v2 publication state uses an invalid surface contract"
+                )
+            if (
+                _uses_declared_publication_domain()
+                and surface_contract_version
+                not in (
+                    None,
+                    PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+                    SURFACE_CONTRACT_VERSION,
+                )
+            ):
+                return reject(
+                    "schema-v2 publication state uses an unsupported surface "
+                    "contract"
+                )
+            pre_queue_split_contract = (
+                _uses_declared_publication_domain()
+                and surface_contract_version
+                == PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+            )
+            historical_surface_contract = (
+                _uses_declared_publication_domain()
+                and surface_contract_version
+                in (None, PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION)
+            )
+            allowed_v2 = (
+                _pre_queue_split_surface_names()
+                if historical_surface_contract
+                else set(SURFACE_SPECS)
+            )
             if (
                 mode not in {"current", "degraded", "fallback", "mixed", "blocked"}
                 or not valid_surface_list(degraded_raw, allowed_v2)
@@ -1299,8 +1359,8 @@ class DashboardAudit:
                     "attestations"
                 )
             pre_analytics_contract = (
-                state.get("surface_contract_version")
-                != SURFACE_CONTRACT_VERSION
+                _uses_declared_publication_domain()
+                and surface_contract_version is None
                 and bool({"ci_core", "ci_gating"} & degraded_set)
             )
             if pre_analytics_contract and fallback_set:
@@ -1319,7 +1379,7 @@ class DashboardAudit:
                     elif surface == "ci_gating":
                         spec = PRE_ANALYTICS_CI_GATING_SURFACE_SPEC
                     else:
-                        spec = SURFACE_SPECS[surface]
+                        spec = _pre_queue_split_spec(surface)
                     entries = _migrated_publication_manifest_entries(
                         surface, manifest[surface]
                     )
@@ -1360,7 +1420,7 @@ class DashboardAudit:
                             target
                             for target in targets
                             if _publication_spec_owns_path(
-                                SURFACE_SPECS[target], relative
+                                _pre_queue_split_spec(target), relative
                             )
                         ]
                         if len(owners) != 1:
@@ -1380,7 +1440,7 @@ class DashboardAudit:
                     entries = partitioned.get(surface, {})
                     expected = (
                         _publication_expected_paths(
-                            self.root, SURFACE_SPECS[surface]
+                            self.root, _pre_queue_split_spec(surface)
                         )
                         - ignored_watcher_state_paths(surface)
                     )
@@ -1413,6 +1473,98 @@ class DashboardAudit:
                 }
             else:
                 fallback_surfaces = fallback_set
+
+            queue_split_contract = (
+                _uses_declared_publication_domain()
+                and surface_contract_version
+                in (None, PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION)
+            )
+            if queue_split_contract and QUEUE_LIVE_SURFACE in fallback_surfaces:
+                # Contract v4 restored live observations and three independent
+                # companion collectors as one monolithic ``queue`` transaction.
+                # Verify that old proof in full before assigning any descriptor
+                # or fallback clock to its narrower v5 owner. Otherwise a
+                # partial or tampered v4 manifest could manufacture a valid v5
+                # stale-source waiver.
+                verified_entries: dict[str, dict] = {}
+                raw_valid = True
+                for surface in sorted(fallback_surfaces):
+                    spec = (
+                        PRE_QUEUE_SPLIT_SURFACE_SPEC
+                        if surface == QUEUE_LIVE_SURFACE
+                        else SURFACE_SPECS[surface]
+                    )
+                    entries = _migrated_publication_manifest_entries(
+                        surface, manifest[surface]
+                    )
+                    raw_valid = verify_manifest(
+                        surface, spec, manifest[surface]
+                    ) and raw_valid
+                    if restored_paths is not None:
+                        raw_valid = verify_restored_paths(
+                            surface,
+                            entries,
+                            restored_paths.get(surface),
+                        ) and raw_valid
+                    if isinstance(entries, dict):
+                        verified_entries[surface] = entries
+                if not raw_valid:
+                    self._fallback_surfaces_cache = frozenset()
+                    return self._fallback_surfaces_cache
+
+                partitioned = {}
+                expanded_since: dict[str, str] = {}
+                for surface, entries in verified_entries.items():
+                    targets = (
+                        QUEUE_SPLIT_SURFACES
+                        if surface == QUEUE_LIVE_SURFACE
+                        else frozenset({surface})
+                    )
+                    source_since = fallback_since[surface]
+                    for target in targets:
+                        expanded_since[target] = source_since
+                    for relative, descriptor in entries.items():
+                        owners = [
+                            target
+                            for target in targets
+                            if _publication_spec_owns_path(
+                                SURFACE_SPECS[target], relative
+                            )
+                        ]
+                        if len(owners) != 1:
+                            return reject(
+                                "pre-queue-split fallback path lacks one active owner"
+                            )
+                        owner = owners[0]
+                        target_entries = partitioned.setdefault(owner, {})
+                        if relative in target_entries:
+                            return reject(
+                                "pre-queue-split fallback path is duplicated"
+                            )
+                        target_entries[relative] = descriptor
+
+                expanded_fallback = set(expanded_since)
+                for surface in sorted(expanded_fallback):
+                    entries = partitioned.get(surface, {})
+                    expected = (
+                        _publication_expected_paths(
+                            self.root, SURFACE_SPECS[surface]
+                        )
+                        - ignored_watcher_state_paths(surface)
+                    )
+                    if set(entries) != expected:
+                        return reject(
+                            f"pre-queue-split fallback partition for {surface} "
+                            "is incomplete",
+                            code="publication-fallback-manifest-mismatch",
+                        )
+                fallback_surfaces = expanded_fallback
+                fallback_since = expanded_since
+                manifest = partitioned
+                restored_paths = {
+                    surface: sorted(entries)
+                    for surface, entries in partitioned.items()
+                }
             if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
                 return reject(
                     "schema-v2 fallback omits a required dependent surface"
