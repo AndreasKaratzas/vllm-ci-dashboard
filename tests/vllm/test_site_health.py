@@ -1,5 +1,7 @@
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -29,20 +31,27 @@ def _publication(**overrides):
     return payload
 
 
-def _response(body=b"", *, status=200, oversize=False):
+def _response(body=b"", *, status=200, oversize=False, final_url=None):
     return {
         "http_status": status,
         "body": body,
         "oversize": oversize,
         "error": None,
+        "final_url": final_url,
     }
 
 
 class Fetcher:
-    def __init__(self, publication=None, *, site=None):
+    def __init__(self, publication=None, *, site=None, resources=None):
         default_site = (
-            b"<title>vLLM AMD CI Operations</title>"
-            b'<section id="publication-status-banner">'
+            b"<!doctype html><title>vLLM AMD CI Operations</title>"
+            b'<link rel="stylesheet" href="assets/css/dashboard.css?v=test">'
+            b'<link rel="stylesheet" href="assets/css/ops-v2.css?v=test">'
+            b'<section id="publication-status-banner"></section>'
+            b'<script src="assets/js/utils.js?v=test"></script>'
+            b'<script src="assets/js/publication-status.js?v=test"></script>'
+            b'<script src="assets/js/dashboard-nav.js?v=test"></script>'
+            b'<script src="assets/js/ops-v2.js?v=test"></script>'
             + b"x" * 800
         )
         self.site = site or _response(default_site)
@@ -52,12 +61,133 @@ class Fetcher:
             if isinstance(payload, dict) and "http_status" in payload
             else _response(json.dumps(payload).encode())
         )
+        asset_bodies = {
+            path: (
+                f"/* {path} */\n".encode()
+                if path.endswith(".css")
+                else f"window.asset = {path!r};\n".encode()
+            )
+            for path in health.CRITICAL_ASSET_PATHS
+        }
+        organization_path = "data/vllm/ci/org_summary.json"
+        organization_body = b'{"schema_version":1}\n'
+        section_paths = {
+            name: f"data/vllm/ci/operations_v2/{name}.json"
+            for name in health.OPERATIONS_CANARY_SECTIONS
+        }
+        section_bodies = {
+            name: json.dumps({name: {"status": "healthy"}}).encode() + b"\n"
+            for name in health.OPERATIONS_CANARY_SECTIONS
+        }
+        operations_payload = {
+            "schema_version": 2,
+            "bundle_version": 1,
+            "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
+            "monolith": None,
+            "shell": {},
+            "organization_summary": {
+                "path": "org_summary.json",
+                "bytes": len(organization_body),
+                "schema_version": 1,
+            },
+            "sections": {
+                name: {
+                    "path": f"operations_v2/{name}.json",
+                    "bytes": len(section_bodies[name]),
+                }
+                for name in health.OPERATIONS_CANARY_SECTIONS
+            },
+        }
+        operations_body = json.dumps(operations_payload).encode()
+        files = {
+            "index.html": self.site.get("body", b""),
+            health.PUBLICATION_STATUS_PATH: self.publication.get("body", b""),
+            **asset_bodies,
+            health.OPERATIONS_MANIFEST_PATH: operations_body,
+            organization_path: organization_body,
+            **{
+                section_paths[name]: section_bodies[name]
+                for name in health.OPERATIONS_CANARY_SECTIONS
+            },
+        }
+        descriptors = {
+            path: {
+                "bytes": len(body),
+                "mode": "100644",
+                "sha256": hashlib.sha256(body).hexdigest(),
+                "git_oid": "0" * 40,
+            }
+            for path, body in files.items()
+        }
+        manifest = {
+            "schema_version": 1,
+            "hash_algorithm": "sha256",
+            "git_object_format": "sha1",
+            "excluded_prefixes": ["pr-preview/"],
+            "limits": {
+                "max_blob_bytes": health.PROJECTION_MAX_BLOB_BYTES,
+                "max_tree_bytes": health.PROJECTION_MAX_TREE_BYTES,
+                "max_files": health.PROJECTION_MAX_FILES,
+            },
+            "file_count": len(descriptors),
+            "total_bytes": sum(row["bytes"] for row in descriptors.values()),
+            "files": descriptors,
+        }
+        manifest_raw = health._canonical_json(manifest)
+        marker = {
+            "schema_version": 2,
+            "generation_id": "test-generation",
+            "generated_at": _publication().get("generated_at"),
+            "state_sha": "1" * 40,
+            "state_tree": "2" * 40,
+            "code_sha": "3" * 40,
+            "public_projection": {
+                "schema_version": 1,
+                "manifest_path": health.PUBLICATION_MANIFEST_PATH,
+                "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+                "file_count": manifest["file_count"],
+                "total_bytes": manifest["total_bytes"],
+            },
+        }
+        publication_payload = payload if isinstance(payload, dict) else {}
+        if "http_status" not in publication_payload:
+            raw_generated_at = publication_payload.get("generated_at")
+            if isinstance(raw_generated_at, str):
+                try:
+                    parsed_generated_at = datetime.fromisoformat(
+                        raw_generated_at.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    parsed_generated_at = None
+                if parsed_generated_at is not None and parsed_generated_at.tzinfo is not None:
+                    marker["generated_at"] = health._iso_utc(parsed_generated_at)
+        marker["generated_at"] = health._iso_utc(
+            datetime.fromisoformat(marker["generated_at"].replace("Z", "+00:00"))
+        )
+        self.responses = {
+            health.PUBLICATION_GENERATION_PATH: _response(json.dumps(marker).encode()),
+            health.PUBLICATION_MANIFEST_PATH: _response(manifest_raw),
+            **{
+                path: _response(body)
+                for path, body in asset_bodies.items()
+            },
+            health.OPERATIONS_MANIFEST_PATH: _response(operations_body),
+            **{
+                section_paths[name]: _response(section_bodies[name])
+                for name in health.OPERATIONS_CANARY_SECTIONS
+            },
+        }
+        self.responses.update(resources or {})
         self.calls = []
 
     def __call__(self, url, max_bytes):
         self.calls.append((url, max_bytes))
-        if urlsplit(url).path.endswith("publication_status.json"):
+        path = urlsplit(url).path
+        if path.endswith(health.PUBLICATION_STATUS_PATH):
             return self.publication
+        for relative, response in self.responses.items():
+            if path.endswith(relative):
+                return response
         return self.site
 
 
@@ -77,9 +207,36 @@ def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
     assert report["healthy"] is True
     assert report["overall_status"] == "healthy"
     assert report["publication"]["age_hours"] == 0.5
+    assert report["projection"]["verified"] is True
+    assert report["projection"]["operations_canaries"] == [
+        {
+            "name": name,
+            "path": f"data/vllm/ci/operations_v2/{name}.json",
+            "http_status": 200,
+        }
+        for name in health.OPERATIONS_CANARY_SECTIONS
+    ]
+    assert report["projection"]["verified_files"] == [
+        "index.html",
+        health.PUBLICATION_STATUS_PATH,
+        *health.CRITICAL_ASSET_PATHS,
+        health.OPERATIONS_MANIFEST_PATH,
+        *[
+            f"data/vllm/ci/operations_v2/{name}.json"
+            for name in health.OPERATIONS_CANARY_SECTIONS
+        ],
+    ]
     assert [limit for _, limit in fetcher.calls] == [
         health.SITE_MAX_BYTES,
         health.STATUS_MAX_BYTES,
+        health.MARKER_MAX_BYTES,
+        health.MANIFEST_MAX_BYTES,
+        *([health.ASSET_MAX_BYTES] * len(health.CRITICAL_ASSET_PATHS)),
+        health.OPERATIONS_MANIFEST_MAX_BYTES,
+        *(
+            [health.OPERATIONS_CANARY_MAX_BYTES]
+            * len(health.OPERATIONS_CANARY_SECTIONS)
+        ),
     ]
     for url, _ in fetcher.calls:
         parsed = urlsplit(url)
@@ -88,6 +245,21 @@ def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
     assert urlsplit(fetcher.calls[1][0]).path == (
         "/dashboard/data/vllm/ci/publication_status.json"
     )
+
+
+def test_critical_asset_contract_covers_every_local_shell_dependency():
+    shell = (Path(__file__).resolve().parents[2] / "docs/index.html").read_text()
+    parser = health._ShellAssetParser()
+    parser.feed(shell)
+    parser.close()
+
+    referenced = tuple(
+        urlsplit(reference).path
+        for reference in [*parser.stylesheets, *parser.scripts]
+        if not urlsplit(reference).scheme and not urlsplit(reference).netloc
+    )
+    assert parser.malformed is False
+    assert referenced == health.CRITICAL_ASSET_PATHS
 
 
 def test_checker_contract_tracks_the_public_status_projector():
@@ -229,7 +401,7 @@ def test_site_shell_failures_are_reported(site, expected):
     assert expected in _codes(report)
 
 
-def test_large_site_is_read_bounded_but_not_declared_down():
+def test_oversize_site_cannot_claim_exact_integrity():
     body = (
         b"<title>vLLM AMD CI Operations</title>"
         b'<section id="publication-status-banner">'
@@ -239,7 +411,8 @@ def test_large_site_is_read_bounded_but_not_declared_down():
         now=NOW,
         fetch=Fetcher(site=_response(body, oversize=True)),
     )
-    assert report["healthy"] is True
+    assert report["healthy"] is False
+    assert "site-oversize" in _codes(report)
 
 
 def test_unrelated_http_200_page_does_not_pass_the_shell_probe():
@@ -374,8 +547,55 @@ def test_transport_error_is_structured_without_remote_exception_text():
     report = health.check_site_health(now=NOW, fetch=failed_fetch)
 
     assert report["healthy"] is False
-    assert _codes(report) == {"site-http", "publication-http"}
+    assert _codes(report) == {
+        "site-http",
+        "publication-http",
+        "generation-http",
+        "manifest-http",
+    }
     assert "secret-bearing" not in json.dumps(report)
+
+
+def test_production_fetch_uses_one_timeout_and_reads_only_limit_plus_one(monkeypatch):
+    observed = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, amount):
+            observed["read"] = amount
+            return b"x" * amount
+
+        def getcode(self):
+            return 200
+
+        def geturl(self):
+            return "https://example.test/resource"
+
+    class Opener:
+        def open(self, request, timeout):
+            observed["url"] = request.full_url
+            observed["timeout"] = timeout
+            return Response()
+
+    def build_opener(handler):
+        assert isinstance(handler, health._NoRedirectHandler)
+        return Opener()
+
+    monkeypatch.setattr(health, "build_opener", build_opener)
+    result = health.fetch_url("https://example.test/resource", 10)
+
+    assert observed == {
+        "url": "https://example.test/resource",
+        "timeout": health.FETCH_TIMEOUT_SECONDS,
+        "read": 11,
+    }
+    assert result["body"] == b"x" * 10
+    assert result["oversize"] is True
 
 
 def test_invalid_site_url_and_age_are_rejected_before_fetch():
@@ -410,13 +630,13 @@ def test_cli_writes_report_markdown_and_appends_github_outputs(monkeypatch, tmp_
     markdown_path = tmp_path / "report.md"
     output_path = tmp_path / "github-output"
     output_path.write_text("prior=value\n")
-    check_site_health = health.check_site_health
+    expected_report = health.confirm_site_health(
+        clock=lambda: NOW, fetch=Fetcher(), sleep=lambda _seconds: None
+    )
     monkeypatch.setattr(
         health,
-        "check_site_health",
-        lambda *args, **kwargs: check_site_health(
-            now=NOW, fetch=Fetcher(), **{k: v for k, v in kwargs.items() if k != "now"}
-        ),
+        "confirm_site_health",
+        lambda *args, **kwargs: expected_report,
     )
 
     result = health.main(
@@ -436,13 +656,15 @@ def test_cli_writes_report_markdown_and_appends_github_outputs(monkeypatch, tmp_
     github_text = output_path.read_text()
     assert github_text.startswith("prior=value\n")
     assert "healthy=true\n" in github_text
+    assert "confirmation_confirmed=true\n" in github_text
+    assert "probe_attempts=3\n" in github_text
 
 
 def test_cli_internal_failure_is_structured_and_exits_one(monkeypatch, tmp_path):
     report_path = tmp_path / "report.json"
     monkeypatch.setattr(
         health,
-        "check_site_health",
+        "confirm_site_health",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("secret")),
     )
 
@@ -477,3 +699,515 @@ def test_cli_internal_report_does_not_echo_credentials(tmp_path):
     assert result == 1
     assert payload["site"]["url"] is None
     assert "super-secret" not in report_path.read_text()
+
+
+class AttemptFetcher:
+    def __init__(self, failing_attempts):
+        self.base = Fetcher()
+        self.failing_attempts = set(failing_attempts)
+        self.tokens = []
+
+    def __call__(self, url, max_bytes):
+        token = parse_qs(urlsplit(url).query)["health_check"][0]
+        self.tokens.append(token)
+        attempt = int(token.split("-")[1])
+        if attempt in self.failing_attempts and urlsplit(url).path.endswith("/dashboard/"):
+            return _response(status=503)
+        return self.base(url, max_bytes)
+
+
+def test_confirmation_tolerates_one_transient_failure_with_fresh_cache_tokens():
+    fetcher = AttemptFetcher({1})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is True
+    assert report["overall_status"] == "healthy"
+    assert report["reasons"] == []
+    assert report["confirmation"]["healthy_count"] == 2
+    assert report["confirmation"]["attempted"] == 3
+    assert [probe["healthy"] for probe in report["confirmation"]["probes"]] == [
+        False,
+        True,
+        True,
+    ]
+    assert {token.split("-")[1] for token in fetcher.tokens} == {"1", "2", "3"}
+    assert len(set(fetcher.tokens)) == 3
+
+
+def test_confirmation_reports_a_bounded_quorum_failure():
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=AttemptFetcher({1, 2}),
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["overall_status"] == "confirmed_unhealthy"
+    assert report["confirmation"]["confirmed"] is True
+    assert report["confirmation"]["healthy_count"] == 1
+    assert report["confirmation"]["max_requests"] == 42
+    assert report["confirmation"]["max_transport_seconds"] == 420
+    assert report["confirmation"]["retry_delays_seconds"] == [0.0, 2.0, 5.0]
+    assert report["confirmation"]["max_elapsed_seconds"] == 427
+    assert "confirmation-quorum" in _codes(report)
+
+
+def test_confirmed_publication_outage_keeps_nullable_diagnostics_empty():
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=Fetcher(publication=_response(status=404)),
+        sleep=lambda _seconds: None,
+    )
+    outputs = health.github_outputs(report)
+
+    assert report["healthy"] is False
+    assert report["overall_status"] == "confirmed_unhealthy"
+    assert report["confirmation"]["confirmed"] is True
+    assert report["confirmation"]["healthy_count"] == 0
+    assert outputs["confirmation_confirmed"] is True
+    assert outputs["publication_http"] == 404
+    assert outputs["publication_mode"] is None
+    assert outputs["publication_status"] is None
+    assert outputs["generated_at"] is None
+    assert outputs["age_hours"] is None
+
+
+@pytest.mark.parametrize(
+    ("path", "response", "expected"),
+    [
+        (health.PUBLICATION_GENERATION_PATH, _response(status=404), "generation-http"),
+        (health.PUBLICATION_GENERATION_PATH, _response(b"{}"), "generation-contract"),
+        (
+            health.PUBLICATION_GENERATION_PATH,
+            _response(b'{"schema_version":2,"schema_version":2}'),
+            "generation-json",
+        ),
+        (
+            health.PUBLICATION_GENERATION_PATH,
+            _response(b"{}", oversize=True),
+            "generation-oversize",
+        ),
+        (health.PUBLICATION_MANIFEST_PATH, _response(status=404), "manifest-http"),
+        (health.PUBLICATION_MANIFEST_PATH, _response(b"not-json"), "manifest-json"),
+        (
+            health.PUBLICATION_MANIFEST_PATH,
+            _response(b"{}", oversize=True),
+            "manifest-oversize",
+        ),
+        (health.CRITICAL_ASSET_PATHS[0], _response(status=404), "asset-http"),
+        (
+            health.CRITICAL_ASSET_PATHS[0],
+            _response(b"body{}", oversize=True),
+            "asset-oversize",
+        ),
+        (
+            health.CRITICAL_ASSET_PATHS[0],
+            _response(
+                b"body { color: black; }\n",
+                final_url="https://evil.test/assets/css/dashboard.css",
+            ),
+            "asset-redirect",
+        ),
+        (health.CRITICAL_ASSET_PATHS[-1], _response(b"corrupt"), "projection-integrity"),
+        (
+            health.OPERATIONS_MANIFEST_PATH,
+            _response(status=404),
+            "operations-manifest-http",
+        ),
+        (
+            health.OPERATIONS_MANIFEST_PATH,
+            _response(b"corrupt"),
+            "projection-integrity",
+        ),
+        *[
+            (f"data/vllm/ci/operations_v2/{name}.json", response, expected)
+            for name in health.OPERATIONS_CANARY_SECTIONS
+            for response, expected in (
+                (_response(status=404), "operations-canary-http"),
+                (_response(b"corrupt"), "projection-integrity"),
+            )
+        ],
+    ],
+)
+def test_missing_or_corrupt_projection_metadata_and_assets_fail(path, response, expected):
+    report = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(resources={path: response}),
+    )
+
+    assert report["healthy"] is False
+    assert expected in _codes(report)
+
+
+@pytest.mark.parametrize("canary_name", health.OPERATIONS_CANARY_SECTIONS)
+def test_operations_manifest_requires_every_default_route_canary(canary_name):
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    descriptor = operations["sections"].pop(canary_name)
+    projection["files"].pop(f"data/vllm/ci/{descriptor['path']}")
+
+    with pytest.raises(
+        health._ProjectionFailure,
+        match="omitted required default-route canaries",
+    ):
+        health._normalize_operations_manifest(operations, projection)
+
+
+def test_generation_attestation_must_match_exact_canonical_manifest_digest_and_totals():
+    fetcher = Fetcher()
+    marker_response = fetcher.responses[health.PUBLICATION_GENERATION_PATH]
+    marker = json.loads(marker_response["body"])
+    marker["public_projection"]["manifest_sha256"] = "f" * 64
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is False
+    assert "projection-attestation" in _codes(report)
+
+
+def test_verified_projection_reports_the_exact_manifest_digest():
+    fetcher = Fetcher()
+    manifest_raw = fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is True
+    assert report["projection"]["manifest_sha256"] == hashlib.sha256(
+        manifest_raw
+    ).hexdigest()
+    assert report["projection"]["file_count"] == (
+        4
+        + len(health.CRITICAL_ASSET_PATHS)
+        + len(health.OPERATIONS_CANARY_SECTIONS)
+    )
+    assert report["projection"]["total_bytes"] > 0
+
+
+def test_manifest_must_be_canonical_even_when_marker_attests_its_digest():
+    fetcher = Fetcher()
+    manifest = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    noncanonical = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
+    marker = json.loads(fetcher.responses[health.PUBLICATION_GENERATION_PATH]["body"])
+    marker["public_projection"]["manifest_sha256"] = hashlib.sha256(
+        noncanonical
+    ).hexdigest()
+    fetcher.responses[health.PUBLICATION_MANIFEST_PATH] = _response(noncanonical)
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is False
+    assert "manifest-canonical" in _codes(report)
+
+
+def test_manifest_rejects_duplicate_keys_and_path_traversal():
+    duplicate = Fetcher(
+        resources={
+            health.PUBLICATION_MANIFEST_PATH: _response(
+                b'{"schema_version":1,"schema_version":1}'
+            )
+        }
+    )
+    assert "manifest-json" in _codes(
+        health.check_site_health(now=NOW, fetch=duplicate)
+    )
+
+    traversing = Fetcher()
+    manifest = json.loads(traversing.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    manifest["files"]["../escape.js"] = manifest["files"].pop(
+        health.CRITICAL_ASSET_PATHS[-1]
+    )
+    traversing_raw = health._canonical_json(manifest)
+    marker = json.loads(traversing.responses[health.PUBLICATION_GENERATION_PATH]["body"])
+    marker["public_projection"]["manifest_sha256"] = hashlib.sha256(
+        traversing_raw
+    ).hexdigest()
+    traversing.responses[health.PUBLICATION_MANIFEST_PATH] = _response(traversing_raw)
+    traversing.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+    assert "manifest-contract" in _codes(
+        health.check_site_health(now=NOW, fetch=traversing)
+    )
+
+
+def test_critical_asset_reference_cannot_escape_the_site_origin():
+    site = _response(
+        b"<!doctype html><title>vLLM AMD CI Operations</title>"
+        b'<link rel="stylesheet" href="https://evil.test/assets/css/dashboard.css">'
+        b'<section id="publication-status-banner"></section>'
+        b'<script src="assets/js/publication-status.js"></script>'
+        + b"x" * 800
+    )
+    fetcher = Fetcher(site=site)
+
+    report = health.check_site_health(
+        "https://example.test/dashboard/", now=NOW, fetch=fetcher
+    )
+
+    assert report["healthy"] is False
+    assert "site-assets" in _codes(report)
+    assert all(urlsplit(url).netloc == "example.test" for url, _ in fetcher.calls)
+
+
+def test_shell_rejects_base_url_and_duplicate_asset_attributes():
+    for injected in (
+        b'<base href="https://evil.test/">',
+        b'<link rel="stylesheet" href="assets/css/dashboard.css" href="https://evil.test/x">',
+    ):
+        site = _response(
+            b"<!doctype html><title>vLLM AMD CI Operations</title>"
+            + injected
+            + b'<link rel="stylesheet" href="assets/css/dashboard.css">'
+            + b'<section id="publication-status-banner"></section>'
+            + b'<script src="assets/js/publication-status.js"></script>'
+            + b"x" * 800
+        )
+        report = health.check_site_health(
+            "https://example.test/dashboard/",
+            now=NOW,
+            fetch=Fetcher(site=site),
+        )
+        assert report["healthy"] is False
+        assert "site-assets" in _codes(report)
+
+
+def test_bootstrap_policy_allows_only_two_definitive_metadata_404s():
+    absent = {
+        health.PUBLICATION_GENERATION_PATH: _response(status=404),
+        health.PUBLICATION_MANIFEST_PATH: _response(status=404),
+    }
+    allowed = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(resources=absent),
+        allow_legacy_metadata_absence=True,
+    )
+    strict = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(resources=absent),
+        allow_legacy_metadata_absence=False,
+    )
+    mixed = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(
+            resources={health.PUBLICATION_GENERATION_PATH: _response(status=404)}
+        ),
+        allow_legacy_metadata_absence=True,
+    )
+
+    assert allowed["healthy"] is True
+    assert allowed["projection"]["mode"] == "legacy-bootstrap"
+    assert strict["healthy"] is False
+    assert {"generation-http", "manifest-http"} <= _codes(strict)
+    assert mixed["healthy"] is False
+    assert "generation-http" in _codes(mixed)
+
+
+def test_legacy_guard_requires_deadline_and_fresh_two_slot_absence(tmp_path):
+    policy = tmp_path / "dashboard_state.json"
+    bootstrap = tmp_path / "dashboard_bootstrap.json"
+    evidence = tmp_path / "bootstrap-ref-evidence.json"
+    value = {
+        "schema_version": 1,
+        "branch": "dashboard-state",
+        "previous_branch": "dashboard-state-previous",
+        "manifest_path": "data/vllm/ci/dashboard_state.json",
+        "generated_roots": ["data"],
+        "limits": {
+            "max_blob_bytes": 1,
+            "max_tree_bytes": 1,
+            "max_files": 1,
+        },
+        "bootstrap_allowed": True,
+    }
+    policy.write_text(json.dumps(value) + "\n")
+    bootstrap.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "bootstrap_deadline": health._iso_utc(NOW + timedelta(hours=1)),
+            }
+        )
+        + "\n"
+    )
+
+    def write_evidence(*, current="absent", previous="absent", checked_at=NOW):
+        def descriptor(branch, status, sha):
+            return {
+                "ref": f"refs/heads/{branch}",
+                "status": status,
+                "sha": sha,
+            }
+
+        payload = {
+            "schema_version": 1,
+            "provider": "github-rest-git-ref-v1",
+            "repository": "owner/repo",
+            "checked_at": health._iso_utc(checked_at),
+            "refs": {
+                "dashboard-state": descriptor(
+                    "dashboard-state",
+                    current,
+                    "1" * 40 if current == "present" else None,
+                ),
+                "dashboard-state-previous": descriptor(
+                    "dashboard-state-previous",
+                    previous,
+                    "2" * 40 if previous == "present" else None,
+                ),
+            },
+        }
+        evidence.write_bytes(health._canonical_json(payload))
+
+    write_evidence()
+    def guard():
+        return health._legacy_bootstrap_allowed(
+            policy,
+            bootstrap_config_path=bootstrap,
+            evidence_path=evidence,
+            repository="owner/repo",
+            now=NOW,
+        )
+    assert guard() is True
+
+    # The first observed state closes legacy health even before the required
+    # follow-up commit flips the migration boolean.
+    write_evidence(current="present")
+    assert guard() is False
+    report = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(
+            resources={
+                health.PUBLICATION_GENERATION_PATH: _response(status=404),
+                health.PUBLICATION_MANIFEST_PATH: _response(status=404),
+            }
+        ),
+        allow_legacy_metadata_absence=guard(),
+    )
+    assert report["healthy"] is False
+    assert {"generation-http", "manifest-http"} <= _codes(report)
+    write_evidence()
+
+    value["bootstrap_allowed"] = False
+    policy.write_text(json.dumps(value) + "\n")
+    assert guard() is False
+    value["bootstrap_allowed"] = True
+    policy.write_text(json.dumps(value) + "\n")
+
+    bootstrap.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "bootstrap_deadline": health._iso_utc(NOW),
+            }
+        )
+        + "\n"
+    )
+    assert guard() is False
+    bootstrap.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "bootstrap_deadline": health._iso_utc(NOW + timedelta(hours=1)),
+            }
+        )
+        + "\n"
+    )
+    write_evidence(checked_at=NOW - health.BOOTSTRAP_EVIDENCE_MAX_AGE - timedelta(seconds=1))
+    assert guard() is False
+
+    policy.write_text(
+        '{"schema_version":1,"bootstrap_allowed":true,"bootstrap_allowed":true}\n'
+    )
+    assert guard() is False
+
+
+def test_bootstrap_evidence_writer_observes_both_refs_and_writes_canonical(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "bootstrap-ref-evidence.json"
+    calls = []
+
+    def observe(repository, branch, *, token):
+        calls.append((repository, branch, token))
+        return {
+            "ref": f"refs/heads/{branch}",
+            "status": "absent",
+            "sha": None,
+        }
+
+    monkeypatch.setattr(health, "_github_ref_observation", observe)
+    evidence = health.write_bootstrap_ref_evidence(
+        output,
+        "owner/repo",
+        now=NOW,
+        token="runner-token",
+    )
+
+    assert calls == [
+        ("owner/repo", "dashboard-state", "runner-token"),
+        ("owner/repo", "dashboard-state-previous", "runner-token"),
+    ]
+    assert output.read_bytes() == health._canonical_json(evidence)
+    assert health._legacy_bootstrap_allowed(
+        evidence_path=output,
+        repository="owner/repo",
+        now=NOW,
+    )
+
+
+def test_bootstrap_evidence_writer_leaves_no_proof_on_ambiguous_observation(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "bootstrap-ref-evidence.json"
+
+    def observe(repository, branch, *, token):
+        del repository, token
+        if branch == "dashboard-state-previous":
+            raise RuntimeError("ambiguous")
+        return {
+            "ref": f"refs/heads/{branch}",
+            "status": "absent",
+            "sha": None,
+        }
+
+    monkeypatch.setattr(health, "_github_ref_observation", observe)
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        health.write_bootstrap_ref_evidence(
+            output,
+            "owner/repo",
+            now=NOW,
+            token="runner-token",
+        )
+
+    assert not output.exists()
+
+
+def test_checked_in_bootstrap_window_is_canonical_and_expires_fail_closed():
+    bootstrap = json.loads(health.DEFAULT_BOOTSTRAP_CONFIG.read_text())
+    assert bootstrap == {
+        "schema_version": 1,
+        "bootstrap_deadline": "2026-09-02T00:00:00Z",
+    }
+    assert health.bootstrap_policy_active(
+        now=datetime(2026, 9, 1, 23, 59, 59, tzinfo=timezone.utc)
+    )
+    assert not health.bootstrap_policy_active(
+        now=datetime(2026, 9, 2, tzinfo=timezone.utc)
+    )

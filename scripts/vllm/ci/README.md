@@ -120,7 +120,7 @@ and expected queues, and the validated
 build messages plus bounded group observations with outcomes, stable step keys,
 retry evidence, and queue timestamps. The public shard is the authoritative
 joined contract; the full analytics payload and the monolithic
-`operations_v2.json` build input remain private.
+`operations_v2.json.gz` build input remains private and below the file ceiling.
 
 `all_main_reliability` schema v2 normalizes its retained observations: build
 metadata and base URLs live once in the authoritative `builds` catalog, while
@@ -218,15 +218,285 @@ Seven workflows divide canonical publication from focused manual/event collector
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
-| `hourly-master.yml` | Hourly + Buildkite nightly-completion webhooks | Full collection, validation, and the only scheduled root-site deployment |
-| `daily-update.yml` | Manual | Focused GitHub-data refresh committed to `main` |
-| `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
+| `hourly-master.yml` | Every two hours + coalesced Buildkite nightly-completion webhooks | Full collection, validation, atomic dashboard-state rotation, and the only scheduled root-site deployment |
+| `daily-update.yml` | Manual | Compatibility handoff to the canonical collector; never writes generated data to `main` |
+| `ci-collect.yml` | Manual | Tokenless compatibility dispatch into the canonical guarded collector; it cannot run an independent Buildkite refresh |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
-| `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
+| `queue-lifecycle.yml` | Every two hours + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
-| `publication-watchdog.yml` | Workflow completions + hourly + external tick + manual | Proactive freshness recovery with active-run, cooldown, generation, and schedule-coalescing guards |
+| `publication-watchdog.yml` | Queue Monitor, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
+
+### Durable full-collector request bounds
+
+`hourly-master.yml` and `queue-lifecycle.yml` each own an independent,
+single-file, parentless request-bearing-attempt ledger. Every scheduled,
+webhook, and manual path reaches the same exact-leased reservation after its
+two-stage concurrency gate and before the first step can receive
+`BUILDKITE_TOKEN`. Missing, corrupt, ambiguous, non-parentless, or
+lease-conflicted state fails closed with zero Buildkite requests. A reservation
+survives cancellation and failure for 25 hours. A successful attempt is due
+again 120 minutes after its **reservation time** (start-to-start); a failed
+attempt can retry after 30 minutes. The 50-minute workflow timeout leaves more
+than one hour between the last possible request and reservation expiry, so a
+25-hour ledger proves the corresponding rolling-24-hour bound.
+
+Every permitted process also imports `scripts/sitecustomize.py` from one exact
+`PYTHONPATH`. It patches `requests.Session.send`, atomically charges the shared
+local counter before each HTTPS send to `api.buildkite.com` or
+`graphql.buildkite.com`, counts same-origin redirect sends, and blocks
+allowance+1 before transport. Requests adapters with hidden internal retry
+policies are rejected; application retries are charged individually. Data
+Collection reserves at most 800 starts per attempt and at most 16 guarded
+attempts in any 25 hours, for a hard rolling-24-hour safety ceiling of 12,800.
+At current volume a fresh full run is approximately 670–720 starts, or about
+8,040–8,640 starts/day on the normal two-hour cadence. Queue Lifecycle reserves
+100 starts per attempt, producing a 1,600 rolling-24-hour hard ceiling and a
+normal ceiling of 1,200/day at the two-hour cadence. These fixed allowances are
+safety limits even where a collector's older theoretical pagination limit is
+higher; exhausting an allowance degrades the affected surface to its validated
+last-known-complete baseline rather than publishing partial evidence.
+
+Cache loss does not require raising the 800-start safety limit. Core CI records
+each completely parsed nightly in the integrity-bound private
+`ci-backfill-v1` Actions cache. A capped attempt always validates and saves
+monotonic complete shards, the public `ci_core` surface retains its prior
+complete generation, and the next guarded attempt restores and skips those
+shards. Individual checkpoint files are limited to 80 MiB and the newest 16
+nightly/pipeline shards are retained, covering the normal eight-day/two-pipeline
+window. The cache is gitignored and never enters the dashboard-state or Pages
+tree, so it cannot create a repository blob near GitHub's 90 MB sync limit.
+
+Neither workflow bootstraps its ledger. At rollout, disable the corresponding
+producer, inventory every legacy run in the preceding 25 hours whose token step
+could have executed, and use the run's `created_at` as the conservative
+`reserved_at`. Successful rows need the exact durable commit pushed by that
+run; failed/cancelled rows keep all success fields null. Unknown legacy request
+counts remain null and `request_start_bound_proven` must be false. For example:
+
+```json
+[
+  {
+    "workflow_run_id": "123456789",
+    "workflow_run_attempt": 1,
+    "event_name": "schedule",
+    "reserved_at": "2026-09-01T00:00:00Z",
+    "request_start_bound_proven": false,
+    "succeeded_at": "2026-09-01T00:25:00Z",
+    "durable_ref": "<full-40-character-git-commit-sha>",
+    "actual_request_starts": null
+  },
+  {
+    "workflow_run_id": "123456790",
+    "workflow_run_attempt": 1,
+    "event_name": "workflow_dispatch",
+    "reserved_at": "2026-09-01T01:00:00Z",
+    "request_start_bound_proven": false,
+    "succeeded_at": null,
+    "durable_ref": null,
+    "actual_request_starts": null
+  }
+]
+```
+
+Save the complete, current array outside the repository and initialize exactly
+once while the producer remains disabled:
+
+```bash
+python scripts/vllm/request_bearing_attempt_budget.py \
+  --config config/data_collection_attempt_budget.json initialize \
+  --seed-file /secure/path/data-collection-seeds.json
+
+python scripts/vllm/request_bearing_attempt_budget.py \
+  --config config/queue_lifecycle_attempt_budget.json initialize \
+  --seed-file /secure/path/queue-lifecycle-seeds.json
+```
+
+Initialization refuses an existing branch. During cutover, at most 16 guarded
+runtime attempts and at most 19 total legacy-plus-runtime attempts may coexist.
+This bounded overlap permits one initial guarded Data Collection run when 18
+legacy rows are still active, then releases further slots exactly as those rows
+age out; it never weakens the post-cutover 16-attempt bound. Do not store or
+initialize from the illustrative rows above—rebuild the inventory immediately
+before rollout and validate the resulting parentless refs before enabling the
+workflows.
+
+### Bounded dashboard-state snapshots
+
+Generated dashboard data is no longer appended to `main`. The canonical
+collector creates a parentless exact snapshot and atomically rotates two refs
+configured in `config/dashboard_state.json`:
+
+- `dashboard-state` is the current tested source-and-generated tree.
+- `dashboard-state-previous` is the immediately preceding tested tree. On the
+  first publication both refs point to the same root commit.
+
+Every candidate is rejected before publication if it has more than 10,000
+files, more than 256 MiB of logical tree data, or any blob larger than 85 MiB
+(89,128,960 bytes, which is below 90,000,000 decimal bytes). Symlinks,
+submodules, non-canonical or traversing paths, malformed manifests, and a
+generated file-set/hash mismatch also fail closed. Every established state must
+also contain a hash-bound, canonical, semantically valid private projection
+attestation of at most 4 KiB. Site assembly independently
+uses the same 85 MiB per-file limit, plus a 384 MiB/10,000-file public-tree
+limit. The private `data/vllm/ci/dashboard_state.json` manifest and
+`public_projection_attestation.json` never enter Pages. The public
+`publication_manifest.json` describes every canonical root file with its mode,
+size, SHA-256, and Git object ID; only `pr-preview/` is outside that root
+attestation. `_site/publication_generation.json` binds the manifest digest,
+file count, and total bytes to the exact generation, state commit, state tree,
+code commit, and timestamp identity. Post-deploy and watchdog verification use
+the Git tree object IDs, so they fetch only the small manifest and marker rather
+than every large public blob.
+
+Synthetic public health additionally fetches and digest/length verifies the
+Operations manifest plus its `nightly` and `amd_test_health` default CI Health
+sections and the `diagnostics` canary. Together with the shell, publication
+metadata, and six required shell assets, this is an exact maximum of 14 HTTP
+requests per probe. The 2-of-3 confirmation therefore declares at most 42
+requests, 420 transport seconds, and 427 elapsed seconds including retry
+delays.
+
+Canonical publishers preserve previews without preserving stale canonical
+files: they server-prove the exact old Pages tree before fetching preview
+blobs, copy only whole `pr-preview/pr-N` cohorts into the newly assembled
+`_site`, prune older cohorts to a 192 MiB preview envelope, and recheck the
+combined 384 MiB/10,000-file Pages envelope before an orphan replacement.
+Individual preview cohorts are also limited to 192 MiB and 2,000 files, which
+admits the current roughly 144 MiB full-site preview. The expected preview
+inventory digest is certified after the initial deploy and any corruption
+redeploy. Ambiguous proof/ref movement aborts before Pages mutation; a
+definitively unsafe old Pages tree is recovered without carrying its previews.
+
+State manifest schema 2 binds every generated descriptor to its Git object ID
+as well as mode, byte count, and SHA-256. It also records a content summary
+(excluding the self-referential manifest) whose file count, total bytes, and
+largest blob are recomputed by full validation. The watchdog fetches state with
+an 8 MiB blob limit and the declared code commit with `blob:none`, then runs
+`validate-ref-metadata --expected-code-sha`. That mode reads only the canonical
+state manifest and the canonical projection attestation. It verifies generated
+paths/modes/OIDs, declared storage bounds, and exact non-generated source-tree
+OID/mode identity without hashing or lazily fetching the large data blobs.
+Collectors and deploy-only recovery continue to use full `validate-ref`, which
+also reads generated bytes and verifies every SHA-256 descriptor.
+
+Deploy-only recovery treats buildability as part of slot validity. If the
+current fully validated state deterministically fails operations reconstruction,
+the dashboard audit, site assembly, marker creation, or exact local projection,
+the same current state is first rebuilt without network access in a clean
+temporary worktree using its already installed state-pinned environment. A
+successful retry publishes current. Only the same stage failing twice with
+healthy disk/inode/memory headroom and non-signal exit status authorizes trying the
+previous slot; a different-stage or infrastructure-class failure leaves both
+refs untouched. The previous slot then uses its own pinned `constraints.txt`
+and is promoted under exact leases only after all gates pass. Dependency/network
+ambiguity or two failing candidates mutates neither Pages nor the rollback refs.
+Manifest policy changes may accept only the current and
+same-shape N-1 schema, and both the producer-declared and current hard limits
+remain enforced.
+
+`dashboard_state.py rotate` pushes both refs in one Git atomic transaction with
+exact `--force-with-lease` observations. A lease rejection or server rejection
+updates neither ref. After the first generation, each successful rotation sets
+current to the new parentless commit and previous to the old current commit, so
+only two state generations remain reachable. A network failure during the
+post-push verification can be reported after the server accepted the atomic
+transaction; always re-read both remote refs before retrying. State rotation
+precedes Pages deployment by design. If deployment then fails, the public marker
+does not match current state and the watchdog requests an exact deploy-only
+recovery without repeating Buildkite collection.
+
+#### One-time bootstrap and lockout
+
+`bootstrap_allowed` starts as `true` only for the migration in which both state
+refs are definitively absent. The first canonical Data Collection run passes
+`--current-sha absent --previous-sha absent`; `rotate` creates both refs at the
+same validated root or creates neither. Workflows refuse frozen-main bootstrap
+if only one ref exists, remote discovery is ambiguous, or validation/fetch
+fails.
+
+Health checks have a separate, temporary migration authority in
+`config/dashboard_bootstrap.json`. They accept the legacy projection only
+before `2026-09-02T00:00:00Z` and only when fresh, canonical evidence from the
+GitHub Git Refs API says that both state refs are absent. A present ref,
+ambiguous API response, stale or malformed evidence, or the deadline expiring
+makes missing state-backed metadata unhealthy. This evidence is generated on
+the runner and is never accepted from the public site.
+
+Before restore, recovery validates each observed slot independently and binds
+every usable slot's declared code SHA to the exact trusted `main` SHA with a
+fail-closed GitHub Compare API ancestry proof. If both slots are valid,
+`repair-slots` is a no-op. If exactly one is valid, it atomically copies that
+root to both refs under exact leases without a Buildkite request. If neither is
+valid, it fails rather than treating missing or corrupt state as bootstrap
+authority.
+
+After the first successful run, verify and fully validate the two identical
+slots:
+
+```bash
+git ls-remote --refs origin \
+  refs/heads/dashboard-state \
+  refs/heads/dashboard-state-previous
+git fetch origin \
+  +refs/heads/dashboard-state:refs/remotes/origin/dashboard-state \
+  +refs/heads/dashboard-state-previous:refs/remotes/origin/dashboard-state-previous \
+  --depth=1
+CURRENT_STATE_SHA=$(git rev-parse refs/remotes/origin/dashboard-state)
+PREVIOUS_STATE_SHA=$(git rev-parse refs/remotes/origin/dashboard-state-previous)
+test "$CURRENT_STATE_SHA" = "$PREVIOUS_STATE_SHA"
+python scripts/vllm/dashboard_state.py validate-ref --ref "$CURRENT_STATE_SHA"
+STATE_CODE_SHA=$(git show \
+  "$CURRENT_STATE_SHA:data/vllm/ci/dashboard_state.json" | \
+  python -c 'import json,sys; print(json.load(sys.stdin)["code_sha"])')
+git fetch origin "$STATE_CODE_SHA" --depth=1
+python scripts/vllm/dashboard_state.py validate-ref \
+  --ref "$CURRENT_STATE_SHA" --expected-code-sha "$STATE_CODE_SHA"
+```
+
+Then change `config/dashboard_state.json` to `"bootstrap_allowed": false` in
+the next reviewed `main` commit. This is a required post-bootstrap step, not an
+automatic state-branch mutation. Once disabled, deletion of both refs is a hard
+recovery condition rather than permission to rebuild durable state from the
+frozen generated files on `main`.
+
+#### Explicit rollback
+
+Rollback swaps the two already validated slots; it never creates history and
+makes no Buildkite request. Run it while no canonical publisher is active. Fetch
+both refs and their declared code commits, validate them using the same
+two-pass workflow contract, then use the exact observed SHAs:
+
+```bash
+git fetch origin \
+  +refs/heads/dashboard-state:refs/remotes/origin/dashboard-state \
+  +refs/heads/dashboard-state-previous:refs/remotes/origin/dashboard-state-previous \
+  --depth=1
+CURRENT_STATE_SHA=$(git rev-parse refs/remotes/origin/dashboard-state)
+PREVIOUS_STATE_SHA=$(git rev-parse refs/remotes/origin/dashboard-state-previous)
+for STATE_SHA in "$CURRENT_STATE_SHA" "$PREVIOUS_STATE_SHA"; do
+  python scripts/vllm/dashboard_state.py validate-ref --ref "$STATE_SHA"
+  STATE_CODE_SHA=$(git show \
+    "$STATE_SHA:data/vllm/ci/dashboard_state.json" | \
+    python -c 'import json,sys; print(json.load(sys.stdin)["code_sha"])')
+  git fetch origin "$STATE_CODE_SHA" --depth=1
+  python scripts/vllm/dashboard_state.py validate-ref \
+    --ref "$STATE_SHA" --expected-code-sha "$STATE_CODE_SHA"
+done
+python scripts/vllm/dashboard_state.py rotate \
+  --new-state "$PREVIOUS_STATE_SHA" \
+  --current-sha "$CURRENT_STATE_SHA" \
+  --previous-sha "$PREVIOUS_STATE_SHA" \
+  --remote origin
+gh workflow run deploy-pages.yml --ref main
+```
+
+The exact leases reject a concurrent advance. The successful command makes the
+old previous state current and retains the displaced state in the previous
+slot. Existing historical objects on `main` are intentionally not rewritten;
+this design stops future hourly reachable-history growth. Git hosts may retain
+superseded unreachable objects until normal server-side garbage collection.
 
 ### Webhook-Triggered Updates
 
@@ -234,7 +504,35 @@ For build-completion updates, `hourly-master.yml` receives the
 `buildkite_build_finished` repository dispatch and performs a complete,
 validated publication.
 
-Buildkite queue freshness now uses those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to dispatch the lightweight `queue-monitor.yml` workflow. This keeps queue counts and zombie-job alerts fresher without forcing the heavier CI collectors to run on every queue change.
+Buildkite queue freshness now uses those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to wake the lightweight `queue-monitor.yml` workflow. A webhook is never a cadence bypass: the parentless `queue-request-budget` ledger coalesces every trigger, including manual runs, before the token-bearing step. Queue-native metrics reserve two starts at most every ten minutes; the complete active-job overlay reserves twelve additional starts at most hourly. Missing, corrupt, ambiguous, or lease-conflicted budget state fails closed with zero Buildkite requests.
+
+The normal current-volume cost is about 312 requests/day: 144 one-page metric
+reads plus 24 seven-page detail scans. The exact 25-hour ledger caps outstanding
+reservations at 650 starts. Queue Monitor times out after 20 minutes, so every
+actual start remains inside the ledger's extra one-hour hold and the same 650
+ceiling applies to every rolling 24-hour window. If the active-job connection
+needs more than twelve pages or errors, the collector never publishes the
+partial rows. It retains `queue_jobs.json` from the last exhaustive scan,
+preserves `details_observed_at`, and records a `retained_due_to_page_cap` or
+`retained_due_to_error` status alongside independently current
+`metrics_observed_at`.
+
+The workflow never creates the budget branch. At cutover, an operator must
+account for every successful legacy queue run still inside the preceding 25
+hours (use its conservative maximum request-start charge, not its observed
+returned rows) and initialize once while queue publication is disabled:
+
+```bash
+python scripts/vllm/queue_request_budget.py initialize \
+  --now 2026-09-01T12:00:00Z \
+  --seed 2026-08-31T12:02:00Z=101 \
+  --seed 2026-08-31T12:12:00Z=101
+```
+
+Supply all verified rows; the example is intentionally incomplete. An
+over-650 seed becomes migration debt and blocks new request permits until
+enough 25-hour reservations expire. Initialization refuses an existing branch,
+and runtime updates are parentless replacements protected by exact leases.
 
 Queue analytics intentionally exclude waiting or running jobs older than 4 hours. Those jobs are treated as zombies, surfaced separately in `queue_jobs.json`, and tracked via `queue_zombie_watcher.py` so the main queue charts stay conservative.
 
@@ -277,7 +575,7 @@ event. The ledger deliberately omits labels, URLs, branches,
 commits, pipeline names, and other build metadata. Per-segment and total-size
 guards prevent GitHub blob-limit and repository-pressure failures.
 
-Lifecycle collection runs independently once per hour so an API or schema
+Lifecycle collection runs independently once every two hours so an API or schema
 failure cannot delay the ten-minute point-in-time queue monitor. Organization-
 wide finished, created, and active-build cohorts use bounded, verified REST
 pagination, and the public aggregate includes the exact source window, cohort
@@ -293,16 +591,65 @@ logs, or dashboard URLs.
 `collect_dns_failures.py` discovers terminal script-job attempts across the
 `amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
 bounded log sample for strong DNS signatures. The workflow gets an hourly
-recovery opportunity, while its durable three-hour minimum interval permits at
-most eight request-bearing scans per day. Each eligible scan starts at most 110
-Buildkite requests, so the hard ceiling remains 880 request starts per day,
-including discovery, log reads, and retries; the 500-log limit remains a
-secondary safety bound. Hourly, external, or manual invocations inside the gate
-republish validated state without spending another Buildkite API budget.
+recovery opportunity and retains a three-hour scanner interval, but the hard
+cross-run limit comes from the separate parentless `dns-request-budget` branch.
+Before an eligible attempt receives a Buildkite token, the workflow atomically
+reserves its complete 110-request allowance for 25 hours. Retries are included
+in that per-run allowance. A failed, canceled, or interrupted scan keeps the
+whole reservation, so lack of a new DNS generation cannot make the next retry
+forget traffic already started. A new reservation is rejected while the
+retained total plus 110 would exceed 990. Because the request-bearing step has
+less than one hour of wall-clock headroom after reservation, the extra hour of
+retention guarantees at most 990 actual request starts in every rolling 24
+hours, below the 1,000-request target.
+The 500-log limit remains a secondary safety bound. Hourly, external, or manual
+invocations inside the scanner interval validate the established budget ledger
+but do not move it, reserve capacity, or make a Buildkite request.
+
+The budget branch is one exact, single-file, parentless commit. Its JSON is
+limited to 32 timestamp/count reservations and 64 KiB; it contains no token,
+Buildkite response, URL, job identity, or log evidence. Every update force-pushes
+one new root with an exact lease under the same non-canceling
+`dns-health-data-publish` concurrency group. Missing, malformed, non-parentless,
+oversized, or concurrently changed established state fails before Buildkite
+access. A push response lost after server acceptance also stops the run before
+collection; the next run re-reads the durable ref.
+
+The workflow never bootstraps a missing request ledger. Before enabling it,
+initialize the branch once with verified request-start telemetry from every
+attempt still inside the 25-hour hold window. The September 1 migration uses the
+following deliberately exact legacy debt (570 + 568 + 110 + 10 + 110 = 1,368
+starts):
+
+```bash
+python scripts/vllm/dns_request_budget.py initialize \
+  --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --seed 2026-08-31T07:33:07Z=570 \
+  --seed 2026-08-31T15:20:21Z=568 \
+  --seed 2026-08-31T23:00:56Z=110 \
+  --seed 2026-09-01T05:20:34Z=10 \
+  --seed 2026-09-01T05:33:17Z=110 \
+  --remote origin
+```
+
+Initialization is the only command allowed to record bounded over-cap migration
+debt. Runtime validation accepts that debt but cannot extend it: no scan is
+permitted until expired entries leave enough room for a full 110-start
+reservation, and the first permitted runtime update clears the migration flag.
+At the exact half-open boundary `2026-09-01T08:33:07Z`, the 570-start entry has
+expired, 798 starts remain, and the next 110-start scan is permitted with 908
+starts reserved. If initialization occurs after any listed entry has already
+reached its 25-hour boundary, omit that entry only after verifying its
+expiration; the initializer rejects out-of-window seeds rather than silently
+changing telemetry.
+
 The eligible scan receives a 20-minute wall-clock budget so large active-parent
 payloads can finish their fail-closed discovery pass. Wall-clock headroom does
 not expand API traffic: the independent 110-request-start ceiling remains
-authoritative and includes retries.
+authoritative within the separately reserved rolling allowance and includes
+retries. The budget decision timestamp is passed unchanged into the collector,
+so crossing the three-hour interval boundary between workflow steps cannot turn
+a zero-reservation republish into a request-bearing scan.
 
 The configured 30-day value is the target retention horizon, not a claim of an
 exhaustive census. Unvisited jobs remain explicitly pending, longer windows stay
@@ -310,33 +657,57 @@ partial, and the UI renders observed values as lower bounds. This expected,
 quantified partial coverage is a DNS-panel warning rather than a site-wide
 publication degradation. Both the DNS panel and publication audit declare the
 source stale after 12 hours. This documented window tolerates delayed or dropped
-GitHub cron events while hourly recovery opportunities reduce the normal delay;
+GitHub cron events while 15-minute recovery opportunities reduce the normal delay;
 a DNS dataset that is not collected, malformed, or internally inconsistent
 takes the same strict degradation or fail-closed publication path.
 
 GitHub Actions schedules are best-effort and may be delayed or dropped. The
 DNS workflow therefore accepts `dns_health_tick`, while the dedicated
 publication watchdog accepts `publication_watchdog_tick` from a scheduler
-outside GitHub Actions. The watchdog also runs after each trusted Queue,
-Lifecycle, DNS, or Site Health workflow completes, regardless of its conclusion,
-and has an off-minute cron as one more best-effort opportunity. It requests a
-canonical refresh once the public generation is 45 minutes old, unless a
-collection is already queued/running or an attempt completed within the
-30-minute retry cooldown.
+outside GitHub Actions. The watchdog also runs after the trusted Queue Monitor,
+Queue Lifecycle Monitor, DNS Health Monitor, or Site Health Check completes,
+regardless of its conclusion, and has a 15-minute cron as one more
+best-effort opportunity. It first validates the parentless current state and
+its exact code tree, then compares the state identity with the public Pages
+marker. Definitively uninitialized state routes to the canonical collector;
+state/Pages mismatch routes to deploy-only recovery; a fresh DNS-only
+degradation routes to the DNS collector; and other stale/blocked publication
+state routes to canonical collection. Ambiguous discovery or an invalid
+established state fails closed instead of dispatching speculative recovery.
+The canonical collector is due every 120 minutes, while proactive recovery
+starts at 95 minutes of publication age. Active-run suppression prevents a
+duplicate when the normal two-hour run is already queued or running, and a
+15-minute retry cooldown bounds repeated failed attempts.
 
-A watchdog dispatch carries the exact generation it observed. After the run
-acquires the shared `gh-pages-deploy` lock, a preflight skips it if another run
-already advanced Pages. A separate 30-minute schedule preflight coalesces an
-ordinary cron that arrived behind a just-finished watchdog recovery. DNS keeps
+A watchdog dispatch carries the exact generation it observed. The
+three workflow groups independently retain only one pending routine, targeted
+DNS, and targeted publication-recovery wakeup. A routine burst therefore cannot
+replace a pending repair. Each surviving job then joins the FIFO
+`gh-pages-deploy` writer queue, so it cannot replace an already-pending
+deploy-only recovery or trusted preview publication. Preview synchronization
+bursts are first coalesced per PR, and close events never enqueue a full-tree
+Pages rewrite, so untrusted PR churn cannot starve canonical recovery. After it
+acquires that writer lock, a
+preflight skips it if another run already advanced Pages. A separate 120-minute
+automated-trigger preflight coalesces a wakeup that arrived behind a recent publication.
+DNS keeps
 its stronger generation acknowledgement: a targeted run is skipped only once
 Pages contains that DNS generation, its full contract validates, DNS is no
 longer affected, and publication remains fresh. The canonical collector has a
-60-minute timeout so a hung run cannot retain the lock indefinitely.
+50-minute timeout so a hung run cannot retain the lock indefinitely. Excluding
+time already held by another bounded Pages writer, the first-attempt bound is
+`95 + 15 + 50 = 160` minutes (trigger age, detection interval, timeout), twenty
+minutes before the three-hour site-health freshness
+limit. At the normal 25-minute runtime, one failed attempt plus its 15-minute
+cooldown and retry is bounded by `95 + 15 + 25 + 15 + 25 = 175` minutes,
+retaining five minutes of margin. GitHub schedules remain best-effort, so the
+independent external 15-minute tick is still required for the timing guarantee
+when Actions cron is delayed or dropped.
 
 Declaring a `repository_dispatch` trigger is not an independent scheduler. To
 make publication recovery enforceable independently of GitHub's scheduler,
 configure a scheduler outside GitHub Actions to POST the following event every
-15 minutes (60 minutes is the absolute budget with no retry margin):
+15 minutes (the recovery timing contract assumes no longer interval):
 
 ```http
 POST https://api.github.com/repos/AndreasKaratzas/vllm-ci-dashboard/dispatches
@@ -353,7 +724,7 @@ no `repository_dispatch` event arrives for 30 minutes. In-repository cron and
 `workflow_run` triggers materially improve recovery odds but cannot guarantee
 recovery from their own scheduler failure domain.
 
-Each eligible run gives collection a 10-minute budget with a separate
+Each eligible run gives collection a 20-minute budget with a separate
 finalization reserve. Unvisited log work remains pending for a later sample
 instead of being reported as a complete zero. Pending work is ordered newest
 first, round-robined across pipeline/queue/node coordinates, and allocated in
@@ -390,8 +761,9 @@ these as final outcomes after the DNS observation and reserves failure styling
 for non-passing outcomes. It does not infer that DNS caused a retry, or describe
 resolver-line clusters as CI incidents.
 
-The repository and its force-orphan `dns-health-data` branch are publicly
-readable. Plaintext scanner state therefore exists only at the gitignored
+The repository and its force-orphan `dns-health-data` and
+`dns-request-budget` branches are publicly readable. Plaintext scanner state
+therefore exists only at the gitignored
 `dns_health/scan_state.json.gz` path inside an ephemeral Actions runner. The
 branch stores authenticated Fernet ciphertext at
 `dns_health/scan_state.fernet`; it never stores the plaintext gzip. The
@@ -412,7 +784,7 @@ ciphertext has been replaced successfully.
 
 ### Managed Alert Issues
 
-The unified hourly Data Collection workflow also reconciles four bounded
+The unified two-hour Data Collection workflow also reconciles four bounded
 umbrella issues in this repository:
 
 - AMD main test-group failures use the exhaustive amd-ci branch=main reliability
@@ -468,10 +840,12 @@ scripts/
 **Rate limiting (429)**: The script retries on 429 with exponential backoff using the `Retry-After` header. For large fetches (30+ days), run in smaller batches: `--days 7`.
 
 **Cached data**: The analytics collector's sanitized Buildkite history cache
-lives in `data/vllm/ci/.cache/analytics-builds-v1`. The hourly workflow keeps
+lives in `data/vllm/ci/.cache/analytics-builds-v1`. The canonical workflow keeps
 one immutable cache key per UTC day in GitHub Actions cache storage, restores
-the prior day when the new key is not populated, and still refetches the recent
-overlap on every run. The collector fully reconciles when the restored cache's
+the prior day when the new key is not populated, and finally restores the newest
+versioned cache after a multi-day Actions outage. It still refetches the recent
+overlap on every run. The collector validates/prunes the restored cache and
+fully reconciles when its
 `generated_at` UTC date differs from the current collection date, or when
 cached `last_full_at` reaches 24 hours old. This guarantees that the first
 snapshot saved under each immutable daily key is complete. A failed analytics

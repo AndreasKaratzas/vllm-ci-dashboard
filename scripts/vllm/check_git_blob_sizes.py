@@ -13,6 +13,8 @@ from pathlib import Path
 # 85 MiB also stays below 90,000,000 decimal bytes, so the guard is safe no
 # matter which unit a hosting/sync layer uses when it reports "90 MB".
 DEFAULT_MAX_BYTES = 85 * 1024 * 1024
+DEFAULT_WARNING_BYTES = 75 * 1024 * 1024
+DEFAULT_MAX_TREE_BYTES = 256 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,14 @@ class TrackedBlob:
     path: str
     object_id: str
     size: int
+
+
+@dataclass(frozen=True)
+class TrackedTreeSummary:
+    file_count: int
+    logical_bytes: int
+    unique_blob_bytes: int
+    largest_blob_bytes: int
 
 
 def _git(root: Path, *args: str) -> bytes:
@@ -65,28 +75,72 @@ def oversized_tracked_blobs(
     )
 
 
+def summarize_tracked_tree(blobs: list[TrackedBlob]) -> TrackedTreeSummary:
+    unique = {blob.object_id: blob.size for blob in blobs}
+    return TrackedTreeSummary(
+        file_count=len(blobs),
+        logical_bytes=sum(blob.size for blob in blobs),
+        unique_blob_bytes=sum(unique.values()),
+        largest_blob_bytes=max((blob.size for blob in blobs), default=0),
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Reject tracked Git blobs that exceed the publication budget"
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES)
+    parser.add_argument("--warning-bytes", type=int, default=DEFAULT_WARNING_BYTES)
+    parser.add_argument("--max-tree-bytes", type=int, default=DEFAULT_MAX_TREE_BYTES)
     args = parser.parse_args()
 
-    oversized = oversized_tracked_blobs(
-        args.root.resolve(),
-        max_bytes=args.max_bytes,
+    if not 0 < args.warning_bytes < args.max_bytes:
+        parser.error("--warning-bytes must be positive and below --max-bytes")
+    if args.max_tree_bytes <= 0:
+        parser.error("--max-tree-bytes must be positive")
+
+    blobs = tracked_blobs(args.root.resolve())
+    summary = summarize_tracked_tree(blobs)
+    oversized = sorted(
+        (blob for blob in blobs if blob.size > args.max_bytes),
+        key=lambda blob: (-blob.size, blob.path),
     )
-    if not oversized:
-        print(f"Tracked Git blob budget passed (max {args.max_bytes} bytes).")
-        return 0
+    warnings = sorted(
+        (
+            blob
+            for blob in blobs
+            if args.warning_bytes < blob.size <= args.max_bytes
+        ),
+        key=lambda blob: (-blob.size, blob.path),
+    )
 
     for blob in oversized:
         print(
             "::error::Tracked Git blob exceeds the publication budget: "
             f"{blob.path} is {blob.size} bytes (max {args.max_bytes})"
         )
-    return 1
+    for blob in warnings:
+        print(
+            "::warning::Tracked Git blob is approaching the publication budget: "
+            f"{blob.path} is {blob.size} bytes "
+            f"(warning {args.warning_bytes}, max {args.max_bytes})"
+        )
+    if summary.logical_bytes > args.max_tree_bytes:
+        print(
+            "::error::Tracked Git index exceeds the bounded tree budget: "
+            f"{summary.logical_bytes} bytes (max {args.max_tree_bytes})"
+        )
+    print(
+        "Tracked Git tree: "
+        f"{summary.file_count} files, {summary.logical_bytes} logical bytes, "
+        f"{summary.unique_blob_bytes} unique blob bytes, "
+        f"largest {summary.largest_blob_bytes} bytes."
+    )
+    if oversized or summary.logical_bytes > args.max_tree_bytes:
+        return 1
+    print(f"Tracked Git blob budget passed (max {args.max_bytes} bytes).")
+    return 0
 
 
 if __name__ == "__main__":

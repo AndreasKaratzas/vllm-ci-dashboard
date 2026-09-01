@@ -2,6 +2,7 @@
 
 # cspell:ignore xoxb
 
+import gzip
 import json
 import shutil
 import subprocess
@@ -20,13 +21,14 @@ DASHBOARD_NAV_JS = (
     ROOT / "docs" / "assets" / "js" / "dashboard-nav.js"
 ).read_text()
 UTILS_JS = (ROOT / "docs" / "assets" / "js" / "utils.js").read_text()
-OPS_DATA_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2.json"
+OPS_DATA_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2.json.gz"
 OPS_MANIFEST_PATH = ROOT / "data" / "vllm" / "ci" / "operations_v2_manifest.json"
 
 
 @pytest.fixture(scope="module")
 def ops_data():
-    return json.loads(OPS_DATA_PATH.read_text())
+    with gzip.open(OPS_DATA_PATH, "rt", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 @pytest.fixture(scope="module")
@@ -45,6 +47,14 @@ def test_ops_v2_javascript_has_valid_syntax():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_queue_ui_distinguishes_current_metrics_from_retained_job_details():
+    assert "jobs.details_status || snapshot.details_status" in OPS_JS
+    assert "retained_due_to_page_cap" in OPS_JS
+    assert "retained_due_to_error" in OPS_JS
+    assert "jobs.details_observed_at || jobs.ts" in OPS_JS
+    assert "they are not relabeled as current" in OPS_JS
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
@@ -137,6 +147,14 @@ def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
     site_builder = (ROOT / "scripts" / "build_site.py").read_text()
     assert "materialize_operations_bundle(DATA, output_dir / \"data\", manifest)" in site_builder
     assert "write_snapshot_bundle(output, payload, write_monolith=False" in site_builder
+
+
+def test_data_fetches_retry_and_do_not_cache_transient_failures():
+    assert "for (let attempt = 0; attempt < 3; attempt += 1)" in OPS_JS
+    assert "fetch(requestPath, {cache: 'no-store'})" in OPS_JS
+    assert "if (cache.get(key) === request) cache.delete(key)" in OPS_JS
+    assert "if (operationsManifestPromise === request) operationsManifestPromise = null" in OPS_JS
+    assert "contains invalid JSONL at line" in OPS_JS
 
 
 @pytest.mark.live_data

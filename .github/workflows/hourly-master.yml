@@ -1,4 +1,6 @@
 name: Data Collection
+run-name: >-
+  Data Collection${{ inputs.recovery_key != '' && format(' [recovery:{0}]', inputs.recovery_key) || '' }}
 
 # Single unified cron job that runs all data collection, tests, and deploy.
 # Replaces the legacy CI collection/update schedules. The synthetic site
@@ -6,10 +8,11 @@ name: Data Collection
 # Those workflows keep their workflow_dispatch triggers for manual runs.
 on:
   schedule:
-    # The full collection regularly takes about 25 minutes. Run it hourly so
-    # delayed schedules cannot bunch up behind the non-canceling deploy lock.
+    # The full collection regularly takes about 25 minutes. Start it every two
+    # hours; the 15-minute watchdog recovers a delayed or missed generation
+    # with bounded headroom before the three-hour site-health limit.
     # Lightweight queue monitoring remains on its separate 10-minute cadence.
-    - cron: '13 * * * *'
+    - cron: '13 */2 * * *'
   repository_dispatch:
     types: [buildkite_build_finished, perf_eval_build_finished]
   workflow_dispatch:
@@ -34,16 +37,28 @@ on:
         description: 'Internal: publication generation observed by the recovery watchdog'
         required: false
         default: ''
-
-concurrency:
-  group: gh-pages-deploy
-  queue: max
-  cancel-in-progress: false
+      recovery_key:
+        description: 'Internal: incident-scoped watchdog recovery key'
+        required: false
+        default: ''
 
 permissions:
   actions: write
   contents: write
   issues: write
+
+# Coalesce routine, DNS-recovery, and publication-recovery wakeups independently
+# before they can occupy the Pages writer queue. A routine burst therefore
+# cannot replace a pending targeted repair. The job-level lock below then
+# queues each surviving Data workflow without replacing another Pages writer.
+concurrency:
+  group: >-
+    ${{
+      inputs.dns_generation != '' && 'data-collection-dns-recovery' ||
+      inputs.watchdog_generation != '' && 'data-collection-watchdog-recovery' ||
+      'data-collection-routine'
+    }}
+  cancel-in-progress: false
 
 jobs:
   collect-and-deploy:
@@ -51,46 +66,124 @@ jobs:
     if: >-
       always() && !cancelled() && (
         (inputs.dns_generation == '' && inputs.watchdog_generation == '' && (
-          github.event_name != 'schedule' ||
-          needs.cadence-preflight.result != 'success' ||
-          needs.cadence-preflight.outputs.required != 'false'
+          github.event_name == 'workflow_dispatch' ||
+          github.event_name == 'schedule' ||
+          (github.event_name == 'repository_dispatch' &&
+           needs.cadence-preflight.result == 'success' &&
+           needs.cadence-preflight.outputs.observation_valid == 'true' &&
+           needs.cadence-preflight.outputs.required == 'true')
         )) ||
         (inputs.dns_generation != '' && (
           needs.dns-reconcile-preflight.result != 'success' ||
           needs.dns-reconcile-preflight.outputs.required != 'false'
         )) ||
-        (inputs.watchdog_generation != '' && (
-          needs.publication-watchdog-preflight.result != 'success' ||
-          needs.publication-watchdog-preflight.outputs.required != 'false'
-        ))
+        (inputs.watchdog_generation != '' &&
+          needs.publication-watchdog-preflight.result == 'success' &&
+          needs.publication-watchdog-preflight.outputs.required == 'true')
       )
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    concurrency:
+      group: gh-pages-deploy
+      queue: max
+      cancel-in-progress: false
+    env:
+      # After a durable attempt reservation, Python imports sitecustomize from
+      # this exact directory and all Buildkite API sends share one counter.
+      PYTHONPATH: ${{ github.workspace }}/scripts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.13'
           cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Validate and normalize workflow inputs
+        env:
+          RAW_CI_DAYS: ${{ inputs.ci_days }}
+          RAW_SKIP_TESTS: ${{ inputs.skip_tests }}
+          RAW_RESET_PERF_EVAL: ${{ inputs.reset_perf_eval }}
+          RAW_DNS_GENERATION: ${{ inputs.dns_generation }}
+          RAW_WATCHDOG_GENERATION: ${{ inputs.watchdog_generation }}
+          RAW_RECOVERY_KEY: ${{ inputs.recovery_key }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from datetime import datetime, timezone
+
+
+          def boolean(name: str) -> str:
+              value = os.environ[name] or "false"
+              if value not in {"true", "false"}:
+                  raise SystemExit(f"{name} must be true or false")
+              return value
+
+
+          def timestamp(name: str, *, unavailable: bool = False) -> str:
+              value = os.environ[name]
+              if not value or (unavailable and value == "unavailable"):
+                  return value
+              if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value):
+                  raise SystemExit(f"{name} must be a canonical UTC timestamp")
+              try:
+                  parsed = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(
+                      tzinfo=timezone.utc
+                  )
+              except ValueError as exc:
+                  raise SystemExit(f"{name} must be a valid UTC timestamp") from exc
+              if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != value:
+                  raise SystemExit(f"{name} must be canonical")
+              return value
+
+
+          raw_days = os.environ["RAW_CI_DAYS"] or "8"
+          if not re.fullmatch(r"[1-9]\d*", raw_days):
+              raise SystemExit("RAW_CI_DAYS must be a canonical positive integer")
+          days = int(raw_days)
+          if not 1 <= days <= 30:
+              raise SystemExit("RAW_CI_DAYS must be between 1 and 30")
+
+          normalized = {
+              "HOURLY_CI_DAYS": str(days),
+              "HOURLY_SKIP_TESTS": boolean("RAW_SKIP_TESTS"),
+              "HOURLY_RESET_PERF_EVAL": boolean("RAW_RESET_PERF_EVAL"),
+              "HOURLY_DNS_GENERATION_INPUT": timestamp("RAW_DNS_GENERATION"),
+              "HOURLY_WATCHDOG_GENERATION_INPUT": timestamp(
+                  "RAW_WATCHDOG_GENERATION", unavailable=True
+              ),
+          }
+          recovery_key = os.environ["RAW_RECOVERY_KEY"]
+          if recovery_key and re.fullmatch(r"[0-9a-f]{64}", recovery_key) is None:
+              raise SystemExit("RAW_RECOVERY_KEY must be empty or 64 lowercase hex")
+          normalized["HOURLY_RECOVERY_KEY"] = recovery_key
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              for key, value in normalized.items():
+                  handle.write(f"{key}={value}\n")
+          PY
 
       - name: Install dependencies
-        run: pip install requests pyyaml pytest cryptography
+        run: pip install -c constraints.txt requests pyyaml pytest cryptography
 
-      - name: Capture immutable main baseline
+      - name: Capture immutable main code
         id: publication-baseline
         env:
           MAX_DATA_AGE_HOURS: "36"
         run: |
           set -euo pipefail
-          BASELINE_REF=$(git rev-parse --verify 'HEAD^{commit}')
-          if ! [[ "$BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+          CODE_SHA=$(git rev-parse --verify 'HEAD^{commit}')
+          if ! [[ "$CODE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::Initial main checkout did not resolve to one full commit SHA"
             exit 1
           fi
-          git cat-file -e "$BASELINE_REF^{commit}"
+          git cat-file -e "$CODE_SHA^{commit}"
           if ! git diff --quiet || ! git diff --cached --quiet; then
             echo "::error::Initial main checkout is dirty; refusing an ambiguous fallback baseline"
             exit 1
@@ -330,13 +423,478 @@ jobs:
           BASH
           chmod 0600 "$COLLECTOR_HELPERS"
           {
-            echo "PUBLICATION_BASELINE_REF=$BASELINE_REF"
+            echo "PUBLICATION_CODE_SHA=$CODE_SHA"
             echo "PUBLICATION_FAILED_SURFACES_FILE=$FAILED_SURFACES_FILE"
             echo "PUBLICATION_COLLECTOR_FAILURES_FILE=$COLLECTOR_FAILURES_FILE"
             echo "PUBLICATION_COLLECTOR_HELPERS=$COLLECTOR_HELPERS"
           } >> "$GITHUB_ENV"
-          echo "baseline_ref=$BASELINE_REF" >> "$GITHUB_OUTPUT"
-          echo "Validated publication baseline: $BASELINE_REF"
+          echo "code_sha=$CODE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Pinned immutable publication code: $CODE_SHA"
+
+      - name: Restore validated dashboard state
+        id: dashboard-state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STATE_BRANCH=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["branch"])')
+          PREVIOUS_BRANCH=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["previous_branch"])')
+
+          probe_ref() {
+            local branch="$1"
+            local output="$2"
+            set +e
+            git ls-remote --exit-code --refs origin "refs/heads/$branch" \
+              > "$output"
+            local status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              local count sha
+              count=$(wc -l < "$output")
+              sha=$(awk -v ref="refs/heads/$branch" \
+                '$2 == ref {print $1}' "$output")
+              if [ "$count" -ne 1 ] || ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::Remote state ref $branch resolved ambiguously." >&2
+                exit 1
+              fi
+              printf '%s\n' "$sha"
+              return 0
+            fi
+            if [ "$status" -eq 2 ]; then
+              if [ -s "$output" ]; then
+                echo "::error::Absent state ref $branch returned ambiguous output." >&2
+                exit 1
+              fi
+              printf '%s\n' absent
+              return 0
+            fi
+            echo "::error::Could not determine whether remote state ref $branch exists." >&2
+            exit "$status"
+          }
+
+          OBSERVED_STATE_SHA=$(probe_ref \
+            "$STATE_BRANCH" "$RUNNER_TEMP/dashboard-state.ls-remote")
+          OBSERVED_PREVIOUS_SHA=$(probe_ref \
+            "$PREVIOUS_BRANCH" "$RUNNER_TEMP/dashboard-state-previous.ls-remote")
+          if [ "$OBSERVED_STATE_SHA" = absent ] && \
+             [ "$OBSERVED_PREVIOUS_SHA" = absent ]; then
+            BOOTSTRAP_ALLOWED=$(python -c \
+              'import json; print("true" if json.load(open("config/dashboard_state.json"))["bootstrap_allowed"] is True else "false")')
+            if [ "$BOOTSTRAP_ALLOWED" != true ]; then
+              echo "::error::Both state refs are absent and frozen-main bootstrap is disabled."
+              exit 1
+            fi
+            CURRENT_STATE_SHA=absent
+            PREVIOUS_STATE_SHA=absent
+            PUBLICATION_BASELINE_REF="$PUBLICATION_CODE_SHA"
+            echo "Bootstrapping dashboard state from immutable main $PUBLICATION_CODE_SHA."
+          else
+            hydrate_proven_blob() {
+              local object_id="$1"
+              local expected_size="$2"
+              local max_bytes="$3"
+              local label="$4"
+              local object_type object_size
+              if ! [[ "$object_id" =~ ^[0-9a-f]{40}$ ]] || \
+                 ! [[ "$expected_size" =~ ^[0-9]+$ ]] || \
+                 [ "$expected_size" -gt "$max_bytes" ]; then
+                echo "::error::$label server-side size proof is malformed."
+                return 90
+              fi
+              if ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$object_id"; then
+                if ! git fetch --no-tags --filter=blob:none origin "$object_id"; then
+                  echo "::error::Could not fetch size-proven $label object $object_id."
+                  return 90
+                fi
+              fi
+              if ! object_type=$(GIT_NO_LAZY_FETCH=1 git cat-file -t "$object_id") || \
+                 ! object_size=$(GIT_NO_LAZY_FETCH=1 git cat-file -s "$object_id"); then
+                echo "::error::Could not inspect fetched $label object."
+                return 90
+              fi
+              if [ "$object_type" != blob ] || [ "$object_size" != "$expected_size" ]; then
+                echo "::error::$label object disagrees with its GitHub tree proof."
+                return 90
+              fi
+            }
+
+            PROOF_ROWS="$RUNNER_TEMP/dashboard-state-ancestry-proofs.jsonl"
+            : > "$PROOF_ROWS"
+            declare -A PROVEN_STATES=()
+            declare -A PROVEN_CODES=()
+            declare -A PROVEN_CODE_TREES=()
+            add_slot_proof() {
+              local state_sha="$1"
+              local label="$2"
+              [ "$state_sha" != absent ] || return 0
+              if [[ -n "${PROVEN_STATES[$state_sha]+x}" ]]; then
+                return 0
+              fi
+              local remote_proof="$RUNNER_TEMP/$label-state-github-proof.json"
+              local remote_outputs="$RUNNER_TEMP/$label-state-github-proof.outputs"
+              : > "$remote_outputs"
+              local metadata_status
+              set +e
+              python scripts/vllm/github_git_proof.py prove \
+                --repository "$GITHUB_REPOSITORY" \
+                --commit-sha "$state_sha" \
+                --profile dashboard-state \
+                --output "$remote_proof" \
+                --github-output "$remote_outputs"
+              metadata_status=$?
+              set -e
+              case "$metadata_status" in
+                0) ;;
+                2)
+                  echo "::warning::$label dashboard state metadata is invalid; the other exact slot must recover it."
+                  return 0
+                  ;;
+                *)
+                  echo "::error::$label dashboard state metadata fetch was ambiguous; refusing repair."
+                  return 90
+                  ;;
+              esac
+              local proven_tree manifest_oid manifest_bytes attestation_oid attestation_bytes
+              proven_tree=$(awk -F= '$1 == "tree_sha" {print $2}' "$remote_outputs")
+              manifest_oid=$(awk -F= '$1 == "state_manifest_oid" {print $2}' "$remote_outputs")
+              manifest_bytes=$(awk -F= '$1 == "state_manifest_bytes" {print $2}' "$remote_outputs")
+              attestation_oid=$(awk -F= '$1 == "state_attestation_oid" {print $2}' "$remote_outputs")
+              attestation_bytes=$(awk -F= '$1 == "state_attestation_bytes" {print $2}' "$remote_outputs")
+              if ! git fetch --no-tags --depth=1 --filter=blob:none \
+                origin "$state_sha"; then
+                echo "::error::Could not fetch size-proven $label state commit/tree."
+                return 90
+              fi
+              local fetched_sha fetched_tree
+              if ! fetched_sha=$(git rev-parse --verify "$state_sha^{commit}") || \
+                 ! fetched_tree=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+                   --verify "$state_sha^{tree}") || \
+                 [ "$fetched_sha" != "$state_sha" ] || \
+                 [ "$fetched_tree" != "$proven_tree" ]; then
+                echo "::error::$label state fetch disagrees with its GitHub proof."
+                return 90
+              fi
+              hydrate_proven_blob "$manifest_oid" "$manifest_bytes" \
+                8388608 "$label state manifest" || return $?
+              hydrate_proven_blob "$attestation_oid" "$attestation_bytes" \
+                4096 "$label state projection attestation" || return $?
+              local manifest_file="$RUNNER_TEMP/$label-dashboard-state.json"
+              if ! GIT_NO_LAZY_FETCH=1 git show \
+                "$state_sha:data/vllm/ci/dashboard_state.json" \
+                > "$manifest_file"; then
+                echo "::error::Could not read prefetched $label state manifest."
+                return 90
+              fi
+              local code_sha
+              if ! code_sha=$(python - "$manifest_file" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8")).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit("dashboard state declares an invalid code SHA")
+          print(value)
+          PY
+              ); then
+                echo "::warning::$label dashboard state manifest is invalid."
+                return 0
+              fi
+              if [[ -z "${PROVEN_CODES[$code_sha]+x}" ]]; then
+                if [ "$code_sha" = "$PUBLICATION_CODE_SHA" ]; then
+                  # Equality is the strongest possible ancestry proof and
+                  # avoids spending a GitHub Compare API request.
+                  PROVEN_CODES["$code_sha"]=ancestor
+                else
+                  set +e
+                  python scripts/vllm/github_git_proof.py compare-ancestor \
+                    --repository "$GITHUB_REPOSITORY" \
+                    --base "$code_sha" \
+                    --head "$PUBLICATION_CODE_SHA"
+                  compare_status=$?
+                  set -e
+                  case "$compare_status" in
+                    0) PROVEN_CODES["$code_sha"]=ancestor ;;
+                    3)
+                      echo "::warning::$label state code is definitively not an ancestor of protected main; skipping it."
+                      PROVEN_CODES["$code_sha"]=nonancestor
+                      ;;
+                    *)
+                      echo "::error::$label state ancestry lookup was ambiguous; refusing repair."
+                      return 90
+                      ;;
+                  esac
+                fi
+              fi
+              if [ "${PROVEN_CODES[$code_sha]}" != ancestor ]; then
+                return 0
+              fi
+              if [[ -z "${PROVEN_CODE_TREES[$code_sha]+x}" ]]; then
+                local code_proof="$RUNNER_TEMP/code-$code_sha-github-proof.json"
+                local code_outputs="$RUNNER_TEMP/code-$code_sha-github-proof.outputs"
+                : > "$code_outputs"
+                local code_proof_status
+                set +e
+                python scripts/vllm/github_git_proof.py prove \
+                  --repository "$GITHUB_REPOSITORY" \
+                  --commit-sha "$code_sha" \
+                  --profile dashboard-code \
+                  --output "$code_proof" \
+                  --github-output "$code_outputs"
+                code_proof_status=$?
+                set -e
+                case "$code_proof_status" in
+                  0) ;;
+                  2)
+                    echo "::warning::$label state code violates the bounded code-tree profile."
+                    PROVEN_CODE_TREES["$code_sha"]=invalid
+                    return 0
+                    ;;
+                  *)
+                    echo "::error::$label state code-tree proof was ambiguous."
+                    return 90
+                    ;;
+                esac
+                local proven_code_tree fetched_code_sha fetched_code_tree
+                proven_code_tree=$(awk -F= '$1 == "tree_sha" {print $2}' "$code_outputs")
+                if [ "$code_sha" != "$PUBLICATION_CODE_SHA" ]; then
+                  if ! git fetch --no-tags --depth=1 --filter=blob:none \
+                    origin "$code_sha"; then
+                    echo "::error::Could not fetch proven $label state code tree."
+                    return 90
+                  fi
+                fi
+                if ! fetched_code_sha=$(git rev-parse --verify "$code_sha^{commit}") || \
+                   ! fetched_code_tree=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+                     --verify "$code_sha^{tree}") || \
+                   [ "$fetched_code_sha" != "$code_sha" ] || \
+                   [ "$fetched_code_tree" != "$proven_code_tree" ]; then
+                  echo "::error::$label state code fetch disagrees with its GitHub proof."
+                  return 90
+                fi
+                PROVEN_CODE_TREES["$code_sha"]="$proven_code_tree"
+              fi
+              if [ "${PROVEN_CODE_TREES[$code_sha]}" = invalid ]; then
+                return 0
+              fi
+              if ! GIT_NO_LAZY_FETCH=1 python \
+                scripts/vllm/dashboard_state.py validate-ref-metadata \
+                --ref "$state_sha" --expected-code-sha "$code_sha" >/dev/null; then
+                echo "::warning::$label dashboard state failed metadata/OID validation; the other exact slot must recover it."
+                return 0
+              fi
+              python - "$state_sha" "$code_sha" >> "$PROOF_ROWS" <<'PY'
+          import json
+          import sys
+
+          print(json.dumps({
+              "state_sha": sys.argv[1],
+              "code_sha": sys.argv[2],
+              "result": "ancestor",
+          }, separators=(",", ":"), sort_keys=True))
+          PY
+              PROVEN_STATES["$state_sha"]=1
+            }
+            add_slot_proof "$OBSERVED_STATE_SHA" current
+            add_slot_proof "$OBSERVED_PREVIOUS_SHA" previous
+
+            ANCESTRY_ATTESTATION="$RUNNER_TEMP/dashboard-state-ancestry.json"
+            python - "$PUBLICATION_CODE_SHA" "$PROOF_ROWS" \
+              "$ANCESTRY_ATTESTATION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          trusted_main, rows_path, output_path = sys.argv[1:]
+          proofs = [
+              json.loads(line)
+              for line in Path(rows_path).read_text(encoding="utf-8").splitlines()
+              if line
+          ]
+          payload = {
+              "schema_version": 1,
+              "provider": "github_compare_api",
+              "trusted_main_sha": trusted_main,
+              "proofs": sorted(proofs, key=lambda row: row["state_sha"]),
+          }
+          Path(output_path).write_text(
+              json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+            REPAIR_OUTPUT="$RUNNER_TEMP/dashboard-state-repair.outputs"
+            : > "$REPAIR_OUTPUT"
+            python scripts/vllm/dashboard_state.py repair-slots \
+              --current-sha "$OBSERVED_STATE_SHA" \
+              --previous-sha "$OBSERVED_PREVIOUS_SHA" \
+              --trusted-main-sha "$PUBLICATION_CODE_SHA" \
+              --ancestry-attestation "$ANCESTRY_ATTESTATION" \
+              --remote origin \
+              --github-output "$REPAIR_OUTPUT"
+            CURRENT_STATE_SHA=$(awk -F= \
+              '$1 == "current_state_sha" {print $2}' "$REPAIR_OUTPUT")
+            PREVIOUS_STATE_SHA=$(awk -F= \
+              '$1 == "previous_state_sha" {print $2}' "$REPAIR_OUTPUT")
+            REPAIR_ACTION=$(awk -F= \
+              '$1 == "repair_action" {print $2}' "$REPAIR_OUTPUT")
+            for sha in "$CURRENT_STATE_SHA" "$PREVIOUS_STATE_SHA"; do
+              [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
+                echo "::error::Dashboard state repair returned an invalid slot SHA."
+                exit 1
+              }
+            done
+            MAX_STATE_BLOB_BYTES=$(python -c \
+              'import json; print(json.load(open("config/dashboard_state.json"))["limits"]["max_blob_bytes"] + 1)')
+
+            full_validate_state() {
+              local state_sha="$1"
+              local label="$2"
+              local manifest_file="$RUNNER_TEMP/$label-full-dashboard-state.json"
+              # --refetch prevents the metadata-only fetch from suppressing
+              # hydration. The strict limit omits any policy-violating blob.
+              if ! git fetch --no-tags --depth=1 --refetch \
+                --filter="blob:limit=$MAX_STATE_BLOB_BYTES" \
+                origin "$state_sha"; then
+                echo "::error::Could not hydrate the exact $label dashboard state."
+                return 90
+              fi
+              if ! GIT_NO_LAZY_FETCH=1 git show \
+                "$state_sha:data/vllm/ci/dashboard_state.json" \
+                > "$manifest_file"; then
+                echo "::error::Hydrated $label state manifest became unavailable."
+                return 90
+              fi
+              if ! FULL_STATE_CODE_SHA=$(python - "$manifest_file" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8")).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit(1)
+          print(value)
+          PY
+              ); then
+                echo "::warning::$label dashboard state has an invalid full manifest."
+                return 2
+              fi
+              if [ "${PROVEN_CODES[$FULL_STATE_CODE_SHA]:-}" != ancestor ]; then
+                echo "::error::$label full state lost its proven code ancestry."
+                return 90
+              fi
+              if ! GIT_NO_LAZY_FETCH=1 python \
+                scripts/vllm/dashboard_state.py validate-ref \
+                --ref "$state_sha" \
+                --expected-code-sha "$FULL_STATE_CODE_SHA"; then
+                return 2
+              fi
+            }
+
+            set +e
+            FULL_STATE_CODE_SHA=
+            full_validate_state "$CURRENT_STATE_SHA" current
+            CURRENT_FULL_STATUS=$?
+            CURRENT_STATE_CODE_SHA="$FULL_STATE_CODE_SHA"
+            set -e
+            case "$CURRENT_FULL_STATUS" in
+              0)
+                STATE_CODE_SHA="$CURRENT_STATE_CODE_SHA"
+                ;;
+              2)
+                if [ "$PREVIOUS_STATE_SHA" = "$CURRENT_STATE_SHA" ]; then
+                  echo "::error::The only dashboard state fails full content validation."
+                  exit 1
+                fi
+                echo "::warning::Current state failed full validation; testing the rollback slot."
+                set +e
+                FULL_STATE_CODE_SHA=
+                full_validate_state "$PREVIOUS_STATE_SHA" previous
+                PREVIOUS_FULL_STATUS=$?
+                PREVIOUS_STATE_CODE_SHA="$FULL_STATE_CODE_SHA"
+                set -e
+                if [ "$PREVIOUS_FULL_STATUS" -eq 90 ]; then
+                  echo "::error::Rollback state hydration was ambiguous; refusing promotion."
+                  exit 1
+                fi
+                if [ "$PREVIOUS_FULL_STATUS" -ne 0 ]; then
+                  echo "::error::Neither dashboard state slot passes full content validation."
+                  exit 1
+                fi
+
+                FULL_FALLBACK_ATTESTATION="$RUNNER_TEMP/dashboard-state-full-fallback-ancestry.json"
+                python - "$ANCESTRY_ATTESTATION" "$PREVIOUS_STATE_SHA" \
+                  "$FULL_FALLBACK_ATTESTATION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_path, survivor_sha, output_path = sys.argv[1:]
+          payload = json.loads(Path(source_path).read_text(encoding="utf-8"))
+          proofs = [
+              proof for proof in payload.get("proofs", [])
+              if proof.get("state_sha") == survivor_sha
+          ]
+          if len(proofs) != 1:
+              raise SystemExit("rollback state lacks exactly one ancestry proof")
+          payload["proofs"] = proofs
+          Path(output_path).write_text(
+              json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+                FULL_REPAIR_OUTPUT="$RUNNER_TEMP/dashboard-state-full-repair.outputs"
+                : > "$FULL_REPAIR_OUTPUT"
+                python scripts/vllm/dashboard_state.py repair-slots \
+                  --current-sha "$CURRENT_STATE_SHA" \
+                  --previous-sha "$PREVIOUS_STATE_SHA" \
+                  --trusted-main-sha "$PUBLICATION_CODE_SHA" \
+                  --ancestry-attestation "$FULL_FALLBACK_ATTESTATION" \
+                  --remote origin \
+                  --github-output "$FULL_REPAIR_OUTPUT"
+                PROMOTED_CURRENT_SHA=$(awk -F= \
+                  '$1 == "current_state_sha" {print $2}' "$FULL_REPAIR_OUTPUT")
+                PROMOTED_PREVIOUS_SHA=$(awk -F= \
+                  '$1 == "previous_state_sha" {print $2}' "$FULL_REPAIR_OUTPUT")
+                FULL_REPAIR_ACTION=$(awk -F= \
+                  '$1 == "repair_action" {print $2}' "$FULL_REPAIR_OUTPUT")
+                if [ "$PROMOTED_CURRENT_SHA" != "$PREVIOUS_STATE_SHA" ] || \
+                   [ "$PROMOTED_PREVIOUS_SHA" != "$PREVIOUS_STATE_SHA" ]; then
+                  echo "::error::Full-valid rollback promotion returned unexpected refs."
+                  exit 1
+                fi
+                CURRENT_STATE_SHA="$PROMOTED_CURRENT_SHA"
+                PREVIOUS_STATE_SHA="$PROMOTED_PREVIOUS_SHA"
+                STATE_CODE_SHA="$PREVIOUS_STATE_CODE_SHA"
+                REPAIR_ACTION="$REPAIR_ACTION+$FULL_REPAIR_ACTION-full-fallback"
+                ;;
+              *)
+                echo "::error::Current state hydration was ambiguous; refusing fallback."
+                exit 1
+                ;;
+            esac
+
+            # Materialization re-runs full validation with lazy fetching
+            # disabled, then atomically installs only the selected generation.
+            GIT_NO_LAZY_FETCH=1 python scripts/vllm/dashboard_state.py materialize \
+              --ref "$CURRENT_STATE_SHA" --expected-code-sha "$STATE_CODE_SHA"
+            PUBLICATION_BASELINE_REF="$CURRENT_STATE_SHA"
+            echo "Restored validated dashboard state $CURRENT_STATE_SHA (slot action: $REPAIR_ACTION)."
+          fi
+          {
+            echo "DASHBOARD_STATE_BRANCH=$STATE_BRANCH"
+            echo "DASHBOARD_PREVIOUS_BRANCH=$PREVIOUS_BRANCH"
+            echo "DASHBOARD_CURRENT_STATE_SHA=$CURRENT_STATE_SHA"
+            echo "DASHBOARD_PREVIOUS_STATE_SHA=$PREVIOUS_STATE_SHA"
+            echo "PUBLICATION_BASELINE_REF=$PUBLICATION_BASELINE_REF"
+          } >> "$GITHUB_ENV"
+          {
+            echo "current_sha=$CURRENT_STATE_SHA"
+            echo "previous_sha=$PREVIOUS_STATE_SHA"
+            echo "baseline_ref=$PUBLICATION_BASELINE_REF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve immutable vLLM config snapshot
         if: inputs.dns_generation == ''
@@ -451,18 +1009,6 @@ jobs:
             install -m 0644 "$LIVE_QUEUE_JOBS" \
               data/vllm/ci/queue_jobs.json || return $?
             rm -f "$LIVE_QUEUE_JOBS" || return $?
-            if git fetch origin \
-              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-              --depth=1; then
-              if ! git rev-parse --verify --quiet origin/gh-pages >/dev/null; then
-                echo "::error::Fetched gh-pages but its remote-tracking ref did not resolve."
-                return 1
-              fi
-              python scripts/vllm/collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages \
-                || return $?
-            else
-              echo "::warning::gh-pages queue history is unavailable; durable queue-data remains authoritative."
-            fi
           }
           run_surface_collector queue "durable queue data seed" sync_queue_data
 
@@ -571,13 +1117,11 @@ jobs:
 
       - name: Validate targeted DNS candidate generation
         if: inputs.dns_generation != ''
-        env:
-          TARGET_DNS_GENERATION: ${{ inputs.dns_generation }}
         run: |
           set -euo pipefail
           python -S scripts/vllm/audit_dashboard_data.py \
             --dns-only --dns-path data/vllm/ci/dns_failures.json
-          python - "$TARGET_DNS_GENERATION" \
+          python - "$HOURLY_DNS_GENERATION_INPUT" \
             data/vllm/ci/dns_failures.json <<'PY'
           import json
           import sys
@@ -612,25 +1156,6 @@ jobs:
           )
           PY
 
-      - name: Sync issue automation state from gh-pages
-        if: inputs.dns_generation == ''
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_queue_issue_state() {
-            git fetch origin \
-              +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-              --depth=1 || true
-            # Marker-owned AMD alert state is committed to main immediately after
-            # reconciliation. Keep gh-pages fallback only for legacy queue state.
-            for f in open_queue_issues.json open_queue_zombie_issues.json; do
-              LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
-              if [ -n "$LIVE" ]; then
-                printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?
-              fi
-            done
-          }
-          run_surface_collector queue "queue issue-state seed" sync_queue_issue_state
-
       - name: Normalize and prune queue history
         if: inputs.dns_generation == ''
         run: |
@@ -651,71 +1176,6 @@ jobs:
           fi
 
       # ── Phase 2: CI data collection (Buildkite, ~3min) ──
-      - name: Sync CI data from gh-pages
-        if: inputs.dns_generation == ''
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          sync_ci_files() {
-            for f in "$@"; do
-              LIVE=$(git show origin/gh-pages:data/vllm/ci/$f 2>/dev/null || true)
-              if [ -n "$LIVE" ]; then
-                printf '%s\n' "$LIVE" > "data/vllm/ci/$f" || return $?
-              fi
-            done
-          }
-          # PUBLIC-ANALYTICS-BOUNDARY: gh-pages contains only the bounded public
-          # projection. It must never seed the private reliability input; main
-          # and the analytics collector own the full analytics.json artifact.
-          sync_ci_core_seed() {
-            sync_ci_files \
-              ci_health.json parity_report.json config_parity.json \
-              flaky_tests.json failure_trends.json quarantine.json \
-              shard_bases.json shard_base_catalog.json amd_test_matrix.json \
-              ownership_config_parity.json ci_ownership.json \
-              parity_key_overrides.json
-          }
-          sync_ci_gating_seed() {
-            sync_ci_files \
-              gating_nightlies.json \
-              gating_targets.json gating_proposals.json \
-              gating_target_candidates.json
-          }
-          sync_ci_changes_seed() {
-            sync_ci_files group_changes.json
-          }
-          sync_ci_hotness_seed() {
-            sync_ci_files hotness.json
-          }
-          sync_workload_mapping_seed() {
-            # Never replace a newer/schema-upgraded main aggregate with an older
-            # gh-pages copy. In particular, this keeps the v2 migration from
-            # restarting a full 90-day backfill while the first deployment is
-            # still publishing that schema to gh-pages.
-            REMOTE_MAPPING=$(mktemp) || return $?
-            if git show origin/gh-pages:data/vllm/ci/workload_mapping.json > "$REMOTE_MAPPING" 2>/dev/null; then
-              REMOTE_SCHEMA=$(jq -r '.schema_version // 0' "$REMOTE_MAPPING" 2>/dev/null || echo 0)
-              LOCAL_SCHEMA=$(jq -r '.schema_version // 0' data/vllm/ci/workload_mapping.json 2>/dev/null || echo 0)
-              REMOTE_GENERATED=$(jq -r '.generated_at // ""' "$REMOTE_MAPPING" 2>/dev/null || true)
-              LOCAL_GENERATED=$(jq -r '.generated_at // ""' data/vllm/ci/workload_mapping.json 2>/dev/null || true)
-              if [ "$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA" ] || \
-                 { [ "$REMOTE_SCHEMA" -eq "$LOCAL_SCHEMA" ] && [[ "$REMOTE_GENERATED" > "$LOCAL_GENERATED" || "$REMOTE_GENERATED" == "$LOCAL_GENERATED" ]]; }; then
-                cp "$REMOTE_MAPPING" data/vllm/ci/workload_mapping.json || return $?
-                echo "Synced workload_mapping.json schema $REMOTE_SCHEMA from gh-pages."
-              else
-                echo "Kept newer local workload_mapping.json schema $LOCAL_SCHEMA."
-              fi
-            fi
-            rm -f "$REMOTE_MAPPING" || return $?
-          }
-          run_surface_collector ci_core "CI core data seed" sync_ci_core_seed
-          run_surface_collector ci_gating "CI gating data seed" sync_ci_gating_seed
-          run_surface_collector ci_changes "CI changes data seed" sync_ci_changes_seed
-          run_surface_collector ci_hotness "CI hotness data seed" sync_ci_hotness_seed
-          run_surface_collector queue "workload mapping seed" sync_workload_mapping_seed
-
-      # This deterministic snapshot must be rebuilt after the gh-pages sync.
-      # Otherwise the live copy above can overwrite its fresh generated_at
-      # timestamp with an older artifact.
       - name: Collect AMD gating target list
         if: inputs.dns_generation == ''
         run: |
@@ -723,8 +1183,56 @@ jobs:
           run_surface_collector ci_gating "AMD gating target list" \
             python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 
-      - name: Collect AMD hotness (3d window)
+      - name: Reserve guarded Data Collection attempt
+        id: request-attempt
         if: inputs.dns_generation == ''
+        env:
+          ATTEMPT_ID: data-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/data-collection-attempt.outputs"
+          : > "$OUTPUTS"
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/data_collection_attempt_budget.json reserve \
+            --attempt-id "$ATTEMPT_ID" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-run-attempt "${{ github.run_attempt }}" \
+            --event-name "${{ github.event_name }}" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "request_start_allowance" {print $2}' "$OUTPUTS")
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|success_gated|retry_gated|cap_gated)$ ]] || \
+             ! [[ "$ALLOWANCE" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Attempt ledger returned malformed gate outputs."
+            exit 1
+          fi
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+          if [ "$REQUEST_MODE" = reserved ]; then
+            GUARD_FILE="$RUNNER_TEMP/data-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+            python scripts/vllm/buildkite_request_guard.py initialize \
+              --file "$GUARD_FILE" \
+              --attempt-id "$ATTEMPT_ID" \
+              --allowance "$ALLOWANCE"
+            {
+              echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+              echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+              echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Report bounded request gate
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode != 'reserved'
+        run: >-
+          echo "Data collection made zero Buildkite requests:
+          ${{ steps.request-attempt.outputs.request_mode }} until
+          ${{ steps.request-attempt.outputs.available_at }}."
+
+      - name: Collect AMD hotness (3d window)
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -733,7 +1241,9 @@ jobs:
             python scripts/vllm/collect_hotness.py
 
       - name: Collect vLLM/Omni AMD workload mappings
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -751,7 +1261,9 @@ jobs:
 
       - name: Prepare private CI roster cache key
         id: ci-roster-cache-key
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         shell: bash
         run: |
           set -euo pipefail
@@ -762,25 +1274,62 @@ jobs:
             echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
             echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
             echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore private CI roster cache
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: data/vllm/ci/.cache/nightly-rosters-v2
           key: ${{ steps.ci-roster-cache-key.outputs.key }}
           restore-keys: |
             ${{ steps.ci-roster-cache-key.outputs.current_day_prefix }}
             ${{ steps.ci-roster-cache-key.outputs.prior_day_prefix }}
+            ${{ steps.ci-roster-cache-key.outputs.namespace_prefix }}
+
+      - name: Prepare private CI backfill checkpoint key
+        id: ci-backfill-cache-key
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="ci-backfill-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private CI backfill checkpoint
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: data/vllm/ci/.cache/ci-backfill-v1
+          key: ${{ steps.ci-backfill-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.ci-backfill-cache-key.outputs.current_day_prefix }}
+            ${{ steps.ci-backfill-cache-key.outputs.prior_day_prefix }}
+            ${{ steps.ci-backfill-cache-key.outputs.namespace_prefix }}
 
       # Core CI already downloads test logs. Preserve only its bounded,
       # privacy-minimized DNS classifications so the isolated DNS collector
       # can avoid downloading the same logs on a different runner.
       - name: Prepare private DNS classification cache key
         id: dns-classification-cache-key
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         shell: bash
         run: |
           set -euo pipefail
@@ -791,25 +1340,31 @@ jobs:
             echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
             echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
             echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore private DNS classification cache
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: data/vllm/ci/.cache/dns-classifications-v1
           key: ${{ steps.dns-classification-cache-key.outputs.key }}
           restore-keys: |
             ${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}
             ${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}
+            ${{ steps.dns-classification-cache-key.outputs.namespace_prefix }}
 
       - name: Collect CI data
         id: collect-ci
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          DAYS="${{ github.event.inputs.ci_days || '8' }}"
+          DAYS="$HOURLY_CI_DAYS"
           run_surface_collector ci_core "CI data" \
             python scripts/collect_ci.py \
               --days "$DAYS" \
@@ -831,7 +1386,7 @@ jobs:
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.roster_cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: data/vllm/ci/.cache/nightly-rosters-v2
           key: ${{ steps.ci-roster-cache-key.outputs.key }}
@@ -842,10 +1397,37 @@ jobs:
           steps.collect-ci.outputs.cache_save == 'true' &&
           steps.collect-ci.outputs.dns_cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: data/vllm/ci/.cache/dns-classifications-v1
           key: ${{ steps.dns-classification-cache-key.outputs.key }}
+
+      - name: Validate resumable CI backfill checkpoint
+        id: ci-backfill-cache-decision
+        if: >-
+          always() && inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from vllm.ci.backfill_checkpoint import validate
+
+          stats = validate(Path("data/vllm/ci/.cache/ci-backfill-v1"))
+          print(f"Validated private CI backfill: {stats['shards']} shards, {stats['bytes']} bytes")
+          PY
+          echo "cache_save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save resumable CI backfill checkpoint
+        if: >-
+          always() && inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.ci-backfill-cache-decision.outputs.cache_save == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: data/vllm/ci/.cache/ci-backfill-v1
+          key: ${{ steps.ci-backfill-cache-key.outputs.key }}
 
       # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
       # GitHub Actions cache storage. It is never seeded from gh-pages, staged
@@ -864,23 +1446,27 @@ jobs:
             echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
             echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
             echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore private analytics build cache
         id: analytics-cache-restore
         if: inputs.dns_generation == ''
         continue-on-error: true
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: data/vllm/ci/.cache/analytics-builds-v1
           key: ${{ steps.analytics-cache-key.outputs.key }}
           restore-keys: |
             ${{ steps.analytics-cache-key.outputs.current_day_prefix }}
             ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
+            ${{ steps.analytics-cache-key.outputs.namespace_prefix }}
 
       - name: Collect CI analytics
         id: collect-analytics
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
@@ -917,7 +1503,7 @@ jobs:
           steps.collect-analytics.outputs.cache_save == 'true' &&
           steps.collect-analytics.outputs.analytics_cache_save == 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: data/vllm/ci/.cache/analytics-builds-v1
           key: ${{ steps.analytics-cache-key.outputs.key }}
@@ -933,6 +1519,7 @@ jobs:
           # rolling snapshots in each tightly scoped private namespace.
           for CACHE_PREFIX in \
             "nightly-rosters-v2-${{ runner.os }}-" \
+            "ci-backfill-v1-${{ runner.os }}-" \
             "analytics-builds-v1-${{ runner.os }}-" \
             "dns-classifications-v1-${{ runner.os }}-"; do
             CACHE_IDS="$RUNNER_TEMP/private-cache-ids.txt"
@@ -972,7 +1559,9 @@ jobs:
           done < "$LEGACY_CACHE_IDS"
 
       - name: Collect AMD agent health (all builds, all branches)
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         # Walks every build on AMD GPU hardware (not just main nightlies) and
         # merges the last few days into the 60-day node_days / infra_failures
         # store, then reassembles agent_health.json.
@@ -996,7 +1585,6 @@ jobs:
       - name: Collect AMD test matrix
         if: inputs.dns_generation == ''
         env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
@@ -1032,7 +1620,7 @@ jobs:
 
       # ── Perf Eval (AMD nightly perf + accuracy) ──
       # Perf-eval nightlies run once a day, so this data does NOT need the
-      # hourly cadence. Every run strictly validates and bounds the private
+      # canonical cadence. Every run strictly validates and bounds the private
       # event store from the immutable main checkout, then rebuilds the derived
       # JSON locally so compacted history cannot regress generated_at. The
       # artifact regeneration itself is gated to a few times a day (every 8h)
@@ -1079,14 +1667,12 @@ jobs:
         id: perf_decide
         if: inputs.dns_generation == ''
         env:
-          DNS_RECONCILE_GENERATION: ${{ inputs.dns_generation }}
-          WATCHDOG_GENERATION: ${{ inputs.watchdog_generation }}
           DISPATCH_TYPE: ${{ github.event.action }}
         run: |
           RUN=false
-          if [ -n "$DNS_RECONCILE_GENERATION" ]; then
+          if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]; then
             echo "DNS reconciliation does not force unrelated perf-eval regeneration."
-          elif [ -n "$WATCHDOG_GENERATION" ]; then
+          elif [ -n "$HOURLY_WATCHDOG_GENERATION_INPUT" ]; then
             echo "Publication watchdog recovery does not force unrelated perf-eval regeneration."
           elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]; then RUN=true; fi
@@ -1106,6 +1692,7 @@ jobs:
       - name: Ingest perf-eval artifacts from Buildkite
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.perf_decide.outputs.run_perf == 'true'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
@@ -1113,7 +1700,7 @@ jobs:
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           DAYS=14
-          if [ "${{ github.event.inputs.reset_perf_eval }}" = "true" ]; then DAYS=30; fi
+          if [ "$HOURLY_RESET_PERF_EVAL" = "true" ]; then DAYS=30; fi
           run_surface_collector perf_eval "perf-eval artifacts" \
             python scripts/vllm/collect_perf_eval_artifacts.py --days "$DAYS"
 
@@ -1193,6 +1780,9 @@ jobs:
       # restore; global/code/audit failures remain fatal in the selector.
       - name: Select validated publication surfaces
         id: publication-selector
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           MAX_DATA_AGE_HOURS: "36"
         run: |
@@ -1204,12 +1794,13 @@ jobs:
             SELECTOR_ARGS+=(--force-degraded-surfaces "$FORCED_SURFACES")
             echo "Collector fallback requested for: $FORCED_SURFACES"
           fi
-          if [ -n "${{ inputs.dns_generation }}" ]; then
+          if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]; then
             SELECTOR_ARGS+=(--refresh-only-surface dns_health)
             echo "Refreshing only DNS health; preserving all other publication state."
           fi
           python scripts/vllm/select_publication_surfaces.py \
             --baseline-ref "$PUBLICATION_BASELINE_REF" \
+            --candidate-code-ref "$PUBLICATION_CODE_SHA" \
             --collector-failures-file "$PUBLICATION_COLLECTOR_FAILURES_FILE" \
             "${SELECTOR_ARGS[@]}"
 
@@ -1219,6 +1810,7 @@ jobs:
       - name: Ensure CI Operations issue labels
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1228,6 +1820,7 @@ jobs:
       - name: Watch queue latency (open/close issues)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
         env:
@@ -1239,6 +1832,7 @@ jobs:
       - name: Watch zombie queue jobs (open/close issues)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
         env:
@@ -1250,6 +1844,7 @@ jobs:
       - name: Watch Omni workload surge (open/close issues)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
         env:
@@ -1261,6 +1856,7 @@ jobs:
       - name: Watch AMD main test-group failures (open/close issue)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
@@ -1272,6 +1868,7 @@ jobs:
       - name: Watch upstream CI main test-group failures (open/close issue)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
@@ -1283,6 +1880,7 @@ jobs:
       - name: Watch AMD main duration regressions (open/close issue)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
@@ -1294,6 +1892,7 @@ jobs:
       - name: Watch AMD CI agent health (open/close issue)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',agent_health,')
         env:
@@ -1305,6 +1904,7 @@ jobs:
       - name: Stage managed alert issue state
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success'
         run: |
           git add \
@@ -1316,6 +1916,7 @@ jobs:
       - name: Watch AMD CI test-area regressions (ranked owners)
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         env:
@@ -1327,6 +1928,7 @@ jobs:
       - name: Sync managed issues to AMD CI Operations project
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         continue-on-error: true
@@ -1341,23 +1943,113 @@ jobs:
       - name: Stage CI ownership issue state
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
         run: |
           git add data/vllm/ci/open_ci_area_regression_issues.json
 
+      - name: Advance canonical collector clock
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
+
       - name: Rebuild v2 operations snapshot with selected issue state
-        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json.gz
 
       - name: Render dashboards after publication selection
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
         run: python scripts/render.py
+
+      - name: Prepare bounded dashboard state candidate
+        id: state-candidate
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          assert_no_tracked_private_cache() {
+            if [ -n "$(git ls-files -- ':(glob)**/.cache/**')" ]; then
+              echo "::error::A private .cache path is tracked; refusing state publication."
+              exit 1
+            fi
+          }
+          assert_no_tracked_private_cache
+          git add -A -- data/ dashboards/ README.md
+          python scripts/vllm/check_git_blob_sizes.py
+
+          GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          GENERATION_ID="hourly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          SOURCE_REF_ARGS=()
+          while IFS= read -r source_ref; do
+            [ -n "$source_ref" ] || continue
+            SOURCE_REF_ARGS+=(--source-ref "$source_ref")
+          done < <(python - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          full_sha = re.compile(r"[0-9a-f]{40}")
+          manifest_path = Path("data/vllm/ci/dashboard_state.json")
+          prior = {}
+          if manifest_path.exists():
+              try:
+                  payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError):
+                  payload = {}
+              if isinstance(payload, dict) and isinstance(payload.get("source_refs"), dict):
+                  prior = dict(payload["source_refs"])
+
+          refs = {
+              branch: sha
+              for branch, sha in prior.items()
+              if isinstance(branch, str)
+              and isinstance(sha, str)
+              and full_sha.fullmatch(sha)
+          }
+          for branch in ("queue-data", "queue-lifecycle-data", "dns-health-data"):
+              result = subprocess.run(
+                  ["git", "rev-parse", "--verify", f"refs/remotes/origin/{branch}^{{commit}}"],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              sha = result.stdout.strip().lower()
+              if result.returncode == 0 and full_sha.fullmatch(sha):
+                  refs[branch] = sha
+          for branch, sha in sorted(refs.items()):
+              print(f"{branch}={sha}")
+          PY
+          )
+          python scripts/vllm/dashboard_state.py prepare \
+            --code-sha "$PUBLICATION_CODE_SHA" \
+            --generation-id "$GENERATION_ID" \
+            --generated-at "$GENERATED_AT" \
+            "${SOURCE_REF_ARGS[@]}"
+          {
+            echo "DASHBOARD_GENERATION_ID=$GENERATION_ID"
+            echo "DASHBOARD_GENERATED_AT=$GENERATED_AT"
+          } >> "$GITHUB_ENV"
+          echo "generation_id=$GENERATION_ID" >> "$GITHUB_OUTPUT"
+          echo "generated_at=$GENERATED_AT" >> "$GITHUB_OUTPUT"
 
       # Live-data validation remains in the publication lane. It runs after all
       # selected-data watchers and rendering, independently of deterministic
       # pytest, and is enforced before any commit or deployment.
       - name: Live publication audit
         id: live-data-audit
-        if: always() && steps.publication-selector.outcome == 'success'
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.publication-selector.outcome == 'success'
         continue-on-error: true
         env:
           CI: "1"
@@ -1458,9 +2150,13 @@ jobs:
           exit "$EXIT_CODE"
 
       - name: Upload live publication audit artifact
-        if: always() && steps.publication-selector.outcome == 'success'
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.publication-selector.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: live-publication-audit
           path: |
@@ -1471,8 +2167,10 @@ jobs:
       # ── Phase 4: Deterministic tests ──
       - name: Run test suite
         if: >-
-          inputs.dns_generation == '' &&
-          github.event.inputs.skip_tests != 'true'
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          (inputs.dns_generation != '' ||
+           github.event.inputs.skip_tests != 'true')
         id: run-tests
         env:
           CI: "1"
@@ -1482,32 +2180,57 @@ jobs:
           pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
-          SUMMARY=$(tail -1 test-output.txt)
-          FAILURES=$(grep -E '^(FAILED|ERROR) ' test-output.txt | tail -50 || true)
-          if [ -z "$FAILURES" ]; then FAILURES="No concise failure summary captured."; fi
-          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-          {
-            echo "failures<<TESTEOF"
-            echo "$FAILURES"
-            echo "TESTEOF"
-          } >> "$GITHUB_OUTPUT"
-          OUTPUT=$(tail -200 test-output.txt)
-          {
-            echo "output<<TESTEOF"
-            echo "$OUTPUT"
-            echo "TESTEOF"
-          } >> "$GITHUB_OUTPUT"
+          # Transport bounded opaque values as one-line base64. Pytest output can
+          # contain arbitrary delimiter strings, backticks, and expression syntax.
+          python - "$EXIT_CODE" <<'PY'
+          import base64
+          import os
+          import sys
+          from pathlib import Path
+
+          path = Path("test-output.txt")
+          with path.open("rb") as handle:
+              handle.seek(0, 2)
+              size = handle.tell()
+              handle.seek(max(0, size - 512_000))
+              tail = handle.read()
+          if size > len(tail):
+              tail = tail.split(b"\n", 1)[-1]
+          lines = tail.splitlines()
+          summary = (lines[-1] if lines else b"No terminal pytest summary found")[-4_096:]
+          failures = b"\n".join(
+              line for line in lines if line.startswith((b"FAILED ", b"ERROR "))
+          )
+          failures = (
+              failures[-16_000:]
+              if failures
+              else b"No concise failure summary captured."
+          )
+          output = b"\n".join(lines[-200:])[-60_000:]
+
+          def encoded(value: bytes) -> str:
+              return base64.b64encode(value).decode("ascii")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"exit_code={sys.argv[1]}\n")
+              handle.write(f"summary={encoded(summary)}\n")
+              handle.write(f"failures={encoded(failures)}\n")
+              handle.write(f"output={encoded(output)}\n")
+          PY
 
       - name: Enforce publication validation results
         if: >-
           always() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success' && (
             steps.live-data-audit.outcome != 'success' ||
             steps.live-data-audit.outputs.exit_code != '0' ||
             (
-              inputs.dns_generation == '' &&
-              github.event.inputs.skip_tests != 'true' &&
+              (
+                inputs.dns_generation != '' ||
+                github.event.inputs.skip_tests != 'true'
+              ) &&
               steps.run-tests.outputs.exit_code != '0'
             )
           )
@@ -1518,150 +2241,219 @@ jobs:
             echo "::error::Live publication audit failed; refusing to publish an invalid data snapshot."
             FAILED=1
           fi
-          if [ -z "${{ inputs.dns_generation }}" ] && \
-             [ "${{ github.event.inputs.skip_tests }}" != "true" ] && \
+          if { [ -n "$HOURLY_DNS_GENERATION_INPUT" ] || \
+               [ "$HOURLY_SKIP_TESTS" != "true" ]; } && \
              [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
             echo "::error::Deterministic dashboard tests failed; refusing to publish an unvalidated site."
             FAILED=1
           fi
           exit "$FAILED"
 
-      # ── Phase 5: Commit + Deploy ──
-      - name: Commit and push
-        id: publication-commit
-        run: |
-          assert_no_tracked_private_cache() {
-            if [ -n "$(git ls-files -- ':(glob)**/.cache/**')" ]; then
-              echo "::error::A private .cache path is tracked; refusing to commit or push."
-              exit 1
-            fi
-          }
-          assert_no_unstaged_generated_output() {
-            # Pytest must read exactly the tracked tree that will be amended
-            # and pushed, not a worktree with an unstaged code or data delta.
-            if ! git diff --quiet; then
-              echo "::error::The publication worktree differs from its staged candidate."
-              git diff --name-only
-              exit 1
-            fi
-            UNSTAGED_GENERATED=$(git ls-files --others --exclude-standard -- \
-              data/ dashboards/ README.md)
-            if [ -n "$UNSTAGED_GENERATED" ]; then
-              echo "::error::A generated untracked output remains unstaged after the final rebuild."
-              printf '%s\n' "$UNSTAGED_GENERATED"
-              exit 1
-            fi
-          }
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # .gitignore protects newly created caches, but it does not protect a
-          # path that was accidentally tracked in an earlier revision.
-          assert_no_tracked_private_cache
-          # A targeted producer reconciliation is not an hourly collector run.
-          # Preserve the canonical collector-liveness clock in that path.
-          if [ -z "${{ inputs.dns_generation }}" ]; then
-            date -u +%Y-%m-%dT%H:%M:%SZ > data/vllm/ci/last_collected_at.txt
-          fi
-          git add data/ dashboards/ README.md
-          python scripts/vllm/check_git_blob_sizes.py
-          git commit -m "auto: update data $(date -u +%Y-%m-%dT%H:%M)"
-          INITIAL_PUBLICATION_TREE=$(git rev-parse --verify 'HEAD^{tree}')
-          PUSHED=0
-          for attempt in 1 2 3; do
-            if ! git pull --rebase origin main; then
-              git rebase --abort || true
-              echo "::error::Collected data conflicts with the latest main branch; refusing to deploy unpublished output"
-              exit 1
-            fi
-            assert_no_tracked_private_cache
-            # A successful rebase can change source inputs underneath derived
-            # Operations/Markdown output. Rebuild and re-audit on every retry so
-            # the commit that is pushed—not merely the pre-race candidate—is the
-            # snapshot that passed validation.
-            python scripts/vllm/merge_perf_eval_events.py \
-              --local data/vllm/perf_eval/events.jsonl
-            python scripts/vllm/collect_perf_eval.py \
-              --store data/vllm/perf_eval/events.jsonl \
-              --output data/vllm/perf_eval/perf_eval.json
-            python scripts/vllm/build_operations_snapshot.py \
-              --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
-            python scripts/render.py
-            python scripts/vllm/audit_dashboard_data.py
-            # Stage the complete tracked output domain again. This includes any
-            # output newly introduced by code that arrived in the rebase; the
-            # intentionally ignored private monolith and ephemeral lazy bundle
-            # remain runner/site-assembly artifacts.
-            git add -- data/ dashboards/ README.md
-            python scripts/vllm/check_git_blob_sizes.py
-            assert_no_unstaged_generated_output
-            RETEST_REQUIRED=$(python \
-              scripts/vllm/publication_retest_required.py \
-              --baseline-parent "$PUBLICATION_BASELINE_REF" \
-              --tested-tree "$INITIAL_PUBLICATION_TREE")
-            if [ "$RETEST_REQUIRED" = "true" ]; then
-              echo "The publication parent or staged tree changed after initial validation; rerunning exact-tree contracts."
-              CI=1 MAX_DATA_AGE_HOURS=36 \
-                pytest tests/ -m 'not live_data' -v --tb=short
-              CI=1 MAX_DATA_AGE_HOURS=36 \
-                pytest tests/ -m 'live_data' -v --tb=short
-              assert_no_unstaged_generated_output
-            fi
-            if ! git diff --cached --quiet; then
-              git commit --amend --no-edit
-            fi
-            if git push origin HEAD:main; then
-              PUSHED=1
-              break
-            fi
-            git fetch origin main
-            REMOTE_MAIN=$(git rev-parse FETCH_HEAD)
-            if git merge-base --is-ancestor "$REMOTE_MAIN" HEAD; then
-              echo "::error::Publication push was rejected while main remained unchanged; refusing futile retries"
-              exit 1
-            fi
-            echo "::warning::Main advanced during publication attempt $attempt"
-            if [ "$attempt" -lt 3 ]; then
-              sleep "$attempt"
-            fi
-          done
-          if [ "$PUSHED" != "1" ]; then
-            echo "::error::Failed to publish collected dashboard data to main after 3 attempts"
-            exit 1
-          fi
-          PUBLISHED_SHA=$(git rev-parse --verify 'HEAD^{commit}')
-          if ! [[ "$PUBLISHED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Published main snapshot did not resolve to one full commit SHA"
-            exit 1
-          fi
-          LOCAL_TEST_GAP_SAFE=true
-          if ! git merge-base --is-ancestor \
-            "$PUBLICATION_BASELINE_REF" "$PUBLISHED_SHA"; then
-            LOCAL_TEST_GAP_SAFE=false
-          else
-            while IFS= read -r candidate_sha; do
-              subject=$(git show -s --format=%s "$candidate_sha")
-              author=$(git show -s --format=%an "$candidate_sha")
-              committer=$(git show -s --format=%cn "$candidate_sha")
-              if [[ ! "$subject" =~ ^auto:\ update\ data($|[[:space:]]) ]] || \
-                 [ "$author" != "github-actions[bot]" ] || \
-                 [ "$committer" != "github-actions[bot]" ]; then
-                LOCAL_TEST_GAP_SAFE=false
-                break
-              fi
-            done < <(git rev-list --reverse \
-              "$PUBLICATION_BASELINE_REF..$PUBLISHED_SHA")
-          fi
-          echo "published_sha=$PUBLISHED_SHA" >> "$GITHUB_OUTPUT"
-          echo "local_test_gap_safe=$LOCAL_TEST_GAP_SAFE" >> "$GITHUB_OUTPUT"
-          echo "Published snapshot: $PUBLISHED_SHA (local test gap safe: $LOCAL_TEST_GAP_SAFE)"
-
+      # ── Phase 5: Assemble, publish state, and deploy ──
       - name: Assemble site
         id: site-assembly
-        run: python scripts/build_site.py --cache-bust-index
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: >-
+          python scripts/build_site.py --cache-bust-index
+          --cache-bust-value "$DASHBOARD_GENERATION_ID"
+
+      - name: Bind exact public projection into dashboard state
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/public_projection.py create \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json
+          git add -- data/vllm/ci/public_projection_attestation.json
+          python scripts/vllm/dashboard_state.py refresh-manifest \
+            --expected-code-sha "$PUBLICATION_CODE_SHA"
+
+      - name: Publish validated dashboard state
+        id: publication-commit
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          CREATE_OUTPUT="$RUNNER_TEMP/dashboard-state-create.outputs"
+          : > "$CREATE_OUTPUT"
+          python scripts/vllm/dashboard_state.py create-commit \
+            --code-sha "$PUBLICATION_CODE_SHA" \
+            --github-output "$CREATE_OUTPUT"
+          STATE_SHA=$(awk -F= '$1 == "state_sha" {print substr($0, index($0, "=") + 1)}' "$CREATE_OUTPUT")
+          STATE_TREE=$(awk -F= '$1 == "tree_sha" {print substr($0, index($0, "=") + 1)}' "$CREATE_OUTPUT")
+          if ! [[ "$STATE_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+             ! [[ "$STATE_TREE" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Created dashboard state did not return full state/tree SHAs."
+            exit 1
+          fi
+          python scripts/vllm/dashboard_state.py validate-ref \
+            --ref "$STATE_SHA" --expected-code-sha "$PUBLICATION_CODE_SHA"
+          python scripts/vllm/dashboard_state.py rotate \
+            --new-state "$STATE_SHA" \
+            --current-sha "$DASHBOARD_CURRENT_STATE_SHA" \
+            --previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA" \
+            --remote origin
+          {
+            echo "DASHBOARD_PUBLISHED_STATE_SHA=$STATE_SHA"
+            echo "DASHBOARD_PUBLISHED_STATE_TREE=$STATE_TREE"
+          } >> "$GITHUB_ENV"
+          {
+            echo "state_sha=$STATE_SHA"
+            echo "state_tree=$STATE_TREE"
+            echo "published_sha=$PUBLICATION_CODE_SHA"
+            echo "code_sha=$PUBLICATION_CODE_SHA"
+            echo "local_test_gap_safe=true"
+          } >> "$GITHUB_OUTPUT"
+          echo "Atomically rotated dashboard state to $STATE_SHA (code $PUBLICATION_CODE_SHA)."
+
+      - name: Read exact guarded Buildkite request total
+        id: request-guard-report
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Mark durable Data Collection success
+        if: >-
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.publication-commit.outputs.state_sha != ''
+        env:
+          DURABLE_STATE_SHA: ${{ steps.publication-commit.outputs.state_sha }}
+          ACTUAL_REQUEST_STARTS: ${{ steps.request-guard-report.outputs.actual_request_starts }}
+        run: |
+          set -euo pipefail
+          for MARK_ATTEMPT in 1 2 3; do
+            if python scripts/vllm/request_bearing_attempt_budget.py \
+              --config config/data_collection_attempt_budget.json mark-success \
+              --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+              --durable-ref "$DURABLE_STATE_SHA" \
+              --actual-request-starts "$ACTUAL_REQUEST_STARTS"; then
+              exit 0
+            fi
+            if [ "$MARK_ATTEMPT" -lt 3 ]; then sleep $((MARK_ATTEMPT * 2)); fi
+          done
+          echo "::error::Dashboard state rotated, but its durable attempt success could not be recorded."
+          exit 1
+
+      - name: Write state publication marker
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/dashboard_state.py write-public-marker \
+            --state-sha "$DASHBOARD_PUBLISHED_STATE_SHA" \
+            --state-tree "$DASHBOARD_PUBLISHED_STATE_TREE" \
+            --code-sha "$PUBLICATION_CODE_SHA" \
+            --generated-at "$DASHBOARD_GENERATED_AT" \
+            --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --output _site/publication_generation.json
+
+      - name: Verify exact local public projection
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/public_projection.py verify-local \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --marker _site/publication_generation.json
+
+      - name: Preserve only bounded PR previews
+        id: preview-preservation
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$GITHUB_WORKSPACE/_site/pr-preview"
+          PREVIEW_STAGE="$RUNNER_TEMP/proven-pages-previews"
+          rm -rf "$PREVIEW_STAGE"
+          mkdir -p "$PREVIEW_STAGE"
+          set +e
+          git ls-remote --exit-code --refs origin refs/heads/gh-pages \
+            > "$RUNNER_TEMP/gh-pages-before-preservation.ls-remote"
+          pages_ref_status=$?
+          set -e
+          case "$pages_ref_status" in
+            0)
+              set +e
+              python scripts/vllm/github_git_proof.py hydrate-ref \
+                --repository "$GITHUB_REPOSITORY" \
+                --branch gh-pages --profile pages --root . --remote origin \
+                --output "$RUNNER_TEMP/predeploy-pages-proof.json" \
+                --materialize-root "$PREVIEW_STAGE" \
+                --materialize-prefix pr-preview/
+              preview_status=$?
+              set -e
+              case "$preview_status" in
+                0)
+                  if [ -d "$PREVIEW_STAGE/pr-preview" ]; then
+                    mv "$PREVIEW_STAGE/pr-preview" "$GITHUB_WORKSPACE/_site/pr-preview"
+                  fi
+                  ;;
+                2)
+                  echo "::warning::Existing Pages is definitively outside the safe profile; publishing the recovered canonical root without unsafe previews."
+                  ;;
+                *)
+                  echo "::error::Existing Pages proof was ambiguous; refusing publication."
+                  exit 90
+                  ;;
+              esac
+              ;;
+            2)
+              if [ -s "$RUNNER_TEMP/gh-pages-before-preservation.ls-remote" ]; then
+                echo "::error::Absent gh-pages probe returned ambiguous output."
+                exit 90
+              fi
+              echo "No existing Pages branch; there are no previews to preserve."
+              ;;
+            *)
+              echo "::error::Could not resolve gh-pages for preview preservation."
+              exit 90
+              ;;
+          esac
+          PREVIEW_BOUND_OUTPUT="$RUNNER_TEMP/bounded-pages-directory.outputs"
+          : > "$PREVIEW_BOUND_OUTPUT"
+          python scripts/vllm/github_git_proof.py bound-pages-directory \
+            --root "$GITHUB_WORKSPACE/_site" \
+            --github-output "$PREVIEW_BOUND_OUTPUT"
+          EXPECTED_PREVIEW_DIGEST=$(awk -F= \
+            '$1 == "pages_preview_digest" {print $2}' "$PREVIEW_BOUND_OUTPUT")
+          if ! [[ "$EXPECTED_PREVIEW_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Bounded preview composition returned an invalid digest."
+            exit 1
+          fi
+          echo "DASHBOARD_PREVIEW_DIGEST=$EXPECTED_PREVIEW_DIGEST" >> "$GITHUB_ENV"
+          python scripts/vllm/public_projection.py verify-local \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --marker _site/publication_generation.json
 
       - name: Deploy to GitHub Pages
         id: pages-deploy
-        uses: peaceiris/actions-gh-pages@v4
+        if: >-
+          steps.preview-preservation.outcome == 'success' &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
@@ -1673,63 +2465,80 @@ jobs:
 
       - name: Post-deploy validation (check gh-pages for corruption)
         id: post-deploy-validation
+        if: >-
+          inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "Checking gh-pages for merge conflict markers..."
-          git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 2>/dev/null || true
-          CORRUPT=0
-          for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$'); do
-            CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)
-            if echo "$CONTENT" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
-              echo "CORRUPT: $f"
-              CORRUPT=$((CORRUPT + 1))
+          set -euo pipefail
+          # The durable state is already fully local; refresh only its ref for
+          # the exact lease check. Pages metadata is independently size-proven.
+          git fetch --filter=blob:none origin \
+            "+refs/heads/$DASHBOARD_STATE_BRANCH:refs/remotes/origin/$DASHBOARD_STATE_BRANCH" \
+            --depth=1
+          LIVE_STATE_SHA=$(git rev-parse --verify \
+            "refs/remotes/origin/$DASHBOARD_STATE_BRANCH^{commit}")
+          if [ "$LIVE_STATE_SHA" != "$DASHBOARD_PUBLISHED_STATE_SHA" ]; then
+            echo "::error::Dashboard state ref differs from the state this run deployed."
+            exit 1
+          fi
+          echo "state_unchanged=true" >> "$GITHUB_OUTPUT"
+          GIT_NO_LAZY_FETCH=1 python scripts/vllm/dashboard_state.py validate-ref \
+            --ref "$LIVE_STATE_SHA" --expected-code-sha "$PUBLICATION_CODE_SHA"
+          POSTDEPLOY_PROOF_OUTPUT="$RUNNER_TEMP/post-deploy-pages-proof.outputs"
+          : > "$POSTDEPLOY_PROOF_OUTPUT"
+          if python scripts/vllm/github_git_proof.py hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages \
+            --profile pages-orphan \
+            --root . \
+            --remote origin \
+            --local-ref refs/remotes/origin/gh-pages \
+            --output "$RUNNER_TEMP/post-deploy-pages-proof.json" \
+            --github-output "$POSTDEPLOY_PROOF_OUTPUT"; then
+            :
+          else
+            hydrate_status=$?
+            if [ "$hydrate_status" -eq 2 ]; then
+              echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
+              echo "::error::Published Pages violates the bounded tree profile."
+            else
+              echo "::error::Pages proof was ambiguous; refusing a destructive redeploy."
             fi
-          done
-          if [ "$CORRUPT" -gt 0 ]; then
-            echo "::error::$CORRUPT data files on gh-pages have merge conflict markers! Redeploying..."
-            # Force a clean redeploy by removing keep_files behavior
-            # The concurrency group should prevent this, but if it happens, fix it
+            exit "$hydrate_status"
+          fi
+          DEPLOYED_PREVIEW_DIGEST=$(awk -F= \
+            '$1 == "pages_preview_digest" {print $2}' "$POSTDEPLOY_PROOF_OUTPUT")
+          if [ "$DEPLOYED_PREVIEW_DIGEST" != "$DASHBOARD_PREVIEW_DIGEST" ]; then
+            echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Published Pages did not preserve the exact bounded preview subtree."
             exit 1
           fi
-
-          DEPLOYED_ORG_SUMMARY="$RUNNER_TEMP/deployed-org-summary.json"
-          if ! git show origin/gh-pages:data/vllm/ci/org_summary.json \
-            > "$DEPLOYED_ORG_SUMMARY" 2>/dev/null; then
-            echo "::error::Published org_summary.json is missing."
-            CORRUPT=$((CORRUPT + 1))
-          elif ! python -m json.tool "$DEPLOYED_ORG_SUMMARY" >/dev/null; then
-            echo "::error::Published org_summary.json is not valid JSON."
-            CORRUPT=$((CORRUPT + 1))
-          elif ! cmp -s \
-            _site/data/vllm/ci/org_summary.json "$DEPLOYED_ORG_SUMMARY"; then
-            echo "::error::Published org_summary.json differs from the assembled site."
-            CORRUPT=$((CORRUPT + 1))
-          fi
-
-          DEPLOYED_OPERATIONS_MANIFEST="$RUNNER_TEMP/deployed-operations-manifest.json"
-          if ! git show \
-            origin/gh-pages:data/vllm/ci/operations_v2_manifest.json \
-            > "$DEPLOYED_OPERATIONS_MANIFEST" 2>/dev/null; then
-            echo "::error::Published Operations manifest is missing."
-            CORRUPT=$((CORRUPT + 1))
-          elif ! python scripts/vllm/verify_published_operations_bundle.py \
-            --assembled-manifest _site/data/vllm/ci/operations_v2_manifest.json \
-            --deployed-manifest "$DEPLOYED_OPERATIONS_MANIFEST" \
-            --git-ref origin/gh-pages; then
-            echo "::error::Published Operations bundle is incomplete or inconsistent."
-            CORRUPT=$((CORRUPT + 1))
-          fi
-
-          if [ "$CORRUPT" -gt 0 ]; then
+          if ! GIT_NO_LAZY_FETCH=1 python \
+            scripts/vllm/public_projection.py verify-git \
+              --repo-root . \
+              --git-ref origin/gh-pages \
+              --attestation data/vllm/ci/public_projection_attestation.json \
+              --expected-marker _site/publication_generation.json; then
+            echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Published Pages failed exact projection verification."
             exit 1
           fi
-          echo "All data files are clean and publication bundles match the assembled site."
+          echo "Pages exactly matches every state-bound public blob for $DASHBOARD_PUBLISHED_STATE_SHA."
 
       - name: Redeploy if corrupted
         id: corruption-redeploy
-        if: failure() && steps.post-deploy-validation.outcome == 'failure' && hashFiles('_site/index.html') != ''
-        uses: peaceiris/actions-gh-pages@v4
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.post-deploy-validation.outcome == 'failure' &&
+          steps.post-deploy-validation.outputs.state_unchanged == 'true' &&
+          steps.post-deploy-validation.outputs.corruption_confirmed == 'true' &&
+          hashFiles('_site/index.html') != ''
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
@@ -1738,47 +2547,87 @@ jobs:
           force_orphan: true
 
       - name: Confirm corruption recovery
-        if: always() && steps.post-deploy-validation.outcome == 'failure' && steps.corruption-redeploy.outcome == 'success'
+        id: corruption-recovery-validation
+        continue-on-error: true
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.post-deploy-validation.outcome == 'failure' &&
+          steps.post-deploy-validation.outputs.corruption_confirmed == 'true' &&
+          steps.corruption-redeploy.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+          git fetch --filter=blob:none origin \
+            "+refs/heads/$DASHBOARD_STATE_BRANCH:refs/remotes/origin/$DASHBOARD_STATE_BRANCH" \
             --depth=1
 
-          CORRUPT=0
-          for f in $(git ls-tree -r --name-only origin/gh-pages -- data/ 2>/dev/null | grep '\.json$\|\.jsonl$' || true); do
-            CONTENT=$(git show "origin/gh-pages:$f" 2>/dev/null || true)
-            if echo "$CONTENT" | grep -q "^>>>>>>>\|^<<<<<<<\|^======="; then
-              echo "CORRUPT after recovery: $f"
-              CORRUPT=$((CORRUPT + 1))
-            fi
-          done
-          if [ "$CORRUPT" -gt 0 ]; then
-            echo "::error::$CORRUPT data files remain corrupted after recovery deployment."
+          LIVE_STATE_SHA=$(git rev-parse --verify \
+            "refs/remotes/origin/$DASHBOARD_STATE_BRANCH^{commit}")
+          [ "$LIVE_STATE_SHA" = "$DASHBOARD_PUBLISHED_STATE_SHA" ]
+          RECOVERY_PROOF_OUTPUT="$RUNNER_TEMP/recovery-pages-proof.outputs"
+          : > "$RECOVERY_PROOF_OUTPUT"
+          python scripts/vllm/github_git_proof.py hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages \
+            --profile pages-orphan \
+            --root . \
+            --remote origin \
+            --local-ref refs/remotes/origin/gh-pages \
+            --output "$RUNNER_TEMP/recovery-pages-proof.json" \
+            --github-output "$RECOVERY_PROOF_OUTPUT"
+          RECOVERED_PREVIEW_DIGEST=$(awk -F= \
+            '$1 == "pages_preview_digest" {print $2}' "$RECOVERY_PROOF_OUTPUT")
+          [ "$RECOVERED_PREVIEW_DIGEST" = "$DASHBOARD_PREVIEW_DIGEST" ]
+          GIT_NO_LAZY_FETCH=1 python scripts/vllm/public_projection.py verify-git \
+            --repo-root . \
+            --git-ref origin/gh-pages \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --expected-marker _site/publication_generation.json
+          echo "Confirmed the recovered exact state-bound public projection."
+
+      - name: Enforce final exact-state deployment validation
+        id: final-deploy-validation
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
+        env:
+          PAGES_DEPLOY_OUTCOME: ${{ steps.pages-deploy.outcome }}
+          INITIAL_VALIDATION_OUTCOME: ${{ steps.post-deploy-validation.outcome }}
+          INITIAL_STATE_UNCHANGED: ${{ steps.post-deploy-validation.outputs.state_unchanged }}
+          INITIAL_CORRUPTION_CONFIRMED: ${{ steps.post-deploy-validation.outputs.corruption_confirmed }}
+          REDEPLOY_OUTCOME: ${{ steps.corruption-redeploy.outcome }}
+          RECOVERY_VALIDATION_OUTCOME: ${{ steps.corruption-recovery-validation.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$PAGES_DEPLOY_OUTCOME" != success ]; then
+            echo "::error::The initial Pages deployment did not succeed."
             exit 1
           fi
-
-          DEPLOYED_ORG_SUMMARY="$RUNNER_TEMP/recovered-org-summary.json"
-          git show origin/gh-pages:data/vllm/ci/org_summary.json \
-            > "$DEPLOYED_ORG_SUMMARY"
-          python -m json.tool "$DEPLOYED_ORG_SUMMARY" >/dev/null
-          cmp -s _site/data/vllm/ci/org_summary.json "$DEPLOYED_ORG_SUMMARY"
-
-          DEPLOYED_OPERATIONS_MANIFEST="$RUNNER_TEMP/recovered-operations-manifest.json"
-          git show \
-            origin/gh-pages:data/vllm/ci/operations_v2_manifest.json \
-            > "$DEPLOYED_OPERATIONS_MANIFEST"
-          python scripts/vllm/verify_published_operations_bundle.py \
-            --assembled-manifest _site/data/vllm/ci/operations_v2_manifest.json \
-            --deployed-manifest "$DEPLOYED_OPERATIONS_MANIFEST" \
-            --git-ref origin/gh-pages
-          echo "Confirmed clean JSON data and restored critical publication bundles."
+          if [ "$INITIAL_VALIDATION_OUTCOME" = success ]; then
+            echo "The initial deployment passed exact state/projection validation."
+            exit 0
+          fi
+          if [ "$INITIAL_VALIDATION_OUTCOME" = failure ] && \
+             [ "$INITIAL_STATE_UNCHANGED" = true ] && \
+             [ "$INITIAL_CORRUPTION_CONFIRMED" = true ] && \
+             [ "$REDEPLOY_OUTCOME" = success ] && \
+             [ "$RECOVERY_VALIDATION_OUTCOME" = success ]; then
+            echo "The bounded redeploy repaired and revalidated the exact state projection."
+            exit 0
+          fi
+          echo "::error::Pages did not reach a validated exact-state projection."
+          exit 1
 
       - name: Confirm targeted DNS reconciliation
         id: dns-target-confirmation
-        if: inputs.dns_generation != '' && steps.pages-deploy.outcome == 'success' && steps.post-deploy-validation.outcome == 'success'
-        env:
-          TARGET_DNS_GENERATION: ${{ inputs.dns_generation }}
+        if: >-
+          inputs.dns_generation != '' &&
+          steps.pages-deploy.outcome == 'success' &&
+          steps.final-deploy-validation.outcome == 'success'
         run: |
           set -euo pipefail
           PUBLICATION_STATUS="$RUNNER_TEMP/confirmed-publication-status.json"
@@ -1797,28 +2646,31 @@ jobs:
           python scripts/vllm/plan_dns_publication_reconcile.py \
             --status "$PUBLICATION_STATUS" \
             --canonical-dns-data "$CANONICAL_DNS" \
-            --target-dns-generation "$TARGET_DNS_GENERATION" \
+            --target-dns-generation "$HOURLY_DNS_GENERATION_INPUT" \
             --fail-if-required
-          echo "Confirmed canonical DNS generation $TARGET_DNS_GENERATION."
+          echo "Confirmed canonical DNS generation $HOURLY_DNS_GENERATION_INPUT."
 
       - name: Establish publication recovery validation
         id: publication-recovery-validation
         if: >-
-          inputs.dns_generation == '' &&
+          (inputs.dns_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved') &&
           success() &&
           steps.publication-selector.outcome == 'success' &&
           steps.publication-selector.outputs.degraded == 'false' &&
           steps.live-data-audit.outcome == 'success' &&
           steps.live-data-audit.outputs.exit_code == '0' &&
           steps.pages-deploy.outcome == 'success' &&
-          steps.post-deploy-validation.outcome == 'success'
-        uses: actions/github-script@v7
+          steps.final-deploy-validation.outcome == 'success' && (
+            inputs.dns_generation == '' ||
+            steps.dns-target-confirmation.outcome == 'success'
+          )
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           HOURLY_PUBLICATION_SHA: ${{ steps.publication-commit.outputs.published_sha }}
           HOURLY_LOCAL_TEST_GAP_SAFE: ${{ steps.publication-commit.outputs.local_test_gap_safe }}
           HOURLY_TEST_OUTCOME: ${{ steps.run-tests.outcome }}
           HOURLY_TEST_EXIT_CODE: ${{ steps.run-tests.outputs.exit_code }}
-          HOURLY_TESTS_SKIPPED: ${{ github.event.inputs.skip_tests }}
         with:
           script: |
             const publicationSha = process.env.HOURLY_PUBLICATION_SHA || '';
@@ -1827,13 +2679,34 @@ jobs:
             const testOutcome = process.env.HOURLY_TEST_OUTCOME || '';
             const testExitCode = process.env.HOURLY_TEST_EXIT_CODE || '';
             const testsIntentionallySkipped =
-              (process.env.HOURLY_TESTS_SKIPPED || '') === 'true';
+              (process.env.HOURLY_SKIP_TESTS || '') === 'true';
+            const targetedDns =
+              (process.env.HOURLY_DNS_GENERATION_INPUT || '') !== '';
             const setValidation = (eligible, source, codeSha = '', runUrl = '') => {
               core.setOutput('eligible', eligible ? 'true' : 'false');
               core.setOutput('source', source);
               core.setOutput('code_sha', codeSha);
               core.setOutput('run_url', runUrl);
             };
+
+            if (targetedDns) {
+              const localTestsPassed =
+                testOutcome === 'success' && testExitCode === '0';
+              if (!localTestsPassed) {
+                setValidation(false, 'targeted-dns-tests-not-successful');
+                core.warning(
+                  'Targeted DNS recovery is ineligible because the exact ' +
+                  'published code did not pass deterministic tests.',
+                );
+                return;
+              }
+              setValidation(true, 'targeted-dns', publicationSha, '');
+              console.log(
+                'Recovery is eligible: the requested DNS generation was ' +
+                'validated in the exact fully healthy canonical publication.',
+              );
+              return;
+            }
 
             const localTestsPassed =
               testOutcome === 'success' && testExitCode === '0';
@@ -1937,6 +2810,7 @@ jobs:
       - name: Create hourly validation incident
         if: >-
           inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
           always() && (
             failure() ||
             (steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != '') ||
@@ -1951,9 +2825,9 @@ jobs:
             steps.publication-commit.outcome == 'failure' ||
             steps.site-assembly.outcome == 'failure' ||
             steps.pages-deploy.outcome == 'failure' ||
-            steps.post-deploy-validation.outcome == 'failure'
+            steps.final-deploy-validation.outcome == 'failure'
           )
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           HOURLY_TEST_EXIT_CODE: ${{ steps.run-tests.outputs.exit_code }}
           HOURLY_TEST_SUMMARY: ${{ steps.run-tests.outputs.summary }}
@@ -1973,15 +2847,28 @@ jobs:
           HOURLY_COMMIT_OUTCOME: ${{ steps.publication-commit.outcome }}
           HOURLY_ASSEMBLY_OUTCOME: ${{ steps.site-assembly.outcome }}
           HOURLY_DEPLOY_OUTCOME: ${{ steps.pages-deploy.outcome }}
-          HOURLY_POST_DEPLOY_OUTCOME: ${{ steps.post-deploy-validation.outcome }}
+          HOURLY_POST_DEPLOY_OUTCOME: ${{ steps.final-deploy-validation.outcome }}
         with:
           script: |
             const fs = require('fs');
             const testExitCode = process.env.HOURLY_TEST_EXIT_CODE || '';
             const hasTestFailure = testExitCode !== '' && testExitCode !== '0';
-            const testSummary = process.env.HOURLY_TEST_SUMMARY || 'Tests did not run';
-            const failures = process.env.HOURLY_TEST_FAILURES || 'No concise failure summary captured.';
-            const output = process.env.HOURLY_TEST_OUTPUT || 'No output captured';
+            const decodeOutput = (value, fallback) => {
+              if (!value) return fallback;
+              return Buffer.from(value, 'base64').toString('utf8');
+            };
+            const testSummary = decodeOutput(
+              process.env.HOURLY_TEST_SUMMARY,
+              'Tests did not run',
+            );
+            const failures = decodeOutput(
+              process.env.HOURLY_TEST_FAILURES,
+              'No concise failure summary captured.',
+            );
+            const output = decodeOutput(
+              process.env.HOURLY_TEST_OUTPUT,
+              'No output captured',
+            );
             const selectorOutcome = process.env.HOURLY_SELECTOR_OUTCOME || 'unknown';
             const selectorDegraded = (process.env.HOURLY_SELECTOR_DEGRADED || '') === 'true';
             const selectorAlertable =
@@ -2046,6 +2933,7 @@ jobs:
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
             const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
             const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
+            const dnsOnlyIncidentMarker = '<!-- hourly-ci-dns-only:v1 -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const {
               RECOVERED_MARKER: recoveredMarker,
@@ -2225,6 +3113,12 @@ jobs:
                   : 'Deterministic Test Failure';
             const degradedSurfaces = Array.isArray(publicationState.degraded_surfaces)
               ? publicationState.degraded_surfaces.join(', ') : '';
+            const isDnsOnlyIncident =
+              selectorOutcome === 'success' && selectorDegraded &&
+              !hasTestFailure && !hasLiveAuditFailure &&
+              !hasDeploymentFailure && !hasUnclassifiedWorkflowFailure &&
+              selectedPublicationSurfaces.length === 1 &&
+              selectedPublicationSurfaces[0] === 'dns_health';
             const report = [
               `## ${incidentKind} — ${date}`,
               '',
@@ -2292,6 +3186,7 @@ jobs:
               fingerprintMarker,
               contentMarker,
               recoveryMarker,
+              ...(isDnsOnlyIncident ? [dnsOnlyIncidentMarker] : []),
               '',
               report,
             ].join('\n');
@@ -2509,15 +3404,16 @@ jobs:
 
       - name: Close issue after healthy publication
         if: >-
-          inputs.dns_generation == '' &&
           success() &&
+          (inputs.dns_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
           steps.publication-selector.outcome == 'success' &&
           steps.publication-selector.outputs.degraded == 'false' &&
           steps.live-data-audit.outcome == 'success' &&
           steps.live-data-audit.outputs.exit_code == '0' &&
           steps.publication-recovery-validation.outcome == 'success' &&
           steps.publication-recovery-validation.outputs.eligible == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           HOURLY_RECOVERY_VALIDATION_SOURCE: ${{ steps.publication-recovery-validation.outputs.source }}
           HOURLY_RECOVERY_CODE_SHA: ${{ steps.publication-recovery-validation.outputs.code_sha }}
@@ -2527,6 +3423,7 @@ jobs:
             const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
             const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
             const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
+            const dnsOnlyIncidentMarker = '<!-- hourly-ci-dns-only:v1 -->';
             const legacySignature = '*Auto-created by hourly-master workflow.*';
             const {
               RECOVERED_MARKER: recoveredMarker,
@@ -2541,10 +3438,6 @@ jobs:
             const validationCiUrl =
               process.env.HOURLY_RECOVERY_CI_URL || '';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            // Require roughly six eligible healthy publications before closing
-            // or rearming the one current incident. Any degraded run—including
-            // a suppressed transient fallback—resets this streak.
-            const requiredRecoveryRuns = 6;
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner, repo: context.repo.repo,
               state: 'all', per_page: 100,
@@ -2578,6 +3471,38 @@ jobs:
               console.log('No current hourly incident needs recovery tracking.');
               return;
             }
+            const currentIssueBody = currentIssue.body || '';
+            const isMarkedDnsOnly = hasExactMarker(
+              currentIssueBody, dnsOnlyIncidentMarker,
+            );
+            // Adopt only the exact legacy shape produced for the current DNS-only
+            // incident before the ownership marker existed. Do not infer DNS-only
+            // from a title or an arbitrary mention of DNS.
+            const legacyLines = currentIssueBody.split(/\r?\n/);
+            const isStrictLegacyDnsOnly =
+              legacyLines.some(line => /^## Degraded Publication — \d{4}-\d{2}-\d{2}$/.test(line)) &&
+              legacyLines.includes('**Degraded surfaces:** dns_health') &&
+              legacyLines.some(line =>
+                line.startsWith('**Publication selector:** outcome=`success`, mode=`degraded`'),
+              ) &&
+              legacyLines.some(line =>
+                line.startsWith('**Live publication audit:** outcome=`success`,'),
+              ) &&
+              !currentIssueBody.includes('**Failing deterministic tests:**') &&
+              !currentIssueBody.includes('deployment failed:') &&
+              !currentIssueBody.includes('workflow step failed before publication completed');
+            const targetedDnsRecovery = validationSource === 'targeted-dns';
+            if (targetedDnsRecovery && !isMarkedDnsOnly && !isStrictLegacyDnsOnly) {
+              console.log(
+                `Targeted DNS publication will not advance non-DNS-only incident ` +
+                `#${currentIssue.number}.`,
+              );
+              return;
+            }
+            // General incidents retain the six-publication anti-flap window. A
+            // strictly identified DNS-only incident can be closed by the exact
+            // targeted publication that made the canonical status fully healthy.
+            const requiredRecoveryRuns = targetedDnsRecovery ? 1 : 6;
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -2633,6 +3558,9 @@ jobs:
             if (!currentBody.includes(currentIncidentMarker)) {
               currentBody = `${currentIncidentMarker}\n${currentBody}`;
             }
+            if (targetedDnsRecovery && !currentBody.includes(dnsOnlyIncidentMarker)) {
+              currentBody = `${dnsOnlyIncidentMarker}\n${currentBody}`;
+            }
             if (currentIssue.state === 'closed' &&
                 currentBody.includes(recoveredMarker)) {
               if (currentBody !== (currentIssue.body || '')) {
@@ -2682,10 +3610,13 @@ jobs:
               );
               return;
             }
-            const validationEvidence = validationSource === 'separate-ci'
-              ? `Separate CI validated code SHA \`${validationCodeSha}\`` +
-                (validationCiUrl ? ` ([run](${validationCiUrl})).` : '.')
-              : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
+            const validationEvidence = validationSource === 'targeted-dns'
+              ? `The targeted DNS generation was validated in the exact fully ` +
+                `healthy canonical publication for code \`${validationCodeSha}\`.`
+              : validationSource === 'separate-ci'
+                ? `Separate CI validated code SHA \`${validationCodeSha}\`` +
+                  (validationCiUrl ? ` ([run](${validationCiUrl})).` : '.')
+                : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -2709,7 +3640,9 @@ jobs:
 
       # ── Phase 7: Health check ──
       - name: Health check
-        if: inputs.dns_generation == ''
+        if: >-
+          inputs.dns_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           SITE_URL="https://andreaskaratzas.github.io/vllm-ci-dashboard/"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SITE_URL")
@@ -2725,7 +3658,7 @@ jobs:
 
   dns-reconcile-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.dns_generation != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -2733,10 +3666,14 @@ jobs:
       required: ${{ steps.target-check.outputs.required }}
       reason: ${{ steps.target-check.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.13'
 
       - name: Check whether the DNS generation is already canonical
         id: target-check
@@ -2770,76 +3707,56 @@ jobs:
 
   publication-watchdog-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.watchdog_generation != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     outputs:
       required: ${{ steps.generation-check.outputs.required }}
-      reason: ${{ steps.generation-check.outputs.reason }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           persist-credentials: false
 
-      - name: Check whether watchdog recovery is still required
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.13'
+
+      - name: Check whether durable Buildkite collection is still due
         id: generation-check
-        env:
-          EXPECTED_GENERATION: ${{ inputs.watchdog_generation }}
         run: |
           set -euo pipefail
-          PUBLICATION_STATUS="$RUNNER_TEMP/publication-status.json"
-          if git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 \
-            && git show \
-              origin/gh-pages:data/vllm/ci/publication_status.json \
-              > "$PUBLICATION_STATUS"; then
-            echo "Loaded canonical publication status for watchdog preflight."
-          else
-            rm -f "$PUBLICATION_STATUS"
-            echo "::warning::Canonical status is unavailable; retaining watchdog recovery."
-          fi
-          python scripts/vllm/plan_publication_watchdog.py \
-            --status "$PUBLICATION_STATUS" \
-            --expected-generation "$EXPECTED_GENERATION" \
-            --max-age-minutes 45 \
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/data_collection_attempt_budget.json observe \
             --github-output "$GITHUB_OUTPUT"
 
   cadence-preflight:
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    # Webhook bursts may be cheaply coalesced from the durable attempt ledger.
+    # Scheduled and manual runs always reach the serialized authoritative
+    # reserve step, independent of general publication timestamps.
+    if: github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     outputs:
       required: ${{ steps.cadence-check.outputs.required }}
-      reason: ${{ steps.cadence-check.outputs.reason }}
+      observation_valid: ${{ steps.cadence-check.outputs.observation_valid }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
           persist-credentials: false
 
-      - name: Coalesce a schedule queued behind a recent publication
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.13'
+
+      - name: Coalesce webhook behind the durable request-attempt ledger
         id: cadence-check
         run: |
           set -euo pipefail
-          PUBLICATION_STATUS="$RUNNER_TEMP/publication-status.json"
-          if git fetch origin \
-            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
-            --depth=1 \
-            && git show \
-              origin/gh-pages:data/vllm/ci/publication_status.json \
-              > "$PUBLICATION_STATUS"; then
-            echo "Loaded canonical publication status for cadence preflight."
-          else
-            rm -f "$PUBLICATION_STATUS"
-            echo "::warning::Canonical status is unavailable; retaining scheduled collection."
-          fi
-          python scripts/vllm/plan_publication_watchdog.py \
-            --status "$PUBLICATION_STATUS" \
-            --cadence-preflight \
-            --max-age-minutes 30 \
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/data_collection_attempt_budget.json observe \
             --github-output "$GITHUB_OUTPUT"

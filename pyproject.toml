@@ -3,28 +3,28 @@ name = "panoptes"
 version = "0.1.0"
 description = "Panoptes — vLLM ecosystem project dashboard"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = "==3.12.13"
 
 dependencies = [
-    "requests",
-    "pyyaml",
+    "requests==2.34.2",
+    "pyyaml==6.0.3",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.2.2",
-    "pytest-cov>=5.0.0",
-    "ruff>=0.4.10",
-    "mypy>=1.10.0",
-    "types-PyYAML>=6.0.12",
-    "types-requests",
-    "pre-commit>=4.3.0",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.5",
+    "mypy==2.3.1",
+    "types-PyYAML==6.0.12.20260815",
+    "types-requests==2.33.0.20260712",
+    "pre-commit==4.6.2",
     # Fernet encryption for private DNS collector state.
-    "cryptography>=42",
+    "cryptography==50.0.1",
 ]
 
 [build-system]
-requires = ["setuptools>=69.5.1", "wheel"]
+requires = ["setuptools==84.0.0", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

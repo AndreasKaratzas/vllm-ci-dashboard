@@ -29,7 +29,13 @@ from vllm.ci.buildkite_client import (
     validate_nightly_roster_cache,
     write_nightly_build_cache,
 )
+from vllm.ci.backfill_checkpoint import (
+    BackfillCheckpointError,
+    record_complete_shard,
+    restore_complete_shards,
+)
 from vllm.ci.log_parser import parse_job_results
+from vllm.buildkite_request_guard import BuildkiteRequestGuardError
 from vllm.ci.dns_classification_cache import (
     DnsClassificationCache,
     load_optional_dns_classification_cache,
@@ -439,6 +445,8 @@ def _cache_covers_all_jobs(
             # the same point-in-time job set used for this cache decision.
             build.clear()
             build.update(detail)
+        except BuildkiteRequestGuardError:
+            raise
         except Exception as e:
             # If the API is flaky at the moment, be conservative and trust
             # the cache. Next cron tick will try again.
@@ -518,6 +526,7 @@ def collect_pipeline(
     dry_run: bool = False,
     dns_classification_cache: DnsClassificationCache | None = None,
     roster_cache_errors: list[str] | None = None,
+    backfill_checkpoint_dir: Path | None = None,
 ) -> tuple[list[dict], dict[int, list[TestResult]]]:
     """Collect test data for a single pipeline.
 
@@ -595,6 +604,8 @@ def collect_pipeline(
                 build.update(detail)
                 detail_hydrated_from_api = True
                 state = build.get("state", state)
+            except BuildkiteRequestGuardError:
+                raise
             except Exception as exc:
                 log.warning(
                     "  Build #%d: couldn't refresh terminal roster (%s); "
@@ -748,7 +759,15 @@ def collect_pipeline(
 
         if build_results:
             results_by_build[build_num] = build_results
-            write_test_results(build_results, date, pipeline_key, results_dir)
+            result_path = write_test_results(
+                build_results, date, pipeline_key, results_dir
+            )
+            if backfill_checkpoint_dir is not None:
+                # This call happens only after every selected job future for
+                # the build completed.  Guard exhaustion propagates before
+                # here, so a checkpoint shard can never describe a partial
+                # nightly roster.
+                record_complete_shard(backfill_checkpoint_dir, result_path)
 
     # ``fetch_nightly_builds`` now performs a lightweight metadata-only list
     # query. Persist the rosters hydrated above so historical nightly summaries
@@ -1058,6 +1077,22 @@ def main():
     output_dir = Path(args.output)
     results_dir = output_dir / "test_results"
     cache_dir = output_dir / ".cache"
+    backfill_checkpoint_dir = cache_dir / "ci-backfill-v1"
+    if not args.dry_run:
+        try:
+            restored_backfill_shards = restore_complete_shards(
+                backfill_checkpoint_dir,
+                results_dir,
+            )
+        except (OSError, BackfillCheckpointError) as exc:
+            raise RuntimeError(
+                f"private CI backfill checkpoint could not be made safe: {exc}"
+            ) from exc
+        if restored_backfill_shards:
+            log.info(
+                "Restored %d complete CI backfill shards from private cache",
+                restored_backfill_shards,
+            )
     dns_cache_path = args.dns_classification_cache or output_dir / DNS_CLASSIFICATION_CACHE
     dns_classification_cache = None
     cache_was_reset = False
@@ -1085,6 +1120,9 @@ def main():
             args.dry_run,
             dns_classification_cache=dns_classification_cache,
             roster_cache_errors=roster_cache_errors,
+            backfill_checkpoint_dir=(
+                backfill_checkpoint_dir if not args.dry_run else None
+            ),
         )
         all_builds[pk] = builds
         all_results[pk] = results
@@ -1342,6 +1380,8 @@ def main():
                 detail = fetch_build_detail("amd", amd_build_num)
                 amd_snapshot_build.clear()
                 amd_snapshot_build.update(detail)
+            except BuildkiteRequestGuardError:
+                raise
             except Exception as exc:
                 log.warning(
                     "Could not hydrate frozen AMD build #%s roster: %s",
@@ -1560,6 +1600,8 @@ def main():
             if up_latest_build and not up_latest_build.get("jobs"):
                 try:
                     up_latest_build = fetch_build_detail("upstream", up_build_num)
+                except BuildkiteRequestGuardError:
+                    raise
                 except Exception:
                     pass
             if up_latest_build:

@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 DOCS = ROOT / "docs"
 WORKFLOWS = ROOT / ".github" / "workflows"
+CACHE_ACTION_REVISION = "0057852bfaa89a56745cba8c7296529d2fc39830"  # action revision
 
 
 @pytest.mark.live_data
@@ -311,22 +312,21 @@ class TestQueueMonitorWorkflow:
         assert "+refs/heads/queue-data:refs/remotes/origin/queue-data" in content
         assert "Could not determine durable queue-data branch state" in content
 
-    def test_deploy_pages_syncs_queue_from_durable_branch(self):
-        """A manual full deploy must retain independently collected history."""
+    def test_deploy_pages_replays_exact_state_without_queue_mutation(self):
+        """Deploy-only replays the state that already merged durable producers."""
         path = WORKFLOWS / "deploy-pages.yml"
         if not path.exists():
             pytest.skip("deploy-pages.yml not present")
         content = path.read_text()
-        assert "origin/queue-data" in content
-        assert "--merge-history-git-ref origin/queue-data" in content
-        assert "--require-merge-history" in content
-        assert "git ls-remote --exit-code origin \"refs/heads/$BRANCH\"" in content
-        assert "Could not fetch established durable $BRANCH branch" in content
-        assert "queue_lifecycle.json" in content
-        assert '"+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"' in content
-        assert "--queue-lifecycle-path \"$LIVE_QUEUE_LIFECYCLE\"" in content
-        assert "durable lifecycle aggregate would regress generated_at" in content
-        assert "Established dns-health-data branch has no publishable aggregate" in content
+        assert 'materialize --ref "$STATE_SHA"' in content
+        assert "Restore exact validated dashboard state" in content
+        for forbidden in (
+            "origin/queue-data",
+            "--merge-history-git-ref origin/queue-data",
+            "--queue-lifecycle-path",
+            "origin/dns-health-data",
+        ):
+            assert forbidden not in content
 
 
 class TestQueueLifecycleWorkflow:
@@ -336,10 +336,10 @@ class TestQueueLifecycleWorkflow:
     def workflow(self):
         return yaml.safe_load((WORKFLOWS / "queue-lifecycle.yml").read_text())
 
-    def test_runs_hourly_on_an_independent_lock(self, workflow):
+    def test_runs_every_two_hours_on_an_independent_lock(self, workflow):
         triggers = workflow.get(True, {})
         crons = [row.get("cron") for row in triggers.get("schedule", [])]
-        assert "47 * * * *" in crons
+        assert "47 */2 * * *" in crons
         assert workflow["concurrency"]["group"] == "queue-lifecycle-data-publish"
         assert workflow["concurrency"]["cancel-in-progress"] is False
 
@@ -348,12 +348,14 @@ class TestQueueLifecycleWorkflow:
         restore = next(
             step for step in steps if step.get("name") == "Restore durable lifecycle observations"
         )["run"]
-        assert "git ls-remote --exit-code origin refs/heads/queue-lifecycle-data" in restore
+        assert "git ls-remote --exit-code --refs origin refs/heads/queue-lifecycle-data" in restore
         assert (
             "+refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data"
             in restore
         )
-        assert "--merge-jobs-git-ref origin/queue-lifecycle-data" in restore
+        assert "--restore-jobs-git-ref origin/queue-lifecycle-data" in restore
+        assert "baseline_ref=$LIFECYCLE_DATA_SHA" in restore
+        assert "baseline_ref=bootstrap" in restore
         assert "refusing to publish" in restore
 
     def test_collects_only_with_secret_environment(self, workflow):
@@ -364,6 +366,62 @@ class TestQueueLifecycleWorkflow:
         assert "BUILDKITE_API_TOKEN" in collect.get("env", {})
         assert "collect_queue_lifecycle.py" in collect.get("run", "")
         assert "--full-backfill" not in collect.get("run", "")
+
+    def test_private_checkpoint_is_resumable_bounded_and_never_published(self, workflow):
+        steps = workflow["jobs"]["lifecycle"]["steps"]
+        by_name = {step.get("name"): step for step in steps}
+        names = [step.get("name") for step in steps]
+        cache_path = "data/vllm/ci/.cache/queue-lifecycle-wip-v1"
+
+        assert workflow["permissions"]["actions"] == "write"
+        reserve = by_name["Reserve guarded Queue Lifecycle attempt"]["run"]
+        assert '[ "$ALLOWANCE" != 100 ]' in reserve
+        assert names.index("Reserve guarded Queue Lifecycle attempt") < names.index(
+            "Restore newest private lifecycle WIP"
+        ) < names.index("Collect canonical AMD queue lifecycle")
+        restore = by_name["Restore newest private lifecycle WIP"]
+        assert restore["uses"] == f"actions/cache/restore@{CACHE_ACTION_REVISION}"
+        assert restore["with"]["path"] == cache_path
+        assert "namespace_prefix" in restore["with"]["restore-keys"]
+
+        collect = by_name["Collect canonical AMD queue lifecycle"]
+        assert '--checkpoint "$LIFECYCLE_CHECKPOINT"' in collect["run"]
+        assert '--baseline-ref "$LIFECYCLE_BASELINE_REF"' in collect["run"]
+        assert collect["env"]["LIFECYCLE_BASELINE_REF"].endswith(
+            "steps.lifecycle-baseline.outputs.baseline_ref }}"
+        )
+
+        report_index = names.index("Read exact guarded Buildkite request total")
+        publish_index = names.index("Publish durable lifecycle evidence")
+        assert names.index("Collect canonical AMD queue lifecycle") < report_index < publish_index
+
+        prepare = by_name["Prepare bounded private lifecycle cache payload"]
+        save = by_name["Save private lifecycle recovery checkpoint"]
+        assert "always()" in prepare["if"]
+        assert "--prepare-checkpoint-cache" in prepare["run"]
+        assert "always()" in save["if"]
+        assert save["uses"] == f"actions/cache/save@{CACHE_ACTION_REVISION}"
+        assert save["with"]["path"] == cache_path
+        assert "github.run_id" in save["with"]["key"] or "outputs.key" in save["with"]["key"]
+
+        clear = by_name["Clear published lifecycle WIP"]
+        assert names.index("Mark durable Queue Lifecycle success") < names.index(
+            "Clear published lifecycle WIP"
+        ) < names.index("Save private lifecycle recovery checkpoint")
+        assert "--clear-checkpoint" in clear["run"]
+
+        prune = by_name["Prune superseded private lifecycle caches"]
+        assert prune["continue-on-error"] is True
+        assert "--sort created_at" in prune["run"]
+        assert "--jq '.[8:] | .[].id'" in prune["run"]
+        assert 'gh cache delete "$CACHE_ID"' in prune["run"]
+
+        publish = by_name["Publish durable lifecycle evidence"]["run"]
+        assert cache_path not in publish
+        assert "checkpoint" not in publish.casefold()
+        assert "--force-with-lease=refs/heads/queue-lifecycle-data:" in publish
+        assert ":$LIFECYCLE_BASELINE_REF" in publish
+        assert "git -C \"$LIVE_ROOT\" push --force " not in publish
 
     def test_semantic_validation_runs_before_durable_publish(self, workflow):
         steps = workflow["jobs"]["lifecycle"]["steps"]

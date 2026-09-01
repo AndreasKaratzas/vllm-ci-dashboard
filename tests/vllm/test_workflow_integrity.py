@@ -11,6 +11,7 @@ These tests ensure:
 import ast
 import json
 import re
+import tomllib
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -21,6 +22,17 @@ from vllm.publication_surfaces import surface_for_path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 SCRIPTS_DIR = REPO_ROOT / "scripts"
+
+ACTION_PINS = {
+    "actions/cache/restore": "0057852bfaa89a56745cba8c7296529d2fc39830",  # action revision
+    "actions/cache/save": "0057852bfaa89a56745cba8c7296529d2fc39830",  # action revision
+    "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",  # action revision
+    "actions/github-script": "f28e40c7f34bde8b3046d885e986cb6290c5673b",  # action revision
+    "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",  # action revision
+    "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",  # action revision
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",  # action revision
+    "peaceiris/actions-gh-pages": "84c30a85c19949d7eee79c4ff27748b70285e453",  # action revision
+}
 
 
 def _load_workflow(name):
@@ -43,6 +55,32 @@ def _load_workflow_text(name):
 class TestWorkflowYAML:
     """Validate all workflow files parse and have required fields."""
 
+    def test_all_workflows_reject_duplicate_mapping_keys(self):
+        class UniqueKeyLoader(yaml.SafeLoader):
+            pass
+
+        def construct_unique_mapping(loader, node, deep=False):
+            mapping = {}
+            for key_node, value_node in node.value:
+                key = loader.construct_object(key_node, deep=deep)
+                if key in mapping:
+                    raise AssertionError(
+                        f"duplicate YAML mapping key {key!r} at line "
+                        f"{key_node.start_mark.line + 1}"
+                    )
+                mapping[key] = loader.construct_object(value_node, deep=deep)
+            return mapping
+
+        UniqueKeyLoader.add_constructor(
+            yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+            construct_unique_mapping,
+        )
+        for workflow in WORKFLOWS.glob("*.yml"):
+            try:
+                yaml.load(workflow.read_text(), Loader=UniqueKeyLoader)
+            except AssertionError as exc:
+                raise AssertionError(f"{workflow.name}: {exc}") from exc
+
     def test_all_workflows_parse_as_yaml(self):
         yml_files = list(WORKFLOWS.glob("*.yml"))
         assert len(yml_files) >= 5, f"Expected at least 5 workflow files, found {len(yml_files)}"
@@ -60,6 +98,145 @@ class TestWorkflowYAML:
             # YAML parses 'on:' as the boolean True key
             assert True in data or "on" in data, f"{f.name}: missing 'on' trigger field"
             assert "jobs" in data, f"{f.name}: missing 'jobs' field"
+            for name, job in data["jobs"].items():
+                assert job.get("runs-on") == "ubuntu-24.04", (
+                    f"{f.name}:{name}: runner image must not float"
+                )
+
+    def test_remote_actions_are_allowlisted_and_immutably_pinned(self):
+        """A moving action tag must never change production code implicitly."""
+
+        pattern = re.compile(r"^([^@]+)@([0-9a-f]{40})$")
+        for workflow in WORKFLOWS.glob("*.yml"):
+            for line_number, line in enumerate(workflow.read_text().splitlines(), 1):
+                match = re.match(r"\s*(?:-\s*)?uses:\s*([^\s#]+)", line)
+                if match is None:
+                    continue
+                reference = match.group(1)
+                if reference.startswith("./"):
+                    continue
+                parsed = pattern.fullmatch(reference)
+                assert parsed is not None, (
+                    f"{workflow.name}:{line_number}: action reference must use a "
+                    f"full commit SHA: {reference}"
+                )
+                action, revision = parsed.groups()
+                assert action in ACTION_PINS, (
+                    f"{workflow.name}:{line_number}: action is not allowlisted: {action}"
+                )
+                assert revision == ACTION_PINS[action], (
+                    f"{workflow.name}:{line_number}: unexpected revision for {action}"
+                )
+
+    def test_python_and_pip_installations_are_hermetic(self):
+        for workflow in WORKFLOWS.glob("*.yml"):
+            text = workflow.read_text()
+            for version in re.findall(r"python-version:\s*['\"]?([^'\"\s]+)", text):
+                assert version == "3.12.13", f"{workflow.name}: Python is not exact"
+            for version in re.findall(r"node-version:\s*['\"]?([^'\"\s]+)", text):
+                assert version == "22.23.2", f"{workflow.name}: Node.js is not exact"
+            for line_number, line in enumerate(text.splitlines(), 1):
+                if re.search(r"(?:python\s+-m\s+)?pip\s+install\b", line):
+                    assert "-c constraints.txt" in line, (
+                        f"{workflow.name}:{line_number}: pip install bypasses constraints"
+                    )
+                assert "npm install -g cspell" not in line, (
+                    f"{workflow.name}:{line_number}: cspell bypasses the npm lock"
+                )
+            parsed = _load_workflow(workflow.name)
+            for job in (parsed.get("jobs") or {}).values():
+                for step in job.get("steps", []):
+                    if step.get("uses") != (
+                        "actions/setup-python@"
+                        + ACTION_PINS["actions/setup-python"]
+                    ):
+                        continue
+                    setup = step.get("with", {})
+                    if setup.get("cache") != "pip":
+                        continue
+                    dependency_paths = setup.get("cache-dependency-path", "")
+                    assert "constraints.txt" in dependency_paths, (
+                        f"{workflow.name}: pip cache does not key on constraints.txt"
+                    )
+
+    def test_every_python_using_job_sets_up_the_exact_runtime(self):
+        python_command = re.compile(r"(?<![-\w])python(?:3)?(?:\s|$)")
+        for workflow in WORKFLOWS.glob("*.yml"):
+            parsed = _load_workflow(workflow.name)
+            for job_name, job in (parsed.get("jobs") or {}).items():
+                steps = job.get("steps", []) or []
+                commands = "\n".join(
+                    str(step.get("run", ""))
+                    for step in steps
+                    if isinstance(step, dict)
+                )
+                if python_command.search(commands) is None:
+                    continue
+                setups = [
+                    step
+                    for step in steps
+                    if step.get("uses")
+                    == "actions/setup-python@" + ACTION_PINS["actions/setup-python"]
+                ]
+                assert setups, (
+                    f"{workflow.name}:{job_name}: Python executes without setup-python"
+                )
+                assert all(
+                    step.get("with", {}).get("python-version") == "3.12.13"
+                    for step in setups
+                ), f"{workflow.name}:{job_name}: Python runtime is not exact"
+
+    def test_cspell_uses_the_committed_npm_lock(self):
+        package_path = REPO_ROOT / "tools" / "spellcheck" / "package.json"
+        lock_path = REPO_ROOT / "tools" / "spellcheck" / "package-lock.json"
+        package = json.loads(package_path.read_text())
+        lock = json.loads(lock_path.read_text())
+        assert package["private"] is True
+        assert package["devDependencies"] == {"cspell": "8.19.4"}
+        assert lock["lockfileVersion"] == 3
+        assert lock["packages"][""]["devDependencies"] == {"cspell": "8.19.4"}
+        assert lock["packages"]["node_modules/cspell"]["version"] == "8.19.4"
+
+        lint = _load_workflow("ci.yml")["jobs"]["lint"]
+        commands = "\n".join(step.get("run", "") for step in lint["steps"])
+        assert "npm ci --prefix tools/spellcheck" in commands
+        assert "tools/spellcheck/node_modules/.bin/cspell" in commands
+        assert "npm install -g" not in commands
+
+    def test_dependency_contracts_are_exact_and_covered_by_lock(self):
+        constraint_lines = [
+            line.strip()
+            for line in (REPO_ROOT / "constraints.txt").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        exact = re.compile(r"^([A-Za-z0-9_.-]+)==([^\s;]+)$")
+        locked = {}
+        for line in constraint_lines:
+            match = exact.fullmatch(line)
+            assert match is not None, f"constraint is not an exact version: {line}"
+            name, version = match.groups()
+            normalized = name.lower().replace("_", "-")
+            assert normalized not in locked, f"duplicate constraint for {name}"
+            locked[normalized] = version
+
+        project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+        declared = list(project["project"]["dependencies"])
+        for extra in project["project"].get("optional-dependencies", {}).values():
+            declared.extend(extra)
+        declared.extend(project["build-system"]["requires"])
+        declared.extend(
+            line.strip()
+            for line in (REPO_ROOT / "requirements.txt").read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        for requirement in declared:
+            match = exact.fullmatch(requirement)
+            assert match is not None, f"dependency is not exactly pinned: {requirement}"
+            name, version = match.groups()
+            normalized = name.lower().replace("_", "-")
+            assert locked.get(normalized) == version, (
+                f"{requirement} is not covered exactly by constraints.txt"
+            )
 
     def test_expression_bearing_scalars_fit_github_parser_limit(self):
         """GitHub rejects any interpolated YAML scalar longer than 21,000 chars."""
@@ -112,7 +289,25 @@ class TestWorkflowYAML:
             if not deploys_branch:
                 continue
             data = yaml.safe_load(text)
-            conc = data.get("concurrency", {})
+            concurrencies = [data.get("concurrency", {})]
+            concurrencies.extend(
+                job.get("concurrency", {})
+                for job in (data.get("jobs") or {}).values()
+                if isinstance(job, dict)
+            )
+            conc = next(
+                (
+                    candidate
+                    for candidate in concurrencies
+                    if (
+                        candidate.get("group")
+                        if isinstance(candidate, dict)
+                        else candidate
+                    )
+                    == "gh-pages-deploy"
+                ),
+                {},
+            )
             if isinstance(conc, dict):
                 group = conc.get("group")
                 cancel = conc.get("cancel-in-progress")
@@ -128,9 +323,12 @@ class TestWorkflowYAML:
             assert cancel is False, (
                 f"{f.name} writes to gh-pages but still has cancel-in-progress enabled"
             )
-            assert queue == "max", (
-                f"{f.name} writes to gh-pages but can replace an already-pending writer"
-            )
+            if f.name == "hourly-master.yml":
+                assert queue == "max"
+            else:
+                assert queue == "max", (
+                    f"{f.name} writes to gh-pages but can replace an already-pending writer"
+                )
 
     def test_repo_governance_workflow_exists_and_watches_issues_and_prs(self):
         wf = _load_workflow("repo-governance.yml")
@@ -163,45 +361,46 @@ class TestWorkflowYAML:
             data = yaml.safe_load(f.read_text())
             for job in (data.get("jobs") or {}).values():
                 steps = job.get("steps") or []
-                if not any(
-                    step.get("name", "").startswith("Redeploy if corrupted") for step in steps
-                ):
+                if not any(step.get("id") == "corruption-redeploy" for step in steps):
                     continue
 
                 validation = next(
                     (
                         step
                         for step in steps
-                        if step.get("name", "").startswith("Post-deploy validation")
+                        if step.get("id") == "post-deploy-validation"
                     ),
                     None,
                 )
                 assert validation and validation.get("id") == "post-deploy-validation", (
                     f"{f.name} has a corruption redeploy but no id on post-deploy validation"
                 )
+                assert validation.get("continue-on-error") is True
                 validation_script = validation.get("run", "")
-                assert "origin/gh-pages:data/vllm/ci/org_summary.json" in validation_script
-                assert "python -m json.tool" in validation_script
-                assert "_site/data/vllm/ci/org_summary.json" in validation_script
-                assert "cmp -s" in validation_script
-                assert (
-                    "origin/gh-pages:data/vllm/ci/operations_v2_manifest.json"
-                    in validation_script
-                )
-                assert (
-                    "_site/data/vllm/ci/operations_v2_manifest.json"
-                    in validation_script
-                )
-                assert (
-                    "scripts/vllm/verify_published_operations_bundle.py"
-                    in validation_script
+                assert "scripts/vllm/public_projection.py verify-git" in (
+                    validation_script
                 )
                 assert "--git-ref origin/gh-pages" in validation_script
+                assert "--attestation" in validation_script
+                assert "--expected-marker" in validation_script
+                assert "github_git_proof.py hydrate-ref" in validation_script
+                assert "--profile pages" in validation_script
+                assert "GIT_NO_LAZY_FETCH=1 python" in validation_script
+                assert "hydrate_status=$?" in validation_script
+                assert '[ "$hydrate_status" -eq 2 ]' in validation_script
+                assert (
+                    'echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"'
+                    in validation_script
+                )
+                assert "proof was ambiguous; refusing a destructive redeploy" in (
+                    validation_script
+                )
+                assert validation.get("env") == {"GH_TOKEN": "${{ github.token }}"}
 
                 redeploy = next(
                     step
                     for step in steps
-                    if step.get("name", "").startswith("Redeploy if corrupted")
+                    if step.get("id") == "corruption-redeploy"
                 )
                 assert redeploy.get("id") == "corruption-redeploy"
                 condition = str(redeploy.get("if", ""))
@@ -212,12 +411,17 @@ class TestWorkflowYAML:
                 assert "hashFiles('_site/index.html') != ''" in condition, (
                     f"{f.name} corruption redeploy must require an assembled site"
                 )
+                assert (
+                    "steps.post-deploy-validation.outputs."
+                    "corruption_confirmed == 'true'" in condition
+                ), f"{f.name} must never mutate Pages after an ambiguous proof failure"
 
                 recovery = next(
                     step
                     for step in steps
-                    if step.get("name") == "Confirm corruption recovery"
+                    if step.get("id") == "corruption-recovery-validation"
                 )
+                assert recovery.get("continue-on-error") is True
                 recovery_condition = str(recovery.get("if", ""))
                 assert "always()" in recovery_condition
                 assert (
@@ -225,25 +429,50 @@ class TestWorkflowYAML:
                     in recovery_condition
                 )
                 assert (
+                    "steps.post-deploy-validation.outputs."
+                    "corruption_confirmed == 'true'" in recovery_condition
+                )
+                assert (
                     "steps.corruption-redeploy.outcome == 'success'"
                     in recovery_condition
                 )
                 recovery_script = recovery.get("run", "")
-                assert (
-                    "git ls-tree -r --name-only origin/gh-pages -- data/"
-                    in recovery_script
-                )
-                assert (
-                    "data files remain corrupted after recovery deployment"
-                    in recovery_script
-                )
-                assert "recovered-org-summary.json" in recovery_script
-                assert "recovered-operations-manifest.json" in recovery_script
-                assert (
-                    "scripts/vllm/verify_published_operations_bundle.py"
-                    in recovery_script
-                )
+                assert "scripts/vllm/public_projection.py verify-git" in recovery_script
                 assert "--git-ref origin/gh-pages" in recovery_script
+                assert "--attestation" in recovery_script
+                assert "--expected-marker" in recovery_script
+                assert "github_git_proof.py hydrate-ref" in recovery_script
+                assert "--profile pages" in recovery_script
+                assert "GIT_NO_LAZY_FETCH=1 python" in recovery_script
+                assert recovery.get("env") == {"GH_TOKEN": "${{ github.token }}"}
+
+                final = next(
+                    step for step in steps if step.get("id") == "final-deploy-validation"
+                )
+                final_condition = str(final.get("if", ""))
+                assert final_condition.startswith("always()")
+                final_env = final.get("env", {})
+                assert "steps.post-deploy-validation.outcome" in final_env[
+                    "INITIAL_VALIDATION_OUTCOME"
+                ]
+                assert "outputs.corruption_confirmed" in final_env[
+                    "INITIAL_CORRUPTION_CONFIRMED"
+                ]
+                assert "steps.corruption-redeploy.outcome" in final_env[
+                    "REDEPLOY_OUTCOME"
+                ]
+                assert "steps.corruption-recovery-validation.outcome" in final_env[
+                    "RECOVERY_VALIDATION_OUTCOME"
+                ]
+                final_script = final.get("run", "")
+                assert '[ "$INITIAL_VALIDATION_OUTCOME" = success ]' in final_script
+                assert '[ "$INITIAL_STATE_UNCHANGED" = true ]' in final_script
+                assert '[ "$INITIAL_CORRUPTION_CONFIRMED" = true ]' in final_script
+                assert '[ "$REDEPLOY_OUTCOME" = success ]' in final_script
+                assert '[ "$RECOVERY_VALIDATION_OUTCOME" = success ]' in final_script
+                assert "Pages did not reach a validated exact-state projection" in (
+                    final_script
+                )
 
 
 class TestPrimaryCIWorkflow:
@@ -276,9 +505,23 @@ class TestPrimaryCIWorkflow:
         data = _load_workflow("ci.yml")
         steps = data["jobs"]["e2e-smoke"]["steps"]
         names = [step.get("name") for step in steps]
+        setup_python = next(
+            step
+            for step in steps
+            if step.get("uses")
+            == "actions/setup-python@" + ACTION_PINS["actions/setup-python"]
+        )
+        assert setup_python["with"]["python-version"] == "3.12.13"
+        build_dependencies = steps[names.index("Install dashboard build dependencies")]
+        assert build_dependencies["run"] == (
+            "pip install -c constraints.txt requests pyyaml"
+        )
         assert "Install browser smoke dependencies" in names
         assert "Install Chromium" in names
         assert "Run dashboard browser smoke" in names
+        assert names.index("Install dashboard build dependencies") < names.index(
+            "Run dashboard browser smoke"
+        )
 
         package = REPO_ROOT / "tests" / "browser" / "package.json"
         package_text = package.read_text()
@@ -296,6 +539,46 @@ class TestPrimaryCIWorkflow:
         assert "browserErrors" in smoke
         assert ".ops-error" in smoke
         assert "12_500" in smoke
+
+
+class TestNightlyCIFailureTransport:
+    """Keep arbitrary pytest output out of generated JavaScript source."""
+
+    def test_failure_evidence_is_bounded_single_line_base64(self):
+        data = _load_workflow("nightly-ci.yml")
+        test_job = data["jobs"]["tests"]
+        assert set(test_job["outputs"]) == {
+            "test_result",
+            "test_output_b64",
+            "summary_b64",
+        }
+        run_tests = next(
+            step for step in test_job["steps"] if step.get("name") == "Run full test suite"
+        )["run"]
+        assert "base64.urlsafe_b64encode" in run_tests
+        assert "scan_limit = 64 * 1024" in run_tests
+        assert "output_limit = 16 * 1024" in run_tests
+        assert "summary_limit = 1024" in run_tests
+        assert "test_output_b64=" in run_tests
+        assert "summary_b64=" in run_tests
+        assert "output<<" not in run_tests
+
+    def test_issue_script_decodes_only_environment_values(self):
+        data = _load_workflow("nightly-ci.yml")
+        steps = data["jobs"]["create-issue-on-failure"]["steps"]
+        issue = next(
+            step for step in steps if step.get("name") == "Create or update GitHub issue"
+        )
+        assert issue["env"] == {
+            "SUMMARY_B64": "${{ needs.tests.outputs.summary_b64 }}",
+            "TEST_OUTPUT_B64": "${{ needs.tests.outputs.test_output_b64 }}",
+        }
+        script = issue["with"]["script"]
+        assert "${{" not in script
+        assert "process.env.SUMMARY_B64" in script
+        assert "process.env.TEST_OUTPUT_B64" in script
+        assert "Buffer.from(encoded, 'base64url')" in script
+        assert "decoded.length > maxBytes" in script
 
 
 @pytest.mark.parametrize("workflow", ["ci.yml", "nightly-ci.yml"])
@@ -329,9 +612,109 @@ class TestHourlyMasterWorkflow:
         assert inputs["ci_days"]["default"] == "8"
         assert inputs["dns_generation"]["default"] == ""
         assert inputs["watchdog_generation"]["default"] == ""
-        assert 'github.event.inputs.ci_days || \'8\'' in _load_workflow_text(
-            "hourly-master.yml"
+        assert inputs["recovery_key"]["default"] == ""
+        assert "[recovery:{0}]" in workflow["run-name"]
+        steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+        validate = next(
+            step
+            for step in steps
+            if step.get("name") == "Validate and normalize workflow inputs"
         )
+        assert validate["env"]["RAW_CI_DAYS"] == "${{ inputs.ci_days }}"
+        assert 'raw_days = os.environ["RAW_CI_DAYS"] or "8"' in validate["run"]
+        collect = next(step for step in steps if step.get("name") == "Collect CI data")
+        assert 'DAYS="$HOURLY_CI_DAYS"' in collect["run"]
+
+    def test_untrusted_dispatch_inputs_are_validated_before_shell_use(self):
+        workflow = _load_workflow("hourly-master.yml")
+        steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+        names = [step.get("name") for step in steps]
+        validate = steps[names.index("Validate and normalize workflow inputs")]
+        assert names.index(validate["name"]) < names.index("Capture immutable main code")
+        assert set(validate["env"]) == {
+            "RAW_CI_DAYS",
+            "RAW_SKIP_TESTS",
+            "RAW_RESET_PERF_EVAL",
+            "RAW_DNS_GENERATION",
+            "RAW_WATCHDOG_GENERATION",
+            "RAW_RECOVERY_KEY",
+        }
+        script = validate["run"]
+        for token in (
+            '1 <= days <= 30',
+            '{"true", "false"}',
+            r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z',
+            'unavailable=True',
+            'HOURLY_CI_DAYS',
+            'HOURLY_SKIP_TESTS',
+            'HOURLY_RESET_PERF_EVAL',
+            'HOURLY_DNS_GENERATION_INPUT',
+            'HOURLY_WATCHDOG_GENERATION_INPUT',
+            'HOURLY_RECOVERY_KEY',
+            r'[0-9a-f]{64}',
+        ):
+            assert token in script
+        unsafe = re.compile(r"\$\{\{\s*(?:inputs|github\.event\.inputs)\.")
+        for step in steps:
+            assert not unsafe.search(step.get("run", "")), step.get("name")
+
+    def test_state_code_is_server_side_proven_on_protected_main(self):
+        workflow = _load_workflow("hourly-master.yml")
+        steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+        checkout = steps[0]
+        assert checkout["with"].get("fetch-depth") != 0
+        restore = next(
+            step
+            for step in steps
+            if step.get("name") == "Restore validated dashboard state"
+        )
+        assert restore["env"] == {"GH_TOKEN": "${{ github.token }}"}
+        script = restore["run"]
+        assert "github_git_proof.py compare-ancestor" in script
+        assert '--base "$code_sha"' in script
+        assert '--head "$PUBLICATION_CODE_SHA"' in script
+        assert 'declare -A PROVEN_CODES=()' in script
+        assert 'declare -A PROVEN_CODE_TREES=()' in script
+        assert 'PROVEN_CODES["$code_sha"]=ancestor' in script
+        assert 'PROVEN_CODES["$code_sha"]=nonancestor' in script
+        assert 'add_slot_proof "$OBSERVED_STATE_SHA" current' in script
+        assert 'add_slot_proof "$OBSERVED_PREVIOUS_SHA" previous' in script
+        assert "dashboard_state.py repair-slots" in script
+        equality_shortcut = 'if [ "$code_sha" = "$PUBLICATION_CODE_SHA" ]'
+        assert equality_shortcut in script
+        assert script.index(equality_shortcut) < script.index(
+            "github_git_proof.py compare-ancestor"
+        )
+        assert "hydrate_proven_blob" in script
+        assert "--profile dashboard-state" in script
+        assert "--profile dashboard-code" in script
+        assert "state_manifest_bytes" in script
+        assert "state_attestation_bytes" in script
+        assert "--filter=blob:none" in script
+        assert "dashboard_state.py validate-ref-metadata" in script
+        assert "GIT_NO_LAZY_FETCH=1" in script
+        pre_repair = script.split("dashboard_state.py repair-slots", 1)[0]
+        assert "blob:limit=" not in pre_repair
+        assert pre_repair.index("--profile dashboard-state") < pre_repair.index(
+            'origin "$state_sha"'
+        )
+        post_repair = script.split("dashboard_state.py repair-slots", 1)[1]
+        assert "--refetch" in post_repair
+        assert 'full_validate_state "$CURRENT_STATE_SHA" current' in post_repair
+        assert 'full_validate_state "$PREVIOUS_STATE_SHA" previous' in post_repair
+        assert post_repair.index(
+            'full_validate_state "$CURRENT_STATE_SHA" current'
+        ) < post_repair.index('case "$CURRENT_FULL_STATUS" in') < post_repair.index(
+            'full_validate_state "$PREVIOUS_STATE_SHA" previous'
+        )
+        assert "dashboard-state-full-fallback-ancestry.json" in post_repair
+        assert "Neither dashboard state slot passes full content validation" in (
+            post_repair
+        )
+        assert post_repair.index("--refetch") < post_repair.index(
+            "dashboard_state.py validate-ref"
+        )
+        assert "git merge-base --is-ancestor" not in script
 
     def test_dns_reconciliation_is_generation_acknowledged_and_idempotent(self):
         workflow = _load_workflow("hourly-master.yml")
@@ -345,20 +728,25 @@ class TestHourlyMasterWorkflow:
             "dns-reconcile-preflight",
             "publication-watchdog-preflight",
         ]
-        assert collect["timeout-minutes"] == 60
+        assert collect["timeout-minutes"] == 50
         assert "always()" in collect["if"]
         assert "!cancelled()" in collect["if"]
         assert "needs.dns-reconcile-preflight.result != 'success'" in collect["if"]
         assert "needs.dns-reconcile-preflight.outputs.required != 'false'" in (
             collect["if"]
         )
-        assert "needs.publication-watchdog-preflight.result != 'success'" in collect["if"]
-        assert "needs.publication-watchdog-preflight.outputs.required != 'false'" in (
+        assert "needs.publication-watchdog-preflight.result == 'success'" in collect["if"]
+        assert "needs.publication-watchdog-preflight.outputs.required == 'true'" in (
             collect["if"]
         )
-        assert "needs.cadence-preflight.result != 'success'" in collect["if"]
-        assert "needs.cadence-preflight.outputs.required != 'false'" in collect["if"]
-        assert "github.event_name != 'schedule'" in collect["if"]
+        assert "github.event_name == 'workflow_dispatch'" in collect["if"]
+        assert "github.event_name == 'schedule'" in collect["if"]
+        assert "github.event_name == 'repository_dispatch'" in collect["if"]
+        assert "needs.cadence-preflight.result == 'success'" in collect["if"]
+        assert "needs.cadence-preflight.outputs.observation_valid == 'true'" in (
+            collect["if"]
+        )
+        assert "needs.cadence-preflight.outputs.required == 'true'" in collect["if"]
         assert preflight["if"] == (
             "github.event_name == 'workflow_dispatch' && inputs.dns_generation != ''"
         )
@@ -396,46 +784,41 @@ class TestHourlyMasterWorkflow:
             for step in watchdog_preflight["steps"]
             if step.get("id") == "generation-check"
         )
-        assert generation_check["env"] == {
-            "EXPECTED_GENERATION": "${{ inputs.watchdog_generation }}"
-        }
+        assert "env" not in generation_check
         for token in (
-            "origin/gh-pages:data/vllm/ci/publication_status.json",
-            "plan_publication_watchdog.py",
-            "--expected-generation",
-            "--max-age-minutes 45",
+            "request_bearing_attempt_budget.py",
+            "config/data_collection_attempt_budget.json observe",
             '--github-output "$GITHUB_OUTPUT"',
         ):
             assert token in generation_check["run"]
+        assert "publication_status" not in generation_check["run"]
 
-        assert cadence_preflight["if"] == "github.event_name == 'schedule'"
+        assert cadence_preflight["if"] == "github.event_name == 'repository_dispatch'"
         assert cadence_preflight["permissions"] == {"contents": "read"}
+        assert cadence_preflight["outputs"]["observation_valid"] == (
+            "${{ steps.cadence-check.outputs.observation_valid }}"
+        )
         cadence_check = next(
             step
             for step in cadence_preflight["steps"]
             if step.get("id") == "cadence-check"
         )
         for token in (
-            "origin/gh-pages:data/vllm/ci/publication_status.json",
-            "plan_publication_watchdog.py",
-            "--cadence-preflight",
-            "--max-age-minutes 30",
+            "request_bearing_attempt_budget.py",
+            "config/data_collection_attempt_budget.json observe",
             '--github-output "$GITHUB_OUTPUT"',
         ):
             assert token in cadence_check["run"]
+        assert "publication_status" not in cadence_check["run"]
 
         perf = next(
             step
             for step in collect["steps"]
             if step.get("name") == "Decide whether to regenerate perf-eval"
         )
-        assert perf["env"] == {
-            "DNS_RECONCILE_GENERATION": "${{ inputs.dns_generation }}",
-            "WATCHDOG_GENERATION": "${{ inputs.watchdog_generation }}",
-            "DISPATCH_TYPE": "${{ github.event.action }}",
-        }
-        assert 'if [ -n "$DNS_RECONCILE_GENERATION" ]' in perf["run"]
-        assert 'elif [ -n "$WATCHDOG_GENERATION" ]' in perf["run"]
+        assert perf["env"] == {"DISPATCH_TYPE": "${{ github.event.action }}"}
+        assert 'if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]' in perf["run"]
+        assert 'elif [ -n "$HOURLY_WATCHDOG_GENERATION_INPUT" ]' in perf["run"]
         assert 'if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]' in perf["run"]
 
         confirmation = next(
@@ -446,12 +829,10 @@ class TestHourlyMasterWorkflow:
         assert confirmation["id"] == "dns-target-confirmation"
         assert "inputs.dns_generation != ''" in confirmation["if"]
         assert "steps.pages-deploy.outcome == 'success'" in confirmation["if"]
-        assert "steps.post-deploy-validation.outcome == 'success'" in (
+        assert "steps.final-deploy-validation.outcome == 'success'" in (
             confirmation["if"]
         )
-        assert confirmation["env"] == {
-            "TARGET_DNS_GENERATION": "${{ inputs.dns_generation }}"
-        }
+        assert "env" not in confirmation
         for token in (
             "origin/gh-pages:data/vllm/ci/publication_status.json",
             "origin/gh-pages:data/vllm/ci/dns_failures.json",
@@ -459,6 +840,7 @@ class TestHourlyMasterWorkflow:
             '--dns-only --dns-path "$CANONICAL_DNS"',
             "--canonical-dns-data",
             "--target-dns-generation",
+            '"$HOURLY_DNS_GENERATION_INPUT"',
             "--fail-if-required",
         ):
             assert token in confirmation["run"]
@@ -507,21 +889,17 @@ class TestHourlyMasterWorkflow:
         )
         assert "vllm/perf_eval/events.jsonl" in manifest["never_publish_patterns"]
 
-    def test_post_rebase_rebuilds_private_perf_projection_before_retest(self):
+    def test_state_publication_never_rebases_or_pushes_generated_data_to_main(self):
         data = _load_workflow("hourly-master.yml")
         steps = data["jobs"]["collect-and-deploy"].get("steps", [])
-        commit = next(step for step in steps if step.get("name") == "Commit and push")
-        script = commit["run"]
+        names = [step.get("name") for step in steps]
+        text = _load_workflow_text("hourly-master.yml")
 
-        pull = "git pull --rebase origin main"
-        validate = "python scripts/vllm/merge_perf_eval_events.py"
-        rebuild = "python scripts/vllm/collect_perf_eval.py"
-        operations = "python scripts/vllm/build_operations_snapshot.py"
-        assert script.index(pull) < script.index(validate)
-        assert script.index(validate) < script.index(rebuild)
-        assert script.index(rebuild) < script.index(operations)
-        assert "--local data/vllm/perf_eval/events.jsonl" in script
-        assert "--output data/vllm/perf_eval/perf_eval.json" in script
+        assert "git pull --rebase origin main" not in text
+        assert "git push origin HEAD:main" not in text
+        assert names.index("Validate private perf-eval event store") < names.index(
+            "Prepare bounded dashboard state candidate"
+        ) < names.index("Publish validated dashboard state")
 
     def test_hourly_consumes_queue_snapshot_without_refetching_buildkite(self):
         data = _load_workflow("hourly-master.yml")
@@ -573,20 +951,13 @@ class TestHourlyMasterWorkflow:
             "if ! git fetch origin \\\n"
             "    +refs/heads/queue-data:refs/remotes/origin/queue-data"
         )
-        pages_fetch = (
-            "if git fetch origin \\\n"
-            "    +refs/heads/gh-pages:refs/remotes/origin/gh-pages"
-        )
         assert queue_fetch in script
-        assert pages_fetch in script
         assert "Could not fetch the mandatory durable queue-data branch" in script
         assert "The mandatory durable queue-data ref did not resolve" in script
         assert "--merge-history-git-ref origin/queue-data" in script
         assert "--require-merge-history" in script
         assert script.index(queue_fetch) < script.index("return 1", script.index(queue_fetch))
-        assert script.index("return 1", script.index(queue_fetch)) < script.index(
-            pages_fetch
-        )
+        assert "origin/gh-pages" not in script
         assert "--depth=1 || true" not in script
         assert (
             'run_surface_collector queue "durable queue data seed" sync_queue_data'
@@ -599,21 +970,14 @@ class TestHourlyMasterWorkflow:
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
 
-        sync_index = names.index("Sync CI data from gh-pages")
+        restore_index = names.index("Restore validated dashboard state")
         collect_index = names.index("Collect vLLM/Omni AMD workload mappings")
         heuristic_index = names.index("Refresh Omni surge heuristic")
         selector = names.index("Select validated publication surfaces")
         second_build = names.index(
             "Rebuild v2 operations snapshot with selected issue state"
         )
-        assert sync_index < collect_index < heuristic_index < selector < second_build
-
-        sync_run = steps[sync_index].get("run", "")
-        assert "workload_mapping.json" in sync_run
-        assert "REMOTE_SCHEMA" in sync_run
-        assert "LOCAL_SCHEMA" in sync_run
-        assert '"$REMOTE_SCHEMA" -gt "$LOCAL_SCHEMA"' in sync_run
-        assert '"$REMOTE_GENERATED" > "$LOCAL_GENERATED"' in sync_run
+        assert restore_index < collect_index < heuristic_index < selector < second_build
         collect = steps[collect_index]
         assert 'run_surface_collector queue "AMD workload mappings"' in collect["run"]
         assert "python scripts/vllm/collect_workload_mapping.py" in collect["run"]
@@ -645,12 +1009,10 @@ class TestHourlyMasterWorkflow:
     def test_calls_collect_gating_proposals(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_proposals.py" in text
-        assert "gating_proposals.json" in text
 
     def test_calls_collect_gating_targets(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_targets.py" in text
-        assert "gating_targets.json" in text
 
     def test_hourly_rebuilds_gating_targets_after_live_data_sync(self):
         data = _load_workflow("hourly-master.yml")
@@ -658,11 +1020,11 @@ class TestHourlyMasterWorkflow:
         steps = job.get("steps", []) or []
         names = [step.get("name") for step in steps]
 
-        sync = names.index("Sync CI data from gh-pages")
+        restore = names.index("Restore validated dashboard state")
         collect = names.index("Collect AMD gating target list")
         candidates = names.index("Collect AMD gating target candidate audit")
 
-        assert sync < collect < candidates
+        assert restore < collect < candidates
         assert 'run_surface_collector ci_gating "AMD gating target list"' in (
             steps[collect]["run"]
         )
@@ -673,7 +1035,6 @@ class TestHourlyMasterWorkflow:
     def test_calls_collect_gating_target_candidates(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_target_candidates.py" in text
-        assert "gating_target_candidates.json" in text
 
     def test_amd_matrix_uses_the_frozen_collect_ci_roster(self):
         data = _load_workflow("hourly-master.yml")
@@ -690,17 +1051,31 @@ class TestHourlyMasterWorkflow:
         )
 
     def test_ci_collect_calls_collect_gating_proposals(self):
-        text = _load_workflow_text("ci-collect.yml")
+        text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_proposals.py" in text
         assert "GITHUB_TOKEN" in text
 
     def test_ci_collect_calls_collect_gating_targets(self):
-        text = _load_workflow_text("ci-collect.yml")
+        text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_targets.py" in text
 
     def test_ci_collect_calls_collect_gating_target_candidates(self):
-        text = _load_workflow_text("ci-collect.yml")
+        text = _load_workflow_text("hourly-master.yml")
         assert "collect_gating_target_candidates.py" in text
+
+    def test_ci_collect_validates_untrusted_collection_inputs(self):
+        workflow = _load_workflow("ci-collect.yml")
+        steps = workflow["jobs"]["collect"]["steps"]
+        collect = next(
+            step for step in steps if step.get("name") == "Validate compatibility inputs"
+        )
+        assert collect["env"]["RAW_DAYS"] == "${{ inputs.days }}"
+        assert collect["env"]["RAW_PIPELINE"] == "${{ inputs.pipeline }}"
+        assert "1 <= int(raw_days) <= 30" in collect["run"]
+        assert '{"amd", "upstream", "both"}' in collect["run"]
+        assert not re.search(
+            r"\$\{\{\s*(?:inputs|github\.event\.inputs)\.", collect["run"]
+        )
 
     def test_calls_github_data_collection(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -725,22 +1100,23 @@ class TestHourlyMasterWorkflow:
         # including config_parity inside collect_ci.
         assert "VLLM_CONFIG_SHA" not in (collect_ci.get("env") or {})
 
-    def test_publication_baseline_is_captured_before_collection(self):
+    def test_code_and_state_baselines_are_restored_before_collection(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
         install = names.index("Install dependencies")
-        baseline = names.index("Capture immutable main baseline")
+        baseline = names.index("Capture immutable main code")
+        restore = names.index("Restore validated dashboard state")
         resolve = names.index("Resolve immutable vLLM config snapshot")
 
-        assert install < baseline < resolve
+        assert install < baseline < restore < resolve
         assert steps[baseline].get("id") == "publication-baseline"
         script = steps[baseline]["run"]
         assert "git rev-parse --verify 'HEAD^{commit}'" in script
         assert "^[0-9a-f]{40}$" in script
         assert "git diff --quiet" in script
         assert "python scripts/vllm/audit_dashboard_data.py" not in script
-        assert "PUBLICATION_BASELINE_REF=$BASELINE_REF" in script
+        assert "PUBLICATION_CODE_SHA=$CODE_SHA" in script
         assert "PUBLICATION_FAILED_SURFACES_FILE=$FAILED_SURFACES_FILE" in script
         assert (
             "PUBLICATION_COLLECTOR_FAILURES_FILE=$COLLECTOR_FAILURES_FILE"
@@ -748,12 +1124,36 @@ class TestHourlyMasterWorkflow:
         )
         assert 'FAILED_SURFACES_FILE="$RUNNER_TEMP/' in script
         assert 'COLLECTOR_FAILURES_FILE="$RUNNER_TEMP/' in script
+        restore_script = steps[restore]["run"]
+        assert "git ls-remote --exit-code --refs" in restore_script
+        assert "CURRENT_STATE_SHA" in restore_script
+        assert "PREVIOUS_STATE_SHA" in restore_script
+        assert "bootstrap_allowed" in restore_script
+        assert "add_slot_proof" in restore_script
+        assert "dashboard_state.py repair-slots" in restore_script
+        assert restore_script.index(
+            'add_slot_proof "$OBSERVED_STATE_SHA" current'
+        ) < restore_script.index(
+            'add_slot_proof "$OBSERVED_PREVIOUS_SHA" previous'
+        ) < restore_script.index("dashboard_state.py repair-slots")
+        assert '--current-sha "$OBSERVED_STATE_SHA"' in restore_script
+        assert '--previous-sha "$OBSERVED_PREVIOUS_SHA"' in restore_script
+        assert "--expected-code-sha" in restore_script
+        assert "hydrate_proven_blob" in restore_script
+        assert "github_git_proof.py prove" in restore_script
+        assert "--profile dashboard-state" in restore_script
+        assert "--profile dashboard-code" in restore_script
+        assert "dashboard_state.py validate-ref-metadata" in restore_script
+        assert "--filter=blob:none" in restore_script
+        assert "--refetch" in restore_script
+        assert "dashboard_state.py materialize" in restore_script
+        assert "PUBLICATION_BASELINE_REF=$PUBLICATION_BASELINE_REF" in restore_script
 
     def test_external_collectors_force_atomic_surface_selection(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
-        baseline = steps[names.index("Capture immutable main baseline")]
+        baseline = steps[names.index("Capture immutable main code")]
         selector = steps[names.index("Select validated publication surfaces")]
 
         helper = baseline["run"]
@@ -774,7 +1174,6 @@ class TestHourlyMasterWorkflow:
         assert '"component_bytes"' in helper
         for name, surface in (
             ("Sync queue data from durable live branch", "queue"),
-            ("Sync issue automation state from gh-pages", "queue"),
             ("Normalize and prune queue history", "queue"),
             ("Refresh Omni surge heuristic", "queue"),
             ("Collect CI data", "ci_core"),
@@ -788,6 +1187,7 @@ class TestHourlyMasterWorkflow:
         selector_run = selector["run"]
         assert selector.get("id") == "publication-selector"
         assert "--baseline-ref \"$PUBLICATION_BASELINE_REF\"" in selector_run
+        assert "--candidate-code-ref \"$PUBLICATION_CODE_SHA\"" in selector_run
         assert "--force-degraded-surfaces \"$FORCED_SURFACES\"" in selector_run
         assert (
             '--collector-failures-file "$PUBLICATION_COLLECTOR_FAILURES_FILE"'
@@ -795,9 +1195,7 @@ class TestHourlyMasterWorkflow:
         )
         assert 'sort -u "$PUBLICATION_FAILED_SURFACES_FILE"' in selector_run
         assert selector.get("continue-on-error") is not True
-        sync_ci = steps[names.index("Sync CI data from gh-pages")]["run"]
-        for surface in ("ci_core", "ci_gating", "ci_changes", "ci_hotness"):
-            assert f"run_surface_collector {surface}" in sync_ci
+        assert "Sync CI data from gh-pages" not in names
         assert "run_surface_collector ci_gating" in steps[
             names.index("Collect AMD gating target list")
         ]["run"]
@@ -810,7 +1208,7 @@ class TestHourlyMasterWorkflow:
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
-        baseline = steps[names.index("Capture immutable main baseline")]["run"]
+        baseline = steps[names.index("Capture immutable main code")]["run"]
         assert (
             "ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_lifecycle|"
             "agent_health|dns_health|github_home|perf_eval"
@@ -832,48 +1230,10 @@ class TestHourlyMasterWorkflow:
                 "run"
             ]
 
-        sync = steps[names.index("Sync CI data from gh-pages")]["run"]
-        seed_sections = {
-            "ci_core": sync[
-                sync.index("sync_ci_core_seed()") : sync.index(
-                    "sync_ci_gating_seed()"
-                )
-            ],
-            "ci_gating": sync[
-                sync.index("sync_ci_gating_seed()") : sync.index(
-                    "sync_ci_changes_seed()"
-                )
-            ],
-            "ci_changes": sync[
-                sync.index("sync_ci_changes_seed()") : sync.index(
-                    "sync_ci_hotness_seed()"
-                )
-            ],
-            "ci_hotness": sync[
-                sync.index("sync_ci_hotness_seed()") : sync.index(
-                    "sync_workload_mapping_seed()"
-                )
-            ],
-        }
-        for filename in (
-            "ci_health.json",
-            "amd_test_matrix.json",
-            "ownership_config_parity.json",
-        ):
-            assert filename in seed_sections["ci_core"]
-        assert "gating_nightlies.json" not in seed_sections["ci_core"]
-        assert "analytics.json" not in seed_sections["ci_core"]
-        assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
-        for filename in (
-            "gating_targets.json",
-            "gating_proposals.json",
-            "gating_target_candidates.json",
-            "gating_nightlies.json",
-        ):
-            assert filename in seed_sections["ci_gating"]
-        assert "group_changes.json" in seed_sections["ci_changes"]
-        assert "hotness.json" in seed_sections["ci_hotness"]
-        assert "operations_v2.json" not in sync
+        assert "Sync CI data from gh-pages" not in names
+        assert "git show origin/gh-pages:data/vllm/ci/analytics.json" not in (
+            _load_workflow_text("hourly-master.yml")
+        )
 
         workflow_text = _load_workflow_text("hourly-master.yml")
         assert not re.search(
@@ -918,18 +1278,9 @@ class TestHourlyMasterWorkflow:
             build_site,
         )
 
-        workflow = _load_workflow("hourly-master.yml")
-        steps = next(iter(workflow["jobs"].values())).get("steps", [])
-        sync = next(
-            step["run"]
-            for step in steps
-            if step.get("name") == "Sync CI data from gh-pages"
-        )
-        commands = "\n".join(
-            line for line in sync.splitlines() if not line.lstrip().startswith("#")
-        )
-        assert "PUBLIC-ANALYTICS-BOUNDARY" in sync
-        assert "analytics.json" not in commands
+        workflow_text = _load_workflow_text("hourly-master.yml")
+        assert "git show origin/gh-pages:data/vllm/ci/analytics.json" not in workflow_text
+        assert "Sync CI data from gh-pages" not in workflow_text
 
     def test_private_ci_roster_cache_is_rolling_sharded_and_one_way(self):
         cache_path = "data/vllm/ci/.cache/nightly-rosters-v2"
@@ -947,16 +1298,21 @@ class TestHourlyMasterWorkflow:
         assert "github.run_id" in key_script
         assert "github.run_attempt" in key_script
         restore = steps[restore_index]
-        assert restore["uses"] == "actions/cache/restore@v4"
+        assert restore["uses"] == (
+            "actions/cache/restore@" + ACTION_PINS["actions/cache/restore"]
+        )
         assert restore["with"]["path"] == cache_path
         assert "current_day_prefix" in restore["with"]["restore-keys"]
         assert "prior_day_prefix" in restore["with"]["restore-keys"]
+        assert "namespace_prefix" in restore["with"]["restore-keys"]
         collect = steps[collect_index]
         assert collect["id"] == "collect-ci"
         assert '--github-output "$GITHUB_OUTPUT"' in collect["run"]
         assert 'echo "cache_save=true"' in collect["run"]
         save = steps[save_index]
-        assert save["uses"] == "actions/cache/save@v4"
+        assert save["uses"] == (
+            "actions/cache/save@" + ACTION_PINS["actions/cache/save"]
+        )
         assert save["if"] == (
             "inputs.dns_generation == '' && "
             "steps.collect-ci.outputs.cache_save == 'true' && "
@@ -991,7 +1347,9 @@ class TestHourlyMasterWorkflow:
         assert "github.run_id" in key_script
         assert "github.run_attempt" in key_script
         master_restore = master_steps[restore_index]
-        assert master_restore["uses"] == "actions/cache/restore@v4"
+        assert master_restore["uses"] == (
+            "actions/cache/restore@" + ACTION_PINS["actions/cache/restore"]
+        )
         assert master_restore["continue-on-error"] is True
         assert master_restore["with"] == {
             "path": cache_path,
@@ -999,10 +1357,13 @@ class TestHourlyMasterWorkflow:
             "restore-keys": (
                 "${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}\n"
                 "${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}\n"
+                "${{ steps.dns-classification-cache-key.outputs.namespace_prefix }}\n"
             ),
         }
         master_save = master_steps[save_index]
-        assert master_save["uses"] == "actions/cache/save@v4"
+        assert master_save["uses"] == (
+            "actions/cache/save@" + ACTION_PINS["actions/cache/save"]
+        )
         assert master_save["if"] == (
             "inputs.dns_generation == '' && "
             "steps.collect-ci.outputs.cache_save == 'true' && "
@@ -1026,11 +1387,16 @@ class TestHourlyMasterWorkflow:
         )
         dns_collect_index = dns_names.index("Collect DNS failure observations")
         assert dns_key_index < dns_restore_index < dns_collect_index
+        dns_key = dns_steps[dns_key_index]
         dns_restore = dns_steps[dns_restore_index]
-        assert dns_restore["uses"] == "actions/cache/restore@v4"
+        assert re.fullmatch(r"actions/cache/restore@[0-9a-f]{40}", dns_restore["uses"])
         assert dns_restore["with"]["path"] == cache_path
-        assert "current_day_prefix" in dns_restore["with"]["restore-keys"]
-        assert "prior_day_prefix" in dns_restore["with"]["restore-keys"]
+        assert dns_restore["with"]["restore-keys"] == (
+            "${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}\n"
+            "${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}\n"
+            "${{ steps.dns-classification-cache-key.outputs.namespace_prefix }}\n"
+        )
+        assert 'echo "namespace_prefix=$CACHE_NAMESPACE-"' in dns_key["run"]
         dns_collect = dns_steps[dns_collect_index]["run"]
         assert f"--classification-cache {cache_path}" in dns_collect
         assert not any(
@@ -1070,11 +1436,14 @@ class TestHourlyMasterWorkflow:
             'echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"'
             in key_script
         )
+        assert 'echo "namespace_prefix=$CACHE_NAMESPACE-"' in key_script
         assert "github.run_id" in key_script
         assert "github.run_attempt" in key_script
 
         restore = steps[restore_index]
-        assert restore["uses"] == "actions/cache/restore@v4"
+        assert restore["uses"] == (
+            "actions/cache/restore@" + ACTION_PINS["actions/cache/restore"]
+        )
         assert restore["continue-on-error"] is True
         assert restore["with"] == {
             "path": cache_path,
@@ -1082,6 +1451,7 @@ class TestHourlyMasterWorkflow:
             "restore-keys": (
                 "${{ steps.analytics-cache-key.outputs.current_day_prefix }}\n"
                 "${{ steps.analytics-cache-key.outputs.prior_day_prefix }}\n"
+                "${{ steps.analytics-cache-key.outputs.namespace_prefix }}\n"
             ),
         }
 
@@ -1102,7 +1472,9 @@ class TestHourlyMasterWorkflow:
         assert 'echo "cache_save=false"' in collect["run"]
 
         save = steps[save_index]
-        assert save["uses"] == "actions/cache/save@v4"
+        assert save["uses"] == (
+            "actions/cache/save@" + ACTION_PINS["actions/cache/save"]
+        )
         assert save["continue-on-error"] is True
         assert "steps.collect-analytics.outputs.cache_save == 'true'" in save["if"]
         assert (
@@ -1126,9 +1498,13 @@ class TestHourlyMasterWorkflow:
             )
             assert cache_path not in seed_commands
             assert "analytics-builds-v1" not in seed_commands
-        commit = steps[names.index("Commit and push")]["run"]
-        assert cache_path not in commit
-        assert not re.search(r"\bgit\s+add\b[^\n]*(?:\s-f\b|\s--force\b)", commit)
+        candidate = steps[names.index("Prepare bounded dashboard state candidate")][
+            "run"
+        ]
+        assert cache_path not in candidate
+        assert not re.search(
+            r"\bgit\s+add\b[^\n]*(?:\s-f\b|\s--force\b)", candidate
+        )
         assert "data/vllm/ci/.cache/" in {
             line.strip()
             for line in (REPO_ROOT / ".gitignore").read_text().splitlines()
@@ -1187,22 +1563,22 @@ class TestHourlyMasterWorkflow:
         assert "--jq '.[8:] | .[].id'" in script
         assert 'gh cache delete "$CACHE_ID"' in script
 
-    def test_hourly_refuses_to_commit_or_push_tracked_private_caches(self):
+    def test_hourly_refuses_to_publish_tracked_private_caches(self):
         workflow = _load_workflow("hourly-master.yml")
         steps = next(iter(workflow["jobs"].values())).get("steps", [])
         script = next(
-            step["run"] for step in steps if step.get("name") == "Commit and push"
+            step["run"]
+            for step in steps
+            if step.get("name") == "Prepare bounded dashboard state candidate"
         )
 
         guard = "git ls-files -- ':(glob)**/.cache/**'"
         assert guard in script
-        assert script.count("assert_no_tracked_private_cache") == 3
+        assert script.count("assert_no_tracked_private_cache") == 2
         assert script.index("assert_no_tracked_private_cache\n") < script.index(
-            "git add data/ dashboards/ README.md"
+            "git add -A -- data/ dashboards/ README.md"
         )
-        assert script.rindex("assert_no_tracked_private_cache") < script.index(
-            "git push origin HEAD:main"
-        )
+        assert "git push" not in _load_workflow_text("hourly-master.yml")
 
     def test_selection_precedes_side_effects_render_and_tests(self):
         data = _load_workflow("hourly-master.yml")
@@ -1262,7 +1638,6 @@ class TestHourlyMasterWorkflow:
             "Collect CI data",
             "Collect CI analytics",
             "Collect AMD agent health (all builds, all branches)",
-            "Collect AMD test matrix",
             "Ingest perf-eval artifacts from Buildkite",
         }
         buildkite_steps = {
@@ -1277,6 +1652,7 @@ class TestHourlyMasterWorkflow:
         for step in steps:
             if step.get("name") in buildkite_steps:
                 assert dns_absent in step.get("if", "")
+                assert "request_mode == 'reserved'" in step.get("if", "")
 
         issue_side_effect_steps = {
             "Ensure CI Operations issue labels",
@@ -1291,9 +1667,7 @@ class TestHourlyMasterWorkflow:
             "Watch AMD CI test-area regressions (ranked owners)",
             "Sync managed issues to AMD CI Operations project",
             "Stage CI ownership issue state",
-            "Establish publication recovery validation",
             "Create hourly validation incident",
-            "Close issue after healthy publication",
         }
         assert issue_side_effect_steps <= set(names)
         for step in steps:
@@ -1302,10 +1676,12 @@ class TestHourlyMasterWorkflow:
 
         selector_index = names.index("Select validated publication surfaces")
         target_only_prefix = {
-            "actions/checkout@v4",
-            "actions/setup-python@v5",
+            "actions/checkout@" + ACTION_PINS["actions/checkout"],
+            "actions/setup-python@" + ACTION_PINS["actions/setup-python"],
             "Install dependencies",
-            "Capture immutable main baseline",
+            "Validate and normalize workflow inputs",
+            "Capture immutable main code",
+            "Restore validated dashboard state",
             "Sync validated DNS health aggregate",
             "Validate targeted DNS candidate generation",
         }
@@ -1328,26 +1704,49 @@ class TestHourlyMasterWorkflow:
 
         run_tests = steps[names.index("Run test suite")]
         health = steps[names.index("Health check")]
-        assert dns_absent in run_tests.get("if", "")
+        assert "inputs.dns_generation != ''" in run_tests.get("if", "")
+        assert "github.event.inputs.skip_tests != 'true'" in run_tests.get("if", "")
+        assert dns_absent not in run_tests.get("if", "")
         assert dns_absent in health.get("if", "")
-        commit = steps[names.index("Commit and push")]["run"]
-        assert "if [ -z \"${{ inputs.dns_generation }}\" ]; then" in commit
-        assert commit.index('if [ -z "${{ inputs.dns_generation }}" ]; then') < (
-            commit.index("last_collected_at.txt")
+        clock = steps[names.index("Advance canonical collector clock")]
+        assert clock.get("if") == (
+            "inputs.dns_generation == '' && "
+            "steps.request-attempt.outputs.request_mode == 'reserved'"
         )
+        recovery = steps[names.index("Establish publication recovery validation")]
+        close = steps[names.index("Close issue after healthy publication")]
+        assert "steps.dns-target-confirmation.outcome == 'success'" in recovery["if"]
+        assert "HOURLY_DNS_GENERATION_INPUT" in recovery["with"]["script"]
+        assert "targeted-dns-tests-not-successful" in recovery["with"]["script"]
+        assert "setValidation(true, 'targeted-dns'" in recovery["with"]["script"]
+        assert "inputs.dns_generation == ''" not in close["if"]
+        assert "targetedDnsRecovery ? 1 : 6" in close["with"]["script"]
+        assert "isStrictLegacyDnsOnly" in close["with"]["script"]
+        assert "hourly-ci-dns-only:v1" in close["with"]["script"]
+        create = steps[names.index("Create hourly validation incident")]
+        assert "const isDnsOnlyIncident" in create["with"]["script"]
+        assert "...(isDnsOnlyIncident ? [dnsOnlyIncidentMarker] : [])" in create[
+            "with"
+        ]["script"]
 
-    def test_targeted_dns_path_keeps_full_live_audit_fail_closed(self):
+    def test_targeted_dns_path_keeps_all_validation_fail_closed(self):
         data = _load_workflow("hourly-master.yml")
         steps = data["jobs"]["collect-and-deploy"].get("steps", [])
         by_name = {step.get("name"): step for step in steps}
 
         audit = by_name["Live publication audit"]
+        run_tests = by_name["Run test suite"]
         enforce = by_name["Enforce publication validation results"]
         assert "inputs.dns_generation == ''" not in audit.get("if", "")
+        assert "inputs.dns_generation != ''" in run_tests.get("if", "")
+        assert "github.event.inputs.skip_tests != 'true'" in run_tests.get("if", "")
         assert "steps.live-data-audit.outcome != 'success'" in enforce["if"]
         assert "steps.live-data-audit.outputs.exit_code != '0'" in enforce["if"]
+        assert "inputs.dns_generation != ''" in enforce["if"]
+        assert "steps.run-tests.outputs.exit_code != '0'" in enforce["if"]
         assert "Live publication audit failed" in enforce["run"]
-        assert '[ -z "${{ inputs.dns_generation }}" ]' in enforce["run"]
+        assert '[ -n "$HOURLY_DNS_GENERATION_INPUT" ]' in enforce["run"]
+        assert "Deterministic dashboard tests failed" in enforce["run"]
 
     def test_github_freshness_has_no_retired_ready_ticket_inputs(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -1378,7 +1777,9 @@ class TestHourlyMasterWorkflow:
             assert f'"{output}"' in script or f"{output}=" in script
 
         artifact = steps[names.index("Upload live publication audit artifact")]
-        assert artifact.get("uses") == "actions/upload-artifact@v4"
+        assert artifact.get("uses") == (
+            "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
+        )
         assert "live-publication-audit.json" in artifact["with"]["path"]
         assert names.index("Live publication audit") < names.index(
             "Enforce publication validation results"
@@ -1395,7 +1796,7 @@ class TestHourlyMasterWorkflow:
         assert "Live publication audit failed" in enforce["run"]
         assert "Deterministic dashboard tests failed" in enforce["run"]
         assert names.index("Enforce publication validation results") < names.index(
-            "Commit and push"
+            "Publish validated dashboard state"
         )
         assert names.index("Enforce publication validation results") < names.index(
             "Assemble site"
@@ -1453,7 +1854,7 @@ class TestHourlyMasterWorkflow:
         assert "steps.publication-selector.outputs.degraded == 'false'" in condition
         assert "steps.live-data-audit.outputs.exit_code == '0'" in condition
         assert "steps.pages-deploy.outcome == 'success'" in condition
-        assert "steps.post-deploy-validation.outcome == 'success'" in condition
+        assert "steps.final-deploy-validation.outcome == 'success'" in condition
         env = validation.get("env", {})
         assert "steps.publication-commit.outputs.published_sha" in env[
             "HOURLY_PUBLICATION_SHA"
@@ -1462,7 +1863,7 @@ class TestHourlyMasterWorkflow:
             "HOURLY_LOCAL_TEST_GAP_SAFE"
         ]
         assert "steps.run-tests.outcome" in env["HOURLY_TEST_OUTCOME"]
-        assert "github.event.inputs.skip_tests" in env["HOURLY_TESTS_SKIPPED"]
+        assert "HOURLY_TESTS_SKIPPED" not in env
 
         script = validation["with"]["script"]
         assert "const localTestsPassed" in script
@@ -1470,6 +1871,7 @@ class TestHourlyMasterWorkflow:
         assert "if (localTestsPassed && localTestGapSafe)" in script
         assert "setValidation(true, 'hourly-tests', publicationSha" in script
         assert "testsIntentionallySkipped" in script
+        assert "process.env.HOURLY_SKIP_TESTS" in script
         assert "const needsSeparateCi" in script
         assert "localTestsPassed && !localTestGapSafe" in script
         assert "github.rest.actions.listWorkflowRuns" in script
@@ -1518,7 +1920,7 @@ class TestHourlyMasterWorkflow:
         )
         assert "steps.pages-deploy.outcome == 'failure'" in condition
         assert "steps.site-assembly.outcome == 'failure'" in condition
-        assert "steps.post-deploy-validation.outcome == 'failure'" in condition
+        assert "steps.final-deploy-validation.outcome == 'failure'" in condition
         assert "failure()" in condition
         assert "steps.live-data-audit.outcome != 'success'" in condition
         assert "steps.live-data-audit.outputs.exit_code != '0'" in condition
@@ -1710,7 +2112,9 @@ class TestHourlyMasterWorkflow:
         # The reset branch has no issue creation path and mutates only the chosen
         # current slot before reconciling stale duplicates.
         assert "github.rest.issues.create({" not in reset_branch
-        assert "const requiredRecoveryRuns = 6" in close["with"]["script"]
+        assert "const requiredRecoveryRuns = targetedDnsRecovery ? 1 : 6" in close[
+            "with"
+        ]["script"]
         assert "advanceRecoveryStreak(currentBody)" in close["with"]["script"]
         assert "steps.publication-selector.outputs.degraded == 'false'" in close.get(
             "if", ""
@@ -1772,7 +2176,9 @@ class TestHourlyMasterWorkflow:
         )
         script = close["with"]["script"]
 
-        assert "const requiredRecoveryRuns = 6" in script
+        assert "const requiredRecoveryRuns = targetedDnsRecovery ? 1 : 6" in script
+        assert "validationSource === 'targeted-dns'" in script
+        assert "if (targetedDnsRecovery && !isMarkedDnsOnly" in script
         assert "required eligible healthy recovery runs" in script
         assert "github.paginate(github.rest.issues.listForRepo" in script
         assert "issues.filter" in script
@@ -1806,110 +2212,50 @@ class TestHourlyMasterWorkflow:
         assert "recurrence is rearmed" in script
         assert "for (const issue of issues.data)" not in script
 
-    def test_final_main_publication_retries_push_races_and_fails_closed(self):
+    def test_final_state_publication_is_validated_atomic_and_main_read_only(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
-        publish = next(step for step in steps if step.get("name") == "Commit and push")
+        names = [step.get("name") for step in steps]
+        publish = next(
+            step
+            for step in steps
+            if step.get("name") == "Publish validated dashboard state"
+        )
         script = publish.get("run", "")
-        assert "for attempt in 1 2 3" in script
-        assert "git pull --rebase origin main" in script
-        pull = script.index("git pull --rebase origin main")
-        rebuild = script.index("python scripts/vllm/build_operations_snapshot.py", pull)
-        render = script.index("python scripts/render.py", rebuild)
-        audit = script.index("python scripts/vllm/audit_dashboard_data.py", render)
-        stage = script.index("git add -- data/ dashboards/ README.md", audit)
-        budget = script.index("python scripts/vllm/check_git_blob_sizes.py", stage)
-        unstaged_guard = script.index(
-            "assert_no_unstaged_generated_output",
-            budget,
+        assert names.index("Prepare bounded dashboard state candidate") < names.index(
+            "Live publication audit"
+        ) < names.index("Run test suite") < names.index(
+            "Enforce publication validation results"
+        ) < names.index("Assemble site") < names.index(
+            "Publish validated dashboard state"
+        ) < names.index("Write state publication marker") < names.index(
+            "Deploy to GitHub Pages"
         )
-        retest_decision = script.index(
-            "scripts/vllm/publication_retest_required.py",
-            unstaged_guard,
-        )
-        deterministic_retest = script.index(
-            "pytest tests/ -m 'not live_data'",
-            retest_decision,
-        )
-        live_retest = script.index(
-            "pytest tests/ -m 'live_data'",
-            deterministic_retest,
-        )
-        amend = script.index("git commit --amend --no-edit", audit)
-        push = script.index("git push origin HEAD:main", amend)
-        assert (
-            pull
-            < rebuild
-            < render
-            < audit
-            < stage
-            < budget
-            < unstaged_guard
-            < retest_decision
-            < deterministic_retest
-            < live_retest
-            < amend
-            < push
-        )
-        staged_outputs = script[stage:budget]
-        assert "git add -- data/ dashboards/ README.md" in staged_outputs
-        assert "if ! git diff --quiet; then" in script
-        assert (
-            "git ls-files --others --exclude-standard -- \\\n"
-            "    data/ dashboards/ README.md"
-        ) in script
-        assert "The publication worktree differs from its staged candidate" in script
-        assert "A generated untracked output remains unstaged" in script
-        assert "INITIAL_PUBLICATION_TREE=$(git rev-parse --verify 'HEAD^{tree}')" in script
-        assert '--baseline-parent "$PUBLICATION_BASELINE_REF"' in script
-        assert '--tested-tree "$INITIAL_PUBLICATION_TREE"' in script
-        assert 'if [ "$RETEST_REQUIRED" = "true" ]; then' in script
-        assert script.index(
-            "assert_no_unstaged_generated_output",
-            live_retest,
-        ) < amend
-        assert "git push origin HEAD:main" in script
-        assert "refusing to deploy unpublished output" in script
-        assert "PUBLISHED_SHA=$(git rev-parse --verify 'HEAD^{commit}')" in script
-        assert 'LOCAL_TEST_GAP_SAFE=true' in script
-        assert "git merge-base --is-ancestor" in script
-        assert '"$PUBLICATION_BASELINE_REF" "$PUBLISHED_SHA"' in script
-        assert 'git rev-list --reverse' in script
-        assert '^auto:\\ update\\ data($|[[:space:]])' in script
-        assert '"$author" != "github-actions[bot]"' in script
-        assert '"$committer" != "github-actions[bot]"' in script
-        assert 'echo "published_sha=$PUBLISHED_SHA" >> "$GITHUB_OUTPUT"' in script
-        assert (
-            'echo "local_test_gap_safe=$LOCAL_TEST_GAP_SAFE" >> "$GITHUB_OUTPUT"'
-            in script
-        )
-        unchanged = "Publication push was rejected while main remained unchanged"
-        assert "git fetch origin main" in script[push:]
-        assert "git merge-base --is-ancestor" in script[push:]
-        assert unchanged in script
-        assert script.index(unchanged) < script.index(
-            "Main advanced during publication attempt"
-        )
-        assert "Failed to publish collected dashboard data" in script
-        assert "exit 1" in script
+        assert "dashboard_state.py create-commit" in script
+        assert '--code-sha "$PUBLICATION_CODE_SHA"' in script
+        assert "dashboard_state.py validate-ref" in script
+        assert "dashboard_state.py rotate" in script
+        assert '--current-sha "$DASHBOARD_CURRENT_STATE_SHA"' in script
+        assert '--previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA"' in script
+        assert "--remote origin" in script
+        assert 'echo "published_sha=$PUBLICATION_CODE_SHA"' in script
+        assert 'echo "local_test_gap_safe=true"' in script
 
-        initial_stage = script.index("git add data/ dashboards/ README.md")
-        initial_budget = script.index(
-            "python scripts/vllm/check_git_blob_sizes.py",
-            initial_stage,
-        )
-        initial_commit = script.index("git commit -m", initial_budget)
-        assert initial_stage < initial_budget < initial_commit < pull
+        text = _load_workflow_text("hourly-master.yml")
+        assert "git pull --rebase origin main" not in text
+        assert "git push origin HEAD:main" not in text
+        assert 'git commit -m "auto: update data' not in text
 
     def test_every_direct_git_publisher_checks_staged_blob_budget(self):
         daily = _load_workflow("daily-update.yml")
         daily_steps = next(iter(daily["jobs"].values())).get("steps", [])
-        daily_publish = next(
-            step for step in daily_steps if step.get("name") == "Commit and push"
-        )["run"]
-        assert daily_publish.index("git add data/") < daily_publish.index(
-            "python scripts/vllm/check_git_blob_sizes.py"
-        ) < daily_publish.index("git commit")
+        daily_text = _load_workflow_text("daily-update.yml")
+        assert [step.get("name") for step in daily_steps] == [
+            "Dispatch canonical Data Collection"
+        ]
+        assert "hourly-master.yml/dispatches" in daily_text
+        for forbidden in ("git add", "git commit", "git push", "contents: write"):
+            assert forbidden not in daily_text
 
         for workflow_name, publish_name in (
             ("dns-health.yml", "Publish durable DNS evidence"),
@@ -1926,14 +2272,46 @@ class TestHourlyMasterWorkflow:
             commit = script.index('git -C "$LIVE_ROOT" commit')
             assert stage < guard < commit
 
+    def test_corruption_redeploy_never_overwrites_a_newer_state(self):
+        for workflow_name in ("hourly-master.yml", "deploy-pages.yml"):
+            workflow = _load_workflow(workflow_name)
+            steps = next(iter(workflow["jobs"].values())).get("steps", [])
+            by_name = {step.get("name"): step for step in steps}
+            post_name = (
+                "Post-deploy validation (check gh-pages for corruption)"
+                if workflow_name == "hourly-master.yml"
+                else "Post-deploy state and bundle validation"
+            )
+            redeploy_name = (
+                "Redeploy if corrupted"
+                if workflow_name == "hourly-master.yml"
+                else "Redeploy exact state if validation failed"
+            )
+            post = by_name[post_name]
+            redeploy = by_name[redeploy_name]
+            assert 'echo "state_unchanged=true" >> "$GITHUB_OUTPUT"' in post["run"]
+            assert "outputs.state_unchanged == 'true'" in redeploy["if"]
+            assert post["run"].index("LIVE_STATE_SHA") < post["run"].index(
+                'echo "state_unchanged=true"'
+            )
+
         preview = _load_workflow("pr-preview.yml")
-        cleanup = preview["jobs"]["cleanup-preview"]["steps"]
-        script = next(
-            step["run"] for step in cleanup if step.get("name") == "Remove preview"
-        )
-        assert script.index("git add -A") < script.index(
-            'python "$GUARD_SCRIPT"'
-        ) < script.index("git commit")
+        trigger = preview.get("on") or preview.get(True)
+        assert trigger["pull_request_target"]["types"] == [
+            "opened",
+            "synchronize",
+            "reopened",
+        ]
+        assert set(preview["jobs"]) == {"deploy-preview"}
+        assert preview["concurrency"] == {
+            "group": "pr-preview-${{ github.event.pull_request.number }}",
+            "cancel-in-progress": True,
+        }
+        assert preview["jobs"]["deploy-preview"]["concurrency"] == {
+            "group": "gh-pages-deploy",
+            "queue": "max",
+            "cancel-in-progress": False,
+        }
 
     def test_pr_preview_separates_untrusted_validation_from_privileged_publish(self):
         preview = _load_workflow("pr-preview.yml")
@@ -2019,7 +2397,15 @@ class TestHourlyMasterWorkflow:
             if str(step.get("uses", "")).startswith("peaceiris/actions-gh-pages@")
         )
         assert assemble < publish
-        assert steps[publish]["with"]["publish_dir"] == "./trusted-base/_site"
+        compose = next(
+            index
+            for index, step in enumerate(steps)
+            if step.get("name") == "Compose exact bounded Pages tree"
+        )
+        assert assemble < compose < publish
+        assert steps[publish]["with"]["publish_dir"] == "./trusted-base/_pages_publish"
+        assert steps[publish]["with"]["keep_files"] is False
+        assert steps[publish]["with"]["force_orphan"] is True
 
     def test_has_buildkite_token(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -2034,27 +2420,34 @@ class TestHourlyMasterWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "python scripts/build_site.py --cache-bust-index" in text
 
-    def test_has_frequent_cron(self):
+    def test_has_recurring_cron(self):
         data = _load_workflow("hourly-master.yml")
         triggers = data.get(True, data.get("on", {}))
         schedules = triggers.get("schedule", []) if isinstance(triggers, dict) else []
         crons = [s.get("cron", "") for s in schedules]
-        has_frequent = any("* * * *" in c for c in crons)
-        assert has_frequent, f"hourly-master.yml must have a recurring cron, found: {crons}"
+        assert crons, f"hourly-master.yml must have a recurring cron, found: {crons}"
 
-    def test_full_refresh_runs_once_per_hour(self):
+    def test_full_refresh_runs_once_every_two_hours(self):
         data = _load_workflow("hourly-master.yml")
         triggers = data.get(True, data.get("on", {}))
         schedules = triggers.get("schedule", []) if isinstance(triggers, dict) else []
         crons = [s.get("cron", "") for s in schedules]
-        assert crons == ["13 * * * *"], (
+        assert crons == ["13 */2 * * *"], (
             "The full refresh takes about 25 minutes and must not be queued "
-            f"more than once per hour; found {crons}"
+            f"more than once every two hours; found {crons}"
         )
 
-    def test_syncs_ci_data_from_gh_pages(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "git fetch origin gh-pages" in text or "git show origin/gh-pages" in text
+    def test_restores_ci_data_from_private_state_not_public_pages(self):
+        workflow = _load_workflow("hourly-master.yml")
+        steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+        names = [step.get("name") for step in steps]
+        restore = steps[names.index("Restore validated dashboard state")]
+        assert "dashboard_state.py materialize" in restore["run"]
+        assert 'PUBLICATION_BASELINE_REF="$CURRENT_STATE_SHA"' in restore["run"]
+        before_deploy = "\n".join(
+            step.get("run", "") for step in steps[: names.index("Deploy to GitHub Pages")]
+        )
+        assert "origin/gh-pages:data/vllm/ci/" not in before_deploy
 
     def test_retired_dashboard_control_workflows_are_removed(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -2077,7 +2470,9 @@ class TestHourlyMasterWorkflow:
 
     def test_deterministic_failure_report_leads_with_concise_test_names(self):
         text = _load_workflow_text("hourly-master.yml")
-        assert "grep -E '^(FAILED|ERROR) ' test-output.txt" in text
+        assert 'line.startswith((b"FAILED ", b"ERROR "))' in text
+        assert "failures[-16_000:]" in text
+        assert "base64.b64encode" in text
         assert "steps.run-tests.outputs.failures" in text
         assert "**Failing deterministic tests:**" in text
 
@@ -2094,6 +2489,7 @@ class TestNoOrphanedCronSchedules:
             "queue-monitor.yml",
             "queue-lifecycle.yml",
             "publication-watchdog.yml",
+            "scheduler-activity.yml",
         }
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
@@ -2108,6 +2504,29 @@ class TestNoOrphanedCronSchedules:
                 )
 
 
+class TestSchedulerActivityKeepalive:
+    def test_keepalive_is_bounded_tokenless_and_main_only(self):
+        workflow = _load_workflow("scheduler-activity.yml")
+        triggers = workflow.get(True, workflow.get("on", {}))
+        assert triggers["schedule"] == [{"cron": "23 4 * * 3"}]
+        assert workflow["permissions"] == {"contents": "write"}
+        job = workflow["jobs"]["keep-active"]
+        assert job["timeout-minutes"] == 5
+        steps = job["steps"]
+        script = steps[-1]["run"]
+        assert "THRESHOLD_SECONDS=$((30 * 24 * 60 * 60))" in script
+        assert "refs/heads/main:refs/remotes/origin/main" in script
+        assert ".github/scheduler-activity.txt" in script
+        assert "check_git_blob_sizes.py" in script
+        assert "git worktree add --detach" in script
+        assert "push origin HEAD:main" in script
+        assert "push --force" not in script
+        assert "push -f" not in script
+        assert "BUILDKITE" not in _load_workflow_text("scheduler-activity.yml")
+        assert 'git -C "$HEARTBEAT_ROOT" add .github/scheduler-activity.txt' in script
+        assert script.count("git -C \"$HEARTBEAT_ROOT\" add ") == 1
+
+
 class TestPublicationWatchdogWorkflow:
     def _workflow(self):
         workflow = _load_workflow("publication-watchdog.yml")
@@ -2116,15 +2535,16 @@ class TestPublicationWatchdogWorkflow:
     def test_has_redundant_trusted_triggers_and_minimal_permissions(self):
         workflow, _ = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "25 * * * *"}]
+        assert triggers["schedule"] == [{"cron": "10,25,40,55 * * * *"}]
         assert triggers["repository_dispatch"] == {
             "types": ["publication_watchdog_tick"]
         }
         assert "workflow_dispatch" in triggers
         assert triggers["workflow_run"] == {
             "workflows": [
-                "Queue Monitor (10 minute)",
-                "Queue Lifecycle Monitor (hourly)",
+                "Data Collection",
+                "Deploy to GitHub Pages",
+                "Queue Lifecycle Monitor (2h)",
                 "DNS Health Monitor",
                 "Site Health Check",
             ],
@@ -2137,28 +2557,128 @@ class TestPublicationWatchdogWorkflow:
             "cancel-in-progress": False,
         }
         job = workflow["jobs"]["recover"]
-        assert job["timeout-minutes"] == 5
+        assert job["timeout-minutes"] == 20
         assert job["permissions"] == {"actions": "write", "contents": "read"}
 
     def test_uses_trusted_main_and_bounded_canonical_state(self):
         _, steps = self._workflow()
         checkout = steps[0]
-        assert checkout["uses"] == "actions/checkout@v4"
+        assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", checkout["uses"])
         assert checkout["with"] == {"ref": "main", "persist-credentials": False}
         names = [step.get("name") for step in steps]
-        read = steps[names.index("Read canonical publication and collection state")]
-        plan = steps[names.index("Plan proactive publication recovery")]
-        dispatch = steps[names.index("Dispatch stale publication recovery")]
-        assert names.index(read["name"]) < names.index(plan["name"]) < names.index(
-            dispatch["name"]
+        route = steps[names.index("Inspect durable state and choose recovery target")]
+        reads = steps[names.index("Read selected recovery workflow state")]
+        plan = steps[names.index("Plan deduplicated targeted recovery")]
+        assert names.index(route["name"]) < names.index(reads["name"]) < names.index(
+            plan["name"]
         )
-        assert "contents/data/vllm/ci/publication_status.json?ref=gh-pages" in read["run"]
-        assert "application/vnd.github.raw+json" in read["run"]
-        assert "actions/workflows/hourly-master.yml/runs?per_page=100" in read["run"]
+        route_script = route["run"]
+        assert "git ls-remote --exit-code --refs" in route_script
+        assert "STATE_STATUS" in route_script and "PREVIOUS_STATUS" in route_script
+        assert "validate_deployable_slot" in route_script
+        assert "Neither dashboard state slot is deployable" in route_script
+        assert 'force_reason=state-slot-repair' in route_script
+        assert "Exactly one dashboard state slot is valid" in route_script
+        assert 'validate_deployable_slot "$STATE_SHA" current' in route_script
+        assert 'validate_deployable_slot "$PREVIOUS_SHA" previous' in route_script
+        assert route_script.index(
+            'validate_deployable_slot "$PREVIOUS_SHA" previous'
+        ) < route_script.index('if [ "$CURRENT_VALIDATION" -eq 90 ]')
+        assert "github_git_proof.py compare-ancestor" in route_script
+        assert '--base "$code_sha"' in route_script
+        assert '--head "$TRUSTED_MAIN_SHA"' in route_script
+        assert "declare -A STATE_CODE_ANCESTRY=()" in route_script
+        assert 'STATE_CODE_ANCESTRY["$code_sha"]=ancestor' in route_script
+        assert 'STATE_CODE_ANCESTRY["$code_sha"]=nonancestor' in route_script
+        equality_shortcut = 'if [ "$code_sha" = "$TRUSTED_MAIN_SHA" ]'
+        assert equality_shortcut in route_script
+        assert route_script.index(equality_shortcut) < route_script.index(
+            "github_git_proof.py compare-ancestor"
+        )
+        assert "declare -A PROVEN_STATE_CODE_TREES=()" in route_script
+        assert "Both state refs are absent and frozen-main bootstrap is disabled" in (
+            route_script
+        )
+        assert "bootstrap_policy_active" in route_script
+        assert "--write-bootstrap-ref-evidence" in route_script
+        assert "--bootstrap-ref-evidence" in route_script
+        assert '--repository "$GITHUB_REPOSITORY"' in route_script
+        assert "dashboard_state.py validate-ref-metadata" in route_script
+        assert "dashboard_state.py validate-ref \\" not in route_script
+        assert "--expected-code-sha" in route_script
+        assert "--filter=blob:none" in route_script
+        assert "blob:limit=" not in route_script
+        assert "hydrate_proven_blob" in route_script
+        assert "--profile dashboard-state" in route_script
+        assert "--profile dashboard-code" in route_script
+        assert "state_manifest_bytes" in route_script
+        assert "state_attestation_bytes" in route_script
+        assert route_script.count("GIT_NO_LAZY_FETCH=1 git show") >= 2
+        assert 'git fetch origin "${FETCH_REFS[@]}" --depth=1' not in route_script
+        assert "git merge-base --is-ancestor" not in route_script
+        validator_function = route_script.split("validate_deployable_slot()", 1)[1].split(
+            "VALIDATED_STATE_CODE_SHA=", 1
+        )[0]
+        assert "set +e" not in validator_function
+        assert 'if validate_deployable_slot "$STATE_SHA" current' in route_script
+        assert 'if validate_deployable_slot "$PREVIOUS_SHA" previous' in route_script
+        assert "dashboard_state.py write-public-marker" in route_script
+        assert "--metadata-only" in route_script
+        assert '--code-sha "$STATE_CODE_SHA"' in route_script
+        assert "public_projection_attestation.json" in route_script
+        assert '--public-attestation "$STATE_ATTESTATION"' in route_script
+        assert "public_projection.py verify-git" in route_script
+        assert '--git-ref origin/gh-pages' in route_script
+        assert '--attestation "$STATE_ATTESTATION"' in route_script
+        assert '--expected-marker "$EXPECTED_MARKER"' in route_script
+        assert "--filter=blob:none" in route_script
+        pages_segment = route_script.split('PAGES_PROOF="$RUNNER_TEMP/', 1)[1]
+        assert pages_segment.index("--profile pages") < pages_segment.index(
+            'origin "$PAGES_SHA"'
+        )
+        assert "pages_manifest_bytes" in pages_segment
+        assert "pages_marker_bytes" in pages_segment
+        assert "pages_status_bytes" in pages_segment
+        assert "GIT_NO_LAZY_FETCH=1 git show" in pages_segment
+        assert "GIT_NO_LAZY_FETCH=1 python" in pages_segment
+        assert route_script.index('cmp -s "$EXPECTED_MARKER" "$DEPLOYED_MARKER"') < (
+            route_script.index("public_projection.py verify-git")
+        )
+        assert 'target=deploy-pages' in route_script
+        assert 'force_reason=state-pages-mismatch' in route_script
+        assert "state_pages_mismatch_target" in route_script
+        assert 'target=$MISMATCH_TARGET' in route_script
+        assert 'target=collector' not in route_script.split(
+            "route_state_pages_mismatch()", 1
+        )[1].split("}", 1)[0]
+        assert 'target=dns-health' in route_script
+        assert 'force_reason=dns-only-degraded' in route_script
+        assert 'force_reason=site-health-failed' in route_script
+        assert 'github.event.workflow_run.name' in route_script
+        assert '"Site Health Check"' in route_script
+        assert 'github.event.workflow_run.conclusion' in route_script
+        assert "scripts/vllm/check_site_health.py" in route_script
+        assert "--max-publication-age-hours 3" in route_script
+        assert 'report.get("overall_status") == "confirmed_unhealthy"' in (
+            route_script
+        )
+        assert 'confirmation.get("strategy") == "2-of-3-quorum"' in route_script
+        assert 'confirmation.get("attempted") == 3' in route_script
+        assert 'confirmation.get("required_healthy") == 2' in route_script
+        assert "refusing speculative deployment" in route_script
+        assert route_script.index("public_projection.py verify-git") < (
+            route_script.index("scripts/vllm/check_site_health.py")
+        )
+        assert "is_dns_only_degraded" in route_script
+        assert "cmp -s \"$EXPECTED_MARKER\" \"$DEPLOYED_MARKER\"" in route_script
+        assert "actions/workflows/$WORKFLOW_FILE/runs?per_page=100" in reads["run"]
         assert "plan_publication_watchdog.py" in plan["run"]
         assert "--workflow-runs" in plan["run"]
-        assert "--max-age-minutes 45" in plan["run"]
-        assert "--retry-cooldown-minutes 30" in plan["run"]
+        assert '--recovery-target "$RECOVERY_TARGET"' in plan["run"]
+        assert "--max-age-minutes 95" in plan["run"]
+        assert "--retry-cooldown-minutes 15" in plan["run"]
+        assert "--retry-cooldown-minutes 70" in plan["run"]
+        assert "--force-recovery-reason" in plan["run"]
         assert "--active-run-max-age-minutes 75" in plan["run"]
         assert '--github-output "$GITHUB_OUTPUT"' in plan["run"]
         text = _load_workflow_text("publication-watchdog.yml")
@@ -2166,24 +2686,33 @@ class TestPublicationWatchdogWorkflow:
         assert "download-artifact" not in text
         assert "client_payload" not in text
 
-    def test_dispatches_only_planned_fixed_main_generation(self):
+    def test_dispatches_only_planned_fixed_target(self):
         _, steps = self._workflow()
-        dispatch = next(
-            step
-            for step in steps
-            if step.get("name") == "Dispatch stale publication recovery"
-        )
-        assert dispatch["if"] == "steps.recovery-plan.outputs.required == 'true'"
-        assert dispatch["env"] == {
-            "GH_TOKEN": "${{ github.token }}",
-            "RECOVERY_REASON": "${{ steps.recovery-plan.outputs.reason }}",
-            "OBSERVED_GENERATION": (
-                "${{ steps.recovery-plan.outputs.observed_generation }}"
-            ),
+        by_name = {step.get("name"): step for step in steps}
+        expected = {
+            "Dispatch exact-state Pages recovery": ("deploy-pages", "deploy-pages.yml"),
+            "Dispatch DNS-only recovery": ("dns-health", "dns-health.yml"),
+            "Dispatch stale collector recovery": ("collector", "hourly-master.yml"),
         }
-        assert "hourly-master.yml/dispatches" in dispatch["run"]
-        assert "inputs: {watchdog_generation: $watchdog_generation}" in dispatch["run"]
-        assert "--arg ref main" in dispatch["run"]
+        for name, (target, workflow_file) in expected.items():
+            dispatch = by_name[name]
+            assert "steps.recovery-plan.outputs.required == 'true'" in dispatch["if"]
+            assert f"steps.recovery-route.outputs.target == '{target}'" in dispatch["if"]
+            assert f"{workflow_file}/dispatches" in dispatch["run"]
+            assert "main" in dispatch["run"]
+            assert dispatch["env"]["RECOVERY_KEY"] == (
+                "${{ steps.recovery-plan.outputs.recovery_key }}"
+            )
+            assert "recovery_key" in dispatch["run"]
+        assert "watchdog_generation" not in by_name[
+            "Dispatch exact-state Pages recovery"
+        ]["run"]
+        assert "watchdog_generation" not in by_name["Dispatch DNS-only recovery"][
+            "run"
+        ]
+        assert "watchdog_generation" in by_name[
+            "Dispatch stale collector recovery"
+        ]["run"]
 
     def test_is_not_a_pages_main_or_data_writer(self):
         text = _load_workflow_text("publication-watchdog.yml")
@@ -2208,7 +2737,20 @@ class TestDnsHealthWorkflow:
         triggers = workflow.get(True, workflow.get("on", {}))
         assert triggers["schedule"] == [{"cron": "37 * * * *"}]
         assert triggers["repository_dispatch"] == {"types": ["dns_health_tick"]}
-        assert "workflow_dispatch" in triggers
+        assert triggers["workflow_dispatch"] == {
+            "inputs": {
+                "recovery_key": {
+                    "description": "Optional incident-scoped watchdog recovery key",
+                    "required": False,
+                    "type": "string",
+                    "default": "",
+                }
+            }
+        }
+        assert workflow["run-name"] == (
+            "DNS Health Monitor${{ inputs.recovery_key != '' && "
+            "format(' [recovery:{0}]', inputs.recovery_key) || '' }}"
+        )
         assert workflow["permissions"] == {}
         assert workflow["concurrency"] == {
             "group": "dns-health-data-publish",
@@ -2223,6 +2765,15 @@ class TestDnsHealthWorkflow:
             "dns_generation": "${{ steps.dns-generation.outputs.generated_at }}"
         }
 
+        steps = workflow["jobs"]["collect"]["steps"]
+        recovery_guard = steps[0]
+        assert recovery_guard["name"] == "Validate optional recovery key"
+        assert recovery_guard["env"] == {
+            "RECOVERY_KEY": "${{ inputs.recovery_key || '' }}"
+        }
+        assert "^[0-9a-f]{64}$" in recovery_guard["run"]
+        assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[1]["uses"])
+
         reconcile = workflow["jobs"]["reconcile-publication"]
         assert reconcile["needs"] == "collect"
         assert reconcile["timeout-minutes"] == 5
@@ -2231,13 +2782,14 @@ class TestDnsHealthWorkflow:
             "contents": "read",
         }
 
-    def test_hourly_recovery_schedule_preserves_daily_buildkite_budget(self):
+    def test_hourly_recovery_uses_a_durable_rolling_buildkite_budget(self):
         workflow, steps = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
         cron = triggers["schedule"][0]["cron"]
         assert cron.split() == ["37", "*", "*", "*", "*"]
 
         names = [step.get("name") for step in steps]
+        reserve = steps[names.index("Reserve durable rolling DNS request budget")]
         collect = steps[names.index("Collect DNS failure observations")]["run"]
         argument_lines = {line.strip() for line in collect.splitlines()}
         max_requests = int(
@@ -2259,13 +2811,21 @@ class TestDnsHealthWorkflow:
             ).split()[1]
         )
 
-        hourly_opportunities = 24
-        request_bearing_scans = hourly_opportunities // minimum_interval_hours
+        policy = json.loads((REPO_ROOT / "config/dns_request_budget.json").read_text())
         assert minimum_interval_hours == 3
-        assert request_bearing_scans == 8
         assert max_requests == 110
         assert time_budget_seconds == 1200
-        assert request_bearing_scans * max_requests == 880
+        assert policy["window_hours"] == 25
+        assert policy["max_request_starts"] == 990
+        assert policy["scan_reservation_request_starts"] == max_requests
+        assert policy["branch"] == "dns-request-budget"
+        assert reserve["id"] == "dns-request-budget"
+        assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
+        assert "dns_request_budget.py reserve" in reserve["run"]
+        assert '--reservation-id "dns-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in (
+            reserve["run"]
+        )
+        assert '--now "${{ steps.dns-request-budget.outputs.decision_at }}"' in collect
 
     def test_restores_exact_state_collects_and_validates_before_publish(self):
         _, steps = self._workflow()
@@ -2274,6 +2834,7 @@ class TestDnsHealthWorkflow:
         preflight = steps[names.index("Preflight DNS-only validator")]["run"]
         restore_step = steps[names.index("Resolve durable DNS scanner state")]
         restore = restore_step["run"]
+        reserve = steps[names.index("Reserve durable rolling DNS request budget")]
         collect = steps[names.index("Collect DNS failure observations")]
         validate = steps[names.index("Validate bounded DNS artifacts")]["run"]
         generation_step = steps[names.index("Capture validated DNS generation")]
@@ -2284,6 +2845,8 @@ class TestDnsHealthWorkflow:
         assert names.index("Install dependencies") < names.index(
             "Preflight DNS-only validator"
         ) < names.index("Resolve durable DNS scanner state") < names.index(
+            "Reserve durable rolling DNS request budget"
+        ) < names.index(
             "Collect DNS failure observations"
         ) < names.index("Validate bounded DNS artifacts") < names.index(
             "Capture validated DNS generation"
@@ -2310,6 +2873,9 @@ class TestDnsHealthWorkflow:
         assert "dns_state_crypto.py decrypt" in restore
         assert "data/vllm/ci/dns_health/scan_state.json.gz" in restore
 
+        assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
+        assert "dns_request_budget.py reserve" in reserve["run"]
+
         assert collect.get("env", {}).get("BUILDKITE_TOKEN") == (
             "${{ secrets.BUILDKITE_TOKEN }}"
         )
@@ -2324,6 +2890,10 @@ class TestDnsHealthWorkflow:
         assert "--max-logs 500" in argument_lines
         assert "--max-requests 110" in argument_lines
         assert "--minimum-interval-hours 3" in argument_lines
+        assert (
+            '--now "${{ steps.dns-request-budget.outputs.decision_at }}"'
+            in argument_lines
+        )
         assert "--time-budget-seconds 1200" in argument_lines
         assert (
             "--classification-cache data/vllm/ci/.cache/dns-classifications-v1"
@@ -2369,7 +2939,9 @@ class TestDnsHealthWorkflow:
         dispatch = reconcile_steps[
             reconcile_names.index("Dispatch canonical DNS reconciliation")
         ]
-        assert reconcile_steps[0]["uses"] == "actions/checkout@v4"
+        assert re.fullmatch(
+            r"actions/checkout@[0-9a-f]{40}", reconcile_steps[0]["uses"]
+        )
         assert reconcile_steps[0]["with"] == {
             "ref": "main",
             "persist-credentials": False,
@@ -2414,12 +2986,12 @@ class TestDnsHealthWorkflow:
         assert '"$REMOTE_DNS_GENERATED" < "$LOCAL_DNS_GENERATED"' in sync
 
         deploy = _load_workflow_text("deploy-pages.yml")
-        assert "origin/dns-health-data:data/vllm/ci/dns_failures.json" in deploy
-        assert "--dns-only --dns-path" in deploy
+        assert "origin/dns-health-data:data/vllm/ci/dns_failures.json" not in deploy
+        assert "dashboard_state.py" in deploy and "materialize --ref" in deploy
+        assert "dashboard_state.py validate-ref" in deploy
+        assert "python scripts/vllm/audit_dashboard_data.py" in deploy
         assert "data/vllm/ci/dns_health/scan_state.json.gz" not in deploy
         assert "data/vllm/ci/dns_health/scan_state.fernet" not in deploy
-        assert "REMOTE_DNS_GENERATED" in deploy
-        assert "LOCAL_DNS_GENERATED" in deploy
 
 
 class TestSiteHealthWorkflow:
@@ -2459,6 +3031,8 @@ class TestSiteHealthWorkflow:
         names = [step.get("name") for step in steps]
         expected = [
             "Check out monitor",
+            "Set up exact Python runtime",
+            "Observe durable core collection freshness",
             "Run synthetic site health check",
             "Normalize bounded health evidence",
             "Upload bounded site health report",
@@ -2466,39 +3040,68 @@ class TestSiteHealthWorkflow:
             "Enforce synthetic health result",
         ]
         assert names == expected
-        assert steps[0]["uses"] == "actions/checkout@v4"
+        assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[0]["uses"])
+        assert steps[1]["uses"] == (
+            "actions/setup-python@" + ACTION_PINS["actions/setup-python"]
+        )
+        assert steps[1]["with"]["python-version"] == "3.12.13"
 
-        checker = steps[1]
+        core_freshness = steps[names.index("Observe durable core collection freshness")]
+        assert core_freshness["id"] == "core-freshness"
+        assert core_freshness["continue-on-error"] is True
+        assert "request_bearing_attempt_budget.py" in core_freshness["run"]
+        assert "data_collection_attempt_budget.json observe" in core_freshness["run"]
+
+        checker = steps[names.index("Run synthetic site health check")]
         assert checker["id"] == "synthetic-health"
         assert checker["continue-on-error"] is True
         for token in (
             "python scripts/vllm/check_site_health.py",
             "--site-url \"$SITE_URL\"",
             "--max-publication-age-hours 3",
+            "--write-bootstrap-ref-evidence",
+            "--bootstrap-ref-evidence",
+            '--repository "$GITHUB_REPOSITORY"',
             "--output \"$REPORT_PATH\"",
             "--github-output \"$GITHUB_OUTPUT\"",
             "--markdown-output \"$DETAILS_PATH\"",
         ):
             assert token in checker["run"]
 
-        normalize = steps[2]
+        normalize = steps[names.index("Normalize bounded health evidence")]
         assert normalize["if"] == "always()"
         assert normalize["id"] == "health-result"
         assert "max_report_bytes = 64 * 1024" in normalize["run"]
         assert "report_path.write_bytes(encoded)" in normalize["run"]
-        assert "if not value.strip()" in normalize["run"]
+        assert "if not required[key].strip()" in normalize["run"]
+        assert 'confirmation.get("max_requests") != 42' in normalize["run"]
+        assert 'confirmation.get("max_transport_seconds") != 420' in normalize["run"]
+        assert 'confirmation.get("max_elapsed_seconds") != 427' in normalize["run"]
+        assert 'projection.get("operations_canaries") != [' in normalize["run"]
+        for name in ("nightly", "amd_test_health", "diagnostics"):
+            assert f'"name": "{name}"' in normalize["run"]
+            assert f'operations_v2/{name}.json' in normalize["run"]
+        assert "_legacy_bootstrap_allowed" in normalize["run"]
 
-        upload = steps[3]
+        bootstrap_policy = json.loads(
+            (REPO_ROOT / "config/dashboard_bootstrap.json").read_text()
+        )
+        assert bootstrap_policy == {
+            "schema_version": 1,
+            "bootstrap_deadline": "2026-09-02T00:00:00Z",
+        }
+
+        upload = steps[names.index("Upload bounded site health report")]
         assert upload["if"] == "always()"
-        assert upload["uses"] == "actions/upload-artifact@v4"
+        assert re.fullmatch(r"actions/upload-artifact@[0-9a-f]{40}", upload["uses"])
         assert upload["with"]["path"] == "${{ runner.temp }}/site-health-report.json"
         assert upload["with"]["if-no-files-found"] == "error"
         assert upload["with"]["retention-days"] == 14
 
-        reconcile = steps[4]
-        enforce = steps[5]
+        reconcile = steps[names.index("Reconcile marker-owned site health issue")]
+        enforce = steps[names.index("Enforce synthetic health result")]
         assert reconcile["if"] == "always()"
-        assert reconcile["uses"] == "actions/github-script@v7"
+        assert re.fullmatch(r"actions/github-script@[0-9a-f]{40}", reconcile["uses"])
         assert enforce["if"] == "always()"
         assert "RECONCILE_OUTCOME" in enforce["env"]
         assert "RECONCILED" in enforce["env"]
@@ -2507,7 +3110,9 @@ class TestSiteHealthWorkflow:
 
     def test_missing_or_malformed_checker_evidence_fails_closed(self):
         _, steps = self._steps()
-        normalize = steps[2]
+        names = [step.get("name") for step in steps]
+        normalize = steps[names.index("Normalize bounded health evidence")]
+        checker = steps[names.index("Run synthetic site health check")]
         script = normalize["run"]
         for output in (
             "CHECKER_HEALTHY",
@@ -2527,15 +3132,39 @@ class TestSiteHealthWorkflow:
         assert "checker_healthy is True" in script
         assert "and not missing" in script
         assert "and report_valid" in script
+        assert 'mandatory_output_keys = {' in script
+        mandatory_block = script[
+            script.index('mandatory_output_keys = {') : script.index(
+                'missing = sorted(', script.index('mandatory_output_keys = {')
+            )
+        ]
+        for nullable_diagnostic in (
+            '"publication_mode"',
+            '"publication_status"',
+            '"generated_at"',
+            '"age_hours"',
+        ):
+            assert nullable_diagnostic not in mandatory_block
+        for quorum_field in (
+            '"healthy"',
+            '"overall_status"',
+            '"publication_http"',
+            '"confirmation_confirmed"',
+            '"probe_attempts"',
+            '"healthy_probe_count"',
+            '"required_healthy_probes"',
+        ):
+            assert quorum_field in mandatory_block
         assert 'type(report.get("schema_version")) is not int' in script
         assert "report healthy disagreed with checker output" in script
         assert "report reason count disagreed with checker output" in script
         assert "report overall_status disagreed with checker output" in script
-        assert '"healthy": False' in steps[1]["run"]
+        assert '"healthy": False' in checker["run"]
 
     def test_normalizer_cross_checks_typed_report_fields_with_outputs(self):
         _, steps = self._steps()
-        script = steps[2]["run"]
+        names = [step.get("name") for step in steps]
+        script = steps[names.index("Normalize bounded health evidence")]["run"]
         for token in (
             "def parse_nonnegative_int_output",
             "raw_value != str(value) or value < 0",
@@ -2571,27 +3200,34 @@ class TestSiteHealthWorkflow:
 
     def test_issue_reconciliation_is_marker_owned_stable_and_comment_free(self):
         _, steps = self._steps()
-        normalize = steps[2]
-        reconcile = steps[4]
+        names = [step.get("name") for step in steps]
+        normalize = steps[names.index("Normalize bounded health evidence")]
+        reconcile = steps[names.index("Reconcile marker-owned site health issue")]
         script = reconcile["with"]["script"]
         assert reconcile["env"]["BODY_PATH"].endswith("/site-health-issue.md")
         assert reconcile["env"]["OWNERSHIP_MARKER"] == (
             "<!-- vllm-ci-dashboard:site-health:v1 -->"
         )
         assert "fs.readFileSync(process.env.BODY_PATH" in script
-        assert "github.paginate(" in script
         assert "github.rest.issues.getLabel" in script
         assert "if (error.status !== 404) throw error" in script
         assert "github.rest.issues.createLabel" in script
         assert "github.rest.issues.listForRepo" in script
         assert "state: 'all'" in script
+        assert "github.paginate(" not in script
+        assert "const labeledResponse" in script
+        assert "const recentResponse" in script
+        assert "labels: labelName" in script
+        assert "per_page: 100" in script
+        assert "page: 1" in script
+        assert "bounded ambiguity limit" in script
         lookup = script[
-            script.index("const allIssues") : script.index("const owned")
+            script.index("const labeledResponse") : script.index("const owned")
         ]
-        assert "labels:" not in lookup
+        assert lookup.count("github.rest.issues.listForRepo") == 2
         assert ".some(line => line.trim() === ownershipMarker)" in script
         assert "hasExactMarker(issue.body)" in script
-        assert script.index("github.paginate(") < script.index(
+        assert script.index("const labeledResponse") < script.index(
             "github.rest.issues.create("
         )
         assert "github.rest.issues.update" in script
@@ -2609,30 +3245,30 @@ class TestSiteHealthWorkflow:
         assert "/deployments" in normalize["run"]
         assert "html.escape(details" in normalize["run"]
 
-    def test_issue_requires_two_healthy_probes_and_honors_manual_close(self):
+    def test_issue_requires_confirmed_in_run_quorum_before_mutation(self):
         _, steps = self._steps()
-        script = steps[4]["with"]["script"]
+        names = [step.get("name") for step in steps]
+        script = steps[names.index("Reconcile marker-owned site health issue")]["with"]["script"]
         for token in (
-            "site-health-state:recovery=",
-            "const priorRecovery",
-            "const priorRearmed",
-            "recovery = Math.min(2, priorRecovery + 1)",
-            "rearmed = recovery >= 2",
-            "Two consecutive healthy probes confirmed recovery",
-            "existing?.state === 'closed' && !priorRearmed",
-            "state = 'closed'",
-            "state = 'open'",
-            "recovery = 0",
-            "rearmed = false",
+            "const confirmed = process.env.CONFIRMED === 'true'",
+            "if (!confirmed)",
+            "issue state is unchanged",
+            "const state = healthy ? 'closed' : 'open'",
+            "The in-run 2-of-3 healthy quorum confirmed recovery",
+            "The in-run 2-of-3 quorum confirmed the dashboard health failure",
+            "site-health-state:confirmed=true;healthy=${healthy};rearmed=${healthy}",
+            "Confirmed healthy quorum with no owned incident",
             "const existing = owned[0] || null",
             "duplicate.number !== existing?.number",
         ):
             assert token in script
         assert "owned.find(issue => issue.state === 'open')" not in script
-        manual_close = "existing?.state === 'closed' && !priorRearmed"
-        reopen = "state = 'open'"
-        assert script.index(manual_close) < script.index(reopen, script.index(manual_close))
-        assert "does not post hourly comments" in steps[2]["run"]
+        assert "site-health-state:recovery=" not in script
+        assert script.index("if (!confirmed)") < script.index(
+            "github.rest.issues.getLabel"
+        )
+        normalize = steps[names.index("Normalize bounded health evidence")]
+        assert "does not post hourly comments" in normalize["run"]
 
     def test_hourly_master_does_not_claim_to_replace_health_monitor(self):
         text = _load_workflow_text("hourly-master.yml")
@@ -2700,18 +3336,15 @@ class TestFrameworkIsolation:
                 result.append(f.name)
         return result
 
-    def test_deploying_workflows_sync_ci_from_gh_pages(self):
-        """All workflows that deploy to gh-pages must sync CI data from gh-pages first,
-        to prevent overwriting fresh CI data with stale copies from main."""
+    def test_root_deployers_publish_an_exact_dashboard_state_marker(self):
         for wf in self._deploying_workflows():
             # pr-preview.yml deploys to a subdirectory (pr-preview/pr-N), not root
             if wf == "pr-preview.yml":
                 continue
             text = _load_workflow_text(wf)
-            assert "git fetch origin gh-pages" in text or "git show origin/gh-pages" in text, (
-                f"{wf} deploys to gh-pages but does not sync CI data from gh-pages first. "
-                "This will overwrite fresh CI data with stale copies from main."
-            )
+            assert "dashboard_state.py write-public-marker" in text
+            assert "publication_generation.json" in text
+            assert "git show origin/gh-pages:data/vllm/ci/analytics.json" not in text
 
     def test_pr_preview_rebuilds_untracked_operations_input(self):
         data = _load_workflow("pr-preview.yml")
@@ -2728,7 +3361,7 @@ class TestFrameworkIsolation:
         )
         command = steps[rebuild].get("run", "")
         assert "scripts/vllm/build_operations_snapshot.py" in command
-        assert "data/vllm/ci/operations_v2.json" in command
+        assert "data/vllm/ci/operations_v2.json.gz" in command
         assert rebuild < assemble
 
     def test_browser_smoke_rebuilds_untracked_operations_input(self):
@@ -2741,8 +3374,7 @@ class TestFrameworkIsolation:
         assert rebuild < assemble
 
     def test_shard_bases_available_at_deploy(self):
-        """shard_bases.json must be on the main branch (committed by hourly-master)
-        so deploy workflows can include it in _site/. No gh-pages sync needed."""
+        """The frozen bootstrap tree carries the initial shard-bases dataset."""
         shard_path = (
             Path(__file__).resolve().parent.parent.parent
             / "data"
@@ -2751,20 +3383,21 @@ class TestFrameworkIsolation:
             / "shard_bases.json"
         )
         assert shard_path.exists(), (
-            "shard_bases.json not found on main branch. "
-            "hourly-master should generate and commit it."
+            "shard_bases.json not found in the frozen bootstrap tree."
         )
 
-    def test_ci_collect_is_validation_only_and_cannot_write_main(self):
+    def test_ci_collect_is_a_tokenless_canonical_dispatch_and_cannot_write_main(self):
         text = _load_workflow_text("ci-collect.yml")
         workflow = _load_workflow("ci-collect.yml")
-        assert workflow.get("name") == "CI Data Collection (Validation Only)"
+        assert workflow.get("name") == "CI Data Collection (Canonical Dispatch)"
         assert workflow.get("permissions", {}).get("contents") == "read"
+        assert workflow.get("permissions", {}).get("actions") == "write"
         assert workflow.get("concurrency", {}).get("group") == (
             "ci-collect-validation"
         )
-        assert "Report validation-only collection" in text
-        assert "select publication surfaces and update main" in text
+        assert "Dispatch authoritative guarded collection" in text
+        assert "hourly-master.yml/dispatches" in text
+        assert "BUILDKITE_TOKEN" not in text
         assert "git add" not in text
         assert "git commit" not in text
         assert "git push" not in text
@@ -2859,79 +3492,122 @@ class TestCronSchedules:
 
 
 class TestDeployDataFreshness:
-    """Ensure deploy workflows don't overwrite fresh main data with stale gh-pages data."""
+    """Ensure publication restores durable state instead of public feedback."""
 
-    def test_manual_deploy_installs_only_valid_non_regressing_queue_jobs(self):
+    def test_manual_deploy_materializes_only_the_exact_validated_state(self):
         data = _load_workflow("deploy-pages.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
+        triggers = data.get(True, data.get("on", {}))
+        assert triggers["workflow_dispatch"]["inputs"]["recovery_key"]["default"] == ""
+        assert "[recovery:{0}]" in data["run-name"]
+        recovery_validation = next(
+            step for step in steps if step.get("name") == "Validate recovery key"
+        )
+        assert recovery_validation["env"] == {
+            "RAW_RECOVERY_KEY": "${{ inputs.recovery_key }}"
+        }
+        assert "^[0-9a-f]{64}$" in recovery_validation["run"]
         script = next(
             step["run"]
             for step in steps
-            if step.get("name") == "Sync live data from gh-pages"
+            if step.get("name") == "Restore exact validated dashboard state"
         )
-
-        remote_read = "git show origin/queue-data:data/vllm/ci/queue_jobs.json"
-        validation = "remote_timestamp < local_timestamp"
-        install = 'install -m 0644 "$LIVE_QUEUE_JOBS"'
-        assert remote_read in script
-        assert 'payload.get("ts")' in script
-        assert 'for key in ("pending", "running")' in script
-        assert "datetime.fromisoformat" in script
-        assert validation in script
-        assert "would regress the embedded timestamp" in script
-        assert install in script
-        assert (
-            script.index(remote_read)
-            < script.index(validation)
-            < script.index(install)
+        assert "git ls-remote --exit-code --refs" in script
+        assert "dashboard_state.py validate-ref" in script
+        assert "--expected-code-sha" in script
+        assert "dashboard_state.py" in script and "materialize --ref" in script
+        assert "dashboard_state.py repair-slots" in script
+        assert '--current-sha "$OBSERVED_STATE_SHA"' in script
+        assert '--previous-sha "$OBSERVED_PREVIOUS_SHA"' in script
+        assert '--trusted-main-sha "$TRUSTED_MAIN_SHA"' in script
+        assert '--ancestry-attestation "$ANCESTRY_ATTESTATION"' in script
+        assert '"provider": "github_compare_api"' in script
+        assert '"result": "ancestor"' in script
+        assert "PROVEN_STATES" in script and "PROVEN_CODES" in script
+        assert "--depth=1 --filter=blob:none" in script
+        assert 'origin "$state_sha"' in script
+        assert script.index("github_git_proof.py prove") < script.index(
+            'origin "$state_sha"'
         )
-
-    @pytest.mark.parametrize(
-        "workflow",
-        ["hourly-master.yml", "deploy-pages.yml"],
-    )
-    def test_queue_history_is_merged_by_timestamp(self, workflow):
-        text = _load_workflow_text(workflow)
-        assert "collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages" in text, (
-            f"{workflow} must merge queue history rather than replace by line count"
+        assert "Dashboard state has not been bootstrapped" in script
+        assert "origin/queue-data" not in script
+        assert "origin/gh-pages" not in script
+        assert "github_git_proof.py compare-ancestor" in script
+        assert '--base "$code_sha"' in script
+        assert '--head "$TRUSTED_MAIN_SHA"' in script
+        assert 'PROVEN_CODES["$code_sha"]=nonancestor' in script
+        equality_shortcut = 'if [ "$code_sha" = "$TRUSTED_MAIN_SHA" ]'
+        assert equality_shortcut in script
+        assert script.index(equality_shortcut) < script.index(
+            "github_git_proof.py compare-ancestor"
         )
-        assert "take the longer file" not in text
+        assert 'add_slot_proof "$OBSERVED_STATE_SHA" current' in script
+        assert 'add_slot_proof "$OBSERVED_PREVIOUS_SHA" previous' in script
+        assert "hydrate_proven_blob" in script
+        assert "--profile dashboard-state" in script
+        assert "--profile dashboard-code" in script
+        assert "state_manifest_bytes" in script
+        assert "state_attestation_bytes" in script
+        assert "--filter=blob:none" in script
+        assert "dashboard_state.py validate-ref-metadata" in script
+        pre_repair = script.split("dashboard_state.py repair-slots", 1)[0]
+        assert "blob:limit=" not in pre_repair
+        assert pre_repair.index("--profile dashboard-state") < pre_repair.index(
+            'origin "$state_sha"'
+        )
+        post_repair = script.split("dashboard_state.py repair-slots", 1)[1]
+        assert "--refetch" in post_repair
+        assert 'full_validate_state "$STATE_SHA" current' in post_repair
+        assert 'full_validate_state "$PREVIOUS_SHA" previous' in post_repair
+        assert post_repair.index(
+            'full_validate_state "$STATE_SHA" current'
+        ) < post_repair.index('case "$CURRENT_FULL_STATUS" in') < post_repair.index(
+            'full_validate_state "$PREVIOUS_SHA" previous'
+        )
+        assert "dashboard-state-full-fallback-ancestry.json" in post_repair
+        assert "Neither dashboard state slot passes full content validation" in (
+            post_repair
+        )
+        assert post_repair.index("--refetch") < post_repair.index(
+            "dashboard_state.py validate-ref"
+        )
+        assert 'GIT_NO_LAZY_FETCH=1 git checkout --detach "$STATE_SHA"' in script
+        assert 'git checkout --detach "$STATE_CODE_SHA"' not in script
+        assert "git merge-base --is-ancestor" not in script
+        assert steps[0]["with"].get("fetch-depth") != 0
 
-    @pytest.mark.parametrize(
-        "workflow",
-        ["hourly-master.yml", "deploy-pages.yml"],
-    )
-    def test_queue_history_merge_precedes_retention_prune(self, workflow):
-        data = _load_workflow(workflow)
-        jobs_with_history = 0
-        for job in data["jobs"].values():
-            steps = job.get("steps", [])
-            merge_indexes = [
-                index
-                for index, step in enumerate(steps)
-                if "collect_queue_snapshot.py --merge-history-git-ref origin/gh-pages"
-                in (step.get("run", "") or "")
-            ]
-            if not merge_indexes:
-                continue
-            jobs_with_history += 1
-            prune_indexes = [
-                index
-                for index, step in enumerate(steps)
-                if "collect_queue_snapshot.py --prune-only" in (step.get("run", "") or "")
-            ]
-            assert prune_indexes, f"{workflow} merges queue history but never applies retention"
-            assert max(merge_indexes) < min(prune_indexes), (
-                f"{workflow} must merge all append-only history before applying retention"
-            )
+        names = [step.get("name") for step in steps]
+        rebuild = steps[
+            names.index("Rebuild deterministic private Operations assembly input")
+        ]["run"]
+        assert 'operations_v2_manifest.json' in rebuild
+        assert 'get("generated_at")' in rebuild
+        assert 'datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ")' in rebuild
+        assert '--generated-at "$OPS_GENERATED_AT"' in rebuild
+        assert 'git diff --exit-code "$DASHBOARD_STATE_SHA"' in rebuild
+        assert "git add -f" not in rebuild
 
-        assert jobs_with_history == 1
+    def test_queue_history_uses_durable_producer_then_retention(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        merge = steps[names.index("Sync queue data from durable live branch")]["run"]
+        assert "--merge-history-git-ref origin/queue-data" in merge
+        assert "--require-merge-history" in merge
+        assert "origin/gh-pages" not in merge
+        assert names.index("Sync queue data from durable live branch") < names.index(
+            "Normalize and prune queue history"
+        )
+        deploy = _load_workflow_text("deploy-pages.yml")
+        assert "collect_queue_snapshot.py" not in deploy
 
     def test_hourly_hotness_collection_follows_stale_data_sync(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
         sync_idx = next(
-            i for i, step in enumerate(steps) if step.get("name") == "Sync CI data from gh-pages"
+            i
+            for i, step in enumerate(steps)
+            if step.get("name") == "Restore validated dashboard state"
         )
         hotness_idx = next(
             i
@@ -2940,9 +3616,9 @@ class TestDeployDataFreshness:
         )
 
         assert sync_idx < hotness_idx
-        for step in steps[hotness_idx + 1 :]:
-            run = step.get("run", "") or ""
-            assert "git show origin/gh-pages:data/vllm/ci/hotness.json" not in run
+        assert "git show origin/gh-pages:data/vllm/ci/hotness.json" not in (
+            _load_workflow_text("hourly-master.yml")
+        )
 
     def test_hourly_history_sync_precedes_prune_without_api_collection(self):
         data = _load_workflow("hourly-master.yml")
@@ -2980,15 +3656,7 @@ class TestDeployDataFreshness:
         assert "Sync validated queue lifecycle aggregate" in hourly_text
 
     def test_deploy_pages_does_not_sync_ci_json_from_ghpages(self):
-        """deploy-pages.yml must NOT overwrite CI analysis JSON files from gh-pages.
-
-        Main branch always has the latest data (committed by hourly-master).
-        The deploy workflow should use main's data as-is, not replace it
-        with potentially stale gh-pages copies.
-
-        Only queue_timeseries.jsonl (append-only) may be synced from gh-pages.
-        """
-        wf = _load_workflow("deploy-pages.yml")
+        """Deploy-only materializes private state and never seeds from Pages."""
         wf_text = (WORKFLOWS / "deploy-pages.yml").read_text()
 
         # Check that no step writes CI JSON files from gh-pages to local.
@@ -3009,7 +3677,7 @@ class TestDeployDataFreshness:
             write_pattern = _re.compile(r">\s*data/vllm/ci/" + _re.escape(f))
             assert not write_pattern.search(wf_text), (
                 f"deploy-pages.yml writes {f} from gh-pages to local, which "
-                f"overwrites fresh main data with stale copies. Remove the sync."
+                f"overwrites exact dashboard state with public copies. Remove the sync."
             )
 
     def test_manual_root_deploy_rebuilds_and_audits_before_assembly(self):
@@ -3017,41 +3685,19 @@ class TestDeployDataFreshness:
         steps = next(iter(data["jobs"].values())).get("steps", [])
         names = [step.get("name") for step in steps]
         assert (
-            names.index("Rebuild v2 operations snapshot")
+            names.index("Rebuild deterministic private Operations assembly input")
             < names.index("Run dashboard data audit")
-            < names.index("Assemble site")
+            < names.index("Assemble exact state site")
         )
 
-    def test_hourly_master_syncs_before_collection(self):
-        """hourly-master.yml may sync CI data from gh-pages, but ONLY
-        before the collection step (as seed data for the collector).
-        The collector then overwrites with fresh Buildkite data.
-
-        Verify the sync step comes BEFORE 'Collect CI data'.
-        """
-        wf_text = (WORKFLOWS / "hourly-master.yml").read_text()
-        lines = wf_text.split("\n")
-
-        sync_line = None
-        collect_line = None
-        for i, line in enumerate(lines):
-            if "Sync CI data from gh-pages" in line:
-                sync_line = i
-            if "Collect CI data" in line and collect_line is None:
-                collect_line = i
-
-        if sync_line is None:
-            return  # no sync step, that's fine
-
-        assert collect_line is not None, (
-            "hourly-master.yml has 'Sync CI data from gh-pages' but no "
-            "'Collect CI data' step to overwrite the synced data."
+    def test_hourly_restores_private_state_before_collection_without_pages_feedback(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        assert names.index("Restore validated dashboard state") < names.index(
+            "Collect CI data"
         )
-        assert sync_line < collect_line, (
-            f"'Sync CI data from gh-pages' (line {sync_line}) must come BEFORE "
-            f"'Collect CI data' (line {collect_line}). Otherwise fresh data "
-            f"gets overwritten with stale gh-pages copies."
-        )
+        assert "Sync CI data from gh-pages" not in names
 
     def test_no_ghpages_sync_after_collection(self):
         """No workflow step after 'Collect CI data' should overwrite **CI
@@ -3105,7 +3751,7 @@ class TestDeployDataFreshness:
                 assert not overlap, (
                     f"Step {step.get('name')!r} syncs CI analysis files "
                     f"{overlap} from gh-pages AFTER collection — overwrites "
-                    "fresh main-branch data with stale copies."
+                    "the selected state candidate with stale public copies."
                 )
             # Direct references (no loop): check the literal path.
             for m in re.finditer(r"git show origin/gh-pages:data/vllm/ci/([^\s]+)", run):
@@ -3114,7 +3760,7 @@ class TestDeployDataFreshness:
                 basename = Path(target).name
                 assert basename not in CI_ANALYSIS_FILES, (
                     f"Step {step.get('name')!r} syncs {target!r} from gh-pages "
-                    "AFTER collection — overwrites fresh main-branch data."
+                    "AFTER collection — overwrites the selected state candidate."
                 )
 
 
@@ -3158,6 +3804,7 @@ class TestWorkflowPipInstallMatchesImports:
             "datetime",
             "email",
             "enum",
+            "fcntl",
             "functools",
             "glob",
             "gzip",
@@ -3313,14 +3960,10 @@ class TestAlertAutomationWorkflow:
         steps = job.get("steps", []) or []
         names = [step.get("name") for step in steps]
 
-        sync = next(step for step in steps if step.get("name") == "Sync issue automation state from gh-pages")
-        sync_run = sync.get("run", "")
-        assert "open_queue_issues.json" in sync_run
-        assert "open_queue_zombie_issues.json" in sync_run
-        assert "open_amd_main_failure_issues.json" not in sync_run
-        assert "open_ci_main_failure_issues.json" not in sync_run
-        assert "open_amd_duration_regression_issues.json" not in sync_run
-        assert "open_agent_health_issues.json" not in sync_run
+        restore = names.index("Restore validated dashboard state")
+        restore_run = steps[restore].get("run", "")
+        assert "dashboard_state.py materialize" in restore_run
+        assert "origin/gh-pages" not in restore_run
 
         amd_collect = names.index("Collect CI analytics")
         agent_collect = names.index("Collect AMD agent health (all builds, all branches)")
@@ -3331,6 +3974,7 @@ class TestAlertAutomationWorkflow:
         duration_watch = names.index("Watch AMD main duration regressions (open/close issue)")
         agent_watch = names.index("Watch AMD CI agent health (open/close issue)")
 
+        assert restore < min(amd_collect, agent_collect)
         assert amd_watch > amd_collect
         assert ci_watch > amd_collect
         assert duration_watch > amd_collect
@@ -3347,6 +3991,7 @@ class TestAlertAutomationWorkflow:
         assert persist > max(amd_watch, ci_watch, duration_watch, agent_watch)
         assert steps[persist].get("if") == (
             "inputs.dns_generation == '' && "
+            "steps.request-attempt.outputs.request_mode == 'reserved' && "
             "steps.publication-selector.outcome == 'success'"
         )
         persist_run = steps[persist].get("run", "")
@@ -3362,9 +4007,12 @@ class TestAlertAutomationWorkflow:
         assert "git commit" not in persist_run
         assert "git push" not in persist_run
 
-    def test_alert_state_is_committed_with_collected_data(self):
+    def test_alert_state_is_published_with_collected_state(self):
         text = _load_workflow_text("hourly-master.yml")
-        assert "git add data/ dashboards/ README.md" in text
+        assert "git add -A -- data/ dashboards/ README.md" in text
+        assert "dashboard_state.py prepare" in text
+        assert "dashboard_state.py create-commit" in text
+        assert "git push origin HEAD:main" not in text
 
     def test_ranked_ci_area_watcher_runs_after_matrix_and_persists_before_rebuild(self):
         data = _load_workflow("hourly-master.yml")

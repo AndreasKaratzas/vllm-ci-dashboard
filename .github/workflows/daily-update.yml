@@ -1,124 +1,36 @@
 name: Hourly Update
 
 on:
-  workflow_dispatch:  # Manual trigger (hourly runs handled by hourly-master)
+  workflow_dispatch:
     inputs:
       force_full:
-        description: 'Force full data collection (skip freshness check)'
+        description: 'Compatibility input; canonical Data Collection always owns publication'
         required: false
         default: 'false'
 
 concurrency:
-  # Serialize its main-branch data commit with the canonical collector.
+  # Preserve the historical publication lock while this compatibility shim
+  # hands off to the sole collector/state publisher.
   group: gh-pages-deploy
   queue: max
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  actions: write
+  contents: read
 
 jobs:
-  update:
-    runs-on: ubuntu-latest
+  handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install pyyaml requests
-
-      # Min-frequency logic: only run heavy GitHub API collection if data
-      # is older than 1 hour, or if force_full is set. Queue and CI data
-      # have their own dedicated collectors, so this manual workflow only
-      # re-collects GitHub data when stale.
-      - name: Check data freshness
-        id: freshness
-        run: |
-          FORCE="${{ github.event.inputs.force_full || 'false' }}"
-          if [ "$FORCE" = "true" ]; then
-            echo "stale=true" >> "$GITHUB_OUTPUT"
-            echo "reason=forced" >> "$GITHUB_OUTPUT"
-            echo "Data collection forced by manual trigger"
-            exit 0
-          fi
-          python3 - <<'PY'
-          import datetime
-          import json
-          import os
-          from pathlib import Path
-
-          now = datetime.datetime.now(datetime.timezone.utc)
-
-          def load_ts(path_str: str, key: str):
-              path = Path(path_str)
-              if not path.exists():
-                  return None
-              try:
-                  payload = json.loads(path.read_text())
-              except Exception:
-                  return None
-              raw = payload.get(key) or ""
-              if not raw:
-                  return None
-              try:
-                  return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-              except ValueError:
-                  return None
-
-          prs_ts = load_ts("data/vllm/prs.json", "collected_at")
-          prs_age_seconds = int((now - prs_ts).total_seconds()) if prs_ts else 999999
-          stale = prs_ts is None or prs_age_seconds > 3600
-
-          reasons = []
-          if prs_ts is None:
-              reasons.append("prs_missing")
-          elif prs_age_seconds > 3600:
-              reasons.append("prs_stale")
-          reason = ",".join(reasons) or "fresh"
-
-          print(
-              f"GitHub data freshness: prs_age_seconds={prs_age_seconds}, "
-              f"reason={reason}"
-          )
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"stale={'true' if stale else 'false'}\n")
-              fh.write(f"prs_age_seconds={prs_age_seconds}\n")
-              fh.write(f"reason={reason}\n")
-          PY
-
-      - name: Collect data
-        if: steps.freshness.outputs.stale == 'true'
-        run: python scripts/collect.py
+      - name: Dispatch canonical Data Collection
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROJECTS_READ_TOKEN: ${{ secrets.PROJECTS_READ_TOKEN }}
-
-      - name: Render dashboards
-        if: steps.freshness.outputs.stale == 'true'
-        run: python scripts/render.py
-
-      - name: Commit and push
-        if: steps.freshness.outputs.stale == 'true'
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ dashboards/ README.md
-          python scripts/vllm/check_git_blob_sizes.py
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "update $(date -u +%Y-%m-%dT%H:%M)"
-            # Push to main is best-effort — branch protection may block it.
-            # Root publication is deliberately owned by hourly-master.
-            if git pull --rebase origin main; then
-              git push || echo "::warning::Push to main failed (branch protection). Run hourly-master to recollect and publish."
-            else
-              git rebase --abort || true
-              echo "::warning::Rebase against origin/main failed; no data was published."
-            fi
-          fi
+          set -euo pipefail
+          jq -n '{ref: "main"}' | gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            --input -
+          echo "Requested canonical Data Collection; this workflow never writes generated data to main."

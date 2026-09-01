@@ -10,11 +10,12 @@ timestamps instead.  It deliberately keeps the three concepts separate:
 * ``completed`` is a direct ``finished_at`` event.
 
 The compact daily gzip job segments are published atomically after a stable-ID
-merge and seven-day prune. Publishing is fail-closed: incomplete pagination,
+merge and seven-day prune. Publishing is fail-closed: incomplete query units,
 unresolved target queues, missing job UUIDs, or malformed retained history
-abort before either output is replaced. Successful runs advance a durable
-query watermark; hourly scans re-read a bounded overlap and a periodic full
-retention scan reconciles jobs attached to older parent builds.
+abort before either output is replaced. Guard-limited runs resume a frozen,
+privacy-projected private checkpoint. Successful two-hour runs advance a
+durable query watermark; bounded overlap and periodic full-retention scans
+reconcile jobs attached to older parent builds.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -43,6 +45,7 @@ from vllm.collect_workload_mapping import (  # noqa: E402
     PER_PAGE as REST_PAGE_SIZE,
     _request_build_page,
 )
+from vllm.buildkite_request_guard import BuildkiteRequestGuardError  # noqa: E402
 from vllm.constants import (  # noqa: E402
     AMD_METRIC_TARGET_QUEUES,
     BK_CLUSTER_UUID,
@@ -68,8 +71,8 @@ ROLLING_WINDOW_HOURS = 2
 PARENT_BUILD_LOOKBACK_DAYS = 3
 # Successful live collections normally resume from their prior exclusive
 # query horizon. Re-reading a bounded overlap absorbs delayed Buildkite index
-# visibility and page-number drift without paying for the full retained window
-# on every hourly run. A daily full reconciliation remains the backstop for
+# visibility without paying for the full retained window on every two-hour
+# run. A daily full reconciliation remains the backstop for
 # jobs dynamically added to older parent builds and for legacy/invalid state.
 INCREMENTAL_OVERLAP_HOURS = 6
 FULL_RECONCILIATION_INTERVAL_HOURS = 24
@@ -83,6 +86,18 @@ MAX_COMPRESSED_LEDGER_BYTES = 90 * 1024 * 1024
 MAX_COMPRESSED_SEGMENT_BYTES = 32 * 1024 * 1024
 MAX_UNCOMPRESSED_LEDGER_BYTES = 512 * 1024 * 1024
 MAX_SUMMARY_BYTES = 5 * 1024 * 1024
+CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_PRODUCER = "vllm_queue_lifecycle_wip"
+MAX_CHECKPOINT_COMPRESSED_BYTES = 64 * 1024 * 1024
+MAX_CHECKPOINT_UNCOMPRESSED_BYTES = 384 * 1024 * 1024
+MAX_CHECKPOINT_OBSERVATIONS = 750_000
+CHECKPOINT_WRITE_HEADROOM_BYTES = 2 * 1024 * 1024
+# At most 750 accepted leaves plus 747 split probes and one queue-discovery
+# request per retry fit within sixteen 100-start guarded attempts. This binds
+# the resumable work tree to the durable 25-hour attempt-ledger capacity.
+MAX_CHECKPOINT_QUERY_UNITS = 750
+CHECKPOINT_MAX_AGE_HOURS = 48
+CHECKPOINT_GUARD_EXIT = 75
 _SEGMENT_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.jsonl\.gz$")
 
 
@@ -304,6 +319,56 @@ def _project_rest_builds(
     return command_jobs, target_jobs
 
 
+def _lifecycle_cohorts(
+    *,
+    query_start: datetime,
+    query_end: datetime,
+    active_parent_start: datetime,
+) -> tuple[tuple[str, dict], ...]:
+    """Return pairwise-disjoint parent-build query partitions.
+
+    Buildkite documents ``created_from`` as inclusive and ``created_to`` as
+    exclusive.  Recent parents therefore need one all-state query, while the
+    older parent interval is split into unfinished and finished states.  This
+    retains late transitions from bounded older parents without downloading
+    every recent build two or three times.
+    """
+    if active_parent_start > query_start or query_start >= query_end:
+        raise ValueError("invalid lifecycle parent/event query horizon")
+    active_states = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
+    cohorts: list[tuple[str, dict]] = [
+        (
+            "recent_created",
+            {
+                "created_from": _utc_iso(query_start),
+                "created_to": _utc_iso(query_end),
+            },
+        )
+    ]
+    if active_parent_start < query_start:
+        cohorts.extend(
+            (
+                (
+                    "older_active",
+                    {
+                        "state[]": list(active_states),
+                        "created_from": _utc_iso(active_parent_start),
+                        "created_to": _utc_iso(query_start),
+                    },
+                ),
+                (
+                    "older_finished",
+                    {
+                        "finished_from": _utc_iso(query_start),
+                        "created_from": _utc_iso(active_parent_start),
+                        "created_to": _utc_iso(query_start),
+                    },
+                ),
+            )
+        )
+    return tuple(cohorts)
+
+
 def fetch_rest_lifecycle_jobs(
     token: str,
     *,
@@ -314,7 +379,7 @@ def fetch_rest_lifecycle_jobs(
     max_pages: int = REST_PAGE_SAFETY_CAP,
     page_fetcher=None,
 ) -> tuple[dict[str, dict], dict]:
-    """Union newly-created, active, and closing-finished organization cohorts."""
+    """Union pairwise-disjoint recent, older-active, and older-finished cohorts."""
     active_parent_start = active_created_from or query_start
     if active_parent_start > query_start:
         raise ValueError("active parent horizon cannot be narrower than the event query")
@@ -326,38 +391,12 @@ def fetch_rest_lifecycle_jobs(
         "exclude_pipeline": "true",
         "per_page": REST_PAGE_SIZE,
     }
+    cohorts = _lifecycle_cohorts(
+        query_start=query_start,
+        query_end=query_end,
+        active_parent_start=active_parent_start,
+    )
     active_states = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
-    cohorts: list[tuple[str, dict]] = [
-        (
-            "created",
-            {"created_from": _utc_iso(query_start), "created_to": _utc_iso(query_end)},
-        ),
-        (
-            "active",
-            # Requests encodes a list-valued parameter as repeated state[]
-            # values, matching the documented organization Builds API. Keep
-            # this cohort bounded, but independent from the incremental
-            # event watermark. A build created before the overlap can remain
-            # active and acquire runnable/started/finished job transitions now.
-            {
-                "state[]": list(active_states),
-                "created_from": _utc_iso(active_parent_start),
-                "created_to": _utc_iso(query_end),
-            },
-        ),
-        (
-            # Run the terminal sweep last so an active build that finishes
-            # during collection is represented by at least one cohort.
-            "finished",
-            # The organization Builds API documents ``finished_from`` but no
-            # upper-bound companion. Direct job timestamps are independently
-            # clipped to ``query_end`` while materializing observations.
-            {
-                "finished_from": _utc_iso(query_start),
-                "created_to": _utc_iso(query_end),
-            },
-        ),
-    ]
     jobs: dict[str, dict] = {}
     cohort_coverage: dict[str, dict] = {}
     raw_builds = 0
@@ -410,6 +449,7 @@ def observations_from_jobs(
     *,
     retention_start: datetime,
     end_exclusive: datetime,
+    include_unretained: bool = False,
 ) -> tuple[list[dict], dict]:
     """Materialize one privacy-minimized observation per stable job UUID."""
     observations: list[dict] = []
@@ -440,7 +480,7 @@ def observations_from_jobs(
         # Active-state queries can observe a transition a few seconds after the
         # fixed query horizon. Defer those timestamps to the next run rather
         # than placing future evidence in this generation.
-        for key in ("runnable_at", "started_at", "finished_at"):
+        for key in ("created_at", "runnable_at", "started_at", "finished_at"):
             if timestamps[key] and _require_datetime(timestamps[key], key) >= end_exclusive:
                 timestamps[key] = None
         if timestamps["runnable_at"]:
@@ -513,7 +553,7 @@ def observations_from_jobs(
             and runtime is not None
         ):
             timestamp_coverage["duration_samples_in_retention"]["runtime"] += 1
-        if keep:
+        if keep or include_unretained:
             observations.append(observation)
 
     return observations, timestamp_coverage
@@ -586,7 +626,10 @@ def _validate_observation(row: object, *, line: int | None = None) -> dict:
         raise RuntimeError(f"queue lifecycle observation retry schema is invalid{where}")
     if not isinstance(retry["retried"], bool) or not isinstance(retry["is_retry"], bool):
         raise RuntimeError(f"queue lifecycle observation retry flags are invalid{where}")
-    if type(retry["retries_count"]) is not int or retry["retries_count"] < 0:
+    if (
+        type(retry["retries_count"]) is not int
+        or not 0 <= retry["retries_count"] <= 1_000_000
+    ):
         raise RuntimeError(f"queue lifecycle observation retry count is invalid{where}")
     return row
 
@@ -882,6 +925,749 @@ def _atomic_write_bytes(path: Path, payload: bytes) -> None:
     finally:
         if temporary_name and os.path.exists(temporary_name):
             os.unlink(temporary_name)
+
+
+def _baseline_sha256(observations: Iterable[dict]) -> str:
+    digest = hashlib.sha256(b"queue-lifecycle-canonical-baseline-v1\0")
+    for row in sorted(
+        (_validate_observation(value) for value in observations),
+        key=lambda value: value["job_id"],
+    ):
+        digest.update(json.dumps(row, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def _queue_identity_sha256(queue_by_id: dict[str, str]) -> str:
+    if set(queue_by_id.values()) != set(AMD_METRIC_TARGET_QUEUES):
+        raise RuntimeError("target queue identity map has incomplete scope")
+    if len(queue_by_id) != len(AMD_METRIC_TARGET_QUEUES) or any(
+        not isinstance(queue_id, str) or not queue_id
+        for queue_id in queue_by_id
+    ):
+        raise RuntimeError("target queue identity map is malformed")
+    by_queue = {queue: queue_id for queue_id, queue in queue_by_id.items()}
+    payload = "".join(
+        f"{queue}\0{by_queue[queue]}\n" for queue in sorted(by_queue)
+    ).encode("utf-8")
+    return hashlib.sha256(b"buildkite-cluster-queue-map-v1\0" + payload).hexdigest()
+
+
+def _checkpoint_query(previous: dict, *, query_end: datetime) -> dict:
+    query_plan = _collection_query_plan(previous, now=query_end)
+    active_parent_start = query_end - timedelta(
+        days=RETENTION_DAYS + PARENT_BUILD_LOOKBACK_DAYS
+    )
+    return {
+        "query_mode": query_plan["query_mode"],
+        "query_start": _utc_iso(query_plan["query_start"]),
+        "active_parent_query_start": _utc_iso(active_parent_start),
+        "query_end_exclusive": _utc_iso(query_end),
+        "selection_reason": query_plan["selection_reason"],
+        "watermark_before": query_plan["watermark_before"],
+        "last_full_reconciliation_end": query_plan["last_full_reconciliation_end"],
+    }
+
+
+def _checkpoint_units(query: dict) -> list[dict]:
+    cohorts = _lifecycle_cohorts(
+        query_start=_require_datetime(query["query_start"], "checkpoint query_start"),
+        query_end=_require_datetime(
+            query["query_end_exclusive"], "checkpoint query_end_exclusive"
+        ),
+        active_parent_start=_require_datetime(
+            query["active_parent_query_start"],
+            "checkpoint active_parent_query_start",
+        ),
+    )
+    return [
+        {
+            "cohort": name,
+            "created_from": filters["created_from"],
+            "created_to": filters["created_to"],
+            "complete": False,
+            "builds": 0,
+            "command_jobs": 0,
+            "target_jobs": 0,
+        }
+        for name, filters in cohorts
+    ]
+
+
+def _new_checkpoint(
+    *,
+    baseline_sha256: str,
+    baseline_ref: str,
+    previous: dict,
+    query_end: datetime,
+    queue_by_id: dict[str, str],
+    queue_discovery: dict,
+) -> dict:
+    query = _checkpoint_query(previous, query_end=query_end)
+    state = {
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "producer": CHECKPOINT_PRODUCER,
+        "content_sha256": "0" * 64,
+        "baseline_sha256": baseline_sha256,
+        "baseline_ref": baseline_ref,
+        "query": query,
+        # Raw Buildkite queue UUIDs are deliberately never cached. The digest
+        # binds every resumed page to a freshly resolved exact mapping.
+        "queue_identity_sha256": _queue_identity_sha256(queue_by_id),
+        "queue_discovery": dict(queue_discovery),
+        "split_requests": 0,
+        "terminal_error": None,
+        "units": _checkpoint_units(query),
+        "observations": [],
+    }
+    _refresh_checkpoint_integrity(state)
+    return state
+
+
+def _strict_json(raw: bytes, *, source: str) -> object:
+    def no_duplicates(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate key {key!r}")
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(f"{source} is not strict UTF-8 JSON: {exc}") from exc
+
+
+def _checkpoint_json(state: dict) -> bytes:
+    return (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def _checkpoint_content_sha256(state: dict) -> str:
+    content = {key: value for key, value in state.items() if key != "content_sha256"}
+    return hashlib.sha256(
+        b"queue-lifecycle-wip-content-v1\0"
+        + json.dumps(content, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _refresh_checkpoint_integrity(state: dict) -> None:
+    state["content_sha256"] = _checkpoint_content_sha256(state)
+
+
+def _bounded_regular_file(path: Path, *, max_bytes: int) -> bytes:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise RuntimeError(f"could not open bounded checkpoint {path}: {exc}") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError(f"checkpoint is not a regular file: {path}")
+        if metadata.st_size <= 0 or metadata.st_size > max_bytes:
+            raise RuntimeError(f"checkpoint compressed size is outside its safety bound: {path}")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            payload = handle.read(max_bytes + 1)
+        if len(payload) != metadata.st_size or len(payload) > max_bytes:
+            raise RuntimeError(f"checkpoint changed while it was read: {path}")
+        return payload
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _decode_checkpoint_file(path: Path) -> dict:
+    compressed = _bounded_regular_file(
+        path, max_bytes=MAX_CHECKPOINT_COMPRESSED_BYTES
+    )
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as archive:
+            decoded = _read_decompressed_limited(
+                archive, MAX_CHECKPOINT_UNCOMPRESSED_BYTES
+            )
+    except (gzip.BadGzipFile, EOFError, OSError) as exc:
+        raise RuntimeError(f"queue lifecycle checkpoint is unreadable: {exc}") from exc
+    state = _strict_json(decoded, source="queue lifecycle checkpoint")
+    if not isinstance(state, dict):
+        raise RuntimeError("queue lifecycle checkpoint is not an object")
+    normalized = _validate_checkpoint_shape(state)
+    if decoded != _checkpoint_json(normalized):
+        raise RuntimeError("queue lifecycle checkpoint is not canonical JSON")
+    return normalized
+
+
+def _nonnegative_checkpoint_int(value: object, field: str, *, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= maximum:
+        raise RuntimeError(f"queue lifecycle checkpoint has invalid {field}")
+    return value
+
+
+def _validate_checkpoint_shape(state: object) -> dict:
+    if not isinstance(state, dict) or set(state) != {
+        "schema_version",
+        "producer",
+        "content_sha256",
+        "baseline_sha256",
+        "baseline_ref",
+        "query",
+        "queue_identity_sha256",
+        "queue_discovery",
+        "split_requests",
+        "terminal_error",
+        "units",
+        "observations",
+    }:
+        raise RuntimeError("queue lifecycle checkpoint top-level schema is invalid")
+    if (
+        state.get("schema_version") != CHECKPOINT_SCHEMA_VERSION
+        or state.get("producer") != CHECKPOINT_PRODUCER
+    ):
+        raise RuntimeError("queue lifecycle checkpoint producer/schema is unsupported")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(state.get("content_sha256") or "")) or state[
+        "content_sha256"
+    ] != _checkpoint_content_sha256(state):
+        raise RuntimeError("queue lifecycle checkpoint content digest is invalid")
+    for field in ("baseline_sha256", "queue_identity_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(state.get(field) or "")):
+            raise RuntimeError(f"queue lifecycle checkpoint has invalid {field}")
+    if not re.fullmatch(
+        r"(?:[0-9a-f]{40}|bootstrap|local-[0-9a-f]{64})",
+        str(state.get("baseline_ref") or ""),
+    ):
+        raise RuntimeError("queue lifecycle checkpoint has invalid baseline_ref")
+    query = state.get("query")
+    if not isinstance(query, dict) or set(query) != {
+        "query_mode",
+        "query_start",
+        "active_parent_query_start",
+        "query_end_exclusive",
+        "selection_reason",
+        "watermark_before",
+        "last_full_reconciliation_end",
+    }:
+        raise RuntimeError("queue lifecycle checkpoint query schema is invalid")
+    if query.get("query_mode") not in {FULL_QUERY_MODE, INCREMENTAL_QUERY_MODE}:
+        raise RuntimeError("queue lifecycle checkpoint query mode is invalid")
+    for field in ("query_start", "active_parent_query_start", "query_end_exclusive"):
+        if _canonical_timestamp(query.get(field), field) != query.get(field):
+            raise RuntimeError(f"queue lifecycle checkpoint has noncanonical {field}")
+    for field in ("watermark_before", "last_full_reconciliation_end"):
+        value = query.get(field)
+        if value is not None and _canonical_timestamp(value, field) != value:
+            raise RuntimeError(f"queue lifecycle checkpoint has noncanonical {field}")
+    if not isinstance(query.get("selection_reason"), str) or not query["selection_reason"]:
+        raise RuntimeError("queue lifecycle checkpoint selection reason is invalid")
+
+    discovery = state.get("queue_discovery")
+    if not isinstance(discovery, dict) or set(discovery) != {
+        "complete",
+        "pages",
+        "target_queue_count",
+    }:
+        raise RuntimeError("queue lifecycle checkpoint queue discovery schema is invalid")
+    if discovery.get("complete") is not True:
+        raise RuntimeError("queue lifecycle checkpoint queue discovery is incomplete")
+    _nonnegative_checkpoint_int(
+        discovery.get("pages"), "queue discovery pages", maximum=REST_PAGE_SAFETY_CAP
+    )
+    if discovery.get("pages") < 1 or discovery.get("target_queue_count") != len(
+        AMD_METRIC_TARGET_QUEUES
+    ):
+        raise RuntimeError("queue lifecycle checkpoint queue discovery scope is invalid")
+
+    expected_roots = _checkpoint_units(query)
+    units = state.get("units")
+    if (
+        not isinstance(units, list)
+        or not expected_roots
+        or not len(expected_roots) <= len(units) <= MAX_CHECKPOINT_QUERY_UNITS
+    ):
+        raise RuntimeError("queue lifecycle checkpoint query units are incomplete")
+    split_requests = _nonnegative_checkpoint_int(
+        state.get("split_requests"),
+        "split request count",
+        maximum=MAX_CHECKPOINT_QUERY_UNITS,
+    )
+    if len(units) != len(expected_roots) + split_requests:
+        raise RuntimeError("queue lifecycle checkpoint split accounting is inconsistent")
+    if state.get("terminal_error") not in {
+        None,
+        "checkpoint_capacity",
+        "dense_minimum_interval",
+        "query_unit_limit",
+    }:
+        raise RuntimeError("queue lifecycle checkpoint terminal state is invalid")
+    seen_pending = False
+    root_index = 0
+    prior_end: str | None = None
+    for unit in units:
+        if not isinstance(unit, dict) or set(unit) != {
+            "cohort",
+            "created_from",
+            "created_to",
+            "complete",
+            "builds",
+            "command_jobs",
+            "target_jobs",
+        }:
+            raise RuntimeError("queue lifecycle checkpoint query unit schema is invalid")
+        if root_index >= len(expected_roots):
+            raise RuntimeError("queue lifecycle checkpoint has an extra cohort")
+        root = expected_roots[root_index]
+        cohort = unit.get("cohort")
+        if cohort != root["cohort"] or not isinstance(unit.get("complete"), bool):
+            raise RuntimeError("queue lifecycle checkpoint query unit identity is invalid")
+        created_from = unit.get("created_from")
+        created_to = unit.get("created_to")
+        if (
+            _canonical_timestamp(created_from, "checkpoint unit created_from") != created_from
+            or _canonical_timestamp(created_to, "checkpoint unit created_to") != created_to
+            or _require_datetime(created_from, "checkpoint unit created_from")
+            >= _require_datetime(created_to, "checkpoint unit created_to")
+        ):
+            raise RuntimeError("queue lifecycle checkpoint unit interval is invalid")
+        expected_start = prior_end or root["created_from"]
+        if created_from != expected_start:
+            raise RuntimeError("queue lifecycle checkpoint unit intervals have a gap or overlap")
+        if _require_datetime(created_to, "checkpoint unit created_to") > _require_datetime(
+            root["created_to"], "checkpoint root created_to"
+        ):
+            raise RuntimeError("queue lifecycle checkpoint unit escapes its cohort")
+        prior_end = created_to
+        if created_to == root["created_to"]:
+            root_index += 1
+            prior_end = None
+        if seen_pending and unit["complete"]:
+            raise RuntimeError("queue lifecycle checkpoint completed units are not a prefix")
+        seen_pending = seen_pending or not unit["complete"]
+        builds = _nonnegative_checkpoint_int(
+            unit.get("builds"), f"{cohort} builds", maximum=REST_PAGE_SIZE - 1
+        )
+        if not unit["complete"] and builds != 0:
+            raise RuntimeError("queue lifecycle checkpoint pending unit has accepted builds")
+        for field in ("command_jobs", "target_jobs"):
+            count = _nonnegative_checkpoint_int(
+                unit.get(field), f"{cohort} {field}", maximum=100_000_000
+            )
+            if not unit["complete"] and count != 0:
+                raise RuntimeError("queue lifecycle checkpoint pending unit has accepted jobs")
+    if root_index != len(expected_roots) or prior_end is not None:
+        raise RuntimeError("queue lifecycle checkpoint does not cover every cohort exactly")
+
+    observations = state.get("observations")
+    if not isinstance(observations, list) or len(observations) > MAX_CHECKPOINT_OBSERVATIONS:
+        raise RuntimeError("queue lifecycle checkpoint observation count exceeds its bound")
+    normalized_observations = [_validate_observation(row) for row in observations]
+    ids = [row["job_id"] for row in normalized_observations]
+    if ids != sorted(ids) or len(ids) != len(set(ids)):
+        raise RuntimeError("queue lifecycle checkpoint observations are not unique and sorted")
+    normalized = dict(state)
+    normalized["observations"] = normalized_observations
+    return normalized
+
+
+def _validate_checkpoint_context(
+    state: dict,
+    *,
+    baseline_sha256: str,
+    baseline_ref: str,
+    previous: dict,
+    now: datetime,
+) -> dict:
+    state = _validate_checkpoint_shape(state)
+    if state["baseline_sha256"] != baseline_sha256:
+        raise RuntimeError("queue lifecycle checkpoint canonical baseline changed")
+    if state["baseline_ref"] != baseline_ref:
+        raise RuntimeError("queue lifecycle checkpoint canonical ref changed")
+    frozen_end = _require_datetime(
+        state["query"]["query_end_exclusive"], "checkpoint query_end_exclusive"
+    )
+    if frozen_end > now or now - frozen_end > timedelta(hours=CHECKPOINT_MAX_AGE_HOURS):
+        raise RuntimeError("queue lifecycle checkpoint query horizon is stale or future")
+    if state["query"] != _checkpoint_query(previous, query_end=frozen_end):
+        raise RuntimeError(
+            "queue lifecycle checkpoint query is not bound to the canonical watermark"
+        )
+    return state
+
+
+def _write_checkpoint(path: Path, state: dict) -> None:
+    _refresh_checkpoint_integrity(state)
+    state = _validate_checkpoint_shape(state)
+    decoded = _checkpoint_json(state)
+    if len(decoded) > MAX_CHECKPOINT_UNCOMPRESSED_BYTES:
+        raise RuntimeError("queue lifecycle checkpoint exceeds its uncompressed safety limit")
+    buffer = io.BytesIO()
+    with gzip.GzipFile(
+        fileobj=buffer,
+        mode="wb",
+        filename="",
+        mtime=0,
+        compresslevel=9,
+    ) as archive:
+        archive.write(decoded)
+    compressed = buffer.getvalue()
+    if len(compressed) > MAX_CHECKPOINT_COMPRESSED_BYTES:
+        raise RuntimeError("queue lifecycle checkpoint exceeds its compressed safety limit")
+    _atomic_write_bytes(path, compressed)
+
+
+def _discard_checkpoint(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise RuntimeError(f"could not discard invalid lifecycle checkpoint {path}: {exc}") from exc
+
+
+def _load_checkpoint(
+    path: Path,
+    *,
+    baseline_sha256: str,
+    baseline_ref: str,
+    previous: dict,
+    now: datetime,
+) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return _validate_checkpoint_context(
+            _decode_checkpoint_file(path),
+            baseline_sha256=baseline_sha256,
+            baseline_ref=baseline_ref,
+            previous=previous,
+            now=now,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        log.warning("Discarding unusable private lifecycle checkpoint: %s", exc)
+        _discard_checkpoint(path)
+        return None
+
+
+def _checkpoint_cache_marker(path: Path) -> Path:
+    return path.parent / ".cleared"
+
+
+def clear_lifecycle_checkpoint(path: Path) -> None:
+    """Remove WIP after durable publication and leave a cache tombstone."""
+    _discard_checkpoint(path)
+    _atomic_write_text(
+        _checkpoint_cache_marker(path),
+        "queue-lifecycle-wip-cleared-v1\n",
+    )
+
+
+def prepare_lifecycle_checkpoint_cache(path: Path) -> None:
+    """Validate cached WIP structurally, or cache only a safe tombstone."""
+    if path.exists():
+        try:
+            _decode_checkpoint_file(path)
+        except (OSError, RuntimeError, ValueError) as exc:
+            log.warning("Discarding invalid lifecycle WIP before cache save: %s", exc)
+            _discard_checkpoint(path)
+    _atomic_write_text(
+        _checkpoint_cache_marker(path),
+        "queue-lifecycle-private-cache-v1\n",
+    )
+
+
+def _cohort_filter_map(query: dict) -> dict[str, dict]:
+    return dict(
+        _lifecycle_cohorts(
+            query_start=_require_datetime(query["query_start"], "checkpoint query_start"),
+            query_end=_require_datetime(
+                query["query_end_exclusive"], "checkpoint query_end_exclusive"
+            ),
+            active_parent_start=_require_datetime(
+                query["active_parent_query_start"],
+                "checkpoint active_parent_query_start",
+            ),
+        )
+    )
+
+
+def _merge_checkpoint_observations(existing: list[dict], incoming: list[dict]) -> list[dict]:
+    merged = {row["job_id"]: _validate_observation(row) for row in existing}
+    for value in incoming:
+        row = _validate_observation(value)
+        previous = merged.get(row["job_id"])
+        merged[row["job_id"]] = _merge_observation(previous, row) if previous else row
+    if len(merged) > MAX_CHECKPOINT_OBSERVATIONS:
+        raise RuntimeError("queue lifecycle checkpoint observation count exceeds its bound")
+    return [merged[job_id] for job_id in sorted(merged)]
+
+
+def _split_checkpoint_unit(state: dict, index: int) -> None:
+    unit = state["units"][index]
+    start = _require_datetime(unit["created_from"], "query unit created_from")
+    end = _require_datetime(unit["created_to"], "query unit created_to")
+    midpoint = start + (end - start) / 2
+    if midpoint <= start or midpoint >= end:
+        raise RuntimeError(
+            f"REST build cohort {unit['cohort']} remains full at the minimum time interval"
+        )
+    if len(state["units"]) >= MAX_CHECKPOINT_QUERY_UNITS:
+        raise RuntimeError("REST lifecycle query exceeded its bounded unit count")
+
+    def child(child_start: datetime, child_end: datetime) -> dict:
+        return {
+            "cohort": unit["cohort"],
+            "created_from": _utc_iso(child_start),
+            "created_to": _utc_iso(child_end),
+            "complete": False,
+            "builds": 0,
+            "command_jobs": 0,
+            "target_jobs": 0,
+        }
+
+    state["units"][index : index + 1] = [
+        child(start, midpoint),
+        child(midpoint, end),
+    ]
+    state["split_requests"] += 1
+
+
+def _resume_lifecycle_query_units(
+    token: str,
+    *,
+    checkpoint_path: Path,
+    state: dict,
+    queue_by_id: dict[str, str],
+    page_fetcher=None,
+) -> dict:
+    """Advance exhaustive offset-free query leaves one API response at a time."""
+    fetch_page = page_fetcher or _request_build_page
+    path = f"/organizations/{BK_ORG}/builds"
+    common = {
+        "include_retried_jobs": "true",
+        "include_paused": "true",
+        "exclude_pipeline": "true",
+        "per_page": REST_PAGE_SIZE,
+        # A leaf is accepted only when page one is short. Full leaves are
+        # split by their exact parent-created interval and never persisted.
+        "page": 1,
+    }
+    root_filters = _cohort_filter_map(state["query"])
+    retention_start = _require_datetime(
+        state["query"]["query_end_exclusive"], "checkpoint query end"
+    ) - timedelta(days=RETENTION_DAYS)
+    query_end = _require_datetime(
+        state["query"]["query_end_exclusive"], "checkpoint query end"
+    )
+
+    while True:
+        try:
+            index = next(
+                index
+                for index, unit in enumerate(state["units"])
+                if not unit["complete"]
+            )
+        except StopIteration:
+            return state
+        current_compressed_size = checkpoint_path.stat().st_size
+        if (
+            len(_checkpoint_json(state))
+            > MAX_CHECKPOINT_UNCOMPRESSED_BYTES - CHECKPOINT_WRITE_HEADROOM_BYTES
+            or current_compressed_size
+            > MAX_CHECKPOINT_COMPRESSED_BYTES - CHECKPOINT_WRITE_HEADROOM_BYTES
+        ):
+            state["terminal_error"] = "checkpoint_capacity"
+            _write_checkpoint(checkpoint_path, state)
+            raise RuntimeError(
+                "queue lifecycle checkpoint reached its bounded recovery capacity"
+            )
+        unit = state["units"][index]
+        filters = {
+            **root_filters[unit["cohort"]],
+            "created_from": unit["created_from"],
+            "created_to": unit["created_to"],
+        }
+        rows = fetch_page(path, token, {**common, **filters})
+        if len(rows) > REST_PAGE_SIZE:
+            raise RuntimeError("REST lifecycle query returned more than its requested page size")
+
+        # Validate even an ambiguous full response, but retain none of it: a
+        # child interval will be queried exhaustively and projected later.
+        page_jobs: dict[str, dict] = {}
+        commands, targets = _project_rest_builds(rows, queue_by_id, page_jobs)
+        if len(rows) == REST_PAGE_SIZE:
+            try:
+                _split_checkpoint_unit(state, index)
+            except RuntimeError as exc:
+                state["terminal_error"] = (
+                    "query_unit_limit"
+                    if "unit count" in str(exc)
+                    else "dense_minimum_interval"
+                )
+                _write_checkpoint(checkpoint_path, state)
+                raise
+            _write_checkpoint(checkpoint_path, state)
+            log.info(
+                "Split full lifecycle %s interval %s -> %s",
+                unit["cohort"],
+                unit["created_from"],
+                unit["created_to"],
+            )
+            continue
+
+        page_observations, _ = observations_from_jobs(
+            page_jobs,
+            retention_start=retention_start,
+            end_exclusive=query_end,
+            include_unretained=True,
+        )
+        state["observations"] = _merge_checkpoint_observations(
+            state["observations"], page_observations
+        )
+        unit = state["units"][index]
+        unit.update(
+            complete=True,
+            builds=len(rows),
+            command_jobs=commands,
+            target_jobs=targets,
+        )
+        # The cursor and the privacy projection become durable together. A
+        # killed write cannot advance one without the other.
+        _write_checkpoint(checkpoint_path, state)
+        log.info(
+            "Completed lifecycle %s interval %s -> %s (%d builds, %d target jobs)",
+            unit["cohort"],
+            unit["created_from"],
+            unit["created_to"],
+            len(rows),
+            targets,
+        )
+
+
+def _checkpoint_source_coverage(state: dict) -> dict:
+    filters = _cohort_filter_map(state["query"])
+    cohort_coverage: dict[str, dict] = {}
+    raw_builds = 0
+    raw_commands = 0
+    raw_targets = 0
+    for cohort, cohort_filters in filters.items():
+        leaves = [unit for unit in state["units"] if unit["cohort"] == cohort]
+        builds = sum(unit["builds"] for unit in leaves)
+        commands = sum(unit["command_jobs"] for unit in leaves)
+        targets = sum(unit["target_jobs"] for unit in leaves)
+        raw_builds += builds
+        raw_commands += commands
+        raw_targets += targets
+        cohort_coverage[cohort] = {
+            "complete": all(unit["complete"] for unit in leaves),
+            "query_units": len(leaves),
+            "builds": builds,
+            "command_jobs": commands,
+            "target_jobs": targets,
+            "filters": cohort_filters,
+        }
+    active_states = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
+    return {
+        "complete": all(unit["complete"] for unit in state["units"]),
+        "source": "Buildkite REST organization builds",
+        "organization_wide": True,
+        "pagination_strategy": "exhaustive_disjoint_created_time_units_page_one",
+        "cohorts": cohort_coverage,
+        "split_probe_requests": state["split_requests"],
+        "accepted_query_units": len(state["units"]),
+        "active_build_states": list(active_states),
+        "parent_build_query_start": state["query"]["active_parent_query_start"],
+        "event_cohort_query_start": state["query"]["query_start"],
+        "active_parent_query_start": state["query"]["active_parent_query_start"],
+        "query_horizon_exclusive": state["query"]["query_end_exclusive"],
+        "raw_builds": raw_builds,
+        "raw_command_jobs": raw_commands,
+        "raw_target_jobs": raw_targets,
+        "unique_target_jobs": len(state["observations"]),
+    }
+
+
+def _checkpoint_timestamp_coverage(state: dict) -> dict:
+    query_end = _require_datetime(
+        state["query"]["query_end_exclusive"], "checkpoint query end"
+    )
+    coverage = _retained_timestamp_coverage(
+        state["observations"],
+        query_end - timedelta(days=RETENTION_DAYS),
+        query_end,
+    )
+    coverage["scope"] = "current_api_query_before_ledger_merge"
+    return coverage
+
+
+def _collect_rest_lifecycle_resumable(
+    token: str,
+    *,
+    checkpoint_path: Path,
+    existing: list[dict],
+    previous: dict,
+    now: datetime,
+    baseline_ref: str | None = None,
+    page_fetcher=None,
+    queue_page_fetcher=None,
+) -> tuple[dict, list[dict], dict, dict, dict]:
+    baseline_sha256 = _baseline_sha256(existing)
+    baseline_ref = baseline_ref or f"local-{baseline_sha256}"
+    if not re.fullmatch(
+        r"(?:[0-9a-f]{40}|bootstrap|local-[0-9a-f]{64})", baseline_ref
+    ):
+        raise RuntimeError("queue lifecycle canonical baseline ref is invalid")
+    state = _load_checkpoint(
+        checkpoint_path,
+        baseline_sha256=baseline_sha256,
+        baseline_ref=baseline_ref,
+        previous=previous,
+        now=now,
+    )
+    if state is not None and state["terminal_error"] is not None:
+        raise RuntimeError(
+            "queue lifecycle checkpoint records terminal bounded-query failure: "
+            + state["terminal_error"]
+        )
+    if state is None or not all(unit["complete"] for unit in state["units"]):
+        if queue_page_fetcher is None:
+            queue_by_id, queue_discovery = fetch_rest_target_queues(token)
+        else:
+            queue_by_id, queue_discovery = fetch_rest_target_queues(
+                token, page_fetcher=queue_page_fetcher
+            )
+        queue_identity = _queue_identity_sha256(queue_by_id)
+        if state is not None and state["queue_identity_sha256"] != queue_identity:
+            log.warning("Target queue identities changed; restarting the frozen lifecycle query")
+            _discard_checkpoint(checkpoint_path)
+            state = None
+        if state is None:
+            state = _new_checkpoint(
+                baseline_sha256=baseline_sha256,
+                baseline_ref=baseline_ref,
+                previous=previous,
+                query_end=now,
+                queue_by_id=queue_by_id,
+                queue_discovery=queue_discovery,
+            )
+        else:
+            state["queue_discovery"] = queue_discovery
+        _write_checkpoint(checkpoint_path, state)
+        state = _resume_lifecycle_query_units(
+            token,
+            checkpoint_path=checkpoint_path,
+            state=state,
+            queue_by_id=queue_by_id,
+            page_fetcher=page_fetcher,
+        )
+
+    if not all(unit["complete"] for unit in state["units"]):
+        raise RuntimeError("queue lifecycle checkpoint remained incomplete")
+    return (
+        state,
+        list(state["observations"]),
+        dict(state["queue_discovery"]),
+        _checkpoint_source_coverage(state),
+        _checkpoint_timestamp_coverage(state),
+    )
 
 
 def _publish_generation(
@@ -1512,18 +2298,16 @@ def build_summary(
     api_complete = bool(
         collection and collection.get("complete") and queue_discovery_complete and source_complete
     )
-    # The REST cohort union covers every documented parent-build state, but
-    # page-number pagination is not a transactional snapshot. Concurrent page
-    # drift and jobs dynamically added to, or still running from, a parent
-    # created before the bounded parent-build horizon prevent an unconditional
-    # exhaustiveness claim.
+    # Every accepted created-time query unit is shorter than one API page, but
+    # jobs can still be dynamically added to a build after its unit is read.
+    # Parents older than the bounded horizon also remain unknowable.
     complete = False
     coverage = {
         "complete": complete,
         "status": "partial_observation",
         "reason": (
-            "All organization-wide cohort pages and target queue IDs were collected, but "
-            "page-number drift and jobs belonging to parent builds created before the "
+            "All organization-wide disjoint query units and target queue IDs were collected, but "
+            "jobs added after a unit completed and jobs belonging to parent builds before the "
             "bounded source horizon cannot be proven absent. Direct observed event "
             "timestamps remain exact."
             if api_complete
@@ -1541,12 +2325,12 @@ def build_summary(
                 "complete": False,
                 "exact_for_observed_events": True,
                 "basis": (
-                    "direct jobs[].finished_at from the exhaustively paginated organization-wide "
-                    "bounded finished/active/created build cohort union"
+                    "direct jobs[].finished_at from exhaustive offset-free organization-wide "
+                    "bounded disjoint parent-created query units"
                 ),
                 "limitation": (
-                    "REST page-number pagination is not a transactional snapshot; a job dynamically "
-                    "added to, or still running from, a parent build created before the bounded "
+                    "A job dynamically added after its unit was read, or belonging to a parent "
+                    "build created before the bounded "
                     "source horizon can also escape all parent-build filters."
                 ),
             },
@@ -1554,12 +2338,12 @@ def build_summary(
                 "complete": False,
                 "exact_for_observed_events": True,
                 "basis": (
-                    "direct jobs[].runnable_at from the exhaustively paginated organization-wide "
-                    "bounded finished/active/created build cohort union"
+                    "direct jobs[].runnable_at from exhaustive offset-free organization-wide "
+                    "bounded disjoint parent-created query units"
                 ),
                 "limitation": (
-                    "REST page-number pagination is not a transactional snapshot; a job dynamically "
-                    "added to, or still running from, a parent build created before the bounded "
+                    "A job dynamically added after its unit was read, or belonging to a parent "
+                    "build created before the bounded "
                     "source horizon can also escape all parent-build filters."
                 ),
             },
@@ -1567,12 +2351,12 @@ def build_summary(
                 "complete": False,
                 "exact_for_observed_events": True,
                 "basis": (
-                    "direct jobs[].started_at from the exhaustively paginated organization-wide "
-                    "bounded finished/active/created build cohort union"
+                    "direct jobs[].started_at from exhaustive offset-free organization-wide "
+                    "bounded disjoint parent-created query units"
                 ),
                 "limitation": (
-                    "REST page-number pagination is not a transactional snapshot; a job dynamically "
-                    "added to, or still running from, a parent build created before the bounded "
+                    "A job dynamically added after its unit was read, or belonging to a parent "
+                    "build created before the bounded "
                     "source horizon can also escape all parent-build filters."
                 ),
             },
@@ -1702,18 +2486,80 @@ def collect_lifecycle(
     jobs_path: Path = JOBS_OUTPUT,
     summary_path: Path = SUMMARY_OUTPUT,
     now: datetime | None = None,
+    checkpoint_path: Path | None = None,
+    baseline_ref: str | None = None,
+    page_fetcher=None,
+    queue_page_fetcher=None,
 ) -> dict:
     if not token.strip():
         raise RuntimeError("BUILDKITE_API_TOKEN is required")
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
-    retention_start = current - timedelta(days=RETENTION_DAYS)
     existing = read_job_directory(jobs_path)
     previous = _safe_previous_provenance(summary_path, jobs_path=jobs_path)
-    query_plan = _collection_query_plan(previous, now=current)
-    query_start = query_plan["query_start"]
-    active_parent_query_start = current - timedelta(
-        days=RETENTION_DAYS + PARENT_BUILD_LOOKBACK_DAYS
-    )
+    if checkpoint_path is not None:
+        (
+            checkpoint,
+            incoming,
+            queue_discovery,
+            source_coverage,
+            timestamp_coverage,
+        ) = _collect_rest_lifecycle_resumable(
+            token,
+            checkpoint_path=checkpoint_path,
+            existing=existing,
+            previous=previous,
+            now=current,
+            baseline_ref=baseline_ref,
+            page_fetcher=page_fetcher,
+            queue_page_fetcher=queue_page_fetcher,
+        )
+        query = checkpoint["query"]
+        # A resumed generation describes only its originally frozen horizon.
+        # Wall-clock retry time must not advance retention or provenance.
+        current = _require_datetime(
+            query["query_end_exclusive"], "checkpoint query_end_exclusive"
+        )
+        query_start = _require_datetime(query["query_start"], "checkpoint query_start")
+        active_parent_query_start = _require_datetime(
+            query["active_parent_query_start"],
+            "checkpoint active_parent_query_start",
+        )
+        query_plan = {
+            "query_mode": query["query_mode"],
+            "selection_reason": query["selection_reason"],
+            "watermark_before": query["watermark_before"],
+            "last_full_reconciliation_end": query["last_full_reconciliation_end"],
+        }
+        unique_job_count = len(incoming)
+    else:
+        query_plan = _collection_query_plan(previous, now=current)
+        query_start = query_plan["query_start"]
+        active_parent_query_start = current - timedelta(
+            days=RETENTION_DAYS + PARENT_BUILD_LOOKBACK_DAYS
+        )
+        if queue_page_fetcher is None:
+            queue_by_id, queue_discovery = fetch_rest_target_queues(token)
+        else:
+            queue_by_id, queue_discovery = fetch_rest_target_queues(
+                token, page_fetcher=queue_page_fetcher
+            )
+        fetch_kwargs = {
+            "query_start": query_start,
+            "query_end": current,
+            "active_created_from": active_parent_query_start,
+            "queue_by_id": queue_by_id,
+        }
+        if page_fetcher is not None:
+            fetch_kwargs["page_fetcher"] = page_fetcher
+        jobs, source_coverage = fetch_rest_lifecycle_jobs(token, **fetch_kwargs)
+        unique_job_count = len(jobs)
+        incoming, timestamp_coverage = observations_from_jobs(
+            jobs,
+            retention_start=current - timedelta(days=RETENTION_DAYS),
+            end_exclusive=current,
+        )
+        del jobs
+    retention_start = current - timedelta(days=RETENTION_DAYS)
     query_mode = query_plan["query_mode"]
     log.info(
         "Lifecycle query mode=%s event_start=%s active_parent_start=%s "
@@ -1724,21 +2570,6 @@ def collect_lifecycle(
         query_plan["watermark_before"],
         query_plan["selection_reason"],
     )
-    queue_by_id, queue_discovery = fetch_rest_target_queues(token)
-    jobs, source_coverage = fetch_rest_lifecycle_jobs(
-        token,
-        query_start=query_start,
-        query_end=current,
-        active_created_from=active_parent_query_start,
-        queue_by_id=queue_by_id,
-    )
-    unique_job_count = len(jobs)
-    incoming, timestamp_coverage = observations_from_jobs(
-        jobs,
-        retention_start=retention_start,
-        end_exclusive=current,
-    )
-    del jobs
     merged = merge_and_prune_jobs(
         existing,
         incoming,
@@ -2003,15 +2834,83 @@ def maintain_job_ledger(
     return summary
 
 
-def main() -> None:
+def restore_exact_job_ledger(
+    *,
+    jobs_path: Path,
+    summary_path: Path,
+    git_ref: str,
+) -> dict:
+    """Materialize one remote canonical generation at its own frozen horizon."""
+    remote_provenance = _git_ref_summary_provenance(git_ref)
+    remote_ledger = remote_provenance.get("ledger")
+    if not _ledger_manifest_complete(remote_ledger):
+        raise RuntimeError(
+            f"established lifecycle ref {git_ref} lacks a complete summary-bound ledger manifest"
+        )
+    current = _provenance_datetime(remote_provenance.get("last_successful_query_end"))
+    if current is None:
+        raise RuntimeError(f"established lifecycle ref {git_ref} has no safe query horizon")
+    rows = _git_ref_jobs(
+        git_ref,
+        required=True,
+        expected_ledger=remote_ledger,
+    )
+    retained = merge_and_prune_jobs(
+        [],
+        rows,
+        retention_start=current - timedelta(days=RETENTION_DAYS),
+        end_exclusive=current,
+    )
+    segment_payloads, ledger = encode_job_segments(
+        retained,
+        retention_start=current - timedelta(days=RETENTION_DAYS),
+        end_exclusive=current,
+    )
+    if ledger["generation_sha256"] != remote_ledger["generation_sha256"]:
+        raise RuntimeError(f"lifecycle generation at {git_ref} changes at its bound horizon")
+    summary = build_summary(
+        retained,
+        now=current,
+        collection=(
+            remote_provenance.get("collection")
+            if isinstance(remote_provenance.get("collection"), dict)
+            else None
+        ),
+        previous_provenance=remote_provenance,
+        ledger=ledger,
+    )
+    _publish_generation(
+        jobs_path,
+        segment_payloads,
+        summary_path,
+        _encode_summary(summary),
+    )
+    return summary
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--jobs-output", type=Path, default=JOBS_OUTPUT)
     parser.add_argument("--output", type=Path, default=SUMMARY_OUTPUT)
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="Private gzip WIP checkpoint used only for bounded resumable collection",
+    )
+    parser.add_argument(
+        "--baseline-ref",
+        help="Exact 40-SHA canonical lifecycle ref, or bootstrap on the first generation",
+    )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument(
         "--merge-jobs-git-ref",
         metavar="REF",
         help="Tokenlessly merge a retained compressed job ledger from REF, prune, and rebuild output",
+    )
+    modes.add_argument(
+        "--restore-jobs-git-ref",
+        metavar="REF",
+        help="Tokenlessly restore REF at its exact published query horizon",
     )
     modes.add_argument(
         "--prune-jobs-only",
@@ -2023,7 +2922,29 @@ def main() -> None:
         action="store_true",
         help="Tokenlessly validate that the local summary exactly binds every ledger segment",
     )
+    modes.add_argument(
+        "--clear-checkpoint",
+        action="store_true",
+        help="Delete WIP after durable publication and leave a private cache tombstone",
+    )
+    modes.add_argument(
+        "--prepare-checkpoint-cache",
+        action="store_true",
+        help="Structurally validate private WIP or replace it with a cache tombstone",
+    )
     args = parser.parse_args()
+
+    if (args.clear_checkpoint or args.prepare_checkpoint_cache) and args.checkpoint is None:
+        parser.error("--checkpoint is required for checkpoint maintenance")
+    if args.baseline_ref and args.checkpoint is None:
+        parser.error("--baseline-ref requires --checkpoint")
+
+    if args.clear_checkpoint:
+        clear_lifecycle_checkpoint(args.checkpoint)
+        return 0
+    if args.prepare_checkpoint_cache:
+        prepare_lifecycle_checkpoint_cache(args.checkpoint)
+        return 0
 
     if args.validate_ledger_only:
         segment_count, job_count = validate_local_ledger_generation(
@@ -2035,19 +2956,31 @@ def main() -> None:
             segment_count,
             job_count,
         )
-        return
-    if args.merge_jobs_git_ref or args.prune_jobs_only:
+        return 0
+    if args.restore_jobs_git_ref:
+        summary = restore_exact_job_ledger(
+            jobs_path=args.jobs_output,
+            summary_path=args.output,
+            git_ref=args.restore_jobs_git_ref,
+        )
+    elif args.merge_jobs_git_ref or args.prune_jobs_only:
         summary = maintain_job_ledger(
             jobs_path=args.jobs_output,
             summary_path=args.output,
             git_ref=args.merge_jobs_git_ref,
         )
     else:
-        summary = collect_lifecycle(
-            os.environ.get("BUILDKITE_API_TOKEN", ""),
-            jobs_path=args.jobs_output,
-            summary_path=args.output,
-        )
+        try:
+            summary = collect_lifecycle(
+                os.environ.get("BUILDKITE_API_TOKEN", ""),
+                jobs_path=args.jobs_output,
+                summary_path=args.output,
+                checkpoint_path=args.checkpoint,
+                baseline_ref=args.baseline_ref,
+            )
+        except BuildkiteRequestGuardError as exc:
+            log.warning("Lifecycle request allowance ended with resumable WIP: %s", exc)
+            return CHECKPOINT_GUARD_EXIT
     log.info(
         "Wrote %d compact job observations; rolling %dh incoming=%d served=%d completed=%d",
         summary["coverage"]["job_observation_count"],
@@ -2056,7 +2989,8 @@ def main() -> None:
         summary["totals"]["served"],
         summary["totals"]["completed"],
     )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

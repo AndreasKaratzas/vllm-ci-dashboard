@@ -195,6 +195,10 @@ query QueueJobs($org: ID!, $queue: [ID!]!, $states: [JobStates!], $first: Int!, 
 
 GRAPHQL_PAGE_SIZE = 100
 GRAPHQL_PAGINATION_SAFETY_CAP = 100
+# Workflow-facing bounds.  The durable ledger reserves these complete
+# allowances before the collector receives a Buildkite token.
+QUEUE_METRICS_REQUEST_CAP = 2
+QUEUE_DETAILS_REQUEST_CAP = 12
 GRAPHQL_WAITING_STATES = frozenset({"SCHEDULED"})
 GRAPHQL_RUNNING_STATES = frozenset({"ASSIGNED", "ACCEPTED", "RUNNING", "CANCELING", "TIMING_OUT"})
 GRAPHQL_ACTIVE_STATES = tuple(sorted(GRAPHQL_WAITING_STATES | GRAPHQL_RUNNING_STATES))
@@ -210,6 +214,10 @@ LEGACY_RUNNING_STATES = frozenset({"assigned", "accepted", "running", "canceling
 # still bounding a broken/repeating pagination response. Hitting the bound is
 # an incomplete observation and must fail rather than publish partial counts.
 REST_PAGINATION_SAFETY_CAP = 100
+
+
+class QueuePaginationLimitError(RuntimeError):
+    """A bounded query could not prove that the final page was observed."""
 
 
 def bk_get(path: str, token: str, params: dict | None = None):
@@ -262,9 +270,15 @@ def bk_graphql(query: str, token: str, variables: dict | None = None) -> dict:
         headers=headers,
         json={"query": query, "variables": variables or {}},
         timeout=30,
+        # The durable queue ledger charges one transport start per logical
+        # page.  Do not let Requests turn a redirect into an uncharged second
+        # send; any 3xx response fails closed through raise_for_status below.
+        allow_redirects=False,
     )
     if resp.status_code == 429:
         raise RuntimeError("Buildkite GraphQL rate limited")
+    if 300 <= resp.status_code < 400:
+        raise RuntimeError("Buildkite GraphQL redirected; refusing an unbudgeted follow-up send")
     resp.raise_for_status()
     payload = resp.json()
     if payload.get("errors"):
@@ -1742,12 +1756,23 @@ def _run_minutes(now: datetime, started_at: str | None) -> float | None:
     return round((now - started).total_seconds() / 60, 1)
 
 
-def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
+def fetch_cluster_queue_metrics(
+    token: str,
+    *,
+    max_pages: int | None = None,
+    request_telemetry: dict[str, int] | None = None,
+) -> dict[str, dict]:
     """Fetch queue-native counts from Buildkite cluster metrics."""
+    if max_pages is None:
+        max_pages = GRAPHQL_PAGINATION_SAFETY_CAP
+    if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
+        raise ValueError("queue metrics max_pages must be a positive integer")
     metrics: dict[str, dict] = {}
     after = None
     seen_cursors: set[str] = set()
-    for page_number in range(1, GRAPHQL_PAGINATION_SAFETY_CAP + 1):
+    for page_number in range(1, max_pages + 1):
+        if request_telemetry is not None:
+            request_telemetry["metrics"] = request_telemetry.get("metrics", 0) + 1
         data = bk_graphql(
             GRAPHQL_QUEUE_METRICS_Q,
             token,
@@ -1789,10 +1814,10 @@ def fetch_cluster_queue_metrics(token: str) -> dict[str, dict]:
             raise RuntimeError(
                 "Buildkite GraphQL queue metrics pagination returned an invalid cursor"
             )
-        if page_number == GRAPHQL_PAGINATION_SAFETY_CAP:
-            raise RuntimeError(
+        if page_number == max_pages:
+            raise QueuePaginationLimitError(
                 "Buildkite GraphQL queue metrics pagination safety cap reached "
-                f"after {GRAPHQL_PAGINATION_SAFETY_CAP} pages"
+                f"after {max_pages} pages"
             )
         seen_cursors.add(next_cursor)
         after = next_cursor
@@ -1870,13 +1895,21 @@ def _fetch_graphql_jobs(
     query: str,
     variables: dict,
     fallback_queue: str = "",
+    max_pages: int | None = None,
+    request_telemetry: dict[str, int] | None = None,
 ) -> list[dict]:
+    if max_pages is None:
+        max_pages = GRAPHQL_PAGINATION_SAFETY_CAP
+    if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
+        raise ValueError("active-job max_pages must be a positive integer")
     jobs: list[dict] = []
     after = None
     seen_cursors: set[str] = set()
-    for page_number in range(1, GRAPHQL_PAGINATION_SAFETY_CAP + 1):
+    for page_number in range(1, max_pages + 1):
         page_vars = dict(variables)
         page_vars["after"] = after
+        if request_telemetry is not None:
+            request_telemetry["details"] = request_telemetry.get("details", 0) + 1
         data = bk_graphql(
             query,
             token,
@@ -1894,10 +1927,10 @@ def _fetch_graphql_jobs(
         next_cursor = str(page.get("endCursor") or "")
         if not next_cursor or next_cursor in seen_cursors:
             raise RuntimeError("Buildkite GraphQL jobs pagination returned an invalid cursor")
-        if page_number == GRAPHQL_PAGINATION_SAFETY_CAP:
-            raise RuntimeError(
+        if page_number == max_pages:
+            raise QueuePaginationLimitError(
                 "Buildkite GraphQL jobs pagination safety cap reached "
-                f"after {GRAPHQL_PAGINATION_SAFETY_CAP} pages"
+                f"after {max_pages} pages"
             )
         seen_cursors.add(next_cursor)
         after = next_cursor
@@ -1905,7 +1938,11 @@ def _fetch_graphql_jobs(
 
 
 def fetch_active_cluster_jobs(
-    token: str, queue_ids_by_key: dict[str, str] | None = None
+    token: str,
+    queue_ids_by_key: dict[str, str] | None = None,
+    *,
+    max_pages: int | None = None,
+    request_telemetry: dict[str, int] | None = None,
 ) -> list[dict]:
     """Fetch active command jobs in one organization-wide GraphQL scan.
 
@@ -1926,6 +1963,8 @@ def fetch_active_cluster_jobs(
             "states": list(GRAPHQL_ACTIVE_STATES),
             "first": GRAPHQL_PAGE_SIZE,
         },
+        max_pages=max_pages,
+        request_telemetry=request_telemetry,
     )
     if not queue_ids_by_key:
         return jobs
@@ -2025,6 +2064,53 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
                     }
                 )
     return _deduplicate_active_jobs(records)
+
+
+def _load_complete_job_overlay(path: Path) -> dict | None:
+    """Load the last complete detail overlay without advancing its timestamp."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    pending = payload.get("pending")
+    running = payload.get("running")
+    observed_at = payload.get("details_observed_at") or payload.get("ts")
+    if (
+        not isinstance(pending, list)
+        or not isinstance(running, list)
+        or not isinstance(observed_at, str)
+        or parse_iso(observed_at) is None
+    ):
+        return None
+    return {
+        "details_observed_at": observed_at,
+        "pending": pending,
+        "running": running,
+    }
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_name = ""
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_name = temporary.name
+            temporary.write(encoded)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_name, path)
+    finally:
+        if temporary_name and os.path.exists(temporary_name):
+            os.unlink(temporary_name)
 
 
 def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) -> None:
@@ -2167,10 +2253,44 @@ def _apply_active_jobs(
     return pending_jobs, running_jobs
 
 
-def collect_snapshot(token: str) -> dict:
-    """Collect the latest queue state using queue-native metrics when possible."""
+def collect_snapshot(
+    token: str,
+    *,
+    refresh_details: bool = True,
+    metrics_max_pages: int = GRAPHQL_PAGINATION_SAFETY_CAP,
+    details_max_pages: int = GRAPHQL_PAGINATION_SAFETY_CAP,
+    bounded_workflow_mode: bool = False,
+) -> dict:
+    """Collect current metrics and, when permitted, a complete detail overlay.
+
+    ``bounded_workflow_mode`` is the production contract: native metrics must
+    succeed within ``metrics_max_pages`` and the one organization-wide detail
+    query is never replaced with a request-amplifying fallback.  An incomplete
+    detail query retains the last complete ``queue_jobs.json`` generation.
+
+    The compatibility defaults retain the legacy fallback behavior for direct
+    library callers.  The CLI always enables bounded workflow mode.
+    """
+    if (
+        isinstance(metrics_max_pages, bool)
+        or not isinstance(metrics_max_pages, int)
+        or metrics_max_pages < 1
+    ):
+        raise ValueError("metrics_max_pages must be a positive integer")
+    if (
+        isinstance(details_max_pages, bool)
+        or not isinstance(details_max_pages, int)
+        or details_max_pages < 1
+    ):
+        raise ValueError("details_max_pages must be a positive integer")
     now = datetime.now(timezone.utc)
     prune_history_file(OUTPUT, now)
+    jobs_path = OUTPUT.parent / "queue_jobs.json"
+    prior_jobs = _load_complete_job_overlay(jobs_path)
+    if bounded_workflow_mode and not refresh_details and prior_jobs is None:
+        raise RuntimeError(
+            "metrics-only queue collection requires a prior complete detail overlay"
+        )
     queue_stats: dict = defaultdict(_queue_row)
     for queue in TRACKED_QUEUES:
         queue_stats[queue]
@@ -2179,13 +2299,28 @@ def collect_snapshot(token: str) -> dict:
     counts_source = "active_job_scan"
     active_jobs_source = "legacy_build_scan"
     sampled_queues: set[str] | None = None
+    request_telemetry = {"metrics": 0, "details": 0}
+    details_error: Exception | None = None
 
     try:
-        metrics_by_queue = fetch_cluster_queue_metrics(token)
+        if bounded_workflow_mode:
+            metrics_by_queue = fetch_cluster_queue_metrics(
+                token,
+                max_pages=metrics_max_pages,
+                request_telemetry=request_telemetry,
+            )
+        else:
+            # Keep the historical one-argument monkeypatch seam for library
+            # callers while the workflow uses the explicit bounded contract.
+            metrics_by_queue = fetch_cluster_queue_metrics(token)
         _seed_queue_metrics(queue_stats, metrics_by_queue)
         if any(meta.get("counts_available", True) for meta in metrics_by_queue.values()):
             counts_source = "cluster_metrics"
     except Exception as exc:
+        if bounded_workflow_mode:
+            raise RuntimeError(
+                "bounded queue-native metrics refresh failed; refusing to relabel old metrics"
+            ) from exc
         log.warning(
             "Buildkite cluster metrics unavailable, falling back to active job counts: %s", exc
         )
@@ -2225,42 +2360,69 @@ def collect_snapshot(token: str) -> dict:
     # active untracked queues remain visible just as they were historically.
     local_queue_filter = requested_job_queues if metrics_by_queue else None
 
-    try:
-        active_jobs = fetch_active_cluster_jobs(token, local_queue_filter)
-        active_jobs_source = "organization_jobs_graphql"
-        sampled_queues = set(local_queue_filter) if local_queue_filter is not None else None
-    except Exception as org_exc:
-        # A scoped GraphQL fallback is complete only when queue metrics covered
-        # every configured queue and supplied IDs for every queue we need to
-        # sample. Otherwise fail over to the exhaustive REST build scan.
-        if requested_job_queues and all(requested_job_queues.values()):
-            try:
+    if not refresh_details:
+        active_jobs = []
+        active_jobs_source = "retained_last_complete_detail"
+        sampled_queues = set()
+    else:
+        try:
+            if bounded_workflow_mode:
+                active_jobs = fetch_active_cluster_jobs(
+                    token,
+                    local_queue_filter,
+                    max_pages=details_max_pages,
+                    request_telemetry=request_telemetry,
+                )
+            else:
+                active_jobs = fetch_active_cluster_jobs(token, local_queue_filter)
+            active_jobs_source = "organization_jobs_graphql"
+            sampled_queues = set(local_queue_filter) if local_queue_filter is not None else None
+        except Exception as org_exc:
+            if bounded_workflow_mode:
+                # A page-cap hit or transient error must not turn a partial
+                # connection into a supposedly current job ledger. Metrics are
+                # still useful, so retain the prior complete detail generation.
+                details_error = org_exc
+                active_jobs = []
+                active_jobs_source = "retained_last_complete_detail"
+                sampled_queues = set()
                 log.warning(
-                    "Buildkite organization active-job scan unavailable; "
-                    "falling back to %d queue-scoped GraphQL scans: %s",
-                    len(requested_job_queues),
+                    "Bounded active-job detail refresh was incomplete; retaining "
+                    "the last complete overlay: %s",
                     org_exc,
                 )
-                active_jobs = _fetch_active_cluster_jobs_by_queue(token, requested_job_queues)
-                active_jobs_source = "cluster_queue_graphql_fallback"
-                sampled_queues = set(requested_job_queues)
-            except Exception as scoped_exc:
+            # A scoped GraphQL fallback is complete only when queue metrics
+            # covered every configured queue and supplied every required ID.
+            elif requested_job_queues and all(requested_job_queues.values()):
+                try:
+                    log.warning(
+                        "Buildkite organization active-job scan unavailable; "
+                        "falling back to %d queue-scoped GraphQL scans: %s",
+                        len(requested_job_queues),
+                        org_exc,
+                    )
+                    active_jobs = _fetch_active_cluster_jobs_by_queue(
+                        token, requested_job_queues
+                    )
+                    active_jobs_source = "cluster_queue_graphql_fallback"
+                    sampled_queues = set(requested_job_queues)
+                except Exception as scoped_exc:
+                    log.warning(
+                        "Buildkite queue-scoped GraphQL fallback unavailable, "
+                        "falling back to build scan: %s",
+                        scoped_exc,
+                    )
+                    active_jobs = _collect_legacy_active_jobs(token)
+                    active_jobs_source = "legacy_build_scan"
+                    sampled_queues = None
+            else:
                 log.warning(
-                    "Buildkite queue-scoped GraphQL fallback unavailable, "
-                    "falling back to build scan: %s",
-                    scoped_exc,
+                    "Buildkite GraphQL active jobs unavailable, falling back to build scan: %s",
+                    org_exc,
                 )
                 active_jobs = _collect_legacy_active_jobs(token)
                 active_jobs_source = "legacy_build_scan"
                 sampled_queues = None
-        else:
-            log.warning(
-                "Buildkite GraphQL active jobs unavailable, falling back to build scan: %s",
-                org_exc,
-            )
-            active_jobs = _collect_legacy_active_jobs(token)
-            active_jobs_source = "legacy_build_scan"
-            sampled_queues = None
     active_jobs = _deduplicate_active_jobs(active_jobs)
 
     trusted_count_queues = {
@@ -2274,6 +2436,30 @@ def collect_snapshot(token: str) -> dict:
         active_jobs,
         trusted_count_queues,
     )
+
+    current_observed_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    details_complete = refresh_details and details_error is None
+    if details_complete:
+        details_observed_at: str | None = current_observed_at
+        details_status = "current"
+        retained_pending = pending_jobs
+        retained_running = running_jobs
+    else:
+        if prior_jobs is None and bounded_workflow_mode:
+            raise RuntimeError(
+                "bounded detail refresh was incomplete and no prior complete overlay exists"
+            ) from details_error
+        details_observed_at = (
+            str(prior_jobs["details_observed_at"]) if prior_jobs is not None else None
+        )
+        retained_pending = list(prior_jobs["pending"]) if prior_jobs is not None else []
+        retained_running = list(prior_jobs["running"]) if prior_jobs is not None else []
+        if not refresh_details:
+            details_status = "retained_not_refreshed"
+        elif isinstance(details_error, QueuePaginationLimitError):
+            details_status = "retained_due_to_page_cap"
+        else:
+            details_status = "retained_due_to_error"
 
     queues = {}
     has_official_wait = False
@@ -2319,7 +2505,11 @@ def collect_snapshot(token: str) -> dict:
         counts_source = "mixed_queue_native_and_active_job_scan"
 
     snapshot = {
-        "ts": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": current_observed_at,
+        "metrics_observed_at": current_observed_at,
+        "details_observed_at": details_observed_at,
+        "details_status": details_status,
+        "details_refresh_attempted_at": current_observed_at if refresh_details else None,
         "queues": queues,
         "total_waiting": sum(int(s.get("waiting") or 0) for s in queues.values()),
         "total_running": sum(int(s.get("running") or 0) for s in queues.values()),
@@ -2333,6 +2523,7 @@ def collect_snapshot(token: str) -> dict:
             "native_activity": ("queue_native_metrics" if has_native_activity else "unavailable"),
             "official_wait": ("queue_native_metrics" if has_official_wait else "unavailable"),
             "sampled_wait": active_jobs_source if has_sample_wait else "unavailable",
+            "detail_overlay": active_jobs_source,
             "count_fields": {
                 "waiting_running_scheduled_total": (
                     "Each queue row uses Buildkite cluster metrics when count_source is cluster_metrics; "
@@ -2352,6 +2543,15 @@ def collect_snapshot(token: str) -> dict:
             "zombie_threshold_min": QUEUE_ZOMBIE_THRESHOLD_MIN,
         },
     }
+    if bounded_workflow_mode:
+        snapshot["request_telemetry"] = {
+            "metrics_request_starts": request_telemetry["metrics"],
+            "details_request_starts": request_telemetry["details"],
+            "total_request_starts": request_telemetry["metrics"]
+            + request_telemetry["details"],
+            "metrics_request_limit": metrics_max_pages,
+            "details_request_limit": details_max_pages if refresh_details else 0,
+        }
 
     run_id = os.getenv("GITHUB_RUN_ID", "")
     if run_id:
@@ -2362,18 +2562,30 @@ def collect_snapshot(token: str) -> dict:
         raise RuntimeError("Generated queue snapshot failed schema normalization")
 
     jobs_data = {
-        "ts": snapshot["ts"],
+        # ``ts`` remains the compatibility timestamp for consumers that have
+        # not yet adopted ``details_observed_at``. It advances only after a
+        # complete detail query, never on a metrics-only publication.
+        "ts": details_observed_at,
+        "schema_version": 2,
+        "metrics_observed_at": current_observed_at,
+        "details_observed_at": details_observed_at,
+        "details_status": details_status,
+        "details_refresh_attempted_at": current_observed_at if refresh_details else None,
+        "details_request_page_cap": details_max_pages if refresh_details else None,
         "zombie_threshold_min": QUEUE_ZOMBIE_THRESHOLD_MIN,
-        "pending": sorted(pending_jobs, key=lambda job: job.get("wait_min", 0), reverse=True),
-        "running": running_jobs,
+        "pending": sorted(
+            retained_pending, key=lambda job: job.get("wait_min", 0), reverse=True
+        ),
+        "running": retained_running,
     }
-    jobs_path = OUTPUT.parent / "queue_jobs.json"
-    jobs_path.write_text(json.dumps(jobs_data, indent=2))
+    _write_json_atomic(jobs_path, jobs_data)
     log.info(
-        "Wrote %d pending + %d running jobs to %s",
-        len(pending_jobs),
-        len(running_jobs),
+        "Wrote %d pending + %d running jobs to %s (%s, observed %s)",
+        len(retained_pending),
+        len(retained_running),
         jobs_path,
+        details_status,
+        details_observed_at,
     )
 
     return snapshot
@@ -2382,6 +2594,29 @@ def collect_snapshot(token: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prune-only", action="store_true")
+    detail_mode = parser.add_mutually_exclusive_group()
+    detail_mode.add_argument(
+        "--metrics-only",
+        action="store_true",
+        help="Refresh native metrics and retain the prior complete job overlay.",
+    )
+    detail_mode.add_argument(
+        "--refresh-details",
+        action="store_true",
+        help="Attempt one bounded, complete organization active-job refresh.",
+    )
+    parser.add_argument(
+        "--metrics-max-pages",
+        type=int,
+        default=QUEUE_METRICS_REQUEST_CAP,
+        help="Hard queue-native metrics request-start limit (production: 2).",
+    )
+    parser.add_argument(
+        "--details-max-pages",
+        type=int,
+        default=QUEUE_DETAILS_REQUEST_CAP,
+        help="Hard active-job detail request-start limit (production: 12).",
+    )
     parser.add_argument(
         "--merge-history-git-ref",
         metavar="REF",
@@ -2396,6 +2631,14 @@ def main():
 
     if args.require_merge_history and not args.merge_history_git_ref:
         parser.error("--require-merge-history requires --merge-history-git-ref")
+    if args.metrics_max_pages > QUEUE_METRICS_REQUEST_CAP:
+        parser.error(
+            f"--metrics-max-pages may not exceed the reserved {QUEUE_METRICS_REQUEST_CAP} starts"
+        )
+    if args.details_max_pages > QUEUE_DETAILS_REQUEST_CAP:
+        parser.error(
+            f"--details-max-pages may not exceed the reserved {QUEUE_DETAILS_REQUEST_CAP} starts"
+        )
     if args.merge_history_git_ref:
         merge_history_from_git_ref(
             OUTPUT,
@@ -2415,7 +2658,13 @@ def main():
         sys.exit(1)
 
     log.info("Collecting queue snapshot...")
-    snapshot = collect_snapshot(token)
+    snapshot = collect_snapshot(
+        token,
+        refresh_details=args.refresh_details,
+        metrics_max_pages=args.metrics_max_pages,
+        details_max_pages=args.details_max_pages,
+        bounded_workflow_mode=True,
+    )
 
     append_history_snapshot(OUTPUT, snapshot)
 

@@ -51,11 +51,24 @@ class TestHashLike:
         line = "# commit sha: " + "a" * 64
         assert ss.scan_text(line, "demo.py") == []
 
+    def test_allows_only_a_full_sha_in_an_action_uses_reference(self):
+        revision = "a" * 40
+        assert ss.scan_text(
+            f"      - uses: actions/checkout@{revision} # v4", "workflow.yml"
+        ) == []
+        assert ss.scan_text(
+            f"value: actions/checkout@{revision}", "settings.yml"
+        )
+        assert ss.scan_text(
+            f"uses: actions/checkout@{revision} trailing", "workflow.yml"
+        )
+
 class TestAllowlist:
     @pytest.mark.parametrize("rel", [
         "data/vllm/ci/ci_health.json",
         "flake.lock",
         "tests/browser/node_modules/playwright/index.js",
+        "tools/spellcheck/node_modules/cspell/index.js",
         "tests/browser/test-results/trace/resources/request.json",
         "tests/browser/playwright-report/index.html",
     ])

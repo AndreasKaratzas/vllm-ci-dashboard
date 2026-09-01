@@ -116,7 +116,7 @@ def test_findings_route_to_source_transactions_or_global_stop() -> None:
 
 def _git(repo: Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", *args],
+        ["git", "-c", "commit.gpgsign=false", *args],
         cwd=repo,
         check=True,
         capture_output=True,
@@ -542,6 +542,119 @@ def test_refresh_only_rejects_an_unrelated_candidate_change(
             state_path,
             refresh_only_surface="dns_health",
         )
+
+
+def _refresh_only_candidate_repo(tmp_path: Path) -> tuple[Path, str, str, str]:
+    repo = tmp_path / "repo"
+    dns_relative = "data/dns_failures.json"
+    queue_relative = "data/queue_lifecycle.json"
+    for relative in (dns_relative, queue_relative):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"generation":"baseline"}\n')
+    policy = repo / "config/dashboard_state.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"generated_roots": ["data", "dashboards", "README.md"]}))
+    source = repo / "scripts/collector.py"
+    source.parent.mkdir(parents=True)
+    source.write_text('VERSION = "baseline"\n')
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated dashboard baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text('VERSION = "candidate"\n')
+    _git(repo, "add", "scripts/collector.py")
+    _git(repo, "commit", "-m", "legitimate candidate code change")
+    candidate = _git(repo, "rev-parse", "HEAD")
+    return repo, baseline, candidate, dns_relative
+
+
+def test_refresh_only_candidate_code_ref_allows_legitimate_source_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, candidate, dns_relative = _refresh_only_candidate_repo(tmp_path)
+    (repo / dns_relative).write_text('{"generation":"candidate"}\n')
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(required_paths=(dns_relative,)),
+            "queue_lifecycle": SurfaceSpec(
+                required_paths=("data/queue_lifecycle.json",)
+            ),
+        },
+    )
+
+    selector_module._validate_refresh_only_candidate(
+        repo,
+        baseline,
+        "dns_health",
+        candidate,
+    )
+
+
+def test_refresh_only_candidate_code_ref_still_anchors_generated_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, _, dns_relative = _refresh_only_candidate_repo(tmp_path)
+    queue_relative = "data/queue_lifecycle.json"
+    (repo / queue_relative).write_text('{"generation":"candidate-code"}\n')
+    _git(repo, "add", queue_relative)
+    _git(repo, "commit", "-m", "candidate contains unrelated generated data")
+    candidate = _git(repo, "rev-parse", "HEAD")
+    (repo / dns_relative).write_text('{"generation":"candidate"}\n')
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(required_paths=(dns_relative,)),
+            "queue_lifecycle": SurfaceSpec(required_paths=(queue_relative,)),
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="data/queue_lifecycle.json"):
+        selector_module._validate_refresh_only_candidate(
+            repo,
+            baseline,
+            "dns_health",
+            candidate,
+        )
+
+
+def test_refresh_only_without_candidate_code_ref_keeps_legacy_comparison(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, _, dns_relative = _refresh_only_candidate_repo(tmp_path)
+    (repo / dns_relative).write_text('{"generation":"candidate"}\n')
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {"dns_health": SurfaceSpec(required_paths=(dns_relative,))},
+    )
+
+    with pytest.raises(RuntimeError, match="scripts/collector.py"):
+        selector_module._validate_refresh_only_candidate(
+            repo,
+            baseline,
+            "dns_health",
+        )
+
+
+def test_selector_cli_accepts_candidate_code_ref() -> None:
+    args = selector_module.parse_args([
+        "--baseline-ref",
+        "a" * 40,
+        "--candidate-code-ref",
+        "b" * 40,
+    ])
+
+    assert args.candidate_code_ref == "b" * 40
 
 
 def test_refresh_only_still_blocks_an_unrouted_full_audit_error(

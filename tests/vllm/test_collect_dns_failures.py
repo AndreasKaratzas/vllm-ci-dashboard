@@ -1173,6 +1173,7 @@ def test_build_discovery_is_all_branch_and_includes_retried_jobs():
         page=1,
     ) == []
     params = session.calls[0]["params"]
+    assert session.calls[0]["allow_redirects"] is False
     assert params["include_retried_jobs"] == "true"
     assert params["exclude_pipeline"] == "true"
     assert "branch" not in params
@@ -2415,7 +2416,7 @@ def test_dry_run_does_not_write_state_or_public_output(tmp_path: Path):
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(
-        ["git", *args],
+        ["git", "-c", "commit.gpgsign=false", *args],
         cwd=repo,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

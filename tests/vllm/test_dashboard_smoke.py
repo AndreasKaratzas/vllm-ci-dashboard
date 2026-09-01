@@ -283,6 +283,7 @@ class TestSiteBuildAssembly:
             text = (ROOT / rel).read_text()
             commands = (
                 "python scripts/build_site.py --cache-bust-index",
+                '"$CANDIDATE_PYTHON" scripts/build_site.py --cache-bust-index',
                 "trusted-base/scripts/build_site.py --cache-bust-index",
             )
             assert any(command in text for command in commands), (

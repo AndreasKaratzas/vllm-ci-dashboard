@@ -1281,7 +1281,7 @@
     content.append(notice);
 
     if (!allObservations.length) {
-      content.append(n('div', 'ops-empty', 'The aggregate is available, but this snapshot predates per-run evidence. Regenerate operations_v2.json to populate exact links.'));
+      content.append(n('div', 'ops-empty', 'The aggregate is available, but this snapshot predates per-run evidence. Regenerate operations_v2.json.gz to populate exact links.'));
       openOverlay(candidate.name || 'Group evidence', scope + ' evidence', content, true, 'group-' + (candidate.id || candidate.name));
       return;
     }
@@ -2625,11 +2625,42 @@
     }
   }
 
+  function retryDelay(milliseconds) {
+    return new Promise(function (resolve) { window.setTimeout(resolve, milliseconds); });
+  }
+
+  async function fetchDecoded(path, decode) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const separator = path.includes('?') ? '&' : '?';
+        const requestPath = path + separator + '_health=' + Date.now() + '-' + attempt;
+        const response = await fetch(requestPath, {cache: 'no-store'});
+        if (!response.ok) throw new Error(path + ' returned HTTP ' + response.status);
+        return await decode(response);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) await retryDelay(attempt === 0 ? 250 : 1000);
+      }
+    }
+    throw lastError || new Error(path + ' could not be fetched');
+  }
+
+  function memoizedFetch(key, request) {
+    cache.set(key, request);
+    // A transient CDN or deployment race must not poison the page-wide cache.
+    // The current render still receives the rejection, while a later render or
+    // tab revisit gets a fresh bounded retry sequence.
+    request.catch(function () {
+      if (cache.get(key) === request) cache.delete(key);
+    });
+    return request;
+  }
+
   async function fetchJSON(path) {
     if (!cache.has(path)) {
-      cache.set(path, fetch(path + '?_=' + Math.floor(Date.now() / 300000)).then(function (r) {
-        if (!r.ok) throw new Error(path + ' returned HTTP ' + r.status);
-        return r.json();
+      memoizedFetch(path, fetchDecoded(path, function (response) {
+        return response.json();
       }));
     }
     return cache.get(path);
@@ -2638,13 +2669,15 @@
   async function fetchJSONL(path) {
     const key = 'jsonl:' + path;
     if (!cache.has(key)) {
-      cache.set(key, fetch(path + '?_=' + Math.floor(Date.now() / 300000)).then(function (r) {
-        if (!r.ok) throw new Error(path + ' returned HTTP ' + r.status);
-        return r.text();
-      }).then(function (text) {
-        return text.split(/\r?\n/).filter(Boolean).map(function (line) {
-          try { return JSON.parse(line); } catch (_) { return null; }
-        }).filter(Boolean);
+      memoizedFetch(key, fetchDecoded(path, async function (response) {
+        const text = await response.text();
+        return text.split(/\r?\n/).filter(Boolean).map(function (line, index) {
+          try {
+            return JSON.parse(line);
+          } catch (_) {
+            throw new Error(path + ' contains invalid JSONL at line ' + (index + 1));
+          }
+        });
       }));
     }
     return cache.get(key);
@@ -2826,7 +2859,11 @@
 
   async function operationsManifest() {
     if (!operationsManifestPromise) {
-      operationsManifestPromise = fetchJSON(SOURCE_ASSETS.operationsManifest);
+      const request = fetchJSON(SOURCE_ASSETS.operationsManifest);
+      operationsManifestPromise = request;
+      request.catch(function () {
+        if (operationsManifestPromise === request) operationsManifestPromise = null;
+      });
     }
     return operationsManifestPromise;
   }
@@ -4904,7 +4941,7 @@
         amd_test_matrix: {label: 'AMD test matrix', description: 'AMD architecture definition matrix'},
         capacity_monitor: {label: 'Capacity monitor', description: 'Queue capacity and connected-agent snapshot'},
         queue_timeseries: {label: 'Queue history', description: 'Retained queue counts and wait measurements'},
-        queue_jobs: {label: 'Active queue jobs', description: 'Current active Buildkite jobs'},
+        queue_jobs: {label: 'Active queue jobs', description: 'Last complete active Buildkite job overlay'},
         group_changes: {label: 'Definition changes', description: 'Test-group definition changes'},
         omni_heuristic: {label: 'Omni thresholds', description: 'Omni surge thresholds'},
         omni_issue_state: {label: 'Omni issues', description: 'Open Omni operational issues'},
@@ -9471,6 +9508,22 @@
     const activeJobs = (jobs.pending || []).concat(jobs.running || []).filter(function (job) {
       return queueMatchesScope(job.queue);
     });
+    const detailsStatus = jobs.details_status || snapshot.details_status || 'legacy_current';
+    const detailsObservedAt = jobs.details_observed_at || jobs.ts || snapshot.details_observed_at;
+    if (String(detailsStatus).indexOf('retained_') === 0) {
+      const retainedReason = detailsStatus === 'retained_due_to_page_cap'
+        ? 'the active-job connection exceeded its twelve-page safety cap'
+        : detailsStatus === 'retained_due_to_error'
+          ? 'the bounded detail refresh did not complete'
+          : 'the hourly detail refresh was not due';
+      host.append(n(
+        'div',
+        'ops-evidence-note is-warning',
+        'Queue counts and Buildkite-native waits are current as of ' + shortDate(snapshot.metrics_observed_at || snapshot.ts)
+          + '. Job rows are the last complete overlay from ' + shortDate(detailsObservedAt)
+          + ' because ' + retainedReason + '; they are not relabeled as current.'
+      ));
+    }
 
     if (state.queueView === 'current') {
       const pressureRows = queuePressureRows(snapshot, Array.isArray(queueBlock.history) ? queueBlock.history : [], queueBlock.pressure_baseline || {});

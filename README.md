@@ -40,7 +40,20 @@ operational data are published by the scheduled/dispatch
 
 ## Data Collection
 
-The main data path is `.github/workflows/hourly-master.yml`, which targets an hourly cadence. Queue evidence is collected independently on a best-effort 10-minute GitHub Actions schedule and published to the dedicated `queue-data` branch; the Queue UI reads the freshest of that live feed and the canonical Pages snapshot. Unrelated dashboard audits and full-site deployment locks therefore cannot discard or delay queue observations.
+The main data path is `.github/workflows/hourly-master.yml`, which targets a two-hour cadence. A 15-minute publication watchdog begins recovery at 95 minutes of publication age, leaving bounded execution headroom before the three-hour site-health limit if a scheduled run is delayed or dropped. Queue evidence is collected independently on a best-effort 10-minute GitHub Actions schedule and published to the dedicated `queue-data` branch; the Queue UI reads the freshest of that live feed and the canonical Pages snapshot. Unrelated dashboard audits and full-site deployment locks therefore cannot discard or delay queue observations.
+
+Generated operational data is kept out of `main`. A weekly, tokenless scheduler
+keepalive checks the protected branch age and, only after 30 days without a
+code commit, advances the single bounded `.github/scheduler-activity.txt`
+heartbeat. This preserves long-lived scheduled-workflow eligibility without
+allowing collector output or cache history to grow the repository.
+The deliberate liveness tradeoff is at most one tiny default-branch commit per
+30 inactive days; its one-line file is replaced rather than appended, while
+all high-volume state remains in bounded rotating refs and caches.
+
+All remote
+Actions are pinned to immutable commit SHAs; Python is fixed to 3.12.13 and all
+workflow installs use the checked-in `constraints.txt` lock.
 
 Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles reconstructed from the separately fetched scheduled-job population are retained and charted with their own labels and n/N coverage; they never silently replace native values.
 
@@ -81,7 +94,7 @@ python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
 python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
 python scripts/vllm/collect_queue_snapshot.py
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
-python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
+python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json.gz
 python scripts/vllm/build_queue_section.py
 python scripts/vllm/ci_area_regression_watcher.py
 python scripts/vllm/sync_ci_operations_project.py
@@ -93,10 +106,12 @@ python scripts/build_site.py --cache-bust-index
 Configure tracked projects in [`config/projects.yaml`](config/projects.yaml).
 The authoritative AMD parity target configuration is
 `config/vllm_amd_gating_targets.json`; `gating_targets.json` is regenerated
-from it on every canonical run. `operations_v2.json` is a private build input,
+from it on every canonical run. `operations_v2.json.gz` is a private, bounded build input,
 while the allowlisted operations manifest and lazy shards are generated public
-artifacts. Canonical deployments replace `gh-pages`, so retired artifacts are
-purged instead of surviving indefinitely. Do not hand-edit or delete generated
+artifacts. Canonical deployments replace the canonical `gh-pages` root, so
+retired artifacts are purged instead of surviving indefinitely. The separately
+owned `pr-preview/pr-N` subtree is server-proven, copied as whole bounded
+cohorts, and included in the replacement tree. Do not hand-edit or delete generated
 data solely because its commit timestamp is old; the dashboard audit validates
 that every high-value input still has a producer and consumer.
 

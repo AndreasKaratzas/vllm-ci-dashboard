@@ -236,6 +236,7 @@ def fallback_dependency_closure(surfaces: Iterable[str]) -> frozenset[str]:
 GLOBAL_DATA_PATHS = frozenset({
     "data/site/projects.json",
     "data/vllm/ci/operations_v2.json",
+    "data/vllm/ci/operations_v2.json.gz",
     "data/vllm/ci/operations_v2_manifest.json",
     "data/vllm/ci/publication_state.json",
 })
@@ -304,6 +305,9 @@ CONTEXTUAL_OPERATIONS_FINDING_CODES = frozenset({
 })
 
 OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
+    # Ambiguous private inputs are a global publication-boundary failure, not
+    # a defect that can be hidden by rolling back one source surface.
+    "operations-source-ambiguous": _OPS_GLOBAL,
     # Agent-health section.
     "operations-agent-health-cofail-default": _OPS_AGENT_HEALTH,
     "operations-agent-health-failing-state": _OPS_AGENT_HEALTH,

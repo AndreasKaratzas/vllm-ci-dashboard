@@ -1,7 +1,8 @@
-name: CI Data Collection (Validation Only)
+name: CI Data Collection (Canonical Dispatch)
 
-# Legacy/manual focused CI collector. This is validation-only: the authoritative
-# hourly-master workflow owns source selection, main writes, and Pages publication.
+# Compatibility entry point for operators. It never receives a Buildkite
+# token; every request-bearing manual run is dispatched into the authoritative
+# Data Collection workflow and therefore shares its durable attempt/request cap.
 on:
   workflow_dispatch:
     inputs:
@@ -19,65 +20,59 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: write
   contents: read
 
 jobs:
   collect:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.13'
 
-      - name: Install dependencies
-        run: pip install requests pyyaml
-
-      - name: Collect CI data
+      - name: Validate compatibility inputs
+        id: normalized
+        env:
+          RAW_DAYS: ${{ inputs.days }}
+          RAW_PIPELINE: ${{ inputs.pipeline }}
         run: |
-          # Default to 1 day for scheduled/webhook runs; manual dispatch can override
-          DAYS="${{ github.event.inputs.days || '1' }}"
-          PIPELINE="${{ github.event.inputs.pipeline || 'both' }}"
-          python scripts/collect_ci.py --days "$DAYS" --pipeline "$PIPELINE" --output data/vllm/ci/
+          set -euo pipefail
+          read -r DAYS PIPELINE < <(python - <<'PY'
+          import os
+          import re
+
+          raw_days = os.environ["RAW_DAYS"] or "1"
+          pipeline = os.environ["RAW_PIPELINE"] or "both"
+          if not re.fullmatch(r"[1-9]\d*", raw_days) or not 1 <= int(raw_days) <= 30:
+              raise SystemExit("days must be a canonical integer between 1 and 30")
+          if pipeline not in {"amd", "upstream", "both"}:
+              raise SystemExit("pipeline must be amd, upstream, or both")
+          print(int(raw_days), pipeline)
+          PY
+          )
+          echo "days=$DAYS" >> "$GITHUB_OUTPUT"
+          echo "pipeline=$PIPELINE" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch authoritative guarded collection
         env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect CI analytics
-        run: python scripts/vllm/collect_analytics.py --days 30 --output data/vllm/ci/
-        env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-
-      - name: Collect AMD gating target list
-        run: python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
-
-      - name: Collect test group changes
-        run: python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect AMD test matrix
-        run: python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect AMD gating proposals
-        run: python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Collect AMD gating target candidate audit
-        run: python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
-
-      - name: Build v2 operations snapshot
-        run: python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json
-
-      - name: Report validation-only collection
+          GH_TOKEN: ${{ github.token }}
+          DAYS: ${{ steps.normalized.outputs.days }}
         run: |
-          echo "## Validation-only CI collection" >> "$GITHUB_STEP_SUMMARY"
-          echo "This workflow does not commit, push, or publish collected data." >> "$GITHUB_STEP_SUMMARY"
-          echo "Run the authoritative Data Collection workflow to select publication surfaces and update main." >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          git status --short -- data/vllm/ci/ data/vllm/test_results.json data/vllm/parity_report.json >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          jq -n --arg days "$DAYS" \
+            '{ref: "main", inputs: {ci_days: $days}}' | \
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+              --input -
+
+      - name: Report canonical handoff
+        run: |
+          echo "## Canonical collection dispatched" >> "$GITHUB_STEP_SUMMARY"
+          echo "Requested ${{ steps.normalized.outputs.days }} day(s); compatibility pipeline input was ${{ steps.normalized.outputs.pipeline }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "The Data Collection workflow owns the shared durable Buildkite request guard and publication transaction." >> "$GITHUB_STEP_SUMMARY"

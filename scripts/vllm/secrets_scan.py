@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -86,6 +86,10 @@ TOKEN_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 HASH_PATTERN = re.compile(r"\b[a-f0-9]{40,}\b")
+PINNED_ACTION_PATTERN = re.compile(
+    r"^\s*(?:-\s*)?uses:\s*[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+@[a-f0-9]{40}"
+    r"(?:\s+#.*)?$"
+)
 
 # Lines containing any of these markers are expected to carry a long
 # hex string (git SHA, checksum, etc.). We skip hash-like matches on
@@ -98,6 +102,12 @@ HASH_CONTEXT_HINTS = (
 
 
 def _is_allowlisted(rel: str) -> bool:
+    # Dependency installations may live below several project-local roots.
+    # Treat node_modules as a path component, not merely a repository root,
+    # so a local reproducibility check cannot make the source scanner recurse
+    # through third-party packages that are never committed.
+    if "node_modules" in PurePosixPath(rel).parts:
+        return True
     return any(rel == p or rel.startswith(p) for p in PATH_ALLOWLIST)
 
 
@@ -126,7 +136,9 @@ def scan_text(text: str, rel: str) -> list[str]:
         # Hash-like hex: only flag if the line lacks a clear structural
         # hint. This keeps us from yelling about git SHAs in changelogs.
         lowered = line.lower()
-        if any(h in lowered for h in HASH_CONTEXT_HINTS):
+        if PINNED_ACTION_PATTERN.fullmatch(line) or any(
+            h in lowered for h in HASH_CONTEXT_HINTS
+        ):
             continue
         for m in HASH_PATTERN.finditer(line):
             findings.append(

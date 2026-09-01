@@ -17,6 +17,7 @@ import requests
 
 from . import config as cfg
 from .models import TestResult
+from ..buildkite_request_guard import BuildkiteRequestGuardError
 
 log = logging.getLogger(__name__)
 
@@ -142,6 +143,12 @@ def fetch_job_log(job: dict) -> Optional[str]:
                 except Exception:
                     pass
             return text
+        except BuildkiteRequestGuardError:
+            # A hard workflow allowance is not an ordinary missing log.  It
+            # must abort the current surface so only complete nightly shards
+            # reach the private resumable checkpoint and public data retains
+            # its last-known-complete baseline.
+            raise
         except Exception as e:
             if attempt < 3:
                 import time

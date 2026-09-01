@@ -102,6 +102,8 @@ DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
 DNS_FAILURES_MAX_BYTES = 8 * 1024 * 1024
 OPERATIONS_COMPARISON_MAX_BYTES = 1_500_000
 OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES = 6_000_000
+OPERATIONS_RAW_DATA_PATH = "data/vllm/ci/operations_v2.json"
+OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 12
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
@@ -180,7 +182,6 @@ DNS_RAW_LOG_RE = re.compile(
 PRIVATE_ANALYTICS_PATH = "vllm/ci/analytics.json"
 PRIVATE_ANALYTICS_DATA_PATH = f"data/{PRIVATE_ANALYTICS_PATH}"
 PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
-PUBLIC_ANALYTICS_BOUNDARY_MARKER = "PUBLIC-ANALYTICS-BOUNDARY"
 PRIVATE_ANALYTICS_CACHE_VERSION = "analytics-builds-v1"
 PRIVATE_ANALYTICS_CACHE_PATH = (
     f"data/vllm/ci/.cache/{PRIVATE_ANALYTICS_CACHE_VERSION}"
@@ -844,6 +845,8 @@ class DashboardAudit:
         self.root = root
         self.report = AuditReport()
         self._json_cache: dict[Path, Any] = {}
+        self._operations_snapshot_path_cache: Path | None = None
+        self._operations_snapshot_path_resolved = False
         self.allow_publication_fallback = allow_publication_fallback
         self.publication_state_path = (
             publication_state_path
@@ -1720,7 +1723,58 @@ class DashboardAudit:
                 relpath,
             )
 
+    def operations_snapshot_path(self) -> Path:
+        """Resolve the production gzip source or a legacy raw test fixture."""
+        if self._operations_snapshot_path_resolved:
+            assert self._operations_snapshot_path_cache is not None
+            return self._operations_snapshot_path_cache
+
+        raw = self.root / OPERATIONS_RAW_DATA_PATH
+        compressed = self.root / OPERATIONS_GZIP_DATA_PATH
+        if raw.exists() and compressed.exists():
+            self.error(
+                "operations-source-ambiguous",
+                "Both raw and gzip Operations snapshots exist; exactly one is allowed",
+                OPERATIONS_GZIP_DATA_PATH,
+            )
+            selected = compressed
+        elif compressed.exists():
+            selected = compressed
+        else:
+            # Raw remains supported for small, ordinary unit fixtures. Choosing
+            # it when neither exists also preserves the established missing-file
+            # path in audit diagnostics.
+            selected = raw
+        self._operations_snapshot_path_cache = selected
+        self._operations_snapshot_path_resolved = True
+        return selected
+
+    def load_operations_snapshot(self, default: Any = None) -> Any:
+        path = self.operations_snapshot_path()
+        if path in self._json_cache:
+            return self._json_cache[path]
+        relpath = self.rel(path)
+        try:
+            # Keep this dependency out of the DNS-only ``python -S`` entrypoint.
+            from vllm.build_operations_snapshot import load_snapshot_payload
+
+            data = load_snapshot_payload(path)
+        except FileNotFoundError:
+            self.error("missing-json", f"{relpath} is missing", relpath)
+            return default
+        except (EOFError, OSError, RuntimeError, UnicodeError, ValueError) as exc:
+            self.error(
+                "invalid-json",
+                f"{relpath} is not a valid bounded Operations snapshot: {exc}",
+                relpath,
+            )
+            return default
+        self._json_cache[path] = data
+        return data
+
     def load_json(self, relpath: str, default: Any = None) -> Any:
+        if relpath == OPERATIONS_RAW_DATA_PATH:
+            return self.load_operations_snapshot(default)
         path = self.root / relpath
         if path in self._json_cache:
             return self._json_cache[path]
@@ -1789,7 +1843,11 @@ class DashboardAudit:
     def audit_data_inventory(self) -> None:
         inventory: list[dict[str, Any]] = []
         for spec in DATA_SPECS:
-            path = self.root / spec.relpath
+            path = (
+                self.operations_snapshot_path()
+                if spec.relpath == OPERATIONS_RAW_DATA_PATH
+                else self.root / spec.relpath
+            )
             exists = path.exists()
             inventory.append(
                 {
@@ -1805,7 +1863,11 @@ class DashboardAudit:
                 continue
 
             if spec.relpath.endswith(".json"):
-                payload = self.load_json(spec.relpath, {})
+                payload = (
+                    self.load_operations_snapshot({})
+                    if spec.relpath == OPERATIONS_RAW_DATA_PATH
+                    else self.load_json(spec.relpath, {})
+                )
                 if isinstance(payload, dict):
                     missing = set(spec.required_keys) - set(payload.keys())
                     if missing:
@@ -1993,7 +2055,11 @@ class DashboardAudit:
         if not isinstance(payload, dict):
             return
         if payload.get("schema_version") != 2:
-            self.error("operations-schema", "operations_v2.json must use schema_version 2", relpath)
+            self.error(
+                "operations-schema",
+                "Operations snapshot must use schema_version 2",
+                relpath,
+            )
 
         generated_at = _parse_timestamp(payload.get("generated_at"))
         source_ages: dict[str, float] = {}
@@ -3564,7 +3630,7 @@ class DashboardAudit:
         if "mi355b" in json.dumps(payload, sort_keys=True).lower():
             self.error(
                 "operations-retired-mi355b",
-                "operations_v2.json still contains retired amd_mi355B queues",
+                "Operations snapshot still contains retired amd_mi355B queues",
                 relpath,
             )
 
@@ -3614,7 +3680,7 @@ class DashboardAudit:
         if not agent_health:
             self.error(
                 "operations-agent-health-missing",
-                "operations_v2.json omits the amd_agent_health block",
+                "Operations snapshot omits the amd_agent_health block",
                 relpath,
             )
             return
@@ -6143,12 +6209,164 @@ class DashboardAudit:
                 "queue_jobs.json must contain a valid snapshot timestamp",
                 "data/vllm/ci/queue_jobs.json",
             )
-        elif jobs.get("ts") != latest.get("ts"):
+        details_status = jobs.get("details_status") if isinstance(jobs, dict) else None
+        allowed_details_statuses = {
+            "current",
+            "retained_not_refreshed",
+            "retained_due_to_page_cap",
+            "retained_due_to_error",
+        }
+        legacy_detail_contract = (
+            details_status is None
+            and "details_status" not in latest
+            and jobs.get("ts") == latest.get("ts")
+        )
+        if details_status not in allowed_details_statuses and not legacy_detail_contract:
             self.error(
-                "queue-jobs-generation-mismatch",
-                "queue_jobs.json and the latest queue_timeseries row must be one generation",
+                "queue-jobs-detail-status",
+                "queue_jobs.json must identify whether its complete detail overlay is current or retained",
                 "data/vllm/ci/queue_jobs.json",
             )
+        if (
+            not legacy_detail_contract
+            and isinstance(jobs, dict)
+            and jobs.get("details_observed_at") != jobs.get("ts")
+        ):
+            self.error(
+                "queue-jobs-detail-timestamp",
+                "queue_jobs.json details_observed_at must equal its compatibility ts",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if not legacy_detail_contract and latest.get("metrics_observed_at") != latest.get("ts"):
+            self.error(
+                "queue-metrics-timestamp",
+                "latest queue metrics_observed_at must equal the aggregate snapshot ts",
+                "data/vllm/ci/queue_timeseries.jsonl",
+            )
+        if (
+            not legacy_detail_contract
+            and latest.get("details_observed_at") != jobs.get("details_observed_at")
+        ):
+            self.error(
+                "queue-detail-generation-mismatch",
+                "queue aggregate and queue_jobs.json must name the same complete detail generation",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if not legacy_detail_contract and latest.get("details_status") != details_status:
+            self.error(
+                "queue-detail-status-mismatch",
+                "queue aggregate and queue_jobs.json must name the same detail refresh status",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if (
+            not legacy_detail_contract
+            and jobs.get("metrics_observed_at") != latest.get("metrics_observed_at")
+        ):
+            self.error(
+                "queue-jobs-metrics-timestamp",
+                "queue_jobs.json must name the metrics generation it was published beside",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if (
+            not legacy_detail_contract
+            and jobs.get("details_refresh_attempted_at")
+            != latest.get("details_refresh_attempted_at")
+        ):
+            self.error(
+                "queue-detail-attempt-mismatch",
+                "queue aggregate and queue_jobs.json must name the same detail attempt",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if details_status == "retained_not_refreshed":
+            if jobs.get("details_refresh_attempted_at") is not None:
+                self.error(
+                    "queue-detail-unattempted-status",
+                    "retained_not_refreshed must not claim a detail refresh attempt",
+                    "data/vllm/ci/queue_jobs.json",
+                )
+        elif details_status in allowed_details_statuses:
+            if jobs.get("details_refresh_attempted_at") != latest.get("ts"):
+                self.error(
+                    "queue-detail-attempt-timestamp",
+                    "a detail refresh attempt must use the current metrics generation timestamp",
+                    "data/vllm/ci/queue_jobs.json",
+                )
+        if details_status == "current" and jobs.get("ts") != latest.get("ts"):
+            self.error(
+                "queue-current-detail-generation",
+                "a current queue detail overlay must share the aggregate metrics timestamp",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if (
+            details_status in allowed_details_statuses - {"current"}
+            and jobs_ts is not None
+            and latest_ts is not None
+            and jobs_ts > latest_ts
+        ):
+            self.error(
+                "queue-retained-detail-future",
+                "a retained queue detail overlay cannot be newer than current metrics",
+                "data/vllm/ci/queue_jobs.json",
+            )
+        if not legacy_detail_contract:
+            telemetry = latest.get("request_telemetry")
+            if not isinstance(telemetry, dict):
+                self.error(
+                    "queue-request-telemetry",
+                    "latest queue snapshot must publish bounded request-start telemetry",
+                    "data/vllm/ci/queue_timeseries.jsonl",
+                )
+            else:
+                metrics_starts = telemetry.get("metrics_request_starts")
+                detail_starts = telemetry.get("details_request_starts")
+                total_starts = telemetry.get("total_request_starts")
+                if (
+                    not isinstance(metrics_starts, int)
+                    or isinstance(metrics_starts, bool)
+                    or not 0 <= metrics_starts <= 2
+                ):
+                    self.error(
+                        "queue-metrics-request-cap",
+                        "queue metrics request starts must be an integer between zero and two",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
+                if (
+                    not isinstance(detail_starts, int)
+                    or isinstance(detail_starts, bool)
+                    or not 0 <= detail_starts <= 12
+                ):
+                    self.error(
+                        "queue-detail-request-cap",
+                        "queue detail request starts must be an integer between zero and twelve",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
+                if (
+                    isinstance(metrics_starts, int)
+                    and not isinstance(metrics_starts, bool)
+                    and isinstance(detail_starts, int)
+                    and not isinstance(detail_starts, bool)
+                    and total_starts != metrics_starts + detail_starts
+                ):
+                    self.error(
+                        "queue-total-request-cap",
+                        "queue total request starts must equal metrics plus detail starts",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
+                expected_detail_limit = (
+                    0 if details_status == "retained_not_refreshed" else 12
+                )
+                if telemetry.get("metrics_request_limit") != 2:
+                    self.error(
+                        "queue-metrics-request-limit",
+                        "queue metrics request telemetry must name the two-start allowance",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
+                if telemetry.get("details_request_limit") != expected_detail_limit:
+                    self.error(
+                        "queue-detail-request-limit",
+                        "queue detail request telemetry disagrees with the refresh mode",
+                        "data/vllm/ci/queue_timeseries.jsonl",
+                    )
         pending = jobs.get("pending") if isinstance(jobs, dict) else []
         running = jobs.get("running") if isinstance(jobs, dict) else []
         if not isinstance(pending, list) or not isinstance(running, list):
@@ -8315,6 +8533,11 @@ class DashboardAudit:
         gh_pages_workflows: list[str] = []
         cache_busting_build_commands = (
             "python scripts/build_site.py --cache-bust-index",
+            # Deploy-only recovery executes the assembler with the exact
+            # state-pinned virtualenv, including its separately reproduced
+            # current and rollback candidates.
+            '"$CANDIDATE_PYTHON" scripts/build_site.py --cache-bust-index',
+            '"$ROLLBACK_VENV/bin/python" scripts/build_site.py --cache-bust-index',
             # The privileged PR preview runs the same trusted base-branch
             # assembler from an isolated checkout instead of executing the
             # pull request's copy of the script.
@@ -8364,7 +8587,7 @@ class DashboardAudit:
             return text[start:end]
 
         ordered_tokens = [
-            "name: Sync CI data from gh-pages",
+            "name: Restore validated dashboard state",
             "name: Collect AMD gating target list",
             "name: Collect CI data",
             "name: Prepare private analytics cache key",
@@ -8397,20 +8620,28 @@ class DashboardAudit:
                 )
             last = idx
 
-        sync_start = text.find("name: Sync CI data from gh-pages")
-        sync_end = text.find("\n      - name:", sync_start + 1)
-        sync_block = (
-            text[sync_start : sync_end if sync_end >= 0 else len(text)]
-            if sync_start >= 0
-            else ""
-        )
-        sync_commands = "\n".join(
+        state_restore = workflow_step_block("Restore validated dashboard state")
+        state_restore_commands = "\n".join(
             line
-            for line in sync_block.splitlines()
+            for line in state_restore.splitlines()
             if not line.lstrip().startswith("#")
         )
-        analytics_feedback_blocked = not bool(
-            re.search(r"\banalytics\.json\b", sync_commands)
+        workflow_blocks = re.split(
+            r"(?=^      - (?:name|uses):)", text, flags=re.MULTILINE
+        )
+        gh_pages_seed_blocks = [
+            block for block in workflow_blocks if "origin/gh-pages" in block
+        ]
+        analytics_feedback_blocked = not any(
+            re.search(
+                r"\banalytics\.json\b",
+                "\n".join(
+                    line
+                    for line in block.splitlines()
+                    if not line.lstrip().startswith("#")
+                ),
+            )
+            for block in gh_pages_seed_blocks
         )
         if not analytics_feedback_blocked:
             self.error(
@@ -8422,12 +8653,29 @@ class DashboardAudit:
                 ),
                 ".github/workflows/hourly-master.yml",
             )
-        if PUBLIC_ANALYTICS_BOUNDARY_MARKER not in sync_block:
+        state_boundary_ok = (
+            re.search(
+                r"\bpython\s*\\?\s*scripts/vllm/dashboard_state\.py\s+"
+                r"validate-ref\b",
+                state_restore_commands,
+            )
+            is not None
+            and re.search(
+                r"\bpython\s*\\?\s*scripts/vllm/dashboard_state\.py\s+"
+                r"materialize\b",
+                state_restore_commands,
+            )
+            is not None
+            and '--ref "$CURRENT_STATE_SHA"' in state_restore_commands
+            and "origin/gh-pages" not in state_restore_commands
+        )
+        if not state_boundary_ok:
             self.error(
                 "workflow-public-analytics-boundary",
                 (
-                    "hourly-master.yml must document the one-way private-to-public "
-                    "analytics projection boundary"
+                    "hourly-master.yml must restore the full analytics input only "
+                    "through an exactly validated dashboard-state snapshot, never "
+                    "from the public Pages branch"
                 ),
                 ".github/workflows/hourly-master.yml",
             )
@@ -8584,12 +8832,16 @@ class DashboardAudit:
                 ".github/workflows/hourly-master.yml",
             )
 
-        cache_restore_ok = all(
+        cache_restore_action_ok = re.search(
+            r"uses:\s*actions/cache/restore@(?:v4|[0-9a-f]{40}\s+#\s*v4)\s*$",
+            cache_restore,
+            flags=re.MULTILINE,
+        ) is not None
+        cache_restore_ok = cache_restore_action_ok and all(
             token in cache_restore
             for token in (
                 "id: analytics-cache-restore",
                 "continue-on-error: true",
-                "uses: actions/cache/restore@v4",
                 f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
                 "key: ${{ steps.analytics-cache-key.outputs.key }}",
                 "${{ steps.analytics-cache-key.outputs.current_day_prefix }}",
@@ -8615,12 +8867,16 @@ class DashboardAudit:
                 'echo "cache_save=false"',
             )
         )
-        cache_save_ok = analytics_cache_signal_ok and all(
+        cache_save_action_ok = re.search(
+            r"uses:\s*actions/cache/save@(?:v4|[0-9a-f]{40}\s+#\s*v4)\s*$",
+            cache_save,
+            flags=re.MULTILINE,
+        ) is not None
+        cache_save_ok = analytics_cache_signal_ok and cache_save_action_ok and all(
             token in cache_save
             for token in (
                 "steps.collect-analytics.outputs.cache_save == 'true'",
                 "continue-on-error: true",
-                "uses: actions/cache/save@v4",
                 f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
                 "key: ${{ steps.analytics-cache-key.outputs.key }}",
             )
@@ -8641,10 +8897,12 @@ class DashboardAudit:
                 "hourly-master.yml must document the private analytics cache boundary",
                 ".github/workflows/hourly-master.yml",
             )
-        gh_pages_seed_blocks = [
+        durable_seed_blocks = [
             block
-            for block in re.split(r"(?=^      - (?:name|uses):)", text, flags=re.MULTILINE)
+            for block in workflow_blocks
             if "origin/gh-pages" in block
+            or "dashboard_state.py materialize" in block
+            or "origin/dashboard-state" in block
         ]
         cache_feedback_blocked = not any(
             token in "\n".join(
@@ -8652,7 +8910,7 @@ class DashboardAudit:
                 for line in block.splitlines()
                 if not line.lstrip().startswith("#")
             )
-            for block in gh_pages_seed_blocks
+            for block in durable_seed_blocks
             for token in (
                 PRIVATE_ANALYTICS_CACHE_PATH,
                 PRIVATE_ANALYTICS_CACHE_VERSION,
@@ -8662,8 +8920,8 @@ class DashboardAudit:
             self.error(
                 "workflow-private-analytics-cache-feedback",
                 (
-                    "the private analytics cache must never be restored from the "
-                    "public gh-pages branch"
+                    "the private analytics cache must never be restored from a "
+                    "durable dashboard baseline or the public gh-pages branch"
                 ),
                 ".github/workflows/hourly-master.yml",
             )

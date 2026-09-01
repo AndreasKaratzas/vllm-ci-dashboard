@@ -1,11 +1,11 @@
-name: Queue Lifecycle Monitor (hourly)
+name: Queue Lifecycle Monitor (2h)
 
 on:
   schedule:
     # Lifecycle queries are substantially heavier than point-in-time queue
     # metrics. Keep them independent from both the 10-minute queue poll and
     # the canonical Pages build so a transient API failure cannot stale either.
-    - cron: '47 * * * *'
+    - cron: '47 */2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -13,52 +13,167 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
 
 jobs:
   lifecycle:
-    runs-on: ubuntu-latest
-    timeout-minutes: 55
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      PYTHONPATH: ${{ github.workspace }}/scripts
+      LIFECYCLE_CHECKPOINT: data/vllm/ci/.cache/queue-lifecycle-wip-v1/checkpoint.json.gz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: main
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install -c constraints.txt requests
 
       - name: Restore durable lifecycle observations
+        id: lifecycle-baseline
         run: |
           # A missing branch is the expected first-run bootstrap. Every other
           # lookup/fetch/read failure is fatal: publishing an empty orphan
           # branch over established evidence would make the ledger unrecoverable.
           set +e
-          git ls-remote --exit-code origin refs/heads/queue-lifecycle-data >/dev/null 2>&1
+          LIFECYCLE_REMOTE=$(git ls-remote --exit-code --refs origin refs/heads/queue-lifecycle-data)
           LIFECYCLE_DATA_STATUS=$?
           set -e
           if [ "$LIFECYCLE_DATA_STATUS" -eq 0 ]; then
+            read -r LIFECYCLE_DATA_SHA LIFECYCLE_DATA_REF EXTRA <<< "$LIFECYCLE_REMOTE"
+            if ! [[ "$LIFECYCLE_DATA_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+               [ "$LIFECYCLE_DATA_REF" != refs/heads/queue-lifecycle-data ] || \
+               [ -n "${EXTRA:-}" ]; then
+              echo "::error::Lifecycle branch lookup returned an ambiguous ref."
+              exit 1
+            fi
             git fetch origin \
               +refs/heads/queue-lifecycle-data:refs/remotes/origin/queue-lifecycle-data \
               --depth=1
+            if [ "$(git rev-parse --verify 'origin/queue-lifecycle-data^{commit}')" != \
+                 "$LIFECYCLE_DATA_SHA" ]; then
+              echo "::error::Fetched lifecycle baseline moved during exact restore."
+              exit 1
+            fi
             python scripts/vllm/collect_queue_lifecycle.py \
-              --merge-jobs-git-ref origin/queue-lifecycle-data
+              --restore-jobs-git-ref origin/queue-lifecycle-data
+            echo "baseline_ref=$LIFECYCLE_DATA_SHA" >> "$GITHUB_OUTPUT"
           elif [ "$LIFECYCLE_DATA_STATUS" -eq 2 ]; then
             echo "No queue-lifecycle-data branch exists; starting the first bounded bootstrap."
+            echo "baseline_ref=bootstrap" >> "$GITHUB_OUTPUT"
           else
             echo "::error::Could not determine durable lifecycle branch state; refusing to publish."
             exit "$LIFECYCLE_DATA_STATUS"
           fi
 
+      - name: Reserve guarded Queue Lifecycle attempt
+        id: request-attempt
+        env:
+          ATTEMPT_ID: lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/queue-lifecycle-attempt.outputs"
+          : > "$OUTPUTS"
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/queue_lifecycle_attempt_budget.json reserve \
+            --attempt-id "$ATTEMPT_ID" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-run-attempt "${{ github.run_attempt }}" \
+            --event-name "${{ github.event_name }}" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "request_start_allowance" {print $2}' "$OUTPUTS")
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|success_gated|retry_gated|cap_gated)$ ]] || \
+             [ "$ALLOWANCE" != 100 ]; then
+            echo "::error::Attempt ledger returned malformed gate outputs."
+            exit 1
+          fi
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+          if [ "$REQUEST_MODE" = reserved ]; then
+            GUARD_FILE="$RUNNER_TEMP/lifecycle-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+            python scripts/vllm/buildkite_request_guard.py initialize \
+              --file "$GUARD_FILE" \
+              --attempt-id "$ATTEMPT_ID" \
+              --allowance "$ALLOWANCE"
+            {
+              echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+              echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+              echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Report bounded request gate
+        if: steps.request-attempt.outputs.request_mode != 'reserved'
+        run: >-
+          echo "Queue lifecycle made zero Buildkite requests:
+          ${{ steps.request-attempt.outputs.request_mode }} until
+          ${{ steps.request-attempt.outputs.available_at }}."
+
+      # LIFECYCLE-WIP-CACHE-BOUNDARY: the checkpoint contains only hashed,
+      # schema-validated observations and exact half-open query-unit cursors.
+      # It is gitignored and never installed into the durable data branch.
+      - name: Prepare private lifecycle WIP cache key
+        id: lifecycle-wip-cache-key
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_NAMESPACE="queue-lifecycle-wip-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore newest private lifecycle WIP
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        continue-on-error: true
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: data/vllm/ci/.cache/queue-lifecycle-wip-v1
+          key: ${{ steps.lifecycle-wip-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.lifecycle-wip-cache-key.outputs.namespace_prefix }}
+
       - name: Collect canonical AMD queue lifecycle
+        id: collect-lifecycle
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_API_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: python scripts/vllm/collect_queue_lifecycle.py
+          LIFECYCLE_BASELINE_REF: ${{ steps.lifecycle-baseline.outputs.baseline_ref }}
+        run: >-
+          python scripts/vllm/collect_queue_lifecycle.py
+          --checkpoint "$LIFECYCLE_CHECKPOINT"
+          --baseline-ref "$LIFECYCLE_BASELINE_REF"
+
+      - name: Read exact guarded Buildkite request total
+        id: request-guard-report
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Validate retained lifecycle evidence
+        id: lifecycle-validation
+        if: >-
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.collect-lifecycle.outcome == 'success' &&
+          steps.request-guard-report.outcome == 'success'
         run: |
           python -m json.tool data/vllm/ci/queue_lifecycle.json >/dev/null
           if [ -d data/vllm/ci/queue_lifecycle_jobs ]; then
@@ -69,6 +184,14 @@ jobs:
           python -S scripts/vllm/audit_dashboard_data.py --queue-lifecycle-only
 
       - name: Publish durable lifecycle evidence
+        id: lifecycle-publication
+        if: >-
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.collect-lifecycle.outcome == 'success' &&
+          steps.request-guard-report.outcome == 'success' &&
+          steps.lifecycle-validation.outcome == 'success'
+        env:
+          LIFECYCLE_BASELINE_REF: ${{ steps.lifecycle-baseline.outputs.baseline_ref }}
         run: |
           # Only the bounded public aggregate and privacy-minimized compressed
           # observations are retained on this single-commit orphan branch.
@@ -91,4 +214,92 @@ jobs:
           git -C "$LIVE_ROOT" add --all data/vllm/ci
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "queue: lifecycle observations $(date -u +%Y-%m-%dT%H:%M)"
-          git -C "$LIVE_ROOT" push --force origin HEAD:queue-lifecycle-data
+          DURABLE_REF=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')
+          if [ "$LIFECYCLE_BASELINE_REF" = bootstrap ]; then
+            LIFECYCLE_LEASE="--force-with-lease=refs/heads/queue-lifecycle-data:"
+          elif [[ "$LIFECYCLE_BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            LIFECYCLE_LEASE="--force-with-lease=refs/heads/queue-lifecycle-data:$LIFECYCLE_BASELINE_REF"
+          else
+            echo "::error::Lifecycle publication baseline ref is invalid."
+            exit 1
+          fi
+          git -C "$LIVE_ROOT" push "$LIFECYCLE_LEASE" origin HEAD:queue-lifecycle-data
+          REMOTE_REF=$(git ls-remote --refs origin refs/heads/queue-lifecycle-data | awk '{print $1}')
+          if ! [[ "$DURABLE_REF" =~ ^[0-9a-f]{40}$ ]] || \
+             [ "$REMOTE_REF" != "$DURABLE_REF" ]; then
+            echo "::error::Published lifecycle ref does not match its exact local commit."
+            exit 1
+          fi
+          echo "durable_ref=$DURABLE_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Mark durable Queue Lifecycle success
+        if: steps.lifecycle-publication.outputs.durable_ref != ''
+        env:
+          DURABLE_REF: ${{ steps.lifecycle-publication.outputs.durable_ref }}
+          ACTUAL_REQUEST_STARTS: ${{ steps.request-guard-report.outputs.actual_request_starts }}
+        run: |
+          set -euo pipefail
+          for MARK_ATTEMPT in 1 2 3; do
+            if python scripts/vllm/request_bearing_attempt_budget.py \
+              --config config/queue_lifecycle_attempt_budget.json mark-success \
+              --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+              --durable-ref "$DURABLE_REF" \
+              --actual-request-starts "$ACTUAL_REQUEST_STARTS"; then
+              exit 0
+            fi
+            if [ "$MARK_ATTEMPT" -lt 3 ]; then sleep $((MARK_ATTEMPT * 2)); fi
+          done
+          echo "::error::Lifecycle data published, but its durable attempt success could not be recorded."
+          exit 1
+
+      - name: Clear published lifecycle WIP
+        if: steps.lifecycle-publication.outputs.durable_ref != ''
+        run: >-
+          python scripts/vllm/collect_queue_lifecycle.py
+          --checkpoint "$LIFECYCLE_CHECKPOINT"
+          --clear-checkpoint
+
+      - name: Prepare bounded private lifecycle cache payload
+        id: lifecycle-wip-cache-payload
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: >-
+          python scripts/vllm/collect_queue_lifecycle.py
+          --checkpoint "$LIFECYCLE_CHECKPOINT"
+          --prepare-checkpoint-cache
+
+      - name: Save private lifecycle recovery checkpoint
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.lifecycle-wip-cache-payload.outcome == 'success'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: data/vllm/ci/.cache/queue-lifecycle-wip-v1
+          key: ${{ steps.lifecycle-wip-cache-key.outputs.key }}
+
+      - name: Prune superseded private lifecycle caches
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CACHE_IDS="$RUNNER_TEMP/lifecycle-wip-cache-ids.txt"
+          gh cache list \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF" \
+            --key "queue-lifecycle-wip-v1-${{ runner.os }}-" \
+            --sort created_at \
+            --order desc \
+            --limit 100 \
+            --json id \
+            --jq '.[8:] | .[].id' > "$CACHE_IDS"
+          while IFS= read -r CACHE_ID; do
+            if [[ "$CACHE_ID" =~ ^[0-9]+$ ]]; then
+              gh cache delete "$CACHE_ID" --repo "$GITHUB_REPOSITORY"
+            fi
+          done < "$CACHE_IDS"

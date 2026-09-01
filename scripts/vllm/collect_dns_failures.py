@@ -423,6 +423,10 @@ class BuildkiteClient:
                     headers={"Accept": accept},
                     timeout=timeout,
                     stream=stream,
+                    # One admitted application attempt must equal one
+                    # transport start. A redirect would otherwise create an
+                    # uncharged follow-up send below this counter.
+                    allow_redirects=False,
                 )
             except (
                 requests.exceptions.Timeout,
@@ -1886,6 +1890,13 @@ def main(argv: list[str] | None = None) -> int:
         default=0,
         help="Reuse the prior validated generation without Buildkite I/O when newer than this.",
     )
+    parser.add_argument(
+        "--now",
+        help=(
+            "Canonical decision timestamp reserved by dns_request_budget.py; "
+            "using the same instant prevents an interval-boundary race."
+        ),
+    )
     parser.add_argument("--merge-state-git-ref")
     parser.add_argument(
         "--classification-cache",
@@ -1900,6 +1911,9 @@ def main(argv: list[str] | None = None) -> int:
         log.error("BUILDKITE_TOKEN is required")
         return 2
     try:
+        collection_now = (
+            parse_timestamp(args.now, "--now") if args.now is not None else None
+        )
         payload = collect(
             client=BuildkiteClient(
                 token,
@@ -1914,6 +1928,7 @@ def main(argv: list[str] | None = None) -> int:
             classification_cache_path=args.classification_cache,
             merge_state_git_ref=args.merge_state_git_ref,
             dry_run=args.dry_run,
+            now=collection_now,
         )
     except CollectionError as exc:
         # Fail closed without interpolating response bodies, headers, URLs, or

@@ -12,7 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from vllm.build_operations_snapshot import write_snapshot_bundle
+from vllm.build_operations_snapshot import (
+    load_snapshot_payload,
+    write_snapshot_bundle,
+)
 from vllm.ci.public_analytics import (
     PUBLIC_ANALYTICS_PROJECTOR_ID,
     compact_public_analytics_json,
@@ -25,6 +28,7 @@ DOCS = ROOT / "docs"
 DATA = ROOT / "data"
 PUBLIC_DATA_MANIFEST = ROOT / "config" / "public_data_manifest.json"
 CACHE_BUST_RE = re.compile(r"\?v=\d+")
+CACHE_BUST_VALUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
 PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
 SITE_FILE_MAX_BYTES = 85 * 1024 * 1024
@@ -247,13 +251,29 @@ def materialize_operations_bundle(
     site_data: Path,
     manifest: dict,
 ) -> None:
-    relative = "vllm/ci/operations_v2.json"
-    if relative not in manifest["build_inputs"]:
-        raise RuntimeError(f"Operations source is not declared as a build input: {relative}")
+    candidates = (
+        "vllm/ci/operations_v2.json",
+        "vllm/ci/operations_v2.json.gz",
+    )
+    declared = [
+        relative
+        for relative in candidates
+        if relative in manifest["build_inputs"]
+    ]
+    if len(declared) != 1:
+        raise RuntimeError(
+            "Public data manifest must declare exactly one private Operations "
+            f"source (.json or .json.gz); found {declared}"
+        )
+    relative = declared[0]
     source = source_data / relative
     if not source.is_file() or source.is_symlink():
         raise FileNotFoundError(f"Operations build input is missing or unsafe: {source}")
-    payload = json.loads(source.read_text())
+    try:
+        source.resolve().relative_to(source_data.resolve())
+    except ValueError as exc:
+        raise ValueError(f"Operations build input escapes data/: {source}") from exc
+    payload = load_snapshot_payload(source)
     output = site_data / relative
     output.parent.mkdir(parents=True, exist_ok=True)
     write_snapshot_bundle(output, payload, write_monolith=False, log=False)
@@ -497,7 +517,12 @@ def validate_site_file_sizes(
         )
 
 
-def build_site(output_dir: Path, cache_bust: bool) -> None:
+def build_site(
+    output_dir: Path,
+    cache_bust: bool,
+    *,
+    cache_bust_value: str | None = None,
+) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -510,7 +535,10 @@ def build_site(output_dir: Path, cache_bust: bool) -> None:
     validate_public_data(output_dir / "data", copied, manifest)
     (output_dir / ".nojekyll").write_text("")
     if cache_bust:
-        cache_bust_index(output_dir / "index.html", str(int(time.time())))
+        stamp = cache_bust_value or str(int(time.time()))
+        if CACHE_BUST_VALUE_RE.fullmatch(stamp) is None:
+            raise ValueError("cache-bust value must be a safe bounded identifier")
+        cache_bust_index(output_dir / "index.html", stamp)
     validate_site_file_sizes(output_dir)
 
 
@@ -528,12 +556,25 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Rewrite ?v=... asset query strings in index.html with the current Unix timestamp.",
     )
+    parser.add_argument(
+        "--cache-bust-value",
+        help=(
+            "Use this stable identifier instead of wall-clock time. Canonical and "
+            "deploy-only state publications must pass the same generation ID."
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    build_site(ROOT / args.output, cache_bust=args.cache_bust_index)
+    if args.cache_bust_value is not None and not args.cache_bust_index:
+        raise SystemExit("--cache-bust-value requires --cache-bust-index")
+    build_site(
+        ROOT / args.output,
+        cache_bust=args.cache_bust_index,
+        cache_bust_value=args.cache_bust_value,
+    )
 
 
 if __name__ == "__main__":

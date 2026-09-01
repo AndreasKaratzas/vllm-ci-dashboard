@@ -425,6 +425,7 @@ def test_malformed_optional_cache_does_not_fail_core_collection(monkeypatch, tmp
         *,
         dns_classification_cache=None,
         roster_cache_errors=None,
+        backfill_checkpoint_dir=None,
     ):
         seen_caches.append(dns_classification_cache)
         return [], {}
@@ -478,6 +479,7 @@ def test_unexpected_dns_cache_path_disables_upload_without_failing_core(
         *,
         dns_classification_cache=None,
         roster_cache_errors=None,
+        backfill_checkpoint_dir=None,
     ):
         seen_caches.append(dns_classification_cache)
         return [], {}
@@ -522,6 +524,7 @@ def test_dns_flush_failure_disables_upload_without_failing_core(monkeypatch, tmp
         *,
         dns_classification_cache=None,
         roster_cache_errors=None,
+        backfill_checkpoint_dir=None,
     ):
         return [], {}
 
@@ -575,6 +578,7 @@ def test_roster_final_validation_disables_only_roster_upload(monkeypatch, tmp_pa
         *,
         dns_classification_cache=None,
         roster_cache_errors=None,
+        backfill_checkpoint_dir=None,
     ):
         return [], {}
 

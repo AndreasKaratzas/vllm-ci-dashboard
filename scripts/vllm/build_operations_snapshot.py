@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
+import io
 import json
 import math
 import re
@@ -48,7 +50,15 @@ from vllm.pipelines import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_INPUT = ROOT / "data" / "vllm" / "ci"
-DEFAULT_OUTPUT_NAME = "operations_v2.json"
+DEFAULT_OUTPUT_NAME = "operations_v2.json.gz"
+OPERATIONS_RAW_SUFFIX = ".json"
+OPERATIONS_GZIP_SUFFIX = ".json.gz"
+# The private source is intentionally stricter than GitHub's large-file warning.
+# Compressed snapshots stay well below that boundary, while decompression is
+# bounded independently so a small gzip bomb cannot consume an unbounded runner.
+OPERATIONS_GZIP_MAX_BYTES = 64 * 1024 * 1024
+OPERATIONS_RAW_WRITE_MAX_BYTES = 85 * 1024 * 1024
+OPERATIONS_DECOMPRESSED_MAX_BYTES = 256 * 1024 * 1024
 OPERATIONS_MANIFEST_NAME = "operations_v2_manifest.json"
 OPERATIONS_BUNDLE_DIR_NAME = "operations_v2"
 QUEUE_HISTORY_CHART_NAME = "queue_history_chart.json"
@@ -4955,6 +4965,9 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
     history_provenance = sources.get("history_provenance") or {}
     return {
         "ts": snapshot.get("ts"),
+        "metrics_observed_at": snapshot.get("metrics_observed_at"),
+        "details_observed_at": snapshot.get("details_observed_at"),
+        "details_status": snapshot.get("details_status"),
         "schema_version": snapshot.get("schema_version"),
         "history_mode": snapshot.get("history_mode"),
         "archive_bucket_start": snapshot.get("archive_bucket_start"),
@@ -5043,7 +5056,17 @@ def _queue(snapshot: dict, queue_jobs: dict, history: list[dict]) -> dict:
                 "timestamp": queue_jobs.get("ts"),
                 "source_counts": _job_source_counts(queue_jobs),
                 "evidence_kind": "published retained job records",
-            },
+            } | (
+                {
+                    "details_observed_at": queue_jobs.get("details_observed_at"),
+                    "details_status": queue_jobs.get("details_status"),
+                    "details_refresh_attempted_at": queue_jobs.get(
+                        "details_refresh_attempted_at"
+                    ),
+                }
+                if "details_status" in queue_jobs
+                else {}
+            ),
         },
     }
 
@@ -8354,6 +8377,75 @@ def _encoded_json(payload: Any) -> str:
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n"
 
 
+def _snapshot_format(path: Path) -> str:
+    if path.name.endswith(OPERATIONS_GZIP_SUFFIX):
+        return "gzip"
+    if path.name.endswith(OPERATIONS_RAW_SUFFIX):
+        return "raw"
+    raise ValueError(
+        "Operations snapshot path must end in .json or .json.gz: "
+        f"{path}"
+    )
+
+
+def _deterministic_gzip(raw: bytes) -> bytes:
+    """Return a reproducible gzip member with no path or wall-clock metadata."""
+    buffer = io.BytesIO()
+    with gzip.GzipFile(
+        filename="",
+        mode="wb",
+        compresslevel=9,
+        fileobj=buffer,
+        mtime=0,
+    ) as stream:
+        stream.write(raw)
+    return buffer.getvalue()
+
+
+def load_snapshot_payload(path: Path) -> dict:
+    """Load one bounded raw or gzip Operations source.
+
+    The read limit applies to the uncompressed JSON and the gzip input has a
+    separate on-disk ceiling. Reading at most ``limit + 1`` bytes lets us reject
+    oversized streams without materializing the rest of a gzip bomb.
+    """
+    snapshot_format = _snapshot_format(path)
+    if path.is_symlink():
+        raise ValueError(f"Operations snapshot cannot be a symlink: {path}")
+    size = path.stat().st_size
+    if snapshot_format == "gzip":
+        if size > OPERATIONS_GZIP_MAX_BYTES:
+            raise RuntimeError(
+                f"Compressed Operations snapshot is {size} bytes; limit is "
+                f"{OPERATIONS_GZIP_MAX_BYTES} bytes"
+            )
+        with gzip.open(path, "rb") as stream:
+            raw = stream.read(OPERATIONS_DECOMPRESSED_MAX_BYTES + 1)
+    else:
+        if size > OPERATIONS_DECOMPRESSED_MAX_BYTES:
+            raise RuntimeError(
+                f"Raw Operations snapshot is {size} bytes; read limit is "
+                f"{OPERATIONS_DECOMPRESSED_MAX_BYTES} bytes"
+            )
+        raw = path.read_bytes()
+
+    if len(raw) > OPERATIONS_DECOMPRESSED_MAX_BYTES:
+        raise RuntimeError(
+            "Operations snapshot expands to more than "
+            f"{OPERATIONS_DECOMPRESSED_MAX_BYTES} bytes"
+        )
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Operations snapshot must contain a JSON object")
+    return payload
+
+
+def _alternate_snapshot_path(path: Path) -> Path:
+    if path.name.endswith(OPERATIONS_GZIP_SUFFIX):
+        return path.with_name(path.name.removesuffix(".gz"))
+    return path.with_name(f"{path.name}.gz")
+
+
 def _org_int(value: Any) -> int | None:
     if value is None or isinstance(value, bool):
         return None
@@ -9047,10 +9139,45 @@ def write_snapshot_bundle(
     log: bool = True,
 ) -> dict:
     """Write the lazy frontend bundle and, by default, its source monolith."""
-    output.parent.mkdir(parents=True, exist_ok=True)
-    monolith = _encoded_json(payload)
+    output_format = _snapshot_format(output)
+    alternate = _alternate_snapshot_path(output)
     if write_monolith:
-        output.write_text(monolith)
+        if output.is_symlink():
+            raise ValueError(f"Operations snapshot cannot be a symlink: {output}")
+        if alternate.is_symlink() or (
+            alternate.exists() and not alternate.is_file()
+        ):
+            raise ValueError(
+                f"Alternate Operations snapshot is not a regular file: {alternate}"
+            )
+    monolith = _encoded_json(payload).encode("utf-8")
+    if len(monolith) > OPERATIONS_DECOMPRESSED_MAX_BYTES:
+        raise RuntimeError(
+            f"Operations snapshot is {len(monolith)} bytes; logical limit is "
+            f"{OPERATIONS_DECOMPRESSED_MAX_BYTES} bytes"
+        )
+    encoded_output: bytes | None = None
+    if write_monolith:
+        if output_format == "raw":
+            if len(monolith) > OPERATIONS_RAW_WRITE_MAX_BYTES:
+                raise RuntimeError(
+                    f"Raw Operations snapshot is {len(monolith)} bytes; write limit is "
+                    f"{OPERATIONS_RAW_WRITE_MAX_BYTES} bytes; use .json.gz"
+                )
+            encoded_output = monolith
+        else:
+            encoded_output = _deterministic_gzip(monolith)
+            if len(encoded_output) > OPERATIONS_GZIP_MAX_BYTES:
+                raise RuntimeError(
+                    "Compressed Operations snapshot is "
+                    f"{len(encoded_output)} bytes; limit is "
+                    f"{OPERATIONS_GZIP_MAX_BYTES} bytes"
+                )
+
+    # All monolith size checks happen before any output is mutated.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if encoded_output is not None:
+        output.write_bytes(encoded_output)
 
     bundle_dir = output.parent / OPERATIONS_BUNDLE_DIR_NAME
     bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -9106,7 +9233,10 @@ def write_snapshot_bundle(
     )
     if log:
         if write_monolith:
-            print(f"Wrote {output} ({len(monolith.encode('utf-8'))} bytes)")
+            print(
+                f"Wrote {output} ({len(encoded_output or b'')} bytes on disk; "
+                f"{len(monolith)} bytes uncompressed)"
+            )
         print(
             f"Wrote {manifest_path} ({len(manifest_encoded.encode('utf-8'))} bytes, "
             f"{len(section_manifest)} lazy sections)"
@@ -9115,13 +9245,21 @@ def write_snapshot_bundle(
             f"Wrote {org_summary_path} "
             f"({len(org_summary_encoded.encode('utf-8'))} bytes)"
         )
+    if write_monolith:
+        # Both names are generated private outputs. Keep exactly one source so
+        # later assembly/audit cannot accidentally consume a stale generation.
+        if alternate.is_file():
+            alternate.unlink()
     return manifest
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", "--data-dir", dest="input_dir", default=str(DEFAULT_INPUT))
-    parser.add_argument("--output", help="Output path (default: INPUT_DIR/operations_v2.json)")
+    parser.add_argument(
+        "--output",
+        help="Output path (default: INPUT_DIR/operations_v2.json.gz)",
+    )
     parser.add_argument("--generated-at", help="Override generation timestamp for reproducible builds")
     args = parser.parse_args(argv)
 

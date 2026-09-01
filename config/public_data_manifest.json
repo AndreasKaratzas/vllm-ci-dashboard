@@ -34,7 +34,7 @@
   "optional_files": [],
   "build_inputs": [
     "vllm/ci/analytics.json",
-    "vllm/ci/operations_v2.json",
+    "vllm/ci/operations_v2.json.gz",
     "vllm/ci/publication_state.json"
   ],
   "projected_files": [
@@ -79,9 +79,12 @@
     "vllm/ci/test_results/*",
     "vllm/perf_eval/events.jsonl",
     "vllm/ci/open_*_issues.json",
+    "vllm/ci/dashboard_state.json",
+    "vllm/ci/public_projection_attestation.json",
     "vllm/ci/*_state.json",
     "vllm/ci/agent_health.json",
     "vllm/ci/operations_v2.json",
+    "vllm/ci/operations_v2.json.gz",
     "vllm/ci/last_collected_at.txt",
     "vllm/ci/parity_key_overrides.json",
     "vllm/ci/quarantine.json",

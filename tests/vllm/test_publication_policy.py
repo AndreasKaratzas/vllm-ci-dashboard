@@ -55,13 +55,13 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "evaluated safely" in text
         assert "PROJECTS_WRITE_TOKEN" in text
         assert "`gating_targets.json` is regenerated" in text
-        assert "`operations_v2.json` is a private build input" in text
+        assert "`operations_v2.json.gz` is a private, bounded build input" in text
         assert "best-hardware test-group health" in text
         assert "runtime gates" not in text
 
     assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme
     assert "regional working-hour profiles" in scripts_readme
-    assert "Hourly via `hourly-master.yml`" in scripts_readme
+    assert "Every two hours via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
     assert "five atomic publication surfaces" in scripts_readme
     assert "`ci_analytics` publication surface" in scripts_readme
@@ -675,10 +675,10 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
     } <= allowed_exact
     assert manifest["build_inputs"] == [
         ANALYTICS_PATH,
-        "vllm/ci/operations_v2.json",
+        "vllm/ci/operations_v2.json.gz",
         PUBLICATION_STATE_INPUT,
     ]
-    assert "data/vllm/ci/operations_v2.json" in GITIGNORE.read_text().splitlines()
+    assert "data/vllm/ci/operations_v2.json.gz" in GITIGNORE.read_text().splitlines()
     assert manifest["projected_files"] == [{
         "path": ANALYTICS_PATH,
         "projector": ANALYTICS_PROJECTOR,
@@ -706,6 +706,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "vllm/ci/open_queue_issues.json",
         "vllm/ci/ready_tickets_state.json",
         "vllm/ci/operations_v2.json",
+        "vllm/ci/operations_v2.json.gz",
         PUBLICATION_STATE_INPUT,
         "vllm/ci/test_results/2026-07-27_amd.jsonl",
         "vllm/ci/test_builds/index.json",
@@ -846,7 +847,7 @@ def test_authoritative_deployments_replace_gh_pages() -> None:
         assert step["with"]["force_orphan"] is True
 
 
-def test_only_authoritative_workflows_publish_the_root_site() -> None:
+def test_only_exact_tree_workflows_publish_the_root_site() -> None:
     root_publishers: set[str] = set()
     scoped_publishers: set[str] = set()
     for path in (ROOT / ".github/workflows").glob("*.yml"):
@@ -856,8 +857,16 @@ def test_only_authoritative_workflows_publish_the_root_site() -> None:
             else:
                 root_publishers.add(path.name)
 
-    assert root_publishers == {"deploy-pages.yml", "hourly-master.yml"}
-    assert scoped_publishers == {"pr-preview.yml"}
+    # Preview publication also composes the already-proven canonical root and
+    # every retained preview into one bounded tree. Publishing only a
+    # destination_dir would rely on keep_files and could retain stale or
+    # oversized content outside the preview being updated.
+    assert root_publishers == {
+        "deploy-pages.yml",
+        "hourly-master.yml",
+        "pr-preview.yml",
+    }
+    assert scoped_publishers == set()
 
 
 @pytest.mark.parametrize(

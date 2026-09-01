@@ -17,6 +17,7 @@ from urllib.parse import urljoin, urlsplit
 import requests
 
 from . import config as cfg
+from ..buildkite_request_guard import BuildkiteRequestGuardError
 
 log = logging.getLogger(__name__)
 
@@ -870,6 +871,8 @@ def download_artifact(artifact: dict) -> Optional[bytes]:
     try:
         resp = _request(download_url)
         return resp.content
+    except BuildkiteRequestGuardError:
+        raise
     except Exception as e:
         log.warning("Failed to download artifact %s: %s", artifact.get("filename"), e)
         return None

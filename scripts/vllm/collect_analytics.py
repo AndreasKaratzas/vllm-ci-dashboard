@@ -30,6 +30,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
+from vllm.buildkite_request_guard import BuildkiteRequestGuardError  # noqa: E402
 from vllm.ci.analytics_cache import (  # noqa: E402
     CACHE_DIR_NAME,
     CACHE_SCHEMA_VERSION,
@@ -1412,6 +1413,8 @@ def _incremental_cached_fetch(
         except Exception as exc:
             cache_written = False
             _mark_cache_write_disabled(diagnostics, pipeline_slug, exc)
+    except BuildkiteRequestGuardError:
+        raise
     except Exception as exc:
         diagnostics["failure"] = f"{type(exc).__name__}: {exc}"
         return None, diagnostics

@@ -185,8 +185,9 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
 
     jobs, coverage = lifecycle.fetch_rest_lifecycle_jobs(
         "secret",
-        query_start=NOW - timedelta(days=10),
+        query_start=NOW - timedelta(days=7),
         query_end=NOW,
+        active_created_from=NOW - timedelta(days=10),
         queue_by_id=_queue_by_id(),
         page_fetcher=fetch,
     )
@@ -194,8 +195,12 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
     assert list(jobs) == ["job-1"]
     assert coverage["complete"] is True
     assert coverage["organization_wide"] is True
-    assert coverage["cohorts"]["created"]["pages"] == 2
-    assert set(coverage["cohorts"]) == {"created", "active", "finished"}
+    assert coverage["cohorts"]["recent_created"]["pages"] == 2
+    assert set(coverage["cohorts"]) == {
+        "recent_created",
+        "older_active",
+        "older_finished",
+    }
     assert all(path == f"/organizations/{lifecycle.BK_ORG}/builds" for path, _, _ in calls)
     assert all(params["include_retried_jobs"] == "true" for _, _, params in calls)
     assert all(params["include_paused"] == "true" for _, _, params in calls)
@@ -209,16 +214,18 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
         "canceling",
     ]
     assert active["created_from"] == "2026-08-01T20:00:00Z"
-    assert active["created_to"] == "2026-08-11T20:00:00Z"
+    assert active["created_to"] == "2026-08-04T20:00:00Z"
     finished = next(params for _, _, params in calls if "finished_from" in params)
     assert "finished_to" not in finished
-    assert list(coverage["cohorts"])[-1] == "finished"
+    assert finished["created_from"] == "2026-08-01T20:00:00Z"
+    assert finished["created_to"] == "2026-08-04T20:00:00Z"
+    assert list(coverage["cohorts"])[-1] == "older_finished"
 
 
 def test_rest_org_cohort_pagination_cap_fails_closed():
     full_page = [{"jobs": []} for _ in range(lifecycle.REST_PAGE_SIZE)]
 
-    with pytest.raises(RuntimeError, match="created reached the pagination safety cap"):
+    with pytest.raises(RuntimeError, match="recent_created reached the pagination safety cap"):
         lifecycle.fetch_rest_lifecycle_jobs(
             "secret",
             query_start=NOW - timedelta(days=10),
@@ -255,7 +262,9 @@ def test_incremental_event_window_retains_full_active_parent_horizon():
     assert created["created_from"] == lifecycle._utc_iso(event_start)
     assert finished["finished_from"] == lifecycle._utc_iso(event_start)
     assert active["created_from"] == lifecycle._utc_iso(active_parent_start)
-    assert active["created_to"] == lifecycle._utc_iso(NOW)
+    assert active["created_to"] == lifecycle._utc_iso(event_start)
+    assert finished["created_from"] == lifecycle._utc_iso(active_parent_start)
+    assert finished["created_to"] == lifecycle._utc_iso(event_start)
     assert coverage["event_cohort_query_start"] == lifecycle._utc_iso(event_start)
     assert coverage["active_parent_query_start"] == lifecycle._utc_iso(active_parent_start)
 
@@ -270,11 +279,12 @@ def test_rest_active_cohort_is_time_bounded_and_fails_closed_at_cap():
             return full_page
         return []
 
-    with pytest.raises(RuntimeError, match="active reached the pagination safety cap"):
+    with pytest.raises(RuntimeError, match="older_active reached the pagination safety cap"):
         lifecycle.fetch_rest_lifecycle_jobs(
             "secret",
-            query_start=NOW - timedelta(days=10),
+            query_start=NOW - timedelta(days=7),
             query_end=NOW,
+            active_created_from=NOW - timedelta(days=10),
             queue_by_id=_queue_by_id(),
             max_pages=2,
             page_fetcher=fetch,
@@ -285,7 +295,7 @@ def test_rest_active_cohort_is_time_bounded_and_fails_closed_at_cap():
     assert [params["page"] for params in active_calls] == [1, 2]
     assert all(
         params["created_from"] == "2026-08-01T20:00:00Z"
-        and params["created_to"] == "2026-08-11T20:00:00Z"
+        and params["created_to"] == "2026-08-04T20:00:00Z"
         for params in active_calls
     )
 
@@ -1279,3 +1289,260 @@ def test_collection_failure_never_replaces_outputs(monkeypatch, tmp_path):
         )
     assert not jobs_path.exists()
     assert summary_path.read_text() == "sentinel"
+
+
+def test_resumable_partitions_are_exact_disjoint_half_open_ranges():
+    query_start = NOW - timedelta(hours=7)
+    active_start = NOW - timedelta(days=10)
+    cohorts = dict(
+        lifecycle._lifecycle_cohorts(
+            query_start=query_start,
+            query_end=NOW,
+            active_parent_start=active_start,
+        )
+    )
+    assert list(cohorts) == ["recent_created", "older_active", "older_finished"]
+    assert cohorts["recent_created"] == {
+        "created_from": lifecycle._utc_iso(query_start),
+        "created_to": lifecycle._utc_iso(NOW),
+    }
+    for name in ("older_active", "older_finished"):
+        assert cohorts[name]["created_from"] == lifecycle._utc_iso(active_start)
+        assert cohorts[name]["created_to"] == lifecycle._utc_iso(query_start)
+    assert "state[]" in cohorts["older_active"]
+    assert cohorts["older_finished"]["finished_from"] == lifecycle._utc_iso(query_start)
+
+
+def test_resumable_active_to_finished_transition_merges_once():
+    active = _observations_for(
+        _job(uuid="transition", finished_at=None, state="RUNNING", passed=False)
+    )[0]
+    finished = _observations_for(
+        _job(uuid="transition", state="FINISHED", passed=True)
+    )[0]
+    merged = lifecycle._merge_checkpoint_observations([active], [finished])
+    assert len(merged) == 1
+    assert merged[0]["job_id"] == lifecycle._job_id("transition")
+    assert merged[0]["timestamps"]["finished_at"] == "2026-08-11T19:20:00Z"
+    assert merged[0]["outcome"] == "passed"
+
+
+def test_guard_exhaustion_checkpoints_progress_and_repeated_runs_finish_once(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    summary_path.write_text("sentinel")
+
+    horizon_start = NOW - timedelta(days=10)
+    source_rows = []
+    for index in range(120):
+        created = horizon_start + timedelta(minutes=(10 * 24 * 60 * index) / 120)
+        jobs = []
+        if index % 30 == 0:
+            jobs = [_rest_job(uuid=f"private-raw-job-{index}")]
+        source_rows.append((created, {"jobs": jobs}))
+
+    remaining = {"requests": 0}
+    completed_calls: list[tuple[str, str]] = []
+
+    def fetch_page(path, token, params):
+        assert params["page"] == 1
+        if remaining["requests"] == 0:
+            raise lifecycle.BuildkiteRequestGuardError("allowance exhausted")
+        remaining["requests"] -= 1
+        start = lifecycle._require_datetime(params["created_from"], "created_from")
+        end = lifecycle._require_datetime(params["created_to"], "created_to")
+        completed_calls.append((params["created_from"], params["created_to"]))
+        return [build for created, build in source_rows if start <= created < end][
+            : lifecycle.REST_PAGE_SIZE
+        ]
+
+    def queue_page(path, token, params):
+        return [{"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES]
+
+    for attempt in range(3):
+        remaining["requests"] = 1
+        if attempt < 2:
+            with pytest.raises(lifecycle.BuildkiteRequestGuardError):
+                lifecycle.collect_lifecycle(
+                    "token",
+                    jobs_path=jobs_path,
+                    summary_path=summary_path,
+                    now=NOW + timedelta(minutes=20 * attempt),
+                    checkpoint_path=checkpoint_path,
+                    baseline_ref="bootstrap",
+                    page_fetcher=fetch_page,
+                    queue_page_fetcher=queue_page,
+                )
+            assert summary_path.read_text() == "sentinel"
+            assert not jobs_path.exists()
+            decoded = gzip.decompress(checkpoint_path.read_bytes())
+            assert b"private-raw-job" not in decoded
+        else:
+            summary = lifecycle.collect_lifecycle(
+                "token",
+                jobs_path=jobs_path,
+                summary_path=summary_path,
+                now=NOW + timedelta(minutes=20 * attempt),
+                checkpoint_path=checkpoint_path,
+                baseline_ref="bootstrap",
+                page_fetcher=fetch_page,
+                queue_page_fetcher=queue_page,
+            )
+
+    # One full root probe and its two exhaustive children: no accepted or
+    # split interval is ever fetched again after it is durable.
+    assert len(completed_calls) == 3
+    assert len(set(completed_calls)) == 3
+    assert summary["generated_at"] == lifecycle._utc_iso(NOW)
+    assert summary["provenance"]["last_successful_query_end"] == lifecycle._utc_iso(NOW)
+    assert summary["provenance"]["collection"]["source_coverage"][
+        "pagination_strategy"
+    ] == "exhaustive_disjoint_created_time_units_page_one"
+    assert summary["provenance"]["collection"]["unique_jobs"] == 4
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path, summary_path=summary_path
+    )[1] == 4
+
+    lifecycle.clear_lifecycle_checkpoint(checkpoint_path)
+    assert not checkpoint_path.exists()
+    assert lifecycle._checkpoint_cache_marker(checkpoint_path).is_file()
+
+
+def test_corrupt_or_wrong_baseline_checkpoint_is_discarded_without_contamination(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    checkpoint_path.parent.mkdir()
+    checkpoint_path.write_bytes(b"not-gzip-private-raw-job")
+    calls = []
+
+    def empty_page(path, token, params):
+        calls.append(dict(params))
+        return []
+
+    summary = lifecycle.collect_lifecycle(
+        "token",
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        now=NOW,
+        checkpoint_path=checkpoint_path,
+        baseline_ref="bootstrap",
+        page_fetcher=empty_page,
+        queue_page_fetcher=lambda path, token, params: [
+            {"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES
+        ],
+    )
+    assert len(calls) == 1
+    assert summary["generated_at"] == lifecycle._utc_iso(NOW)
+    decoded = gzip.decompress(checkpoint_path.read_bytes())
+    assert b"private-raw-job" not in decoded
+    state = lifecycle._decode_checkpoint_file(checkpoint_path)
+    assert state["baseline_ref"] == "bootstrap"
+
+    tampered = dict(state)
+    tampered["queue_identity_sha256"] = "f" * 64
+    checkpoint_path.write_bytes(gzip.compress(lifecycle._checkpoint_json(tampered), mtime=0))
+    with pytest.raises(RuntimeError, match="content digest"):
+        lifecycle._decode_checkpoint_file(checkpoint_path)
+    lifecycle._write_checkpoint(checkpoint_path, state)
+
+    # Even a structurally valid cache cannot cross canonical generations.
+    assert (
+        lifecycle._load_checkpoint(
+            checkpoint_path,
+            baseline_sha256=state["baseline_sha256"],
+            baseline_ref="0" * 40,
+            previous={},
+            now=NOW,
+        )
+        is None
+    )
+    assert not checkpoint_path.exists()
+
+
+def test_dense_unsplittable_query_records_terminal_failure_before_publication(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    summary_path.write_text("sentinel")
+    requests = {"count": 0}
+    full_page = [{"jobs": []} for _ in range(lifecycle.REST_PAGE_SIZE)]
+
+    def always_full(path, token, params):
+        requests["count"] += 1
+        return full_page
+
+    def queue_page(path, token, params):
+        return [
+            {"id": f"id:{queue}", "key": queue}
+            for queue in AMD_METRIC_TARGET_QUEUES
+        ]
+    with pytest.raises(RuntimeError, match="minimum time interval"):
+        lifecycle.collect_lifecycle(
+            "token",
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            now=NOW,
+            checkpoint_path=checkpoint_path,
+            baseline_ref="bootstrap",
+            page_fetcher=always_full,
+            queue_page_fetcher=queue_page,
+        )
+    first_request_count = requests["count"]
+    assert first_request_count < 100
+    assert summary_path.read_text() == "sentinel"
+    assert not jobs_path.exists()
+    assert lifecycle._decode_checkpoint_file(checkpoint_path)["terminal_error"] == (
+        "dense_minimum_interval"
+    )
+
+    with pytest.raises(RuntimeError, match="terminal bounded-query failure"):
+        lifecycle.collect_lifecycle(
+            "token",
+            jobs_path=jobs_path,
+            summary_path=summary_path,
+            now=NOW + timedelta(minutes=1),
+            checkpoint_path=checkpoint_path,
+            baseline_ref="bootstrap",
+            page_fetcher=always_full,
+            queue_page_fetcher=queue_page,
+        )
+    assert requests["count"] == first_request_count
+
+
+def test_exact_remote_restore_uses_published_horizon_not_resume_wall_time(
+    monkeypatch, tmp_path
+):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    row = _observation()
+    _, ledger = lifecycle.encode_job_segments(
+        [row], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    provenance = {
+        "last_successful_query_start": lifecycle._utc_iso(NOW - timedelta(hours=6)),
+        "last_successful_query_end": lifecycle._utc_iso(NOW),
+        "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
+        "last_full_reconciliation_end": lifecycle._utc_iso(NOW),
+        "ledger": ledger,
+    }
+    monkeypatch.setattr(
+        lifecycle, "_git_ref_summary_provenance", lambda git_ref: provenance
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "_git_ref_jobs",
+        lambda git_ref, required, expected_ledger: [row],
+    )
+
+    summary = lifecycle.restore_exact_job_ledger(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        git_ref="origin/queue-lifecycle-data",
+    )
+    assert summary["generated_at"] == lifecycle._utc_iso(NOW)
+    assert summary["retention"]["end_exclusive"] == lifecycle._utc_iso(NOW)
+    assert lifecycle.validate_local_ledger_generation(
+        jobs_path=jobs_path, summary_path=summary_path
+    )[1] == 1

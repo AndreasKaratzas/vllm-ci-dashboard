@@ -633,9 +633,54 @@ def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
     queue_section_module.main(["--input-dir", str(queue_dir)])
     mixed_generation = DashboardAudit(tmp_path)
     mixed_generation.audit_queue_data(validate_derived=True)
-    assert "queue-jobs-generation-mismatch" in {
+    assert "queue-jobs-detail-status" in {
         finding.code for finding in mixed_generation.report.errors
     }
+
+
+def test_queue_audit_accepts_current_metrics_with_an_explicit_retained_overlay(tmp_path):
+    queue_dir = tmp_path / "data" / "vllm" / "ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    metrics_at = now.isoformat().replace("+00:00", "Z")
+    details_at = (now - timedelta(minutes=40)).isoformat().replace("+00:00", "Z")
+    snapshot = {
+        "ts": metrics_at,
+        "metrics_observed_at": metrics_at,
+        "details_observed_at": details_at,
+        "details_status": "retained_not_refreshed",
+        "details_refresh_attempted_at": None,
+        "queues": {"amd_mi300_1": {"waiting": 0, "running": 0}},
+        "total_waiting": 0,
+        "total_running": 0,
+        "sources": {"counts": "cluster_metrics"},
+        "request_telemetry": {
+            "metrics_request_starts": 1,
+            "details_request_starts": 0,
+            "total_request_starts": 1,
+            "metrics_request_limit": 2,
+            "details_request_limit": 0,
+        },
+    }
+    jobs = {
+        "schema_version": 2,
+        "ts": details_at,
+        "metrics_observed_at": metrics_at,
+        "details_observed_at": details_at,
+        "details_status": "retained_not_refreshed",
+        "details_refresh_attempted_at": None,
+        "details_request_page_cap": None,
+        "zombie_threshold_min": 240,
+        "pending": [],
+        "running": [],
+    }
+    (queue_dir / "queue_timeseries.jsonl").write_text(json.dumps(snapshot) + "\n")
+    (queue_dir / "queue_jobs.json").write_text(json.dumps(jobs))
+    queue_section_module.main(["--input-dir", str(queue_dir)])
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_queue_data(validate_derived=True)
+    assert not audit.report.errors
 
 
 def _dns_iso(value: datetime) -> str:
@@ -3286,7 +3331,7 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     workflows = tmp_path / ".github/workflows"
     workflows.mkdir(parents=True)
     ordered_steps = [
-        "name: Sync CI data from gh-pages",
+        "name: Restore validated dashboard state",
         "name: Collect AMD gating target list",
         "name: Collect CI data",
         "name: Prepare private analytics cache key",
@@ -3330,6 +3375,29 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     }
 
 
+def test_workflow_audit_accepts_state_pinned_cache_busting_interpreter(tmp_path):
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "deploy-pages.yml").write_text(
+        "\n".join(
+            (
+                "concurrency:",
+                "  group: gh-pages-deploy",
+                "  cancel-in-progress: false",
+                "uses: peaceiris/actions-gh-pages@" + "a" * 40,
+                'run: "$CANDIDATE_PYTHON" scripts/build_site.py --cache-bust-index',
+            )
+        )
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_workflows()
+
+    assert "workflow-cache-bust" not in {
+        finding.code for finding in audit.report.errors
+    }
+
+
 def test_workflow_audit_enforces_one_way_analytics_projection(tmp_path):
     for relative in (
         ".github/workflows/hourly-master.yml",
@@ -3354,10 +3422,16 @@ def test_workflow_audit_enforces_one_way_analytics_projection(tmp_path):
     }
 
     hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly_text = hourly.read_text()
+    state_restore_index = hourly_text.index("Restore validated dashboard state")
+    state_restore_tail = hourly_text[state_restore_index:]
     hourly.write_text(
-        hourly.read_text().replace(
-            "ci_health.json parity_report.json config_parity.json",
-            "ci_health.json analytics.json parity_report.json config_parity.json",
+        hourly_text[:state_restore_index]
+        + state_restore_tail.replace(
+            "set -euo pipefail",
+            """set -euo pipefail
+          git show origin/gh-pages:data/vllm/ci/analytics.json \\
+            > data/vllm/ci/analytics.json""",
             1,
         )
     )
@@ -3435,13 +3509,16 @@ def test_workflow_audit_enforces_private_analytics_cache_boundary(tmp_path):
         finding.code for finding in bad_key.report.errors
     }
 
+    hourly_text = hourly.read_text()
+    state_restore_index = hourly_text.index("Restore validated dashboard state")
+    state_restore_tail = hourly_text[state_restore_index:]
     hourly.write_text(
-        hourly.read_text().replace(
-            "flaky_tests.json failure_trends.json quarantine.json",
-            (
-                "flaky_tests.json failure_trends.json quarantine.json "
-                "analytics-builds-v1"
-            ),
+        hourly_text[:state_restore_index]
+        + state_restore_tail.replace(
+            "set -euo pipefail",
+            """set -euo pipefail
+          git show \"$CURRENT_STATE_SHA:data/vllm/ci/.cache/analytics-builds-v1/amd-ci.json\" \\
+            > data/vllm/ci/.cache/analytics-builds-v1/amd-ci.json""",
             1,
         )
     )
@@ -3452,7 +3529,11 @@ def test_workflow_audit_enforces_private_analytics_cache_boundary(tmp_path):
     }
 
     hourly.write_text(
-        hourly.read_text().replace("git add data/", "git add -f data/", 1)
+        hourly.read_text().replace(
+            "git add -A -- data/ dashboards/ README.md",
+            "git add -f -- data/ dashboards/ README.md",
+            1,
+        )
     )
     staged = DashboardAudit(tmp_path)
     staged.audit_workflows()

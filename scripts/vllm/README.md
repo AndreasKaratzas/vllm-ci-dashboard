@@ -6,26 +6,33 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 
 | Script | Purpose | Trigger |
 |--------|---------|---------|
-| `collect_queue_snapshot.py` | Captures Buildkite queue state from cluster metrics + active jobs, records scheduled-job sample coverage against queue counts, and excludes >4h zombie jobs from reconstructed latency analytics | Every 10 min via `queue-monitor.yml`, plus canonical `hourly-master.yml` runs |
-| `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Hourly via `hourly-master.yml` |
-| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Hourly via `hourly-master.yml` |
+| `collect_queue_snapshot.py` | Captures current Buildkite queue-native metrics every permitted poll and refreshes the complete active-job overlay at most hourly; incomplete detail pagination retains the last complete overlay with explicit timestamps/status | Every 10 min via `queue-monitor.yml` (detail at most hourly) |
+| `collect_queue_lifecycle.py` | Resumably collects seven-day privacy-minimized queue lifecycle events through exhaustive disjoint parent-created query units without publishing partial generations | Every two hours via `queue-lifecycle.yml` |
+| `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every two hours via `hourly-master.yml` |
+| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Every two hours via `hourly-master.yml` |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
 | `collect_gating_targets.py` | Regenerates `gating_targets.json` from the authoritative `config/vllm_amd_gating_targets.json` | Every canonical `hourly-master.yml` run |
-| `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Hourly via `hourly-master.yml` |
-| `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Hourly via `hourly-master.yml` |
-| `merge_perf_eval_events.py` | Strictly merges main + published perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
+| `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Every two hours via `hourly-master.yml` |
+| `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Every two hours via `hourly-master.yml` |
+| `merge_perf_eval_events.py` | Strictly merges a validated durable baseline with candidate perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
 | `build_operations_snapshot.py` | Builds the private v2 operations input plus its public manifest and lazy section shards; runtime targets resolve through exact matrix aliases and definition parity with explicit unresolved reasons | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
 | `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
-| `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Hourly via `hourly-master.yml` + local debugging |
+| `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Every two hours via `hourly-master.yml` + local debugging |
 | `check_site_health.py` | Probes the deployed shell and bounded publication-status contract, emitting JSON and Markdown evidence | Hourly at :57 UTC-minute plus manual `health-check.yml` runs |
 | `plan_dns_publication_reconcile.py` | Decides whether a successful live DNS publish must wake the canonical publisher and verifies that queued work still has an unacknowledged DNS generation | After every successful `dns-health.yml` collection and before a DNS-targeted canonical run |
-| `plan_publication_watchdog.py` | Plans proactive canonical recovery, suppresses active/recent duplicates, and verifies generation/cadence preflights under the publication lock | `publication-watchdog.yml` and watchdog/schedule-targeted canonical runs |
+| `dns_request_budget.py` | Validates the parentless DNS request ledger and durably reserves a complete per-scan allowance for 25 hours before any Buildkite call, bounding actual starts below 1,000 per rolling day | Every `dns-health.yml` run, plus controlled one-time ledger initialization |
+| `request_bearing_attempt_budget.py` | Gates full Data Collection and Queue Lifecycle through independent parentless 25-hour attempt ledgers, including start-to-start success cadence, bounded failure retry, migration overlap, and read-only webhook/watchdog observation | Before every possible full-collector token exposure, plus controlled one-time initialization |
+| `buildkite_request_guard.py` | Enforces the fixed per-attempt allowance across processes by charging every exact Buildkite `requests.Session.send` before transport and rejecting hidden adapter retries | Automatically in every permitted token-bearing Python process through `scripts/sitecustomize.py` |
+| `ci/backfill_checkpoint.py` | Integrity-validates complete per-nightly CI shards so cache-loss recovery makes monotonic progress across repeated 800-request caps without publishing partial data | Restored and failure-survivingly saved by guarded Data Collection runs |
+| `plan_publication_watchdog.py` | Plans proactive canonical recovery and suppresses active/recent duplicates; durable full-collection due state comes from the separate attempt ledger rather than general publication timestamps | `publication-watchdog.yml` and generation-targeted recovery runs |
+| `dashboard_state.py` | Fully validates/materializes bounded parentless snapshots, provides OID-only metadata validation for watchdogs, creates tested root commits, writes the public marker, rotates refs, and atomically repairs a single valid slot | Canonical collection, deploy-only recovery, watchdog checks, and state rollback |
+| `public_projection.py` | Creates the state-bound SHA-256 manifest for every canonical public file and verifies local or remote Git trees without reading large deployed blobs | Before and after every canonical or deploy-only Pages publication, plus the watchdog |
 | `verify_published_operations_bundle.py` | Verifies that every deployed Operations shard exists and matches the public manifest byte contract | After every canonical or manual Pages deployment |
-| `select_publication_surfaces.py` | Validates collected source transactions, restores only failed surfaces from the captured main baseline, then rebuilds and re-audits the combined snapshot | Every canonical `hourly-master.yml` run before tests |
+| `select_publication_surfaces.py` | Validates collected source transactions, restores failed generated surfaces from the durable dashboard-state baseline while comparing source files with the immutable candidate code, then rebuilds and re-audits the combined snapshot | Every canonical `hourly-master.yml` run before tests |
 | `config_parity.py` | Compares AMD vs NVIDIA CI config (commands, test lists) | Part of `collect_ci.py` |
 | `pipelines.py` | Pipeline definitions (slug, name patterns, build filters) | Imported by other scripts |
 
@@ -52,7 +59,7 @@ only for the `addProjectV2ItemById` mutation against the configured Project.
 Missing project credentials are a safe no-op; the script never removes Project
 items, edits issue content, or targets another repository.
 
-For queue monitoring specifically, the token needs Buildkite GraphQL access so `collect_queue_snapshot.py` can read cluster queue metrics and scheduled jobs. A dedicated replacement token should be read-only (`read_builds` and `read_clusters`; plus GraphQL access). If GraphQL is unavailable, the collector falls back to the legacy active-build scan.
+For queue monitoring specifically, the token needs Buildkite GraphQL access so `collect_queue_snapshot.py` can read cluster queue metrics and scheduled jobs. A dedicated replacement token should be read-only (`read_builds` and `read_clusters`; plus GraphQL access). The production workflow does not fall back to per-queue GraphQL or REST scans: current metrics fail closed, while an incomplete bounded detail read retains the last complete job overlay.
 
 Buildkite's queue-native p50/p95 remain the site-comparable primary values whenever they are available. The fully paginated scheduled-job reconstruction is stored and charted separately, with exact non-zombie n/N coverage, because equal counts do not prove that two sequential reads contain the same jobs or use the same percentile estimator. Queue history keeps every poll for 48 hours, then retains one actual snapshot plus every queue's primary and reconstructed p50/p95/p99 peaks and exact observation times per UTC hour for the remainder of the 30-day window.
 
@@ -62,6 +69,51 @@ while preserving the newest live snapshot and each retained bucket's exact
 peak envelopes; it never makes another Buildkite request to compact storage.
 
 The frequent collector force-publishes a single-commit `queue-data` branch containing only queue-owned evidence and a compact chart feed. The browser compares its current snapshot with the canonical Pages shard, uses the newer one, and falls back to the Pages history if the dedicated feed becomes stale. The verbose JSONL remains available as drill-down evidence but is not reparsed on every chart refresh.
+
+Every queue trigger, including webhooks and manual dispatch, first acquires an
+exact lease on the parentless one-file `queue-request-budget` branch. Metrics
+reserve two request starts no more than once per ten minutes; active-job detail
+reserves twelve additional starts no more than hourly. At current volume the
+normal cost is about 312 requests/day (144 metric pages plus 24 seven-page
+detail scans). The 25-hour ledger permits at most 650 outstanding starts, and
+the workflow has a 20-minute timeout, leaving more than the one-hour cushion
+needed to bound actual request starts in every rolling 24 hours. Missing,
+corrupt, ambiguous, or lease-conflicted budget state exposes no Buildkite token.
+
+### Bounded queue lifecycle recovery
+
+Queue Lifecycle has an independent 100-start guarded attempt and never treats
+an API retry as free. Its organization-build queries are pairwise-disjoint:
+recent parents use `[query_start, query_end)`, while older active and
+older-finished parents use `[active_parent_start, query_start)`. Every request
+asks only for page one of an exact half-open created-time unit. A full 100-row
+response is not accepted or paginated; the unit is atomically replaced by two
+adjacent children. Only a short, therefore exhaustive, response completes a
+unit. This avoids both overlapping cohorts and an unstable page-number cursor
+when recovery spans workflow attempts.
+
+Completed units and their observations are stored in the private
+`data/vllm/ci/.cache/queue-lifecycle-wip-v1/checkpoint.json.gz` Actions cache.
+The strict checkpoint is capped at 64 MiB compressed, contains only hashed job
+identities and the same privacy projection as the durable ledger, and binds its
+content digest, exact canonical branch commit, canonical ledger digest, target
+queue-map digest, and frozen query/watermark. Missing, malformed, stale,
+wrong-base, or wrong-queue checkpoints are discarded and restarted without
+feeding bytes into the canonical ledger. A dense interval that cannot be split
+records a terminal failure so retries make no further Buildkite requests. The
+750-leaf work-tree ceiling requires at most 1,499 build responses; including
+one normal queue-discovery response per retry, it fits within sixteen
+100-start attempts (transport retries consume that same hard allowance).
+
+Guard exhaustion leaves the interrupted unit pending and exits without
+touching `queue_lifecycle.json` or `queue_lifecycle_jobs`. The workflow uses an
+`always()` cache-save path with a unique immutable run key, restores the newest
+namespace entry, and retains only the eight newest entries. Once every unit is
+complete, the collector merges against the exact canonical generation at the
+original frozen query horizon and atomically builds both canonical artifacts.
+Only after validation, exact guarded-request reporting, and a verified durable
+branch push is the WIP deleted; a small cached tombstone prevents an older
+completed checkpoint from resurfacing.
 
 ### Perf-eval retention and artifact deduplication
 
@@ -87,15 +139,17 @@ collector enforces a maximum 30-day Buildkite lookback, so the index always
 outlives every artifact the next run can discover. Compaction changes only
 local storage; it adds no Buildkite or GitHub API requests.
 
-Canonical startup strictly validates and bounds the private event store from
-the immutable main checkout before any collector mutates it. The store is an
-explicitly private build input and is never expected to exist on gh-pages.
+Canonical startup strictly validates and bounds the private event store restored
+from the current `dashboard-state` snapshot before any collector mutates it.
+Only the one-time, explicitly gated bootstrap uses the frozen generated roots in
+an immutable `main` checkout. The store is an explicitly private build input and
+is never expected to exist on gh-pages.
 `perf_eval.json` is rebuilt from those validated events instead of copied from
 the public site. The shared non-canceling deployment lock serializes every
-collector run, while the final rebase and exact-tree retest prevent a concurrent
-main update from bypassing validation. This keeps derived timestamps
-non-regressing without an additional token, GitHub request, or Buildkite
-request. The merge helper still supports strict source-neutral reconciliation
+collector run, while exact source-tree validation and an atomic leased state-ref
+rotation prevent a concurrent publication from bypassing validation. This keeps
+derived timestamps non-regressing without an additional token, GitHub request,
+or Buildkite request. The merge helper still supports strict source-neutral reconciliation
 for migrations and repairs: it orders stable result identities by validated
 ingestion generation, unions equal-generation disjoint metrics/tasks, and
 fails closed on conflicting equal-generation values.
@@ -131,31 +185,37 @@ amd_test_matrix.json + config_parity.json + ownership_config_parity.json
 managed dashboard issues  --> sync_ci_operations_project.py
                            --> AMD CI Operations Project
 raw operational inputs    --> build_operations_snapshot.py
-                           --> operations_v2.json (private build input)
+                           --> operations_v2.json.gz (private bounded build input)
                            --> operations_v2_manifest.json + operations_v2/*.json
                            --> docs/assets/js/ops-v2.js
 audit_dashboard_data.py   --> validates data/ + docs/assets/js + workflows
+dashboard_state.py        --> dashboard-state (current parentless snapshot)
+                           --> dashboard-state-previous (one rollback snapshot)
 deployed Pages + publication_status.json
                          --> check_site_health.py
                          --> bounded workflow artifact + marker-owned issue
 ```
 
 The gh-pages analytics file is the bounded browser projection, not a
-last-known-good reliability input. The hourly collector deliberately retains
-the full artifact from `main` until collection refreshes it and never seeds it
-from gh-pages. This keeps public evidence from feeding back into incident
-history, watcher state, or the next projection.
+last-known-good reliability input. The two-hour collector deliberately retains
+the full private artifact from the validated `dashboard-state` snapshot until
+collection refreshes it and never seeds it from gh-pages. During the one-time
+state bootstrap only, the frozen `main` copy is the seed. This keeps public
+evidence from feeding back into incident history, watcher state, or the next
+projection.
 
 ### Private analytics build cache
 
-The hourly workflow persists only
+The canonical workflow persists only
 `data/vllm/ci/.cache/analytics-builds-v1` through GitHub Actions cache storage.
 Its immutable key is versioned and changes once per UTC day. The first
 successful run of a day saves that day's snapshot; later runs restore the same
 snapshot and refetch the rolling 24-hour overlap instead of trying to mutate an
-existing cache key. On the next UTC day, the prior-day key is the restore
-fallback and the collector forces a full reconciliation when the restored
-cache's `generated_at` UTC date differs from the collection date. It also
+existing cache key. On the next UTC day, the prior-day key is the first restore
+fallback; a final versioned namespace fallback retains the newest valid cache
+through a multi-day Actions outage. The collector validates and prunes any
+restored cache, then forces a full reconciliation when its `generated_at` UTC
+date differs from the collection date. It also
 forces a full reconciliation once `last_full_at` is at least 24 hours old.
 This ensures the first cache saved under each immutable daily key is fully
 reconciled instead of freezing an incremental snapshot for that day.
@@ -180,7 +240,7 @@ the cache.
 
 ## Bounded last-known-good publication
 
-The hourly workflow splits CI into five atomic publication surfaces: core
+The canonical workflow splits CI into five atomic publication surfaces: core
 health/matrix/ownership, private analytics/reliability, gating configuration
 and nightly evidence, test-group changes, and workload hotness. Queue,
 lifecycle, agent-health, GitHub-home, and perf-eval inputs remain separate
@@ -190,10 +250,12 @@ ownership, or gating data; if the analytics command fails before producing a
 fresh nightly seed, gating is quarantined too. A routed degradation keeps fresh
 candidate bytes and publishes an explicit warning. A collector failure or hard
 routed audit error instead rejects that surface's entire candidate transaction.
-The selector restores the whole failed surface from the main commit captured
-before collection, rebuilds the derived Operations data, and runs the complete
-audit again. Unknown findings, code or workflow defects, an invalid baseline,
-and any post-restore error remain hard deployment stops.
+The selector restores the whole failed surface from the validated durable state
+snapshot captured before collection, rebuilds the derived Operations data, and
+runs the complete audit again. Its separate immutable candidate-code ref proves
+that fallback cannot replace source or workflow files with an older state copy.
+Unknown findings, code or workflow defects, an invalid baseline, and any
+post-restore error remain hard deployment stops.
 
 Attested fallback state is committed privately in
 `data/vllm/ci/publication_state.json`; restore paths and hashes never enter the
@@ -206,7 +268,7 @@ exposing private restore metadata. Repeated runs of the same incident do not
 post duplicate comments. Collector failures carry a bounded typed reason into
 the incident fingerprint; a first transient network/HTTP failure uses the
 validated baseline without opening a ticket, while deterministic failures and
-two consecutive transient failures alert. Six consecutive healthy hourly
+two consecutive transient failures alert. Six consecutive healthy canonical
 publications are required before an incident closes and rearms.
 
 The legacy manual `ci-collect.yml` workflow is validation-only. It can exercise
@@ -241,4 +303,10 @@ any repository other than the dashboard.
 `scripts/build_site.py --cache-bust-index` assembles `docs/` and `data/`
 into `_site/` using `config/public_data_manifest.json`; unlisted collector
 state and the compatibility monolith are not published. The canonical Pages
-deployment replaces `gh-pages`, which removes retired artifacts.
+deployment replaces `gh-pages`, which removes retired artifacts. State-backed
+publications also pass the stable generation ID with `--cache-bust-value`, so
+deploy-only recovery reproduces the tested site byte-for-byte.
+Before each root replacement, the publisher size-proves the existing Pages
+tree and overlays only bounded whole `pr-preview/pr-N` cohorts. The combined
+tree is re-bounded and its preview inventory digest is verified after deploy,
+so retired canonical files disappear without silently deleting valid previews.

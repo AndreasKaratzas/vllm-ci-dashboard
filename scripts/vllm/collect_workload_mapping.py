@@ -44,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
 from vllm.ci.utils import parse_iso, queue_from_rules  # noqa: E402
+from vllm.buildkite_request_guard import BuildkiteRequestGuardError  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -307,6 +308,10 @@ def _fetch_pipeline_slice(
     for page in range(1, max_pages + 1):
         try:
             rows = page_fetcher(path, token, {**base_params, "page": page})
+        except BuildkiteRequestGuardError:
+            # A workflow transport cap is a hard incomplete collection, not a
+            # lower-bound data point eligible for publication.
+            raise
         except Exception as exc:  # retain lower-bound metadata, never raw responses
             error_type = type(exc).__name__
             log.warning(

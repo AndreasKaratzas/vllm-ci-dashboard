@@ -608,17 +608,12 @@ def _run_git(root: Path, *args: str) -> bytes:
     return result.stdout
 
 
-def _validate_refresh_only_candidate(
-    root: Path,
-    baseline_ref: str,
-    refresh_surface: str,
-) -> None:
-    """Fail closed unless the pre-selector tree changed only one source surface."""
+def _changed_worktree_paths(root: Path, ref: str) -> set[str]:
     tracked = _run_git(
         root,
         "diff",
         "--name-only",
-        baseline_ref,
+        ref,
         "--",
     ).decode().splitlines()
     untracked = _run_git(
@@ -627,7 +622,104 @@ def _validate_refresh_only_candidate(
         "--others",
         "--exclude-standard",
     ).decode().splitlines()
-    changed = sorted({path.strip() for path in [*tracked, *untracked] if path.strip()})
+    return {path.strip() for path in [*tracked, *untracked] if path.strip()}
+
+
+def _candidate_generated_roots(root: Path, candidate_code_ref: str) -> tuple[str, ...]:
+    """Read the generated-domain boundary from immutable candidate code."""
+    try:
+        payload = json.loads(
+            _run_git(
+                root,
+                "show",
+                f"{candidate_code_ref}:config/dashboard_state.json",
+            )
+        )
+    except (json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(
+            "candidate code ref has no valid dashboard-state policy"
+        ) from exc
+    roots = payload.get("generated_roots") if isinstance(payload, dict) else None
+    if (
+        not isinstance(roots, list)
+        or not roots
+        or any(
+            not isinstance(path, str)
+            or not path
+            or path.startswith("/")
+            or "/" in path
+            or path in {".", ".."}
+            for path in roots
+        )
+        or len(set(roots)) != len(roots)
+    ):
+        raise RuntimeError(
+            "candidate code ref declares invalid dashboard generated roots"
+        )
+    return tuple(roots)
+
+
+def _is_generated_path(relative: str, generated_roots: tuple[str, ...]) -> bool:
+    return any(
+        relative == generated_root or relative.startswith(generated_root + "/")
+        for generated_root in generated_roots
+    )
+
+
+def _worktree_path_matches_ref(root: Path, ref: str, relative: str) -> bool:
+    """Compare one generated path to a ref, including untracked state files."""
+    raw_entry = _run_git(root, "ls-tree", "-z", ref, "--", relative)
+    path = root / relative
+    if not raw_entry:
+        return not path.exists() and not path.is_symlink()
+    entries = [entry for entry in raw_entry.rstrip(b"\0").split(b"\0") if entry]
+    if len(entries) != 1:
+        return False
+    try:
+        metadata, raw_relative = entries[0].split(b"\t", 1)
+        mode, object_type, object_id = metadata.decode("ascii").split()
+        entry_relative = raw_relative.decode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return False
+    if entry_relative != relative or object_type != "blob":
+        return False
+    expected = _run_git(root, "cat-file", "blob", object_id)
+    if mode == "120000":
+        if not path.is_symlink():
+            return False
+        return os.fsencode(os.readlink(path)) == expected
+    if path.is_symlink() or not path.is_file():
+        return False
+    executable = bool(path.stat().st_mode & 0o100)
+    return path.read_bytes() == expected and executable == (mode == "100755")
+
+
+def _validate_refresh_only_candidate(
+    root: Path,
+    baseline_ref: str,
+    refresh_surface: str,
+    candidate_code_ref: str | None = None,
+) -> None:
+    """Fail closed unless the pre-selector tree changed only one source surface."""
+    if candidate_code_ref is None:
+        changed = sorted(_changed_worktree_paths(root, baseline_ref))
+    else:
+        generated_roots = _candidate_generated_roots(root, candidate_code_ref)
+        baseline_changes = _changed_worktree_paths(root, baseline_ref)
+        candidate_changes = _changed_worktree_paths(root, candidate_code_ref)
+        changed = sorted({
+            relative
+            for relative in baseline_changes | candidate_changes
+            if (
+                _is_generated_path(relative, generated_roots)
+                and relative in baseline_changes
+                and not _worktree_path_matches_ref(root, baseline_ref, relative)
+            )
+            or (
+                not _is_generated_path(relative, generated_roots)
+                and relative in candidate_changes
+            )
+        })
     unexpected = []
     for relative in changed:
         owners = [
@@ -1455,7 +1547,7 @@ def _rebuild_operations(root: Path) -> None:
             "--input-dir",
             "data/vllm/ci",
             "--output",
-            "data/vllm/ci/operations_v2.json",
+            "data/vllm/ci/operations_v2.json.gz",
         ],
         cwd=root,
         check=True,
@@ -1470,11 +1562,26 @@ def select_publication(
     forced_degraded: Iterable[str] = (),
     collector_failures: Iterable[Mapping[str, Any]] = (),
     refresh_only_surface: str | None = None,
+    candidate_code_ref: str | None = None,
 ) -> dict:
     baseline_ref = baseline_ref.strip().lower()
     if not FULL_SHA_RE.fullmatch(baseline_ref):
         raise ValueError("baseline ref must be one full lowercase commit SHA")
     _run_git(root, "cat-file", "-e", f"{baseline_ref}^{{commit}}")
+    normalized_candidate_code_ref = (
+        str(candidate_code_ref or "").strip().lower() or None
+    )
+    if normalized_candidate_code_ref is not None:
+        if not FULL_SHA_RE.fullmatch(normalized_candidate_code_ref):
+            raise ValueError(
+                "candidate code ref must be one full lowercase commit SHA"
+            )
+        _run_git(
+            root,
+            "cat-file",
+            "-e",
+            f"{normalized_candidate_code_ref}^{{commit}}",
+        )
     previous_state: dict | None = None
     previous_state_loaded = False
 
@@ -1518,7 +1625,12 @@ def select_publication(
     preserved_collector_policy: dict[str, Any] | None = None
     preserved_incident_policy: dict[str, Any] | None = None
     if refresh_surface is not None:
-        _validate_refresh_only_candidate(root, baseline_ref, refresh_surface)
+        _validate_refresh_only_candidate(
+            root,
+            baseline_ref,
+            refresh_surface,
+            normalized_candidate_code_ref,
+        )
         preserved_state = prior_state()
         if preserved_state is None:
             raise RuntimeError(
@@ -2022,6 +2134,13 @@ def select_publication(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-ref", required=True)
+    parser.add_argument(
+        "--candidate-code-ref",
+        help=(
+            "Immutable candidate code commit used only to exempt legitimate "
+            "non-generated changes during refresh-only validation"
+        ),
+    )
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--state-output", default=str(DEFAULT_STATE))
     parser.add_argument(
@@ -2081,6 +2200,7 @@ def main(argv: list[str] | None = None) -> int:
             forced_degraded=forced,
             collector_failures=collector_failures,
             refresh_only_surface=args.refresh_only_surface,
+            candidate_code_ref=args.candidate_code_ref,
         )
     except Exception as exc:
         print(f"Publication selection failed: {exc}", file=sys.stderr)

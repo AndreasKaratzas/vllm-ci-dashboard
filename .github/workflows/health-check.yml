@@ -17,11 +17,25 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Check out monitor
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12.13'
+
+      - name: Observe durable core collection freshness
+        id: core-freshness
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/data_collection_attempt_budget.json observe \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Run synthetic site health check
         id: synthetic-health
@@ -30,6 +44,8 @@ jobs:
           SITE_URL: https://andreaskaratzas.github.io/vllm-ci-dashboard/
           REPORT_PATH: ${{ runner.temp }}/site-health-report.json
           DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
+          BOOTSTRAP_EVIDENCE_PATH: ${{ runner.temp }}/dashboard-bootstrap-refs.json
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Seed bounded fail-closed evidence so a checker import/crash still
@@ -54,9 +70,18 @@ jobs:
               "Synthetic checker did not produce bounded Markdown details.\n"
           )
           PY
+          rm -f "$BOOTSTRAP_EVIDENCE_PATH"
+          if ! python scripts/vllm/check_site_health.py \
+            --write-bootstrap-ref-evidence "$BOOTSTRAP_EVIDENCE_PATH" \
+            --repository "$GITHUB_REPOSITORY"; then
+            echo "::warning::Dashboard-state ref evidence was ambiguous; legacy bootstrap health will fail closed."
+            rm -f "$BOOTSTRAP_EVIDENCE_PATH"
+          fi
           python scripts/vllm/check_site_health.py \
             --site-url "$SITE_URL" \
             --max-publication-age-hours 3 \
+            --bootstrap-ref-evidence "$BOOTSTRAP_EVIDENCE_PATH" \
+            --repository "$GITHUB_REPOSITORY" \
             --output "$REPORT_PATH" \
             --github-output "$GITHUB_OUTPUT" \
             --markdown-output "$DETAILS_PATH"
@@ -76,9 +101,19 @@ jobs:
           AGE_HOURS: ${{ steps.synthetic-health.outputs.age_hours }}
           REASON_COUNT: ${{ steps.synthetic-health.outputs.reason_count }}
           OVERALL_STATUS: ${{ steps.synthetic-health.outputs.overall_status }}
+          CONFIRMATION_CONFIRMED: ${{ steps.synthetic-health.outputs.confirmation_confirmed }}
+          PROBE_ATTEMPTS: ${{ steps.synthetic-health.outputs.probe_attempts }}
+          HEALTHY_PROBE_COUNT: ${{ steps.synthetic-health.outputs.healthy_probe_count }}
+          REQUIRED_HEALTHY_PROBES: ${{ steps.synthetic-health.outputs.required_healthy_probes }}
+          CORE_FRESHNESS_OUTCOME: ${{ steps.core-freshness.outcome }}
+          CORE_COLLECTION_REQUIRED: ${{ steps.core-freshness.outputs.required }}
+          CORE_REQUEST_MODE: ${{ steps.core-freshness.outputs.request_mode }}
+          CORE_AVAILABLE_AT: ${{ steps.core-freshness.outputs.available_at }}
+          CORE_LATEST_SUCCEEDED_AT: ${{ steps.core-freshness.outputs.latest_succeeded_at }}
           REPORT_PATH: ${{ runner.temp }}/site-health-report.json
           DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
           BODY_PATH: ${{ runner.temp }}/site-health-issue.md
+          BOOTSTRAP_EVIDENCE_PATH: ${{ runner.temp }}/dashboard-bootstrap-refs.json
           SITE_URL: https://andreaskaratzas.github.io/vllm-ci-dashboard/
           OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
         run: |
@@ -106,13 +141,28 @@ jobs:
                   "reasons": [reason],
               }
 
+          def reject_duplicate_keys(pairs):
+              value = {}
+              for key, item in pairs:
+                  if key in value:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  value[key] = item
+              return value
+
+          def reject_nonfinite_constant(value):
+              raise ValueError(f"non-finite JSON constant: {value}")
+
           report_syntax_valid = False
           report_error = ""
           try:
               raw = report_path.read_bytes()
               if len(raw) > max_report_bytes:
                   raise ValueError("checker report exceeded 64 KiB")
-              report = json.loads(raw)
+              report = json.loads(
+                  raw,
+                  object_pairs_hook=reject_duplicate_keys,
+                  parse_constant=reject_nonfinite_constant,
+              )
               if not isinstance(report, dict):
                   raise ValueError("checker report was not a JSON object")
               encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
@@ -134,8 +184,31 @@ jobs:
               "generated_at": os.environ.get("GENERATED_AT", ""),
               "age_hours": os.environ.get("AGE_HOURS", ""),
               "reason_count": os.environ.get("REASON_COUNT", ""),
+              "confirmation_confirmed": os.environ.get("CONFIRMATION_CONFIRMED", ""),
+              "probe_attempts": os.environ.get("PROBE_ATTEMPTS", ""),
+              "healthy_probe_count": os.environ.get("HEALTHY_PROBE_COUNT", ""),
+              "required_healthy_probes": os.environ.get("REQUIRED_HEALTHY_PROBES", ""),
           }
-          missing = sorted(key for key, value in required.items() if not value.strip())
+          # A completed unhealthy probe can legitimately have no parsed mode,
+          # status, generation, or age (for example when publication_status.json
+          # is unavailable or malformed). Quorum/transport evidence is mandatory;
+          # nullable publication diagnostics are cross-checked below and become
+          # mandatory through the stricter healthy-report contract.
+          mandatory_output_keys = {
+              "healthy",
+              "overall_status",
+              "site_http",
+              "site_bytes",
+              "publication_http",
+              "reason_count",
+              "confirmation_confirmed",
+              "probe_attempts",
+              "healthy_probe_count",
+              "required_healthy_probes",
+          }
+          missing = sorted(
+              key for key in mandatory_output_keys if not required[key].strip()
+          )
           contract_errors = []
 
           def parse_nonnegative_int_output(key, label):
@@ -174,12 +247,28 @@ jobs:
           output_reason_count = parse_nonnegative_int_output(
               "reason_count", "reason count"
           )
+          output_probe_attempts = parse_nonnegative_int_output(
+              "probe_attempts", "probe attempts"
+          )
+          output_healthy_probe_count = parse_nonnegative_int_output(
+              "healthy_probe_count", "healthy probe count"
+          )
+          output_required_healthy = parse_nonnegative_int_output(
+              "required_healthy_probes", "required healthy probes"
+          )
+          confirmation_confirmed = None
+          if required["confirmation_confirmed"] in {"true", "false"}:
+              confirmation_confirmed = required["confirmation_confirmed"] == "true"
+          else:
+              contract_errors.append("checker confirmation output was not boolean")
 
           if report_syntax_valid:
               reasons = report.get("reasons")
               report_healthy = report.get("healthy")
               site = report.get("site")
               publication = report.get("publication")
+              projection = report.get("projection")
+              confirmation = report.get("confirmation")
               if type(report.get("schema_version")) is not int or report.get("schema_version") != 1:
                   contract_errors.append("report schema_version was not 1")
               if not isinstance(report_healthy, bool):
@@ -206,6 +295,114 @@ jobs:
               if not isinstance(publication, dict):
                   contract_errors.append("report publication was not an object")
                   publication = {}
+              if not isinstance(projection, dict):
+                  contract_errors.append("report projection was not an object")
+                  projection = {}
+              if not isinstance(confirmation, dict):
+                  contract_errors.append("report confirmation was not an object")
+                  confirmation = {}
+
+              report_confirmed = confirmation.get("confirmed")
+              attempted = confirmation.get("attempted")
+              required_healthy = confirmation.get("required_healthy")
+              healthy_count = confirmation.get("healthy_count")
+              unhealthy_count = confirmation.get("unhealthy_count")
+              probes = confirmation.get("probes")
+              if report_confirmed is not True:
+                  contract_errors.append("report lacked completed quorum confirmation")
+              if confirmation_confirmed is not None and report_confirmed is not confirmation_confirmed:
+                  contract_errors.append("report confirmation disagreed with checker output")
+              if (
+                  confirmation.get("strategy") != "2-of-3-quorum"
+                  or confirmation.get("max_attempts") != 3
+                  or attempted != 3
+                  or required_healthy != 2
+                  or confirmation.get("max_requests") != 42
+                  or confirmation.get("per_request_timeout_seconds") != 10
+                  or confirmation.get("max_transport_seconds") != 420
+                  or confirmation.get("retry_delays_seconds") != [0.0, 2.0, 5.0]
+                  or confirmation.get("max_elapsed_seconds") != 427
+                  or not is_nonnegative_int(healthy_count)
+                  or not is_nonnegative_int(unhealthy_count)
+                  or healthy_count + unhealthy_count != attempted
+                  or not isinstance(probes, list)
+                  or len(probes) != attempted
+              ):
+                  contract_errors.append("report quorum confirmation was malformed")
+              if output_probe_attempts is not None and attempted != output_probe_attempts:
+                  contract_errors.append("report probe attempts disagreed with checker output")
+              if (
+                  output_healthy_probe_count is not None
+                  and healthy_count != output_healthy_probe_count
+              ):
+                  contract_errors.append("report healthy probe count disagreed with checker output")
+              if (
+                  output_required_healthy is not None
+                  and required_healthy != output_required_healthy
+              ):
+                  contract_errors.append("report quorum disagreed with checker output")
+              if isinstance(report_healthy, bool) and is_nonnegative_int(healthy_count):
+                  if report_healthy != (healthy_count >= 2):
+                      contract_errors.append("report health disagreed with its probe quorum")
+              if isinstance(probes, list):
+                  observed_probe_health = 0
+                  expected_probe_fields = {
+                      "attempt",
+                      "checked_at",
+                      "healthy",
+                      "site_http",
+                      "publication_http",
+                      "generation_http",
+                      "manifest_http",
+                      "projection_mode",
+                      "projection_verified",
+                      "reason_codes",
+                  }
+                  for index, probe in enumerate(probes, 1):
+                      if not isinstance(probe, dict) or set(probe) != expected_probe_fields:
+                          contract_errors.append("report probe summary was malformed")
+                          continue
+                      if probe.get("attempt") != index or not isinstance(probe.get("healthy"), bool):
+                          contract_errors.append("report probe sequence was malformed")
+                      else:
+                          observed_probe_health += int(probe["healthy"])
+                      for field in (
+                          "site_http",
+                          "publication_http",
+                          "generation_http",
+                          "manifest_http",
+                      ):
+                          if not is_nonnegative_int(probe.get(field)):
+                              contract_errors.append("report probe HTTP evidence was malformed")
+                      reason_codes = probe.get("reason_codes")
+                      if (
+                          not isinstance(reason_codes, list)
+                          or len(reason_codes) > 20
+                          or any(not isinstance(code, str) or not code for code in reason_codes)
+                      ):
+                          contract_errors.append("report probe findings were malformed")
+                      if probe.get("healthy") is True:
+                          projection_mode = probe.get("projection_mode")
+                          projection_proof_valid = (
+                              projection_mode == "verified"
+                              and probe.get("projection_verified") is True
+                              and probe.get("generation_http") == 200
+                              and probe.get("manifest_http") == 200
+                          ) or (
+                              projection_mode == "legacy-bootstrap"
+                              and probe.get("projection_verified") is False
+                              and probe.get("generation_http") == 404
+                              and probe.get("manifest_http") == 404
+                          )
+                          if (
+                              probe.get("site_http") != 200
+                              or probe.get("publication_http") != 200
+                              or reason_codes != []
+                              or not projection_proof_valid
+                          ):
+                              contract_errors.append("healthy probe summary lacked health proof")
+                  if is_nonnegative_int(healthy_count) and observed_probe_health != healthy_count:
+                      contract_errors.append("report probe summaries disagreed with healthy count")
 
               report_site_http = site.get("http_status")
               if not is_nonnegative_int(report_site_http):
@@ -305,6 +502,8 @@ jobs:
                       )
 
               if checker_healthy is True:
+                  if confirmation_confirmed is not True:
+                      contract_errors.append("healthy report was not quorum-confirmed")
                   if reasons:
                       contract_errors.append("healthy report contained findings")
                   if (
@@ -334,6 +533,72 @@ jobs:
                       or report_age > 3
                   ):
                       contract_errors.append("healthy report had an invalid publication age")
+                  projection_mode = projection.get("mode")
+                  if projection_mode == "verified":
+                      if (
+                          projection.get("verified") is not True
+                          or projection.get("generation_http") != 200
+                          or projection.get("manifest_http") != 200
+                          or not isinstance(projection.get("manifest_sha256"), str)
+                          or len(projection["manifest_sha256"]) != 64
+                          or any(char not in "0123456789abcdef" for char in projection["manifest_sha256"])
+                          or not is_nonnegative_int(projection.get("file_count"))
+                          or not is_nonnegative_int(projection.get("total_bytes"))
+                          or projection.get("verified_files") != [
+                              "index.html",
+                              "data/vllm/ci/publication_status.json",
+                              "assets/css/dashboard.css",
+                              "assets/css/ops-v2.css",
+                              "assets/js/utils.js",
+                              "assets/js/publication-status.js",
+                              "assets/js/dashboard-nav.js",
+                              "assets/js/ops-v2.js",
+                              "data/vllm/ci/operations_v2_manifest.json",
+                              "data/vllm/ci/operations_v2/nightly.json",
+                              "data/vllm/ci/operations_v2/amd_test_health.json",
+                              "data/vllm/ci/operations_v2/diagnostics.json",
+                          ]
+                          or projection.get("operations_canaries") != [
+                              {
+                                  "name": "nightly",
+                                  "path": "data/vllm/ci/operations_v2/nightly.json",
+                                  "http_status": 200,
+                              },
+                              {
+                                  "name": "amd_test_health",
+                                  "path": "data/vllm/ci/operations_v2/amd_test_health.json",
+                                  "http_status": 200,
+                              },
+                              {
+                                  "name": "diagnostics",
+                                  "path": "data/vllm/ci/operations_v2/diagnostics.json",
+                                  "http_status": 200,
+                              },
+                          ]
+                      ):
+                          contract_errors.append("healthy report lacked exact projection proof")
+                  elif projection_mode == "legacy-bootstrap":
+                      try:
+                          from scripts.vllm.check_site_health import (
+                              _legacy_bootstrap_allowed,
+                          )
+
+                          bootstrap_authorized = _legacy_bootstrap_allowed(
+                              evidence_path=Path(os.environ["BOOTSTRAP_EVIDENCE_PATH"]),
+                              repository=os.environ["GITHUB_REPOSITORY"],
+                              now=datetime.now(timezone.utc),
+                          )
+                      except (OSError, ValueError):
+                          bootstrap_authorized = False
+                      if (
+                          bootstrap_authorized is not True
+                          or projection.get("verified") is not False
+                          or projection.get("generation_http") != 404
+                          or projection.get("manifest_http") != 404
+                      ):
+                          contract_errors.append("legacy projection exception lacked bootstrap policy")
+                  else:
+                      contract_errors.append("healthy report used an invalid projection mode")
 
           report_valid = report_syntax_valid and not contract_errors
           if not report_valid:
@@ -342,13 +607,55 @@ jobs:
           encoded = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode()
           report_path.write_bytes(encoded)
 
-          healthy = (
-              os.environ.get("CHECKER_OUTCOME") == "success"
-              and checker_healthy is True
-              and required["overall_status"] == "healthy"
+          core_outcome = os.environ.get("CORE_FRESHNESS_OUTCOME", "")
+          core_required = os.environ.get("CORE_COLLECTION_REQUIRED", "")
+          core_mode = os.environ.get("CORE_REQUEST_MODE", "")
+          core_available_at = os.environ.get("CORE_AVAILABLE_AT", "")
+          core_latest_succeeded_at = os.environ.get("CORE_LATEST_SUCCEEDED_AT", "")
+          core_observation_valid = (
+              core_outcome == "success"
+              and core_required in {"true", "false"}
+              and core_mode
+              in {"reserved", "success_gated", "retry_gated", "cap_gated"}
+              and ((core_required == "true") == (core_mode == "reserved"))
+          )
+          core_success_at = None
+          if core_latest_succeeded_at:
+              try:
+                  core_success_at = datetime.fromisoformat(
+                      core_latest_succeeded_at.replace("Z", "+00:00")
+                  )
+                  if (
+                      core_success_at.tzinfo is None
+                      or core_success_at.microsecond
+                      or core_success_at.astimezone(timezone.utc).isoformat().replace(
+                          "+00:00", "Z"
+                      )
+                      != core_latest_succeeded_at
+                  ):
+                      core_success_at = None
+              except ValueError:
+                  core_success_at = None
+          now = datetime.now(timezone.utc)
+          core_current = bool(
+              core_observation_valid
+              and core_success_at is not None
+              and now - timedelta(minutes=5)
+              <= core_success_at + timedelta(hours=3)
+              and core_success_at <= now + timedelta(minutes=5)
+          )
+
+          confirmed = (
+              confirmation_confirmed is True
               and not missing
               and report_valid
+              and required["overall_status"] in {"healthy", "confirmed_unhealthy"}
+              and (
+                  (checker_healthy is True and os.environ.get("CHECKER_OUTCOME") == "success")
+                  or (checker_healthy is False and os.environ.get("CHECKER_OUTCOME") == "failure")
+              )
           )
+          healthy = confirmed and checker_healthy is True and core_current
 
           try:
               details_raw = details_path.read_bytes()
@@ -357,13 +664,16 @@ jobs:
               details = details_raw.decode("utf-8")
           except (OSError, UnicodeDecodeError, ValueError) as exc:
               details = f"Synthetic checker details unavailable: {exc}"
-          safe_details = html.escape(details[:max_details_bytes])
+          escaped_details = html.escape(details[:max_details_bytes])
+          safe_details = escaped_details.encode("utf-8")[:max_details_bytes].decode(
+              "utf-8", errors="ignore"
+          )
 
           repository = os.environ["GITHUB_REPOSITORY"]
           server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
           run_url = f"{server}/{repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
           deploy_url = f"{server}/{repository}/deployments"
-          status = "healthy recovery probe" if healthy else "unhealthy"
+          status = "healthy" if healthy else "confirmed unhealthy" if confirmed else "unconfirmed"
           missing_text = ", ".join(missing) if missing else "none"
           body = f"""{os.environ['OWNERSHIP_MARKER']}
           <!-- SITE_HEALTH_STATE -->
@@ -374,9 +684,11 @@ jobs:
           - **Workflow run:** [synthetic monitor evidence]({run_url})
           - **Deployment history:** [GitHub deployments]({deploy_url})
           - **Checker outcome:** `{html.escape(os.environ.get('CHECKER_OUTCOME', 'missing'))}`
+          - **Quorum confirmation:** `{str(confirmed).lower()}` ({html.escape(required['healthy_probe_count'] or 'missing')}/{html.escape(required['probe_attempts'] or 'missing')} healthy; {html.escape(required['required_healthy_probes'] or 'missing')} required)
           - **Overall status:** `{html.escape(os.environ.get('OVERALL_STATUS') or 'missing')}`
           - **Publication mode/status:** `{html.escape(required['publication_mode'] or 'missing')}` / `{html.escape(required['publication_status'] or 'missing')}`
           - **Publication age:** `{html.escape(required['age_hours'] or 'missing')}` hours
+          - **Durable core collection:** `{'current' if core_current else 'stale/unavailable'}` (last success `{html.escape(core_latest_succeeded_at or 'missing')}`, observation `{html.escape(core_outcome or 'missing')}`, mode `{html.escape(core_mode or 'missing')}`, next `{html.escape(core_available_at or 'now')}`)
           - **Missing checker outputs:** `{html.escape(missing_text)}`
 
           <details><summary>Bounded checker details</summary><pre>{safe_details}</pre></details>
@@ -390,13 +702,18 @@ jobs:
 
           summary = (
               f"healthy={str(healthy).lower()} "
+              f"confirmed={str(confirmed).lower()} "
               f"status={os.environ.get('OVERALL_STATUS') or 'missing'} "
               f"mode={required['publication_mode'] or 'missing'} "
               f"age_hours={required['age_hours'] or 'missing'} "
+              f"core_current={str(core_current).lower()} "
+              f"core_mode={core_mode or 'missing'} "
               f"missing_outputs={len(missing)}"
           ).replace("\n", " ")[:1000]
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"healthy={str(healthy).lower()}\n")
+              output.write(f"confirmed={str(confirmed).lower()}\n")
+              output.write(f"core_current={str(core_current).lower()}\n")
               output.write(f"report_valid={str(report_valid).lower()}\n")
               output.write(f"missing_output_count={len(missing)}\n")
               output.write(f"summary={summary}\n")
@@ -405,7 +722,7 @@ jobs:
       - name: Upload bounded site health report
         id: upload-health-report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: site-health-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/site-health-report.json
@@ -416,9 +733,10 @@ jobs:
       - name: Reconcile marker-owned site health issue
         id: reconcile-health-issue
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           HEALTHY: ${{ steps.health-result.outputs.healthy }}
+          CONFIRMED: ${{ steps.health-result.outputs.confirmed }}
           BODY_PATH: ${{ runner.temp }}/site-health-issue.md
           OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
         with:
@@ -426,10 +744,15 @@ jobs:
             const fs = require('fs');
             const ownershipMarker = process.env.OWNERSHIP_MARKER;
             const labelName = 'site-health';
-            const statePattern = /<!-- site-health-state:recovery=(\d+);rearmed=(true|false) -->/;
             const statePlaceholder = '<!-- SITE_HEALTH_STATE -->';
             const recoveryPlaceholder = '<!-- SITE_HEALTH_RECOVERY_NOTE -->';
             const healthy = process.env.HEALTHY === 'true';
+            const confirmed = process.env.CONFIRMED === 'true';
+            if (!confirmed) {
+              core.warning('Synthetic evidence was not quorum-confirmed; issue state is unchanged.');
+              core.setOutput('reconciled', 'true');
+              return;
+            }
             const baseBody = fs.readFileSync(process.env.BODY_PATH, 'utf8');
             const hasExactMarker = body => String(body || '')
               .split(/\r?\n/)
@@ -452,15 +775,35 @@ jobs:
               });
             }
 
-            // Identity comes from the exact body marker, not the mutable label.
-            // Paginating every issue also finds an owned issue after a person or
-            // bot removes its presentation label. If lookup fails, the step
-            // throws before creation, preventing a duplicate incident.
-            const allIssues = await github.paginate(
-              github.rest.issues.listForRepo,
-              { ...context.repo, state: 'all', per_page: 100 },
-            );
-            const owned = allIssues
+            // Identity comes from the exact body marker, while the automation-
+            // repaired label is the durable bounded index. One bounded recent
+            // page also recovers a newly removed label without making lookup
+            // cost grow with the repository's lifetime issue count.
+            const labeledResponse = await github.rest.issues.listForRepo({
+              ...context.repo,
+              state: 'all',
+              labels: labelName,
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            });
+            if (labeledResponse.data.length >= 100) {
+              throw new Error('site-health label lookup reached its bounded ambiguity limit');
+            }
+            const recentResponse = await github.rest.issues.listForRepo({
+              ...context.repo,
+              state: 'all',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            });
+            const candidates = new Map();
+            for (const issue of [...labeledResponse.data, ...recentResponse.data]) {
+              candidates.set(issue.number, issue);
+            }
+            const owned = [...candidates.values()]
               .filter(issue => !issue.pull_request &&
                 hasExactMarker(issue.body))
               .sort((left, right) => right.number - left.number);
@@ -479,54 +822,20 @@ jobs:
               }
             }
 
-            const priorMatch = String(existing?.body || '').match(statePattern);
-            const priorRecovery = priorMatch ? Number(priorMatch[1]) : 0;
-            const priorRearmed = priorMatch?.[2] === 'true';
-            let recovery = 0;
-            let rearmed = false;
-            let note = '';
-            let state = existing?.state || 'open';
-            let title = '[Site Health] Dashboard synthetic monitor unhealthy';
-
-            if (healthy) {
-              if (!existing) {
-                core.info('Healthy probe with no owned incident; nothing to close.');
-                core.setOutput('reconciled', 'true');
-                return;
-              }
-              if (priorRearmed && priorRecovery >= 2 && existing.state === 'closed') {
-                core.info(`Owned site-health issue #${existing.number} is already recovered.`);
-                core.setOutput('reconciled', 'true');
-                return;
-              }
-              recovery = Math.min(2, priorRecovery + 1);
-              rearmed = recovery >= 2;
-              if (rearmed) {
-                state = 'closed';
-                title = '[Recovered] Dashboard synthetic monitor healthy';
-                note = 'Two consecutive healthy probes confirmed recovery. The incident is rearmed.';
-              } else {
-                // Preserve manual closure during the first recovery probe.
-                state = existing.state;
-                title = '[Site Health] Dashboard recovery verification (1/2)';
-                note = 'Recovery probe 1/2 passed; one more consecutive healthy probe is required.';
-              }
-            } else {
-              // Every unhealthy probe resets partial recovery. A manually
-              // closed, not-yet-rearmed issue remains suppressed; an issue
-              // closed after confirmed recovery is reopened in place.
-              recovery = 0;
-              rearmed = false;
-              if (existing?.state === 'closed' && !priorRearmed) {
-                state = 'closed';
-                note = 'The issue remains manually closed until two healthy probes rearm it.';
-              } else {
-                state = 'open';
-                note = 'The unhealthy probe reset the consecutive recovery streak to 0/2.';
-              }
+            if (healthy && !existing) {
+              core.info('Confirmed healthy quorum with no owned incident; nothing to close.');
+              core.setOutput('reconciled', 'true');
+              return;
             }
 
-            const stateMarker = `<!-- site-health-state:recovery=${recovery};rearmed=${rearmed} -->`;
+            const state = healthy ? 'closed' : 'open';
+            const title = healthy
+              ? '[Recovered] Dashboard synthetic monitor healthy'
+              : '[Site Health] Dashboard synthetic monitor unhealthy';
+            const note = healthy
+              ? 'The in-run 2-of-3 healthy quorum confirmed recovery and rearmed this incident.'
+              : 'The in-run 2-of-3 quorum confirmed the dashboard health failure.';
+            const stateMarker = `<!-- site-health-state:confirmed=true;healthy=${healthy};rearmed=${healthy} -->`;
             const body = baseBody
               .replace(statePlaceholder, stateMarker)
               .replace(recoveryPlaceholder, note);

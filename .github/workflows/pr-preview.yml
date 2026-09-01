@@ -5,14 +5,14 @@ on:
   # Untrusted pull-request code is exercised by pr-preview-validation.yml,
   # which uses the ordinary read-only pull_request security boundary.
   pull_request_target:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
 
 concurrency:
-  # Shares the same lock as root-site deploys because previews still mutate
-  # the shared gh-pages branch under pr-preview/pr-<N>.
-  group: gh-pages-deploy
-  queue: max
-  cancel-in-progress: false
+  # Collapse each PR's synchronization burst before it can occupy the shared
+  # Pages writer. Closed PRs never enqueue a privileged full-tree rewrite;
+  # bounded stale previews are replaced/pruned by later exact publications.
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -29,7 +29,11 @@ jobs:
         fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
         github.event.pull_request.author_association
       )
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: gh-pages-deploy
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write
@@ -37,30 +41,37 @@ jobs:
       TRUSTED_PYTHONPATH: ${{ github.workspace }}/trusted-base/scripts
     steps:
       - name: Checkout immutable trusted base
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted-base
           persist-credentials: false
           sparse-checkout: |
             config
+            constraints.txt
+            pyproject.toml
             scripts
 
       # This checkout is data-only. No command in this privileged job executes
       # a script, action, dependency, or configuration from this directory.
       - name: Checkout pull request as static input
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
           path: pr-input
           persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            trusted-base/constraints.txt
+            trusted-base/pyproject.toml
 
       - name: Install dependencies
-        run: pip install pyyaml
+        run: pip install -c constraints.txt pyyaml
+        working-directory: trusted-base
 
       - name: Validate and copy static pull-request inputs
         run: |
@@ -106,7 +117,7 @@ jobs:
           PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
           trusted-base/scripts/vllm/build_operations_snapshot.py
           --input-dir trusted-base/data/vllm/ci
-          --output trusted-base/data/vllm/ci/operations_v2.json
+          --output trusted-base/data/vllm/ci/operations_v2.json.gz
 
       - name: Generate site data
         run: >-
@@ -118,15 +129,41 @@ jobs:
           PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
           trusted-base/scripts/build_site.py --cache-bust-index
 
-      - uses: peaceiris/actions-gh-pages@v4
+      - name: Compose exact bounded Pages tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          NEW_PREVIEW="$RUNNER_TEMP/new-preview"
+          PAGES_NEXT="$RUNNER_TEMP/pages-next"
+          rm -rf "$NEW_PREVIEW" "$PAGES_NEXT" trusted-base/_pages_publish
+          mv trusted-base/_site "$NEW_PREVIEW"
+          mkdir -p "$PAGES_NEXT"
+          python -I trusted-base/scripts/vllm/github_git_proof.py hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages --profile pages \
+            --root trusted-base --remote origin \
+            --output "$RUNNER_TEMP/pr-preview-pages-proof.json" \
+            --materialize-root "$PAGES_NEXT"
+          rm -rf "$PAGES_NEXT/pr-preview/$PREVIEW_NAME"
+          mkdir -p "$PAGES_NEXT/pr-preview"
+          mv "$NEW_PREVIEW" "$PAGES_NEXT/pr-preview/$PREVIEW_NAME"
+          python -I trusted-base/scripts/vllm/github_git_proof.py \
+            bound-pages-directory --root "$PAGES_NEXT" \
+            --protect-preview "$PREVIEW_NAME"
+          mv "$PAGES_NEXT" trusted-base/_pages_publish
+
+      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./trusted-base/_site
+          publish_dir: ./trusted-base/_pages_publish
           publish_branch: gh-pages
-          destination_dir: pr-preview/pr-${{ github.event.pull_request.number }}
+          keep_files: false
+          force_orphan: true
 
       - name: Comment preview URL
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const prNum = context.payload.pull_request.number;
@@ -147,26 +184,3 @@ jobs:
                 issue_number: prNum, body: body
               });
             }
-
-  cleanup-preview:
-    if: github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-
-      - name: Remove preview
-        run: |
-          GUARD_SCRIPT="$RUNNER_TEMP/check_git_blob_sizes.py"
-          git fetch --no-tags --depth=1 origin main
-          git show FETCH_HEAD:scripts/vllm/check_git_blob_sizes.py > "$GUARD_SCRIPT"
-          rm -rf pr-preview/pr-${{ github.event.pull_request.number }}
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          python "$GUARD_SCRIPT"
-          git diff --staged --quiet || git commit -m "clean up pr-${{ github.event.pull_request.number }} preview"
-          git push
