@@ -1198,22 +1198,14 @@ jobs:
           set -euo pipefail
           # The audit above proves that all four durable files belong to one
           # exact generation. The publication selector owns the queue source
-          # files and rebuilds these two projections after selection, so keep
-          # them at the validated publication baseline until that point.
-          QUEUE_RESTORE_DIR=$(mktemp -d "$RUNNER_TEMP/queue-projection-restore.XXXXXX")
-          for QUEUE_PATH in \
-            data/vllm/ci/operations_v2/queue.json \
-            data/vllm/ci/queue_history_chart.json; do
-            mkdir -p "$QUEUE_RESTORE_DIR/$(dirname "$QUEUE_PATH")"
-            git show "$PUBLICATION_BASELINE_REF:$QUEUE_PATH" \
-              > "$QUEUE_RESTORE_DIR/$QUEUE_PATH"
-          done
-          for QUEUE_PATH in \
-            data/vllm/ci/operations_v2/queue.json \
-            data/vllm/ci/queue_history_chart.json; do
-            install -D -m 0644 "$QUEUE_RESTORE_DIR/$QUEUE_PATH" "$QUEUE_PATH"
-          done
-          rm -rf "$QUEUE_RESTORE_DIR"
+          # files and rebuilds both derived projections after selection. Mirror
+          # their exact baseline presence transactionally: operations_v2 is
+          # normally absent because it is gitignored, while the tracked chart
+          # is restored byte-for-byte. The baseline passed full state validation
+          # above; a successful empty ls-tree result remains distinct from any
+          # Git/object failure.
+          python -S scripts/vllm/restore_queue_projections.py \
+            --baseline-ref "$PUBLICATION_BASELINE_REF"
 
       - name: Sync validated queue lifecycle aggregate
         if: inputs.dns_generation == '' && inputs.queue_generation == ''

@@ -1068,12 +1068,9 @@ class TestHourlyMasterWorkflow:
         assert restore["if"] == (
             "inputs.dns_generation == '' && inputs.queue_generation != ''"
         )
-        for path in (
-            "data/vllm/ci/operations_v2/queue.json",
-            "data/vllm/ci/queue_history_chart.json",
-        ):
-            assert path in restore["run"]
-        assert 'git show "$PUBLICATION_BASELINE_REF:$QUEUE_PATH"' in restore["run"]
+        assert "python -S scripts/vllm/restore_queue_projections.py" in restore["run"]
+        assert '--baseline-ref "$PUBLICATION_BASELINE_REF"' in restore["run"]
+        assert "git show" not in restore["run"]
         assert "queue_jobs.json" not in restore["run"]
         assert "queue_timeseries.jsonl" not in restore["run"]
         assert "inputs.queue_generation == ''" in lifecycle["if"]
