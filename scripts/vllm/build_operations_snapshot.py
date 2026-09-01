@@ -21,6 +21,10 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.constants import is_excluded_queue  # noqa: E402
+from vllm.operations_bundle_contract import (  # noqa: E402
+    OperationsBundleContractError,
+    validate_operations_canary_budget,
+)
 from vllm.ci.incident_transitions import (  # noqa: E402
     INCIDENT_TRANSITION_POLICY_ID,
     SOFT_CONFIRMATION_BUILDS,
@@ -8373,8 +8377,23 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
     }
 
 
+def _reject_nonfinite_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON number: {value}")
+
+
 def _encoded_json(payload: Any) -> str:
-    return json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n"
+    # Browser JSON.parse rejects the non-standard NaN/Infinity constants that
+    # Python's encoder otherwise emits by default. Fail before any generation
+    # files are mutated so the last browser-consumable bundle remains intact.
+    return (
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+        + "\n"
+    )
 
 
 def _snapshot_format(path: Path) -> str:
@@ -8434,7 +8453,10 @@ def load_snapshot_payload(path: Path) -> dict:
             "Operations snapshot expands to more than "
             f"{OPERATIONS_DECOMPRESSED_MAX_BYTES} bytes"
         )
-    payload = json.loads(raw.decode("utf-8"))
+    payload = json.loads(
+        raw.decode("utf-8"),
+        parse_constant=_reject_nonfinite_json_constant,
+    )
     if not isinstance(payload, dict):
         raise ValueError("Operations snapshot must contain a JSON object")
     return payload
@@ -9174,39 +9196,34 @@ def write_snapshot_bundle(
                     f"{OPERATIONS_GZIP_MAX_BYTES} bytes"
                 )
 
-    # All monolith size checks happen before any output is mutated.
-    output.parent.mkdir(parents=True, exist_ok=True)
-    if encoded_output is not None:
-        output.write_bytes(encoded_output)
-
-    bundle_dir = output.parent / OPERATIONS_BUNDLE_DIR_NAME
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-    section_manifest = {}
-    expected_paths = set()
-    for name, section in _operation_sections(payload).items():
-        path = bundle_dir / f"{name}.json"
-        encoded = _encoded_json(section)
-        path.write_text(encoded)
-        expected_paths.add(path)
-        section_manifest[name] = {
-            "path": f"{OPERATIONS_BUNDLE_DIR_NAME}/{path.name}",
+    # Build and bound every default-route asset before mutating an existing
+    # generation. A growing evidence catalog can therefore preserve the last
+    # known-good publication instead of producing a partially writable bundle.
+    encoded_sections = {
+        name: _encoded_json(section)
+        for name, section in _operation_sections(payload).items()
+    }
+    section_manifest = {
+        name: {
+            "path": f"{OPERATIONS_BUNDLE_DIR_NAME}/{name}.json",
             "bytes": len(encoded.encode("utf-8")),
         }
-    for stale in bundle_dir.glob("*.json"):
-        if stale not in expected_paths:
-            stale.unlink()
+        for name, encoded in encoded_sections.items()
+    }
+    expected_paths = {
+        output.parent / descriptor["path"]
+        for descriptor in section_manifest.values()
+    }
 
     org_summary = build_org_summary(
         payload,
         _load_json(output.parent / QUEUE_LIFECYCLE_NAME),
     )
-    org_summary_path = output.parent / ORG_SUMMARY_NAME
     # This is a machine-consumed exchange contract. Schema v6 keeps only the
     # validated daily index here and references the exact vectors in the public
     # lifecycle source, avoiding a second large copy in every publication.
     org_summary_encoded = _encoded_json(org_summary)
     org_summary_bytes = len(org_summary_encoded.encode("utf-8"))
-    org_summary_path.write_text(org_summary_encoded)
 
     manifest = {
         "schema_version": payload.get("schema_version"),
@@ -9223,6 +9240,31 @@ def write_snapshot_bundle(
     }
     manifest_path = output.parent / OPERATIONS_MANIFEST_NAME
     manifest_encoded = _encoded_json(manifest)
+    try:
+        validate_operations_canary_budget(
+            manifest_bytes=len(manifest_encoded.encode("utf-8")),
+            section_bytes={
+                name: descriptor["bytes"]
+                for name, descriptor in section_manifest.items()
+            },
+        )
+    except OperationsBundleContractError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    # All monolith and browser-consumability checks happen before any output is
+    # mutated. The remaining writes describe the exact precomputed generation.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if encoded_output is not None:
+        output.write_bytes(encoded_output)
+    bundle_dir = output.parent / OPERATIONS_BUNDLE_DIR_NAME
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    for name, encoded in encoded_sections.items():
+        (bundle_dir / f"{name}.json").write_text(encoded)
+    for stale in bundle_dir.glob("*.json"):
+        if stale not in expected_paths:
+            stale.unlink()
+    org_summary_path = output.parent / ORG_SUMMARY_NAME
+    org_summary_path.write_text(org_summary_encoded)
     manifest_path.write_text(manifest_encoded)
     chart_path = output.parent / QUEUE_HISTORY_CHART_NAME
     queue_history = list((payload.get("queue") or {}).get("history") or [])

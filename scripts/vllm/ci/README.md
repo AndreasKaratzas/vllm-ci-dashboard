@@ -356,7 +356,12 @@ sections and the `diagnostics` canary. Together with the shell, publication
 metadata, and six required shell assets, this is an exact maximum of 14 HTTP
 requests per probe. The 2-of-3 confirmation therefore declares at most 42
 requests, 420 transport seconds, and 427 elapsed seconds including retry
-delays.
+delays. The manifest is capped at 2 MiB and the manifest plus those three
+canaries is capped at 12,000,000 bytes. Bundle generation and the full data
+audit enforce that shared contract before publication, and the remote checker
+uses each hash-attested descriptor size as its exact read bound. A bundle that
+outgrows the browser budget therefore leaves the preceding generation intact
+instead of creating a partial or unreadable replacement.
 
 Canonical publishers preserve previews without preserving stale canonical
 files: they server-prove the exact old Pages tree before fetching preview

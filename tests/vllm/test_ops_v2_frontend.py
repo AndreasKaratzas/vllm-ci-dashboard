@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from vllm import operations_bundle_contract as bundle_contract
+
 
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "docs" / "index.html").read_text()
@@ -221,12 +223,14 @@ def test_current_operations_payloads_are_bounded(ops_data, ops_manifest):
         name: descriptor["bytes"]
         for name, descriptor in ops_manifest["sections"].items()
     }
-    assert manifest_bytes < 2_000_000
-    assert (
-        manifest_bytes
-        + section_bytes["nightly"]
-        + section_bytes["amd_test_health"]
-    ) < 12_000_000
+    assert manifest_bytes <= bundle_contract.OPERATIONS_MANIFEST_MAX_BYTES
+    assert bundle_contract.validate_operations_canary_budget(
+        manifest_bytes=manifest_bytes,
+        section_bytes=section_bytes,
+    ) == manifest_bytes + sum(
+        section_bytes[name]
+        for name in bundle_contract.OPERATIONS_CANARY_SECTIONS
+    )
     assert section_bytes["queue"] < 6_000_000
     assert manifest_bytes < OPS_DATA_PATH.stat().st_size * 0.05
 

@@ -231,6 +231,11 @@ PUBLICATION_SURFACE_REQUIRED_KEYS = {
 }
 
 
+def _reject_nonfinite_json_constant(value: str) -> None:
+    """Reject Python's non-standard NaN/Infinity JSON extensions."""
+    raise ValueError(f"non-finite JSON number: {value}")
+
+
 def _uses_declared_publication_domain() -> bool:
     """Avoid applying production aliases to monkeypatched test-local specs."""
     return set(SURFACE_SPECS) == DECLARED_PUBLICATION_SURFACE_NAMES
@@ -997,8 +1002,11 @@ class DashboardAudit:
             self._fallback_surfaces_cache = frozenset()
             return self._fallback_surfaces_cache
         try:
-            state = json.loads(path.read_text())
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            state = json.loads(
+                path.read_text(),
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+        except (OSError, ValueError) as exc:
             self.error(
                 "publication-state-invalid",
                 f"publication fallback state is unreadable: {exc}",
@@ -1779,11 +1787,14 @@ class DashboardAudit:
         if path in self._json_cache:
             return self._json_cache[path]
         try:
-            data = json.loads(path.read_text())
+            data = json.loads(
+                path.read_text(),
+                parse_constant=_reject_nonfinite_json_constant,
+            )
         except FileNotFoundError:
             self.error("missing-json", f"{relpath} is missing", relpath)
             return default
-        except json.JSONDecodeError as exc:
+        except (UnicodeError, ValueError) as exc:
             self.error("invalid-json", f"{relpath} is not valid JSON: {exc}", relpath)
             return default
         self._json_cache[path] = data
@@ -1801,8 +1812,11 @@ class DashboardAudit:
             if not line.strip():
                 continue
             try:
-                row = json.loads(line)
-            except json.JSONDecodeError as exc:
+                row = json.loads(
+                    line,
+                    parse_constant=_reject_nonfinite_json_constant,
+                )
+            except ValueError as exc:
                 self.error(
                     "invalid-jsonl-row",
                     f"{relpath}:{line_no} is not valid JSON: {exc}",
@@ -1831,8 +1845,11 @@ class DashboardAudit:
             if not raw.strip():
                 continue
             try:
-                row = json.loads(raw)
-            except json.JSONDecodeError:
+                row = json.loads(
+                    raw,
+                    parse_constant=_reject_nonfinite_json_constant,
+                )
+            except ValueError:
                 continue
             try:
                 numbers.add(int(row.get("build_number") or 0))
@@ -1918,8 +1935,11 @@ class DashboardAudit:
         """Keep the static publication below explicit per-file and total budgets."""
         manifest_path = self.root / "config/public_data_manifest.json"
         try:
-            manifest = json.loads(manifest_path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            manifest = json.loads(
+                manifest_path.read_text(),
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+        except (OSError, ValueError) as exc:
             self.error(
                 "public-manifest-invalid",
                 f"Could not read the public data manifest: {exc}",
@@ -3775,6 +3795,12 @@ class DashboardAudit:
             QUEUE_LIFECYCLE_NAME,
             build_org_summary,
         )
+        from vllm.operations_bundle_contract import (
+            OPERATIONS_CANARY_SECTIONS,
+            OPERATIONS_MANIFEST_MAX_BYTES,
+            OperationsBundleContractError,
+            validate_operations_canary_budget,
+        )
 
         relpath = "data/vllm/ci/operations_v2_manifest.json"
         manifest_path = self.root / relpath
@@ -4017,8 +4043,11 @@ class DashboardAudit:
                     relpath,
                 )
             try:
-                section = json.loads(path.read_text())
-            except (json.JSONDecodeError, OSError, UnicodeError) as exc:
+                section = json.loads(
+                    path.read_text(),
+                    parse_constant=_reject_nonfinite_json_constant,
+                )
+            except (OSError, UnicodeError, ValueError) as exc:
                 self.error(
                     "operations-bundle-json",
                     f"section {name} is not valid JSON: {exc}",
@@ -4033,20 +4062,33 @@ class DashboardAudit:
                 )
 
         manifest_size = manifest_path.stat().st_size if manifest_path.exists() else 0
-        home_budget = 2_000_000
-        health_budget = 12_000_000
+        health_overview_bytes = (
+            manifest_size
+            + section_sizes.get("nightly", 0)
+            + section_sizes.get("amd_test_health", 0)
+        )
+        canary_bundle_bytes = manifest_size + sum(
+            section_sizes.get(name, 0) for name in OPERATIONS_CANARY_SECTIONS
+        )
         queue_budget = 6_000_000
-        health_initial = manifest_size + section_sizes.get("nightly", 0) + section_sizes.get("amd_test_health", 0)
-        if manifest_size > home_budget:
+        if manifest_size > OPERATIONS_MANIFEST_MAX_BYTES:
             self.error(
                 "operations-home-payload-budget",
-                f"first-render shell is {manifest_size} bytes; budget is {home_budget}",
+                (
+                    f"first-render shell is {manifest_size} bytes; budget is "
+                    f"{OPERATIONS_MANIFEST_MAX_BYTES}"
+                ),
                 relpath,
             )
-        if health_initial > health_budget:
+        try:
+            validate_operations_canary_budget(
+                manifest_bytes=manifest_size,
+                section_bytes=section_sizes,
+            )
+        except OperationsBundleContractError as exc:
             self.error(
                 "operations-health-payload-budget",
-                f"CI Health overview payload is {health_initial} bytes; budget is {health_budget}",
+                str(exc),
                 relpath,
             )
         if section_sizes.get("queue", 0) > queue_budget:
@@ -4078,7 +4120,8 @@ class DashboardAudit:
             )
         self.report.metrics["operations_bundle"] = {
             "manifest_bytes": manifest_size,
-            "health_overview_bytes": health_initial,
+            "health_overview_bytes": health_overview_bytes,
+            "canary_bundle_bytes": canary_bundle_bytes,
             "section_bytes": section_sizes,
         }
 
@@ -6456,8 +6499,11 @@ class DashboardAudit:
             )
             return
         try:
-            payload = json.loads(path_obj.read_text())
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            payload = json.loads(
+                path_obj.read_text(),
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+        except (OSError, ValueError) as exc:
             self.error(
                 "queue-lifecycle-json",
                 f"queue lifecycle data is unreadable: {exc}",
@@ -7230,8 +7276,11 @@ class DashboardAudit:
             return
         try:
             raw = path_obj.read_text()
-            payload = json.loads(raw)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            payload = json.loads(
+                raw,
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+        except (OSError, ValueError) as exc:
             self.error("dns-health-json", f"DNS health data is unreadable: {exc}", path)
             return
 
@@ -8709,8 +8758,11 @@ class DashboardAudit:
 
         manifest_path = self.root / "config/public_data_manifest.json"
         try:
-            manifest = json.loads(manifest_path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = json.loads(
+                manifest_path.read_text(),
+                parse_constant=_reject_nonfinite_json_constant,
+            )
+        except (OSError, ValueError):
             manifest = {}
         if not isinstance(manifest, dict):
             manifest = {}

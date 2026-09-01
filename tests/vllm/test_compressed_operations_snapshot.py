@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from vllm import build_operations_snapshot as operations
+from vllm import operations_bundle_contract as bundle_contract
 from vllm.audit_dashboard_data import DashboardAudit
 
 
@@ -79,6 +80,94 @@ def test_raw_write_ceiling_fails_before_mutating_output(
 
     assert output.read_text() == "existing-generation"
     assert not (tmp_path / operations.OPERATIONS_MANIFEST_NAME).exists()
+
+
+def test_browser_canary_budget_fails_before_mutating_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "operations_v2.json"
+    output.write_text("existing-generation")
+    manifest = tmp_path / operations.OPERATIONS_MANIFEST_NAME
+    manifest.write_text("existing-manifest")
+    bundle = tmp_path / operations.OPERATIONS_BUNDLE_DIR_NAME
+    bundle.mkdir()
+    nightly = bundle / "nightly.json"
+    nightly.write_text("existing-nightly")
+    org_summary = tmp_path / operations.ORG_SUMMARY_NAME
+    org_summary.write_text("existing-summary")
+    monkeypatch.setattr(
+        bundle_contract,
+        "OPERATIONS_CANARY_BUNDLE_MAX_BYTES",
+        1,
+    )
+
+    with pytest.raises(RuntimeError, match="Operations canary bundle"):
+        operations.write_snapshot_bundle(output, PAYLOAD, log=False)
+
+    assert output.read_text() == "existing-generation"
+    assert manifest.read_text() == "existing-manifest"
+    assert nightly.read_text() == "existing-nightly"
+    assert org_summary.read_text() == "existing-summary"
+
+
+def test_nonfinite_browser_json_fails_before_mutating_output(tmp_path: Path) -> None:
+    output = tmp_path / "operations_v2.json"
+    output.write_text("existing-generation")
+    manifest = tmp_path / operations.OPERATIONS_MANIFEST_NAME
+    manifest.write_text("existing-manifest")
+    payload = {
+        **PAYLOAD,
+        "nightly": {"pipelines": [], "derived_metric": float("nan")},
+    }
+
+    with pytest.raises(ValueError, match="Out of range float values"):
+        operations.write_snapshot_bundle(output, payload, log=False)
+
+    assert output.read_text() == "existing-generation"
+    assert manifest.read_text() == "existing-manifest"
+
+
+def test_dashboard_audit_rejects_nonfinite_canary_json(tmp_path: Path) -> None:
+    output = tmp_path / "data/vllm/ci/operations_v2.json"
+    operations.write_snapshot_bundle(output, PAYLOAD, log=False)
+    nightly = output.parent / operations.OPERATIONS_BUNDLE_DIR_NAME / "nightly.json"
+    nightly.write_text('{"derived_metric":NaN}\n')
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+
+    assert "operations-bundle-json" in {
+        finding.code for finding in audit.report.findings
+    }
+
+
+def test_dashboard_audit_uses_shared_diagnostics_inclusive_canary_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = tmp_path / "data/vllm/ci/operations_v2.json"
+    manifest = operations.write_snapshot_bundle(output, PAYLOAD, log=False)
+    manifest_bytes = (output.parent / operations.OPERATIONS_MANIFEST_NAME).stat().st_size
+    exact_total = manifest_bytes + sum(
+        manifest["sections"][name]["bytes"]
+        for name in bundle_contract.OPERATIONS_CANARY_SECTIONS
+    )
+    monkeypatch.setattr(
+        bundle_contract,
+        "OPERATIONS_CANARY_BUNDLE_MAX_BYTES",
+        exact_total - 1,
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+
+    assert "operations-health-payload-budget" in {
+        finding.code for finding in audit.report.findings
+    }
+    assert audit.report.metrics["operations_bundle"]["canary_bundle_bytes"] == (
+        exact_total
+    )
 
 
 def test_gzip_write_and_decompression_ceilings_fail_closed(
@@ -162,3 +251,5 @@ def test_production_limits_are_below_repository_boundaries() -> None:
     assert operations.OPERATIONS_RAW_WRITE_MAX_BYTES == 85 * 1024 * 1024
     assert operations.OPERATIONS_DECOMPRESSED_MAX_BYTES == 256 * 1024 * 1024
     assert operations.OPERATIONS_GZIP_MAX_BYTES < 90_000_000
+    assert bundle_contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 12_000_000
+    assert bundle_contract.OPERATIONS_CANARY_FILE_MAX_BYTES < 90_000_000

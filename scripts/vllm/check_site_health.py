@@ -20,6 +20,16 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.operations_bundle_contract import (  # noqa: E402
+    OPERATIONS_CANARY_FILE_MAX_BYTES,
+    OPERATIONS_CANARY_SECTIONS,
+    OPERATIONS_MANIFEST_MAX_BYTES,
+    OperationsBundleContractError,
+    validate_operations_canary_budget,
+)
+
 
 DEFAULT_SITE_URL = "https://andreaskaratzas.github.io/vllm-ci-dashboard/"
 DEFAULT_STATE_CONFIG = Path(__file__).resolve().parents[2] / "config/dashboard_state.json"
@@ -41,9 +51,8 @@ STATUS_MAX_BYTES = 64 * 1024
 MARKER_MAX_BYTES = 4096
 MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 ASSET_MAX_BYTES = 4 * 1024 * 1024
-OPERATIONS_MANIFEST_MAX_BYTES = 2 * 1024 * 1024
-OPERATIONS_CANARY_SECTIONS = ("nightly", "amd_test_health", "diagnostics")
-OPERATIONS_CANARY_MAX_BYTES = 2 * 1024 * 1024
+# Backwards-compatible public name used by the probe/test request accounting.
+OPERATIONS_CANARY_MAX_BYTES = OPERATIONS_CANARY_FILE_MAX_BYTES
 REPORT_MAX_BYTES = 64 * 1024
 MARKDOWN_MAX_BYTES = 16 * 1024
 BOOTSTRAP_CONFIG_MAX_BYTES = 4096
@@ -288,6 +297,10 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
     return result
 
 
+def _reject_nonfinite_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON number: {value}")
+
+
 def _is_nonnegative_int(value: object) -> bool:
     return type(value) is int and value >= 0
 
@@ -304,6 +317,7 @@ def _strict_json(raw: bytes, *, code: str, label: str) -> object:
         return json.loads(
             raw.decode("utf-8", errors="strict"),
             object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonfinite_constant,
         )
     except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise _ProjectionFailure(code, f"{label} was not strict UTF-8 JSON.") from exc
@@ -597,7 +611,7 @@ def _verify_descriptor(
 def _normalize_operations_manifest(
     value: object,
     projection_manifest: Mapping[str, Any],
-) -> tuple[list[str], dict[str, str]]:
+) -> tuple[list[str], dict[str, str], dict[str, int]]:
     """Validate the browser's bounded Operations entry point and shard map."""
     expected = {
         "schema_version",
@@ -729,7 +743,24 @@ def _normalize_operations_manifest(
     canary_paths = {
         name: named_section_paths[name] for name in OPERATIONS_CANARY_SECTIONS
     }
-    return [organization_path, *sorted(section_paths)], canary_paths
+    canary_sizes = {
+        name: raw_sections[name]["bytes"] for name in OPERATIONS_CANARY_SECTIONS
+    }
+    operations_descriptor = projected_files.get(OPERATIONS_MANIFEST_PATH)
+    try:
+        validate_operations_canary_budget(
+            manifest_bytes=(
+                operations_descriptor.get("bytes")
+                if isinstance(operations_descriptor, dict)
+                else -1
+            ),
+            section_bytes={
+                name: canary_sizes[name] for name in OPERATIONS_CANARY_SECTIONS
+            },
+        )
+    except OperationsBundleContractError as exc:
+        raise _ProjectionFailure("operations-canary-budget", str(exc)) from exc
+    return [organization_path, *sorted(section_paths)], canary_paths, canary_sizes
 
 
 def _critical_asset_references(site_url: str, site_body: bytes) -> dict[str, str]:
@@ -795,6 +826,7 @@ def _read_strict_json_file(path: Path, *, limit: int) -> tuple[object, bytes] | 
         value = json.loads(
             raw.decode("utf-8", errors="strict"),
             object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonfinite_constant,
         )
     except (UnicodeError, json.JSONDecodeError, ValueError):
         return None
@@ -1021,6 +1053,7 @@ def _github_ref_observation(
         payload = json.loads(
             raw.decode("utf-8", errors="strict"),
             object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_nonfinite_constant,
         )
     except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise RuntimeError("GitHub ref API response was not strict JSON") from exc
@@ -1205,6 +1238,7 @@ def check_site_health(
             payload = json.loads(
                 status_body.decode("utf-8", errors="strict"),
                 object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_nonfinite_constant,
             )
         except (UnicodeError, json.JSONDecodeError, ValueError):
             reasons.append(
@@ -1621,25 +1655,28 @@ def check_site_health(
                     operations_raw,
                     limit=OPERATIONS_MANIFEST_MAX_BYTES,
                 )
-                application_paths, canary_paths = _normalize_operations_manifest(
-                    _strict_json(
-                        operations_raw,
-                        code="operations-manifest-json",
-                        label="Operations application manifest",
-                    ),
-                    manifest,
+                application_paths, canary_paths, canary_sizes = (
+                    _normalize_operations_manifest(
+                        _strict_json(
+                            operations_raw,
+                            code="operations-manifest-json",
+                            label="Operations application manifest",
+                        ),
+                        manifest,
+                    )
                 )
                 verified_files.append(OPERATIONS_MANIFEST_PATH)
                 canary_rows = projection["operations_canaries"]
                 for canary_row in canary_rows:
                     canary_name = canary_row["name"]
                     canary_path = canary_paths[canary_name]
+                    canary_size = canary_sizes[canary_name]
                     canary_row["path"] = canary_path
                     canary_url = _same_origin_url(base_url, canary_path)
                     canary_request_url = _cache_bust_token(canary_url, cache_token)
                     canary_response = fetch(
                         canary_request_url,
-                        OPERATIONS_CANARY_MAX_BYTES,
+                        canary_size,
                     )
                     canary_row["http_status"] = int(
                         canary_response.get("http_status") or 0
@@ -1648,7 +1685,7 @@ def check_site_health(
                         canary_response,
                         requested_url=canary_request_url,
                         expected_status=200,
-                        limit=OPERATIONS_CANARY_MAX_BYTES,
+                        limit=canary_size,
                         code_prefix="operations-canary",
                         label=f"Operations {canary_name} canary section",
                     )
@@ -1656,8 +1693,18 @@ def check_site_health(
                         manifest,
                         canary_path,
                         canary_raw,
-                        limit=OPERATIONS_CANARY_MAX_BYTES,
+                        limit=canary_size,
                     )
+                    canary_payload = _strict_json(
+                        canary_raw,
+                        code="operations-canary-json",
+                        label=f"Operations {canary_name} canary section",
+                    )
+                    if not isinstance(canary_payload, dict):
+                        raise _ProjectionFailure(
+                            "operations-canary-contract",
+                            f"Operations {canary_name} canary section was not an object.",
+                        )
                     verified_files.append(canary_path)
                 projection.update(
                     {

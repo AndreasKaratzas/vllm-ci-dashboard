@@ -2939,29 +2939,55 @@ jobs:
           steps.final-deploy-validation.outcome == 'success'
         env:
           EXPECTED_QUEUE_SOURCE_SHA: ${{ steps.queue-data-sync.outputs.source_sha }}
+          EXPECTED_DASHBOARD_STATE_SHA: ${{ steps.publication-commit.outputs.state_sha }}
         run: |
           set -euo pipefail
           PUBLICATION_STATUS="$RUNNER_TEMP/confirmed-publication-status.json"
           CANONICAL_QUEUE="$RUNNER_TEMP/confirmed-queue-jobs.json"
-          CANONICAL_STATE="$RUNNER_TEMP/confirmed-dashboard-state.json"
+          PUBLISHED_STATE="$RUNNER_TEMP/confirmed-dashboard-state.json"
           git fetch origin \
             +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
             --depth=1
+          # This fetch happens after the general deployment check, so bind its
+          # exact result to the locally generated state marker again before
+          # accepting either public queue file as canonical.
+          GIT_NO_LAZY_FETCH=1 python scripts/vllm/public_projection.py verify-git \
+            --repo-root . \
+            --git-ref origin/gh-pages \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --expected-marker _site/publication_generation.json
           git show \
             origin/gh-pages:data/vllm/ci/publication_status.json \
             > "$PUBLICATION_STATUS"
           git show \
             origin/gh-pages:data/vllm/ci/queue_jobs.json \
             > "$CANONICAL_QUEUE"
-          git show \
-            origin/gh-pages:data/vllm/ci/dashboard_state.json \
-            > "$CANONICAL_STATE"
+          if ! [[ "$EXPECTED_DASHBOARD_STATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Published dashboard-state SHA is unavailable or invalid."
+            exit 1
+          fi
+          # Final deployment validation fetched, leased, and fully validated
+          # this private state ref before proving that Pages exactly matches
+          # its public projection. Reuse that exact proof; the private state
+          # manifest must never be read from or published to gh-pages.
+          PUBLISHED_STATE_SHA=$(GIT_NO_LAZY_FETCH=1 git rev-parse --verify \
+            "refs/remotes/origin/$DASHBOARD_STATE_BRANCH^{commit}")
+          if [ "$PUBLISHED_STATE_SHA" != "$EXPECTED_DASHBOARD_STATE_SHA" ]; then
+            echo "::error::Validated dashboard-state ref no longer identifies this publication."
+            exit 1
+          fi
+          GIT_NO_LAZY_FETCH=1 python scripts/vllm/dashboard_state.py validate-ref \
+            --ref "$PUBLISHED_STATE_SHA" \
+            --expected-code-sha "$PUBLICATION_CODE_SHA"
+          GIT_NO_LAZY_FETCH=1 git show \
+            "$PUBLISHED_STATE_SHA:data/vllm/ci/dashboard_state.json" \
+            > "$PUBLISHED_STATE"
           python scripts/vllm/plan_queue_publication_reconcile.py \
             --status "$PUBLICATION_STATUS" \
             --canonical-queue-data "$CANONICAL_QUEUE" \
             --target-queue-generation "$HOURLY_QUEUE_GENERATION_INPUT" \
             --fail-if-required
-          python - "$CANONICAL_STATE" "$EXPECTED_QUEUE_SOURCE_SHA" <<'PY'
+          python - "$PUBLISHED_STATE" "$EXPECTED_QUEUE_SOURCE_SHA" <<'PY'
           import json
           import re
           import sys
@@ -3295,12 +3321,13 @@ jobs:
             const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
             const dnsOnlyIncidentMarker = '<!-- hourly-ci-dns-only:v1 -->';
             const queueOnlyIncidentMarker = '<!-- hourly-ci-queue-only:v1 -->';
-            const legacySignature = '*Auto-created by hourly-master workflow.*';
             const {
-              RECOVERED_MARKER: recoveredMarker,
               ZERO_RECOVERY_MARKER: recoveryMarker,
               classifyFailureTransition,
+              ensureOwnerLabel,
+              findCanonicalIncident,
               resetRecoveryStreak,
+              retireOwnerLabel,
               suppressedDegradationRecoveryTransition,
             } = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
@@ -3561,94 +3588,11 @@ jobs:
             const desiredIssueBody = `${body}\n\nGitHub assignee: ${context.repo.owner}.`;
 
             const hourlyOwnerLabel = 'automation:hourly-master';
-            try {
-              await github.rest.issues.getLabel({
-                owner: context.repo.owner, repo: context.repo.repo,
-                name: hourlyOwnerLabel,
-              });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              try {
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  name: hourlyOwnerLabel,
-                  color: '5319e7',
-                  description: 'Single incident slot owned by hourly-master',
-                });
-              } catch (createError) {
-                if (createError.status !== 422) throw createError;
-              }
-            }
-            const hasExactMarker = (body, marker) =>
-              String(body || '').split(/\r?\n/).includes(marker);
-            const isOwnedIssue = issue => {
-              if (issue.pull_request) return false;
-              const issueBody = issue.body || '';
-              return hasExactMarker(issueBody, ownershipMarker) ||
-                issueBody.includes(legacySignature);
-            };
-            const exactOwnerResponse = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'all', labels: hourlyOwnerLabel,
-              sort: 'updated', direction: 'desc', per_page: 100, page: 1,
-            });
-            const exactOwnerPage = exactOwnerResponse.data || [];
-            if (exactOwnerPage.length >= 100) {
-              core.setFailed('Hourly incident owner-label lookup is ambiguous.');
-              return;
-            }
-            let allIssues = [...exactOwnerPage];
-            const hasIndexedCurrent = exactOwnerPage.some(issue =>
-              isOwnedIssue(issue) &&
-              hasExactMarker(issue.body || '', currentIncidentMarker),
-            );
-            if (!hasIndexedCurrent) {
-              const migrationResponse = await github.rest.issues.listForRepo({
-                owner: context.repo.owner, repo: context.repo.repo,
-                state: 'all',
-                labels: 'ci-failure,automated,workstream:dashboard-ci',
-                sort: 'updated', direction: 'desc', per_page: 100, page: 1,
-              });
-              const migrationPage = migrationResponse.data || [];
-              if (migrationPage.length >= 100) {
-                core.setFailed('Hourly incident migration lookup is ambiguous.');
-                return;
-              }
-              const byNumber = new Map(
-                [...allIssues, ...migrationPage].map(issue => [issue.number, issue]),
-              );
-              allIssues = [...byNumber.values()];
-            }
-            const ownedIssues = allIssues.filter(issue => {
-              return isOwnedIssue(issue);
-            });
-            const newestFirst = (left, right) =>
-              Date.parse(right.updated_at || right.created_at || 0) -
-                Date.parse(left.updated_at || left.created_at || 0) ||
-              right.number - left.number;
-            const openCurrentFirst = (left, right) =>
-              Number(right.state === 'open') - Number(left.state === 'open') ||
-              newestFirst(left, right);
-            const activeOwnedIssues = ownedIssues.filter(issue =>
-              !(issue.body || '').includes(supersededMarker),
-            );
-            const currentIssues = activeOwnedIssues.filter(issue =>
-              (issue.body || '').includes(currentIncidentMarker),
-            ).sort(openCurrentFirst);
-            const openOwnedIssues = activeOwnedIssues.filter(
-              issue => issue.state === 'open',
-            ).sort(newestFirst);
-            const exactIssues = activeOwnedIssues.filter(issue =>
-              (issue.body || '').includes(fingerprintMarker),
-            ).sort(newestFirst);
-            const recoveredIssues = activeOwnedIssues.filter(issue =>
-              (issue.body || '').includes(recoveredMarker),
-            ).sort(newestFirst);
-            // A single stable slot owns the current hourly incident. During the
-            // migration, prefer the newest still-open fingerprint so the issue
-            // users are already watching remains authoritative.
-            let existing = currentIssues[0] || openOwnedIssues[0] ||
-              exactIssues[0] || recoveredIssues[0] || null;
+            await ensureOwnerLabel({github, context});
+            const {
+              issue: existing,
+              ownedIssues,
+            } = await findCanonicalIncident({github, context, includeClosed: true});
             if (existing && !(existing.labels || []).some(label =>
               (typeof label === 'string' ? label : label.name) === hourlyOwnerLabel
             )) {
@@ -3656,6 +3600,10 @@ jobs:
                 owner: context.repo.owner, repo: context.repo.repo,
                 issue_number: existing.number, labels: [hourlyOwnerLabel],
               });
+              existing.labels = [
+                ...(existing.labels || []),
+                {name: hourlyOwnerLabel},
+              ];
             }
 
             const markCurrent = issueBody => {
@@ -3674,24 +3622,23 @@ jobs:
                 if (issue.number === canonicalNumber) continue;
                 const issueBody = issue.body || '';
                 const wasCurrent = issueBody.includes(currentIncidentMarker);
-                if (issue.state !== 'open' && !wasCurrent) continue;
-                let nextBody = issueBody.split(currentIncidentMarker).join('')
-                  .replace(/^\n+/, '');
-                if (!nextBody.includes(ownershipMarker)) {
-                  nextBody = `${ownershipMarker}\n${nextBody}`;
-                }
-                if (!nextBody.includes(supersededMarker)) {
-                  nextBody = [
-                    supersededMarker,
-                    nextBody,
-                    '',
-                    '---',
-                    `Superseded by #${canonicalNumber}, the single current hourly ` +
-                      'publication incident. This ticket remains closed as history.',
-                    `Reconciliation run: ${runUrl}`,
-                  ].join('\n');
-                }
-                try {
+                if (issue.state === 'open' || wasCurrent) {
+                  let nextBody = issueBody.split(currentIncidentMarker).join('')
+                    .replace(/^\n+/, '');
+                  if (!nextBody.includes(ownershipMarker)) {
+                    nextBody = `${ownershipMarker}\n${nextBody}`;
+                  }
+                  if (!nextBody.includes(supersededMarker)) {
+                    nextBody = [
+                      supersededMarker,
+                      nextBody,
+                      '',
+                      '---',
+                      `Superseded by #${canonicalNumber}, the single current hourly ` +
+                        'publication incident. This ticket remains closed as history.',
+                      `Reconciliation run: ${runUrl}`,
+                    ].join('\n');
+                  }
                   await github.rest.issues.update({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
@@ -3699,12 +3646,8 @@ jobs:
                     body: nextBody,
                     state: 'closed',
                   });
-                } catch (error) {
-                  core.warning(
-                    `Could not supersede stale hourly issue #${issue.number}: ` +
-                    String(error.message || error),
-                  );
                 }
+                await retireOwnerLabel({github, context, issue});
               }
             };
             const resetOnlyDegradation = selectorDegraded &&
@@ -3844,341 +3787,23 @@ jobs:
         env:
           HOURLY_RECOVERY_VALIDATION_SOURCE: ${{ steps.publication-recovery-validation.outputs.source }}
           HOURLY_RECOVERY_CODE_SHA: ${{ steps.publication-recovery-validation.outputs.code_sha }}
+          HOURLY_RECOVERY_STATE_SHA: ${{ steps.publication-commit.outputs.state_sha }}
           HOURLY_RECOVERY_CI_URL: ${{ steps.publication-recovery-validation.outputs.run_url }}
         with:
           script: |
-            const ownershipMarker = '<!-- ci-failure-owner:hourly-master -->';
-            const currentIncidentMarker = '<!-- hourly-ci-current-incident:v1 -->';
-            const supersededMarker = '<!-- hourly-ci-superseded:v1 -->';
-            const dnsOnlyIncidentMarker = '<!-- hourly-ci-dns-only:v1 -->';
-            const queueOnlyIncidentMarker = '<!-- hourly-ci-queue-only:v1 -->';
-            const legacySignature = '*Auto-created by hourly-master workflow.*';
-            const {
-              RECOVERED_MARKER: recoveredMarker,
-              advanceRecoveryStreak,
-              isStrictLegacySurfaceOnlyIncident,
-            } = require(
+            const {closeHourlyIncident} = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
             );
-            const validationSource =
-              process.env.HOURLY_RECOVERY_VALIDATION_SOURCE || 'unknown';
-            const validationCodeSha =
-              process.env.HOURLY_RECOVERY_CODE_SHA || '';
-            const validationCiUrl =
-              process.env.HOURLY_RECOVERY_CI_URL || '';
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const hourlyOwnerLabel = 'automation:hourly-master';
-            try {
-              await github.rest.issues.getLabel({
-                owner: context.repo.owner, repo: context.repo.repo,
-                name: hourlyOwnerLabel,
-              });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              try {
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  name: hourlyOwnerLabel,
-                  color: '5319e7',
-                  description: 'Single incident slot owned by hourly-master',
-                });
-              } catch (createError) {
-                if (createError.status !== 422) throw createError;
-              }
-            }
-            const hasExactMarker = (body, marker) =>
-              String(body || '').split(/\r?\n/).includes(marker);
-            const isOwnedIssue = issue => {
-              if (issue.pull_request) return false;
-              const body = issue.body || '';
-              return hasExactMarker(body, ownershipMarker) ||
-                body.includes(legacySignature);
-            };
-            const exactOwnerResponse = await github.rest.issues.listForRepo({
-              owner: context.repo.owner, repo: context.repo.repo,
-              state: 'all', labels: hourlyOwnerLabel,
-              sort: 'updated', direction: 'desc', per_page: 100, page: 1,
+            await closeHourlyIncident({
+              github,
+              context,
+              core,
+              validationSource:
+                process.env.HOURLY_RECOVERY_VALIDATION_SOURCE || 'unknown',
+              validationCodeSha: process.env.HOURLY_RECOVERY_CODE_SHA || '',
+              validationStateSha: process.env.HOURLY_RECOVERY_STATE_SHA || '',
+              validationCiUrl: process.env.HOURLY_RECOVERY_CI_URL || '',
             });
-            const exactOwnerPage = exactOwnerResponse.data || [];
-            if (exactOwnerPage.length >= 100) {
-              core.setFailed('Hourly incident owner-label lookup is ambiguous.');
-              return;
-            }
-            let issues = [...exactOwnerPage];
-            const hasIndexedCurrent = exactOwnerPage.some(issue =>
-              isOwnedIssue(issue) &&
-              hasExactMarker(issue.body || '', currentIncidentMarker),
-            );
-            if (!hasIndexedCurrent) {
-              const migrationResponse = await github.rest.issues.listForRepo({
-                owner: context.repo.owner, repo: context.repo.repo,
-                state: 'all',
-                labels: 'ci-failure,automated,workstream:dashboard-ci',
-                sort: 'updated', direction: 'desc', per_page: 100, page: 1,
-              });
-              const migrationPage = migrationResponse.data || [];
-              if (migrationPage.length >= 100) {
-                core.setFailed('Hourly incident migration lookup is ambiguous.');
-                return;
-              }
-              const byNumber = new Map(
-                [...issues, ...migrationPage].map(issue => [issue.number, issue]),
-              );
-              issues = [...byNumber.values()];
-            }
-            const ownedIssues = issues.filter(issue => {
-              return isOwnedIssue(issue);
-            });
-            const newestFirst = (left, right) =>
-              Date.parse(right.updated_at || right.created_at || 0) -
-                Date.parse(left.updated_at || left.created_at || 0) ||
-              right.number - left.number;
-            const openCurrentFirst = (left, right) =>
-              Number(right.state === 'open') - Number(left.state === 'open') ||
-              newestFirst(left, right);
-            const activeOwnedIssues = ownedIssues.filter(issue =>
-              !(issue.body || '').includes(supersededMarker),
-            );
-            const currentIssues = activeOwnedIssues.filter(issue =>
-              (issue.body || '').includes(currentIncidentMarker),
-            ).sort(openCurrentFirst);
-            const openOwnedIssues = activeOwnedIssues.filter(
-              issue => issue.state === 'open',
-            ).sort(newestFirst);
-            const currentIssue = currentIssues[0] || openOwnedIssues[0] || null;
-            if (!currentIssue) {
-              console.log('No current hourly incident needs recovery tracking.');
-              return;
-            }
-            if (!(currentIssue.labels || []).some(label =>
-              (typeof label === 'string' ? label : label.name) === hourlyOwnerLabel
-            )) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner, repo: context.repo.repo,
-                issue_number: currentIssue.number, labels: [hourlyOwnerLabel],
-              });
-            }
-            const currentIssueBody = currentIssue.body || '';
-            const isMarkedDnsOnly = hasExactMarker(
-              currentIssueBody, dnsOnlyIncidentMarker,
-            );
-            const isMarkedQueueOnly = hasExactMarker(
-              currentIssueBody, queueOnlyIncidentMarker,
-            );
-            // Adopt only the exact legacy single-surface shapes produced before
-            // the dedicated ownership markers existed. Titles and arbitrary
-            // mentions of a surface never authorize one-run recovery.
-            const isStrictLegacyDnsOnly = isStrictLegacySurfaceOnlyIncident(
-              currentIssueBody, 'dns_health',
-            );
-            const isStrictLegacyQueueOnly = isStrictLegacySurfaceOnlyIncident(
-              currentIssueBody, 'queue',
-            );
-            const targetedDnsRecovery = validationSource === 'targeted-dns';
-            const targetedQueueRecovery = validationSource === 'targeted-queue';
-            if (targetedDnsRecovery && !isMarkedDnsOnly && !isStrictLegacyDnsOnly) {
-              console.log(
-                `Targeted DNS publication will not advance non-DNS-only incident ` +
-                `#${currentIssue.number}.`,
-              );
-              return;
-            }
-            if (targetedQueueRecovery &&
-                !isMarkedQueueOnly && !isStrictLegacyQueueOnly) {
-              console.log(
-                `Targeted queue publication will not advance non-queue-only incident ` +
-                `#${currentIssue.number}.`,
-              );
-              return;
-            }
-            // General incidents retain the six-publication anti-flap window. A
-            // strictly identified DNS-only incident can be closed by the exact
-            // targeted publication that made the canonical status fully healthy.
-            const requiredRecoveryRuns =
-              targetedDnsRecovery || targetedQueueRecovery ? 1 : 6;
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: currentIssue.number,
-              labels: ['ci-failure', 'automated', 'workstream:dashboard-ci', hourlyOwnerLabel],
-            });
-
-            const supersedeOtherIssues = async canonicalNumber => {
-              for (const issue of ownedIssues) {
-                if (issue.number === canonicalNumber) continue;
-                const issueBody = issue.body || '';
-                const wasCurrent = issueBody.includes(currentIncidentMarker);
-                if (issue.state !== 'open' && !wasCurrent) continue;
-                let nextBody = issueBody.split(currentIncidentMarker).join('')
-                  .replace(/^\n+/, '');
-                if (!nextBody.includes(ownershipMarker)) {
-                  nextBody = `${ownershipMarker}\n${nextBody}`;
-                }
-                if (!nextBody.includes(supersededMarker)) {
-                  nextBody = [
-                    supersededMarker,
-                    nextBody,
-                    '',
-                    '---',
-                    `Superseded by #${canonicalNumber}, the single current hourly ` +
-                      'publication incident. This ticket remains closed as history.',
-                    `Reconciliation run: ${runUrl}`,
-                  ].join('\n');
-                }
-                try {
-                  await github.rest.issues.update({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issue.number,
-                    body: nextBody,
-                    state: 'closed',
-                  });
-                } catch (error) {
-                  core.warning(
-                    `Could not supersede stale hourly issue #${issue.number}: ` +
-                    String(error.message || error),
-                  );
-                }
-              }
-            };
-            await supersedeOtherIssues(currentIssue.number);
-
-            let currentBody = currentIssue.body || '';
-            currentBody = currentBody.split(supersededMarker).join('').replace(/^\n+/, '');
-            if (!currentBody.includes(ownershipMarker)) {
-              currentBody = `${ownershipMarker}\n${currentBody}`;
-            }
-            if (!currentBody.includes(currentIncidentMarker)) {
-              currentBody = `${currentIncidentMarker}\n${currentBody}`;
-            }
-            if (targetedDnsRecovery && !currentBody.includes(dnsOnlyIncidentMarker)) {
-              currentBody = `${dnsOnlyIncidentMarker}\n${currentBody}`;
-            }
-            if (targetedQueueRecovery &&
-                !currentBody.includes(queueOnlyIncidentMarker)) {
-              currentBody = `${queueOnlyIncidentMarker}\n${currentBody}`;
-            }
-            if (currentIssue.state === 'closed' &&
-                currentBody.includes(recoveredMarker)) {
-              if (currentBody !== (currentIssue.body || '')) {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: currentIssue.number,
-                  body: currentBody,
-                });
-              }
-              console.log(
-                `Current hourly incident #${currentIssue.number} is already recovered.`,
-              );
-              return;
-            }
-            const {
-              body: nextBody,
-              streak: nextRecoveryStreak,
-            } = advanceRecoveryStreak(currentBody);
-            if (nextRecoveryStreak < requiredRecoveryRuns) {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: currentIssue.number,
-                body: nextBody,
-              });
-              console.log(
-                `Current issue #${currentIssue.number} has ${nextRecoveryStreak} of ` +
-                `${requiredRecoveryRuns} required eligible healthy recovery runs ` +
-                `(validation=${validationSource}, code=${validationCodeSha}).`,
-              );
-              return;
-            }
-            const recoveredBody = nextBody.includes(recoveredMarker)
-              ? nextBody
-              : `${recoveredMarker}\n${nextBody}`;
-            if (currentIssue.state === 'closed') {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: currentIssue.number,
-                body: recoveredBody,
-              });
-              console.log(
-                `Manually closed current issue #${currentIssue.number} recovered in ` +
-                `${requiredRecoveryRuns} consecutive eligible runs; recurrence is rearmed.`,
-              );
-              return;
-            }
-            const validationEvidence = validationSource === 'targeted-dns'
-              ? `The targeted DNS generation was validated in the exact fully ` +
-                `healthy canonical publication for code \`${validationCodeSha}\`.`
-              : validationSource === 'targeted-queue'
-                ? `The targeted queue generation was validated in the exact fully ` +
-                  `healthy canonical publication for code \`${validationCodeSha}\`.`
-              : validationSource === 'separate-ci'
-                ? `Separate CI validated code SHA \`${validationCodeSha}\`` +
-                  (validationCiUrl ? ` ([run](${validationCiUrl})).` : '.')
-                : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
-            const closePayload = {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: currentIssue.number,
-              body: recoveredBody,
-              state: 'closed',
-            };
-            const transientWriteStatuses = new Set([409, 429, 500, 502, 503, 504]);
-            let closeError = null;
-            for (let attempt = 1; attempt <= 2; attempt += 1) {
-              try {
-                await github.rest.issues.update(closePayload);
-                closeError = null;
-                break;
-              } catch (error) {
-                closeError = error;
-                if (attempt >= 2 || !transientWriteStatuses.has(error.status)) {
-                  break;
-                }
-                core.warning(
-                  `Transient close failure for hourly issue #${currentIssue.number}; ` +
-                  'retrying once.',
-                );
-              }
-            }
-            if (closeError) {
-              // A lost response can report failure after GitHub committed the
-              // idempotent close.  Exact readback distinguishes that success
-              // from a genuinely stranded incident before the step returns.
-              const readback = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: currentIssue.number,
-              });
-              if (readback.data.state !== 'closed' ||
-                  !hasExactMarker(readback.data.body || '', recoveredMarker)) {
-                throw closeError;
-              }
-            }
-            try {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: currentIssue.number,
-                body: [
-                  `The active hourly publication incident was absent in ` +
-                    `${requiredRecoveryRuns} consecutive eligible healthy ` +
-                    'publication runs. This single current ticket is now closed.',
-                  '',
-                  validationEvidence,
-                  `**Publication run:** ${runUrl}`,
-                ].join('\n'),
-              });
-            } catch (error) {
-              // Closure is the durable state transition; a comment transport
-              // failure must not turn a recovered dashboard back into an open
-              // incident or falsely fail the successful publication run.
-              core.warning(
-                `Closed hourly issue #${currentIssue.number}, but could not add ` +
-                `the recovery comment: ${String(error.message || error)}`,
-              );
-            }
 
       # ── Phase 7: Health check ──
       - name: Health check
@@ -4290,6 +3915,276 @@ jobs:
             --canonical-queue-data "$CANONICAL_QUEUE" \
             --target-queue-generation "$TARGET_QUEUE_GENERATION" \
             --github-output "$GITHUB_OUTPUT"
+
+  queue-reconcile-finalizer:
+    needs: queue-reconcile-preflight
+    if: >-
+      always() && !cancelled() &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.queue_generation != '' &&
+      inputs.dns_generation == '' &&
+      inputs.watchdog_generation == '' &&
+      needs.queue-reconcile-preflight.result == 'success' &&
+      needs.queue-reconcile-preflight.outputs.required == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    concurrency:
+      # The proof and issue transition observe one stable canonical publication.
+      # Every Pages writer uses this same non-cancelling lease.
+      group: gh-pages-deploy
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    env:
+      PYTHONPATH: ${{ github.workspace }}/scripts
+      DASHBOARD_STATE_BRANCH: dashboard-state
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Install queue finalization dependencies
+        run: pip install -c constraints.txt requests
+
+      - name: Install deny-all queue finalization request guard
+        id: queue-finalizer-zero-request-guard
+        env:
+          ATTEMPT_ID: queue-finalize-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          GUARD_FILE="$RUNNER_TEMP/queue-finalize-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance 0
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=0"
+          } >> "$GITHUB_ENV"
+
+      - name: Prove already-canonical queue publication
+        id: queue-finalizer-proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_QUEUE_GENERATION: ${{ inputs.queue_generation }}
+        run: |
+          set -euo pipefail
+          TRUSTED_MAIN_SHA=$(GIT_NO_LAZY_FETCH=1 git rev-parse --verify 'HEAD^{commit}')
+          if ! [[ "$TRUSTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Immutable finalizer checkout did not resolve to one commit."
+            exit 1
+          fi
+          STATE_OUTPUT="$RUNNER_TEMP/queue-finalizer-state.outputs"
+          PAGES_OUTPUT="$RUNNER_TEMP/queue-finalizer-pages.outputs"
+          : > "$STATE_OUTPUT"
+          : > "$PAGES_OUTPUT"
+          python scripts/vllm/github_git_proof.py hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch "$DASHBOARD_STATE_BRANCH" \
+            --profile dashboard-state \
+            --root . \
+            --remote origin \
+            --local-ref "refs/remotes/origin/$DASHBOARD_STATE_BRANCH" \
+            --output "$RUNNER_TEMP/queue-finalizer-state-proof.json" \
+            --github-output "$STATE_OUTPUT"
+          python scripts/vllm/github_git_proof.py hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages \
+            --profile pages-orphan \
+            --root . \
+            --remote origin \
+            --local-ref refs/remotes/origin/gh-pages \
+            --output "$RUNNER_TEMP/queue-finalizer-pages-proof.json" \
+            --github-output "$PAGES_OUTPUT"
+          STATE_SHA=$(awk -F= '$1 == "commit_sha" {print $2}' "$STATE_OUTPUT")
+          PAGES_SHA=$(awk -F= '$1 == "commit_sha" {print $2}' "$PAGES_OUTPUT")
+          if ! [[ "$STATE_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+             ! [[ "$PAGES_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Canonical queue finalization refs are invalid."
+            exit 1
+          fi
+
+          STATE_MANIFEST="$RUNNER_TEMP/queue-finalizer-dashboard-state.json"
+          STATE_ATTESTATION="$RUNNER_TEMP/queue-finalizer-public-attestation.json"
+          PUBLICATION_STATUS="$RUNNER_TEMP/queue-finalizer-publication-status.json"
+          CANONICAL_QUEUE="$RUNNER_TEMP/queue-finalizer-queue-jobs.json"
+          EXPECTED_MARKER="$RUNNER_TEMP/queue-finalizer-expected-marker.json"
+          GIT_NO_LAZY_FETCH=1 git show \
+            "$STATE_SHA:data/vllm/ci/dashboard_state.json" > "$STATE_MANIFEST"
+          GIT_NO_LAZY_FETCH=1 git show \
+            "$STATE_SHA:data/vllm/ci/public_projection_attestation.json" \
+            > "$STATE_ATTESTATION"
+          CODE_SHA=$(python - "$STATE_MANIFEST" <<'PY'
+          import json
+          import re
+          import sys
+
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              value = json.load(handle).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit("canonical dashboard state declares an invalid code SHA")
+          print(value)
+          PY
+          )
+          CODE_PROOF_OUTPUT="$RUNNER_TEMP/queue-finalizer-code-proof.outputs"
+          : > "$CODE_PROOF_OUTPUT"
+          python scripts/vllm/github_git_proof.py prove \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit-sha "$CODE_SHA" \
+            --profile dashboard-code \
+            --output "$RUNNER_TEMP/queue-finalizer-code-proof.json" \
+            --github-output "$CODE_PROOF_OUTPUT"
+          PROVEN_CODE_TREE=$(awk -F= '$1 == "tree_sha" {print $2}' "$CODE_PROOF_OUTPUT")
+          git fetch --no-tags --depth=1 --filter=blob:none origin "$CODE_SHA"
+          FETCHED_CODE_SHA=$(git rev-parse --verify "$CODE_SHA^{commit}")
+          FETCHED_CODE_TREE=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+            --verify "$CODE_SHA^{tree}")
+          if [ "$FETCHED_CODE_SHA" != "$CODE_SHA" ] || \
+             [ "$FETCHED_CODE_TREE" != "$PROVEN_CODE_TREE" ]; then
+            echo "::error::Canonical state code fetch disagrees with its GitHub proof."
+            exit 1
+          fi
+          if [ "$CODE_SHA" != "$TRUSTED_MAIN_SHA" ]; then
+            set +e
+            python scripts/vllm/github_git_proof.py compare-ancestor \
+              --repository "$GITHUB_REPOSITORY" \
+              --base "$CODE_SHA" \
+              --head "$TRUSTED_MAIN_SHA"
+            compare_status=$?
+            set -e
+            case "$compare_status" in
+              0) ;;
+              3)
+                echo "::error::Canonical state code is not an ancestor of immutable main."
+                exit 1
+                ;;
+              *)
+                echo "::error::Canonical state code ancestry is ambiguous."
+                exit 1
+                ;;
+            esac
+          fi
+          GIT_NO_LAZY_FETCH=1 python \
+            scripts/vllm/dashboard_state.py validate-ref-metadata \
+            --ref "$STATE_SHA" \
+            --expected-code-sha "$CODE_SHA"
+          git show \
+            "$PAGES_SHA:data/vllm/ci/publication_status.json" \
+            > "$PUBLICATION_STATUS"
+          git show \
+            "$PAGES_SHA:data/vllm/ci/queue_jobs.json" \
+            > "$CANONICAL_QUEUE"
+          python scripts/vllm/dashboard_state.py write-public-marker \
+            --state-sha "$STATE_SHA" \
+            --metadata-only \
+            --code-sha "$CODE_SHA" \
+            --public-attestation "$STATE_ATTESTATION" \
+            --publication-status "$PUBLICATION_STATUS" \
+            --output "$EXPECTED_MARKER"
+          GIT_NO_LAZY_FETCH=1 python scripts/vllm/public_projection.py verify-git \
+            --repo-root . \
+            --git-ref "$PAGES_SHA" \
+            --attestation "$STATE_ATTESTATION" \
+            --expected-marker "$EXPECTED_MARKER"
+          python scripts/vllm/plan_queue_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --canonical-queue-data "$CANONICAL_QUEUE" \
+            --target-queue-generation "$TARGET_QUEUE_GENERATION" \
+            --fail-if-required
+          python - \
+            "$STATE_MANIFEST" \
+            "$PUBLICATION_STATUS" \
+            "$STATE_SHA" \
+            "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+
+          with Path(sys.argv[1]).open(encoding="utf-8") as handle:
+              state = json.load(handle)
+          with Path(sys.argv[2]).open(encoding="utf-8") as handle:
+              status = json.load(handle)
+          expected_healthy_status = {
+              "mode": "current",
+              "status": "healthy",
+              "publication_blocked": False,
+              "uses_fallback": False,
+              "affected_surface_count": 0,
+              "affected_surfaces": [],
+              "fallback_surface_count": 0,
+              "fresh_degraded_surface_count": 0,
+          }
+          if not isinstance(status, dict) or any(
+              status.get(key) != value for key, value in expected_healthy_status.items()
+          ):
+              raise SystemExit(
+                  "already-canonical queue finalization requires a fully healthy "
+                  "current publication"
+              )
+          state_sha = sys.argv[3]
+          code_sha = state.get("code_sha") if isinstance(state, dict) else None
+          source_refs = state.get("source_refs") if isinstance(state, dict) else None
+          queue_source_sha = (
+              source_refs.get("queue-data") if isinstance(source_refs, dict) else None
+          )
+          generation_id = state.get("generation_id") if isinstance(state, dict) else None
+          for label, value in (
+              ("state SHA", state_sha),
+              ("code SHA", code_sha),
+              ("queue-data source SHA", queue_source_sha),
+          ):
+              if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+                  raise SystemExit(f"canonical {label} is unavailable or invalid")
+          if not isinstance(generation_id, str) or not generation_id.startswith("hourly-"):
+              raise SystemExit("canonical dashboard generation is not hourly-owned")
+          with Path(sys.argv[4]).open("a", encoding="utf-8") as handle:
+              handle.write(f"state_sha={state_sha}\n")
+              handle.write(f"code_sha={code_sha}\n")
+              handle.write(f"queue_source_sha={queue_source_sha}\n")
+              handle.write(f"generation_id={generation_id}\n")
+          PY
+          echo "Proved queue generation $TARGET_QUEUE_GENERATION in exact state $STATE_SHA."
+
+      - name: Confirm zero queue finalization Buildkite requests
+        id: queue-finalizer-request-report
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance 0 \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Finalize already-canonical queue recovery
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          HOURLY_RECOVERY_CODE_SHA: ${{ steps.queue-finalizer-proof.outputs.code_sha }}
+          HOURLY_RECOVERY_STATE_SHA: ${{ steps.queue-finalizer-proof.outputs.state_sha }}
+        with:
+          script: |
+            const {closeHourlyIncident} = require(
+              `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
+            );
+            await closeHourlyIncident({
+              github,
+              context,
+              core,
+              validationSource: 'targeted-queue',
+              validationCodeSha: process.env.HOURLY_RECOVERY_CODE_SHA || '',
+              validationStateSha: process.env.HOURLY_RECOVERY_STATE_SHA || '',
+            });
 
   publication-watchdog-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.watchdog_generation != ''

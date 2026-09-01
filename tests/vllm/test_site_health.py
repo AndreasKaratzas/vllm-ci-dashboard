@@ -8,6 +8,7 @@ import pytest
 
 import build_site
 from vllm import check_site_health as health
+from vllm import operations_bundle_contract as bundle_contract
 
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
@@ -233,10 +234,13 @@ def test_healthy_probe_is_cache_busted_and_stays_on_site_origin():
         health.MANIFEST_MAX_BYTES,
         *([health.ASSET_MAX_BYTES] * len(health.CRITICAL_ASSET_PATHS)),
         health.OPERATIONS_MANIFEST_MAX_BYTES,
-        *(
-            [health.OPERATIONS_CANARY_MAX_BYTES]
-            * len(health.OPERATIONS_CANARY_SECTIONS)
-        ),
+        *[
+            len(
+                json.dumps({name: {"status": "healthy"}}).encode()
+                + b"\n"
+            )
+            for name in health.OPERATIONS_CANARY_SECTIONS
+        ],
     ]
     for url, _ in fetcher.calls:
         parsed = urlsplit(url)
@@ -263,6 +267,12 @@ def test_critical_asset_contract_covers_every_local_shell_dependency():
 
 
 def test_checker_contract_tracks_the_public_status_projector():
+    assert health.OPERATIONS_CANARY_SECTIONS == (
+        bundle_contract.OPERATIONS_CANARY_SECTIONS
+    )
+    assert health.OPERATIONS_CANARY_MAX_BYTES == (
+        bundle_contract.OPERATIONS_CANARY_FILE_MAX_BYTES
+    )
     assert health.PUBLICATION_MODES == build_site.PUBLICATION_MODES
     assert health.PUBLICATION_SURFACE_LABELS == frozenset(
         build_site.PUBLICATION_SURFACE_LABELS.values()
@@ -432,6 +442,7 @@ def test_unrelated_http_200_page_does_not_pass_the_shell_probe():
         (_response(b"{}", oversize=True), "publication-oversize"),
         (_response(b"not-json"), "publication-json"),
         (_response(b"[]"), "publication-shape"),
+        (_response(b'{"schema_version":NaN}'), "publication-json"),
         (_response(b'{"schema_version":1,"schema_version":1}'), "publication-json"),
     ],
 )
@@ -862,6 +873,118 @@ def test_operations_manifest_requires_every_default_route_canary(canary_name):
         match="omitted required default-route canaries",
     ):
         health._normalize_operations_manifest(operations, projection)
+
+
+def test_operations_manifest_rejects_an_unbounded_canary_bundle():
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    descriptor = operations["sections"]["amd_test_health"]
+    oversized = bundle_contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES
+    descriptor["bytes"] = oversized
+    projection["files"][
+        "data/vllm/ci/operations_v2/amd_test_health.json"
+    ]["bytes"] = oversized
+
+    with pytest.raises(health._ProjectionFailure, match="canary bundle") as exc:
+        health._normalize_operations_manifest(operations, projection)
+
+    assert exc.value.code == "operations-canary-budget"
+
+
+def test_checker_accepts_a_hash_bound_canary_larger_than_two_mibibytes():
+    fetcher = Fetcher()
+    canary_name = "amd_test_health"
+    canary_path = f"data/vllm/ci/operations_v2/{canary_name}.json"
+    canary_body = b'{"padding":"' + b"x" * (2 * 1024 * 1024) + b'"}\n'
+
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    operations["sections"][canary_name]["bytes"] = len(canary_body)
+    operations_body = json.dumps(operations).encode()
+    fetcher.responses[health.OPERATIONS_MANIFEST_PATH] = _response(operations_body)
+    fetcher.responses[canary_path] = _response(canary_body)
+
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    for path, body in (
+        (health.OPERATIONS_MANIFEST_PATH, operations_body),
+        (canary_path, canary_body),
+    ):
+        projection["files"][path]["bytes"] = len(body)
+        projection["files"][path]["sha256"] = hashlib.sha256(body).hexdigest()
+    projection["total_bytes"] = sum(
+        descriptor["bytes"] for descriptor in projection["files"].values()
+    )
+    projection_raw = health._canonical_json(projection)
+    fetcher.responses[health.PUBLICATION_MANIFEST_PATH] = _response(projection_raw)
+
+    marker = json.loads(fetcher.responses[health.PUBLICATION_GENERATION_PATH]["body"])
+    marker["public_projection"].update(
+        {
+            "manifest_sha256": hashlib.sha256(projection_raw).hexdigest(),
+            "total_bytes": projection["total_bytes"],
+        }
+    )
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is True
+    assert len(canary_body) > 2 * 1024 * 1024
+    assert next(
+        limit for url, limit in fetcher.calls if urlsplit(url).path.endswith(canary_path)
+    ) == len(canary_body)
+
+
+def test_checker_rejects_hash_bound_nonfinite_canary_json():
+    fetcher = Fetcher()
+    canary_name = "nightly"
+    canary_path = f"data/vllm/ci/operations_v2/{canary_name}.json"
+    canary_body = b'{"derived_metric":NaN}\n'
+
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    operations["sections"][canary_name]["bytes"] = len(canary_body)
+    operations_body = json.dumps(operations).encode()
+    fetcher.responses[health.OPERATIONS_MANIFEST_PATH] = _response(operations_body)
+    fetcher.responses[canary_path] = _response(canary_body)
+
+    projection = json.loads(
+        fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
+    )
+    for path, body in (
+        (health.OPERATIONS_MANIFEST_PATH, operations_body),
+        (canary_path, canary_body),
+    ):
+        projection["files"][path]["bytes"] = len(body)
+        projection["files"][path]["sha256"] = hashlib.sha256(body).hexdigest()
+    projection["total_bytes"] = sum(
+        descriptor["bytes"] for descriptor in projection["files"].values()
+    )
+    projection_raw = health._canonical_json(projection)
+    fetcher.responses[health.PUBLICATION_MANIFEST_PATH] = _response(projection_raw)
+
+    marker = json.loads(fetcher.responses[health.PUBLICATION_GENERATION_PATH]["body"])
+    marker["public_projection"].update(
+        {
+            "manifest_sha256": hashlib.sha256(projection_raw).hexdigest(),
+            "total_bytes": projection["total_bytes"],
+        }
+    )
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is False
+    assert "operations-canary-json" in {
+        reason["code"] for reason in report["reasons"]
+    }
 
 
 def test_generation_attestation_must_match_exact_canonical_manifest_digest_and_totals():
