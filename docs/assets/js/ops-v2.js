@@ -8603,7 +8603,7 @@
     {id: '720h', label: 'Last 30 days', hours: 720},
   ];
   const QUEUE_DNS_WINDOW_IDS = QUEUE_DNS_WINDOW_OPTIONS.map(function (option) { return option.id; });
-  const QUEUE_DNS_STALE_MS = 3 * 60 * 60 * 1000;
+  const QUEUE_DNS_STALE_MS = 12 * 60 * 60 * 1000;
   const QUEUE_DNS_FETCH_TIMEOUT_MS = 8 * 1000;
   const QUEUE_DNS_ARBITRATION_MS = 200;
   const QUEUE_DNS_OUTCOME_CONTRACT = 'dns-job-outcomes-v1';

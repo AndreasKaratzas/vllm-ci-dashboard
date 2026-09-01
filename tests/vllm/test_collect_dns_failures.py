@@ -2075,6 +2075,31 @@ def test_minimum_interval_republishes_validated_state_without_buildkite_io(
     assert output_path.read_bytes() == output_before
 
 
+def test_hourly_invocations_gate_request_bearing_scans_to_eight_per_day(
+    tmp_path: Path,
+):
+    state_path = tmp_path / "dns_health" / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    client = _EmptyDiscoveryClient()
+    scan_hours = []
+
+    for hour in range(24):
+        calls_before = len(client.discovery_calls)
+        collector.collect(
+            client=client,
+            state_path=state_path,
+            output_path=output_path,
+            minimum_interval_hours=3,
+            now=NOW + timedelta(hours=hour),
+        )
+        if len(client.discovery_calls) > calls_before:
+            scan_hours.append(hour)
+
+    assert scan_hours == list(range(0, 24, 3))
+    assert len(scan_hours) == 8
+    assert len(scan_hours) * 110 == 880
+
+
 class _EmptyDiscoveryClient:
     def __init__(self):
         self.discovery_calls: list[tuple[str, str, str | None, str | None]] = []

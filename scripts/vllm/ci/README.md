@@ -223,7 +223,7 @@ Seven workflows divide canonical publication from focused manual/event collector
 | `ci-collect.yml` | Manual | Validation-only focused Buildkite CI refresh; never commits or publishes |
 | `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | Hourly + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
-| `dns-health.yml` | Every 3 hours + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch and conditional canonical reconciliation |
+| `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
 | `publication-watchdog.yml` | Workflow completions + hourly + external tick + manual | Proactive freshness recovery with active-run, cooldown, generation, and schedule-coalescing guards |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
@@ -292,22 +292,27 @@ logs, or dashboard URLs.
 
 `collect_dns_failures.py` discovers terminal script-job attempts across the
 `amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
-bounded log sample for strong DNS signatures. Collection runs every three hours
-and starts at most 110 Buildkite requests per eligible run; the 500-log limit
-remains a secondary safety bound. Eight scheduled runs therefore have a hard
-ceiling of 880 request starts per day, including discovery, log reads, and
-retries. A three-hour minimum interval coalesces closely spaced external or
-manual invocations instead of spending another API budget immediately.
+bounded log sample for strong DNS signatures. The workflow gets an hourly
+recovery opportunity, while its durable three-hour minimum interval permits at
+most eight request-bearing scans per day. Each eligible scan starts at most 110
+Buildkite requests, so the hard ceiling remains 880 request starts per day,
+including discovery, log reads, and retries; the 500-log limit remains a
+secondary safety bound. Hourly, external, or manual invocations inside the gate
+republish validated state without spending another Buildkite API budget.
+The eligible scan receives a 20-minute wall-clock budget so large active-parent
+payloads can finish their fail-closed discovery pass. Wall-clock headroom does
+not expand API traffic: the independent 110-request-start ceiling remains
+authoritative and includes retries.
 
 The configured 30-day value is the target retention horizon, not a claim of an
 exhaustive census. Unvisited jobs remain explicitly pending, longer windows stay
 partial, and the UI renders observed values as lower bounds. This expected,
 quantified partial coverage is a DNS-panel warning rather than a site-wide
-publication degradation. The DNS panel continues to label observations older
-than three hours as stale; the publication audit tolerates one missed scheduled
-interval and declares the DNS surface degraded site-wide after six hours. A DNS
-dataset that is not collected, malformed, or internally inconsistent takes the
-same strict degradation or fail-closed publication path.
+publication degradation. Both the DNS panel and publication audit declare the
+source stale after 12 hours. This documented window tolerates delayed or dropped
+GitHub cron events while hourly recovery opportunities reduce the normal delay;
+a DNS dataset that is not collected, malformed, or internally inconsistent
+takes the same strict degradation or fail-closed publication path.
 
 GitHub Actions schedules are best-effort and may be delayed or dropped. The
 DNS workflow therefore accepts `dns_health_tick`, while the dedicated
@@ -329,9 +334,9 @@ longer affected, and publication remains fresh. The canonical collector has a
 60-minute timeout so a hung run cannot retain the lock indefinitely.
 
 Declaring a `repository_dispatch` trigger is not an independent scheduler. To
-make the three-hour freshness SLO enforceable, configure a scheduler outside
-GitHub Actions to POST the following event every 15 minutes (60 minutes is the
-absolute budget with no retry margin):
+make publication recovery enforceable independently of GitHub's scheduler,
+configure a scheduler outside GitHub Actions to POST the following event every
+15 minutes (60 minutes is the absolute budget with no retry margin):
 
 ```http
 POST https://api.github.com/repos/AndreasKaratzas/vllm-ci-dashboard/dispatches

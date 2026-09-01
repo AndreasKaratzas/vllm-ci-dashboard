@@ -1918,7 +1918,7 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
         "The histogram continues to use the published affected-job row count",
         "Partial coverage - counts are lower bounds",
         "not_collected",
-        "QUEUE_DNS_STALE_MS = 3 * 60 * 60 * 1000",
+        "QUEUE_DNS_STALE_MS = 12 * 60 * 60 * 1000",
         "QUEUE_DNS_FETCH_TIMEOUT_MS = 8 * 1000",
         "function queueDnsWithTimeout",
         "function queueDnsFreshness",
@@ -2231,20 +2231,20 @@ assert.equal(helpers.queueDnsDisplayCount(2, structuralSeedCoverage), '≥ 2');
 const almostStale = helpers.queueDnsFreshness(
   livePayload,
   livePayload.windows['3h'],
-  Date.parse('2026-08-17T12:59:59Z'),
+  Date.parse('2026-08-17T21:59:59Z'),
 );
 assert.equal(almostStale.stale, false);
 const stale = helpers.queueDnsFreshness(
   livePayload,
   livePayload.windows['3h'],
-  Date.parse('2026-08-17T13:00:01Z'),
+  Date.parse('2026-08-17T22:00:01Z'),
 );
 assert.equal(stale.stale, true);
-assert.equal(stale.thresholdMs, 3 * 60 * 60 * 1000);
+assert.equal(stale.thresholdMs, 12 * 60 * 60 * 1000);
 const staleWindowOnly = helpers.queueDnsFreshness(
-  Object.assign({}, livePayload, {generated_at: '2026-08-17T13:30:00Z'}),
+  Object.assign({}, livePayload, {generated_at: '2026-08-17T22:30:00Z'}),
   livePayload.windows['3h'],
-  Date.parse('2026-08-17T13:30:00Z'),
+  Date.parse('2026-08-17T22:30:00Z'),
 );
 assert.equal(staleWindowOnly.stale, true);
 

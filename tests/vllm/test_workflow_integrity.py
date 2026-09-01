@@ -2203,10 +2203,10 @@ class TestDnsHealthWorkflow:
         workflow = _load_workflow("dns-health.yml")
         return workflow, workflow["jobs"]["collect"]["steps"]
 
-    def test_is_three_hourly_isolated_and_minimally_privileged(self):
+    def test_is_hourly_isolated_and_minimally_privileged(self):
         workflow, _ = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "39 */3 * * *"}]
+        assert triggers["schedule"] == [{"cron": "37 * * * *"}]
         assert triggers["repository_dispatch"] == {"types": ["dns_health_tick"]}
         assert "workflow_dispatch" in triggers
         assert workflow["permissions"] == {}
@@ -2230,6 +2230,42 @@ class TestDnsHealthWorkflow:
             "actions": "write",
             "contents": "read",
         }
+
+    def test_hourly_recovery_schedule_preserves_daily_buildkite_budget(self):
+        workflow, steps = self._workflow()
+        triggers = workflow.get(True, workflow.get("on", {}))
+        cron = triggers["schedule"][0]["cron"]
+        assert cron.split() == ["37", "*", "*", "*", "*"]
+
+        names = [step.get("name") for step in steps]
+        collect = steps[names.index("Collect DNS failure observations")]["run"]
+        argument_lines = {line.strip() for line in collect.splitlines()}
+        max_requests = int(
+            next(line for line in argument_lines if line.startswith("--max-requests "))
+            .split()[1]
+        )
+        time_budget_seconds = int(
+            next(
+                line
+                for line in argument_lines
+                if line.startswith("--time-budget-seconds ")
+            ).split()[1]
+        )
+        minimum_interval_hours = int(
+            next(
+                line
+                for line in argument_lines
+                if line.startswith("--minimum-interval-hours ")
+            ).split()[1]
+        )
+
+        hourly_opportunities = 24
+        request_bearing_scans = hourly_opportunities // minimum_interval_hours
+        assert minimum_interval_hours == 3
+        assert request_bearing_scans == 8
+        assert max_requests == 110
+        assert time_budget_seconds == 1200
+        assert request_bearing_scans * max_requests == 880
 
     def test_restores_exact_state_collects_and_validates_before_publish(self):
         _, steps = self._workflow()
@@ -2288,7 +2324,7 @@ class TestDnsHealthWorkflow:
         assert "--max-logs 500" in argument_lines
         assert "--max-requests 110" in argument_lines
         assert "--minimum-interval-hours 3" in argument_lines
-        assert "--time-budget-seconds 600" in argument_lines
+        assert "--time-budget-seconds 1200" in argument_lines
         assert (
             "--classification-cache data/vllm/ci/.cache/dns-classifications-v1"
             in argument_lines

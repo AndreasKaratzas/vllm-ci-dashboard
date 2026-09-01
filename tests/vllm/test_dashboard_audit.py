@@ -1105,21 +1105,21 @@ def test_dns_audit_rejects_sensitive_unknown_and_unreconciled_data(tmp_path):
     } <= codes
 
 
-def test_dns_audit_tolerates_one_missed_three_hour_interval(tmp_path):
-    recent = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=5))
+def test_dns_audit_tolerates_scheduler_delay_inside_twelve_hour_window(tmp_path):
+    recent = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=11))
     _write_dns_audit_payload(tmp_path, recent)
     audit = DashboardAudit(tmp_path)
 
     audit.audit_dns_failures()
 
-    assert audit_module.DNS_MAX_FRESH_AGE_HOURS == 6
+    assert audit_module.DNS_MAX_FRESH_AGE_HOURS == 12
     assert "dns-health-stale" not in {
         finding.code for finding in audit.report.degradations
     }
 
 
 def test_dns_audit_rejects_false_complete_and_degrades_stale_partial_data(tmp_path):
-    stale = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=7))
+    stale = _dns_audit_payload(datetime.now(timezone.utc) - timedelta(hours=13))
     coverage_blocks = [stale["coverage"]] + [
         window["coverage"] for window in stale["windows"].values()
     ]

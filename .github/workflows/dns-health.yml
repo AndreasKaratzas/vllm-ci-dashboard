@@ -2,10 +2,12 @@ name: DNS Health Monitor
 
 on:
   schedule:
-    # Eight runs per day at 110 request starts each cap scheduled Buildkite
-    # traffic at 880 requests/day. The durable branch makes delayed runs
-    # idempotent and the collector coalesces invocations inside this interval.
-    - cron: '39 */3 * * *'
+    # Hourly opportunities recover quickly when GitHub delays or drops a cron.
+    # The durable three-hour collector gate permits at most eight request-bearing
+    # scans per day; at 110 request starts each, Buildkite traffic stays capped
+    # at 880 requests/day. Runs inside the gate republish validated state without
+    # making Buildkite requests.
+    - cron: '37 * * * *'
   # GitHub documents that scheduled events can be delayed or dropped. An
   # independent scheduler can use this dedicated event without sharing the
   # manual workflow-dispatch surface.
@@ -123,7 +125,12 @@ jobs:
             --max-logs 500
             --max-requests 110
             --minimum-interval-hours 3
-            --time-budget-seconds 600
+            # Full active-parent reconciliation can spend several minutes
+            # normalizing large build/job payloads before bounded log reads.
+            # Keep enough wall-clock headroom to finish that indivisible
+            # discovery phase; the independent 110-request ceiling remains the
+            # API-budget authority.
+            --time-budget-seconds 1200
             --classification-cache data/vllm/ci/.cache/dns-classifications-v1
           )
           python scripts/vllm/collect_dns_failures.py "${ARGS[@]}"
