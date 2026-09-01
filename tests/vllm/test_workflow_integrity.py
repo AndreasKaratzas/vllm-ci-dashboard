@@ -366,7 +366,7 @@ class TestWorkflowYAML:
                         f"{workflow.name}:{job_name}: github-script must use github.rest"
                     )
 
-        assert observed == 10
+        assert observed == 11
 
     def test_dependency_contracts_are_exact_and_covered_by_lock(self):
         constraint_lines = [
@@ -1231,7 +1231,7 @@ class TestHourlyMasterWorkflow:
         assert "isStrictLegacyQueueOnly" in helper_script
         assert "isStrictLegacySurfaceOnlyIncident" in helper_script
         assert "originalBody,\n    'queue'" in helper_script
-        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in helper_script
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 2" in helper_script
         assert "hourly-ci-queue-only:v1" in helper_script
         assert "const isQueueOnlyIncident" in create_script
         assert "...(isQueueOnlyIncident ? [queueOnlyIncidentMarker] : [])" in (
@@ -2256,7 +2256,7 @@ class TestHourlyMasterWorkflow:
         assert "setValidation(true, 'targeted-dns'" in recovery["with"]["script"]
         assert "inputs.dns_generation == ''" not in close["if"]
         helper_script = _hourly_incident_helper_text()
-        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in helper_script
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 2" in helper_script
         assert "isStrictLegacyDnsOnly" in helper_script
         assert "hourly-ci-dns-only:v1" in helper_script
         assert "closeHourlyIncident" in close["with"]["script"]
@@ -2657,8 +2657,9 @@ class TestHourlyMasterWorkflow:
         # current slot before reconciling stale duplicates.
         assert "github.rest.issues.create({" not in reset_branch
         helper_script = _hourly_incident_helper_text()
-        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in helper_script
-        assert "advanceRecoveryStreak(currentBody, validationStateSha)" in helper_script
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 2" in helper_script
+        assert "advanceRecoveryStreak(" in helper_script
+        assert "validationStateSha,\n      validationCodeSha" in helper_script
         assert "transition.credited" in helper_script
         assert "steps.publication-selector.outputs.degraded == 'false'" in close.get(
             "if", ""
@@ -2722,7 +2723,7 @@ class TestHourlyMasterWorkflow:
         helper_script = _hourly_incident_helper_text()
 
         assert "closeHourlyIncident" in script
-        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 6" in helper_script
+        assert "targetedDnsRecovery || targetedQueueRecovery ? 1 : 2" in helper_script
         assert "validationSource === 'targeted-dns'" in helper_script
         assert "if (targetedDnsRecovery && !isMarkedDnsOnly" in helper_script
         assert "required distinct healthy publication states" in helper_script
@@ -2741,7 +2742,8 @@ class TestHourlyMasterWorkflow:
         assert "const openOwned = active.filter" in helper_script
         assert "const exactOpen = uniqueIssue" in helper_script
         assert "await supersedeOtherIssues(currentIssue.number)" in helper_script
-        assert "transition.streak < requiredRecoveryRuns" in helper_script
+        assert "const recoverySatisfied = siteHealthRecovery" in helper_script
+        assert "if (!recoverySatisfied)" in helper_script
         assert "const recoveredBody = hasExactMarker" in helper_script
         assert "issue_number: currentIssue.number" in helper_script
         assert "recovery-credit:" in helper_script
@@ -2764,9 +2766,7 @@ class TestHourlyMasterWorkflow:
         )
         closed_rearm = "if (currentIssue.state === 'closed')"
         assert closed_recovered in helper_script
-        transition_index = helper_script.index(
-            "transition.streak < requiredRecoveryRuns"
-        )
+        transition_index = helper_script.index("if (!recoverySatisfied)")
         assert helper_script.index(closed_recovered) < transition_index
         assert transition_index < helper_script.index(closed_rearm, transition_index)
         assert "distinct eligible publication states" in helper_script
@@ -3637,6 +3637,9 @@ class TestSiteHealthWorkflow:
         job = workflow["jobs"]["check"]
         assert job["if"] == "github.ref == 'refs/heads/main'"
         assert job["timeout-minutes"] == 35
+        assert job["outputs"]["hourly_recovery_evidence"] == (
+            "${{ steps.health-result.outputs.hourly_recovery_evidence }}"
+        )
         checker_max_elapsed = site_health.MAX_CONFIRMATION_ELAPSED_SECONDS
         assert job["timeout-minutes"] * 60 >= checker_max_elapsed + 5 * 60
 
@@ -3668,7 +3671,7 @@ class TestSiteHealthWorkflow:
         assert names == expected
         assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[0]["uses"])
         assert steps[0]["with"] == {
-            "ref": "main",
+            "ref": "${{ github.sha }}",
             "persist-credentials": False,
         }
         assert steps[1]["uses"] == (
@@ -3760,11 +3763,76 @@ class TestSiteHealthWorkflow:
         assert reconcile["env"]["NORMALIZE_OUTCOME"] == (
             "${{ steps.health-result.outcome }}"
         )
+        recovery_job = _load_workflow("health-check.yml")["jobs"][
+            "confirm-hourly-recovery"
+        ]
+        assert recovery_job["needs"] == "check"
+        assert "needs.check.result == 'success'" in recovery_job["if"]
+        assert "needs.check.outputs.hourly_recovery_evidence != ''" in recovery_job["if"]
+        assert recovery_job["timeout-minutes"] == 10
+        assert recovery_job["concurrency"] == {
+            "group": "gh-pages-deploy",
+            "queue": "max",
+            "cancel-in-progress": False,
+        }
+        recovery_steps = recovery_job["steps"]
+        assert [step["name"] for step in recovery_steps] == [
+            "Check out exact monitor revision",
+            "Confirm pending hourly recovery with serialized site evidence",
+        ]
+        assert recovery_steps[0]["with"] == {
+            "ref": "${{ github.sha }}",
+            "persist-credentials": False,
+        }
+        hourly_recovery = recovery_steps[1]
+        assert re.fullmatch(
+            r"actions/github-script@[0-9a-f]{40}", hourly_recovery["uses"]
+        )
+        assert hourly_recovery["env"]["RECOVERY_EVIDENCE"] == (
+            "${{ needs.check.outputs.hourly_recovery_evidence }}"
+        )
+        recovery_script = hourly_recovery["with"]["script"]
+        for token in (
+            "closeHourlyIncident",
+            "validateSiteHealthEvidence",
+            "validationSource: 'site-health'",
+            "Buffer.from(encoded, 'base64')",
+            "github.rest.repos.getContent",
+            "ref: 'gh-pages'",
+            "publication_generation.json",
+            "data/vllm/ci/publication_status.json",
+            "identityStillCurrent",
+            "the stale proof will not mutate hourly incident state",
+        ):
+            assert token in recovery_script
         assert enforce["if"] == "always()"
         assert "RECONCILE_OUTCOME" in enforce["env"]
         assert "RECONCILED" in enforce["env"]
+        assert "HOURLY_RECOVERY_OUTCOME" not in enforce["env"]
         assert '[ "$HEALTHY" != "true" ]' in enforce["run"]
         assert "exit 1" in enforce["run"]
+
+    def test_every_hourly_incident_mutation_shares_the_pages_lease(self):
+        mutating_jobs = []
+        for workflow_path in WORKFLOWS.glob("*.yml"):
+            workflow = yaml.safe_load(workflow_path.read_text())
+            for job_name, job in workflow["jobs"].items():
+                scripts = [
+                    str(step.get("run") or step.get("with", {}).get("script") or "")
+                    for step in job.get("steps", []) or []
+                ]
+                if any("closeHourlyIncident" in script for script in scripts):
+                    mutating_jobs.append((workflow_path.name, job_name))
+                    assert job.get("concurrency") == {
+                        "group": "gh-pages-deploy",
+                        "queue": "max",
+                        "cancel-in-progress": False,
+                    }
+        assert sorted(mutating_jobs) == [
+            ("health-check.yml", "confirm-hourly-recovery"),
+            ("hourly-master.yml", "collect-and-deploy"),
+            ("hourly-master.yml", "queue-reconcile-finalizer"),
+        ]
 
     def test_missing_or_malformed_checker_evidence_fails_closed(self):
         _, steps = self._steps()

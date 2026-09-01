@@ -44,7 +44,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     fallback_dependency_closure,
     ignored_watcher_state_paths,
 )
-from vllm.dashboard_storage_budget import group_max_bytes  # noqa: E402
+from vllm.dashboard_storage_budget import group_max_bytes, writer_max_bytes  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 VLLM = DATA / "vllm"
@@ -125,6 +125,9 @@ OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 12
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
+AMD_MATRIX_RETENTION_POLICY = "incident_first_connected_logical_cohorts_v2"
+AMD_MATRIX_DETAIL_CONTRACT = "source_aggregates_with_connected_published_detail_v1"
+AMD_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
 DNS_WINDOW_OPTIONS = (
     ("1h", "Last hour", 1),
     ("3h", "Last 3 hours", 3),
@@ -937,6 +940,7 @@ class DashboardAudit:
             "data/vllm/ci/failure_trends.json": ("publication_retention",),
             "data/vllm/ci/flaky_tests.json": ("publication_retention",),
             "data/vllm/ci/parity_report.json": ("publication_retention",),
+            "data/vllm/ci/amd_test_matrix.json": ("publication_retention",),
             "data/vllm/ci/dns_failures.json": ("publication_retention",),
             "data/vllm/ci/queue_jobs.json": ("publication_retention",),
             "data/vllm/ci/gating_proposals.json": ("publication_retention",),
@@ -5415,6 +5419,384 @@ class DashboardAudit:
                 metrics[slug]["all_main"] = all_main_metrics
         self.report.metrics["analytics"] = metrics
 
+    def amd_matrix_audit_view(
+        self,
+        matrix: dict[str, Any],
+        stats: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], bool]:
+        """Return a strict published-detail view for a valid partial matrix."""
+        relpath = "data/vllm/ci/amd_test_matrix.json"
+        summary = _mapping(matrix.get("summary"))
+        retention = matrix.get("publication_retention")
+        if retention is None:
+            return matrix, summary, False
+        if not isinstance(retention, dict):
+            self.error("matrix-publication-retention", "retention must be an object", relpath)
+            return matrix, summary, False
+        complete = retention.get("complete_relative_to_source")
+        policy = retention.get("policy")
+        if policy != AMD_MATRIX_RETENTION_POLICY:
+            if complete is False:
+                self.error(
+                    "matrix-publication-retention",
+                    "incomplete matrix detail requires the current retention contract",
+                    relpath,
+                )
+            return matrix, summary, False
+
+        ledger_names = (
+            "logical_cohorts",
+            "matrix_rows",
+            "health_groups",
+            "duplicate_groups",
+            "mi355_classifications",
+        )
+        expected_keys = {
+            "policy", "detail_contract", "max_bytes",
+            "complete_relative_to_source", "aggregate_source_counts_complete",
+            *ledger_names,
+        }
+        valid = True
+
+        def reject(message: str) -> None:
+            nonlocal valid
+            valid = False
+            self.error("matrix-publication-retention", message, relpath)
+
+        if set(retention) != expected_keys:
+            reject("retention ledger has an unexpected shape")
+        if retention.get("detail_contract") != AMD_MATRIX_DETAIL_CONTRACT:
+            reject("retention detail contract is unsupported")
+        max_bytes = retention.get("max_bytes")
+        if type(max_bytes) is not int or not 0 < max_bytes <= AMD_MATRIX_MAX_BYTES:
+            reject("retention byte bound is invalid")
+        if retention.get("aggregate_source_counts_complete") is not True:
+            reject("retention does not attest complete source aggregates")
+
+        ledgers: dict[str, dict[str, Any]] = {}
+        fields = {"source", "published", "omitted", "complete_relative_to_source"}
+        for name in ledger_names:
+            row = retention.get(name)
+            if not isinstance(row, dict) or set(row) != fields:
+                reject(f"retention {name} ledger has an unexpected shape")
+                continue
+            values = (row.get("source"), row.get("published"), row.get("omitted"))
+            if (
+                any(type(value) is not int or value < 0 for value in values)
+                or values[0] != values[1] + values[2]
+                or type(row.get("complete_relative_to_source")) is not bool
+                or row["complete_relative_to_source"] is not (values[2] == 0)
+            ):
+                reject(f"retention {name} ledger does not reconcile")
+            ledgers[name] = row
+        if (
+            type(complete) is not bool
+            or complete is not all(
+                row.get("complete_relative_to_source") is True
+                for row in ledgers.values()
+            )
+        ):
+            reject("top-level retention completeness does not reconcile")
+
+        policy_block = _mapping(matrix.get("best_hardware_policy"))
+        collections = {
+            "matrix_rows": matrix.get("rows"),
+            "health_groups": matrix.get("health_groups"),
+            "duplicate_groups": matrix.get("duplicate_groups"),
+            "mi355_classifications": policy_block.get("mi355_classification"),
+        }
+        if any(
+            not isinstance(rows, list)
+            or any(not isinstance(row, dict) for row in rows)
+            for rows in collections.values()
+        ):
+            reject("published detail collections must contain only objects")
+            return matrix, summary, False
+        rows = collections["matrix_rows"]
+        health_groups = collections["health_groups"]
+        duplicate_groups = collections["duplicate_groups"]
+        classifications = collections["mi355_classifications"]
+        for name, published in collections.items():
+            if _mapping(ledgers.get(name)).get("published") != len(published):
+                reject(f"retention {name} published count is not exact")
+
+        row_ids = [row.get("id") for row in rows]
+        health_ids = [group.get("id") for group in health_groups]
+        duplicate_ids = [group.get("id") for group in duplicate_groups]
+        canonical = (
+            all(isinstance(value, str) and value for value in row_ids + health_ids + duplicate_ids)
+            and len(set(row_ids)) == len(row_ids)
+            and len(set(health_ids)) == len(health_ids)
+            and len(set(duplicate_ids)) == len(duplicate_ids)
+            and rows == sorted(rows, key=lambda row: (_safe_int(row.get("yaml_order")), str(row.get("id") or "")))
+            and health_groups == sorted(health_groups, key=lambda group: (str(group.get("status") or ""), str(group.get("id") or "")))
+            and duplicate_groups == sorted(duplicate_groups, key=lambda group: str(group.get("id") or ""))
+            and classifications == sorted(classifications, key=lambda row: (str(row.get("row_id") or ""), str(row.get("health_group_id") or "")))
+        )
+        if not canonical:
+            reject("published detail is not in canonical unique-ID order")
+
+        retained_ids = set(row_ids)
+        parents = {row_id: row_id for row_id in row_ids}
+
+        def find(row_id: str) -> str:
+            while parents[row_id] != row_id:
+                parents[row_id] = parents[parents[row_id]]
+                row_id = parents[row_id]
+            return row_id
+
+        for group, member_key in (
+            *((group, "member_row_ids") for group in health_groups),
+            *((group, "member_ids") for group in duplicate_groups),
+        ):
+            members = group.get(member_key)
+            if (
+                not isinstance(members, list)
+                or not members
+                or any(not isinstance(member, str) or not member for member in members)
+                or len(set(members)) != len(members)
+                or not set(members) <= retained_ids
+            ):
+                reject(f"published group {group.get('id')} has invalid row references")
+                continue
+            root = find(members[0])
+            for member in members[1:]:
+                other = find(member)
+                if other != root:
+                    parents[other] = root
+        cohort_count = len({find(row_id) for row_id in row_ids})
+        if _mapping(ledgers.get("logical_cohorts")).get("published") != cohort_count:
+            reject("published connected-cohort count is not exact")
+
+        if not valid or complete is True:
+            return matrix, summary, False
+
+        source_rows = _mapping(ledgers.get("matrix_rows")).get("source")
+        source_cohorts = _mapping(ledgers.get("logical_cohorts")).get("source")
+        source_duplicates = _mapping(ledgers.get("duplicate_groups")).get("source")
+        if type(source_rows) is not int or source_rows <= 0:
+            reject("an incomplete matrix must attest a non-empty source")
+        if (
+            type(source_cohorts) is not int
+            or type(source_rows) is not int
+            or not 1 <= source_cohorts <= source_rows
+        ):
+            reject("source connected-cohort count is outside the source row population")
+        for name in ("unique_groups", "definition_rows", "configured_definition_cases"):
+            if summary.get(name) != source_rows:
+                reject(f"summary.{name} does not match the source row ledger")
+
+        lower_fields = (
+            "hardware_cells", "latest_matched_cells", "passing_cells", "failing_cells",
+            "waiting_cells", "unknown_cells", "fully_shared_groups",
+            "single_arch_groups", "multi_variant_cells",
+        )
+        if any(
+            type(summary.get(name)) is not int or summary[name] < stats[name]
+            for name in lower_fields
+        ) or sum(summary.get(name, -1) for name in (
+            "passing_cells", "failing_cells", "waiting_cells", "unknown_cells"
+        )) != summary.get("hardware_cells"):
+            reject("source matrix cell aggregates are invalid or below retained detail")
+
+        duplicate_rows = summary.get("duplicate_definition_rows")
+        reduced = summary.get("reduced_unique_groups")
+        deduplicated = summary.get("deduplicated_configured_cases")
+        retained_duplicate_rows = sum(len(group.get("member_ids") or []) for group in duplicate_groups)
+        retained_reduced = len({str(row.get("duplicate_group_id") or row.get("id")) for row in rows})
+        if (
+            any(type(value) is not int or value < 0 for value in (source_duplicates, duplicate_rows, reduced, deduplicated))
+            or summary.get("duplicate_clusters") != source_duplicates
+            or duplicate_rows < max(retained_duplicate_rows, source_duplicates * 2)
+            or reduced != source_rows - (duplicate_rows - source_duplicates)
+            or deduplicated != reduced
+            or reduced < retained_reduced
+        ):
+            reject("source duplicate/reduced-row aggregates do not reconcile")
+
+        raw_architectures = matrix.get("architectures")
+        architectures = _rows(raw_architectures)
+        architecture_ids = [record.get("id") for record in architectures]
+        architecture_ids_valid = all(
+            isinstance(arch, str) and bool(arch) for arch in architecture_ids
+        )
+        if (
+            not isinstance(raw_architectures, list)
+            or len(architectures) != len(raw_architectures)
+            or not architecture_ids_valid
+            or (
+                architecture_ids_valid
+                and len(set(architecture_ids)) != len(architecture_ids)
+            )
+        ):
+            reject("source architectures must have unique non-empty string ids")
+        architecture_id_set = {
+            arch for arch in architecture_ids if isinstance(arch, str) and arch
+        }
+        for row in rows:
+            cells = row.get("cells")
+            if (
+                not isinstance(cells, dict)
+                or set(cells) != architecture_id_set
+                or any(not isinstance(cell, dict) for cell in cells.values())
+            ):
+                reject(f"published row {row.get('id')} has invalid architecture cells")
+        if summary.get("architecture_count") != len(architectures):
+            reject("source architecture count does not reconcile")
+        arch_cells = arch_matched = 0
+        for record in architectures:
+            arch = str(record.get("id") or "")
+            total = record.get("group_count")
+            matched = record.get("nightly_match_count")
+            published = _mapping(stats["by_arch"].get(arch))
+            if (
+                not arch or type(total) is not int or type(matched) is not int
+                or total < int(published.get("total") or 0)
+                or matched < int(published.get("matched") or 0) or matched > total
+            ):
+                reject(f"source architecture {arch or '<missing>'} aggregates are invalid")
+                continue
+            arch_cells += total
+            arch_matched += matched
+        if arch_cells != summary.get("hardware_cells") or arch_matched != summary.get("latest_matched_cells"):
+            reject("source architecture aggregates do not match the summary")
+
+        health_policies = _mapping(summary.get("health_policies"))
+        best = _mapping(health_policies.get("best_hardware"))
+        source_health = _mapping(ledgers.get("health_groups")).get("source")
+        if (
+            summary.get("source_health_group_count") != source_health
+            or summary.get("health_group_count") != len(health_groups)
+            or best.get("health_group_count") != source_health
+            or best.get("included_groups") != source_health
+            or best.get("published_health_group_count") != len(health_groups)
+            or best.get("health_group_details_complete") is not False
+            or best.get("group_ids") != health_ids
+        ):
+            reject("source/published health-group counts do not reconcile")
+        mi355_total = next((row.get("group_count") for row in architectures if row.get("id") == "mi355"), 0)
+        if _mapping(ledgers.get("mi355_classifications")).get("source") != mi355_total:
+            reject("source MI355 classification count does not reconcile")
+
+        policy_specs = {
+            "reduced_ignore_mi355": (True, True),
+            "reduced_include_mi355": (True, False),
+            "definitions_ignore_mi355": (False, True),
+            "definitions_include_mi355": (False, False),
+        }
+        published_policies = {
+            name: self.matrix_health_policy_stats(
+                rows, reduce_duplicates=flags[0], ignore_mi355_only=flags[1]
+            )
+            for name, flags in policy_specs.items()
+        }
+
+        def valid_source_counts(source: dict[str, Any], published: dict[str, Any], *, best_policy: bool = False) -> bool:
+            names = (
+                "passing_groups", "failed_only_groups", "mixed_groups", "waiting_groups",
+                "unknown_groups", "failing_groups", "resolved_groups", "included_groups",
+            ) + (() if best_policy else ("ignored_mi355_only_groups", "inherited_mi355_groups"))
+            if any(type(source.get(name)) is not int or source[name] < int(published.get(name) or 0) for name in names):
+                return False
+            denominator = source["included_groups"] if best_policy else source["resolved_groups"]
+            percentage = round(source["passing_groups"] / denominator * 100, 1) if denominator else None
+            return (
+                source["failing_groups"] == source["failed_only_groups"] + source["mixed_groups"]
+                and source["resolved_groups"] == source["passing_groups"] + source["failing_groups"]
+                and source["included_groups"] == source["resolved_groups"] + source["waiting_groups"] + source["unknown_groups"]
+                and source.get("pass_percentage") == percentage
+            )
+
+        for name, published in published_policies.items():
+            source = _mapping(health_policies.get(name))
+            if not valid_source_counts(source, published) or (
+                source.get("reduce_duplicates") is not policy_specs[name][0]
+                or source.get("ignore_mi355_only") is not policy_specs[name][1]
+            ):
+                reject(f"source health policy {name} does not reconcile")
+        observed_best = {
+            "passing_groups": sum(group.get("status") == "passing" for group in health_groups),
+            "failed_only_groups": sum(group.get("status") == "failed" for group in health_groups),
+            "mixed_groups": 0,
+            "waiting_groups": sum(group.get("status") == "waiting" for group in health_groups),
+            "unknown_groups": sum(group.get("status") == "unknown" for group in health_groups),
+        }
+        observed_best["failing_groups"] = observed_best["failed_only_groups"]
+        observed_best["resolved_groups"] = observed_best["passing_groups"] + observed_best["failing_groups"]
+        observed_best["included_groups"] = len(health_groups)
+        if not valid_source_counts(best, observed_best, best_policy=True):
+            reject("source best-hardware aggregates do not reconcile")
+        source_generic = best.get("generic_groups")
+        source_sensitive = best.get("mi355_sensitive_groups")
+        if (
+            any(type(value) is not int for value in (source_generic, source_sensitive))
+            or source_generic < sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups)
+            or source_sensitive < sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups)
+            or source_generic + source_sensitive != source_health
+            or best.get("generic_group_count") != source_generic
+            or best.get("mi355_sensitive_group_count") != source_sensitive
+        ):
+            reject("source best-hardware classification aggregates do not reconcile")
+        for rule_name in ("mi355_sensitive_rules", "generic_alias_rules"):
+            rules = policy_block.get(rule_name)
+            rule_rows = _rows(rules)
+            titles = [str(rule.get("title") or "") for rule in rule_rows]
+            if (
+                not isinstance(rules, list)
+                or len(rule_rows) != len(rules)
+                or any(not title or not str(rule.get("reason") or "") for title, rule in zip(titles, rule_rows))
+                or len(set(titles)) != len(titles)
+            ):
+                reject(f"source best-hardware {rule_name} are invalid")
+        if not valid:
+            return matrix, summary, False
+
+        published_summary = dict(summary)
+        published_summary.update({name: stats[name] for name in (
+            "unique_groups", "architecture_count", *lower_fields,
+        )})
+        published_summary.update({
+            "definition_rows": len(rows),
+            "reduced_unique_groups": retained_reduced,
+            "duplicate_clusters": len(duplicate_groups),
+            "duplicate_definition_rows": retained_duplicate_rows,
+            "health_group_count": len(health_groups),
+        })
+        published_best = dict(best)
+        published_best.update(observed_best)
+        published_best.update({
+            "health_group_count": len(health_groups),
+            "generic_groups": sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups),
+            "generic_group_count": sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups),
+            "mi355_sensitive_groups": sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups),
+            "mi355_sensitive_group_count": sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups),
+            "pass_percentage": round(observed_best["passing_groups"] / len(health_groups) * 100, 1) if health_groups else None,
+        })
+        published_summary["health_policies"] = {**health_policies, **published_policies, "best_hardware": published_best}
+
+        rows_by_id = {str(row.get("id") or ""): row for row in rows}
+        retained_sensitive_titles = {
+            str(_mapping(rows_by_id.get(str(item.get("row_id") or ""))).get("canonical_title") or "")
+            for item in classifications
+            if item.get("classification") == "separate_gate"
+        }
+        retained_alias_titles = {
+            str(_mapping(rows_by_id.get(str(item.get("row_id") or ""))).get("canonical_title") or "")
+            for item in classifications
+            if item.get("classification") == "generic_replica"
+        }
+        published_policy = dict(policy_block)
+        published_policy["mi355_sensitive_rules"] = [
+            rule for rule in policy_block.get("mi355_sensitive_rules") or []
+            if str(_mapping(rule).get("title") or "") in retained_sensitive_titles
+        ]
+        published_policy["generic_alias_rules"] = [
+            rule for rule in policy_block.get("generic_alias_rules") or []
+            if str(_mapping(rule).get("title") or "") in retained_alias_titles
+        ]
+        published_matrix = {**matrix, "summary": published_summary, "best_hardware_policy": published_policy}
+        return published_matrix, published_summary, True
+
     def matrix_cell_stats(self, matrix: dict[str, Any]) -> dict[str, Any]:
         architectures = [a.get("id") for a in matrix.get("architectures") or [] if a.get("id")]
         rows = matrix.get("rows") or []
@@ -6215,13 +6597,26 @@ class DashboardAudit:
         matrix = self.load_json("data/vllm/ci/amd_test_matrix.json", {})
         if not isinstance(matrix, dict):
             return
+        raw_rows = matrix.get("rows")
+        if not isinstance(raw_rows, list) or any(
+            not isinstance(row, dict) for row in raw_rows
+        ):
+            self.error(
+                "matrix-row-schema",
+                "amd_test_matrix.json rows must be an array of objects",
+                "data/vllm/ci/amd_test_matrix.json",
+            )
+            return
+        stats = self.matrix_cell_stats(matrix)
+        matrix, summary, incomplete_detail = self.amd_matrix_audit_view(
+            matrix,
+            stats,
+        )
         rows = matrix.get("rows") or []
-        if not rows:
+        if not rows and not incomplete_detail:
             self.error("matrix-empty", "amd_test_matrix.json has no rows")
             return
 
-        stats = self.matrix_cell_stats(matrix)
-        summary = matrix.get("summary") or {}
         for key in (
             "unique_groups",
             "architecture_count",
@@ -6322,6 +6717,12 @@ class DashboardAudit:
             rows,
             summary,
         )
+        if incomplete_detail:
+            best_hardware_metrics = {
+                **best_hardware_metrics,
+                "available": False,
+                "details_complete": False,
+            }
 
         source = matrix.get("source") or {}
         source_build = source.get("latest_build_number")
@@ -6351,13 +6752,13 @@ class DashboardAudit:
         arch_counts = {a.get("id"): a for a in matrix.get("architectures") or []}
         for arch, arch_stats in stats["by_arch"].items():
             record = arch_counts.get(arch) or {}
-            if record.get("group_count") != arch_stats["total"]:
+            if not incomplete_detail and record.get("group_count") != arch_stats["total"]:
                 self.error(
                     "matrix-arch-group-count",
                     f"{arch} group_count={record.get('group_count')} but rows imply {arch_stats['total']}",
                     "data/vllm/ci/amd_test_matrix.json",
                 )
-            if record.get("nightly_match_count") != arch_stats["matched"]:
+            if not incomplete_detail and record.get("nightly_match_count") != arch_stats["matched"]:
                 self.error(
                     "matrix-arch-nightly-count",
                     f"{arch} nightly_match_count={record.get('nightly_match_count')} but rows imply {arch_stats['matched']}",
@@ -6373,7 +6774,11 @@ class DashboardAudit:
             # total also includes configured cells that were not present in that
             # build, so its like-for-like denominator is the matched cell count.
             observed_groups = arch_stats["matched"]
-            if health_groups is not None and health_groups != observed_groups:
+            if (
+                not incomplete_detail
+                and health_groups is not None
+                and health_groups != observed_groups
+            ):
                 terminal_observed = observed_groups - arch_stats["waiting"]
                 if terminal_observed <= health_groups <= observed_groups:
                     self.warning(
@@ -6415,11 +6820,16 @@ class DashboardAudit:
                 "data/vllm/ci/amd_test_matrix.json",
             )
 
-        self.audit_parity_hardware_matches_matrix(matrix, stats)
+        self.audit_parity_hardware_matches_matrix(
+            matrix,
+            stats,
+            source_totals=incomplete_detail,
+        )
         self.report.metrics["amd_matrix"] = {
             **{k: v for k, v in stats.items() if k != "by_arch"},
             "by_arch": stats["by_arch"],
             "latest_build": source_build,
+            "details_complete": not incomplete_detail,
             "best_hardware": best_hardware_metrics,
         }
 
@@ -6427,6 +6837,8 @@ class DashboardAudit:
         self,
         matrix: dict[str, Any],
         matrix_stats: dict[str, Any],
+        *,
+        source_totals: bool = False,
     ) -> None:
         parity = self.load_json("data/vllm/ci/parity_report.json", {})
         if not isinstance(parity, dict):
@@ -6471,15 +6883,26 @@ class DashboardAudit:
                     stats["passing"] += 1
                 stats["total"] += 1
 
+        architecture_sources = {
+            str(row.get("id") or ""): row
+            for row in _rows(matrix.get("architectures"))
+        }
         for arch, mstats in matrix_stats["by_arch"].items():
             pstats = parity_stats.get(arch, {})
-            totals_match = pstats.get("total") == mstats["total"]
+            matrix_total = (
+                _mapping(architecture_sources.get(arch)).get("group_count")
+                if source_totals
+                else mstats["total"]
+            )
+            totals_match = pstats.get("total") == matrix_total
             if not totals_match:
                 self.error(
                     "parity-matrix-hardware-total",
-                    f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={mstats['total']}",
+                    f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={matrix_total}",
                     "data/vllm/ci/parity_report.json",
                 )
+            if source_totals:
+                continue
             parity_failing = pstats.get("failing")
             if parity_failing != mstats["failing"]:
                 diff = abs((parity_failing or 0) - mstats["failing"])

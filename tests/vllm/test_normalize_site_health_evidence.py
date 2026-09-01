@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -84,6 +85,10 @@ def _healthy_report(now: datetime, *, complete_attempt: int = 1) -> dict:
             "age_hours": 1.0,
             "publication_blocked": False,
             "uses_fallback": False,
+            "affected_surfaces": [],
+            "affected_surface_count": 0,
+            "fallback_surface_count": 0,
+            "fresh_degraded_surface_count": 0,
         },
         "projection": {
             "mode": "verified",
@@ -91,6 +96,10 @@ def _healthy_report(now: datetime, *, complete_attempt: int = 1) -> dict:
             "verification_scope": "complete",
             "generation_http": 200,
             "manifest_http": 200,
+            "generation_id": "hourly-12345-1",
+            "state_sha": "c" * 40,
+            "state_tree": "d" * 40,
+            "code_sha": "e" * 40,
             "manifest_sha256": "a" * 64,
             "file_count": len(VERIFIED_FILES),
             "total_bytes": 4096,
@@ -232,14 +241,33 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
     completed = _run_normalizer(environment)
 
     assert completed.returncode == 0, completed.stderr
-    assert _github_output(environment) | {"summary": "ignored"} == {
+    outputs = _github_output(environment)
+    recovery_evidence = json.loads(
+        base64.b64decode(outputs["hourly_recovery_evidence"]).decode("utf-8")
+    )
+    assert outputs | {
+        "hourly_recovery_evidence": "ignored",
+        "summary": "ignored",
+    } == {
         "healthy": "true",
         "confirmed": "true",
         "core_current": "true",
         "report_valid": "true",
         "missing_output_count": "0",
+        "hourly_recovery_evidence": "ignored",
         "summary": "ignored",
     }
+    assert recovery_evidence["normalized"] is True
+    assert recovery_evidence["reportValid"] is True
+    assert recovery_evidence["confirmed"] is True
+    assert recovery_evidence["healthy"] is True
+    assert recovery_evidence["generationId"] == "hourly-12345-1"
+    assert recovery_evidence["stateSha"] == "c" * 40
+    assert recovery_evidence["stateTree"] == "d" * 40
+    assert recovery_evidence["codeSha"] == "e" * 40
+    assert recovery_evidence["manifestSha256"] == "a" * 64
+    assert recovery_evidence["fileCount"] == len(VERIFIED_FILES)
+    assert recovery_evidence["totalBytes"] == 4096
     normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
     assert normalized["healthy"] is True
     assert normalized["overall_status"] == "healthy"
@@ -320,6 +348,51 @@ def test_normalizer_accepts_a_full_stream_discovered_by_a_later_probe(
     assert normalized["confirmation"]["complete_projection_attempt"] == 2
     assert normalized["healthy"] is True
     assert normalized["overall_status"] == "healthy"
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        lambda report: report["projection"].__setitem__("state_sha", "C" * 40),
+        lambda report: report["projection"].__setitem__("code_sha", "short"),
+        lambda report: report["publication"].update(
+            {
+                "affected_surfaces": ["CI core health"],
+                "affected_surface_count": 1,
+                "fresh_degraded_surface_count": 1,
+            }
+        ),
+        lambda report: report["publication"].__setitem__(
+            "fallback_surface_count", 1
+        ),
+    ],
+    ids=(
+        "uppercase-state-sha",
+        "short-code-sha",
+        "current-mode-affected-surface",
+        "current-mode-fallback-surface",
+    ),
+)
+def test_normalizer_rejects_identity_or_surface_evidence_that_cannot_close_recovery(
+    tmp_path: Path,
+    corrupt,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _healthy_report(now)
+    corrupt(report)
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["healthy"] == "false"
+    assert outputs["confirmed"] == "false"
+    assert outputs["report_valid"] == "false"
+    assert outputs["hourly_recovery_evidence"] == ""
+    normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
+    assert normalized["healthy"] is False
+    assert normalized["overall_status"] == "workflow_evidence_invalid"
 
 
 def test_effective_artifact_is_independent_from_the_raw_checker_report(

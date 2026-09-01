@@ -119,6 +119,8 @@ def test_amd_test_health_publication_retention_discloses_lower_bound_catalogs():
     assert "AMD test-health drill-down is storage-bounded" in OPS_JS
     assert "catalog counts, hardware distributions, and history charts are retained-row lower bounds" in OPS_JS
     assert "Aggregate share unavailable for incomplete catalog" in OPS_JS
+    assert "AMD detail is storage-bounded" in OPS_JS
+    assert "architecture rates and routes are hidden" in OPS_JS
 
 
 def test_home_workbench_marks_bounded_populations_as_lower_bounds():

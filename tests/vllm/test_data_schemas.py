@@ -426,9 +426,17 @@ class TestAmdTestMatrix:
             },
             "amd_test_matrix.json.summary.health_policies.best_hardware",
         )
+        retention = d.get("publication_retention") or {}
+        detail_complete = retention.get("complete_relative_to_source") is not False
         assert summary["health_group_count"] == len(groups)
-        assert policy["health_group_count"] == len(groups)
-        assert policy["included_groups"] == len(groups)
+        if detail_complete:
+            assert policy["health_group_count"] == len(groups)
+            assert policy["included_groups"] == len(groups)
+        else:
+            assert policy["health_group_count"] == retention["health_groups"]["source"]
+            assert policy["included_groups"] == retention["health_groups"]["source"]
+            assert policy["published_health_group_count"] == len(groups)
+            assert policy["health_group_details_complete"] is False
         assert policy["group_ids"] == [group["id"] for group in groups]
         assert len(set(policy["group_ids"])) == len(groups)
 
@@ -436,15 +444,30 @@ class TestAmdTestMatrix:
             status: sum(group["status"] == status for group in groups)
             for status in ("passing", "failed", "waiting", "unknown")
         }
-        assert policy["passing_groups"] == status_counts["passing"]
-        assert policy["failing_groups"] == status_counts["failed"]
-        assert policy["waiting_groups"] == status_counts["waiting"]
-        assert policy["unknown_groups"] == status_counts["unknown"]
-        assert policy["generic_group_count"] == sum(
-            group["gate_kind"] == "generic_best_hardware" for group in groups
+        def comparison(source, published):
+            return (
+                source == published
+                if detail_complete
+                else source >= published
+            )
+
+        assert comparison(policy["passing_groups"], status_counts["passing"])
+        assert comparison(policy["failing_groups"], status_counts["failed"])
+        assert comparison(policy["waiting_groups"], status_counts["waiting"])
+        assert comparison(policy["unknown_groups"], status_counts["unknown"])
+        assert comparison(
+            policy["generic_group_count"],
+            sum(
+                group["gate_kind"] == "generic_best_hardware"
+                for group in groups
+            ),
         )
-        assert policy["mi355_sensitive_group_count"] == sum(
-            group["gate_kind"] == "mi355_sensitive" for group in groups
+        assert comparison(
+            policy["mi355_sensitive_group_count"],
+            sum(
+                group["gate_kind"] == "mi355_sensitive"
+                for group in groups
+            ),
         )
 
         for index, group in enumerate(groups):
@@ -500,7 +523,13 @@ class TestAmdTestMatrix:
             for architecture in d["architectures"]
             if architecture["id"] == "mi355"
         )
-        assert len(classifications) == mi355["group_count"]
+        retention = d.get("publication_retention") or {}
+        detail_complete = retention.get("complete_relative_to_source") is not False
+        if detail_complete:
+            assert len(classifications) == mi355["group_count"]
+        else:
+            assert retention["mi355_classifications"]["source"] == mi355["group_count"]
+            assert retention["mi355_classifications"]["published"] == len(classifications)
         assert len({row["row_id"] for row in classifications}) == len(
             classifications
         )
@@ -509,10 +538,13 @@ class TestAmdTestMatrix:
             for kind in ("separate_gate", "generic_replica")
         }
         best = d["summary"]["health_policies"]["best_hardware"]
-        assert counts["separate_gate"] == best["mi355_sensitive_group_count"]
+        if detail_complete:
+            assert counts["separate_gate"] == best["mi355_sensitive_group_count"]
+        else:
+            assert counts["separate_gate"] <= best["mi355_sensitive_group_count"]
         assert sum(counts.values()) == len(classifications)
 
-        if d["source"].get("latest_build_number") == 11994:
+        if detail_complete and d["source"].get("latest_build_number") == 11994:
             assert (best["passing_groups"], best["included_groups"]) == (156, 161)
             assert counts == {"separate_gate": 15, "generic_replica": 25}
             by_label = {row["label"]: row["classification"] for row in classifications}

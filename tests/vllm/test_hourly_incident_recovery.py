@@ -24,8 +24,12 @@ EXPECTED_EXPORTS = {
     "RECOVERED_MARKER",
     "RECOVERY_CREDIT_PATTERN",
     "RECOVERY_CREDIT_PREFIX",
+    "RECOVERY_IDENTITY_CREDIT_PATTERN",
+    "RECOVERY_IDENTITY_CREDIT_PREFIX",
     "RECOVERY_MARKER_PATTERN",
     "RECOVERY_MARKER_PREFIX",
+    "RECOVERY_PROGRESS_END",
+    "RECOVERY_PROGRESS_START",
     "SUPERSEDED_MARKER",
     "ZERO_RECOVERY_MARKER",
     "advanceRecoveryStreak",
@@ -38,12 +42,16 @@ EXPECTED_EXPORTS = {
     "issueHasLabel",
     "parseRecoveryStreak",
     "recoveryCreditMarker",
+    "recoveryIdentityCreditMarker",
     "recoveryMarker",
     "resetRecoveryStreak",
     "retireOwnerLabel",
     "selectCanonicalIncident",
+    "setRecoveryProgress",
     "setRecoveryStreak",
+    "stripRecoveryProgress",
     "suppressedDegradationRecoveryTransition",
+    "validateSiteHealthEvidence",
 }
 
 
@@ -100,8 +108,12 @@ def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
           'RECOVERED_MARKER',
           'RECOVERY_CREDIT_PATTERN',
           'RECOVERY_CREDIT_PREFIX',
+          'RECOVERY_IDENTITY_CREDIT_PATTERN',
+          'RECOVERY_IDENTITY_CREDIT_PREFIX',
           'RECOVERY_MARKER_PATTERN',
           'RECOVERY_MARKER_PREFIX',
+          'RECOVERY_PROGRESS_END',
+          'RECOVERY_PROGRESS_START',
           'SUPERSEDED_MARKER',
           'ZERO_RECOVERY_MARKER',
           'advanceRecoveryStreak',
@@ -114,12 +126,16 @@ def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
           'issueHasLabel',
           'parseRecoveryStreak',
           'recoveryCreditMarker',
+          'recoveryIdentityCreditMarker',
           'recoveryMarker',
           'resetRecoveryStreak',
           'retireOwnerLabel',
           'selectCanonicalIncident',
+          'setRecoveryProgress',
           'setRecoveryStreak',
+          'stripRecoveryProgress',
           'suppressedDegradationRecoveryTransition',
+          'validateSiteHealthEvidence',
         ].sort();
         assert.deepEqual(Object.keys(recovery).sort(), expected);
         assert.equal(recovery.RECOVERY_MARKER_PATTERN.exec(
@@ -204,6 +220,26 @@ def test_node_healthy_streak_advances_deterministically_and_canonicalizes_marker
         assert.ok(second.body.includes(recovery.recoveryCreditMarker(secondState)));
         const reset = recovery.resetRecoveryStreak(second.body);
         assert.ok(!reset.includes(recovery.RECOVERY_CREDIT_PREFIX));
+
+        // A legacy state-only credit remains idempotent, but an exact repeat
+        // under the new helper can safely bind its code identity without
+        // incrementing the streak.
+        const legacyBody = [
+          '<!-- hourly-ci-recovery-streak:1 -->',
+          recovery.recoveryCreditMarker(firstState),
+          'legacy evidence',
+        ].join('\n');
+        const rebound = recovery.advanceRecoveryStreak(
+          legacyBody,
+          firstState,
+          'a'.repeat(40),
+        );
+        assert.equal(rebound.credited, false);
+        assert.equal(rebound.identityBound, true);
+        assert.equal(rebound.streak, 1);
+        assert.ok(rebound.body.includes(
+          recovery.recoveryIdentityCreditMarker(firstState, 'a'.repeat(40)),
+        ));
         """
     )
 
@@ -549,5 +585,232 @@ def test_node_already_canonical_queue_finalizer_adopts_and_closes_legacy_568():
           assert.ok(recovery.issueHasLabel(issue, recovery.HOURLY_OWNER_LABEL));
           assert.equal(comments.length, 1);
         }).catch(error => { console.error(error); process.exitCode = 1; });
+        """
+    )
+
+
+def test_node_general_recovery_uses_two_states_or_matching_site_health_and_resets():
+    _run_node(
+        r"""
+        const assert = require('node:assert/strict');
+        const recovery = require(process.argv[1]);
+        const codeA = 'a'.repeat(40);
+        const codeB = 'b'.repeat(40);
+        const stateOne = '1'.repeat(40);
+        const stateTwo = '2'.repeat(40);
+
+        const siteEvidence = (stateSha, codeSha) => ({
+          normalized: true,
+          reportValid: true,
+          confirmed: true,
+          healthy: true,
+          overallStatus: 'healthy',
+          publicationMode: 'current',
+          publicationStatus: 'healthy',
+          publicationBlocked: false,
+          usesFallback: false,
+          affectedSurfaces: [],
+          affectedSurfaceCount: 0,
+          fallbackSurfaceCount: 0,
+          freshDegradedSurfaceCount: 0,
+          confirmationStrategy: '2-of-3-quorum',
+          probeAttempts: 3,
+          healthyProbeCount: 3,
+          requiredHealthyProbes: 2,
+          completeProjectionVerified: true,
+          matchingProjectionHealthyCount: 3,
+          requiredMatchingProjectionHealthy: 2,
+          stateSha,
+          codeSha,
+        });
+
+        const makeHarness = () => {
+          const issue = {
+            number: 568,
+            state: 'open',
+            title: 'Hourly validation failure [deadbeef] — 2026-09-01',
+            labels: [{name: recovery.HOURLY_OWNER_LABEL}],
+            body: [
+              recovery.OWNERSHIP_MARKER,
+              recovery.CURRENT_INCIDENT_MARKER,
+              recovery.ZERO_RECOVERY_MARKER,
+              '## Degraded Publication — 2026-09-01',
+              'Original failure evidence',
+            ].join('\n'),
+          };
+          const comments = [];
+          let issueMutations = 0;
+          const github = {rest: {issues: {
+            getLabel: async () => ({data: {name: recovery.HOURLY_OWNER_LABEL}}),
+            createLabel: async () => ({data: {}}),
+            listForRepo: async params => {
+              if (params.state === issue.state) return {data: [issue]};
+              return {data: []};
+            },
+            addLabels: async params => {
+              issueMutations += 1;
+              for (const name of params.labels) {
+                if (!issue.labels.some(label => label.name === name)) {
+                  issue.labels.push({name});
+                }
+              }
+              return {data: issue};
+            },
+            update: async params => {
+              issueMutations += 1;
+              if (params.title !== undefined) issue.title = params.title;
+              if (params.body !== undefined) issue.body = params.body;
+              if (params.state !== undefined) issue.state = params.state;
+              return {data: issue};
+            },
+            removeLabel: async params => {
+              issueMutations += 1;
+              issue.labels = issue.labels.filter(label => label.name !== params.name);
+              return {data: issue};
+            },
+            get: async () => ({data: issue}),
+            createComment: async params => {
+              issueMutations += 1;
+              comments.push(params.body);
+              return {data: {}};
+            },
+          }}};
+          return {
+            issue,
+            github,
+            comments,
+            mutations: () => issueMutations,
+          };
+        };
+        const context = {
+          repo: {owner: 'o', repo: 'r'},
+          serverUrl: 'https://github.test',
+          runId: 99,
+        };
+        const core = {warning: message => { throw new Error(message); }};
+        const publish = (harness, stateSha, codeSha = codeA) =>
+          recovery.closeHourlyIncident({
+            github: harness.github,
+            context,
+            core,
+            validationSource: 'hourly-tests',
+            validationCodeSha: codeSha,
+            validationStateSha: stateSha,
+          });
+        const confirm = (harness, stateSha, codeSha = codeA) =>
+          recovery.closeHourlyIncident({
+            github: harness.github,
+            context,
+            core,
+            validationSource: 'site-health',
+            validationCodeSha: codeSha,
+            validationStateSha: stateSha,
+            validationEvidence: siteEvidence(stateSha, codeSha),
+          });
+
+        (async () => {
+          // One clean full publication stays open, but visibly stops claiming
+          // the failure is still current.
+          const independentlyConfirmed = makeHarness();
+          const first = await publish(independentlyConfirmed, stateOne);
+          assert.equal(first.action, 'advanced');
+          assert.equal(first.streak, 1);
+          assert.equal(independentlyConfirmed.issue.state, 'open');
+          assert.match(independentlyConfirmed.issue.title, /validation failure/);
+          assert.ok(independentlyConfirmed.issue.body.includes(
+            '**Recovery verification in progress.**',
+          ));
+          assert.ok(independentlyConfirmed.issue.body.includes(
+            recovery.recoveryIdentityCreditMarker(stateOne, codeA),
+          ));
+
+          // The same state is idempotent and cannot double-credit.
+          const duplicate = await publish(independentlyConfirmed, stateOne);
+          assert.equal(duplicate.action, 'duplicate-credit');
+          assert.equal(duplicate.streak, 1);
+          assert.equal(
+            (independentlyConfirmed.issue.body.match(
+              /<!-- hourly-ci-recovery-credit:[0-9a-f]{40} -->/g,
+            ) || []).length,
+            1,
+          );
+
+          // An exact, independently normalized Site Health quorum can close
+          // only the already credited state+code identity.
+          const matched = await confirm(independentlyConfirmed, stateOne);
+          assert.equal(matched.action, 'closed');
+          assert.equal(independentlyConfirmed.issue.state, 'closed');
+          assert.ok(independentlyConfirmed.issue.body.includes(
+            recovery.RECOVERED_MARKER,
+          ));
+          assert.ok(!independentlyConfirmed.issue.body.includes(
+            recovery.RECOVERY_PROGRESS_START,
+          ));
+          assert.equal(independentlyConfirmed.comments.length, 1);
+
+          // Site Health alone, a different state, or a different code is a
+          // read-only mismatch and cannot manufacture publication credit.
+          const noPublication = makeHarness();
+          const aloneBody = noPublication.issue.body;
+          const aloneMutations = noPublication.mutations();
+          const fallbackEvidence = siteEvidence(stateOne, codeA);
+          fallbackEvidence.publicationMode = 'fallback';
+          fallbackEvidence.publicationStatus = 'degraded';
+          fallbackEvidence.usesFallback = true;
+          await assert.rejects(
+            recovery.closeHourlyIncident({
+              github: noPublication.github,
+              context,
+              core,
+              validationSource: 'site-health',
+              validationCodeSha: codeA,
+              validationStateSha: stateOne,
+              validationEvidence: fallbackEvidence,
+            }),
+            /requires normalized healthy\/current 2-of-3 evidence/,
+          );
+          assert.equal(noPublication.mutations(), aloneMutations);
+          const alone = await confirm(noPublication, stateOne);
+          assert.equal(alone.action, 'identity-mismatch');
+          assert.equal(noPublication.issue.state, 'open');
+          assert.equal(noPublication.issue.body, aloneBody);
+          assert.equal(noPublication.mutations(), aloneMutations);
+
+          const stale = makeHarness();
+          await publish(stale, stateOne);
+          const pendingBody = stale.issue.body;
+          const pendingMutations = stale.mutations();
+          const wrongState = await confirm(stale, stateTwo);
+          assert.equal(wrongState.action, 'identity-mismatch');
+          assert.equal(stale.issue.body, pendingBody);
+          assert.equal(stale.mutations(), pendingMutations);
+          const wrongCode = await confirm(stale, stateOne, codeB);
+          assert.equal(wrongCode.action, 'identity-mismatch');
+          assert.equal(stale.issue.body, pendingBody);
+          assert.equal(stale.mutations(), pendingMutations);
+
+          // A second distinct clean full publication remains an independent
+          // closure path when the monitor has not yet run.
+          const twoPublications = makeHarness();
+          assert.equal((await publish(twoPublications, stateOne)).action, 'advanced');
+          const second = await publish(twoPublications, stateTwo);
+          assert.equal(second.action, 'closed');
+          assert.equal(twoPublications.issue.state, 'closed');
+          assert.equal(recovery.parseRecoveryStreak(twoPublications.issue.body), 2);
+
+          // Any degradation resets all state credits, state+code bindings, and
+          // the visible pending-verification banner.
+          const resetting = makeHarness();
+          await publish(resetting, stateOne);
+          const reset = recovery.suppressedDegradationRecoveryTransition(
+            resetting.issue.body,
+            'open',
+          );
+          assert.equal(reset.shouldReset, true);
+          assert.equal(recovery.parseRecoveryStreak(reset.body), 0);
+          assert.ok(!reset.body.includes(recovery.RECOVERY_CREDIT_PREFIX));
+          assert.ok(!reset.body.includes(recovery.RECOVERY_IDENTITY_CREDIT_PREFIX));
+          assert.ok(!reset.body.includes(recovery.RECOVERY_PROGRESS_START));
+        })().catch(error => { console.error(error); process.exitCode = 1; });
         """
     )

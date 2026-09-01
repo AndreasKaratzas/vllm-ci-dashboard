@@ -3885,7 +3885,7 @@
       const unavailable = n('div', 'ops-evidence-note is-warning');
       add(unavailable, [
         n('strong', '', 'Best-hardware metric unavailable. '),
-        n('span', '', 'This compatibility snapshot predates the fixed best-hardware policy. Refresh after the matrix collector publishes the policy and complete configured test-group inventory together.'),
+        n('span', '', 'Complete best-hardware detail is unavailable or storage-bounded; rates and drill-downs stay hidden.'),
       ]);
       body.append(unavailable);
       root.append(body);
@@ -4990,6 +4990,10 @@
         uniqueHealth,
         matrix.latest_build_number || amdHealthSummary.latest_build_number
       ));
+      if ((matrixData.publication_retention || {}).complete_relative_to_source === false) {
+        host.append(n('div', 'ops-evidence-note is-warning', 'AMD detail is storage-bounded; architecture rates and routes are hidden.'));
+        return;
+      }
       if (!uniqueHealth.best_hardware_unavailable) {
         const policyNote = n('div', 'ops-evidence-note is-info');
         add(policyNote, [
@@ -6224,8 +6228,6 @@
     return s.length > max ? s.slice(0, max - 1) + '…' : s;
   }
 
-  // Mirror of collect_agent_health node labelling: append the GPU type to every
-  // node name (gpu9124 -> "gpu9124 (MI300)").
   function agentNodeLabel(raw, hardware) {
     if (!raw || !hardware) return raw;
     return raw + ' (' + hardware + ')';
@@ -6243,13 +6245,6 @@
     return url;
   }
 
-  // Port of build_operations_snapshot's co-failure clustering, moved client-side
-  // so the window is a live toggle. `runs` are failing runs (active signal) on ONE
-  // node, each carrying {group,pipeline,state,build_number,url,started_at,_start,_end}.
-  // A cluster is a run of consecutive failures whose gaps stay within `windowMins`.
-  // Retries of the same test group within the same build collapse to one logical
-  // failure (same node is implied, since clustering is per node); a cluster becomes
-  // an event with >=2 such distinct failures — they need NOT be different groups.
   function clusterNodeCofailures(node, nodeRaw, hardware, runs, windowMins) {
     const failing = runs.filter(function (r) { return r._start !== null; })
       .slice().sort(function (a, b) { return a._start - b._start; });
@@ -6258,9 +6253,6 @@
     let cluster = [];
     let clusterEnd = null;
     function flush() {
-      // Dedupe retries of the same (pipeline, build, group) — a job retried within
-      // one build is a single logical failure, not a co-failure — keeping the last
-      // attempt. An event needs >=2 of these distinct failures.
       const byKey = new Map();
       cluster.forEach(function (r) {
         const key = r.pipeline + '\u001f' + r.build_number + '\u001f' + r.group;
@@ -6287,8 +6279,6 @@
     const ends = cluster.map(function (r) { return r._end !== null ? r._end : r._start; });
     const startMs = Math.min.apply(null, starts);
     const endMs = Math.max.apply(null, ends);
-    // concurrent := any two run intervals overlap (contention / ephemeral fault);
-    // otherwise back-to-back failures suggesting an unclean node state.
     const intervals = cluster.map(function (r) { return [r._start, r._end !== null ? r._end : r._start]; })
       .sort(function (a, b) { return a[0] - b[0]; });
     let concurrent = false;
@@ -6701,21 +6691,17 @@
       return true;
     }
 
-    // Does a failing run belong to the active signal subset?
     function signalMatch(r) {
       if (signal === 'infra') return r.infra_suspect;
       if (signal === 'hard') return r.state === 'hard';
       return true; // 'all' — every shipped record is a hard/soft failure
     }
-    // Short noun for the active signal, woven into headings/columns/copy.
     function signalTerm() {
       return signal === 'infra' ? 'infra-suspect' : signal === 'hard' ? 'hard' : 'all';
     }
     function signalColumnLabel() {
       return signal === 'infra' ? 'Infra-suspect failures' : 'Hard failures';
     }
-    // Column the table sorts by when the user hasn't chosen one: the signal
-    // column for Infra/Hard, and Test group failures for All (no signal column).
     function defaultSortKey() {
       return signal === 'all' ? 'failures' : 'infra_suspect';
     }
@@ -6730,7 +6716,6 @@
       const startMs = endMs - days * 86400000;
       const startDay = new Date(startMs).toISOString().slice(0, 10);
 
-      // Reliability rollups -> per-node aggregate over the window.
       const byNode = new Map();
       let totalRuns = 0;
       let identifiedRuns = 0;
@@ -6739,8 +6724,6 @@
         if (!matchesFilter(nd.h, nd.nd)) return;
         const bucket = nightlyOnly ? nd.n : nd.a;
         if (!bucket || !bucket[0]) return;
-        // bucket = [runs, soft, hard, canceled]; tolerate the legacy 3-tuple
-        // [runs, fail, canceled] (fail attributed to hard, soft unknown).
         const split = bucket.length >= 4;
         const soft = split ? (bucket[1] || 0) : 0;
         const hard = split ? (bucket[2] || 0) : (bucket[1] || 0);
@@ -6777,9 +6760,6 @@
         identifiedRuns = aggregateRuns.identifiedRuns;
       }
 
-      // Failing runs in the active signal subset -> co-failure clustering +
-      // per-node counts. Exclude-cancelled drops failures whose parent build was
-      // auto-canceled (superseded by a newer push) so they don't inflate the signal.
       const fRuns = failing.filter(function (r) {
         if (!signalMatch(r)) return false;
         if (r._start === null || r._start < startMs || r._start > endMs) return false;
@@ -6789,9 +6769,6 @@
       });
       const runsByNode = new Map();
       fRuns.forEach(function (r) { if (!runsByNode.has(r.node_raw)) runsByNode.set(r.node_raw, []); runsByNode.get(r.node_raw).push(r); });
-      // Compact accounting remains complete even when raw link evidence is
-      // shortened. Use it for numeric failure/signal counts; raw rows remain
-      // authoritative only for timelines, distinct groups and co-failures.
       const accountingRows = failureAccounting.filter(function (row) {
         return matchesFilter(row.h, row.nd);
       });
@@ -6833,8 +6810,6 @@
       const agents = [];
       byNode.forEach(function (agg, nodeRaw) {
         const identified = nodeRaw !== '(unidentified)';
-        // Failure counts come from complete compact accounting when available;
-        // the run denominator remains the exact node_days rollup.
         const f = failByNode.get(nodeRaw) || {hard: 0, soft: 0};
         const failures = f.hard + f.soft;
         const denom = excludeCancelled ? Math.max(0, agg.runs - agg.canceled) : agg.runs;
@@ -6868,9 +6843,6 @@
     function renderKpis(view) {
       clear(kpiHost);
       const identifiedNodes = view.agents.filter(function (a) { return a.identified; }).length;
-      // Count nodes carrying at least one failure under the active signal
-      // (a.infra_suspect holds the signal-matched count) so this KPI tracks the
-      // Failure signal toggle rather than the raw all-builds soft/hard total.
       const unreliable = view.agents.filter(function (a) { return a.identified && a.infra_suspect > 0; }).length;
       const unreliableNoun = signal === 'infra' ? 'an infra-suspect' : signal === 'hard' ? 'a hard' : 'a hard/soft';
       const coveragePct = view.totalRuns ? (100 * view.identifiedRuns / view.totalRuns) : 0;
@@ -6917,13 +6889,8 @@
 
     function renderTable(view) {
       clear(tableHost);
-      // The dedicated signal column is redundant when "All failures" is selected
-      // (it would equal the Test group failures total), so we drop it and let the
-      // Failures column carry the sort.
       const showSignalColumn = signal !== 'all';
-      // Default sort follows the active signal until the user picks a column.
       if (!sortExplicit) sort = {key: defaultSortKey(), dir: 'desc'};
-      // Never sort by a column that isn't rendered.
       if (!showSignalColumn && sort.key === 'infra_suspect') sort.key = 'failures';
       const rows = sortedAgents(view);
       const columns = [
@@ -6953,8 +6920,6 @@
       tableHost.append(panel('AMD nodes by reliability', tableDescription(view), [table]));
     }
 
-    // Panel copy, written for the currently-selected failure signal so the reader
-    // knows exactly what each column counts without cross-referencing the toggle.
     function tableDescription(view) {
       const count = integer(view.agents.length) + ' node(s) in ' + windowId;
       const base = nodeDetailIncomplete || failureDetailIncomplete
@@ -7007,8 +6972,6 @@
       if (scroll) timelineChart.root.scrollIntoView({behavior: 'smooth', block: 'center'});
     }
 
-    // Table node click: load the node's timeline AND scope the co-failure events
-    // list to it (expanded), so the two views focus together.
     function focusNode(nodeRaw) {
       eventNodeFilter = nodeRaw;
       selectNode(nodeRaw, true);
@@ -7020,8 +6983,6 @@
       return timelineBounds ? {min: timelineBounds.min, max: timelineBounds.max} : null;
     }
 
-    // Constrain a proposed [min,max] window: keep at least a ~1-minute span and
-    // never widen past the full padded data bounds.
     function clampRange(min, max) {
       if (max - min < 60000) { const c = (min + max) / 2; min = c - 30000; max = c + 30000; }
       if (timelineBounds) {
@@ -7050,14 +7011,11 @@
       drawSelectedTimeline(current);
     }
 
-    // Live Chart.js instance for the timeline, for pixel<->time mapping.
     function timelineXScale() {
       const chart = charts.get('analytics-agent-timeline');
       return chart && chart.scales ? chart.scales.x : null;
     }
 
-    // Click-drag range selection on the timeline canvas. Wired once to the
-    // persistent canvas; handlers read the live chart scale.
     function enableTimelineInteractions() {
       const canvas = timelineChart.canvas;
       const viewport = timelineChart.viewport;

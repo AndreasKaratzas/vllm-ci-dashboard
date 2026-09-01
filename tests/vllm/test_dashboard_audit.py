@@ -18,6 +18,11 @@ from vllm import audit_dashboard_data as audit_module
 from vllm import build_operations_snapshot as operations_module
 from vllm import build_queue_section as queue_section_module
 from vllm import collect_queue_lifecycle as queue_lifecycle
+from vllm.collect_amd_test_matrix import (
+    AMD_TEST_MATRIX_MAX_BYTES,
+    bounded_matrix_payload,
+    pretty_json_bytes,
+)
 from vllm.audit_dashboard_data import (
     DATA_SPECS,
     ROOT,
@@ -279,6 +284,84 @@ def test_best_hardware_audit_rejects_summary_source_and_classifier_drift(tmp_pat
         "matrix-best-hardware-member-source",
         "matrix-best-hardware-classification",
     } <= codes
+
+
+def _production_shaped_compacted_matrix(*, max_bytes=AMD_TEST_MATRIX_MAX_BYTES):
+    source = copy.deepcopy(json.loads(
+        (ROOT / "data/vllm/ci/amd_test_matrix.json").read_text()
+    ))
+    source.pop("publication_retention", None)
+    for row in source["rows"]:
+        row["_retention_regression_padding"] = "x" * 30_000
+    return source, bounded_matrix_payload(source, max_bytes=max_bytes)
+
+
+def _audit_substituted_matrix(payload):
+    audit = DashboardAudit(ROOT)
+    load_json = audit.load_json
+    audit.load_json = lambda relpath, default: (
+        payload
+        if relpath == "data/vllm/ci/amd_test_matrix.json"
+        else load_json(relpath, default)
+    )
+    audit.audit_amd_matrix()
+    return audit.report
+
+
+def test_matrix_audit_accepts_actual_source_compaction_as_incomplete_detail():
+    source, bounded = _production_shaped_compacted_matrix()
+
+    assert len(pretty_json_bytes(source)) > AMD_TEST_MATRIX_MAX_BYTES
+    assert len(pretty_json_bytes(bounded)) <= AMD_TEST_MATRIX_MAX_BYTES
+    assert 0 < len(bounded["rows"]) < len(source["rows"])
+    assert bounded["publication_retention"]["complete_relative_to_source"] is False
+
+    report = _audit_substituted_matrix(bounded)
+
+    assert not report.errors
+    assert report.metrics["amd_matrix"]["details_complete"] is False
+    assert report.metrics["amd_matrix"]["best_hardware"]["available"] is False
+
+
+def test_matrix_audit_accepts_zero_retained_rows_only_with_valid_source_ledger():
+    source, bounded = _production_shaped_compacted_matrix(max_bytes=35_000)
+
+    assert source["rows"]
+    assert bounded["rows"] == []
+    assert bounded["publication_retention"]["matrix_rows"]["source"] == len(source["rows"])
+    assert not _audit_substituted_matrix(bounded).errors
+
+    bounded["publication_retention"]["matrix_rows"]["source"] = 0
+    assert "matrix-publication-retention" in {
+        finding.code for finding in _audit_substituted_matrix(bounded).errors
+    }
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        lambda payload: payload["publication_retention"]["matrix_rows"].__setitem__("published", 0),
+        lambda payload: payload["summary"].__setitem__("passing_cells", payload["summary"]["passing_cells"] + 1),
+        lambda payload: payload["summary"]["health_policies"]["best_hardware"].__setitem__("passing_groups", payload["summary"]["health_policies"]["best_hardware"]["passing_groups"] + 1),
+        lambda payload: payload["rows"].reverse(),
+        lambda payload: payload["publication_retention"]["logical_cohorts"].update({
+            "source": payload["publication_retention"]["matrix_rows"]["source"] + 1,
+            "omitted": (
+                payload["publication_retention"]["matrix_rows"]["source"] + 1
+                - payload["publication_retention"]["logical_cohorts"]["published"]
+            ),
+        }),
+        lambda payload: payload["rows"][0]["cells"].__setitem__("unexpected", {}),
+        lambda payload: payload["architectures"][1].__setitem__(
+            "id", payload["architectures"][0]["id"]
+        ),
+    ),
+)
+def test_matrix_audit_rejects_tampered_partial_ledgers_and_source_aggregates(tamper):
+    _, bounded = _production_shaped_compacted_matrix()
+    tamper(bounded)
+
+    assert _audit_substituted_matrix(bounded).errors
 
 
 def test_dashboard_audit_covers_core_user_facing_data_files():

@@ -57,6 +57,12 @@ RAW_YAML_URL_TEMPLATE = (
 )
 DEFAULT_BUILD_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
 AMD_TEST_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
+AMD_TEST_MATRIX_RETENTION_POLICY = (
+    "incident_first_connected_logical_cohorts_v2"
+)
+AMD_TEST_MATRIX_DETAIL_CONTRACT = (
+    "source_aggregates_with_connected_published_detail_v1"
+)
 
 AREA_PATTERNS = [
     ("Kernels", re.compile(r"^kernels?|attention test|quantization test", re.I)),
@@ -480,6 +486,16 @@ def _best_hardware_status(cells: list[dict[str, Any]]) -> str:
     return "unknown"
 
 
+def _health_group_ids(groups: list[dict[str, Any]]) -> list[str]:
+    """Return the exact published group order after validating its identity."""
+    group_ids = [group.get("id") for group in groups]
+    if any(not isinstance(group_id, str) or not group_id for group_id in group_ids):
+        raise ValueError("AMD health groups must have non-empty string ids")
+    if len(set(group_ids)) != len(group_ids):
+        raise ValueError("AMD health groups must have unique ids")
+    return group_ids
+
+
 def _health_member(
     row: dict[str, Any], arch: str, source_url: str
 ) -> dict[str, Any]:
@@ -650,7 +666,7 @@ def build_best_hardware_health_groups(
         "mi355_sensitive_group_count": sensitive_count,
         "status_rule": "pass when any owned hardware cell passes",
         "denominator_rule": "all expected health groups, including waiting and unknown",
-        "group_ids": [group["id"] for group in health_groups],
+        "group_ids": _health_group_ids(health_groups),
     })
 
     mi355_classification = []
@@ -1534,32 +1550,36 @@ def bounded_matrix_payload(
     the original aggregate counts remain explicit in the summary and exact
     retention ledger.
     """
-    if max_bytes <= 0:
-        raise ValueError("AMD test matrix byte budget must be positive")
+    if max_bytes <= 0 or max_bytes > AMD_TEST_MATRIX_MAX_BYTES:
+        raise ValueError(
+            "AMD test matrix byte budget must be positive and no larger than "
+            f"{AMD_TEST_MATRIX_MAX_BYTES}"
+        )
+
+    def source_objects(name: str, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list) or any(
+            not isinstance(item, dict) for item in value
+        ):
+            raise ValueError(f"AMD test matrix {name} must be an array of objects")
+        return [dict(item) for item in value]
+
     source_rows = sorted(
-        (dict(row) for row in matrix.get("rows") or [] if isinstance(row, dict)),
+        source_objects("rows", matrix.get("rows")),
         key=lambda row: (
             int(row.get("yaml_order") or 0),
             str(row.get("id") or ""),
         ),
     )
     source_health = sorted(
-        (
-            dict(group)
-            for group in matrix.get("health_groups") or []
-            if isinstance(group, dict)
-        ),
+        source_objects("health_groups", matrix.get("health_groups")),
         key=lambda group: (
             str(group.get("status") or ""),
             str(group.get("id") or ""),
         ),
     )
+    _health_group_ids(source_health)
     source_duplicates = sorted(
-        (
-            dict(group)
-            for group in matrix.get("duplicate_groups") or []
-            if isinstance(group, dict)
-        ),
+        source_objects("duplicate_groups", matrix.get("duplicate_groups")),
         key=lambda group: str(group.get("id") or ""),
     )
     row_ids = [str(row.get("id") or "") for row in source_rows]
@@ -1639,12 +1659,11 @@ def bounded_matrix_payload(
     ordered_components = sorted(components.values(), key=component_key)
     source_policy = matrix.get("best_hardware_policy")
     if not isinstance(source_policy, dict):
-        source_policy = {}
+        raise ValueError("AMD test matrix best_hardware_policy must be an object")
     source_classifications = sorted(
-        (
-            dict(row)
-            for row in source_policy.get("mi355_classification") or []
-            if isinstance(row, dict)
+        source_objects(
+            "best_hardware_policy.mi355_classification",
+            source_policy.get("mi355_classification"),
         ),
         key=lambda row: (
             str(row.get("row_id") or ""),
@@ -1677,9 +1696,8 @@ def bounded_matrix_payload(
             })
             and members <= selected_ids
         ]
-        published_health_ids = {
-            str(group.get("id") or "") for group in published_health
-        }
+        published_group_ids = _health_group_ids(published_health)
+        published_health_ids = set(published_group_ids)
         published_duplicates = [
             group
             for group in source_duplicates
@@ -1704,7 +1722,10 @@ def bounded_matrix_payload(
         summary = dict(matrix.get("summary") or {})
         health_policies = dict(summary.get("health_policies") or {})
         best_hardware = dict(health_policies.get("best_hardware") or {})
-        best_hardware["group_ids"] = sorted(published_health_ids)
+        # This is an ordered cross-reference, not a set. Derive it from the
+        # final emitted sequence so bounded publication cannot make its own
+        # summary fail the downstream reconciliation audit.
+        best_hardware["group_ids"] = published_group_ids
         best_hardware["published_health_group_count"] = len(published_health)
         best_hardware["health_group_details_complete"] = (
             len(published_health) == len(source_health)
@@ -1740,7 +1761,8 @@ def bounded_matrix_payload(
             "duplicate_groups": published_duplicates,
             "rows": published_rows,
             "publication_retention": {
-                "policy": "incident_first_connected_logical_cohorts_v1",
+                "policy": AMD_TEST_MATRIX_RETENTION_POLICY,
+                "detail_contract": AMD_TEST_MATRIX_DETAIL_CONTRACT,
                 "max_bytes": max_bytes,
                 "complete_relative_to_source": complete,
                 "aggregate_source_counts_complete": True,

@@ -1166,6 +1166,10 @@ def test_bounded_matrix_retains_incident_cohorts_and_exact_source_counts():
     assert len(encoded) <= 9_000
     assert retention["complete_relative_to_source"] is False
     assert retention["aggregate_source_counts_complete"] is True
+    assert retention["policy"] == "incident_first_connected_logical_cohorts_v2"
+    assert retention["detail_contract"] == (
+        "source_aggregates_with_connected_published_detail_v1"
+    )
     assert retention["matrix_rows"]["source"] == 4
     assert retention["matrix_rows"]["published"] == len(bounded["rows"])
     assert retention["matrix_rows"]["omitted"] == 4 - len(bounded["rows"])
@@ -1180,6 +1184,20 @@ def test_bounded_matrix_retains_incident_cohorts_and_exact_source_counts():
             "health_group_details_complete"
         ]
         is False
+    )
+
+
+def test_bounded_matrix_derives_summary_ids_from_exact_published_order():
+    bounded = bounded_matrix_payload(_oversized_matrix_payload(), max_bytes=50_000)
+    published_ids = [group["id"] for group in bounded["health_groups"]]
+
+    # The bounded writer deliberately orders groups by status then ID. The
+    # summary must preserve that exact sequence instead of independently
+    # sorting an unordered set of IDs.
+    assert published_ids != sorted(published_ids)
+    assert (
+        bounded["summary"]["health_policies"]["best_hardware"]["group_ids"]
+        == published_ids
     )
 
 

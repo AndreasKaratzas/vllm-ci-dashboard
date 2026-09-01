@@ -13,6 +13,15 @@ const RECOVERY_MARKER_PATTERN = /<!-- hourly-ci-recovery-streak:(\d+) -->/;
 const RECOVERY_CREDIT_PREFIX = '<!-- hourly-ci-recovery-credit:';
 const RECOVERY_CREDIT_PATTERN =
   /<!-- hourly-ci-recovery-credit:([0-9a-f]{40}) -->/g;
+const RECOVERY_IDENTITY_CREDIT_PREFIX =
+  '<!-- hourly-ci-recovery-identity:';
+const RECOVERY_IDENTITY_CREDIT_PATTERN =
+  /<!-- hourly-ci-recovery-identity:state=([0-9a-f]{40});code=([0-9a-f]{40}) -->/g;
+const RECOVERY_PROGRESS_START = '<!-- hourly-ci-recovery-progress:start -->';
+const RECOVERY_PROGRESS_END = '<!-- hourly-ci-recovery-progress:end -->';
+const RECOVERY_PROGRESS_PATTERN =
+  /<!-- hourly-ci-recovery-progress:start -->[\s\S]*?<!-- hourly-ci-recovery-progress:end -->\n*/g;
+const RECOVERED_TITLE = '[Recovered] Hourly dashboard publication incident';
 const RECOVERED_MARKER = '<!-- hourly-ci-recovered -->';
 const ZERO_RECOVERY_MARKER = `${RECOVERY_MARKER_PREFIX}0 -->`;
 const FINGERPRINT_MARKER_PATTERN = /<!-- hourly-ci-fingerprint:[0-9a-f]+ -->/;
@@ -64,6 +73,8 @@ function resetRecoveryStreak(body) {
     .split(RECOVERED_MARKER)
     .join('')
     .replace(RECOVERY_CREDIT_PATTERN, '')
+    .replace(RECOVERY_IDENTITY_CREDIT_PATTERN, '')
+    .replace(RECOVERY_PROGRESS_PATTERN, '')
     .replace(/^\n+/, '');
   return setRecoveryStreak(activeBody, 0);
 }
@@ -158,26 +169,112 @@ function recoveryCreditMarker(stateSha) {
   return `${RECOVERY_CREDIT_PREFIX}${stateSha} -->`;
 }
 
-function advanceRecoveryStreak(body, stateSha) {
+function recoveryIdentityCreditMarker(stateSha, codeSha) {
+  if (typeof stateSha !== 'string' || !/^[0-9a-f]{40}$/.test(stateSha)) {
+    throw new TypeError('recovery identity requires a full lowercase state SHA');
+  }
+  if (typeof codeSha !== 'string' || !/^[0-9a-f]{40}$/.test(codeSha)) {
+    throw new TypeError('recovery identity requires a full lowercase code SHA');
+  }
+  return `${RECOVERY_IDENTITY_CREDIT_PREFIX}state=${stateSha};code=${codeSha} -->`;
+}
+
+function stripRecoveryProgress(body) {
+  return bodyText(body).replace(RECOVERY_PROGRESS_PATTERN, '').replace(/^\n+/, '');
+}
+
+function setRecoveryProgress(body, stateSha, codeSha) {
+  const stateMarker = recoveryCreditMarker(stateSha);
+  const identityMarker = recoveryIdentityCreditMarker(stateSha, codeSha);
+  const source = stripRecoveryProgress(body);
+  if (!hasExactMarker(source, stateMarker) || !hasExactMarker(source, identityMarker)) {
+    throw new Error('recovery progress requires an exact pending publication credit');
+  }
+  const banner = [
+    RECOVERY_PROGRESS_START,
+    '> [!NOTE]',
+    '> **Recovery verification in progress.** The latest full dashboard ' +
+      'publication is healthy. This incident remains open only until that exact ' +
+      'publication is independently confirmed by Site Health, or one more ' +
+      'distinct healthy full publication succeeds.',
+    `> Pending identity: state \`${stateSha}\`, code \`${codeSha}\`.`,
+    RECOVERY_PROGRESS_END,
+  ].join('\n');
+  return `${banner}\n${source}`;
+}
+
+function validateSiteHealthEvidence(evidence, stateSha, codeSha) {
+  const row = evidence && typeof evidence === 'object' ? evidence : {};
+  const valid = (
+    row.normalized === true &&
+    row.reportValid === true &&
+    row.confirmed === true &&
+    row.healthy === true &&
+    row.overallStatus === 'healthy' &&
+    row.publicationMode === 'current' &&
+    row.publicationStatus === 'healthy' &&
+    row.publicationBlocked === false &&
+    row.usesFallback === false &&
+    Array.isArray(row.affectedSurfaces) &&
+    row.affectedSurfaces.length === 0 &&
+    row.affectedSurfaceCount === 0 &&
+    row.fallbackSurfaceCount === 0 &&
+    row.freshDegradedSurfaceCount === 0 &&
+    row.confirmationStrategy === '2-of-3-quorum' &&
+    row.probeAttempts === 3 &&
+    Number.isSafeInteger(row.healthyProbeCount) &&
+    row.healthyProbeCount >= 2 &&
+    row.healthyProbeCount <= 3 &&
+    row.requiredHealthyProbes === 2 &&
+    row.completeProjectionVerified === true &&
+    Number.isSafeInteger(row.matchingProjectionHealthyCount) &&
+    row.matchingProjectionHealthyCount >= 2 &&
+    row.matchingProjectionHealthyCount <= row.healthyProbeCount &&
+    row.requiredMatchingProjectionHealthy === 2 &&
+    row.stateSha === stateSha &&
+    row.codeSha === codeSha
+  );
+  if (!valid) {
+    throw new Error(
+      'site-health recovery requires normalized healthy/current 2-of-3 ' +
+      'evidence for the exact publication identity',
+    );
+  }
+  return true;
+}
+
+function advanceRecoveryStreak(body, stateSha, codeSha = '') {
   const source = bodyText(body);
   const creditMarker = recoveryCreditMarker(stateSha);
+  const identityMarker = codeSha
+    ? recoveryIdentityCreditMarker(stateSha, codeSha)
+    : '';
   const previousStreak = parseRecoveryStreak(body);
   if (source.split(/\r?\n/).includes(creditMarker)) {
+    const identityBound = Boolean(identityMarker) &&
+      !source.split(/\r?\n/).includes(identityMarker);
+    const nextBody = identityBound ? `${identityMarker}\n${source}` : source;
     return Object.freeze({
       previousStreak,
       streak: previousStreak,
       credited: false,
+      identityBound,
       creditMarker,
-      body: source,
+      identityMarker,
+      body: nextBody,
     });
   }
   const streak = previousStreak + 1;
-  const creditedBody = `${creditMarker}\n${source}`;
+  const creditedBody = [identityMarker, creditMarker, source]
+    .filter(Boolean)
+    .join('\n');
   return Object.freeze({
     previousStreak,
     streak,
     credited: true,
+    identityBound: Boolean(identityMarker),
     creditMarker,
+    identityMarker,
     body: setRecoveryStreak(creditedBody, streak),
   });
 }
@@ -361,12 +458,14 @@ async function closeHourlyIncident({
   validationCodeSha,
   validationStateSha,
   validationCiUrl = '',
+  validationEvidence = null,
 }) {
   const allowedValidationSources = new Set([
     'targeted-dns',
     'targeted-queue',
     'hourly-tests',
     'separate-ci',
+    'site-health',
   ]);
   if (!allowedValidationSources.has(validationSource)) {
     throw new Error('eligible recovery requires an allowlisted validation source');
@@ -377,7 +476,16 @@ async function closeHourlyIncident({
   if (!/^[0-9a-f]{40}$/.test(validationStateSha || '')) {
     throw new Error('eligible recovery requires an exact dashboard state SHA');
   }
-  await ensureOwnerLabel({github, context});
+  const siteHealthRecovery = validationSource === 'site-health';
+  if (siteHealthRecovery) {
+    validateSiteHealthEvidence(
+      validationEvidence,
+      validationStateSha,
+      validationCodeSha,
+    );
+  } else {
+    await ensureOwnerLabel({github, context});
+  }
   const {issue: currentIssue, ownedIssues} = await findCanonicalIncident({
     github,
     context,
@@ -386,6 +494,33 @@ async function closeHourlyIncident({
   if (!currentIssue) {
     console.log('No current hourly incident needs recovery tracking.');
     return Object.freeze({action: 'none'});
+  }
+  const originalBody = bodyText(currentIssue.body);
+  if (siteHealthRecovery) {
+    if (currentIssue.state !== 'open') {
+      console.log(
+        `Site Health will not alter closed hourly incident #${currentIssue.number}.`,
+      );
+      return Object.freeze({action: 'not-open', issue: currentIssue.number});
+    }
+    const exactIdentityMarker = recoveryIdentityCreditMarker(
+      validationStateSha,
+      validationCodeSha,
+    );
+    if (parseRecoveryStreak(originalBody) < 1 ||
+        !hasExactMarker(originalBody, exactIdentityMarker)) {
+      console.log(
+        `Site Health identity ${validationStateSha}/${validationCodeSha} has no ` +
+        `pending full-publication credit on issue #${currentIssue.number}.`,
+      );
+      return Object.freeze({
+        action: 'identity-mismatch',
+        issue: currentIssue.number,
+      });
+    }
+    // The independent monitor may be the first caller after repository setup.
+    // Do not mutate labels until its exact pending publication identity is proven.
+    await ensureOwnerLabel({github, context});
   }
   if (!issueHasLabel(currentIssue, HOURLY_OWNER_LABEL)) {
     await github.rest.issues.addLabels({
@@ -397,7 +532,6 @@ async function closeHourlyIncident({
     currentIssue.labels = [...(currentIssue.labels || []), {name: HOURLY_OWNER_LABEL}];
   }
 
-  const originalBody = bodyText(currentIssue.body);
   const targetedDnsRecovery = validationSource === 'targeted-dns';
   const targetedQueueRecovery = validationSource === 'targeted-queue';
   const isMarkedDnsOnly = hasExactMarker(originalBody, DNS_ONLY_INCIDENT_MARKER);
@@ -494,15 +628,35 @@ async function closeHourlyIncident({
     return Object.freeze({action: 'already-recovered', issue: currentIssue.number});
   }
 
-  const requiredRecoveryRuns = targetedDnsRecovery || targetedQueueRecovery ? 1 : 6;
-  const transition = advanceRecoveryStreak(currentBody, validationStateSha);
-  if (transition.streak < requiredRecoveryRuns) {
-    if (transition.body !== originalBody) {
+  const requiredRecoveryRuns = targetedDnsRecovery || targetedQueueRecovery ? 1 : 2;
+  const transition = siteHealthRecovery
+    ? Object.freeze({
+      previousStreak: parseRecoveryStreak(currentBody),
+      streak: parseRecoveryStreak(currentBody),
+      credited: false,
+      identityBound: true,
+      body: currentBody,
+    })
+    : advanceRecoveryStreak(
+      currentBody,
+      validationStateSha,
+      validationCodeSha,
+    );
+  const recoverySatisfied = siteHealthRecovery
+    ? transition.streak >= 1
+    : transition.streak >= requiredRecoveryRuns;
+  if (!recoverySatisfied) {
+    const pendingBody = setRecoveryProgress(
+      transition.body,
+      validationStateSha,
+      validationCodeSha,
+    );
+    if (pendingBody !== originalBody) {
       await github.rest.issues.update({
         owner: context.repo.owner,
         repo: context.repo.repo,
         issue_number: currentIssue.number,
-        body: transition.body,
+        body: pendingBody,
       });
     }
     console.log(
@@ -520,14 +674,16 @@ async function closeHourlyIncident({
     });
   }
 
-  const recoveredBody = hasExactMarker(transition.body, RECOVERED_MARKER)
-    ? transition.body
-    : `${RECOVERED_MARKER}\n${transition.body}`;
+  const completedBody = stripRecoveryProgress(transition.body);
+  const recoveredBody = hasExactMarker(completedBody, RECOVERED_MARKER)
+    ? completedBody
+    : `${RECOVERED_MARKER}\n${completedBody}`;
   if (currentIssue.state === 'closed') {
     await github.rest.issues.update({
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: currentIssue.number,
+      title: RECOVERED_TITLE,
       body: recoveredBody,
     });
     currentIssue.body = recoveredBody;
@@ -542,6 +698,7 @@ async function closeHourlyIncident({
     owner: context.repo.owner,
     repo: context.repo.repo,
     issue_number: currentIssue.number,
+    title: RECOVERED_TITLE,
     body: recoveredBody,
     state: 'closed',
   };
@@ -574,7 +731,7 @@ async function closeHourlyIncident({
   currentIssue.state = 'closed';
   currentIssue.body = recoveredBody;
 
-  const validationEvidence = validationSource === 'targeted-dns'
+  const validationEvidenceText = validationSource === 'targeted-dns'
     ? `The targeted DNS generation was validated in exact canonical state ` +
       `\`${validationStateSha}\` for code \`${validationCodeSha}\`.`
     : validationSource === 'targeted-queue'
@@ -583,18 +740,29 @@ async function closeHourlyIncident({
       : validationSource === 'separate-ci'
         ? `Separate CI validated code SHA \`${validationCodeSha}\`` +
           (validationCiUrl ? ` ([run](${validationCiUrl})).` : '.')
+        : validationSource === 'site-health'
+          ? `The independent Site Health 2-of-3 quorum verified exact state ` +
+            `\`${validationStateSha}\` and code \`${validationCodeSha}\` as a ` +
+            'healthy, current, zero-fallback publication.'
         : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
+  const recoverySummary = siteHealthRecovery
+    ? 'One eligible healthy full publication was independently confirmed by ' +
+      'Site Health against the exact pending state and code identity.'
+    : `The active hourly publication incident was absent in ` +
+      `${requiredRecoveryRuns} distinct eligible healthy publication states.`;
+  const validationRunLabel = siteHealthRecovery
+    ? 'Site Health run'
+    : 'Publication run';
   try {
     await github.rest.issues.createComment({
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: currentIssue.number,
       body: [
-        `The active hourly publication incident was absent in ` +
-          `${requiredRecoveryRuns} distinct eligible healthy publication states.`,
+        recoverySummary,
         '',
-        validationEvidence,
-        `**Publication run:** ${runUrl}`,
+        validationEvidenceText,
+        `**${validationRunLabel}:** ${runUrl}`,
       ].join('\n'),
     });
   } catch (error) {
@@ -618,8 +786,12 @@ module.exports = Object.freeze({
   RECOVERED_MARKER,
   RECOVERY_CREDIT_PATTERN,
   RECOVERY_CREDIT_PREFIX,
+  RECOVERY_IDENTITY_CREDIT_PATTERN,
+  RECOVERY_IDENTITY_CREDIT_PREFIX,
   RECOVERY_MARKER_PATTERN,
   RECOVERY_MARKER_PREFIX,
+  RECOVERY_PROGRESS_END,
+  RECOVERY_PROGRESS_START,
   SUPERSEDED_MARKER,
   ZERO_RECOVERY_MARKER,
   advanceRecoveryStreak,
@@ -631,11 +803,15 @@ module.exports = Object.freeze({
   isStrictLegacySurfaceOnlyIncident,
   issueHasLabel,
   parseRecoveryStreak,
-  recoveryMarker,
   recoveryCreditMarker,
+  recoveryIdentityCreditMarker,
+  recoveryMarker,
   resetRecoveryStreak,
   retireOwnerLabel,
   selectCanonicalIncident,
+  setRecoveryProgress,
   setRecoveryStreak,
+  stripRecoveryProgress,
   suppressedDegradationRecoveryTransition,
+  validateSiteHealthEvidence,
 });

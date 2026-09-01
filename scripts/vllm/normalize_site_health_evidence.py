@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def normalize_health_evidence() -> None:
+    import base64
     import html
     import json
     import math
@@ -529,6 +530,36 @@ def normalize_health_evidence() -> None:
             expected_fallback = report_mode in {"fallback", "mixed"}
             if publication.get("uses_fallback") is not expected_fallback:
                 contract_errors.append("healthy report had contradictory fallback state")
+            affected_surfaces = publication.get("affected_surfaces")
+            affected_surface_count = publication.get("affected_surface_count")
+            fallback_surface_count = publication.get("fallback_surface_count")
+            fresh_degraded_surface_count = publication.get(
+                "fresh_degraded_surface_count"
+            )
+            if (
+                not isinstance(affected_surfaces, list)
+                or any(not isinstance(item, str) or not item for item in affected_surfaces)
+                or affected_surfaces != sorted(set(affected_surfaces))
+                or not all(
+                    is_nonnegative_int(value)
+                    for value in (
+                        affected_surface_count,
+                        fallback_surface_count,
+                        fresh_degraded_surface_count,
+                    )
+                )
+                or affected_surface_count != len(affected_surfaces)
+                or fallback_surface_count > affected_surface_count
+                or fresh_degraded_surface_count > affected_surface_count
+            ):
+                contract_errors.append("healthy report had malformed publication surfaces")
+            elif report_mode == "current" and (
+                affected_surfaces
+                or affected_surface_count != 0
+                or fallback_surface_count != 0
+                or fresh_degraded_surface_count != 0
+            ):
+                contract_errors.append("healthy current report had degraded surfaces")
             if (
                 not is_finite_number(report_age)
                 or report_age < -(FUTURE_SKEW.total_seconds() / 3600)
@@ -537,6 +568,17 @@ def normalize_health_evidence() -> None:
                 contract_errors.append("healthy report had an invalid publication age")
             projection_mode = projection.get("mode")
             if projection_mode == "verified":
+                exact_identity_fields = (
+                    projection.get("state_sha"),
+                    projection.get("state_tree"),
+                    projection.get("code_sha"),
+                )
+                exact_identity_valid = all(
+                    isinstance(value, str)
+                    and len(value) == 40
+                    and all(char in "0123456789abcdef" for char in value)
+                    for value in exact_identity_fields
+                )
                 streamed_rows = projection.get("operations_streamed_sections")
                 streamed_proof_valid = (
                     isinstance(streamed_rows, list)
@@ -575,6 +617,7 @@ def normalize_health_evidence() -> None:
                     or projection.get("verification_scope") != "complete"
                     or projection.get("generation_http") != 200
                     or projection.get("manifest_http") != 200
+                    or not exact_identity_valid
                     or not isinstance(projection.get("manifest_sha256"), str)
                     or len(projection["manifest_sha256"]) != 64
                     or any(char not in "0123456789abcdef" for char in projection["manifest_sha256"])
@@ -845,12 +888,83 @@ def normalize_health_evidence() -> None:
         .replace("\r", " ")
         .replace("\n", " ")[:1000]
     )
+    hourly_recovery_evidence = ""
+    if report_valid and confirmed and healthy:
+        publication = (
+            report.get("publication")
+            if isinstance(report.get("publication"), dict)
+            else {}
+        )
+        projection = (
+            report.get("projection")
+            if isinstance(report.get("projection"), dict)
+            else {}
+        )
+        confirmation = (
+            report.get("confirmation")
+            if isinstance(report.get("confirmation"), dict)
+            else {}
+        )
+        workflow_confirmation = (
+            report.get("workflow_confirmation")
+            if isinstance(report.get("workflow_confirmation"), dict)
+            else {}
+        )
+        recovery_payload = {
+            "normalized": True,
+            "reportValid": True,
+            "confirmed": workflow_confirmation.get("confirmed") is True,
+            "healthy": report.get("healthy") is True,
+            "overallStatus": report.get("overall_status"),
+            "publicationMode": publication.get("mode"),
+            "publicationStatus": publication.get("status"),
+            "publicationBlocked": publication.get("publication_blocked"),
+            "usesFallback": publication.get("uses_fallback"),
+            "affectedSurfaces": publication.get("affected_surfaces"),
+            "affectedSurfaceCount": publication.get("affected_surface_count"),
+            "fallbackSurfaceCount": publication.get("fallback_surface_count"),
+            "freshDegradedSurfaceCount": publication.get(
+                "fresh_degraded_surface_count"
+            ),
+            "generatedAt": publication.get("generated_at"),
+            "confirmationStrategy": confirmation.get("strategy"),
+            "probeAttempts": confirmation.get("attempted"),
+            "healthyProbeCount": confirmation.get("healthy_count"),
+            "requiredHealthyProbes": confirmation.get("required_healthy"),
+            "completeProjectionVerified": confirmation.get(
+                "complete_projection_verified"
+            ),
+            "matchingProjectionHealthyCount": confirmation.get(
+                "matching_projection_healthy_count"
+            ),
+            "requiredMatchingProjectionHealthy": confirmation.get(
+                "required_matching_projection_healthy"
+            ),
+            "generationId": projection.get("generation_id"),
+            "stateSha": projection.get("state_sha"),
+            "stateTree": projection.get("state_tree"),
+            "codeSha": projection.get("code_sha"),
+            "manifestSha256": projection.get("manifest_sha256"),
+            "fileCount": projection.get("file_count"),
+            "totalBytes": projection.get("total_bytes"),
+        }
+        compact_recovery_payload = json.dumps(
+            recovery_payload,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        hourly_recovery_evidence = base64.b64encode(
+            compact_recovery_payload
+        ).decode("ascii")
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"healthy={str(healthy).lower()}\n")
         output.write(f"confirmed={str(confirmed).lower()}\n")
         output.write(f"core_current={str(core_current).lower()}\n")
         output.write(f"report_valid={str(report_valid).lower()}\n")
         output.write(f"missing_output_count={len(missing)}\n")
+        output.write(
+            f"hourly_recovery_evidence={hourly_recovery_evidence}\n"
+        )
         output.write(f"summary={summary}\n")
         output.flush()
         os.fsync(output.fileno())
