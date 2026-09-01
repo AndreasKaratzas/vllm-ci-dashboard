@@ -2177,7 +2177,17 @@ jobs:
           MAX_DATA_AGE_HOURS: "36"
         run: |
           set +e
-          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
+          # This child process is intentionally both tokenless and guardless.
+          # The outer workflow retains its real guard identity for every other
+          # process; guard unit tests need a blank transport class in order to
+          # install synthetic identities without weakening identity replacement.
+          env \
+            -u BUILDKITE_TOKEN \
+            -u BUILDKITE_API_TOKEN \
+            -u BUILDKITE_REQUEST_GUARD_FILE \
+            -u BUILDKITE_REQUEST_GUARD_ATTEMPT_ID \
+            -u BUILDKITE_REQUEST_GUARD_ALLOWANCE \
+            pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           # Transport bounded opaque values as one-line base64. Pytest output can

@@ -128,6 +128,30 @@ def test_nonzero_adapter_retry_policy_fails_before_charge_or_transport(
     assert guard.read_count(path, attempt_id="data-100-1", allowance=1) == 0
 
 
+def test_different_identity_is_rejected_without_displacing_the_first_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    guard.initialize(first, attempt_id="data-first-1", allowance=2)
+    guard.initialize(second, attempt_id="data-second-1", allowance=2)
+    transported: list[str] = []
+    monkeypatch.setattr(
+        requests.sessions.Session,
+        "send",
+        lambda session, request, *args, **kwargs: transported.append(request.url),
+    )
+
+    guard.install(first, attempt_id="data-first-1", allowance=2)
+    with pytest.raises(guard.BuildkiteRequestGuardError, match="different guard identity"):
+        guard.install(second, attempt_id="data-second-1", allowance=2)
+
+    requests.Session().send(prepared("https://api.buildkite.com/v2/builds"))
+    assert transported == ["https://api.buildkite.com/v2/builds"]
+    assert guard.read_count(first, attempt_id="data-first-1", allowance=2) == 1
+    assert guard.read_count(second, attempt_id="data-second-1", allowance=2) == 0
+
+
 def test_missing_corrupt_or_replaced_state_fails_closed(tmp_path: Path) -> None:
     missing = tmp_path / "missing.json"
     with pytest.raises(guard.BuildkiteRequestGuardError, match="unavailable"):

@@ -90,6 +90,18 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
     amd_matrix = next(step for step in steps if step.get("name") == "Collect AMD test matrix")
     assert "BUILDKITE_TOKEN" not in (amd_matrix.get("env") or {})
 
+    tests = next(step for step in steps if step.get("name") == "Run test suite")
+    assert "BUILDKITE_TOKEN" not in tests.get("env", {})
+    assert "BUILDKITE_API_TOKEN" not in tests.get("env", {})
+    for name in (
+        "BUILDKITE_TOKEN",
+        "BUILDKITE_API_TOKEN",
+        "BUILDKITE_REQUEST_GUARD_FILE",
+        "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
+        "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
+    ):
+        assert f"-u {name}" in tests["run"]
+
 
 def test_gated_wakeups_cannot_publish_or_advance_buildkite_clock() -> None:
     workflow = load("hourly-master.yml")
