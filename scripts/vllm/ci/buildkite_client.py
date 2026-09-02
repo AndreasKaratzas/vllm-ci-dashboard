@@ -439,6 +439,53 @@ def validate_nightly_roster_cache(
     return _inspect_nightly_roster_cache(cache_dir, anchor=clock, repair=False)
 
 
+def prune_expired_nightly_roster_cache(
+    cache_dir: Path,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Remove only safely identified roster shards older than retention.
+
+    Expiry is an expected cache lifecycle event, including when an Actions
+    cache saved just before UTC midnight is restored just after it.  Keep that
+    distinct from structural corruption: unexpected paths, symlinks, future
+    rows, malformed payloads, and oversized shards remain in place so the
+    strict validator rejects the tree before it can influence API skips.
+    """
+    clock = now or datetime.now(timezone.utc)
+    if not isinstance(clock, datetime) or clock.tzinfo is None:
+        raise ValueError("nightly roster cache clock must be timezone-aware")
+    clock = clock.astimezone(timezone.utc)
+    cutoff_date = clock.date() - timedelta(days=NIGHTLY_ROSTER_RETENTION_DAYS - 1)
+    root = _roster_root(cache_dir)
+    if root.is_symlink():
+        raise NightlyRosterCacheError("nightly roster cache root is not a directory")
+    if not root.exists():
+        return 0
+    if not root.is_dir():
+        raise NightlyRosterCacheError("nightly roster cache root is not a directory")
+
+    removed = 0
+    for pipeline_key in sorted(_ROSTER_PIPELINE_KEYS):
+        shard_dir = root / pipeline_key
+        if shard_dir.is_symlink() or not shard_dir.is_dir():
+            continue
+        for shard in list(shard_dir.iterdir()):
+            descriptor = _validated_roster_shard(
+                shard,
+                pipeline_key,
+                cutoff_date=datetime.min.date(),
+                anchor=clock,
+            )
+            if descriptor is None:
+                continue
+            shard_date = datetime.strptime(descriptor[0], "%Y-%m-%d").date()
+            if shard_date < cutoff_date:
+                shard.unlink()
+                removed += 1
+    return removed
+
+
 def _remove_legacy_nightly_roster_cache(pipeline_key: str, cache_dir: Path) -> None:
     """Remove only recognized legacy cache files below exact scoped paths."""
     monolith = cache_dir / f"builds_{pipeline_key}.json"
@@ -584,6 +631,7 @@ def _load_nightly_build_cache(
     # Validate the entire upload tree before consuming any shard. This keeps a
     # future, oversized, or unexpected restored entry from influencing API-skip
     # decisions even though the later writer could safely repair it on disk.
+    prune_expired_nightly_roster_cache(cache_dir, now=now)
     validate_nightly_roster_cache(cache_dir, now=now)
     cached: dict[int, dict] = {}
     roster_root = cache_dir / NIGHTLY_ROSTER_CACHE_DIR
@@ -635,6 +683,7 @@ def fetch_nightly_builds(
     cache_errors: list[str] | None = None,
     *,
     now: datetime | None = None,
+    advance_cache_clock: bool | None = None,
 ) -> list[dict]:
     """Fetch nightly builds for a pipeline, filtering by name pattern.
 
@@ -651,10 +700,15 @@ def fetch_nightly_builds(
     branch = pipeline["branch"]
     name_re = re.compile(pipeline["name_pattern"], re.IGNORECASE)
 
+    clock_was_supplied = now is not None
     collection_clock = now or datetime.now(timezone.utc)
     if not isinstance(collection_clock, datetime) or collection_clock.tzinfo is None:
         raise ValueError("nightly build collection clock must be timezone-aware")
     collection_clock = collection_clock.astimezone(timezone.utc)
+    if advance_cache_clock is None:
+        advance_cache_clock = not clock_was_supplied
+    if not isinstance(advance_cache_clock, bool):
+        raise ValueError("nightly roster cache clock policy must be boolean")
     created_from = collection_clock - timedelta(days=days)
 
     # Check cache for already-fetched builds
@@ -717,12 +771,17 @@ def fetch_nightly_builds(
 
     # Update private, PII-scrubbed Actions cache shards.
     if cache_dir:
+        cache_write_clock = collection_clock
+        if advance_cache_clock:
+            observed_completion = datetime.now(timezone.utc)
+            if observed_completion > cache_write_clock:
+                cache_write_clock = observed_completion
         try:
             write_nightly_build_cache(
                 pipeline_key,
                 nightly_builds,
                 cache_dir,
-                now=collection_clock,
+                now=cache_write_clock,
             )
         except (OSError, ValueError) as exc:
             if cache_errors is not None:

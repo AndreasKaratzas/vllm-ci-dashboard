@@ -481,6 +481,39 @@ class TestFetchNightlyBuilds:
         }
         assert not (tmp_path / "builds_amd.json").exists()
 
+    def test_cache_write_admits_build_created_while_list_request_was_in_flight(
+        self, monkeypatch, fake_cfg, tmp_path
+    ):
+        started_at = datetime(2026, 9, 2, 0, 0, 0, tzinfo=timezone.utc)
+        completed_at = datetime(2026, 9, 2, 0, 0, 1, tzinfo=timezone.utc)
+        clocks = iter((started_at, completed_at))
+
+        class SequencedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                assert tz is not None
+                value = next(clocks)
+                return cls.fromtimestamp(value.timestamp(), tz=tz)
+
+        build = {
+            "number": 1,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-09-02T00:00:00.500000Z",
+            "jobs": [],
+        }
+        monkeypatch.setattr(bk, "datetime", SequencedDateTime)
+        monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [build])
+
+        assert bk.fetch_nightly_builds("amd", cache_dir=tmp_path) == [build]
+
+        assert (
+            tmp_path
+            / bk.NIGHTLY_ROSTER_CACHE_DIR
+            / "amd"
+            / "2026-09-02_1.json"
+        ).is_file()
+
     def test_sharded_terminal_roster_is_restored_without_detail_fetch(
         self, monkeypatch, fake_cfg, tmp_path
     ):
@@ -539,6 +572,84 @@ class TestFetchNightlyBuilds:
             path.stat().st_size <= bk.NIGHTLY_ROSTER_MAX_SHARD_BYTES
             for path in shard_dir.glob("*.json")
         )
+
+    def test_restored_boundary_expiry_is_pruned_without_disabling_cache(
+        self, monkeypatch, fake_cfg, tmp_path
+    ):
+        before_midnight = datetime(
+            2026, 9, 1, 23, 59, 59, tzinfo=timezone.utc
+        )
+        after_midnight = datetime(
+            2026, 9, 2, 0, 0, 1, tzinfo=timezone.utc
+        )
+        expired = {
+            "number": 1,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-08-17T06:00:00Z",
+            "jobs": [{
+                "type": "script",
+                "id": "expired-job",
+                "name": "expired roster",
+                "state": "passed",
+            }],
+        }
+        retained = {
+            "number": 2,
+            "message": "nightly",
+            "state": "passed",
+            "created_at": "2026-08-18T06:00:00Z",
+            "jobs": [{
+                "type": "script",
+                "id": "retained-job",
+                "name": "retained roster",
+                "state": "passed",
+            }],
+        }
+        bk.write_nightly_build_cache(
+            "amd",
+            [expired, retained],
+            tmp_path,
+            now=before_midnight,
+        )
+        summary = {key: value for key, value in retained.items() if key != "jobs"}
+        monkeypatch.setattr(bk, "_paginate", lambda url, params=None: [summary])
+        cache_errors = []
+
+        [restored] = bk.fetch_nightly_builds(
+            "amd",
+            cache_dir=tmp_path,
+            cache_errors=cache_errors,
+            now=after_midnight,
+        )
+
+        shard_dir = tmp_path / bk.NIGHTLY_ROSTER_CACHE_DIR / "amd"
+        assert cache_errors == []
+        assert restored["jobs"] == retained["jobs"]
+        assert not (shard_dir / "2026-08-17_1.json").exists()
+        assert (shard_dir / "2026-08-18_2.json").is_file()
+        assert bk.validate_nightly_roster_cache(
+            tmp_path,
+            now=after_midnight,
+        )["shards"] == 1
+
+    def test_expiry_prune_leaves_malformed_old_shard_for_strict_rejection(
+        self, tmp_path
+    ):
+        now = datetime(2026, 9, 2, 0, 0, 1, tzinfo=timezone.utc)
+        shard = (
+            tmp_path
+            / bk.NIGHTLY_ROSTER_CACHE_DIR
+            / "amd"
+            / "2026-08-17_1.json"
+        )
+        shard.parent.mkdir(parents=True)
+        shard.write_text("not-json\n")
+
+        assert bk.prune_expired_nightly_roster_cache(tmp_path, now=now) == 0
+        assert shard.is_file()
+        with pytest.raises(bk.NightlyRosterCacheError, match="invalid shard"):
+            bk.validate_nightly_roster_cache(tmp_path, now=now)
 
     def test_roster_repair_removes_unexpected_and_unapproved_restored_state(
         self, tmp_path

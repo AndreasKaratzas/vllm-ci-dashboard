@@ -704,6 +704,7 @@ class TestCanonicalResultPublication:
             cache_dir=tmp_path / ".cache",
             cache_errors=None,
             now=collection_clock,
+            advance_cache_clock=False,
         )
 
         cache_path = (
@@ -733,6 +734,53 @@ class TestCanonicalResultPublication:
             "future_api_field", "do-not-cache", "private-agent",
         ):
             assert forbidden not in serialized
+        parse_results.assert_not_called()
+
+    def test_hydrated_roster_write_admits_build_created_during_collection(
+        self, tmp_path
+    ):
+        started_at = datetime(2026, 9, 2, 0, 0, 0, tzinfo=timezone.utc)
+        completed_at = datetime(2026, 9, 2, 0, 0, 1, tzinfo=timezone.utc)
+        clocks = iter((started_at, completed_at))
+
+        class SequencedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                assert tz is not None
+                value = next(clocks)
+                return cls.fromtimestamp(value.timestamp(), tz=tz)
+
+        summary = self._build(state="failing", job_state="passed")
+        summary.pop("jobs")
+        summary["created_at"] = "2026-09-02T00:00:00.500000Z"
+        detail = self._build(state="failing", job_state="passed")
+        detail["created_at"] = summary["created_at"]
+
+        with (
+            patch(
+                "collect_ci.fetch_nightly_builds", return_value=[summary]
+            ) as fetch_builds,
+            patch("collect_ci.fetch_build_detail", return_value=detail),
+            patch("collect_ci.parse_job_results") as parse_results,
+            patch("collect_ci.datetime", SequencedDateTime),
+        ):
+            collect_pipeline("upstream", 8, tmp_path)
+
+        fetch_builds.assert_called_once_with(
+            "upstream",
+            days=8,
+            cache_dir=tmp_path / ".cache",
+            cache_errors=None,
+            now=started_at,
+            advance_cache_clock=True,
+        )
+        assert (
+            tmp_path
+            / ".cache"
+            / "nightly-rosters-v2"
+            / "upstream"
+            / "2026-09-02_84160.json"
+        ).is_file()
         parse_results.assert_not_called()
 
     def test_latest_terminal_summary_hydrates_before_cache_coverage(self, tmp_path):

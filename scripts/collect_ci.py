@@ -29,6 +29,7 @@ from vllm.ci.buildkite_client import (
     fetch_build_detail,
     fetch_build_jobs,
     fetch_nightly_builds,
+    prune_expired_nightly_roster_cache,
     validate_nightly_roster_cache,
     write_nightly_build_cache,
 )
@@ -731,10 +732,12 @@ def collect_pipeline(
     """
     log.info("=== Collecting %s pipeline ===", pipeline_key)
 
-    # Freeze one wall clock for discovery, restored-cache validation, and the
-    # final hydrated-roster write.  A collection can span midnight; taking a
-    # fresh clock at publication could otherwise expire a shard that was
-    # inside the exact retention window when this collection began.
+    # Freeze discovery and restored-cache validation at the pipeline start.
+    # Production cache writes may advance only to a locally observed wall
+    # clock, allowing a build created while list pagination was in flight
+    # without trusting an API-provided future timestamp. Tests can inject one
+    # exact clock to keep every phase deterministic.
+    clock_was_supplied = now is not None
     collection_clock = now or datetime.now(timezone.utc)
     if not isinstance(collection_clock, datetime) or collection_clock.tzinfo is None:
         raise ValueError("CI collection clock must be timezone-aware")
@@ -747,6 +750,7 @@ def collect_pipeline(
         cache_dir=cache_dir,
         cache_errors=roster_cache_errors,
         now=collection_clock,
+        advance_cache_clock=not clock_was_supplied,
     )
 
     if not builds:
@@ -1006,12 +1010,17 @@ def collect_pipeline(
     # ``fetch_nightly_builds`` now performs a lightweight metadata-only list
     # query. Persist the rosters hydrated above so historical nightly summaries
     # keep their exact jobs without downloading them again on the next run.
+    final_cache_clock = collection_clock
+    if not clock_was_supplied:
+        observed_completion = datetime.now(timezone.utc)
+        if observed_completion > final_cache_clock:
+            final_cache_clock = observed_completion
     try:
         write_nightly_build_cache(
             pipeline_key,
             builds,
             cache_dir,
-            now=collection_clock,
+            now=final_cache_clock,
         )
     except (OSError, ValueError) as exc:
         if roster_cache_errors is not None:
@@ -1309,8 +1318,19 @@ def main():
 
     roster_cache_save = not roster_cache_errors and not args.dry_run
     if roster_cache_save:
+        # Expiry is a normal cache transition, so remove exact expired shards
+        # at one fresh upload-boundary clock before strict structural
+        # validation. Every other invalid entry remains a fail-closed error.
+        roster_validation_clock = datetime.now(timezone.utc)
         try:
-            validate_nightly_roster_cache(cache_dir)
+            prune_expired_nightly_roster_cache(
+                cache_dir,
+                now=roster_validation_clock,
+            )
+            validate_nightly_roster_cache(
+                cache_dir,
+                now=roster_validation_clock,
+            )
         except (OSError, ValueError):
             roster_cache_save = False
             log.warning(

@@ -410,6 +410,74 @@ def test_broken_dns_cache_root_symlink_is_rejected_without_deletion(tmp_path):
     assert not target.exists()
 
 
+def test_main_uses_one_fresh_clock_for_roster_expiry_and_upload_validation(
+    monkeypatch, tmp_path
+):
+    upload_clock = datetime(
+        2026, 9, 1, 23, 59, 59, 900_000, tzinfo=timezone.utc
+    )
+    pipelines = []
+    prune_clocks = []
+    validation_clocks = []
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is not None
+            return upload_clock.astimezone(tz)
+
+    def collect_without_network(
+        pipeline,
+        days,
+        output_dir,
+        dry_run=False,
+        *,
+        dns_classification_cache=None,
+        roster_cache_errors=None,
+        backfill_checkpoint_dir=None,
+        now=None,
+    ):
+        pipelines.append(pipeline)
+        return [], {}
+
+    def prune_roster_without_io(cache_dir, *, now=None):
+        prune_clocks.append(now)
+        return 0
+
+    def validate_roster_without_io(cache_dir, *, now=None):
+        validation_clocks.append(now)
+        return {"shards": 0, "bytes": 0}
+
+    monkeypatch.setattr(core_collector, "datetime", FrozenDateTime)
+    monkeypatch.setattr(core_collector, "collect_pipeline", collect_without_network)
+    monkeypatch.setattr(
+        core_collector,
+        "prune_expired_nightly_roster_cache",
+        prune_roster_without_io,
+    )
+    monkeypatch.setattr(
+        core_collector,
+        "validate_nightly_roster_cache",
+        validate_roster_without_io,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "collect_ci.py",
+            "--output",
+            str(tmp_path / "output"),
+            "--skip-analysis",
+        ],
+    )
+
+    core_collector.main()
+
+    assert pipelines == ["amd", "upstream"]
+    assert prune_clocks == [upload_clock]
+    assert validation_clocks == [upload_clock]
+
+
 def test_malformed_optional_cache_does_not_fail_core_collection(monkeypatch, tmp_path):
     cache_path = tmp_path / cache_module.CACHE_DIRECTORY_NAME
     github_output = tmp_path / "github-output.txt"
@@ -426,6 +494,7 @@ def test_malformed_optional_cache_does_not_fail_core_collection(monkeypatch, tmp
         dns_classification_cache=None,
         roster_cache_errors=None,
         backfill_checkpoint_dir=None,
+        now=None,
     ):
         seen_caches.append(dns_classification_cache)
         return [], {}
@@ -480,6 +549,7 @@ def test_unexpected_dns_cache_path_disables_upload_without_failing_core(
         dns_classification_cache=None,
         roster_cache_errors=None,
         backfill_checkpoint_dir=None,
+        now=None,
     ):
         seen_caches.append(dns_classification_cache)
         return [], {}
@@ -525,6 +595,7 @@ def test_dns_flush_failure_disables_upload_without_failing_core(monkeypatch, tmp
         dns_classification_cache=None,
         roster_cache_errors=None,
         backfill_checkpoint_dir=None,
+        now=None,
     ):
         return [], {}
 
@@ -579,6 +650,7 @@ def test_roster_final_validation_disables_only_roster_upload(monkeypatch, tmp_pa
         dns_classification_cache=None,
         roster_cache_errors=None,
         backfill_checkpoint_dir=None,
+        now=None,
     ):
         return [], {}
 
