@@ -36,8 +36,55 @@ MAX_LOG_BYTES = 16 * 1024 * 1024
 PUBLIC_EVIDENCE_LIMIT = 3000
 PUBLIC_EVIDENCE_BYTE_BUDGET = 5 * 1024 * 1024
 PUBLIC_OUTPUT_MAX_BYTES = writer_max_bytes("dns_failures")
+# Snapshots written before the composed state budget moved DNS from 8 MiB to
+# 6 MiB remain valid migration inputs when their actual file size already fits
+# the current limit.  New writes always use ``PUBLIC_OUTPUT_MAX_BYTES``.
+LEGACY_PUBLIC_OUTPUT_MAX_BYTES = 8 * 1024 * 1024
 MAX_COMPRESSED_STATE_BYTES = 63 * 1024 * 1024
 MAX_DECOMPRESSED_STATE_BYTES = 256 * 1024 * 1024
+
+# ``build_public_output`` produces the source projection and
+# ``compact_public_output`` adds exact retention metadata before anything is
+# persisted.  Keep these exported contracts beside the producer so auditors
+# and schema tests cannot drift when the writer gains another bounded-output
+# field.
+PUBLIC_OUTPUT_CORE_TOP_LEVEL_KEYS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "retention",
+        "default_window",
+        "window_options",
+        "count_basis",
+        "scope",
+        "classifier",
+        "coverage",
+        "windows",
+        "evidence",
+    }
+)
+PUBLIC_OUTPUT_SOURCE_TOP_LEVEL_KEYS = PUBLIC_OUTPUT_CORE_TOP_LEVEL_KEYS | {
+    "outcome_contract"
+}
+PUBLIC_OUTPUT_TOP_LEVEL_KEYS = PUBLIC_OUTPUT_SOURCE_TOP_LEVEL_KEYS | {
+    "publication_retention"
+}
+PUBLICATION_RETENTION_POLICY = (
+    "retain_exact_totals_with_deterministic_whole_row_prefixes"
+)
+PUBLICATION_RETENTION_KEYS = frozenset(
+    {
+        "policy",
+        "max_bytes",
+        "complete_relative_to_source",
+        "aggregate_scalars_complete",
+        "window_rows",
+        "evidence",
+    }
+)
+PUBLICATION_RETENTION_COUNT_KEYS = frozenset(
+    {"source", "published", "omitted", "complete"}
+)
 
 PIPELINES = ("amd-ci", "ci")
 JOB_STATES = ("passed", "soft", "hard")
@@ -1527,7 +1574,7 @@ def compact_public_output(
             "complete": len(evidence_items) == len(source_evidence),
         }
         result["publication_retention"] = {
-            "policy": "retain_exact_totals_with_deterministic_whole_row_prefixes",
+            "policy": PUBLICATION_RETENTION_POLICY,
             "max_bytes": max_bytes,
             "complete_relative_to_source": all(
                 row["complete"] for row in [*row_metadata.values(), evidence_metadata]

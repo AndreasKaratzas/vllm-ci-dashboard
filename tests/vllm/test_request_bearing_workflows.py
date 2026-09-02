@@ -156,6 +156,39 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
     ):
         assert f"-u {name}" in tests["run"]
 
+    request_report = next(
+        step
+        for step in steps
+        if step.get("name") == "Read exact guarded Buildkite request total"
+    )
+    assert "always()" in request_report["if"]
+    assert "request_mode == 'reserved'" in request_report["if"]
+    assert "BUILDKITE_TOKEN" not in request_report.get("env", {})
+    assert "buildkite_request_guard.py report" in request_report["run"]
+    assert "Exact guarded Buildkite request starts:" in request_report["run"]
+    assert '>> "$GITHUB_STEP_SUMMARY"' in request_report["run"]
+    request_report_index = steps.index(request_report)
+    assert all(index < request_report_index for index, _step in token_steps)
+
+    workflow_text = (WORKFLOWS / "hourly-master.yml").read_text(encoding="utf-8")
+    accounting_comment = "\n".join(
+        (
+            "      # `always()` reports the exact runner-local count after ordinary success or",
+            "      # failure. Explicit workflow cancellation can stop the runner before this",
+            "      # step, so the durable ledger retains the full reserved allowance for 25",
+            "      # hours without claiming an exact cancellation count.",
+        )
+    )
+    assert (
+        f"{accounting_comment}\n"
+        "      - name: Read exact guarded Buildkite request total"
+    ) in workflow_text
+    ledger_source = (
+        ROOT / "scripts/vllm/request_bearing_attempt_budget.py"
+    ).read_text(encoding="utf-8")
+    assert "Reservations survive\nfailure and cancellation for 25 hours" in ledger_source
+    assert "sum(\n            policy.request_start_allowance" in ledger_source
+
 
 def test_gated_wakeups_cannot_publish_or_advance_buildkite_clock() -> None:
     workflow = load("hourly-master.yml")

@@ -749,6 +749,7 @@ class TestQueueMonitorWorkflow:
         dispatch = steps[names.index("Dispatch canonical queue reconciliation")]
         assert plan["id"] == "publication-reconcile"
         assert plan["env"] == {
+            "GH_TOKEN": "${{ github.token }}",
             "TARGET_QUEUE_GENERATION": (
                 "${{ needs.snapshot.outputs.queue_generation }}"
             )
@@ -759,16 +760,23 @@ class TestQueueMonitorWorkflow:
         assert '"$PAGES_SHA:data/vllm/ci/queue_jobs.json"' in plan["run"]
         assert '--canonical-queue-data "$CANONICAL_QUEUE"' in plan["run"]
         assert '--target-queue-generation "$TARGET_QUEUE_GENERATION"' in plan["run"]
+        assert '--workflow-runs "$WORKFLOW_RUNS"' in plan["run"]
+        assert "actions/workflows/hourly-master.yml/runs?" in plan["run"]
+        assert "event=workflow_dispatch" in plan["run"]
         assert "--filter=blob:none" in plan["run"]
         assert "--fail-if-required" not in plan["run"]
         assert "--max-age-hours" not in plan["run"]
         assert dispatch["if"] == (
-            "steps.publication-reconcile.outputs.required == 'true'"
+            "steps.publication-reconcile.outputs.dispatch_required == 'true'"
         )
         assert dispatch["env"]["TARGET_QUEUE_GENERATION"] == (
             "${{ needs.snapshot.outputs.queue_generation }}"
         )
-        assert "inputs: {queue_generation: $queue_generation}" in dispatch["run"]
+        assert dispatch["env"]["RECONCILIATION_KEY"] == (
+            "${{ steps.publication-reconcile.outputs.recovery_key }}"
+        )
+        assert "queue_generation: $queue_generation" in dispatch["run"]
+        assert "recovery_key: $recovery_key" in dispatch["run"]
         assert "workflow_runs" not in dispatch["run"]
         assert "BUILDKITE_TOKEN" not in str(reconcile)
 

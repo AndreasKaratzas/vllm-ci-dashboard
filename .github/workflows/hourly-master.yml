@@ -2596,9 +2596,15 @@ jobs:
             --attestation data/vllm/ci/public_projection_attestation.json \
             --marker _site/publication_generation.json
 
+      # `always()` reports the exact runner-local count after ordinary success or
+      # failure. Explicit workflow cancellation can stop the runner before this
+      # step, so the durable ledger retains the full reserved allowance for 25
+      # hours without claiming an exact cancellation count.
       - name: Read exact guarded Buildkite request total
         id: request-guard-report
-        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
           python scripts/vllm/buildkite_request_guard.py report \
@@ -2606,6 +2612,20 @@ jobs:
             --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
             --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
             --github-output "$GITHUB_OUTPUT"
+          ACTUAL_REQUEST_STARTS=$(awk -F= \
+            '$1 == "actual_request_starts" {print $2}' "$GITHUB_OUTPUT")
+          if ! [[ "$ACTUAL_REQUEST_STARTS" =~ ^[0-9]+$ ]]; then
+            echo "::error::The exact guarded Buildkite request total was malformed."
+            exit 1
+          fi
+          echo "Exact guarded Buildkite request starts: $ACTUAL_REQUEST_STARTS / $BUILDKITE_REQUEST_GUARD_ALLOWANCE."
+          {
+            echo "### Exact guarded Buildkite request total"
+            echo
+            echo "- Attempt: \`$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID\`"
+            echo "- Actual request starts: \`$ACTUAL_REQUEST_STARTS\`"
+            echo "- Reserved allowance: \`$BUILDKITE_REQUEST_GUARD_ALLOWANCE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Confirm zero queue reconciliation Buildkite requests
         id: queue-request-guard-report
@@ -4132,34 +4152,28 @@ jobs:
             "$STATE_MANIFEST" \
             "$PUBLICATION_STATUS" \
             "$STATE_SHA" \
+            "$TARGET_QUEUE_GENERATION" \
             "$GITHUB_OUTPUT" <<'PY'
           import json
           import re
           import sys
+          from datetime import datetime, timezone
           from pathlib import Path
+
+          from vllm.plan_queue_publication_reconcile import (
+              queue_incident_recovery_eligible,
+          )
 
 
           with Path(sys.argv[1]).open(encoding="utf-8") as handle:
               state = json.load(handle)
           with Path(sys.argv[2]).open(encoding="utf-8") as handle:
               status = json.load(handle)
-          expected_healthy_status = {
-              "mode": "current",
-              "status": "healthy",
-              "publication_blocked": False,
-              "uses_fallback": False,
-              "affected_surface_count": 0,
-              "affected_surfaces": [],
-              "fallback_surface_count": 0,
-              "fresh_degraded_surface_count": 0,
-          }
-          if not isinstance(status, dict) or any(
-              status.get(key) != value for key, value in expected_healthy_status.items()
-          ):
-              raise SystemExit(
-                  "already-canonical queue finalization requires a fully healthy "
-                  "current publication"
-              )
+          incident_recovery_eligible = queue_incident_recovery_eligible(
+              status,
+              target_queue_generation=sys.argv[4],
+              now=datetime.now(timezone.utc),
+          )
           state_sha = sys.argv[3]
           code_sha = state.get("code_sha") if isinstance(state, dict) else None
           source_refs = state.get("source_refs") if isinstance(state, dict) else None
@@ -4176,11 +4190,20 @@ jobs:
                   raise SystemExit(f"canonical {label} is unavailable or invalid")
           if not isinstance(generation_id, str) or not generation_id.startswith("hourly-"):
               raise SystemExit("canonical dashboard generation is not hourly-owned")
-          with Path(sys.argv[4]).open("a", encoding="utf-8") as handle:
+          with Path(sys.argv[5]).open("a", encoding="utf-8") as handle:
               handle.write(f"state_sha={state_sha}\n")
               handle.write(f"code_sha={code_sha}\n")
               handle.write(f"queue_source_sha={queue_source_sha}\n")
               handle.write(f"generation_id={generation_id}\n")
+              handle.write(
+                  "incident_recovery_eligible="
+                  f"{'true' if incident_recovery_eligible else 'false'}\n"
+              )
+          if not incident_recovery_eligible:
+              print(
+                  "Exact queue target is current; unrelated or non-clean publication "
+                  "state makes incident finalization a no-op."
+              )
           PY
           echo "Proved queue generation $TARGET_QUEUE_GENERATION in exact state $STATE_SHA."
 
@@ -4195,6 +4218,10 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Finalize already-canonical queue recovery
+        if: >-
+          success() &&
+          steps.queue-finalizer-proof.outputs.incident_recovery_eligible == 'true' &&
+          steps.queue-finalizer-request-report.outputs.actual_request_starts == '0'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           HOURLY_RECOVERY_CODE_SHA: ${{ steps.queue-finalizer-proof.outputs.code_sha }}

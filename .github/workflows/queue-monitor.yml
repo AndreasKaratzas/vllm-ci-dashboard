@@ -455,12 +455,14 @@ jobs:
       - name: Plan canonical queue publication reconciliation
         id: publication-reconcile
         env:
+          GH_TOKEN: ${{ github.token }}
           TARGET_QUEUE_GENERATION: ${{ needs.snapshot.outputs.queue_generation }}
         run: |
           set -euo pipefail
           PUBLICATION_STATUS="$RUNNER_TEMP/publication_status.json"
           CANONICAL_QUEUE="$RUNNER_TEMP/canonical_queue_jobs.json"
-          rm -f "$PUBLICATION_STATUS" "$CANONICAL_QUEUE"
+          WORKFLOW_RUNS="$RUNNER_TEMP/hourly-master-workflow-runs.json"
+          rm -f "$PUBLICATION_STATUS" "$CANONICAL_QUEUE" "$WORKFLOW_RUNS"
           if git fetch origin \
             +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
             --depth=1 --filter=blob:none; then
@@ -482,24 +484,34 @@ jobs:
           else
             echo "::warning::Canonical publication status is unavailable; requesting queue reconciliation."
           fi
+          if ! gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/runs?branch=main&event=workflow_dispatch&per_page=100" \
+            > "$WORKFLOW_RUNS"; then
+            echo "::warning::Data Collection run state is unavailable; allowing a fail-open reconciliation dispatch."
+            rm -f "$WORKFLOW_RUNS"
+          fi
           python scripts/vllm/plan_queue_publication_reconcile.py \
             --status "$PUBLICATION_STATUS" \
             --canonical-queue-data "$CANONICAL_QUEUE" \
             --target-queue-generation "$TARGET_QUEUE_GENERATION" \
+            --workflow-runs "$WORKFLOW_RUNS" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Dispatch canonical queue reconciliation
-        if: steps.publication-reconcile.outputs.required == 'true'
+        if: steps.publication-reconcile.outputs.dispatch_required == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RECONCILE_REASON: ${{ steps.publication-reconcile.outputs.reason }}
+          RECONCILE_REASON: ${{ steps.publication-reconcile.outputs.dispatch_reason }}
+          RECONCILIATION_KEY: ${{ steps.publication-reconcile.outputs.recovery_key }}
           TARGET_QUEUE_GENERATION: ${{ needs.snapshot.outputs.queue_generation }}
         run: |
           set -euo pipefail
           jq -n \
             --arg ref main \
             --arg queue_generation "$TARGET_QUEUE_GENERATION" \
-            '{ref: $ref, inputs: {queue_generation: $queue_generation}}' | \
+            --arg recovery_key "$RECONCILIATION_KEY" \
+            '{ref: $ref, inputs: {queue_generation: $queue_generation, recovery_key: $recovery_key}}' | \
           gh api --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \

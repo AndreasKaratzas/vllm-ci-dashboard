@@ -107,6 +107,7 @@ def _positive_record(
     started_hours: float | None = None,
     state: str = "passed",
     targets: tuple[str, ...] = ("unknown",),
+    node: str = "crsuse2-m2m-295",
 ) -> dict:
     return dns.scan_record(
         _metadata(
@@ -114,6 +115,7 @@ def _positive_record(
             finished_hours=finished_hours,
             started_hours=started_hours,
             state=state,
+            node=node,
         ),
         _classification(episode_hours, targets=targets),
         attempted_at=_timestamp(),
@@ -1155,19 +1157,29 @@ def test_public_writer_preserves_canonical_window_order(tmp_path: Path):
 
 
 def test_public_dns_projection_compacts_whole_rows_with_exact_totals():
-    source = dns.build_public_output(_state([_positive_record(1)]))
-    padded_rows = [
-        {"queue": "amd_mi300_1", "node": f"node-{index}", "padding": "x" * 500}
-        for index in range(40)
-    ]
-    source["windows"]["720h"]["rows"] = padded_rows
-    source["windows"]["720h"]["totals"]["affected_jobs"] = 40
+    source = dns.build_public_output(
+        _state(
+            [
+                _positive_record(index, node=f"node-{index}")
+                for index in range(1, 41)
+            ]
+        )
+    )
 
     bounded = dns.compact_public_output(source, max_bytes=8_000)
 
     assert len(dns._public_output_bytes(bounded)) <= 8_000
+    assert set(bounded) == dns.PUBLIC_OUTPUT_TOP_LEVEL_KEYS
     assert bounded["windows"]["720h"]["totals"]["affected_jobs"] == 40
-    rows = bounded["publication_retention"]["window_rows"]["720h"]
+    retention = bounded["publication_retention"]
+    assert set(retention) == dns.PUBLICATION_RETENTION_KEYS
+    assert retention["policy"] == dns.PUBLICATION_RETENTION_POLICY
+    assert set(retention["evidence"]) == dns.PUBLICATION_RETENTION_COUNT_KEYS
+    assert all(
+        set(counts) == dns.PUBLICATION_RETENTION_COUNT_KEYS
+        for counts in retention["window_rows"].values()
+    )
+    rows = retention["window_rows"]["720h"]
     assert rows["source"] == 40
     assert rows["published"] < 40
     assert rows["omitted"] == 40 - rows["published"]

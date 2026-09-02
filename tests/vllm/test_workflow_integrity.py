@@ -1280,7 +1280,8 @@ class TestHourlyMasterWorkflow:
         ) < step_names.index("Prove already-canonical queue publication")
         proof = by_name["Prove already-canonical queue publication"]["run"]
         report = by_name["Confirm zero queue finalization Buildkite requests"]["run"]
-        close = by_name["Finalize already-canonical queue recovery"]["with"]["script"]
+        close_step = by_name["Finalize already-canonical queue recovery"]
+        close = close_step["with"]["script"]
         assert by_name["Install queue finalization dependencies"]["run"] == (
             "pip install -c constraints.txt requests"
         )
@@ -1311,11 +1312,24 @@ class TestHourlyMasterWorkflow:
         assert '--expected-marker "$EXPECTED_MARKER"' in proof
         assert "plan_queue_publication_reconcile.py" in proof
         assert "--fail-if-required" in proof
-        assert '"status": "healthy"' in proof
-        assert '"mode": "current"' in proof
-        assert '"affected_surfaces": []' in proof
-        assert "requires a fully healthy" in proof
+        assert "queue_incident_recovery_eligible" in proof
+        assert "incident_recovery_eligible=" in proof
+        assert "makes incident finalization a no-op" in proof
+        assert "requires a fully healthy" not in proof
         assert 'source_refs.get("queue-data")' in proof
+        close_condition = close_step["if"]
+        assert "success()" in close_condition
+        assert (
+            "steps.queue-finalizer-proof.outputs.incident_recovery_eligible "
+            "== 'true'"
+        ) in close_condition
+        assert (
+            "steps.queue-finalizer-request-report.outputs.actual_request_starts "
+            "== '0'"
+        ) in close_condition
+        assert step_names.index("Confirm zero queue finalization Buildkite requests") < (
+            step_names.index("Finalize already-canonical queue recovery")
+        )
         assert "closeHourlyIncident" in close
         assert "validationSource: 'targeted-queue'" in close
         serialized = yaml.safe_dump(finalizer)

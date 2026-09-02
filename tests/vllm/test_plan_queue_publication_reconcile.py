@@ -69,6 +69,31 @@ def _write_canonical(path, payload) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def _workflow_run(
+    target: str,
+    *,
+    status: str = "pending",
+    age_minutes: int = 5,
+    started_age_minutes: int | None = None,
+    recovery_key: str | None = None,
+):
+    key = recovery_key or reconcile.queue_reconciliation_key(target)
+    return {
+        "id": 123,
+        "head_branch": "main",
+        "status": status,
+        "created_at": _iso(NOW - timedelta(minutes=age_minutes)),
+        "run_started_at": (
+            _iso(NOW - timedelta(minutes=started_age_minutes))
+            if started_age_minutes is not None
+            else None
+        ),
+        "updated_at": _iso(NOW - timedelta(minutes=age_minutes)),
+        "conclusion": None,
+        "display_title": f"Data Collection [recovery:{key}]",
+    }
+
+
 def test_initial_planner_dispatches_only_for_invalid_or_queue_affected_status():
     assert reconcile.reconciliation_reason(_status(), now=NOW) is None
     assert (
@@ -165,6 +190,183 @@ def test_target_planner_skips_an_exact_acknowledged_generation():
         )
         is None
     )
+
+
+def test_exact_current_queue_with_unrelated_degradation_is_a_non_recovery_noop():
+    target = _iso(NOW - timedelta(minutes=30))
+    status = _status(
+        generated_at=_iso(NOW),
+        mode="fallback",
+        status="degraded",
+        degraded_since=_iso(NOW - timedelta(hours=1)),
+        uses_fallback=True,
+        affected_surfaces=["CI core health"],
+        affected_surface_count=1,
+        fallback_surface_count=1,
+    )
+
+    assert (
+        reconcile.target_reconciliation_reason(
+            status,
+            _queue(_iso(NOW)),
+            target_queue_generation=target,
+            now=NOW,
+        )
+        is None
+    )
+    assert (
+        reconcile.queue_incident_recovery_eligible(
+            status,
+            target_queue_generation=target,
+            now=NOW,
+        )
+        is False
+    )
+
+
+def test_exact_healthy_current_queue_status_is_incident_recovery_eligible():
+    target = _iso(NOW - timedelta(minutes=30))
+    status = _status(generated_at=_iso(NOW))
+
+    assert (
+        reconcile.queue_incident_recovery_eligible(
+            status,
+            target_queue_generation=target,
+            now=NOW,
+        )
+        is True
+    )
+    assert (
+        reconcile.queue_incident_recovery_eligible(
+            {**status, "degraded_since": _iso(NOW - timedelta(hours=1))},
+            target_queue_generation=target,
+            now=NOW,
+        )
+        is False
+    )
+    assert (
+        reconcile.queue_incident_recovery_eligible(
+            {**status, "unexpected": "field"},
+            target_queue_generation=target,
+            now=NOW,
+        )
+        is False
+    )
+
+
+def test_queue_incident_recovery_evidence_is_target_bound_and_fresh():
+    assert (
+        reconcile.queue_incident_recovery_eligible(
+            _status(generated_at=_iso(NOW - timedelta(minutes=31))),
+            target_queue_generation=_iso(NOW - timedelta(minutes=30)),
+            now=NOW,
+        )
+        is False
+    )
+    assert (
+        reconcile.queue_incident_recovery_eligible(
+            _status(generated_at=_iso(NOW - timedelta(hours=4))),
+            target_queue_generation=_iso(NOW - timedelta(hours=5)),
+            now=NOW,
+        )
+        is False
+    )
+
+
+def test_queue_reconciliation_key_is_stable_and_generation_scoped():
+    target = _iso(NOW - timedelta(minutes=1))
+
+    first = reconcile.queue_reconciliation_key(target)
+
+    assert len(first) == 64
+    assert first == reconcile.queue_reconciliation_key(target)
+    assert first != reconcile.queue_reconciliation_key(_iso(NOW - timedelta(minutes=2)))
+
+
+@pytest.mark.parametrize(
+    "run_status",
+    sorted(reconcile._workflow_runs_contract.QUEUED_RUN_STATUSES),
+)
+def test_exact_live_queued_reconciliation_suppresses_duplicate_dispatch(run_status):
+    target = _iso(NOW - timedelta(minutes=1))
+    payload = {"workflow_runs": [_workflow_run(target, status=run_status)]}
+
+    decision = reconcile.reconciliation_dispatch_decision(
+        "publication-before-target",
+        payload,
+        target_queue_generation=target,
+        now=NOW,
+    )
+
+    assert decision.required is False
+    assert decision.reason == "exact-reconciliation-active"
+    assert decision.recovery_key == reconcile.queue_reconciliation_key(target)
+
+
+def test_exact_live_in_progress_reconciliation_suppresses_duplicate_dispatch():
+    target = _iso(NOW - timedelta(minutes=1))
+    payload = {
+        "workflow_runs": [
+            _workflow_run(
+                target,
+                status="in_progress",
+                age_minutes=70,
+                started_age_minutes=5,
+            )
+        ]
+    }
+
+    decision = reconcile.reconciliation_dispatch_decision(
+        "publication-before-target",
+        payload,
+        target_queue_generation=target,
+        now=NOW,
+    )
+
+    assert decision.required is False
+    assert decision.reason == "exact-reconciliation-active"
+
+
+def test_unrelated_or_expired_reconciliation_does_not_suppress_target_forever():
+    target = _iso(NOW - timedelta(minutes=1))
+    payload = {
+        "workflow_runs": [
+            _workflow_run(target, age_minutes=76),
+            _workflow_run(target, recovery_key="1" * 64),
+        ]
+    }
+
+    decision = reconcile.reconciliation_dispatch_decision(
+        "publication-before-target",
+        payload,
+        target_queue_generation=target,
+        now=NOW,
+    )
+
+    assert decision.required is True
+    assert decision.reason == "publication-before-target"
+
+
+def test_unavailable_actions_state_fails_open_but_current_target_stays_quiet():
+    target = _iso(NOW - timedelta(minutes=1))
+
+    required = reconcile.reconciliation_dispatch_decision(
+        "publication-before-target",
+        None,
+        target_queue_generation=target,
+        now=NOW,
+    )
+    current = reconcile.reconciliation_dispatch_decision(
+        None,
+        None,
+        target_queue_generation=target,
+        now=NOW,
+    )
+
+    assert required.required is True
+    assert required.reason == "actions-state-unavailable"
+    assert current.required is False
+    assert current.reason == "target-current"
 
 
 def test_target_planner_uses_metrics_generation_with_retained_older_details():
@@ -363,3 +565,41 @@ def test_cli_target_mode_reports_an_exact_current_generation(tmp_path, monkeypat
 
     assert reconcile.main() == 0
     assert output.read_text() == "required=false\nreason=target-current\n"
+
+
+def test_cli_suppresses_an_exact_active_reconciliation_dispatch(tmp_path, monkeypatch):
+    target = _iso(NOW - timedelta(minutes=5))
+    status = tmp_path / "status.json"
+    queue = tmp_path / "queue.json"
+    runs = tmp_path / "runs.json"
+    output = tmp_path / "github-output"
+    status.write_text(json.dumps(_status(generated_at=_iso(NOW - timedelta(minutes=10)))))
+    _write_canonical(queue, _queue(_iso(NOW)))
+    runs.write_text(json.dumps({"workflow_runs": [_workflow_run(target)]}))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "plan_queue_publication_reconcile.py",
+            "--status",
+            str(status),
+            "--canonical-queue-data",
+            str(queue),
+            "--target-queue-generation",
+            target,
+            "--workflow-runs",
+            str(runs),
+            "--now",
+            _iso(NOW),
+            "--github-output",
+            str(output),
+        ],
+    )
+
+    assert reconcile.main() == 0
+    assert output.read_text() == (
+        "required=true\n"
+        "reason=publication-before-target\n"
+        "dispatch_required=false\n"
+        "dispatch_reason=exact-reconciliation-active\n"
+        f"recovery_key={reconcile.queue_reconciliation_key(target)}\n"
+    )

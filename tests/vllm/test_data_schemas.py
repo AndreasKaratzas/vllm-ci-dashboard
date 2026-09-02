@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from vllm.ci import dns_failures as dns_backend
+
 pytestmark = pytest.mark.live_data
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -1457,29 +1459,66 @@ class TestHotness:
 class TestDnsFailures:
     def test_exact_top_level_and_window_contract(self):
         d = _load_json_or_skip("dns_failures.json")
-        top_level_keys = {
-            "schema_version",
-            "generated_at",
-            "retention",
-            "default_window",
-            "window_options",
-            "count_basis",
-            "scope",
-            "classifier",
-            "coverage",
-            "windows",
-            "evidence",
-        }
+        expected_ids = ["1h", "3h", "12h", "24h", "72h", "168h", "720h"]
+        top_level_keys = set(dns_backend.PUBLIC_OUTPUT_TOP_LEVEL_KEYS)
         outcome_contract = d.get("outcome_contract")
         if outcome_contract is None:
-            assert set(d) == top_level_keys
+            top_level_keys.remove("outcome_contract")
         else:
             assert outcome_contract == "dns-job-outcomes-v1"
-            assert set(d) == top_level_keys | {"outcome_contract"}
+        publication_retention = d.get("publication_retention")
+        window_rows_complete = {window_id: True for window_id in expected_ids}
+        if publication_retention is None:
+            top_level_keys.remove("publication_retention")
+        else:
+            assert set(publication_retention) == dns_backend.PUBLICATION_RETENTION_KEYS
+            assert (
+                publication_retention["policy"]
+                == dns_backend.PUBLICATION_RETENTION_POLICY
+            )
+            assert publication_retention["aggregate_scalars_complete"] is True
+            assert type(publication_retention["max_bytes"]) is int
+            assert 0 < publication_retention["max_bytes"] and (
+                publication_retention["max_bytes"]
+                <= dns_backend.PUBLIC_OUTPUT_MAX_BYTES
+                or publication_retention["max_bytes"]
+                == dns_backend.LEGACY_PUBLIC_OUTPUT_MAX_BYTES
+            )
+            actual_size = (DATA / "dns_failures.json").stat().st_size
+            assert actual_size <= dns_backend.PUBLIC_OUTPUT_MAX_BYTES
+            assert actual_size <= publication_retention["max_bytes"]
+            window_rows = publication_retention["window_rows"]
+            assert set(window_rows) == set(expected_ids)
+            detail_counts = [window_rows[window_id] for window_id in expected_ids]
+            detail_counts.append(publication_retention["evidence"])
+            for counts in detail_counts:
+                assert set(counts) == dns_backend.PUBLICATION_RETENTION_COUNT_KEYS
+                assert all(
+                    type(counts[field]) is int and counts[field] >= 0
+                    for field in ("source", "published", "omitted")
+                )
+                assert counts["source"] == counts["published"] + counts["omitted"]
+                assert type(counts["complete"]) is bool
+                assert counts["complete"] == (counts["omitted"] == 0)
+            assert type(publication_retention["complete_relative_to_source"]) is bool
+            assert publication_retention["complete_relative_to_source"] == all(
+                counts["complete"] for counts in detail_counts
+            )
+            assert publication_retention["evidence"]["published"] == len(
+                d["evidence"]["items"]
+            )
+            assert (
+                publication_retention["evidence"]["source"]
+                <= d["evidence"]["evidence_total"]
+            )
+            window_rows_complete = {
+                window_id: window_rows[window_id]["complete"]
+                for window_id in expected_ids
+            }
+        assert set(d) == top_level_keys
         assert d["schema_version"] == 1
         assert d["retention"]["hours"] == 720
         assert d["default_window"] == "24h"
-        expected_ids = ["1h", "3h", "12h", "24h", "72h", "168h", "720h"]
         assert [option["id"] for option in d["window_options"]] == expected_ids
         assert set(d["windows"]) == set(expected_ids)
         assert d["coverage"]["status"] in {
@@ -1531,6 +1570,14 @@ class TestDnsFailures:
             for field in totals_keys:
                 assert type(totals[field]) is int and totals[field] >= 0
             assert isinstance(window["rows"], list)
+            if publication_retention is not None:
+                retained_rows = publication_retention["window_rows"][window_id]
+                assert retained_rows["published"] == len(window["rows"])
+                assert (
+                    max(totals["queues"], totals["nodes"])
+                    <= retained_rows["source"]
+                    <= totals["affected_jobs"]
+                )
             for row in window["rows"]:
                 assert set(row) == row_keys
                 for field in totals_keys - {"queues", "nodes"}:
@@ -1544,10 +1591,12 @@ class TestDnsFailures:
                     == row["affected_jobs"]
                     for row in window["rows"]
                 )
-                assert all(
-                    totals[field] == sum(row[field] for row in window["rows"])
-                    for field in outcome_fields
-                )
+                for field in outcome_fields:
+                    published = sum(row[field] for row in window["rows"])
+                    if window_rows_complete[window_id]:
+                        assert totals[field] == published
+                    else:
+                        assert published <= totals[field]
 
     def test_public_payload_has_no_log_or_url_fields(self):
         d = _load_json_or_skip("dns_failures.json")

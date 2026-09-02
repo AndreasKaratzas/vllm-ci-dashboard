@@ -1300,6 +1300,26 @@ def test_dns_writer_compaction_passes_the_dns_only_cli(tmp_path, monkeypatch):
     assert "Errors: 0" in completed.stdout
 
 
+def test_dns_audit_accepts_legacy_writer_bound_only_when_file_fits_current_budget(
+    tmp_path,
+):
+    from vllm.ci import dns_failures as dns_backend
+
+    path = tmp_path / "data/vllm/ci/dns_failures.json"
+    dns_backend.write_public_output(path, _dns_audit_payload())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["publication_retention"]["max_bytes"] = (
+        dns_backend.LEGACY_PUBLIC_OUTPUT_MAX_BYTES
+    )
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert path.stat().st_size <= dns_backend.PUBLIC_OUTPUT_MAX_BYTES
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_dns_failures()
+
+    assert audit.report.errors == []
+
+
 def test_dns_audit_rejects_mismatched_publication_retention(tmp_path):
     from vllm.ci import dns_failures as dns_backend
 
@@ -1315,6 +1335,52 @@ def test_dns_audit_rejects_mismatched_publication_retention(tmp_path):
     assert "dns-health-publication-retention" in {
         finding.code for finding in audit.report.errors
     }
+
+
+def test_dns_audit_rejects_impossible_retained_source_row_count(tmp_path):
+    from vllm.ci import dns_failures as dns_backend
+
+    path = tmp_path / "data/vllm/ci/dns_failures.json"
+    dns_backend.write_public_output(path, _dns_audit_payload())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    counts = payload["publication_retention"]["window_rows"]["1h"]
+    counts["source"] = payload["windows"]["1h"]["totals"]["affected_jobs"] + 1
+    counts["omitted"] = counts["source"] - counts["published"]
+    counts["complete"] = False
+    payload["publication_retention"]["complete_relative_to_source"] = False
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_dns_failures()
+
+    assert any(
+        finding.code == "dns-health-publication-retention"
+        and "source cannot reconcile" in finding.message
+        for finding in audit.report.errors
+    )
+
+
+def test_dns_audit_rejects_impossible_retained_source_evidence_count(tmp_path):
+    from vllm.ci import dns_failures as dns_backend
+
+    path = tmp_path / "data/vllm/ci/dns_failures.json"
+    dns_backend.write_public_output(path, _dns_audit_payload())
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    counts = payload["publication_retention"]["evidence"]
+    counts["source"] = payload["evidence"]["evidence_total"] + 1
+    counts["omitted"] = counts["source"] - counts["published"]
+    counts["complete"] = False
+    payload["publication_retention"]["complete_relative_to_source"] = False
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_dns_failures()
+
+    assert any(
+        finding.code == "dns-health-publication-retention"
+        and "source cannot exceed" in finding.message
+        for finding in audit.report.errors
+    )
 
 
 def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):

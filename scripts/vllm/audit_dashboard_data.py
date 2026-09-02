@@ -29,6 +29,14 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.ci.dns_failures import (  # noqa: E402
+    LEGACY_PUBLIC_OUTPUT_MAX_BYTES as DNS_FAILURES_LEGACY_MAX_BYTES,
+    PUBLIC_OUTPUT_MAX_BYTES as DNS_FAILURES_MAX_BYTES,
+    PUBLIC_OUTPUT_TOP_LEVEL_KEYS as DNS_PUBLIC_OUTPUT_TOP_LEVEL_KEYS,
+    PUBLICATION_RETENTION_COUNT_KEYS as DNS_PUBLICATION_RETENTION_COUNT_KEYS,
+    PUBLICATION_RETENTION_KEYS as DNS_PUBLICATION_RETENTION_KEYS,
+    PUBLICATION_RETENTION_POLICY as DNS_PUBLICATION_RETENTION_POLICY,
+)
 from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
@@ -117,7 +125,6 @@ PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
-DNS_FAILURES_MAX_BYTES = 8 * 1024 * 1024
 OPERATIONS_COMPARISON_MAX_BYTES = 1_500_000
 OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES = 6_000_000
 OPERATIONS_RAW_DATA_PATH = "data/vllm/ci/operations_v2.json"
@@ -8253,25 +8260,13 @@ class DashboardAudit:
                 )
             return valid
 
-        top_keys = {
-            "schema_version",
-            "generated_at",
-            "retention",
-            "default_window",
-            "window_options",
-            "count_basis",
-            "scope",
-            "classifier",
-            "coverage",
-            "windows",
-            "evidence",
-        }
         has_publication_retention = "publication_retention" in payload
-        if has_publication_retention:
-            top_keys.add("publication_retention")
         has_outcome_contract = "outcome_contract" in payload
-        if has_outcome_contract:
-            top_keys.add("outcome_contract")
+        top_keys = set(DNS_PUBLIC_OUTPUT_TOP_LEVEL_KEYS)
+        if not has_publication_retention:
+            top_keys.remove("publication_retention")
+        if not has_outcome_contract:
+            top_keys.remove("outcome_contract")
         exact_keys(payload, top_keys, "dns_failures.json")
 
         publication_window_rows: dict[str, dict[str, Any]] = {}
@@ -8279,19 +8274,10 @@ class DashboardAudit:
         if has_publication_retention:
             publication = exact_keys(
                 payload.get("publication_retention"),
-                {
-                    "policy",
-                    "max_bytes",
-                    "complete_relative_to_source",
-                    "aggregate_scalars_complete",
-                    "window_rows",
-                    "evidence",
-                },
+                set(DNS_PUBLICATION_RETENTION_KEYS),
                 "publication_retention",
             )
-            if publication.get("policy") != (
-                "retain_exact_totals_with_deterministic_whole_row_prefixes"
-            ):
+            if publication.get("policy") != DNS_PUBLICATION_RETENTION_POLICY:
                 self.error(
                     "dns-health-publication-retention",
                     "DNS publication retention policy is unsupported",
@@ -8301,11 +8287,17 @@ class DashboardAudit:
             if (
                 not _is_nonnegative_int(publication_max_bytes)
                 or publication_max_bytes <= 0
-                or publication_max_bytes > DNS_FAILURES_MAX_BYTES
+                or (
+                    publication_max_bytes > DNS_FAILURES_MAX_BYTES
+                    and publication_max_bytes != DNS_FAILURES_LEGACY_MAX_BYTES
+                )
             ):
                 self.error(
                     "dns-health-publication-retention",
-                    "DNS publication retention max_bytes must fit the public DNS budget",
+                    (
+                        "DNS publication retention max_bytes must fit the current "
+                        "public DNS budget or its explicit 8 MiB migration contract"
+                    ),
                     path,
                 )
             elif size > publication_max_bytes:
@@ -8324,7 +8316,7 @@ class DashboardAudit:
             def publication_counts(value: Any, label: str) -> dict[str, Any]:
                 counts = exact_keys(
                     value,
-                    {"source", "published", "omitted", "complete"},
+                    set(DNS_PUBLICATION_RETENTION_COUNT_KEYS),
                     label,
                 )
                 source = counts.get("source")
@@ -8848,6 +8840,26 @@ class DashboardAudit:
                 )
                 rows = []
             row_retention = publication_window_rows.get(option_id) or {}
+            if row_retention and len(numeric_totals) == len(totals_keys):
+                source_rows = row_retention.get("source")
+                minimum_source_rows = max(
+                    numeric_totals["queues"],
+                    numeric_totals["nodes"],
+                )
+                maximum_source_rows = numeric_totals["affected_jobs"]
+                if not (
+                    isinstance(source_rows, int)
+                    and minimum_source_rows <= source_rows <= maximum_source_rows
+                ):
+                    self.error(
+                        "dns-health-publication-retention",
+                        (
+                            "publication_retention.window_rows."
+                            f"{option_id}.source cannot reconcile with exact window "
+                            "queue, node, and affected-job totals"
+                        ),
+                        path,
+                    )
             rows_may_be_omitted = row_retention.get("omitted", 0) > 0
             if row_retention and row_retention.get("published") != len(rows):
                 self.error(
@@ -9029,6 +9041,19 @@ class DashboardAudit:
             self.error(
                 "dns-health-publication-retention",
                 "publication_retention.evidence.published does not match emitted evidence",
+                path,
+            )
+        if (
+            publication_evidence
+            and _is_nonnegative_int(evidence_total)
+            and publication_evidence.get("source") > evidence_total
+        ):
+            self.error(
+                "dns-health-publication-retention",
+                (
+                    "publication_retention.evidence.source cannot exceed the "
+                    "exact aggregate evidence total"
+                ),
                 path,
             )
         if _is_nonnegative_int(shown) and shown != len(items):
