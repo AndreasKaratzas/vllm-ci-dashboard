@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -660,6 +661,13 @@ class TestCanonicalResultPublication:
         parse_results.assert_not_called()
 
     def test_metadata_only_summary_persists_hydrated_roster(self, tmp_path):
+        # This starts one second before the roster's last retained UTC day.
+        # Discovery and the final hydrated write must use the same frozen
+        # clock even when the real test process (or production collection)
+        # continues past midnight.
+        collection_clock = datetime(
+            2026, 9, 1, 23, 59, 59, tzinfo=timezone.utc
+        )
         summary = self._build(state="failing", job_state="passed")
         summary.pop("jobs")
         detail = self._build(state="failing", job_state="passed")
@@ -677,11 +685,26 @@ class TestCanonicalResultPublication:
         })
 
         with (
-            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch(
+                "collect_ci.fetch_nightly_builds", return_value=[summary]
+            ) as fetch_builds,
             patch("collect_ci.fetch_build_detail", return_value=detail),
             patch("collect_ci.parse_job_results") as parse_results,
         ):
-            collect_pipeline("upstream", 8, tmp_path)
+            collect_pipeline(
+                "upstream",
+                8,
+                tmp_path,
+                now=collection_clock,
+            )
+
+        fetch_builds.assert_called_once_with(
+            "upstream",
+            days=8,
+            cache_dir=tmp_path / ".cache",
+            cache_errors=None,
+            now=collection_clock,
+        )
 
         cache_path = (
             tmp_path

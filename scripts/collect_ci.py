@@ -721,6 +721,8 @@ def collect_pipeline(
     dns_classification_cache: DnsClassificationCache | None = None,
     roster_cache_errors: list[str] | None = None,
     backfill_checkpoint_dir: Path | None = None,
+    *,
+    now: datetime | None = None,
 ) -> tuple[list[dict], dict[int, list[TestResult]]]:
     """Collect test data for a single pipeline.
 
@@ -729,12 +731,22 @@ def collect_pipeline(
     """
     log.info("=== Collecting %s pipeline ===", pipeline_key)
 
+    # Freeze one wall clock for discovery, restored-cache validation, and the
+    # final hydrated-roster write.  A collection can span midnight; taking a
+    # fresh clock at publication could otherwise expire a shard that was
+    # inside the exact retention window when this collection began.
+    collection_clock = now or datetime.now(timezone.utc)
+    if not isinstance(collection_clock, datetime) or collection_clock.tzinfo is None:
+        raise ValueError("CI collection clock must be timezone-aware")
+    collection_clock = collection_clock.astimezone(timezone.utc)
+
     cache_dir = output_dir / ".cache"
     builds = fetch_nightly_builds(
         pipeline_key,
         days=days,
         cache_dir=cache_dir,
         cache_errors=roster_cache_errors,
+        now=collection_clock,
     )
 
     if not builds:
@@ -995,7 +1007,12 @@ def collect_pipeline(
     # query. Persist the rosters hydrated above so historical nightly summaries
     # keep their exact jobs without downloading them again on the next run.
     try:
-        write_nightly_build_cache(pipeline_key, builds, cache_dir)
+        write_nightly_build_cache(
+            pipeline_key,
+            builds,
+            cache_dir,
+            now=collection_clock,
+        )
     except (OSError, ValueError) as exc:
         if roster_cache_errors is not None:
             roster_cache_errors.append(f"write_{type(exc).__name__}")
