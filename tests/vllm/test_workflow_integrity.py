@@ -3805,6 +3805,16 @@ class TestSiteHealthWorkflow:
             "the stale proof will not mutate hourly incident state",
         ):
             assert token in recovery_script
+        status_fields_match = re.search(
+            r"exactKeys\(status, \[(?P<fields>.*?)\]\) \|\|",
+            recovery_script,
+            re.DOTALL,
+        )
+        assert status_fields_match is not None
+        assert frozenset(
+            re.findall(r"'([^']+)'", status_fields_match.group("fields"))
+        ) == site_health.PUBLICATION_STATUS_FIELDS
+        assert "status.degraded_since !== null" in recovery_script
         assert enforce["if"] == "always()"
         assert "RECONCILE_OUTCOME" in enforce["env"]
         assert "RECONCILED" in enforce["env"]

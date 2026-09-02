@@ -607,6 +607,7 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           overallStatus: 'healthy',
           publicationMode: 'current',
           publicationStatus: 'healthy',
+          degradedSince: null,
           publicationBlocked: false,
           usesFallback: false,
           affectedSurfaces: [],
@@ -770,6 +771,16 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
             /requires normalized healthy\/current 2-of-3 evidence/,
           );
           assert.equal(noPublication.mutations(), aloneMutations);
+          const lingeringDegradation = siteEvidence(stateOne, codeA);
+          lingeringDegradation.degradedSince = '2026-09-01T22:55:19Z';
+          assert.throws(
+            () => recovery.validateSiteHealthEvidence(
+              lingeringDegradation,
+              stateOne,
+              codeA,
+            ),
+            /requires normalized healthy\/current 2-of-3 evidence/,
+          );
           const alone = await confirm(noPublication, stateOne);
           assert.equal(alone.action, 'identity-mismatch');
           assert.equal(noPublication.issue.state, 'open');

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "state_policy": "config/dashboard_state.json",
   "required_headroom_bytes": 16777216,
-  "unmanaged_max_bytes": 16777216,
+  "unmanaged_max_bytes": 18874368,
   "groups": {
     "agent_health": {
       "max_bytes": 16777216,
@@ -77,7 +77,7 @@
       ]
     },
     "dns_failures": {
-      "max_bytes": 8388608,
+      "max_bytes": 6291456,
       "patterns": [
         "data/vllm/ci/dns_failures.json"
       ]
@@ -238,7 +238,7 @@
     },
     "dns_failures": {
       "group": "dns_failures",
-      "max_bytes": 8388608
+      "max_bytes": 6291456
     },
     "queue_details": {
       "group": "queue_details",

@@ -68,7 +68,7 @@ CONFIRMATION_QUORUM = 2
 CONFIRMATION_DELAYS_SECONDS = (0.0, 2.0, 5.0)
 SITE_MIN_BYTES = 500
 SITE_MAX_BYTES = 2 * 1024 * 1024
-STATUS_MAX_BYTES = 64 * 1024
+STATUS_MAX_BYTES = 16 * 1024
 MARKER_MAX_BYTES = 4096
 MANIFEST_MAX_BYTES = 8 * 1024 * 1024
 ASSET_MAX_BYTES = 4 * 1024 * 1024
@@ -138,6 +138,19 @@ SITE_REQUIRED_MARKERS = (
 )
 PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "blocked"})
 PUBLICATION_STATUSES = frozenset({"healthy", "degraded", "blocked"})
+PUBLICATION_STATUS_FIELDS = frozenset({
+    "schema_version",
+    "status",
+    "mode",
+    "generated_at",
+    "degraded_since",
+    "uses_fallback",
+    "publication_blocked",
+    "affected_surfaces",
+    "affected_surface_count",
+    "fallback_surface_count",
+    "fresh_degraded_surface_count",
+})
 PUBLICATION_SURFACE_LABELS = frozenset({
     "Agent health",
     "CI analytics",
@@ -697,8 +710,10 @@ def _normalize_projection_attestation(value: object) -> dict[str, Any]:
     digest = value.get("manifest_sha256")
     file_count = value.get("file_count")
     total_bytes = value.get("total_bytes")
+    schema_version = value.get("schema_version")
     if (
-        value.get("schema_version") != 1
+        type(schema_version) not in (int, float)
+        or schema_version != 1
         or value.get("manifest_path") != PUBLICATION_MANIFEST_PATH
         or not isinstance(digest, str)
         or SHA256_RE.fullmatch(digest) is None
@@ -1571,7 +1586,7 @@ def check_site_health(
         )
     elif status_response.get("oversize") is True:
         reasons.append(
-            _reason("publication-oversize", "Publication status exceeded 64 KiB.")
+            _reason("publication-oversize", "Publication status exceeded 16 KiB.")
         )
     elif isinstance(status_response.get("final_url"), str) and (
         urlsplit(status_response["final_url"]).scheme,
@@ -1660,25 +1675,14 @@ def check_site_health(
                     ),
                 }
             )
-            expected_fields = {
-                "schema_version",
-                "status",
-                "mode",
-                "generated_at",
-                "degraded_since",
-                "uses_fallback",
-                "publication_blocked",
-                "affected_surfaces",
-                "affected_surface_count",
-                "fallback_surface_count",
-                "fresh_degraded_surface_count",
-            }
+            expected_fields = PUBLICATION_STATUS_FIELDS
             missing_fields = sorted(expected_fields - payload.keys())
-            if missing_fields:
+            unexpected_fields = sorted(payload.keys() - expected_fields)
+            if missing_fields or unexpected_fields:
                 reasons.append(
                     _reason(
                         "publication-contract",
-                        "Publication status omitted required version-1 fields.",
+                        "Publication status did not match the exact version-1 fields.",
                     )
                 )
             if type(schema_version) is not int or schema_version != 1:
@@ -1780,6 +1784,13 @@ def check_site_health(
             if generated_at is None:
                 reasons.append(
                     _reason("publication-timestamp", "Publication timestamp is missing or invalid.")
+                )
+            elif payload.get("generated_at") != _iso_utc(generated_at):
+                reasons.append(
+                    _reason(
+                        "publication-timestamp",
+                        "Publication timestamp is not canonical UTC.",
+                    )
                 )
             else:
                 age = checked_at - generated_at

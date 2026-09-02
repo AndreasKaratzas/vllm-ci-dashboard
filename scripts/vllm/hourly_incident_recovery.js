@@ -213,6 +213,7 @@ function validateSiteHealthEvidence(evidence, stateSha, codeSha) {
     row.overallStatus === 'healthy' &&
     row.publicationMode === 'current' &&
     row.publicationStatus === 'healthy' &&
+    row.degradedSince === null &&
     row.publicationBlocked === false &&
     row.usesFallback === false &&
     Array.isArray(row.affectedSurfaces) &&

@@ -147,6 +147,37 @@ def _healthy_report(now: datetime, *, complete_attempt: int = 1) -> dict:
     }
 
 
+def _degraded_liveness_report(now: datetime, *, mode: str) -> dict:
+    report = _healthy_report(now)
+    if mode == "fallback":
+        report["publication"].update(
+            {
+                "mode": "fallback",
+                "status": "degraded",
+                "uses_fallback": True,
+                "affected_surfaces": ["CI core health"],
+                "affected_surface_count": 1,
+                "fallback_surface_count": 1,
+                "fresh_degraded_surface_count": 0,
+            }
+        )
+    elif mode == "degraded":
+        report["publication"].update(
+            {
+                "mode": "degraded",
+                "status": "degraded",
+                "uses_fallback": False,
+                "affected_surfaces": ["Queue health"],
+                "affected_surface_count": 1,
+                "fallback_surface_count": 0,
+                "fresh_degraded_surface_count": 1,
+            }
+        )
+    else:  # pragma: no cover - test helper misuse
+        raise ValueError(f"unsupported liveness mode: {mode}")
+    return report
+
+
 def _output_text(value: object) -> str:
     if value is True:
         return "true"
@@ -261,6 +292,23 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
     assert recovery_evidence["reportValid"] is True
     assert recovery_evidence["confirmed"] is True
     assert recovery_evidence["healthy"] is True
+    assert recovery_evidence["overallStatus"] == "healthy"
+    assert recovery_evidence["publicationMode"] == "current"
+    assert recovery_evidence["publicationStatus"] == "healthy"
+    assert recovery_evidence["degradedSince"] is None
+    assert recovery_evidence["publicationBlocked"] is False
+    assert recovery_evidence["usesFallback"] is False
+    assert recovery_evidence["affectedSurfaces"] == []
+    assert recovery_evidence["affectedSurfaceCount"] == 0
+    assert recovery_evidence["fallbackSurfaceCount"] == 0
+    assert recovery_evidence["freshDegradedSurfaceCount"] == 0
+    assert recovery_evidence["confirmationStrategy"] == "2-of-3-quorum"
+    assert recovery_evidence["probeAttempts"] == 3
+    assert recovery_evidence["healthyProbeCount"] == 3
+    assert recovery_evidence["requiredHealthyProbes"] == 2
+    assert recovery_evidence["completeProjectionVerified"] is True
+    assert recovery_evidence["matchingProjectionHealthyCount"] == 3
+    assert recovery_evidence["requiredMatchingProjectionHealthy"] == 2
     assert recovery_evidence["generationId"] == "hourly-12345-1"
     assert recovery_evidence["stateSha"] == "c" * 40
     assert recovery_evidence["stateTree"] == "d" * 40
@@ -327,6 +375,60 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
             "",
         )
     )
+
+
+@pytest.mark.parametrize("mode", ["degraded", "fallback"])
+def test_degraded_liveness_reconciles_without_launching_hourly_recovery(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _degraded_liveness_report(now, mode=mode)
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    # The primary Site Health job and marker-owned issue reconciliation remain
+    # green because this is a complete, quorum-confirmed liveness proof.
+    assert outputs["healthy"] == "true"
+    assert outputs["confirmed"] == "true"
+    assert outputs["report_valid"] == "true"
+    body = Path(environment["BODY_PATH"]).read_text()
+    assert "Dashboard synthetic health: healthy" in body
+    # confirm-hourly-recovery is conditioned on this output being nonempty.
+    assert outputs["hourly_recovery_evidence"] == ""
+    normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
+    assert normalized["healthy"] is True
+    assert normalized["overall_status"] == "healthy"
+    assert normalized["publication"]["mode"] == mode
+    assert normalized["publication"]["status"] == "degraded"
+
+
+def test_current_liveness_with_degradation_timestamp_cannot_launch_recovery(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _healthy_report(now)
+    degraded_since = _iso_utc(now - timedelta(hours=2))
+    report["publication"]["degraded_since"] = degraded_since
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["healthy"] == "true"
+    assert outputs["confirmed"] == "true"
+    assert outputs["report_valid"] == "true"
+    assert outputs["hourly_recovery_evidence"] == ""
+    normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
+    assert normalized["healthy"] is True
+    assert normalized["overall_status"] == "healthy"
+    assert normalized["publication"]["mode"] == "current"
+    assert normalized["publication"]["status"] == "healthy"
+    assert normalized["publication"]["degraded_since"] == degraded_since
 
 
 def test_normalizer_accepts_a_full_stream_discovered_by_a_later_probe(

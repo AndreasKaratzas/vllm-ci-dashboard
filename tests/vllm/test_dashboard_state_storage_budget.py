@@ -54,6 +54,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
     )
     assert writers["hotness"].max_bytes == groups["hotness"].max_bytes
     assert writers["workload_mapping"].max_bytes == groups["workload_mapping"].max_bytes
+    assert groups["dns_failures"].max_bytes == 6 * 1024 * 1024
     assert writers["dns_failures"].max_bytes == groups["dns_failures"].max_bytes
     assert writers["queue_details"].max_bytes == groups["queue_details"].max_bytes
     assert (
@@ -129,7 +130,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         - sum(writers[name].max_bytes for name in operational_misc_writers)
         >= 3 * 1024
     )
-    assert budget.unmanaged_max_bytes == 16 * 1024 * 1024
+    assert budget.unmanaged_max_bytes == 18 * 1024 * 1024
     assert budget.max_files == 10_000
 
 

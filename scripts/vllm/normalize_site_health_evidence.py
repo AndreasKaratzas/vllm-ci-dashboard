@@ -918,6 +918,7 @@ def normalize_health_evidence() -> None:
             "overallStatus": report.get("overall_status"),
             "publicationMode": publication.get("mode"),
             "publicationStatus": publication.get("status"),
+            "degradedSince": publication.get("degraded_since"),
             "publicationBlocked": publication.get("publication_blocked"),
             "usesFallback": publication.get("uses_fallback"),
             "affectedSurfaces": publication.get("affected_surfaces"),
@@ -948,14 +949,94 @@ def normalize_health_evidence() -> None:
             "fileCount": projection.get("file_count"),
             "totalBytes": projection.get("total_bytes"),
         }
-        compact_recovery_payload = json.dumps(
-            recovery_payload,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        hourly_recovery_evidence = base64.b64encode(
-            compact_recovery_payload
-        ).decode("ascii")
+
+        def canonical_hex(value, length):
+            return (
+                isinstance(value, str)
+                and len(value) == length
+                and all(char in "0123456789abcdef" for char in value)
+            )
+
+        def canonical_generation(value):
+            ascii_letters_and_digits = (
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                "abcdefghijklmnopqrstuvwxyz"
+                "0123456789"
+            )
+            allowed = ascii_letters_and_digits + "._:/-"
+            return (
+                isinstance(value, str)
+                and 1 <= len(value) <= 128
+                and value[0] in ascii_letters_and_digits
+                and all(char in allowed for char in value)
+            )
+
+        healthy_probe_count = recovery_payload["healthyProbeCount"]
+        matching_projection_count = recovery_payload[
+            "matchingProjectionHealthyCount"
+        ]
+        # Synthetic liveness permits a complete degraded/fallback projection.
+        # Hourly incident recovery does not: only an exact clean publication
+        # and its complete matching identity proof may make the serialized job
+        # eligible through this otherwise-empty output.
+        recovery_eligible = (
+            recovery_payload["confirmed"] is True
+            and recovery_payload["healthy"] is True
+            and recovery_payload["overallStatus"] == "healthy"
+            and recovery_payload["publicationMode"] == "current"
+            and recovery_payload["publicationStatus"] == "healthy"
+            and recovery_payload["degradedSince"] is None
+            and recovery_payload["publicationBlocked"] is False
+            and recovery_payload["usesFallback"] is False
+            and recovery_payload["affectedSurfaces"] == []
+            and recovery_payload["affectedSurfaceCount"] == 0
+            and recovery_payload["fallbackSurfaceCount"] == 0
+            and recovery_payload["freshDegradedSurfaceCount"] == 0
+            and isinstance(recovery_payload["generatedAt"], str)
+            and bool(recovery_payload["generatedAt"])
+            and recovery_payload["confirmationStrategy"]
+            == confirmation_strategy
+            and recovery_payload["probeAttempts"] == CONFIRMATION_ATTEMPTS
+            and is_nonnegative_int(healthy_probe_count)
+            and CONFIRMATION_QUORUM
+            <= healthy_probe_count
+            <= CONFIRMATION_ATTEMPTS
+            and recovery_payload["requiredHealthyProbes"]
+            == CONFIRMATION_QUORUM
+            and recovery_payload["completeProjectionVerified"] is True
+            and is_nonnegative_int(matching_projection_count)
+            and CONFIRMATION_QUORUM
+            <= matching_projection_count
+            <= healthy_probe_count
+            and recovery_payload["requiredMatchingProjectionHealthy"]
+            == CONFIRMATION_QUORUM
+            and canonical_generation(recovery_payload["generationId"])
+            and canonical_hex(recovery_payload["stateSha"], 40)
+            and canonical_hex(recovery_payload["stateTree"], 40)
+            and canonical_hex(recovery_payload["codeSha"], 40)
+            and canonical_hex(recovery_payload["manifestSha256"], 64)
+            and is_nonnegative_int(recovery_payload["fileCount"])
+            and recovery_payload["fileCount"] > 0
+            and is_nonnegative_int(recovery_payload["totalBytes"])
+            and recovery_payload["totalBytes"] > 0
+            and projection.get("mode") == "verified"
+            and projection.get("verified") is True
+            and projection.get("verification_scope") == "complete"
+            and confirmation.get("confirmed") is True
+            and workflow_confirmation.get("synthetic_quorum_confirmed")
+            is True
+            and workflow_confirmation.get("durable_core_observation_valid")
+            is True
+        )
+        if recovery_eligible:
+            compact_recovery_payload = json.dumps(
+                recovery_payload,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            hourly_recovery_evidence = base64.b64encode(
+                compact_recovery_payload
+            ).decode("ascii")
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"healthy={str(healthy).lower()}\n")
         output.write(f"confirmed={str(confirmed).lower()}\n")

@@ -24,12 +24,16 @@ def test_projection_health_proof_uses_exact_publication_ceiling() -> None:
     assert health.PROJECTION_MAX_FILES == 10_000
 
 
+def test_publication_status_fields_match_the_live_recovery_consumer() -> None:
+    assert frozenset(_publication()) == health.PUBLICATION_STATUS_FIELDS
+
+
 def _publication(**overrides):
     payload = {
         "schema_version": 1,
         "status": "healthy",
         "mode": "current",
-        "generated_at": (NOW - timedelta(minutes=30)).isoformat(),
+        "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
         "degraded_since": None,
         "publication_blocked": False,
         "uses_fallback": False,
@@ -445,7 +449,9 @@ def test_stale_publication_fails_even_when_root_is_http_200():
     report = health.check_site_health(
         now=NOW,
         max_publication_age_hours=3,
-        fetch=Fetcher(_publication(generated_at=(NOW - timedelta(hours=4)).isoformat())),
+        fetch=Fetcher(
+            _publication(generated_at=health._iso_utc(NOW - timedelta(hours=4)))
+        ),
     )
 
     assert report["site"]["http_status"] == 200
@@ -456,12 +462,18 @@ def test_stale_publication_fails_even_when_root_is_http_200():
 def test_small_future_skew_is_allowed_but_larger_skew_is_rejected():
     allowed = health.check_site_health(
         now=NOW,
-        fetch=Fetcher(_publication(generated_at=(NOW + timedelta(minutes=5)).isoformat())),
+        fetch=Fetcher(
+            _publication(generated_at=health._iso_utc(NOW + timedelta(minutes=5)))
+        ),
     )
     rejected = health.check_site_health(
         now=NOW,
         fetch=Fetcher(
-            _publication(generated_at=(NOW + timedelta(minutes=5, seconds=1)).isoformat())
+            _publication(
+                generated_at=health._iso_utc(
+                    NOW + timedelta(minutes=5, seconds=1)
+                )
+            )
         ),
     )
 
@@ -540,6 +552,8 @@ def test_missing_oversize_or_malformed_publication_status_is_unhealthy(
         ({"uses_fallback": 0}, "publication-flags"),
         ({"generated_at": "not-a-time"}, "publication-timestamp"),
         ({"generated_at": "2026-08-17T11:00:00"}, "publication-timestamp"),
+        ({"generated_at": "2026-08-17T11:30:00+00:00"}, "publication-timestamp"),
+        ({"generated_at": "2026-08-17T11:30:00.1Z"}, "publication-timestamp"),
     ],
 )
 def test_publication_contract_errors_fail_closed(overrides, expected):
@@ -549,6 +563,18 @@ def test_publication_contract_errors_fail_closed(overrides, expected):
     )
     assert report["healthy"] is False
     assert expected in _codes(report)
+
+
+def test_canonical_fractional_publication_timestamp_remains_live():
+    generated_at = "2026-08-17T11:30:00.100000Z"
+
+    report = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(_publication(generated_at=generated_at)),
+    )
+
+    assert report["healthy"] is True
+    assert report["publication"]["generated_at"] == generated_at
 
 
 @pytest.mark.parametrize(
@@ -598,6 +624,32 @@ def test_missing_publication_contract_field_is_unhealthy():
 
     assert report["healthy"] is False
     assert "publication-contract" in _codes(report)
+
+
+def test_extra_publication_contract_field_is_unhealthy():
+    payload = _publication()
+    payload["future_field"] = "must-fail-closed"
+
+    report = health.check_site_health(now=NOW, fetch=Fetcher(payload))
+
+    assert report["healthy"] is False
+    assert "publication-contract" in _codes(report)
+
+
+def test_current_publication_with_degradation_timestamp_remains_live():
+    degraded_since = (NOW - timedelta(hours=1)).isoformat()
+
+    report = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(_publication(degraded_since=degraded_since)),
+    )
+
+    assert report["healthy"] is True
+    assert report["publication"]["mode"] == "current"
+    assert report["publication"]["status"] == "healthy"
+    assert report["publication"]["degraded_since"] == health._iso_utc(
+        NOW - timedelta(hours=1)
+    )
 
 
 @pytest.mark.parametrize(
@@ -679,6 +731,56 @@ def test_production_fetch_uses_bounded_timeout_and_reads_only_limit_plus_one(mon
     }
     assert result["body"] == b"x" * 10
     assert result["oversize"] is True
+
+
+def test_publication_status_transport_matches_live_consumer_byte_bound(monkeypatch):
+    assert health.STATUS_MAX_BYTES == 16_384
+    bodies = [
+        b"x" * health.STATUS_MAX_BYTES,
+        b"x" * (health.STATUS_MAX_BYTES + 1),
+    ]
+
+    class Response:
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, amount):
+            assert amount == health.STATUS_MAX_BYTES + 1
+            return self.body[:amount]
+
+        def getcode(self):
+            return 200
+
+        def geturl(self):
+            return "https://example.test/publication_status.json"
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url.endswith("publication_status.json")
+            assert timeout == health.FETCH_TIMEOUT_SECONDS
+            return Response(bodies.pop(0))
+
+    monkeypatch.setattr(health, "build_opener", lambda _handler: Opener())
+
+    boundary = health.fetch_url(
+        "https://example.test/publication_status.json",
+        health.STATUS_MAX_BYTES,
+    )
+    oversize = health.fetch_url(
+        "https://example.test/publication_status.json",
+        health.STATUS_MAX_BYTES,
+    )
+
+    assert len(boundary["body"]) == health.STATUS_MAX_BYTES
+    assert boundary["oversize"] is False
+    assert len(oversize["body"]) == health.STATUS_MAX_BYTES
+    assert oversize["oversize"] is True
 
 
 def test_production_fetch_whole_attempt_deadline_interrupts_slow_trickle(monkeypatch):
@@ -1027,7 +1129,9 @@ def test_invalid_site_url_and_age_are_rejected_before_fetch():
 def test_markdown_and_github_outputs_are_bounded_and_escaped():
     report = health.check_site_health(
         now=NOW,
-        fetch=Fetcher(_publication(generated_at=(NOW - timedelta(hours=4)).isoformat())),
+        fetch=Fetcher(
+            _publication(generated_at=health._iso_utc(NOW - timedelta(hours=4)))
+        ),
     )
     report["reasons"].append({"code": "unsafe|code", "message": "line 1\nline | 2"})
 
@@ -1649,6 +1753,49 @@ def test_generation_attestation_must_match_exact_canonical_manifest_digest_and_t
 
     assert report["healthy"] is False
     assert "projection-attestation" in _codes(report)
+
+
+def test_projection_attestation_accepts_json_numeric_one_schema_version():
+    fetcher = Fetcher()
+    marker = json.loads(
+        fetcher.responses[health.PUBLICATION_GENERATION_PATH]["body"]
+    )
+    marker["public_projection"]["schema_version"] = 1.0
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is True
+    assert report["reasons"] == []
+
+
+def test_boolean_projection_schema_cannot_satisfy_probe_or_recovery_quorum():
+    fetcher = Fetcher()
+    marker = json.loads(
+        fetcher.responses[health.PUBLICATION_GENERATION_PATH]["body"]
+    )
+    marker["public_projection"]["schema_version"] = True
+    fetcher.responses[health.PUBLICATION_GENERATION_PATH] = _response(
+        json.dumps(marker).encode()
+    )
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["overall_status"] == "confirmed_unhealthy"
+    assert "generation-contract" in _codes(report)
+    confirmation = report["confirmation"]
+    assert confirmation["healthy_count"] == 0
+    assert confirmation["complete_projection_verified"] is False
+    assert confirmation["matching_projection_healthy_count"] == 0
+    assert all(probe["healthy"] is False for probe in confirmation["probes"])
 
 
 def test_verified_projection_reports_the_exact_manifest_digest():
