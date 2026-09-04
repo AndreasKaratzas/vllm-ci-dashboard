@@ -403,6 +403,51 @@ test('CI health summaries stay scoped to the selected view', async ({ page }) =>
   await expect(health.getByText(/WITH PROPOSED CHANGES/i)).toHaveCount(0);
 });
 
+test('CI health overview exposes configured AMD mirror groups and routes to the inventory', async ({ page }) => {
+  const capacityResponse = page.waitForResponse(response => (
+    new URL(response.url()).pathname.endsWith('/data/vllm/ci/capacity_monitor.json')
+  ));
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const capacity = await (await capacityResponse).json();
+  const mirrorCount = Number(capacity.summary.gated_group_count);
+  expect(mirrorCount).toBeGreaterThan(0);
+
+  const health = page.locator('#tab-ci-health');
+  const mirrorSummary = health.locator('.ops-health-mirror-summary');
+  await expect(mirrorSummary).toBeVisible();
+  await expect(mirrorSummary).toHaveAttribute('type', 'button');
+  await expect(mirrorSummary).toContainText(String(mirrorCount));
+  await expect(mirrorSummary).toContainText(/AMD mirrors/i);
+  await expect(mirrorSummary).toContainText(/configured AMD mirror groups/i);
+
+  await mirrorSummary.click();
+  await expect(page).toHaveURL(/ops_health_view=mirrors/);
+  await expect(health.getByRole('button', { name: 'AMD mirrors', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('CI health overview remains usable when the mirror enhancement cannot load', async ({ page }) => {
+  await page.route(/\/assets\/js\/amd-mirror-inventory\.js(?:\?.*)?$/, route => route.abort('failed'));
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health');
+  await expect(health.getByText('Logical runtime health', { exact: true })).toBeVisible();
+  await expect(health.locator('.ops-error')).toHaveCount(0);
+  await expect(health.locator('.ops-health-mirror-summary')).toHaveCount(0);
+});
+
+test('CI health overview marks the mirror count unavailable without losing core health', async ({ page }) => {
+  await page.route(/\/data\/vllm\/ci\/capacity_monitor\.json(?:\?.*)?$/, route => route.abort('failed'));
+  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health');
+  await expect(health.getByText('Logical runtime health', { exact: true })).toBeVisible();
+  await expect(health.locator('.ops-error')).toHaveCount(0);
+  const summary = health.locator('.ops-health-mirror-summary.is-unavailable');
+  await expect(summary).toBeVisible();
+  await expect(summary).toContainText('—');
+});
+
 test('CI health data freshness opens in place without changing views', async ({ page }) => {
   await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
@@ -449,12 +494,14 @@ test('CI health tabs retain keyboard focus after route-backed rerenders', async 
   await expect(mirrors).toBeFocused();
 });
 
-test('CI health AMD mirrors reports physical declarations and retained inventory rows', async ({ page }) => {
+test('CI health AMD mirrors uses graphical summaries and retains the full inventory browser', async ({ page }) => {
+  const capacityResponse = page.waitForResponse(response => (
+    new URL(response.url()).pathname.endsWith('/data/vllm/ci/capacity_monitor.json')
+  ));
   await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
-  const inventory = await page.evaluate(async () => {
-    const response = await fetch('/data/vllm/ci/capacity_monitor.json');
-    const payload = await response.json();
+  const payload = await (await capacityResponse).json();
+  const inventory = (() => {
     const retention = payload.publication_retention || {};
     const groupRetention = retention.group_index || {};
     const publishedRows = Array.isArray(payload.groups) ? payload.groups.length : 0;
@@ -464,19 +511,18 @@ test('CI health AMD mirrors reports physical declarations and retained inventory
       count,
       publishedRows,
       aggregateComplete,
-      complete: aggregateComplete && (
-        groupRetention.complete_relative_to_source === undefined
-          ? publishedRows === count
-          : groupRetention.complete_relative_to_source === true
-      ),
+      complete: aggregateComplete
+        && groupRetention.complete_relative_to_source !== false
+        && publishedRows === count,
     };
-  });
+  })();
 
   expect(inventory.count).toBeGreaterThan(0);
-  const declarations = health.locator('.ops-status-item').filter({ hasText: 'AMD MIRROR DECLARATIONS' });
-  await expect(declarations.locator('.ops-stat-value')).toHaveText(
-    inventory.aggregateComplete ? String(inventory.count) : `≥${inventory.count}`,
-  );
+  const hero = health.locator('.ops-mirror-hero');
+  await expect(hero).toBeVisible();
+  await expect(hero).toContainText(inventory.aggregateComplete ? String(inventory.count) : `≥${inventory.count}`);
+  await expect(health.locator('.ops-mirror-area-bars')).toBeVisible();
+  await expect(health.locator('.ops-mirror-preview-list')).toBeVisible();
   await health.getByText('How this live count is built', { exact: true }).click();
   await expect(
     health.getByText(/One top-level YAML step with a non-empty mirror\.amd mapping counts once/),
@@ -504,6 +550,50 @@ test('CI health AMD mirrors reports physical declarations and retained inventory
   await expect(dialog.locator('.ops-browser-count')).toHaveText(
     `${inventory.publishedRows} of ${inventory.publishedRows} rows`,
   );
+});
+
+test('CI health AMD mirrors does not overstate an incomplete hardware breakdown', async ({ page }) => {
+  let aggregateCount = 0;
+  await page.route(/\/data\/vllm\/ci\/capacity_monitor\.json(?:\?.*)?$/, async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    aggregateCount = Number(payload.summary.gated_group_count);
+    payload.groups = payload.groups.slice(0, 5);
+    payload.publication_retention = {
+      ...(payload.publication_retention || {}),
+      aggregate_summaries_complete: true,
+      group_index: {
+        ...((payload.publication_retention || {}).group_index || {}),
+        complete_relative_to_source: false,
+      },
+    };
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health');
+  const hero = health.locator('.ops-mirror-total-card');
+  await expect(hero).toBeVisible();
+  expect(aggregateCount).toBeGreaterThan(5);
+  await expect(hero.locator('.ops-mirror-count-ring strong')).toHaveText(String(aggregateCount));
+  await expect(hero).toContainText('The total is exact; the hardware breakdown is unavailable');
+  await expect(hero.locator('.ops-mirror-hardware-item')).toHaveCount(0);
+  await expect(health.locator('.ops-mirror-configuration-card .ops-mirror-mode-track')).toHaveCount(0);
+  await expect(
+    health.locator('.ops-mirror-configuration-card .ops-mirror-fact').nth(2).locator('strong'),
+  ).toHaveText(/^≥\d+$/);
+});
+
+test('CI health AMD mirror graphics retain text equivalents in forced colors', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
+
+  const health = page.locator('#tab-ci-health');
+  await expect(health.locator('.ops-mirror-count-ring')).toBeVisible();
+  await expect(health.locator('.ops-mirror-area-track').first()).toBeHidden();
+  const breakdown = health.locator('.ops-mirror-area-breakdown').first();
+  await expect(breakdown).toBeVisible();
+  await expect(breakdown).toHaveText(/^\d+ R · \d+ O$/);
 });
 
 test('CI health parity is main-only and opens grouped gap tables', async ({ page }) => {

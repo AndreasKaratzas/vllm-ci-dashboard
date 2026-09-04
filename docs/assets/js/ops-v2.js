@@ -53,7 +53,7 @@
     upstreamScheduledBuilds: 'https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+',
   };
   const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
-  const AMD_MIRROR_INVENTORY_MODULE_URL = 'assets/js/amd-mirror-inventory.js?v=1';
+  const AMD_MIRROR_INVENTORY_MODULE_URL = 'assets/js/amd-mirror-inventory.js?v=2';
   const state = {
     healthView: 'overview',
     healthCoverageSort: 'platform',
@@ -3064,8 +3064,28 @@
       AMD_MIRROR_INVENTORY_MODULE_URL,
       'AmdMirrorInventory',
       'AMD mirror inventory renderer',
-      function (module) { return typeof module.render === 'function'; }
+      function (module) {
+        return typeof module.render === 'function' && typeof module.summaryCard === 'function';
+      }
     );
+  }
+
+  function amdMirrorUiHelpers() {
+    return {
+      badge,
+      button,
+      compareText,
+      externalLink,
+      hardwareDisplayLabel,
+      integer,
+      linkButton,
+      methodDisclosure,
+      n,
+      openDetailDrawer,
+      openTableBrowser,
+      panel,
+      value,
+    };
   }
 
   async function loadOperations(tabId) {
@@ -3073,6 +3093,16 @@
     const manifest = await operationsManifest();
     if (!manifest || !manifest.shell || !manifest.sections) {
       throw new Error('Operations manifest is incomplete');
+    }
+    if (tabId === 'ci-health' && state.healthView === 'overview') {
+      const overviewDependencies = await Promise.all([
+        loadOperationSections(manifest.shell, operationSectionNames(tabId)),
+        fetchJSON(SOURCE_ASSETS.upstreamGatingCapacity).catch(function () { return null; }),
+        loadAmdMirrorInventoryModule().catch(function () { return null; }),
+      ]);
+      return Object.assign(overviewDependencies[0], {
+        mirror_inventory: overviewDependencies[1] || {},
+      });
     }
     if (tabId === 'ci-health' && state.healthView === 'mirrors') {
       const mirrorDependencies = await Promise.all([
@@ -4581,6 +4611,15 @@
         ]
       ));
       host.append(overviewHero);
+      const mirrorRenderer = window.AmdMirrorInventory;
+      if (mirrorRenderer && typeof mirrorRenderer.summaryCard === 'function') {
+        host.append(mirrorRenderer.summaryCard(
+        ops.mirror_inventory || {},
+        logicalGroups.available ? logicalTotal : null,
+          amdMirrorUiHelpers(),
+          function () { navigateTo('ci-health', {healthView: 'mirrors'}); }
+        ));
+      }
       const movementBuilds = (amd.builds || []).filter(function (row) {
         const movement = nightlyFailureMovement(row);
         return row.has_test_results !== false && Boolean(movement) && movement.available !== false;
@@ -4887,20 +4926,7 @@
       if (!renderer || typeof renderer.render !== 'function') {
         throw new Error('AMD mirror inventory render API is unavailable');
       }
-      renderer.render(host, ops.mirror_inventory || {}, {
-        badge,
-        compactTablePanel,
-        compareText,
-        externalLink,
-        hardwareDisplayLabel,
-        integer,
-        linkButton,
-        methodDisclosure,
-        n,
-        openDetailDrawer,
-        statusStrip,
-        value,
-      });
+      renderer.render(host, ops.mirror_inventory || {}, amdMirrorUiHelpers());
       return;
     }
 

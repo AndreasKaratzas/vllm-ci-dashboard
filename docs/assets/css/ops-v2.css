@@ -2864,6 +2864,465 @@ button.ops-health-legend-item:focus-visible { background: var(--ops-surface-hove
 .ops-page .ops-health-legend-item.is-info .ops-health-legend-dot { background: var(--ops-info); }
 .ops-page .ops-health-legend-item.is-not-targeted .ops-health-legend-dot { background: var(--ops-not-targeted); }
 
+/* AMD mirror inventory ------------------------------------------------------ */
+
+.ops-page .ops-health-mirror-summary {
+  display: grid;
+  width: 100%;
+  min-height: 86px;
+  grid-template-columns: 58px minmax(260px, 1fr) minmax(300px, 0.9fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text);
+  background:
+    linear-gradient(105deg, color-mix(in srgb, var(--ops-teal-soft) 72%, transparent), transparent 56%),
+    var(--ops-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ops-transition), background-color var(--ops-transition);
+}
+
+.ops-page .ops-health-mirror-summary:hover,
+.ops-page .ops-health-mirror-summary:focus-visible {
+  border-color: var(--ops-focus);
+  outline: 2px solid var(--ops-focus);
+  outline-offset: 2px;
+}
+
+.ops-page .ops-health-mirror-summary.is-unavailable {
+  background: var(--ops-surface);
+}
+
+.ops-page .ops-health-mirror-mark {
+  position: relative;
+  display: block;
+  width: 54px;
+  height: 54px;
+  border: 1px solid color-mix(in srgb, var(--ops-teal) 55%, var(--ops-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ops-teal-soft) 72%, var(--ops-surface));
+}
+
+.ops-page .ops-health-mirror-mark::before,
+.ops-page .ops-health-mirror-mark::after {
+  position: absolute;
+  top: 26px;
+  width: 16px;
+  height: 1px;
+  background: var(--ops-teal);
+  content: "";
+}
+
+.ops-page .ops-health-mirror-mark::before { left: 9px; transform: rotate(-26deg); }
+.ops-page .ops-health-mirror-mark::after { right: 9px; transform: rotate(26deg); }
+
+.ops-page .ops-health-mirror-node {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--ops-surface);
+  border-radius: 50%;
+  background: var(--ops-teal);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ops-teal) 55%, transparent);
+}
+
+.ops-page .ops-health-mirror-node.is-left { bottom: 8px; left: 7px; }
+.ops-page .ops-health-mirror-node.is-center { top: 8px; left: 20px; background: var(--ops-chart-3); }
+.ops-page .ops-health-mirror-node.is-right { right: 7px; bottom: 8px; background: var(--ops-chart-2); }
+
+.ops-page .ops-health-mirror-copy,
+.ops-page .ops-health-mirror-shape {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.ops-page .ops-health-mirror-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ops-text);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 21px;
+}
+
+.ops-page .ops-health-mirror-title strong {
+  color: var(--ops-teal-hover);
+  font-size: 27px;
+  line-height: 29px;
+}
+
+.ops-page .ops-health-mirror-meta,
+.ops-page .ops-health-mirror-facts {
+  overflow: hidden;
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-health-mirror-track,
+.ops-page .ops-mirror-mode-track {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: 999px;
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-health-mirror-track > .is-required,
+.ops-page .ops-mirror-mode-track > .is-required,
+.ops-page .ops-mirror-area-fill > .is-required {
+  background: var(--ops-teal);
+}
+
+.ops-page .ops-health-mirror-track > .is-optional,
+.ops-page .ops-mirror-mode-track > .is-optional,
+.ops-page .ops-mirror-area-fill > .is-optional {
+  background: var(--ops-chart-3);
+}
+
+.ops-page .ops-health-mirror-action {
+  color: var(--ops-teal-hover);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.ops-page .ops-mirror-hero {
+  display: grid;
+  grid-template-columns: minmax(380px, 1fr) minmax(420px, 1.08fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ops-page .ops-mirror-card {
+  min-width: 0;
+  min-height: 210px;
+  padding: 18px;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius);
+  color: var(--ops-text);
+  background: var(--ops-surface);
+}
+
+.ops-page .ops-mirror-total-card {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  background:
+    radial-gradient(circle at 18% 50%, color-mix(in srgb, var(--ops-teal-soft) 86%, transparent), transparent 42%),
+    var(--ops-surface);
+}
+
+.ops-page .ops-mirror-count-ring {
+  position: relative;
+  display: flex;
+  width: 142px;
+  height: 142px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  isolation: isolate;
+}
+
+.ops-page .ops-mirror-count-ring::before {
+  position: absolute;
+  z-index: -1;
+  width: 106px;
+  height: 106px;
+  border: 1px solid var(--ops-divider);
+  border-radius: 50%;
+  background: var(--ops-surface);
+  content: "";
+}
+
+.ops-page .ops-mirror-count-ring strong {
+  color: var(--ops-text);
+  font-size: 34px;
+  line-height: 38px;
+}
+
+.ops-page .ops-mirror-count-ring span {
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+}
+
+#main-content .ops-page .ops-mirror-hero-title {
+  margin: 4px 0 6px;
+  color: var(--ops-text);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.ops-page .ops-mirror-hero-meta {
+  margin: 0;
+  color: var(--ops-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ops-page .ops-mirror-hardware-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 13px;
+}
+
+.ops-page .ops-mirror-hardware-item {
+  display: grid;
+  grid-template-columns: 8px auto auto;
+  align-items: center;
+  gap: 5px;
+  color: var(--ops-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.ops-page .ops-mirror-hardware-item strong { color: var(--ops-text); }
+.ops-page .ops-mirror-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+.ops-page .ops-mirror-configuration-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background:
+    linear-gradient(140deg, transparent 46%, color-mix(in srgb, var(--ops-info-soft) 54%, transparent)),
+    var(--ops-surface);
+}
+
+.ops-page .ops-mirror-mode-headline {
+  display: grid;
+  grid-template-columns: auto auto auto auto;
+  align-items: baseline;
+  justify-content: start;
+  gap: 5px 8px;
+  margin: 7px 0 10px;
+  color: var(--ops-text-muted);
+  font-size: 12px;
+}
+
+.ops-page .ops-mirror-mode-headline strong {
+  color: var(--ops-text);
+  font-size: 25px;
+  line-height: 30px;
+}
+
+.ops-page .ops-mirror-mode-track {
+  height: 14px;
+}
+
+.ops-page .ops-mirror-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--ops-divider);
+  border-radius: var(--ops-radius-sm);
+  background: var(--ops-divider);
+}
+
+.ops-page .ops-mirror-fact {
+  display: grid;
+  gap: 1px;
+  padding: 8px 10px;
+  background: var(--ops-surface-inset);
+}
+
+.ops-page .ops-mirror-fact strong {
+  color: var(--ops-text);
+  font-size: 17px;
+  line-height: 21px;
+}
+
+.ops-page .ops-mirror-fact span,
+.ops-page .ops-mirror-lower-bound {
+  color: var(--ops-text-subtle);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.ops-page .ops-mirror-lower-bound { margin: 8px 0 0; }
+
+.ops-page .ops-mirror-area-panel,
+.ops-page .ops-mirror-inventory-panel {
+  margin-bottom: 12px;
+}
+
+.ops-page .ops-mirror-area-chart,
+.ops-page .ops-mirror-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-page .ops-mirror-area-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  color: var(--ops-text-muted);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.ops-page .ops-mirror-area-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ops-page .ops-mirror-area-legend span::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--ops-teal);
+  content: "";
+}
+
+.ops-page .ops-mirror-area-legend .is-optional::before { background: var(--ops-chart-3); }
+
+.ops-page .ops-mirror-area-bars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 18px;
+}
+
+.ops-page .ops-mirror-area-row {
+  display: grid;
+  min-width: 0;
+  min-height: 43px;
+  grid-template-columns: minmax(135px, 0.85fr) minmax(120px, 1.25fr) 28px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 7px;
+  border-radius: var(--ops-radius-sm);
+  color: var(--ops-text);
+  text-decoration: none;
+}
+
+.ops-page a.ops-mirror-area-row:hover,
+.ops-page a.ops-mirror-area-row:focus-visible {
+  background: var(--ops-surface-hover);
+  outline: 1px solid var(--ops-border-strong);
+}
+
+.ops-page .ops-mirror-area-label,
+.ops-page .ops-mirror-preview-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.ops-page .ops-mirror-area-label strong,
+.ops-page .ops-mirror-area-label small,
+.ops-page .ops-mirror-preview-copy strong,
+.ops-page .ops-mirror-preview-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ops-page .ops-mirror-area-label strong,
+.ops-page .ops-mirror-preview-copy strong {
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.ops-page .ops-mirror-area-label small,
+.ops-page .ops-mirror-preview-copy small {
+  color: var(--ops-text-subtle);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.ops-page .ops-mirror-area-track {
+  display: block;
+  width: 100%;
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ops-surface-inset);
+  box-shadow: inset 0 0 0 1px var(--ops-divider);
+}
+
+.ops-page .ops-mirror-area-fill {
+  display: flex;
+  min-width: 3px;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.ops-page .ops-mirror-area-count {
+  font-family: var(--ops-font-mono);
+  font-size: 12px;
+  text-align: right;
+}
+
+.ops-page .ops-mirror-area-breakdown { display: none; }
+
+.ops-page .ops-mirror-preview-list {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--ops-border);
+  border-radius: var(--ops-radius-sm);
+}
+
+.ops-page .ops-mirror-preview-row {
+  display: grid;
+  min-width: 0;
+  min-height: 54px;
+  grid-template-columns: 82px minmax(0, 1fr) 78px 18px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--ops-divider);
+  color: var(--ops-text);
+  background: var(--ops-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ops-page .ops-mirror-preview-row:last-child { border-bottom: 0; }
+
+.ops-page .ops-mirror-preview-row:hover,
+.ops-page .ops-mirror-preview-row:focus-visible {
+  position: relative;
+  z-index: 1;
+  background: var(--ops-surface-hover);
+  outline: 2px solid var(--ops-focus);
+  outline-offset: -2px;
+}
+
+.ops-page .ops-mirror-preview-arrow {
+  color: var(--ops-teal-hover);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ops-page .ops-mirror-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .ops-page .ops-health-area-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
@@ -4620,6 +5079,24 @@ body.ops-overlay-open {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .ops-page .ops-health-mirror-summary {
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+  }
+
+  .ops-page .ops-health-mirror-shape {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .ops-page .ops-health-mirror-action {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .ops-page .ops-mirror-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ops-v2:has(#main-content > .ops-page.active) {
     --sidebar-width: var(--ops-rail-compact-width);
   }
@@ -4854,6 +5331,111 @@ body.ops-overlay-open {
 @media (max-width: 767px) {
   .ops-page .ops-health-hero-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ops-page .ops-health-mirror-summary {
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 9px 12px;
+    min-height: 0;
+    padding: 12px;
+  }
+
+  .ops-page .ops-health-mirror-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+  }
+
+  .ops-page .ops-health-mirror-mark::before,
+  .ops-page .ops-health-mirror-mark::after {
+    top: 22px;
+    width: 13px;
+  }
+
+  .ops-page .ops-health-mirror-mark::before { left: 7px; }
+  .ops-page .ops-health-mirror-mark::after { right: 7px; }
+  .ops-page .ops-health-mirror-node { width: 10px; height: 10px; }
+  .ops-page .ops-health-mirror-node.is-left { bottom: 6px; left: 5px; }
+  .ops-page .ops-health-mirror-node.is-center { top: 6px; left: 16px; }
+  .ops-page .ops-health-mirror-node.is-right { right: 5px; bottom: 6px; }
+
+  .ops-page .ops-health-mirror-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .ops-page .ops-health-mirror-title strong {
+    font-size: 24px;
+    line-height: 26px;
+  }
+
+  .ops-page .ops-health-mirror-meta {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .ops-page .ops-health-mirror-shape,
+  .ops-page .ops-health-mirror-action {
+    grid-column: 1 / -1;
+  }
+
+  .ops-page .ops-health-mirror-action {
+    justify-self: start;
+  }
+
+  .ops-page .ops-mirror-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ops-page .ops-mirror-card {
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .ops-page .ops-mirror-total-card {
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: 13px;
+  }
+
+  .ops-page .ops-mirror-count-ring {
+    width: 108px;
+    height: 108px;
+  }
+
+  .ops-page .ops-mirror-count-ring::before {
+    width: 80px;
+    height: 80px;
+  }
+
+  .ops-page .ops-mirror-count-ring strong {
+    font-size: 27px;
+    line-height: 31px;
+  }
+
+  .ops-page .ops-mirror-hardware-legend {
+    gap: 4px 9px;
+    margin-top: 9px;
+  }
+
+  .ops-page .ops-mirror-area-bars {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ops-page .ops-mirror-preview-row {
+    grid-template-columns: 76px minmax(0, 1fr) 18px;
+    gap: 8px;
+  }
+
+  .ops-page .ops-mirror-preview-row > .ops-badge:nth-child(3) {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .ops-page .ops-mirror-preview-arrow {
+    grid-column: 3;
+    grid-row: 1 / span 2;
   }
 
   button.ops-health-ring-card {
@@ -5569,6 +6151,31 @@ body.ops-overlay-open {
 }
 
 @media (max-width: 420px) {
+  .ops-page .ops-mirror-total-card {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .ops-page .ops-mirror-count-ring {
+    width: 92px;
+    height: 92px;
+  }
+
+  .ops-page .ops-mirror-count-ring::before {
+    width: 68px;
+    height: 68px;
+  }
+
+  #main-content .ops-page .ops-mirror-hero-title {
+    font-size: 17px;
+    line-height: 21px;
+  }
+
+  .ops-page .ops-mirror-area-row {
+    grid-template-columns: minmax(102px, 0.9fr) minmax(86px, 1.2fr) 24px;
+    gap: 7px;
+  }
+
   .ops-page .ops-cluster-grid {
     grid-template-columns: 1fr;
   }
@@ -6014,11 +6621,35 @@ body.ops-overlay-open {
   .ops-page .ops-icon-button:focus-visible,
   .ops-page .ops-chip:focus-visible,
   .ops-page .ops-health-ring-card:focus-visible,
+  .ops-page .ops-health-mirror-summary:focus-visible,
   .ops-page .ops-health-area-card:focus-visible,
   .ops-page .ops-health-attention-row:focus-visible,
   .ops-page a:focus-visible,
   .ops-v2 #sidebar button:focus-visible {
     outline: 2px solid Highlight;
+  }
+
+  .ops-page .ops-mirror-count-ring {
+    border: 5px solid CanvasText;
+    background: Canvas !important;
+  }
+
+  .ops-page .ops-health-mirror-track,
+  .ops-page .ops-mirror-mode-track,
+  .ops-page .ops-mirror-area-track {
+    display: none;
+  }
+
+  .ops-page .ops-mirror-area-row {
+    grid-template-columns: minmax(135px, 1fr) auto 28px;
+  }
+
+  .ops-page .ops-mirror-area-breakdown {
+    display: block;
+    color: CanvasText;
+    font-family: var(--ops-font-mono);
+    font-size: 11px;
+    white-space: nowrap;
   }
 }
 

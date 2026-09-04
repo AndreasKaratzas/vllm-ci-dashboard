@@ -863,6 +863,45 @@ def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
         assert contract in UTILS_JS
 
 
+def test_ci_health_overview_surfaces_the_physical_amd_mirror_count():
+    load_operations = OPS_JS[
+        OPS_JS.index("async function loadOperations")
+        : OPS_JS.index("function ownedHost")
+    ]
+    render_health = OPS_JS[
+        OPS_JS.index("async function renderHealth")
+        : OPS_JS.index("function reliabilityIncidentRate")
+    ]
+    mirror_summary = AMD_MIRROR_INVENTORY_JS[
+        AMD_MIRROR_INVENTORY_JS.index("function renderAmdMirrorSummary")
+        : AMD_MIRROR_INVENTORY_JS.index("function renderAmdMirrorInventory")
+    ]
+
+    # The overview count comes from the canonical capacity-monitor payload,
+    # not from the runtime logical-group or reviewed parity populations.
+    assert "state.healthView === 'overview'" in load_operations
+    assert "fetchJSON(SOURCE_ASSETS.upstreamGatingCapacity)" in load_operations
+    assert "loadAmdMirrorInventoryModule().catch(function () { return null; })" in load_operations
+    assert "summary.gated_group_count" in AMD_MIRROR_INVENTORY_JS
+    for contract in (
+        "inventoryState.total",
+        "ops-health-mirror-summary",
+        "AMD GATING CONFIGURATION ON MAIN",
+        "configured AMD mirror groups",
+        "runtime group count unavailable",
+        "ui.n('button', 'ops-health-mirror-summary",
+    ):
+        assert contract in mirror_summary
+    assert "summaryCard: renderAmdMirrorSummary" in AMD_MIRROR_INVENTORY_JS
+    assert "mirrorRenderer.summaryCard(" in render_health
+    assert "logicalGroups.available ? logicalTotal : null" in render_health
+    assert "if (mirrorRenderer && typeof mirrorRenderer.summaryCard === 'function')" in render_health
+    assert "AMD mirror summary render API is unavailable" not in render_health
+    assert "navigateTo('ci-health', {healthView: 'mirrors'})" in render_health
+
+    assert ".ops-page .ops-health-mirror-summary" in OPS_CSS
+
+
 def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
     for contract in (
         "state.healthView === 'mirrors'",
@@ -872,11 +911,9 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
         "const cacheKey = 'script:' + url",
         "cache.delete(cacheKey)",
         "loadAmdMirrorInventoryModule()",
-        "const mirrorDependencies = await Promise.all([",
-        "return Object.assign({}, manifest.shell, {mirror_inventory: mirrorDependencies[0]})",
         "const renderer = window.AmdMirrorInventory",
-        "renderer.render(host, ops.mirror_inventory || {}, {",
-        "compactTablePanel,",
+        "renderer.render(host, ops.mirror_inventory || {}, amdMirrorUiHelpers())",
+        "openTableBrowser,",
     ):
         assert contract in OPS_JS
 
@@ -890,7 +927,12 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
         "rawQueueCount === null || rawQueueCount === undefined || rawQueueCount === ''",
         "The published aggregate is marked incomplete, and",
         "{label: 'Source step key', value: row.key}",
-        "AMD MIRROR DECLARATIONS",
+        "ops-mirror-hero",
+        "ops-mirror-area-bars",
+        "ops-mirror-preview-list",
+        "const breakdownComplete = inventoryState.detailComplete",
+        "Complete hardware breakdown unavailable",
+        "ops-mirror-area-breakdown",
         "AMD mirror inventory",
         "'Browse all ' + ui.integer(mirrorCount) + ' AMD mirrors'",
         "One top-level YAML step with a non-empty mirror.amd mapping counts once",
@@ -899,8 +941,17 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
 
     assert "function amdMirrorInventoryRows" not in OPS_JS
     assert "function renderAmdMirrorInventory" not in OPS_JS
+    assert "ui.statusStrip(" not in AMD_MIRROR_INVENTORY_JS
+    assert "ui.compactTablePanel(" not in AMD_MIRROR_INVENTORY_JS
     assert "{label: 'Buildkite step key', value: row.key}" not in AMD_MIRROR_INVENTORY_JS
     assert 'src="assets/js/amd-mirror-inventory.js' not in INDEX
+    for selector in (
+        ".ops-page .ops-mirror-hero",
+        ".ops-page .ops-mirror-area-bars",
+        ".ops-page .ops-mirror-preview-list",
+        ".ops-page .ops-mirror-area-breakdown",
+    ):
+        assert selector in OPS_CSS
 
 
 def test_ci_health_metrics_do_not_double_as_unlabeled_navigation():
@@ -2986,8 +3037,9 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=15' in INDEX
-    assert 'assets/js/ops-v2.js?v=30' in INDEX
+    assert 'assets/css/ops-v2.css?v=16' in INDEX
+    assert 'assets/js/ops-v2.js?v=31' in INDEX
+    assert "assets/js/amd-mirror-inventory.js?v=2" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (
