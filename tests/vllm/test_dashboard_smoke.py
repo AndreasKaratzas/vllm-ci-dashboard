@@ -105,7 +105,7 @@ class TestIndexHtml:
     def test_queue_lifecycle_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "index.html").read_text()
         assert 'assets/css/ops-v2.css?v=15' in html
-        assert 'assets/js/ops-v2.js?v=29' in html
+        assert 'assets/js/ops-v2.js?v=30' in html
         assert 'assets/js/utils.js?v=62' in html
         assert 'assets/js/dashboard-nav.js?v=4' in html
         source = (JS / "ops-v2.js").read_text()
@@ -131,6 +131,7 @@ class TestJsFileShape:
 
     @pytest.mark.parametrize("name", [
         "utils.js", "publication-status.js", "dashboard-nav.js", "ops-v2.js",
+        "amd-mirror-inventory.js",
     ])
     def test_file_is_nonempty_and_well_formed(self, name):
         path = JS / name
@@ -151,6 +152,7 @@ class TestJsFileShape:
             pytest.skip("node is not available")
         files = [
             "utils.js", "publication-status.js", "dashboard-nav.js", "ops-v2.js",
+            "amd-mirror-inventory.js",
         ]
         script = """
 const acorn = require('acorn');

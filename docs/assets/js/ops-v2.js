@@ -20,7 +20,6 @@
   const QUEUE_DNS_LIVE_BASE = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard/dns-health-data/data/vllm/ci/';
   let operationsManifestPromise = null;
   let comparisonRetryEvidencePromise = null;
-  let chartLibraryPromise = null;
   let lastQueueRefreshAt = 0;
   let lastDnsRefreshAt = 0;
   let firstRenderSettled = false;
@@ -54,6 +53,7 @@
     upstreamScheduledBuilds: 'https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+',
   };
   const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
+  const AMD_MIRROR_INVENTORY_MODULE_URL = 'assets/js/amd-mirror-inventory.js?v=1';
   const state = {
     healthView: 'overview',
     healthCoverageSort: 'platform',
@@ -429,7 +429,7 @@
   function syncRouteState(tabId) {
     const specs = {
       'ci-health': [
-        ['healthView', 'health_view', ['overview', 'parity', 'targets', 'coverage']],
+        ['healthView', 'health_view', ['overview', 'parity', 'targets', 'coverage', 'mirrors']],
         ['healthCoverageSort', 'health_sort', ['platform', 'name', 'area']],
         ['healthResult', 'health_result', ['attention', 'non_passing', 'partial', 'passing', 'all']],
         ['healthParityState', 'health_parity_state', ['all', 'existing', 'unsupported', 'action']],
@@ -2638,24 +2638,35 @@
     return {root: panel(title, subtitle, frame, 'ops-chart-panel'), canvas, frame, viewport};
   }
 
-  function loadChartLibrary() {
-    if (window.Chart) return Promise.resolve(window.Chart);
-    if (!chartLibraryPromise) {
-      chartLibraryPromise = new Promise(function (resolve, reject) {
+  function loadGlobalScript(url, globalName, label, validate) {
+    const exposed = window[globalName];
+    if (exposed && (!validate || validate(exposed))) return Promise.resolve(exposed);
+    const cacheKey = 'script:' + url;
+    if (!cache.has(cacheKey)) {
+      const request = new Promise(function (resolve, reject) {
         const script = document.createElement('script');
-        script.src = CHART_LIBRARY_URL;
+        function fail(message) {
+          script.remove();
+          reject(new Error(message));
+        }
+        script.src = url;
         script.async = true;
-        script.addEventListener('load', function () {
-          if (window.Chart) resolve(window.Chart);
-          else reject(new Error('Chart.js loaded without exposing window.Chart'));
-        });
-        script.addEventListener('error', function () {
-          reject(new Error('Chart.js could not be loaded'));
-        });
+        script.onload = function () {
+          const loaded = window[globalName];
+          if (loaded && (!validate || validate(loaded))) resolve(loaded);
+          else fail(label + ' loaded without exposing its browser API');
+        };
+        script.onerror = function () { fail(label + ' could not be loaded'); };
         document.head.append(script);
       });
+      cache.set(cacheKey, request);
+      request.catch(function () { if (cache.get(cacheKey) === request) cache.delete(cacheKey); });
     }
-    return chartLibraryPromise;
+    return cache.get(cacheKey);
+  }
+
+  function loadChartLibrary() {
+    return loadGlobalScript(CHART_LIBRARY_URL, 'Chart', 'Chart.js');
   }
 
   function drawChart(key, canvas, config) {
@@ -2969,6 +2980,7 @@
       if (state.healthView === 'overview') return ['nightly', 'amd_test_health'];
       if (state.healthView === 'parity') return ['test_group_parity'];
       if (state.healthView === 'targets') return ['amd_test_health', 'gating'];
+      if (state.healthView === 'mirrors') return [];
       if (state.healthView === 'quality') return [state.healthQualityView === 'collectors' ? 'diagnostics' : 'definition_parity'];
       if (state.healthView === 'gating') return ['definition_parity'];
       if (state.healthView === 'diagnostics') return ['diagnostics'];
@@ -3047,11 +3059,27 @@
     return comparisonRetryEvidencePromise;
   }
 
+  function loadAmdMirrorInventoryModule() {
+    return loadGlobalScript(
+      AMD_MIRROR_INVENTORY_MODULE_URL,
+      'AmdMirrorInventory',
+      'AMD mirror inventory renderer',
+      function (module) { return typeof module.render === 'function'; }
+    );
+  }
+
   async function loadOperations(tabId) {
     if (tabId === 'ci-analytics' && state.analyticsView === 'dns') return {};
     const manifest = await operationsManifest();
     if (!manifest || !manifest.shell || !manifest.sections) {
       throw new Error('Operations manifest is incomplete');
+    }
+    if (tabId === 'ci-health' && state.healthView === 'mirrors') {
+      const mirrorDependencies = await Promise.all([
+        fetchJSON(SOURCE_ASSETS.upstreamGatingCapacity),
+        loadAmdMirrorInventoryModule(),
+      ]);
+      return Object.assign({}, manifest.shell, {mirror_inventory: mirrorDependencies[0]});
     }
     return loadOperationSections(manifest.shell, operationSectionNames(tabId));
   }
@@ -4021,6 +4049,7 @@
       {id: 'overview', label: 'Overview'}, {id: 'parity', label: 'Upstream parity'},
       {id: 'targets', label: 'Target health'},
       {id: 'coverage', label: 'AMD hardware'},
+      {id: 'mirrors', label: 'AMD mirrors'},
     ], state.healthView, function (id) { setRouteState('ci-health', 'healthView', id, 'health_view'); }, 'CI Health view'));
   }
 
@@ -4470,6 +4499,7 @@
       parity: 'Reviewed upstream logical test-group coverage on vLLM main. Runtime pass/fail is separate.',
       targets: 'Build-pinned health for the logical AMD test groups observed in the latest complete test signal.',
       coverage: 'Configured AMD test groups by architecture and the fixed best-hardware health policy.',
+      mirrors: 'Current AMD mirror declarations parsed from every .buildkite/test_areas/*.yaml file on vLLM main.',
     };
     let headerAction = null;
     let observedAt = ops.generated_at;
@@ -4489,6 +4519,12 @@
         headerAction = externalLink('Open AMD test build #' + value(amdHealthSummary.latest_build_number) + ' ↗', amdHealthSummary.latest_build_url, 'ops-button');
       }
       observedAt = amdHealthSummary.latest_observed_at || observedAt;
+    }
+    if (state.healthView === 'mirrors') {
+      const mirrorInventory = ops.mirror_inventory || {};
+      const source = mirrorInventory.source || {};
+      if (source.commit_url) headerAction = externalLink('Open scanned vLLM main ↗', source.commit_url, 'ops-button');
+      observedAt = mirrorInventory.generated_at || observedAt;
     }
     const headerActions = n('div', 'ops-inline-actions');
     if (headerAction) headerActions.append(headerAction);
@@ -4843,6 +4879,28 @@
       ));
 
       appendReviewedPlan();
+      return;
+    }
+
+    if (state.healthView === 'mirrors') {
+      const renderer = window.AmdMirrorInventory;
+      if (!renderer || typeof renderer.render !== 'function') {
+        throw new Error('AMD mirror inventory render API is unavailable');
+      }
+      renderer.render(host, ops.mirror_inventory || {}, {
+        badge,
+        compactTablePanel,
+        compareText,
+        externalLink,
+        hardwareDisplayLabel,
+        integer,
+        linkButton,
+        methodDisclosure,
+        n,
+        openDetailDrawer,
+        statusStrip,
+        value,
+      });
       return;
     }
 

@@ -16,7 +16,12 @@ from vllm import operations_bundle_contract as bundle_contract
 
 ROOT = Path(__file__).resolve().parents[2]
 INDEX = (ROOT / "docs" / "index.html").read_text()
-OPS_JS = (ROOT / "docs" / "assets" / "js" / "ops-v2.js").read_text()
+OPS_JS_PATH = ROOT / "docs" / "assets" / "js" / "ops-v2.js"
+OPS_JS = OPS_JS_PATH.read_text()
+AMD_MIRROR_INVENTORY_JS_PATH = (
+    ROOT / "docs" / "assets" / "js" / "amd-mirror-inventory.js"
+)
+AMD_MIRROR_INVENTORY_JS = AMD_MIRROR_INVENTORY_JS_PATH.read_text()
 OPS_CSS = (ROOT / "docs" / "assets" / "css" / "ops-v2.css").read_text()
 DASHBOARD_CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 DASHBOARD_NAV_JS = (
@@ -38,12 +43,15 @@ def ops_manifest():
     return json.loads(OPS_MANIFEST_PATH.read_text())
 
 
-def test_ops_v2_javascript_has_valid_syntax():
+@pytest.mark.parametrize(
+    "script_path", (OPS_JS_PATH, AMD_MIRROR_INVENTORY_JS_PATH)
+)
+def test_operations_javascript_has_valid_syntax(script_path):
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not available")
     result = subprocess.run(
-        [node, "--check", str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        [node, "--check", str(script_path)],
         text=True,
         capture_output=True,
         check=False,
@@ -231,8 +239,14 @@ def test_v2_boot_omits_retired_renderers_and_control_tools():
         "dashboard-nav.js",
         "ops-v2.js",
     )
+    # GitHub Pages publishes the repository blobs with LF line endings. Keep
+    # this budget stable on developer checkouts configured with core.autocrlf.
     runtime_bytes = sum(
-        (ROOT / "docs" / "assets" / "js" / name).stat().st_size
+        len(
+            (ROOT / "docs" / "assets" / "js" / name)
+            .read_bytes()
+            .replace(b"\r\n", b"\n")
+        )
         for name in runtime_files
     )
     assert runtime_bytes < 900_000
@@ -373,7 +387,7 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
-        "['overview', 'parity', 'targets', 'coverage']]"
+        "['overview', 'parity', 'targets', 'coverage', 'mirrors']]"
     ) in OPS_JS
     assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
     assert "if (state.healthView === 'ownership')" not in OPS_JS
@@ -825,6 +839,7 @@ def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
         "pendingSegmentFocus = {group: groupLabel, id: item.id}",
         "active.control.focus({preventScroll: true})",
         "{id: 'coverage', label: 'AMD hardware'}",
+        "{id: 'mirrors', label: 'AMD mirrors'}",
         "{id: 'targets', label: 'Target health'}",
         "openHealthDataFreshness(ops)",
         "setQueryValue(queryKey || key, next, {history: 'push'})",
@@ -846,6 +861,46 @@ def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
         "header.addEventListener('keydown'",
     ):
         assert contract in UTILS_JS
+
+
+def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
+    for contract in (
+        "state.healthView === 'mirrors'",
+        "SOURCE_ASSETS.upstreamGatingCapacity",
+        "AMD_MIRROR_INVENTORY_MODULE_URL",
+        "function loadGlobalScript(url, globalName, label, validate)",
+        "const cacheKey = 'script:' + url",
+        "cache.delete(cacheKey)",
+        "loadAmdMirrorInventoryModule()",
+        "const mirrorDependencies = await Promise.all([",
+        "return Object.assign({}, manifest.shell, {mirror_inventory: mirrorDependencies[0]})",
+        "const renderer = window.AmdMirrorInventory",
+        "renderer.render(host, ops.mirror_inventory || {}, {",
+        "compactTablePanel,",
+    ):
+        assert contract in OPS_JS
+
+    for contract in (
+        "global.AmdMirrorInventory = Object.freeze({",
+        "render: renderAmdMirrorInventory",
+        "const SOURCE_ASSET_URL = 'data/vllm/ci/capacity_monitor.json'",
+        "summary.gated_group_count",
+        "retention.group_index",
+        "groupIndex.complete_relative_to_source",
+        "rawQueueCount === null || rawQueueCount === undefined || rawQueueCount === ''",
+        "The published aggregate is marked incomplete, and",
+        "{label: 'Source step key', value: row.key}",
+        "AMD MIRROR DECLARATIONS",
+        "AMD mirror inventory",
+        "'Browse all ' + ui.integer(mirrorCount) + ' AMD mirrors'",
+        "One top-level YAML step with a non-empty mirror.amd mapping counts once",
+    ):
+        assert contract in AMD_MIRROR_INVENTORY_JS
+
+    assert "function amdMirrorInventoryRows" not in OPS_JS
+    assert "function renderAmdMirrorInventory" not in OPS_JS
+    assert "{label: 'Buildkite step key', value: row.key}" not in AMD_MIRROR_INVENTORY_JS
+    assert 'src="assets/js/amd-mirror-inventory.js' not in INDEX
 
 
 def test_ci_health_metrics_do_not_double_as_unlabeled_navigation():
@@ -2932,7 +2987,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=15' in INDEX
-    assert 'assets/js/ops-v2.js?v=29' in INDEX
+    assert 'assets/js/ops-v2.js?v=30' in INDEX
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (

@@ -46,6 +46,7 @@ CAPACITY_MONITOR_MAX_BYTES = writer_max_bytes("capacity_monitor")
 CAPACITY_GROUP_INDEX_FIELDS = (
     "key",
     "label",
+    "amd_label",
     "area",
     "yaml_file",
     "yaml_index",
@@ -440,29 +441,30 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
+    """Return the complete mirror inventory or fail before publishing a partial count."""
+
     test_area_root = repo_root / TEST_AREAS_DIR
     groups: list[dict[str, Any]] = []
     for yaml_path in sorted(test_area_root.glob("*.y*ml")):
         try:
-            parsed = yaml.safe_load(yaml_path.read_text()) or {}
+            parsed = yaml.safe_load(yaml_path.read_text())
         except (OSError, yaml.YAMLError) as exc:
-            log.warning("Skipping unreadable YAML %s: %s", yaml_path, exc)
-            continue
+            raise ValueError(f"Unable to parse test-area YAML {yaml_path}: {exc}") from exc
         if not isinstance(parsed, dict):
-            continue
+            raise ValueError(f"{yaml_path} must contain a top-level YAML mapping")
         area = clean_text(parsed.get("group")) or yaml_path.stem.replace("_", " ").title()
-        steps = parsed.get("steps") or []
+        steps = parsed.get("steps", [])
         if not isinstance(steps, list):
-            continue
+            raise ValueError(f"{yaml_path} must contain a steps list")
         for idx, step in enumerate(steps):
             if not isinstance(step, dict):
-                continue
+                raise ValueError(f"{yaml_path} steps[{idx}] must be a mapping")
             mirror = step.get("mirror")
-            if not isinstance(mirror, dict) or "amd" not in mirror:
+            if not isinstance(mirror, dict):
                 continue
-            amd = mirror.get("amd") or {}
-            if not isinstance(amd, dict):
-                amd = {}
+            amd = mirror.get("amd")
+            if not isinstance(amd, dict) or not amd:
+                continue
             label = (
                 clean_text(step.get("label")) or clean_text(step.get("key")) or f"{area} #{idx + 1}"
             )
@@ -479,6 +481,7 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
                 {
                     "key": key,
                     "label": label,
+                    "amd_label": clean_text(amd.get("label")),
                     "area": area,
                     "yaml_file": yaml_path.relative_to(repo_root).as_posix(),
                     "yaml_index": idx,
@@ -487,7 +490,7 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
                     "in_capacity_scope": queue in CAPACITY_BY_QUEUE,
                     "parallelism": parallelism,
                     "timeout_in_minutes": timeout,
-                    "optional": bool(step.get("optional") or amd.get("optional")),
+                    "optional": bool(amd.get("optional", step.get("optional"))),
                     "source_file_dependencies": dependencies,
                     "dependency_file_count": scope["file_count"],
                     "dependency_lines": scope["line_count"],

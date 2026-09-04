@@ -33,12 +33,15 @@ steps:
   key: base-mirrored
   device: h200_18gb
   parallelism: 2
+  optional: true
   source_file_dependencies:
   - vllm/core.py
   - tests/models/test_a.py
   mirror:
     amd:
+      label: AMD base mirrored
       device: mi325_1
+      optional: false
 - label: Override mirrored
   key: override-mirrored
   device: h200_35gb
@@ -61,6 +64,19 @@ steps:
   key: not-mirrored
   source_file_dependencies:
   - vllm/core.py
+- label: Null AMD mirror
+  mirror:
+    amd:
+- label: Empty AMD mirror
+  mirror:
+    amd: {}
+- label: Scalar AMD mirror
+  mirror:
+    amd: mi300_1
+- label: List AMD mirror
+  mirror:
+    amd:
+    - device: mi300_1
 """,
     )
     return repo
@@ -96,11 +112,50 @@ def test_parse_amd_mirror_groups_counts_only_mirror_amd(tmp_path: Path) -> None:
     assert groups[0]["dependency_file_count"] == 2
     assert groups[0]["dependency_lines"] == 5
     assert groups[0]["parallelism"] == 2
+    assert groups[0]["label"] == "Base mirrored"
+    assert groups[0]["amd_label"] == "AMD base mirrored"
+    assert groups[0]["optional"] is False
     assert groups[1]["queue"] == "amd_mi250_1"
     assert groups[1]["source_file_dependencies"] == ["vllm/rocm.py", "tests/models/"]
     assert groups[1]["dependency_file_count"] == 3
     assert groups[1]["dependency_lines"] == 5
     assert groups[1]["parallelism"] == 3
+
+
+def test_parse_amd_mirror_groups_fails_on_malformed_yaml(tmp_path: Path) -> None:
+    repo = tmp_path / "vllm"
+    yaml_path = repo / ".buildkite" / "test_areas" / "broken.yaml"
+    _write(yaml_path, "steps:\n- mirror: [\n")
+
+    with pytest.raises(ValueError, match="Unable to parse test-area YAML"):
+        ccm.parse_amd_mirror_groups(repo)
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "message"),
+    [
+        ("- not-a-mapping\n", "top-level YAML mapping"),
+        ("steps: {}\n", "steps list"),
+        ("steps:\n- not-a-mapping\n", r"steps\[0\] must be a mapping"),
+    ],
+)
+def test_parse_amd_mirror_groups_fails_on_invalid_schema(
+    tmp_path: Path,
+    yaml_text: str,
+    message: str,
+) -> None:
+    repo = tmp_path / "vllm"
+    _write(repo / ".buildkite" / "test_areas" / "invalid.yaml", yaml_text)
+
+    with pytest.raises(ValueError, match=message):
+        ccm.parse_amd_mirror_groups(repo)
+
+
+def test_parse_amd_mirror_groups_allows_a_file_without_steps(tmp_path: Path) -> None:
+    repo = tmp_path / "vllm"
+    _write(repo / ".buildkite" / "test_areas" / "empty.yaml", "group: Empty\n")
+
+    assert ccm.parse_amd_mirror_groups(repo) == []
 
 
 def test_capacity_payload_projects_theoretical_group_count(tmp_path: Path) -> None:
@@ -443,6 +498,7 @@ def test_capacity_payload_compacts_detail_then_group_rows_with_exact_summary(
 
     assert len(ccm.pretty_json_bytes(bounded)) <= 50_000
     assert bounded["summary"] == expected_summary
+    assert bounded["groups"][0]["amd_label"] == "AMD base mirrored"
     retention = bounded["publication_retention"]
     assert retention["aggregate_summaries_complete"] is True
     assert retention["complete_relative_to_source"] is False
