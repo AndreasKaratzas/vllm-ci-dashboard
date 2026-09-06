@@ -1,0 +1,416 @@
+{
+  "schema_version": 1,
+  "ci_lead": {
+    "display_name": "Andreas Karatzas",
+    "github_login": "AndreasKaratzas"
+  },
+  "policy": {
+    "assignment_order": "ascending_rank",
+    "unavailable_when": [
+      "outside_working_hours",
+      "availability_unknown"
+    ],
+    "fallback": "ci_lead",
+    "issue_repository": "AndreasKaratzas/vllm-ci-dashboard",
+    "mentions": true,
+    "issue_grain": "test_area"
+  },
+  "working_hours_profiles": {
+    "EU": {
+      "timezone": "Europe/Belgrade",
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "09:00",
+      "end": "17:00"
+    },
+    "NA": {
+      "timezone": "America/Chicago",
+      "weekdays": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "start": "09:00",
+      "end": "17:00"
+    }
+  },
+  "project": {
+    "id": "PVT_kwHOAofB1M4BepHY",
+    "number": 2,
+    "title": "AMD CI Operations",
+    "url": "https://github.com/users/AndreasKaratzas/projects/2",
+    "repository": "AndreasKaratzas/vllm-ci-dashboard"
+  },
+  "area_aliases": {
+    "rust_frontend_cargo.yaml": "rust_frontend.yaml"
+  },
+  "target_area_overrides": {
+    "LM Eval Small Models (MI300)": "lm_eval.yaml",
+    "LM Eval Small Models (2 GPUs)": "lm_eval.yaml",
+    "ROCm AITER Ops Test": "kernels.yaml",
+    "ROCm LM Eval Large Models (8 GPUs)": "lm_eval.yaml",
+    "Qwen3-Next-80B-A3B-Instruct MTP Async EPLB Accuracy": "distributed.yaml",
+    "Transformers Nightly Models (Initialization) %N": "models_language.yaml",
+    "Transformers Nightly Models (Processing) %N": "models_language.yaml",
+    "Transformers Nightly Models (Single)": "models_language.yaml",
+    "V1 e2e (4 GPUs)": "e2e_integration.yaml",
+    "Weight Loading Multiple GPU - Large Models": "weight_loading.yaml"
+  },
+  "owners": [
+    {
+      "display_name": "Chinoradszki, Gyula",
+      "github_login": "gchinora",
+      "working_hours_profile": "EU"
+    },
+    {
+      "display_name": "Jain, Aarushi",
+      "github_login": "aarushjain29",
+      "working_hours_profile": "NA"
+    },
+    {
+      "display_name": "Koncarevic, Stefan",
+      "github_login": "stefankoncarevic",
+      "working_hours_profile": "EU"
+    },
+    {
+      "display_name": "Marty, Felix",
+      "github_login": "fxmarty-amd",
+      "working_hours_profile": "EU"
+    },
+    {
+      "display_name": "Verma, Divakar",
+      "github_login": "divakar-amd",
+      "working_hours_profile": "NA"
+    },
+    {
+      "display_name": "Williamson, Micah",
+      "github_login": "micah-wil",
+      "working_hours_profile": "NA"
+    },
+    {
+      "display_name": "Wong, Matt",
+      "github_login": "mawong-amd",
+      "working_hours_profile": "NA"
+    },
+    {
+      "display_name": "Andreas Karatzas",
+      "github_login": "AndreasKaratzas",
+      "working_hours_profile": "NA"
+    }
+  ],
+  "areas": {
+    "attention.yaml": [
+      {
+        "rank": 2,
+        "github_login": "aarushjain29"
+      }
+    ],
+    "basic_correctness.yaml": [
+      {
+        "rank": 1,
+        "github_login": "gchinora"
+      },
+      {
+        "rank": 3,
+        "github_login": "divakar-amd"
+      }
+    ],
+    "benchmarks.yaml": [
+      {
+        "rank": 1,
+        "github_login": "aarushjain29"
+      },
+      {
+        "rank": 2,
+        "github_login": "gchinora"
+      }
+    ],
+    "compile.yaml": [
+      {
+        "rank": 2,
+        "github_login": "stefankoncarevic"
+      },
+      {
+        "rank": 3,
+        "github_login": "mawong-amd"
+      }
+    ],
+    "cuda.yaml": [
+      {
+        "rank": 1,
+        "github_login": "gchinora"
+      },
+      {
+        "rank": 2,
+        "github_login": "aarushjain29"
+      }
+    ],
+    "disaggregated.yaml": [
+      {
+        "rank": 1,
+        "github_login": "divakar-amd"
+      },
+      {
+        "rank": 2,
+        "github_login": "stefankoncarevic"
+      }
+    ],
+    "distributed.yaml": [
+      {
+        "rank": 2,
+        "github_login": "stefankoncarevic"
+      },
+      {
+        "rank": 3,
+        "github_login": "aarushjain29"
+      }
+    ],
+    "docker.yaml": [
+      {
+        "rank": 1,
+        "github_login": "mawong-amd"
+      },
+      {
+        "rank": 3,
+        "github_login": "divakar-amd"
+      }
+    ],
+    "e2e_integration.yaml": [
+      {
+        "rank": 2,
+        "github_login": "aarushjain29"
+      },
+      {
+        "rank": 3,
+        "github_login": "mawong-amd"
+      }
+    ],
+    "engine.yaml": [
+      {
+        "rank": 1,
+        "github_login": "micah-wil"
+      },
+      {
+        "rank": 2,
+        "github_login": "divakar-amd"
+      },
+      {
+        "rank": 3,
+        "github_login": "stefankoncarevic"
+      }
+    ],
+    "entrypoints.yaml": [
+      {
+        "rank": 1,
+        "github_login": "AndreasKaratzas"
+      },
+      {
+        "rank": 3,
+        "github_login": "stefankoncarevic"
+      }
+    ],
+    "expert_parallelism.yaml": [
+      {
+        "rank": 1,
+        "github_login": "divakar-amd"
+      },
+      {
+        "rank": 3,
+        "github_login": "gchinora"
+      }
+    ],
+    "fault_tolerance.yaml": [
+      {
+        "rank": 2,
+        "github_login": "gchinora"
+      },
+      {
+        "rank": 3,
+        "github_login": "mawong-amd"
+      }
+    ],
+    "kernels.yaml": [
+      {
+        "rank": 1,
+        "github_login": "stefankoncarevic"
+      },
+      {
+        "rank": 2,
+        "github_login": "micah-wil"
+      }
+    ],
+    "lm_eval.yaml": [
+      {
+        "rank": 2,
+        "github_login": "fxmarty-amd"
+      }
+    ],
+    "lora.yaml": [
+      {
+        "rank": 1,
+        "github_login": "divakar-amd"
+      },
+      {
+        "rank": 3,
+        "github_login": "mawong-amd"
+      }
+    ],
+    "misc.yaml": [
+      {
+        "rank": 1,
+        "github_login": "AndreasKaratzas"
+      },
+      {
+        "rank": 2,
+        "github_login": "micah-wil"
+      },
+      {
+        "rank": 3,
+        "github_login": "gchinora"
+      }
+    ],
+    "model_executor.yaml": [
+      {
+        "rank": 1,
+        "github_login": "gchinora"
+      },
+      {
+        "rank": 3,
+        "github_login": "aarushjain29"
+      }
+    ],
+    "model_runner_v2.yaml": [
+      {
+        "rank": 2,
+        "github_login": "stefankoncarevic"
+      }
+    ],
+    "models_basic.yaml": [
+      {
+        "rank": 1,
+        "github_login": "aarushjain29"
+      },
+      {
+        "rank": 3,
+        "github_login": "micah-wil"
+      }
+    ],
+    "models_distributed.yaml": [
+      {
+        "rank": 1,
+        "github_login": "aarushjain29"
+      },
+      {
+        "rank": 2,
+        "github_login": "gchinora"
+      }
+    ],
+    "models_language.yaml": [
+      {
+        "rank": 1,
+        "github_login": "mawong-amd"
+      },
+      {
+        "rank": 2,
+        "github_login": "AndreasKaratzas"
+      },
+      {
+        "rank": 3,
+        "github_login": "stefankoncarevic"
+      }
+    ],
+    "models_multimodal.yaml": [
+      {
+        "rank": 1,
+        "github_login": "mawong-amd"
+      },
+      {
+        "rank": 2,
+        "github_login": "AndreasKaratzas"
+      }
+    ],
+    "plugins.yaml": [
+      {
+        "rank": 2,
+        "github_login": "aarushjain29"
+      }
+    ],
+    "pytorch.yaml": [
+      {
+        "rank": 3,
+        "github_login": "micah-wil"
+      }
+    ],
+    "quantization.yaml": [
+      {
+        "rank": 1,
+        "github_login": "fxmarty-amd"
+      },
+      {
+        "rank": 2,
+        "github_login": "micah-wil"
+      },
+      {
+        "rank": 3,
+        "github_login": "AndreasKaratzas"
+      }
+    ],
+    "ray_compat.yaml": [
+      {
+        "rank": 1,
+        "github_login": "divakar-amd"
+      },
+      {
+        "rank": 3,
+        "github_login": "AndreasKaratzas"
+      }
+    ],
+    "rust_frontend.yaml": [
+      {
+        "rank": 1,
+        "github_login": "aarushjain29"
+      },
+      {
+        "rank": 2,
+        "github_login": "mawong-amd"
+      }
+    ],
+    "samplers.yaml": [
+      {
+        "rank": 1,
+        "github_login": "AndreasKaratzas"
+      },
+      {
+        "rank": 2,
+        "github_login": "divakar-amd"
+      }
+    ],
+    "spec_decode.yaml": [
+      {
+        "rank": 1,
+        "github_login": "AndreasKaratzas"
+      },
+      {
+        "rank": 2,
+        "github_login": "stefankoncarevic"
+      }
+    ],
+    "weight_loading.yaml": [
+      {
+        "rank": 1,
+        "github_login": "micah-wil"
+      },
+      {
+        "rank": 2,
+        "github_login": "gchinora"
+      }
+    ]
+  }
+}
