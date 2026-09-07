@@ -1,0 +1,202 @@
+name: PR Preview
+
+on:
+  # This privileged workflow always comes from the trusted base branch.
+  # Untrusted pull-request code is exercised by pr-preview-validation.yml,
+  # which uses the ordinary read-only pull_request security boundary.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  # Collapse each PR's synchronization burst before it can occupy the shared
+  # Pages writer. Closed PRs never enqueue a privileged full-tree rewrite;
+  # bounded stale previews are replaced/pruned by later exact publications.
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-preview:
+    # GitHub Pages serves every preview from the canonical site origin. Never
+    # publish active HTML/JS from an untrusted fork; external contributors get
+    # the separate read-only validation workflow instead. These associations
+    # are limited to principals already trusted to collaborate on the repo.
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(
+        fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+        github.event.pull_request.author_association
+      )
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: gh-pages-deploy
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      TRUSTED_PYTHONPATH: ${{ github.workspace }}/trusted-base/scripts
+    steps:
+      - name: Checkout immutable trusted base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
+          persist-credentials: false
+          sparse-checkout: |
+            config
+            constraints.txt
+            pyproject.toml
+            scripts
+
+      # This checkout is data-only. No command in this privileged job executes
+      # a script, action, dependency, or configuration from this directory.
+      - name: Checkout pull request as static input
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          path: pr-input
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            trusted-base/constraints.txt
+            trusted-base/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt pyyaml
+        working-directory: trusted-base
+
+      - name: Validate and copy static pull-request inputs
+        run: |
+          set -euo pipefail
+          if [ ! -d pr-input/docs ] || [ ! -d pr-input/data ] || \
+             [ ! -f pr-input/docs/index.html ]; then
+            echo "::error::Pull request is missing the static docs/data inputs"
+            exit 1
+          fi
+          UNSAFE_PATH=$(find pr-input/docs pr-input/data -type l -print -quit)
+          if [ -n "$UNSAFE_PATH" ]; then
+            echo "::error::Static preview inputs cannot contain symlinks: $UNSAFE_PATH"
+            exit 1
+          fi
+          python -I trusted-base/scripts/vllm/check_git_blob_sizes.py \
+            --root pr-input
+          python -I - <<'PY'
+          from pathlib import Path
+
+          roots = (Path("pr-input/docs"), Path("pr-input/data"))
+          files = [
+              path
+              for root in roots
+              for path in root.rglob("*")
+              if path.is_file()
+          ]
+          total = sum(path.stat().st_size for path in files)
+          if len(files) > 10_000:
+              raise SystemExit(
+                  f"static preview input has {len(files)} files (max 10000)"
+              )
+          if total > 256 * 1024 * 1024:
+              raise SystemExit(
+                  f"static preview input is {total} bytes (max {256 * 1024 * 1024})"
+              )
+          print(f"Static preview input: {len(files)} files, {total} bytes")
+          PY
+          cp -a pr-input/docs trusted-base/docs
+          cp -a pr-input/data trusted-base/data
+
+      - name: Rebuild v2 operations snapshot
+        run: >-
+          PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
+          trusted-base/scripts/vllm/build_operations_snapshot.py
+          --input-dir trusted-base/data/vllm/ci
+          --output trusted-base/data/vllm/ci/operations_v2.json.gz
+
+      - name: Generate site data
+        run: >-
+          PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
+          trusted-base/scripts/render.py
+
+      - name: Assemble site
+        run: >-
+          PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
+          trusted-base/scripts/build_site.py --cache-bust-index
+
+      - name: Compose exact bounded Pages tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          NEW_PREVIEW="$RUNNER_TEMP/new-preview"
+          PAGES_NEXT="$RUNNER_TEMP/pages-next"
+          rm -rf "$NEW_PREVIEW" "$PAGES_NEXT" trusted-base/_pages_publish
+          mv trusted-base/_site "$NEW_PREVIEW"
+          # The live queue branch is authoritative for the full JSONL history,
+          # and the compact queue_history_chart.json remains in this preview.
+          # Drop only the redundant canonical fallback before nesting the site;
+          # this keeps one preview within its 112 MiB cohort budget.
+          PREVIEW_QUEUE_FALLBACK="$NEW_PREVIEW/data/vllm/ci/queue_timeseries.jsonl"
+          PREVIEW_QUEUE_CHART="$NEW_PREVIEW/data/vllm/ci/queue_history_chart.json"
+          if [ ! -f "$PREVIEW_QUEUE_FALLBACK" ] || [ -L "$PREVIEW_QUEUE_FALLBACK" ]; then
+            echo "::error::Assembled preview queue fallback is missing or unsafe."
+            exit 1
+          fi
+          if [ ! -f "$PREVIEW_QUEUE_CHART" ] || [ -L "$PREVIEW_QUEUE_CHART" ]; then
+            echo "::error::Assembled preview compact queue chart is missing or unsafe."
+            exit 1
+          fi
+          rm -- "$PREVIEW_QUEUE_FALLBACK"
+          mkdir -p "$PAGES_NEXT"
+          python -I trusted-base/scripts/vllm/github_git_proof.py hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages --profile pages \
+            --root trusted-base --remote origin \
+            --output "$RUNNER_TEMP/pr-preview-pages-proof.json" \
+            --materialize-root "$PAGES_NEXT"
+          rm -rf "$PAGES_NEXT/pr-preview/$PREVIEW_NAME"
+          mkdir -p "$PAGES_NEXT/pr-preview"
+          mv "$NEW_PREVIEW" "$PAGES_NEXT/pr-preview/$PREVIEW_NAME"
+          python -I trusted-base/scripts/vllm/github_git_proof.py \
+            bound-pages-directory --root "$PAGES_NEXT" \
+            --protect-preview "$PREVIEW_NAME"
+          mv "$PAGES_NEXT" trusted-base/_pages_publish
+
+      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./trusted-base/_pages_publish
+          publish_branch: gh-pages
+          keep_files: false
+          force_orphan: true
+
+      - name: Comment preview URL
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const prNum = context.payload.pull_request.number;
+            const url = `https://${context.repo.owner}.github.io/${context.repo.repo}/pr-preview/pr-${prNum}/`;
+            const body = `📋 **Preview deployed**: ${url}`;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: prNum
+            });
+            const existing = comments.data.find(c => c.body.includes('Preview deployed'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNum, body: body
+              });
+            }

@@ -1,0 +1,82 @@
+name: Scheduler Activity Keepalive
+
+# GitHub disables scheduled workflows in an inactive public repository after
+# 60 days. Generated dashboard data intentionally no longer advances main, so
+# this tiny, infrequent default-branch heartbeat keeps the scheduler eligible
+# without putting collector output back into repository history.
+on:
+  schedule:
+    - cron: '23 4 * * 3'
+  repository_dispatch:
+    types: [scheduler_activity_tick]
+  workflow_dispatch:
+
+concurrency:
+  group: scheduler-activity-keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  keep-active:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Advance the bounded default-branch heartbeat when needed
+        run: |
+          set -euo pipefail
+          THRESHOLD_SECONDS=$((30 * 24 * 60 * 60))
+          NOW=$(date -u +%s)
+
+          for ATTEMPT in 1 2 3; do
+            git fetch --no-tags origin \
+              +refs/heads/main:refs/remotes/origin/main
+            MAIN_COMMIT_TIME=$(git show -s --format=%ct origin/main)
+            if ! [[ "$MAIN_COMMIT_TIME" =~ ^[0-9]+$ ]]; then
+              echo "::error::Could not read the protected main commit timestamp."
+              exit 1
+            fi
+            if [ $((NOW - MAIN_COMMIT_TIME)) -lt "$THRESHOLD_SECONDS" ]; then
+              echo "Protected main is less than 30 days old; no heartbeat commit is needed."
+              exit 0
+            fi
+
+            HEARTBEAT_ROOT=$(mktemp -d)
+            cleanup() {
+              git worktree remove --force "$HEARTBEAT_ROOT" 2>/dev/null || true
+              rm -rf "$HEARTBEAT_ROOT"
+            }
+            trap cleanup EXIT
+            git worktree add --detach "$HEARTBEAT_ROOT" origin/main
+            date -u +'%Y-%m-%dT%H:%M:%SZ' \
+              > "$HEARTBEAT_ROOT/.github/scheduler-activity.txt"
+            git -C "$HEARTBEAT_ROOT" config user.name "github-actions[bot]"
+            git -C "$HEARTBEAT_ROOT" config user.email \
+              "github-actions[bot]@users.noreply.github.com"
+            git -C "$HEARTBEAT_ROOT" add .github/scheduler-activity.txt
+            python scripts/vllm/check_git_blob_sizes.py --root "$HEARTBEAT_ROOT"
+            git -C "$HEARTBEAT_ROOT" commit -m "chore: keep scheduled workflows active"
+            if git -C "$HEARTBEAT_ROOT" push origin HEAD:main; then
+              echo "Advanced the bounded scheduler-activity heartbeat."
+              exit 0
+            fi
+            cleanup
+            trap - EXIT
+            if [ "$ATTEMPT" -lt 3 ]; then
+              sleep $((ATTEMPT * 2))
+            fi
+          done
+
+          echo "::error::Protected main advanced concurrently on all heartbeat attempts."
+          exit 1

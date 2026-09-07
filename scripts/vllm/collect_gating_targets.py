@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Publish the canonical AMD gating target list for the executive CI view."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg
+from vllm.dashboard_storage_budget import writer_max_bytes
+
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+CONFIG = ROOT / "config" / "vllm_amd_gating_targets.json"
+OUTPUT = ROOT / "data" / "vllm" / "ci"
+GATING_TARGETS_MAX_BYTES = writer_max_bytes("gating_targets")
+NVIDIA_HARDWARE_ALIAS_RE = re.compile(
+    r":nvidia:|\b(?:A100|H100|H200|B200|DGX)\b|\(L4\)", re.IGNORECASE
+)
+
+AREA_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("distributed", ("distributed", "torchrun", "pipeline", "rayexecutor", "context parallel", "comm ops", "2 node")),
+    ("kernels", ("kernel", "cudagraph", "helion", "mamba", "fusedmoe", "kda")),
+    ("entrypoints", ("entrypoints", "openai api", "api server", "responses api")),
+    ("models-language", ("language models", "basic models", "model executor", "acceptance length")),
+    ("models-multimodal", ("multi-modal", "multimodal", "processor")),
+    ("spec-decode", ("spec decode", "speculators", "ngram", "draft model", "eagle")),
+    ("lm-eval", ("lm eval", "gpqa", "mrcr")),
+    ("pytorch", ("pytorch", "fullgraph", "compilation")),
+    ("fusion", ("fusion", "quantized fusions")),
+    ("quantization", ("quantization", "quantized models", "turboquant")),
+    ("lora", ("lora",)),
+    ("engine", ("engine", "eplb", "v1 core", "v1 e2e", "v1 sample", "v1 attention")),
+    ("misc", ("examples", "regression", "platform", "plugin", "python-only", "metrics", "weight loading", "samplers")),
+)
+
+
+def infer_area(label: str) -> str:
+    lowered = label.lower()
+    for area, needles in AREA_KEYWORDS:
+        if any(needle in lowered for needle in needles):
+            return area
+    return "other"
+
+
+def load_targets(path: Path = CONFIG) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text())
+    groups = data.get("groups") or []
+    if not isinstance(groups, list) or not groups:
+        raise ValueError(f"{path} must contain a non-empty groups list")
+
+    ids = [int(row.get("id") or 0) for row in groups]
+    expected = list(range(1, len(groups) + 1))
+    if ids != expected:
+        raise ValueError(f"{path} ids must be contiguous 1..{len(groups)}")
+
+    labels = [str(row.get("label") or "").strip() for row in groups]
+    duplicates = [label for label, count in Counter(labels).items() if count > 1]
+    if duplicates:
+        raise ValueError(f"{path} has duplicate target labels: {duplicates}")
+    if any(not label for label in labels):
+        raise ValueError(f"{path} has blank target labels")
+    vendor_aliases = [label for label in labels if NVIDIA_HARDWARE_ALIAS_RE.search(label)]
+    if vendor_aliases:
+        raise ValueError(
+            f"{path} uses NVIDIA hardware aliases as AMD target labels: "
+            f"{vendor_aliases}"
+        )
+
+    normalized = []
+    for row in groups:
+        label = str(row.get("label") or "").strip()
+        gating_signal = str(row.get("gating_signal") or row.get("source_signal") or "unknown")
+        pf_signal = str(row.get("pf_signal") or row.get("readiness_signal") or "unknown")
+        assigned_signal = str(row.get("assigned_signal") or row.get("target_signal") or "unknown")
+        normalized.append({
+            "id": int(row["id"]),
+            "label": label,
+            "area": str(row.get("area") or infer_area(label)),
+            "gating_signal": gating_signal,
+            "pf_signal": pf_signal,
+            "assigned_signal": assigned_signal,
+            "source_signal": gating_signal,
+            "readiness_signal": pf_signal,
+            "target_signal": assigned_signal,
+            "owner": str(row.get("owner") or ""),
+            "note": str(row.get("note") or ""),
+        })
+    return normalized
+
+
+def build_payload(groups: list[dict[str, Any]], config_path: Path = CONFIG) -> dict[str, Any]:
+    return {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": {
+            "config_path": config_path.relative_to(ROOT).as_posix(),
+            "description": "Canonical AMD gating target list supplied by the ROCm CI owners.",
+        },
+        "summary": {
+            "target_group_count": len(groups),
+            "by_area": dict(sorted(Counter(row["area"] for row in groups).items())),
+            "by_gating_signal": dict(sorted(Counter(row["gating_signal"] for row in groups).items())),
+            "by_pf_signal": dict(sorted(Counter(row["pf_signal"] for row in groups).items())),
+            "by_assigned_signal": dict(sorted(Counter(row["assigned_signal"] for row in groups).items())),
+            "by_target_signal": dict(sorted(Counter(row["target_signal"] for row in groups).items())),
+        },
+        "groups": groups,
+    }
+
+
+def _signal_retention(
+    source: list[dict[str, Any]],
+    published: list[dict[str, Any]],
+    field: str,
+) -> dict[str, dict[str, int]]:
+    """Return exact source/published/omitted counts for one signal field."""
+    source_counts = Counter(str(row.get(field) or "unknown") for row in source)
+    published_counts = Counter(
+        str(row.get(field) or "unknown") for row in published
+    )
+    signals = sorted(source_counts)
+    return {
+        signal: {
+            "source": source_counts[signal],
+            "published": published_counts[signal],
+            "omitted": source_counts[signal] - published_counts[signal],
+        }
+        for signal in signals
+    }
+
+
+def bounded_payload(
+    payload: dict[str, Any],
+    *,
+    max_bytes: int = GATING_TARGETS_MAX_BYTES,
+) -> dict[str, Any]:
+    """Retain actionable whole target rows under the configured byte cap.
+
+    The summary always describes the complete reviewed configuration.  When
+    detail has to be omitted, explicit retention metadata prevents a bounded
+    row index from being interpreted as the complete target population.
+    """
+    if max_bytes <= 0:
+        raise ValueError("gating target byte budget must be positive")
+    source_groups = sorted(
+        (dict(row) for row in payload.get("groups") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            int(row.get("id") or 0),
+            str(row.get("label") or "").casefold(),
+        ),
+    )
+    signal_rank = {
+        "red": 5,
+        "purple": 4,
+        "yellow": 3,
+        "gray": 2,
+        "unknown": 1,
+        "green": 0,
+    }
+
+    def priority(row: dict[str, Any]) -> tuple[int, int, str]:
+        signals = (
+            str(row.get(field) or "unknown").casefold()
+            for field in ("gating_signal", "pf_signal", "assigned_signal")
+        )
+        return (
+            max(signal_rank.get(signal, 1) for signal in signals),
+            -int(row.get("id") or 0),
+            str(row.get("label") or "").casefold(),
+        )
+
+    prioritized = sorted(source_groups, key=priority, reverse=True)
+
+    def candidate(count: int) -> dict[str, Any]:
+        selected_ids = {
+            (int(row.get("id") or 0), str(row.get("label") or ""))
+            for row in prioritized[:count]
+        }
+        published = [
+            row
+            for row in source_groups
+            if (int(row.get("id") or 0), str(row.get("label") or ""))
+            in selected_ids
+        ]
+        complete = len(published) == len(source_groups)
+        result = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"groups", "publication_retention"}
+        }
+        result["groups"] = published
+        result["publication_retention"] = {
+            "policy": "actionable_signal_then_canonical_whole_target_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "aggregate_summary_complete": True,
+            "groups": {
+                "source": len(source_groups),
+                "published": len(published),
+                "omitted": len(source_groups) - len(published),
+                "complete_relative_to_source": complete,
+            },
+            "by_gating_signal": _signal_retention(
+                source_groups, published, "gating_signal"
+            ),
+            "by_pf_signal": _signal_retention(source_groups, published, "pf_signal"),
+            "by_assigned_signal": _signal_retention(
+                source_groups, published, "assigned_signal"
+            ),
+        }
+        return result
+
+    low, high = 0, len(source_groups)
+    best: dict[str, Any] | None = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "gating target fixed metadata exceeds its byte budget; preserving "
+            "the last-known-good file"
+        )
+    return best
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Publish AMD gating target list")
+    parser.add_argument("--config", type=Path, default=CONFIG)
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    args = parser.parse_args()
+
+    groups = load_targets(args.config)
+    payload = bounded_payload(
+        build_payload(groups, args.config),
+        max_bytes=GATING_TARGETS_MAX_BYTES,
+    )
+    args.output.mkdir(parents=True, exist_ok=True)
+    out_path = args.output / "gating_targets.json"
+    write_pretty_json_lkg(
+        out_path,
+        payload,
+        max_bytes=GATING_TARGETS_MAX_BYTES,
+        label="gating targets",
+    )
+    print(f"Wrote {out_path} with {len(groups)} target groups")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,248 @@
+{
+  "collected_at": "2026-09-06T23:24:37Z",
+  "issues": [
+    {
+      "number": 51644,
+      "title": "[CI Failure]: tests/kernels/moe/test_deepep_moe.py SIGSEGV on ROCm, drop the two teardown workarounds once the image ships rocm-systems#6942",
+      "author": "stefankoncarevic",
+      "state": "open",
+      "created_at": "2026-08-10T08:53:30Z",
+      "updated_at": "2026-08-10T08:53:41Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/51644",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "In progress",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\ntests/kernels/moe/test_deepep_moe.py::test_deep_ep_moe\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [x] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nThe test passes today only because two workarounds are in tree, and this issue tracks\nremoving them.\n\nWithout them, every high-throughput variant dies with SIGSEGV, 28 of 28, while every\nlow-latency variant passes. The test body completes and the process dies during teardown\ninside the ROCm HSA runtime, where AqlQueue's destructor writes to signals whose backing\nmemory has already been unmapped. That path is only reached while rocprofiler-sdk is\nattached, which recent torch builds do implicitly. It reproduces with a plain HIP program\nunder rocprofv3, with no torch, DeepEP or vLLM involved.\n\nThe workarounds to remove, both guarded by current_platform.is_rocm():\n\n1. tests/kernels/moe/test_deepep_moe.py sets ROCPROFILER_REGISTER_ENABLED=0 so the spawned\n   workers do not inherit the profiler (#51173).\n2. tests/kernels/moe/parallel_utils.py leaves the worker through os._exit after destroying\n   the process group (#51174).\n\nThe defect is fixed upstream in https://github.com/ROCm/rocm-systems/pull/6942. Once a CI\nbase image ships a ROCm build containing it, drop both and confirm with\n\n    pytest -v -s tests/kernels/moe/test_deepep_moe.py\n\nwhich should stay at 56 passed.\n\n### \ud83d\udcdd History of failing test\n\nNot a vLLM regression. It appeared without any change on the vLLM side, once torch builds\nbegan attaching rocprofiler-sdk implicitly, and it was masked on 5 Aug 2026 by #51173 and\n#51174, so Buildkite shows the test green from then on.\n\n### CC List.\n\n@AndreasKaratzas @Rohan138",
+      "linked_prs": [
+        {
+          "repo": "ROCm/rocm-systems",
+          "number": 6942,
+          "url": "https://github.com/ROCm/rocm-systems/pull/6942"
+        }
+      ]
+    },
+    {
+      "number": 48510,
+      "title": "[CI Failure]: `AMD: Language Models Test (Extended Pooling)` Workspace growth allocation after lock",
+      "author": "micah-wil",
+      "state": "open",
+      "created_at": "2026-07-13T17:07:33Z",
+      "updated_at": "2026-07-13T19:26:35Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/48510",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [
+        "micah-wil"
+      ],
+      "project_status": "Done",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter]\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter] is failing on ROCm due to `AssertionError: Workspace is locked but allocation from 'modular_kernel.py:1096:_allocate_buffers' requires 15.00 MB, current size is 0.06 MB. Workspace growth is not allowed after locking.`\n\nhttps://buildkite.com/vllm/ci/builds/77673/list?sid=019f5553-8716-4596-8f4c-62c6657cef31&tab=output\n\n### \ud83d\udcdd History of failing test\n\nSince transformers 5.10 upgrade\n\n### CC List.\n\n_No response_",
+      "linked_prs": []
+    },
+    {
+      "number": 40554,
+      "title": "[AMD][CI Failure][Tracker] Static dashboard tracker for current CI failures",
+      "author": "AndreasKaratzas",
+      "state": "open",
+      "created_at": "2026-04-21T20:29:34Z",
+      "updated_at": "2026-07-13T18:41:50Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/40554",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "This is the single dashboard-managed umbrella issue for current AMD CI failures tracked by `AndreasKaratzas/vllm-ci-dashboard`.\n\n## Rules\n- The dashboard automation updates only one managed comment on this issue.\n- The dashboard automation must not create or modify any other `vllm-project/vllm` issues.\n- Engineers should open separate manual issues when they pick up a specific failure to work on.\n- Those manual issues can move through [project #39](https://github.com/orgs/vllm-project/projects/39) and be referenced by the dashboard, but they are not edited by the dashboard automation.\n\n## Engineer workflow\n- Check the managed comment on this issue for the latest failing groups.\n- Open a separate issue for any failure you pick up.\n- Move that separate issue through the appropriate [project #39](https://github.com/orgs/vllm-project/projects/39) column and assign an owner there.\n\n## Ownership\n- Dashboard owner: `@AndreasKaratzas`\n- Repo: `AndreasKaratzas/vllm-ci-dashboard`\n",
+      "linked_prs": []
+    }
+  ],
+  "count_semantics": "complete",
+  "source_coverage": {
+    "complete": true,
+    "authoritative_complete": true,
+    "population_semantics": "complete",
+    "truncated": false,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 3,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:51644",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:51644",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 1,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:48510",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:48510",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:40554",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:40554",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs in vllm-project/vllm with label 'rocm'; newest 300 maximum",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 2,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 168,
+        "total_count_hint": 168,
+        "provider_incomplete": false,
+        "completion_reason": "reported_total"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 9,
+    "query_retention": {
+      "source": 9,
+      "published": 9,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 3,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 3,
+      "open": 3,
+      "linked_pr_refs": 0
+    },
+    "rows": {
+      "source": 3,
+      "published": 3,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 3,
+      "published": 3,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 0,
+      "published": 0,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 9,
+      "published": 9,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}
