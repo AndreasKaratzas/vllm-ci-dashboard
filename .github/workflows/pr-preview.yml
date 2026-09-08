@@ -71,7 +71,7 @@ jobs:
             trusted-base/pyproject.toml
 
       - name: Install dependencies
-        run: pip install -c constraints.txt pyyaml
+        run: pip install -c constraints.txt requests pyyaml
         working-directory: trusted-base
 
       - name: Validate and copy static pull-request inputs

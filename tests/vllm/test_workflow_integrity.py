@@ -2918,6 +2918,13 @@ class TestHourlyMasterWorkflow:
             == "Checkout pull request merge for unprivileged validation"
         )
         assert validation_checkout["with"]["persist-credentials"] is False
+        validation_install = next(
+            step for step in validation["steps"]
+            if step.get("name") == "Install dependencies"
+        )
+        assert validation_install["run"] == (
+            "pip install -c constraints.txt requests pyyaml"
+        )
         assert any(
             "scripts/vllm/build_operations_snapshot.py" in str(step.get("run", ""))
             for step in validation["steps"]
@@ -2951,6 +2958,14 @@ class TestHourlyMasterWorkflow:
         assert trusted_checkout["with"]["persist-credentials"] is False
         assert "scripts" in trusted_checkout["with"]["sparse-checkout"]
         assert "config" in trusted_checkout["with"]["sparse-checkout"]
+        trusted_install = next(
+            step for step in steps
+            if step.get("name") == "Install dependencies"
+        )
+        assert trusted_install["run"] == (
+            "pip install -c constraints.txt requests pyyaml"
+        )
+        assert trusted_install["working-directory"] == "trusted-base"
 
         static_checkout = next(
             step for step in steps

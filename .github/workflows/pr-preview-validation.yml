@@ -34,7 +34,7 @@ jobs:
             pyproject.toml
 
       - name: Install dependencies
-        run: pip install -c constraints.txt pyyaml
+        run: pip install -c constraints.txt requests pyyaml
 
       - name: Rebuild v2 operations snapshot from PR code
         run: >-
