@@ -3252,6 +3252,80 @@ def test_platform_comparison_coalesces_step_key_lineages_for_one_execution():
     assert row["cuda"]["group_ids"] == ["cuda-keyed", "cuda-old"]
 
 
+@pytest.mark.parametrize("memory_gb", [18, 35])
+@pytest.mark.parametrize("decorated_step_key", [False, True])
+def test_platform_comparison_coalesces_h200_mig_label_migration(memory_gb, decorated_step_key):
+    def group(group_id, name, runs, failed=0, *, queue=None, hardware="h200", step_key=""):
+        return {
+            "id": group_id,
+            "name": name,
+            "raw_names": [name],
+            "hardware": hardware,
+            "queues": [queue or f"h200_{memory_gb}gb"],
+            "step_key": step_key,
+            "runs": runs,
+            "passed": runs - failed,
+            "failed": failed,
+            "soft_failed": 0,
+            "incident_count": failed,
+            "incident_rate_pct": round(failed / runs * 100, 1),
+            # Each alias has disjoint retained build evidence.
+            "observations": [{"build_number": len(catalog) + 1}],
+        }
+
+    step_key = "python-only-installation"
+    if decorated_step_key:
+        step_key = f"-nvidia--h200-mig-{memory_gb}gb-{step_key}"
+    catalog = []
+    catalog.append(group(
+        "amd", ":amd: (MI300) Python-only Installation", 64,
+        hardware="mi300", queue="amd_mi300_1", step_key=f"amd-{step_key}",
+    ))
+    catalog.append(group("cuda-legacy", "Python-only Installation", 28, 8))
+    catalog.append(group("cuda-h200", ":nvidia: (H200) Python-only Installation", 38, 5))
+    mig_name = f":nvidia: (H200 MIG {memory_gb}GB) Python-only Installation"
+    catalog.append(group("cuda-mig", mig_name, 23, 5))
+    catalog.append(group("cuda-keyed", mig_name, 4, 1, step_key=step_key))
+    other_memory_gb = 35 if memory_gb == 18 else 18
+    catalog.append(group(
+        "cuda-other-mig", f":nvidia: (H200 MIG {other_memory_gb}GB) Python-only Installation",
+        10, 10, queue=f"h200_{other_memory_gb}gb", step_key="python-only-installation-other-mig",
+    ))
+    catalog.append(group(
+        "cuda-h100", ":nvidia: (H100) Python-only Installation", 10, 10,
+        hardware="h100", queue="mithril-h100-pool", step_key="python-only-installation-h100",
+    ))
+    for decoration in ("H200 PCIe", "H200 MIG 80GB", "H200 MIG 18GB experimental"):
+        catalog.append(group(
+            f"unsupported-{decoration}", f":nvidia: ({decoration}) Python-only Installation",
+            10, 10, step_key="python-only-installation",
+        ))
+    catalog.append(group(
+        "body-hardware", "Python-only Installation (H200 MIG 18GB)", 10, 10,
+        step_key="python-only-installation",
+    ))
+
+    comparison = ops._platform_comparison(
+        catalog,
+        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
+        cohort_builds=100,
+    )
+
+    row, = comparison["rows"]
+    assert row["comparison_eligible"] is True
+    assert row["match_basis"] == "exact_step_key"
+    assert row["cuda"]["variant_count"] == 1
+    assert set(row["cuda"]["group_ids"]) == {"cuda-h200", "cuda-keyed", "cuda-legacy", "cuda-mig"}
+    assert row["cuda"]["queues"] == [f"h200_{memory_gb}gb"]
+    assert row["cuda"]["hardware"] == ["h200"]
+    assert row["cuda"]["runs"] == 93
+    assert row["cuda"]["passed"] == 74
+    assert row["cuda"]["incidents"] == 19
+    assert row["cuda"]["incident_rate_pct"] == 20.4
+    assert comparison["summary"]["matched_cuda_variant_count"] == 4
+    assert comparison["summary"]["matched_cuda"]["runs"] == 93
+
+
 def test_platform_comparison_uses_step_key_to_select_one_explicit_cuda_route():
     def group(group_id, name, hardware, queue, step_key, runs=10):
         return {
@@ -3363,14 +3437,14 @@ def test_platform_comparison_fails_closed_for_ambiguous_and_generic_cuda_routes(
             ),
             group(
                 "cuda-18gb",
-                "Ambiguous Route",
+                ":nvidia: (H200 MIG 18GB) Ambiguous Route",
                 "h200",
                 "h200_18gb",
                 "ambiguous-route",
             ),
             group(
                 "cuda-35gb",
-                "Ambiguous Route",
+                ":nvidia: (H200 MIG 35GB) Ambiguous Route",
                 "h200",
                 "h200_35gb",
                 "ambiguous-route",

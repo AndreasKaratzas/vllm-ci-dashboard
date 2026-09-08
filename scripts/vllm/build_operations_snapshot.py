@@ -2678,20 +2678,22 @@ def _comparison_platform(row: dict) -> str:
 
 
 COMPARISON_PLATFORM_PREFIX_RE = re.compile(
-    r"^:(?:amd|nvidia):\s*"
-    r"\(\s*(?:mi\d{3,4}b?|[abh]\d{3}|l4|t4)\s*\)\s*",
+    r"^(?::(?:amd|nvidia):\s*"
+    r"\(\s*(?:mi\d{3,4}b?|[abh]\d{3}|l4|t4)\s*\)"
+    r"|:nvidia:\s*\(\s*h200\s+mig\s+(?:18|35)\s*gb\s*\))\s*",
     re.IGNORECASE,
 )
 COMPARISON_NVIDIA_STEP_PREFIX_RE = re.compile(
-    r"^-nvidia--(?:a100|b100|b200|h100|h200|l4|t4)-",
+    r"^-nvidia--(?:a100|b100|b200|h100|h200(?:-mig-(?:18|35)gb)?|l4|t4)-",
     re.IGNORECASE,
 )
 
 
 def _comparison_label(value: Any) -> str:
     # The upstream catalog has both legacy undecorated names and current
-    # ``:nvidia: (H200)`` / ``:amd: (MI300)`` names.  Strip only that leading
-    # execution decorator.  Hardware wording in the body remains meaningful.
+    # ``:nvidia: (H200 MIG 18GB)`` / ``:amd: (MI300)`` names. Strip only a
+    # recognized leading execution decorator. MIG routes remain distinct by
+    # hardware and queue; hardware wording in the body remains meaningful.
     text = MULTISPACE_RE.sub(" ", str(value or "").strip())
     return _strict_group_label(COMPARISON_PLATFORM_PREFIX_RE.sub("", text))
 
@@ -2703,8 +2705,9 @@ def _comparison_key(value: Any) -> str:
 def _comparison_step_key(row: dict, platform: str) -> str:
     value = str(row.get("step_key") or "").strip().casefold()
     if platform == "amd" and value.startswith("amd-"):
-        return value[4:]
-    if platform == "cuda":
+        value = value[4:]
+    # AMD mirrors can retain the CUDA definition's generated label prefix.
+    if platform in {"amd", "cuda"}:
         return COMPARISON_NVIDIA_STEP_PREFIX_RE.sub("", value)
     return value
 
