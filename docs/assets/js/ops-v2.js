@@ -1274,7 +1274,7 @@
     return item;
   }
 
-  function openMixedOutcomeEvidence(candidate) {
+  function openMixedOutcomeEvidence(candidate, options) {
     const publicationHistoryComplete = groupPublicationHistoryComplete(candidate);
     const sourcePipeline = candidate.source_pipeline || 'ci';
     const allObservations = evidenceObservations(candidate).filter(function (row) {
@@ -1386,6 +1386,7 @@
         option.value = pair[0];
         resultFilter.append(option);
       });
+      resultFilter.value = ['passing', 'incident'].includes((options || {}).resultFilter) ? options.resultFilter : 'all';
       add(filterToolbar, [search, resultFilter]);
       historyHost.append(filterToolbar);
       const tableHost = n('div', 'ops-evidence-table-host');
@@ -1933,14 +1934,14 @@
     }).find(isIncidentObservation) || null;
   }
 
-  function openGroupDetail(group, ops, reliabilityRow, sourceReliability) {
+  function openGroupDetail(group, ops, reliabilityRow, sourceReliability, options) {
     const reliability = sourceReliability || canonicalReliability(ops);
-    const reference = (reliabilityRow || {}).evidence_ref || group.evidence_ref || ((group.main_reliability || {}).id);
+    const reference = (reliabilityRow || {}).evidence_ref || group.evidence_ref || group.group_id || ((group.main_reliability || {}).id);
     const row = groupReliabilityByRef(reliability, reference, group.name || group.label || group.group) || reliabilityRow;
     if (row && evidenceObservations(row).length) {
       const scope = reliabilityScopeInfo(reliability);
       row.scope_label = scope.label.toLowerCase();
-      openMixedOutcomeEvidence(row);
+      openMixedOutcomeEvidence(row, options);
       return;
     }
     const name = group.name || group.label || group.group || 'Test group';
@@ -1951,7 +1952,7 @@
         loadHistory.textContent = 'Loading run history…';
         loadOperationSections(ops, ['reliability']).then(function (expanded) {
           backOverlay();
-          openGroupDetail(group, expanded, reliabilityRow);
+          openGroupDetail(group, expanded, reliabilityRow, undefined, options);
         }).catch(function (error) {
           loadHistory.disabled = false;
           loadHistory.textContent = 'Retry loading run history';
@@ -2391,9 +2392,54 @@
     });
   }
 
-  function openBuildDetail(build, title) {
+  function nightlyBuildEvidence(build, scope) {
+    const movement = nightlyFailureMovement(build);
+    const labels = {hard: 'Current hard failures', soft: 'Current soft failures', new: 'New failures', recurring: 'Recurring failures', fixed: 'Fixed job variants'};
+    const selectedScope = Object.prototype.hasOwnProperty.call(labels, scope) ? scope : 'movement';
+    const movementAvailable = Boolean(movement) && movement.available !== false;
+    function currentState(row) {
+      const stateName = Object.prototype.hasOwnProperty.call(row, 'current_state') ? row.current_state : row.state || row.result;
+      return String(stateName || '').trim().toLowerCase();
+    }
+    function severity(row) {
+      const stateName = currentState(row);
+      if (['soft', 'soft_fail', 'soft_failed'].includes(stateName)) return 'soft';
+      if (['hard', 'failed', 'failing', 'incident', 'error', 'timed_out', 'broken', 'canceled', 'cancelled', 'expired'].includes(stateName)) return 'hard';
+      return null;
+    }
+    function currentObservation(row) {
+      return row.observed_in_current_build !== false
+        && (!row.build_number || !build.number || Number(row.build_number) === Number(build.number));
+    }
+    let available = movementAvailable;
+    let rows = [];
+    if (selectedScope === 'hard' || selectedScope === 'soft') {
+      const currentRows = build[selectedScope === 'hard' ? 'failed_groups' : 'soft_failed_groups'];
+      available = build.has_test_results !== false && (Array.isArray(currentRows) || movementAvailable);
+      const candidates = Array.isArray(currentRows) ? currentRows : movementAvailable ? (movement.new || []).concat(movement.recurring || []) : [];
+      rows = available ? candidates.filter(function (row) { return currentObservation(row) && severity(row) === selectedScope; }) : [];
+    } else if (movementAvailable) {
+      [['new', 'New failure'], ['recurring', 'Recurring failure'], ['fixed', 'Fixed']].forEach(function (bucket) {
+        if (selectedScope !== 'movement' && selectedScope !== bucket[0]) return;
+        (movement[bucket[0]] || []).forEach(function (row) {
+          if (selectedScope === 'fixed' && currentState(row) !== 'passed') return;
+          if (['new', 'recurring'].includes(selectedScope) && (!currentObservation(row) || !severity(row))) return;
+          const currentEvidence = selectedScope === 'fixed' && row.current_url
+            ? {url: row.current_url, job_url: row.current_url, build_number: build.number, state: currentState(row)}
+            : {};
+          rows.push(Object.assign({}, row, currentEvidence, {lifecycle: bucket[1]}));
+        });
+      });
+    }
+    return {scope: selectedScope, label: labels[selectedScope] || 'Failure movement', available: available, rows: rows};
+  }
+
+  function openBuildDetail(build, title, scope) {
     const sourcePipeline = build.source_pipeline || 'amd-ci';
     const failureMovement = nightlyFailureMovement(build);
+    const evidence = nightlyBuildEvidence(build, scope);
+    const severityScope = evidence.scope === 'hard' || evidence.scope === 'soft';
+    const scoped = evidence.scope !== 'movement';
     const content = n('div', 'ops-stack');
     if (build.has_test_results === false) {
       const blocked = Number(build.test_jobs_blocked || 0);
@@ -2405,43 +2451,41 @@
           : 'This build has no parsed test-group signal. No pass/fail movement is inferred.',
       ));
     }
-    const rows = [];
-    if (failureMovement && failureMovement.available !== false) {
-      [
-        ['New failure', failureMovement.new || []],
-        ['Recurring failure', failureMovement.recurring || []],
-        ['Fixed', failureMovement.fixed || []],
-      ].forEach(function (bucket) {
-        bucket[1].forEach(function (group) { rows.push(Object.assign({lifecycle: bucket[0]}, group)); });
-      });
-    } else {
-      content.append(n('div', 'ops-evidence-note is-warning', 'Failure movement is unavailable for this build. Raw build outcomes remain visible below.'));
+    const rows = evidence.rows;
+    if (!evidence.available) {
+      content.append(n('div', 'ops-evidence-note is-warning', scoped ? evidence.label + ' evidence is unavailable for this build.' : 'Failure movement is unavailable for this build. Raw build outcomes remain visible below.'));
     }
     if (rows.length) {
       const transitionColumns = [
       {label: 'Job variant', sticky: true, render: function (row) { return externalLink(row.display_name || row.name, exactPipelineEvidenceUrl(row, sourcePipeline)); }},
-      {label: 'Change', render: function (row) { return linkedBadge(row.lifecycle, exactPipelineEvidenceUrl(row, sourcePipeline), null, row.lifecycle === 'New failure' ? 'is-danger' : row.lifecycle === 'Fixed' ? 'is-success' : 'is-warning'); }},
+      severityScope
+        ? {label: 'Current result', render: function (row) { return linkedBadge(row.current_state || row.state || row.result, exactPipelineEvidenceUrl(row, sourcePipeline)); }}
+        : {label: 'Change', render: function (row) { return linkedBadge(row.lifecycle, exactPipelineEvidenceUrl(row, sourcePipeline), null, row.lifecycle === 'New failure' ? 'is-danger' : row.lifecycle === 'Fixed' ? 'is-success' : 'is-warning'); }},
       {label: 'Queue', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
       ];
-      content.append(compactTablePanel('Failure movement', integer(rows.length) + ' observed changes', transitionColumns, rows, {
-        id: 'build-transition-browser',
+      content.append(compactTablePanel(evidence.label, integer(rows.length) + (scoped ? ' matching job variants' : ' observed changes'), transitionColumns, rows, {
+        id: 'build-transition-browser-' + evidence.scope,
         limit: 30,
-        browserSubtitle: 'New failures, recurring failures, and fixes observed in this exact Buildkite nightly comparison',
+        browserSubtitle: scoped ? evidence.label + ' in this exact Buildkite nightly' : 'New failures, recurring failures, and fixes observed in this exact Buildkite nightly comparison',
         searchPlaceholder: 'Filter job variant, change, or queue',
         searchText: function (row) { return [row.display_name, row.name, row.lifecycle, row.queue].join(' '); },
       }));
+    } else if (evidence.available && scoped) {
+      content.append(n('div', 'ops-empty', 'No ' + evidence.label.toLowerCase() + ' are observed in this build.'));
     }
     openDetailDrawer({
-      id: 'build-' + value(build.number),
+      id: 'build-' + value(build.number) + '-' + evidence.scope,
       title: title || (build.number ? 'AMD build #' + build.number : 'AMD build'),
-      subtitle: 'Build result and failure movement evidence',
+      subtitle: scoped ? evidence.label + ' evidence' : 'Build result and failure movement evidence',
       fields: [
         {label: 'State', value: value(build.state)},
         {label: 'Started', value: shortDate(build.created_at)},
         {label: 'Job variants observed', value: integer(build.total_groups)},
         {label: 'Test signal', value: build.has_test_results === false ? 'Unavailable' : 'Observed'},
         {label: 'Dependency-blocked test jobs', value: build.test_jobs_blocked ? integer(build.test_jobs_blocked) : null},
-        {label: 'New failure / recurring failure / fixed', value: failureMovement && failureMovement.available !== false ? integer((failureMovement.new || []).length) + ' / ' + integer((failureMovement.recurring || []).length) + ' / ' + integer((failureMovement.fixed || []).length) : 'Unavailable'},
+        scoped
+          ? {label: evidence.label, value: evidence.available ? integer(rows.length) : 'Unavailable'}
+          : {label: 'New failure / recurring failure / fixed', value: failureMovement && failureMovement.available !== false ? integer((failureMovement.new || []).length) + ' / ' + integer((failureMovement.recurring || []).length) + ' / ' + integer((failureMovement.fixed || []).length) : 'Unavailable'},
       ],
       sources: exactPipelineBuildUrl(build, sourcePipeline) ? [{label: 'Open Buildkite build', url: exactPipelineBuildUrl(build, sourcePipeline)}] : [],
       content: content,
@@ -3386,7 +3430,8 @@
     else if (item.kind === 'omni_waiting') navigateTo('ci-omni');
     else {
       const build = ((latestAmd(ops).builds || [])[0]) || {};
-      if (build.number) openBuildDetail(build, attentionLabel(item));
+      const scope = item.kind === 'nightly_hard_failures' ? 'hard' : item.kind === 'nightly_soft_failures' ? 'soft' : undefined;
+      if (build.number) openBuildDetail(build, attentionLabel(item), scope);
       else openMetricDetail({label: attentionLabel(item), value: item.count, meta: 'No linked build is available in this snapshot.'});
     }
   }
@@ -3606,9 +3651,9 @@
     grid.append(panel('AMD nightly failure movement', 'Latest seven completed observations', dataTable([
       {label: 'Build', render: function (r) { return externalLink('#' + r.number, exactPipelineBuildUrl(r, 'amd-ci'), 'ops-mono'); }},
       {label: 'Test signal', render: function (r) { return linkedBadge(r.has_test_results === false ? (Number(r.test_jobs_blocked || 0) ? 'Infra blocked' : 'Unavailable') : 'Observed', exactPipelineBuildUrl(r, 'amd-ci'), function () { openBuildDetail(r); }, r.has_test_results === false ? 'is-danger' : 'is-success'); }},
-      {label: 'New failure', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
-      {label: 'Recurring failure', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
-      {label: 'Fixed', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r); }); }},
+      {label: 'New failure', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, undefined, 'new'); }); }},
+      {label: 'Recurring failure', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, undefined, 'recurring'); }); }},
+      {label: 'Fixed', numeric: true, render: function (r) { const count = nightlyFailureCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, undefined, 'fixed'); }); }},
       {label: 'Observed', render: function (r) { return shortDate(r.created_at); }},
     ], recent), 'ops-home-aside'));
     host.append(grid);
@@ -7580,26 +7625,27 @@
   function comparisonVariantCell(variant, ops, reliability, platform) {
     const group = comparisonGroupById(reliability, variant.group_id);
     const cell = n('div', 'ops-entity-cell');
-    if (group) {
-      cell.append(linkButton(variant.name || 'Unnamed variant', function () {
-        openGroupDetail(variant, ops, group, reliability);
-      }, 'Inspect exact ' + platform + ' group history'));
-    } else if (variant.latest_url) {
-      cell.append(externalLink(variant.name || 'Unnamed variant', variant.latest_url));
-    } else {
-      cell.append(n('span', 'ops-cell-primary', variant.name || 'Unnamed variant'));
-    }
+    cell.append(linkButton(variant.name || 'Unnamed variant', function () {
+      openGroupDetail(variant, ops, group, reliability);
+    }, 'Inspect exact ' + platform + ' group history'));
     const meta = [platform, hardwareDisplayLabel(variant.hardware), (variant.queues || []).join(', ')].filter(Boolean).join(' - ');
     if (meta) cell.append(n('span', 'ops-entity-meta', meta));
     return cell;
   }
 
-  function comparisonVariantMetric(variant, ops, reliability, textValue) {
+  function comparisonVariantMetric(variant, ops, reliability, textValue, resultFilter) {
     const group = comparisonGroupById(reliability, variant.group_id);
-    if (!group) return n('span', '', textValue);
     return linkButton(textValue, function () {
-      openGroupDetail(variant, ops, group, reliability);
+      openGroupDetail(variant, ops, group, reliability, {resultFilter: resultFilter});
     });
+  }
+
+  function comparisonLatestEvidence(variant) {
+    const cell = n('div', 'ops-entity-cell');
+    const url = exactPipelineEvidenceUrl({latest_url: variant.latest_url}, 'ci');
+    cell.append(linkedBadge(variant.latest_state || 'unknown', url));
+    cell.append(n('span', 'ops-entity-meta', variant.latest_observed_at ? 'Observed ' + shortDate(variant.latest_observed_at) : 'Observation date unavailable'));
+    return cell;
   }
 
   function comparisonRetryRows(row, retry, bounds) {
@@ -7656,15 +7702,16 @@
     const note = n('div', 'ops-evidence-note is-info');
     add(note, [n('strong', '', comparisonMatchLabel(row) + '. '), n('span', '', row.comparison_eligible ? 'This one-to-one explicit NVIDIA pair shares a hardware-neutral base label in the same completed branch=main cohort.' : 'The AMD evidence is valid, but the reference is excluded from comparative deltas until its variant or hardware ambiguity is reviewed.')]);
     content.append(note);
+    content.append(n('p', 'ops-evidence-method', 'Incidents count failed attempts, including soft failures and child retries; they are not a count of proven flakes or distinct failing builds. Select an incident count to inspect its exact failed attempts. Latest observed results can be passing.'));
     const variants = (amd.variants || []).map(function (variant) { return Object.assign({}, variant, {_platform: 'AMD'}); })
       .concat((cuda.variants || []).map(function (variant) { return Object.assign({}, variant, {_platform: 'CUDA'}); }));
     content.append(panel('Hardware variants', integer(amd.variant_count) + ' AMD - ' + integer(cuda.variant_count) + ' CUDA', dataTable([
       {label: 'Platform and exact group', sticky: true, width: '430px', render: function (variant) { return comparisonVariantCell(variant, ops, reliability, variant._platform); }},
       {label: 'Runs', numeric: true, width: '90px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, integer(variant.runs)); }},
-      {label: 'Incidents', numeric: true, width: '110px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, integer(variant.incidents)); }},
-      {label: 'Incident frequency', numeric: true, width: '150px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, comparisonPercent(variant, 'incident_rate_pct')); }},
+      {label: 'Incidents', numeric: true, width: '110px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, integer(variant.incidents), 'incident'); }},
+      {label: 'Incident frequency', numeric: true, width: '150px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, comparisonPercent(variant, 'incident_rate_pct'), 'incident'); }},
       {label: 'p90 completion', numeric: true, width: '140px', render: function (variant) { return comparisonVariantMetric(variant, ops, reliability, duration(variant.p90_duration_mins)); }},
-      {label: 'Latest evidence', width: '150px', render: function (variant) { const url = exactPipelineEvidenceUrl({latest_url: variant.latest_url}, 'ci'); return url ? externalLink('Open job', url) : n('span', 'ops-cell-muted', 'Unavailable'); }},
+      {label: 'Latest observed result', width: '200px', render: comparisonLatestEvidence},
     ], variants, integer(variants.length) + (row.comparison_eligible ? ' matched upstream execution histories' : ' AMD and candidate CUDA execution histories'), {name: 'amd-cuda-variants', minWidth: '1070px'}), 'ops-comparison-variants'));
 
     const retryEvidenceDeferred = retry.evidence_deferred === true;
@@ -8115,9 +8162,9 @@
       host.append(statusStrip([
         {label: 'LATEST ' + nightlyName.toUpperCase() + ' NIGHTLY', value: latestNightly.number ? '#' + latestNightly.number : '-', meta: latestNightly.created_at ? shortDate(latestNightly.created_at) : 'No completed nightly', tone: toneForState(latestNightly.state), url: latestNightly.number ? exactPipelineBuildUrl(latestNightly, state.analyticsPipeline) : null},
         {label: 'JOB VARIANTS OBSERVED', value: integer(latestNightly.total_groups), meta: 'exact jobs in the latest completed nightly', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
-        {label: 'NEW FAILURES', value: latestMovement ? integer(latestMovement.new.length) : '-', meta: latestMovement ? 'not failing in the preceding observed nightly' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.new.length ? 'is-danger' : latestMovement ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
-        {label: 'RECURRING FAILURES', value: latestMovement ? integer(latestMovement.recurring.length) : '-', meta: latestMovement ? 'failed in the preceding observed nightly too' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.recurring.length ? 'is-warning' : latestMovement ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
-        {label: 'FIXED', value: latestMovement ? integer(latestMovement.fixed.length) : '-', meta: latestMovement ? 'failed previously and passed now' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.fixed.length ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number)); }},
+        {label: 'NEW FAILURES', value: latestMovement ? integer(latestMovement.new.length) : '-', meta: latestMovement ? 'not failing in the preceding observed nightly' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.new.length ? 'is-danger' : latestMovement ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number), 'new'); }},
+        {label: 'RECURRING FAILURES', value: latestMovement ? integer(latestMovement.recurring.length) : '-', meta: latestMovement ? 'failed in the preceding observed nightly too' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.recurring.length ? 'is-warning' : latestMovement ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number), 'recurring'); }},
+        {label: 'FIXED', value: latestMovement ? integer(latestMovement.fixed.length) : '-', meta: latestMovement ? 'failed previously and passed now' : 'unavailable in this snapshot', tone: latestMovement && latestMovement.fixed.length ? 'is-success' : 'is-neutral', onOpen: function () { if (latestNightly.number) openBuildDetail(latestNightly, nightlyName + ' build #' + value(latestNightly.number), 'fixed'); }},
       ]));
       const nightlyNote = n('div', 'ops-evidence-note ' + (latestMovement ? 'is-info' : 'is-warning'));
       add(nightlyNote, latestMovement
@@ -8150,9 +8197,9 @@
         {label: nightlyName + ' nightly', sticky: true, width: '130px', render: function (r) { return externalLink('#' + r.number, exactPipelineBuildUrl(r, state.analyticsPipeline), 'ops-mono'); }},
         {label: 'State', width: '120px', render: function (r) { return linkedBadge(r.state, exactPipelineBuildUrl(r, state.analyticsPipeline)); }},
         {label: 'Job variants observed', numeric: true, width: '160px', render: function (r) { return linkButton(integer(r.total_groups), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'New failure', numeric: true, width: '120px', render: function (r) { const count = nightlyFailureCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Recurring failure', numeric: true, width: '140px', render: function (r) { const count = nightlyFailureCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
-        {label: 'Fixed', numeric: true, width: '90px', render: function (r) { const count = nightlyFailureCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number)); }); }},
+        {label: 'New failure', numeric: true, width: '120px', render: function (r) { const count = nightlyFailureCount(r, 'new'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number), 'new'); }); }},
+        {label: 'Recurring failure', numeric: true, width: '140px', render: function (r) { const count = nightlyFailureCount(r, 'recurring'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number), 'recurring'); }); }},
+        {label: 'Fixed', numeric: true, width: '90px', render: function (r) { const count = nightlyFailureCount(r, 'fixed'); return linkButton(count === null ? '-' : integer(count), function () { openBuildDetail(r, nightlyName + ' build #' + value(r.number), 'fixed'); }); }},
         {label: 'Started', width: '180px', render: function (r) { return shortDate(r.created_at); }},
       ], builds, nightlyName + ' nightly failure movement; this selector does not change canonical upstream reliability', {name: 'nightly', minWidth: '980px'}));
       return;
@@ -8171,89 +8218,6 @@
 
     if (state.analyticsView === 'latency') {
       renderPlatformLatency(host, comparison, ops, reliability, retry);
-      return;
-    }
-
-    if (false) {
-      if (retry.available !== true) {
-        const unavailable = n('div', 'ops-evidence-note is-warning');
-        add(unavailable, [n('strong', '', 'Upstream retry ledger unavailable. '), n('span', '', ((retry.provenance || {}).reason || 'Complete explicit Buildkite retry metadata was not retained; compacted group history was not substituted.'))]);
-        host.append(unavailable);
-        return;
-      }
-      const retryAttempts = retry.retry_attempts || [];
-      const recoveries = retry.failed_then_passed_recoveries || [];
-      const outcomeCounts = new Map();
-      const retriesByGroup = new Map();
-      retryAttempts.forEach(function (row) {
-        const outcome = historyOutcomeLabel(row);
-        outcomeCounts.set(outcome, (outcomeCounts.get(outcome) || 0) + 1);
-        const group = row.name || 'Unnamed retry';
-        if (!retriesByGroup.has(group)) retriesByGroup.set(group, {name: group, attempts: 0, recoveries: 0, rows: []});
-        const item = retriesByGroup.get(group);
-        item.attempts += 1;
-        item.rows.push(row);
-      });
-      recoveries.forEach(function (row) {
-        const item = retriesByGroup.get(row.name || 'Unnamed retry chain');
-        if (item) item.recoveries += 1;
-      });
-      const topRetried = Array.from(retriesByGroup.values()).sort(function (a, b) { return b.attempts - a.attempts || a.name.localeCompare(b.name); }).slice(0, 12);
-      const retryCharts = n('div', 'ops-grid ops-grid-2');
-      const outcomeChart = chartPanel('Retry attempt outcomes', 'Terminal state of every explicit upstream retry attempt', 'analytics-retry-outcomes');
-      const groupChart = chartPanel('Most frequently retried groups', 'Attempt volume with confirmed fail-to-pass recovery count', 'analytics-retry-groups');
-      add(retryCharts, [outcomeChart.root, groupChart.root]);
-      host.append(retryCharts);
-      requestAnimationFrame(function () {
-        const outcomes = Array.from(outcomeCounts.entries()).sort(function (a, b) { return b[1] - a[1]; });
-        drawChart('analytics-retry-outcomes', outcomeChart.canvas, {
-          type: 'bar',
-          data: {labels: outcomes.map(function (row) { return row[0]; }), datasets: [{label: 'Attempts', data: outcomes.map(function (row) { return row[1]; }), backgroundColor: outcomes.map(function (row) { return row[0] === 'Passed' ? '#35bb78' : row[0].includes('Soft') ? '#e3a63a' : '#e06464'; })}]},
-          options: {scales: {y: {beginAtZero: true, title: {display: true, text: 'Explicit attempts'}}, x: {grid: {display: false}}}},
-          evidenceTitle: 'Explicit retry attempts by terminal outcome',
-          evidence: outcomes.map(function (row) { return {label: row[0], valueSummary: integer(row[1]) + ' attempts', sources: [{label: 'Open published retry ledger', url: SOURCE_ASSETS.comparisonRetryEvidence}]}; }),
-        });
-        drawChart('analytics-retry-groups', groupChart.canvas, {
-          type: 'bar',
-          data: {labels: topRetried.map(function (row) { return compactChartLabel(row, 36); }), datasets: [
-            {label: 'Attempts', data: topRetried.map(function (row) { return row.attempts; }), backgroundColor: '#5ca8ff'},
-            {label: 'Recovered chains', data: topRetried.map(function (row) { return row.recoveries; }), backgroundColor: '#35bb78'},
-          ]},
-          options: {indexAxis: 'y', scales: {x: {beginAtZero: true, title: {display: true, text: 'Count'}}, y: {grid: {display: false}}}},
-          evidenceTitle: 'Groups with the most explicit retries',
-          evidence: topRetried.map(function (row) { return {label: row.name, valueSummary: integer(row.attempts) + ' attempts - ' + integer(row.recoveries) + ' recovered chains', url: exactPipelineEvidenceUrl(row.rows[row.rows.length - 1], 'ci')}; }),
-        });
-      });
-      const attemptsColumns = [
-        {label: 'Build', width: '110px', render: function (r) { return externalLink('#' + value(r.build_number), exactReliabilityBuildUrl(r), 'ops-mono'); }},
-        {label: 'Retried job', sticky: true, width: '360px', render: function (r) { return externalLink(r.name || 'Unnamed retry', exactPipelineEvidenceUrl(r, 'ci')); }},
-        {label: 'Result', width: '120px', render: function (r) { return linkedBadge(r.state || 'unknown', exactPipelineEvidenceUrl(r, 'ci')); }},
-        {label: 'Retry type', width: '130px', render: function (r) { return linkedBadge(r.retry_type || 'explicit', exactPipelineEvidenceUrl(r, 'ci'), null, 'is-info'); }},
-        {label: 'Job ID', width: '300px', render: function (r) { return externalLink(value(r.job_id), exactPipelineEvidenceUrl(r, 'ci'), 'ops-mono'); }},
-        {label: 'Evidence', width: '170px', render: function (r) { return externalLink('Open exact attempt', exactPipelineEvidenceUrl(r, 'ci')); }},
-      ];
-      host.append(compactTablePanel('Upstream explicit retry attempts', integer(retryAttempts.length) + ' Buildkite attempts across ' + integer(retrySummary.builds_with_retries) + ' builds', attemptsColumns, retryAttempts, {
-        id: 'retry-attempt-browser',
-        limit: 12,
-        browserSubtitle: 'Every row opens its exact upstream Buildkite job',
-        searchPlaceholder: 'Filter job, build, result, retry type, or ID',
-        searchText: function (row) { return [row.name, row.build_number, row.state, row.retry_type, row.job_id].join(' '); },
-        geometry: {name: 'retry-attempts', minWidth: '1190px'},
-      }));
-      const recoveryColumns = [
-        {label: 'Build', width: '110px', render: function (r) { return externalLink('#' + value(r.build_number), exactReliabilityBuildUrl(r), 'ops-mono'); }},
-        {label: 'Retried job', sticky: true, width: '390px', render: function (r) { return externalLink(r.name || 'Unnamed retry chain', exactPipelineEvidenceUrl({job_url: r.failed_url || r.passed_url, build_number: r.build_number}, 'ci')); }},
-        {label: 'Failed attempt', width: '190px', render: function (r) { return externalLink('Open failed log', exactPipelineEvidenceUrl({job_url: r.failed_url, build_number: r.build_number}, 'ci')); }},
-        {label: 'Passing retry', width: '190px', render: function (r) { return externalLink('Open passing log', exactPipelineEvidenceUrl({job_url: r.passed_url, build_number: r.build_number}, 'ci')); }},
-      ];
-      host.append(compactTablePanel('Upstream recovered fail-to-pass chains', integer(recoveries.length) + ' chains confirmed by explicit retry metadata', recoveryColumns, recoveries, {
-        id: 'retry-recovery-browser',
-        limit: 10,
-        browserSubtitle: 'Failed and passing attempts remain separate exact Buildkite evidence',
-        searchPlaceholder: 'Filter recovered job or build',
-        searchText: function (row) { return [row.name, row.build_number].join(' '); },
-        geometry: {name: 'retry-recoveries', minWidth: '880px'},
-      }));
       return;
     }
 
@@ -13580,6 +13544,7 @@
       definitionParityPresentation: definitionParityPresentation,
       nightlyFailureMovement: nightlyFailureMovement,
       nightlyFailureCount: nightlyFailureCount,
+      nightlyBuildEvidence: nightlyBuildEvidence,
       amdNightlyMovement: amdNightlyMovement,
       amdNightlyPresentation: amdNightlyPresentation,
       ciHealthPublicationRetentionMessage: ciHealthPublicationRetentionMessage,

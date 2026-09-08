@@ -3176,13 +3176,87 @@ def test_nightly_pipeline_selector_defaults_amd_and_is_route_backed():
 def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
     assert "function renderPlatformRetries" in OPS_JS
     assert "function renderPlatformLatency" in OPS_JS
-    assert "retry.retry_attempts || []" in OPS_JS
+    assert "selected(retry && retry.retry_attempts)" in OPS_JS
     assert "Retry-involved attempts" in OPS_JS
     assert "Confirmed retry recoveries" in OPS_JS
     assert "Open failed log" in OPS_JS
     assert "Open passing log" in OPS_JS
     assert "comparisonGroupById(reliability, variant.group_id)" in OPS_JS
     assert "exactPipelineEvidenceUrl(attempt, 'ci')" in OPS_JS
+
+
+def test_nightly_failure_drilldowns_only_show_the_selected_current_outcomes():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const sandbox = {
+  window: {__OPS_V2_TEST__: true},
+  document: {addEventListener: function () {}},
+  console: console,
+  URL: URL,
+};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), sandbox);
+const evidence = sandbox.window.OpsV2Test.nightlyBuildEvidence;
+const hard = {group_id: 'hard', state: 'failed', build_number: 20};
+const recurring = {group_id: 'recurring', state: 'failed', build_number: 20};
+const soft = {group_id: 'soft', state: 'soft_failed', build_number: 20};
+const fixed = {group_id: 'fixed', state: 'failed', current_state: 'passed', build_number: 19, current_url: 'https://buildkite.com/vllm/amd-ci/builds/20#fixed'};
+const unknown = {group_id: 'unknown', state: 'unknown'};
+const missing = {group_id: 'missing'};
+const stale = {group_id: 'stale', state: 'failed', build_number: 19};
+const held = {group_id: 'held', state: 'failed', observed_in_current_build: false};
+const build = {
+  number: 20,
+  has_test_results: true,
+  failed_groups: [hard, recurring, fixed, soft, unknown, missing, stale, held, {state: 'failed', current_state: 'unknown'}],
+  soft_failed_groups: [soft, hard, unknown, missing],
+  failure_movement: {
+    policy_id: 'observed-failure-movement-v1', available: true,
+    new: [hard, soft], recurring: [recurring], fixed: [fixed],
+  },
+};
+function ids(result) { return Array.from(result.rows, row => row.group_id); }
+assert.deepStrictEqual(ids(evidence(build, 'hard')), ['hard', 'recurring']);
+assert.deepStrictEqual(ids(evidence(build, 'soft')), ['soft']);
+assert.deepStrictEqual(ids(evidence(build, 'new')), ['hard', 'soft']);
+assert.deepStrictEqual(ids(evidence(build, 'recurring')), ['recurring']);
+const fixedEvidence = evidence(build, 'fixed');
+assert.deepStrictEqual(ids(fixedEvidence), ['fixed']);
+assert.equal(fixedEvidence.rows[0].job_url, fixed.current_url);
+assert.equal(fixedEvidence.rows[0].build_number, 20);
+assert.deepStrictEqual(ids(evidence(build)), ['hard', 'soft', 'recurring', 'fixed']);
+assert.equal(evidence(build, 'hard').label, 'Current hard failures');
+assert.equal(evidence(build, 'soft').label, 'Current soft failures');
+assert.equal(evidence(build).label, 'Failure movement');
+assert.equal(fixed.build_number, 19, 'Source rows must not be mutated');
+
+const noComparison = {...build, failure_movement: {}};
+assert.deepStrictEqual(ids(evidence(noComparison, 'hard')), ['hard', 'recurring']);
+assert.equal(evidence(noComparison, 'hard').available, true);
+assert.equal(evidence(noComparison).available, false);
+const noRawGroups = {...build};
+delete noRawGroups.failed_groups;
+delete noRawGroups.soft_failed_groups;
+assert.deepStrictEqual(ids(evidence(noRawGroups, 'hard')), ['hard', 'recurring']);
+assert.deepStrictEqual(ids(evidence(noRawGroups, 'soft')), ['soft']);
+assert.deepStrictEqual(ids(evidence({...build, failed_groups: []}, 'hard')), [], 'Explicit current evidence wins over movement');
+const noSignal = evidence({...build, has_test_results: false}, 'hard');
+assert.equal(noSignal.available, false);
+assert.equal(noSignal.rows.length, 0);
+assert.equal(evidence({number: 20}, 'hard').available, false);
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_bounded_retry_evidence_disclosure_only_after_exact_load():
@@ -4235,8 +4309,8 @@ def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
         "definition-parity",
         "amd-health-browser",
         "amd-current-incidents",
-        "retry-attempts",
-        "retry-recoveries",
+        "comparison-retries",
+        "comparison-recoveries",
         "latency",
         "reliability-browser",
         "nightly",

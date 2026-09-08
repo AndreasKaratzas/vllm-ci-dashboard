@@ -740,6 +740,140 @@ test('flake and retry comparison tabs load only the compact aggregate', async ({
   expect(requested.some(path => path.endsWith('/operations_v2/reliability.json'))).toBe(false);
 });
 
+test('flake incidents load exact failures even when the latest attempt passed', async ({ page }) => {
+  const requested = [];
+  const browserErrors = [];
+  page.on('request', request => requested.push(new URL(request.url()).pathname));
+  page.on('pageerror', error => browserErrors.push(error.message));
+  const jobUrl = (build, job) => `https://buildkite.com/vllm/ci/builds/${build}/steps/canvas?jid=${job}&tab=output`;
+  const latestUrl = jobUrl(84111, '01a00c61-1759-41b1-82e7-a7696a4854fc');
+  const failedUrls = [
+    jobUrl(83884, '019fffb7-f7b6-4eca-b534-a381854a3268'),
+    jobUrl(83851, '019ffee8-7bb4-442b-9498-58aecc9bbb8e'),
+  ];
+  const variant = {
+    group_id: 'failure-history-fixture',
+    evidence_ref: 'failure-history-fixture',
+    name: 'AMD: Evidence history test (mi250_1)',
+    hardware: 'mi250',
+    queues: ['amd_mi250_1'],
+    runs: 3, build_count: 3, passed: 1, hard_failed: 0, soft_failed: 2,
+    incidents: 2, incident_rate_pct: 66.7, mixed_outcomes: true,
+    latest_state: 'passed', latest_observed_at: '2026-08-16T21:14:49Z',
+    latest_url: latestUrl, p90_duration_mins: 56, duration_basis: 'job_wall',
+  };
+  const amd = {
+    ...variant, variant_count: 1, group_ids: [variant.group_id],
+    hardware: ['mi250'], variants: [variant], child_retry_attempts: 0,
+    retry_frequency_pct: 0, recovered_chains: 0, worst_p90_duration_mins: 56,
+  };
+  const cuda = { runs: 0, incidents: 0, variant_count: 0, variants: [], group_ids: [], hardware: [], queues: [] };
+  const comparison = {
+    available: true, cohort_build_count: 3,
+    summary: { amd, matched_cuda: cuda, amd_comparison_row_count: 1 },
+    rows: [{ id: 'failure-comparison-fixture', label: 'Evidence history test',
+      comparison_key: 'evidence history test', match_status: 'no_cuda_equivalent',
+      comparison_eligible: false, amd, cuda }],
+  };
+  const observations = [
+    { build_number: 84111, state: 'passed', observed_at: variant.latest_observed_at, job_url: latestUrl },
+    { build_number: 83884, state: 'soft', observed_at: '2026-08-14T10:13:58Z', job_url: failedUrls[0] },
+    { build_number: 83851, state: 'soft', observed_at: '2026-08-14T07:10:11Z', job_url: failedUrls[1] },
+  ].map(row => ({ ...row, source_pipeline: 'ci', group_id: variant.group_id, queue: 'amd_mi250_1' }));
+  const reliability = {
+    available: true, source_pipeline: 'ci',
+    cohort: { id: 'main', available: true, label: 'All completed ci branch=main builds', build_count: 3, window_days: 30 },
+    platform_comparison: comparison,
+    retry_analysis: { evidence_deferred: true },
+  };
+  await page.route('**/operations_v2/comparison.json*', route => route.fulfill({
+    json: { reliability },
+  }));
+  await page.route('**/operations_v2/reliability.json*', route => route.fulfill({
+    json: { reliability: { ...reliability, group_catalog: [{
+      ...variant, id: variant.group_id, source_pipeline: 'ci', observations,
+    }] } },
+  }));
+
+  await page.goto('/?ops_analytics_view=flakes#ci-analytics', { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-ci-analytics').getByRole('button', { name: 'Inspect exact AMD and CUDA variants' }).click();
+  let dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Latest observed result');
+  await expect(dialog.getByRole('link', { name: 'Inspect result: passed', exact: true })).toHaveAttribute('href', latestUrl);
+  await expect(dialog).toContainText('Aug 16');
+  expect(requested.some(path => path.endsWith('/operations_v2/reliability.json'))).toBe(false);
+  await dialog.locator('tbody tr').getByRole('button', { name: '2', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Load 30-day run history' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('combobox', { name: 'Filter observations by result' })).toHaveValue('incident');
+  await expect(dialog.locator('.ops-evidence-table-host tbody tr')).toHaveCount(2);
+  const failureLinks = dialog.locator('.ops-evidence-table-host').getByRole('link', { name: 'Open log' });
+  await expect(failureLinks).toHaveCount(2);
+  expect(await failureLinks.evaluateAll(links => links.map(link => link.href))).toEqual(failedUrls);
+  await expect(dialog.locator('.ops-evidence-table-host a').filter({ hasText: '#84111' })).toHaveCount(0);
+  await dialog.getByRole('combobox', { name: 'Filter observations by result' }).selectOption('all');
+  await expect(dialog.locator('.ops-evidence-table-host tbody tr')).toHaveCount(3);
+  expect(browserErrors).toEqual([]);
+});
+
+test('nightly failure alerts exclude fixed groups while build movement retains them', async ({ page }) => {
+  const group = (id, name, state) => ({
+    id, name, display_name: name, state, current_state: state,
+    queue: 'amd_mi300_1',
+    job_url: `https://buildkite.com/vllm/amd-ci/builds/12674#${id}`,
+  });
+  const hard = group('019fffb7-f7b6-4eca-b534-a381854a3268', 'Current hard failure', 'hard');
+  const soft = group('019ffee8-7bb4-442b-9498-58aecc9bbb8e', 'Current soft failure', 'soft');
+  const fixed = group('01a00c61-1759-41b1-82e7-a7696a4854fc', 'Recovered test group', 'passed');
+  const build = {
+    number: 12674, source_pipeline: 'amd-ci', state: 'failed',
+    url: 'https://buildkite.com/vllm/amd-ci/builds/12674',
+    created_at: '2026-09-07T09:00:00Z', has_test_results: true, total_groups: 3,
+    passed: 1, failed: 1, soft_failed: 1,
+    failed_groups: [hard], soft_failed_groups: [soft],
+    failure_movement: { policy_id: 'observed-failure-movement-v1', available: true,
+      new: [hard], recurring: [soft], fixed: [fixed] },
+  };
+  await page.route('**/operations_v2_manifest.json*', async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const attention = [
+      { kind: 'nightly_hard_failures', count: 1, severity: 'critical' },
+      { kind: 'nightly_soft_failures', count: 1, severity: 'warning' },
+    ];
+    payload.shell.attention = attention;
+    payload.shell.home.attention = attention;
+    payload.shell.nightly.pipelines = [{ pipeline: 'amd-ci', builds: [build] }];
+    await route.fulfill({ response, json: payload });
+  });
+  await page.route('**/operations_v2/nightly.json*', route => route.fulfill({
+    json: { nightly: { pipelines: [{ pipeline: 'amd-ci', builds: [build] }] } },
+  }));
+  await page.goto('/#projects', { waitUntil: 'domcontentloaded' });
+  const home = page.locator('#tab-projects');
+  await home.getByRole('button', { name: 'Hard-failed groups in the latest AMD nightly', exact: true }).click();
+  let dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Current hard failures', exact: true })).toBeVisible();
+  await expect(dialog.locator('tbody tr')).toHaveCount(1);
+  await expect(dialog).toContainText(hard.name);
+  await expect(dialog).not.toContainText(soft.name);
+  await expect(dialog).not.toContainText(fixed.name);
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await home.getByRole('button', { name: 'Soft-failed groups in the latest AMD nightly', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.locator('tbody tr')).toHaveCount(1);
+  await expect(dialog).toContainText(soft.name);
+  await expect(dialog).not.toContainText(hard.name);
+  await expect(dialog).not.toContainText(fixed.name);
+  await dialog.getByRole('button', { name: 'Close dialog' }).click();
+  await page.goto('/?ops_analytics_view=nightlies#ci-analytics', { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-ci-analytics .ops-status-item').filter({ hasText: 'JOB VARIANTS OBSERVED' }).click();
+  dialog = page.getByRole('dialog');
+  await expect(dialog.getByText('Failure movement', { exact: true })).toBeVisible();
+  await expect(dialog.locator('tbody tr')).toHaveCount(3);
+  await expect(dialog).toContainText(fixed.name);
+});
+
 test('retired control routes are absent from the public dashboard', async ({ page }) => {
   await page.goto('/#ci-testbuild', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#tab-ci-testbuild')).toHaveCount(0);
