@@ -1,0 +1,5297 @@
+{
+  "generated_at": "2026-09-13T13:06:03Z",
+  "source": {
+    "description": "Heuristic daily audit for maintaining the reviewed AMD gating target list.",
+    "canonical_targets": "data/vllm/ci/gating_targets.json",
+    "nightly_signal": "data/vllm/ci/gating_nightlies.json",
+    "proposal_signal": "data/vllm/ci/gating_proposals.json"
+  },
+  "heuristics": {
+    "duplicate_key": "Fold hardware-only suffixes while preserving GPU counts.",
+    "parallel_templates": "Only explicit trailing %N targets match numbered runtime shards; other numeric suffixes remain distinct.",
+    "excluded": [
+      "cpu_or_non_gpu",
+      "temporary",
+      "experimental_model_runner_v2",
+      "rust_frontend_long_term",
+      "moe_refactor_temporary",
+      "docker_metadata_review",
+      "not_gpu_like"
+    ],
+    "safety": "This artifact is review-only and does not rewrite the canonical target config."
+  },
+  "summary": {
+    "upstream_build": 88482,
+    "amd_ci_build": 12902,
+    "canonical_target_count": 125,
+    "row_count": 359,
+    "canonical_match_count": 53,
+    "likely_duplicate_count": 0,
+    "new_candidate_count": 171,
+    "excluded_count": 63,
+    "missing_from_upstream_count": 72,
+    "by_decision": {
+      "canonical": 53,
+      "excluded": 63,
+      "missing_from_upstream": 72,
+      "new_candidate": 171
+    }
+  },
+  "rows": [
+    {
+      "label": "Attention Benchmark Smoke",
+      "canonical_key": "attention benchmark smoke",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e14d-4092-8fa8-e2e82a0522da&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 47,
+      "canonical_label": "Attention Benchmark Smoke",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Attention DiffKV Kernels",
+      "canonical_key": "attention diffkv kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1dd-42a1-a323-c4b630ceb336&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 37,
+      "canonical_label": "Attention DiffKV Kernels",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Attention Kernels Shard %N",
+      "canonical_key": "attention kernels shard %N",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-4567-be76-9b4e08325d26&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 22,
+      "canonical_label": "Attention Kernels Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": [],
+      "shard_count": 7,
+      "shard_states": {
+        "passed": 7
+      },
+      "runtime_shards": [
+        {
+          "label": "Attention Kernels Shard 1",
+          "shard_index": 1,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-4567-be76-9b4e08325d26&tab=output"
+        },
+        {
+          "label": "Attention Kernels Shard 2",
+          "shard_index": 2,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-4a4c-b924-3b95a2222d3c&tab=output"
+        },
+        {
+          "label": "Attention Kernels Shard 3",
+          "shard_index": 3,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-41d4-bf70-bfaa09a0d413&tab=output"
+        },
+        {
+          "label": "Attention Kernels Shard 4",
+          "shard_index": 4,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-4d68-a155-60c625ead0ff&tab=output"
+        },
+        {
+          "label": "Attention Kernels Shard 5",
+          "shard_index": 5,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-4a84-9bc9-3ff91a01077b&tab=output"
+        },
+        {
+          "label": "Attention Kernels Shard 6",
+          "shard_index": 6,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e1-4a97-9dc3-d0d6f44df0da&tab=output"
+        },
+        {
+          "label": "Attention Kernels Shard 7",
+          "shard_index": 7,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-4439-8fc2-f25f6340afc0&tab=output"
+        }
+      ]
+    },
+    {
+      "label": "Batch Invariance",
+      "canonical_key": "batch invariance",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f4-4ac3-b7a2-7b17f4da6b41&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 70,
+      "canonical_label": "Batch Invariance",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
+      "canonical_key": "crosslayer kv layout distributed nixlconnector pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e169-4ad3-9a6e-7399748785c8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 84,
+      "canonical_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "DeepEP FP8 MoE Kernels",
+      "canonical_key": "deepep fp8 moe kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1dd-4230-bcb5-5ed57d65758c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 24,
+      "canonical_label": "DeepEP FP8 MoE Kernels",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
+      "canonical_key": "deepseek v2-lite prefetch offload accuracy",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17b-4b58-a837-7f8dda0f51eb&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 19,
+      "canonical_label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "canonical_key": "deepseek v2-lite sync eplb accuracy",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17b-4274-ae1d-0b07a9b40614&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 58,
+      "canonical_label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "DeepSeek V4 Kernels",
+      "canonical_key": "deepseek v4 kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1de-4e57-bdbe-a4fde7fcff5f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 36,
+      "canonical_label": "DeepSeek V4 Kernels",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed",
+      "canonical_key": "distributed",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e172-4512-9e37-2d97ca2413cc&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 3,
+      "canonical_label": "Distributed",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed 2-Node",
+      "canonical_key": "distributed 2-node",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e173-4425-9ce1-5f1b563c4174&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 45,
+      "canonical_label": "Distributed 2-Node",
+      "source_signal": "red",
+      "readiness_signal": "purple",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Comm Ops",
+      "canonical_key": "distributed comm ops",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e176-43eb-9523-150fe6f28857&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 52,
+      "canonical_label": "Distributed Comm Ops",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Compile",
+      "canonical_key": "distributed compile",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e160-4479-b273-99084d962850&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 48,
+      "canonical_label": "Distributed Compile",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Compile + Comm",
+      "canonical_key": "distributed compile + comm",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e176-46bd-b1ac-eeb0141594a7&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 56,
+      "canonical_label": "Distributed Compile + Comm",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Compile + RPC",
+      "canonical_key": "distributed compile + rpc",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e177-4daa-b3bf-9464adb2d986&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 54,
+      "canonical_label": "Distributed Compile + RPC",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed DP + EP",
+      "canonical_key": "distributed dp + ep",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e173-470c-8943-9d1389d165bd&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 57,
+      "canonical_label": "Distributed DP + EP",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed DP Basic",
+      "canonical_key": "distributed dp basic",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e177-46dd-aaa3-0084d44fc104&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 53,
+      "canonical_label": "Distributed DP Basic",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed DP Extended",
+      "canonical_key": "distributed dp extended",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e177-40ea-b7e5-f7be888b73d2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 55,
+      "canonical_label": "Distributed DP Extended",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Features",
+      "canonical_key": "distributed features",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e173-4ad0-be32-31ab5e4d8798&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 87,
+      "canonical_label": "Distributed Features",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed NixlConnector PD accuracy",
+      "canonical_key": "distributed nixlconnector pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16c-44be-a921-9665c9eb02d2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 82,
+      "canonical_label": "Distributed NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Torchrun + Examples",
+      "canonical_key": "distributed torchrun + examples",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e177-44c1-b10e-6873cdc98958&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 2,
+      "canonical_label": "Distributed Torchrun + Examples",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Torchrun + Shutdown",
+      "canonical_key": "distributed torchrun + shutdown",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e178-4a2c-8597-877427a03af9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 1,
+      "canonical_label": "Distributed Torchrun + Shutdown",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "DP EP Distributed NixlConnector PD accuracy",
+      "canonical_key": "dp ep distributed nixlconnector pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16c-4bd6-a62f-5a282d9898ad&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 83,
+      "canonical_label": "DP EP Distributed NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Elastic EP Scaling",
+      "canonical_key": "elastic ep scaling",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e184-4b7a-a5e9-590ec8c528b8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 21,
+      "canonical_label": "Elastic EP Scaling",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "EPLB Execution",
+      "canonical_key": "eplb execution",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e184-434a-9ccb-48fc53277e49&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 6,
+      "canonical_label": "EPLB Execution",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "Extract Hidden States Integration",
+      "canonical_key": "extract hidden states integration",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f8-4ee0-8dbf-4b22ff2597f8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 17,
+      "canonical_label": "Extract Hidden States Integration",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "proposal_matches": []
+    },
+    {
+      "label": "FP8 MoE Kernels",
+      "canonical_key": "fp8 moe kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1de-431e-8bfb-abe064679c19&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 8,
+      "canonical_label": "FP8 MoE Kernels",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "FusedMoE Layer Kernels",
+      "canonical_key": "fusedmoe layer kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1de-423a-9f2b-42a44d7703a6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 39,
+      "canonical_label": "FusedMoE Layer Kernels",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion E2E Config Sweep",
+      "canonical_key": "fusion e2e config sweep",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e160-472a-a2f6-3d64ba03756e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 50,
+      "canonical_label": "Fusion E2E Config Sweep",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion E2E Quick",
+      "canonical_key": "fusion e2e quick",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e161-46ca-80c9-85b9e48c6f23&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 49,
+      "canonical_label": "Fusion E2E Quick",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "GPQA Eval (GPT-OSS)",
+      "canonical_key": "gpqa eval (gpt-oss)",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e9-4b60-ab90-0dec878b22d6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 65,
+      "canonical_label": "GPQA Eval (GPT-OSS)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Helion Kernels Shard %N",
+      "canonical_key": "helion kernels shard %N",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1de-43c2-9e7c-5d8cf06f7d40&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 92,
+      "canonical_label": "Helion Kernels Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [],
+      "shard_count": 2,
+      "shard_states": {
+        "passed": 2
+      },
+      "runtime_shards": [
+        {
+          "label": "Helion Kernels Shard 1",
+          "shard_index": 1,
+          "state": "passed",
+          "queue": "nvidia_h100",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1de-43c2-9e7c-5d8cf06f7d40&tab=output"
+        },
+        {
+          "label": "Helion Kernels Shard 2",
+          "shard_index": 2,
+          "state": "passed",
+          "queue": "nvidia_h100",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1df-40e6-9691-be64a3c0fceb&tab=output"
+        }
+      ]
+    },
+    {
+      "label": "Hybrid SSM NixlConnector PD accuracy",
+      "canonical_key": "hybrid ssm nixlconnector pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16d-4535-a6b1-9834cc1c58ce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 85,
+      "canonical_label": "Hybrid SSM NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Hybrid SSM NixlConnector PD prefix cache",
+      "canonical_key": "hybrid ssm nixlconnector pd prefix cache",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16d-4ca0-a3f4-cee168c847a9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 32,
+      "canonical_label": "Hybrid SSM NixlConnector PD prefix cache",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models",
+      "canonical_key": "lm eval large models",
+      "state": "passed",
+      "queue": "nvidia_h200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ed-4e0c-bf65-f3289b444a2a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 64,
+      "canonical_label": "LM Eval Large Models",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Small Models",
+      "canonical_key": "lm eval small models",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e7-43f8-9a46-15a29a51c9be&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 113,
+      "canonical_label": "LM Eval Small Models",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Metrics, Tracing",
+      "canonical_key": "metrics, tracing",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f8-4cff-a702-25b32226a8e5&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 68,
+      "canonical_label": "Metrics, Tracing",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "MoE Kernels Shard %N",
+      "canonical_key": "moe kernels shard %N",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-43b4-98c1-80cdaf6f6162&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 23,
+      "canonical_label": "MoE Kernels Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": [],
+      "shard_count": 5,
+      "shard_states": {
+        "passed": 5
+      },
+      "runtime_shards": [
+        {
+          "label": "MoE Kernels Shard 1",
+          "shard_index": 1,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-43b4-98c1-80cdaf6f6162&tab=output"
+        },
+        {
+          "label": "MoE Kernels Shard 2",
+          "shard_index": 2,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-4b45-8828-3a2dc309d733&tab=output"
+        },
+        {
+          "label": "MoE Kernels Shard 3",
+          "shard_index": 3,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-4f44-9c15-e5887171d800&tab=output"
+        },
+        {
+          "label": "MoE Kernels Shard 4",
+          "shard_index": 4,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-41a0-93c7-b40cc2514293&tab=output"
+        },
+        {
+          "label": "MoE Kernels Shard 5",
+          "shard_index": 5,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e2-4305-bc40-3448aa7a6118&tab=output"
+        }
+      ]
+    },
+    {
+      "label": "MultiConnector (Nixl+Offloading) PD accuracy",
+      "canonical_key": "multiconnector (nixl+offloading) pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16d-4fbd-9451-c53735dd5a36&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 33,
+      "canonical_label": "MultiConnector (Nixl+Offloading) PD accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "MultiConnector (Nixl+Offloading) PD edge cases",
+      "canonical_key": "multiconnector (nixl+offloading) pd edge cases",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16e-4192-90bc-3203093172a4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 34,
+      "canonical_label": "MultiConnector (Nixl+Offloading) PD edge cases",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "NixlConnector PD + Spec Decode acceptance",
+      "canonical_key": "nixlconnector pd + spec decode acceptance",
+      "state": "passed",
+      "queue": "nvidia_a100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e163-47c6-aa77-1b21b544ef8b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 86,
+      "canonical_label": "NixlConnector PD + Spec Decode acceptance",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Pipeline + Context Parallelism",
+      "canonical_key": "pipeline + context parallelism",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e178-4f8f-a5ae-503e138a9ab9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 4,
+      "canonical_label": "Pipeline + Context Parallelism",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "Plugin Integration",
+      "canonical_key": "plugin integration",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20e-4c3b-b238-46fcf2882dce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 100,
+      "canonical_label": "Plugin Integration",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "PyTorch Compilation Passes",
+      "canonical_key": "pytorch compilation passes",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e210-4e7d-9106-093a2d3becc6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 29,
+      "canonical_label": "PyTorch Compilation Passes",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Quantization Kernels Shard %N",
+      "canonical_key": "quantization kernels shard %N",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-4256-9301-ed4695512243&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 112,
+      "canonical_label": "Quantization Kernels Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [],
+      "shard_count": 6,
+      "shard_states": {
+        "passed": 6
+      },
+      "runtime_shards": [
+        {
+          "label": "Quantization Kernels Shard 1",
+          "shard_index": 1,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-4256-9301-ed4695512243&tab=output"
+        },
+        {
+          "label": "Quantization Kernels Shard 2",
+          "shard_index": 2,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-4aca-99e3-4e04b8642897&tab=output"
+        },
+        {
+          "label": "Quantization Kernels Shard 3",
+          "shard_index": 3,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-4a54-838c-47d2162730fc&tab=output"
+        },
+        {
+          "label": "Quantization Kernels Shard 4",
+          "shard_index": 4,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-44ad-a39e-7a5ae00c1909&tab=output"
+        },
+        {
+          "label": "Quantization Kernels Shard 5",
+          "shard_index": 5,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-4183-9ead-5f575552e5d0&tab=output"
+        },
+        {
+          "label": "Quantization Kernels Shard 6",
+          "shard_index": 6,
+          "state": "passed",
+          "queue": "nvidia_l4",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e3-4202-a1b0-d8c552d3e1b1&tab=output"
+        }
+      ]
+    },
+    {
+      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "canonical_key": "qwen3-30b-a3b-fp8 dp4 async eplb accuracy",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17c-44a3-83f1-d6ecf30842b0&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 35,
+      "canonical_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "canonical_key": "qwen3-30b-a3b-fp8-block sync eplb accuracy",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17c-4e32-b1b3-342f9e6bc5be&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 59,
+      "canonical_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "RayExecutorV2",
+      "canonical_key": "rayexecutorv2",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e178-467f-8d92-2cf1994c2871&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 5,
+      "canonical_label": "RayExecutorV2",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "proposal_matches": []
+    },
+    {
+      "label": "V1 Attention Shard %N",
+      "canonical_key": "v1 attention shard %N",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e141-48ab-ba37-c190ca7c72ef&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 103,
+      "canonical_label": "V1 Attention Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": [],
+      "shard_count": 2,
+      "shard_states": {
+        "passed": 2
+      },
+      "runtime_shards": [
+        {
+          "label": "V1 Attention Shard 1",
+          "shard_index": 1,
+          "state": "passed",
+          "queue": "nvidia_b200",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e141-48ab-ba37-c190ca7c72ef&tab=output"
+        },
+        {
+          "label": "V1 Attention Shard 2",
+          "shard_index": 2,
+          "state": "passed",
+          "queue": "nvidia_b200",
+          "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e144-49a9-ad39-a2bd8bc16748&tab=output"
+        }
+      ]
+    },
+    {
+      "label": "V1 E2E",
+      "canonical_key": "v1 e2e",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17e-4c18-a344-4b7dad0d15e6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 60,
+      "canonical_label": "V1 E2E",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "V1 E2E Hybrid Chunked Prefill",
+      "canonical_key": "v1 e2e hybrid chunked prefill",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17d-41f4-aa0f-23938dab5528&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 62,
+      "canonical_label": "V1 E2E Hybrid Chunked Prefill",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "V1 Engine",
+      "canonical_key": "v1 engine",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09453-0d9f-42fa-a016-759a2786c881&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 104,
+      "canonical_label": "V1 Engine",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": "Weight Loading Multi-GPU",
+      "canonical_key": "weight loading multi-gpu",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e222-46a8-871a-05a34956ec37&tab=output",
+      "exclusion_reasons": [],
+      "decision": "canonical",
+      "target_id": 80,
+      "canonical_label": "Weight Loading Multi-GPU",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Basic Correctness",
+      "canonical_key": ":nvidia: (h200 mig 18gb) basic correctness",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e149-4bdb-96fc-b4dcc89fa5e8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Basic Models (Initialization)",
+      "canonical_key": ":nvidia: (h200 mig 18gb) basic models (initialization)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fc-4959-b733-49b3ca947f97&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Benchmarks CLI",
+      "canonical_key": ":nvidia: (h200 mig 18gb) benchmarks cli",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e14d-4ee4-a79f-015f980adfb9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) BitsAndBytes Plugin",
+      "canonical_key": ":nvidia: (h200 mig 18gb) bitsandbytes plugin",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20d-4016-9337-cad11913bbfa&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) CUDA Platform",
+      "canonical_key": ":nvidia: (h200 mig 18gb) cuda platform",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e15b-45d5-baf6-2c8c32341ae2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) E2E Scheduling",
+      "canonical_key": ":nvidia: (h200 mig 18gb) e2e scheduling",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17d-47bf-a702-2565176be059&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Engine Core",
+      "canonical_key": ":nvidia: (h200 mig 18gb) engine core",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17e-48b1-8d61-d0ece16af374&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) EPLB Algorithm",
+      "canonical_key": ":nvidia: (h200 mig 18gb) eplb algorithm",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e184-4551-ad62-9c3f67041224&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Extract Hidden States Integration",
+      "canonical_key": ":nvidia: (h200 mig 18gb) extract hidden states integration",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f5-4a41-8b60-db561f1345d5&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) GGUF Plugin",
+      "canonical_key": ":nvidia: (h200 mig 18gb) gguf plugin",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20d-4d9f-b461-f5fd979fed9f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Language Models (MTEB)",
+      "canonical_key": ":nvidia: (h200 mig 18gb) language models (mteb)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e201-44bf-b901-1871e1e04e2c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Language Models (PPL)",
+      "canonical_key": ":nvidia: (h200 mig 18gb) language models (ppl)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e202-4beb-a4c4-25fa9c28b7f4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Language Models (Standard)",
+      "canonical_key": ":nvidia: (h200 mig 18gb) language models (standard)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e202-4153-8b57-a9d2295000b9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) LM Eval TurboQuant KV Cache",
+      "canonical_key": ":nvidia: (h200 mig 18gb) lm eval turboquant kv cache",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ec-4720-9f74-b0969bfcd15b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Models (Extended Pooling)",
+      "canonical_key": ":nvidia: (h200 mig 18gb) multimodal models (extended pooling)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e209-4331-8ed6-3850aa3cbda6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Models (Standard) 1: qwen2",
+      "canonical_key": ":nvidia: (h200 mig 18gb) multimodal models (standard) 1: qwen2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e209-43e8-8adf-4461d46e69ba&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Models (Standard) 2: qwen3 + gemma",
+      "canonical_key": ":nvidia: (h200 mig 18gb) multimodal models (standard) 2: qwen3 + gemma",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e209-4b78-8b71-b8f24f1cfde4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Multimodal Processor",
+      "canonical_key": ":nvidia: (h200 mig 18gb) multimodal processor",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e209-4cef-b205-c586764a3ecf&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) OpenAI API Correctness",
+      "canonical_key": ":nvidia: (h200 mig 18gb) openai api correctness",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17f-4f50-b850-2632097f1bab&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Python-only Installation",
+      "canonical_key": ":nvidia: (h200 mig 18gb) python-only installation",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f5-48ca-9279-3d1d450e09c8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) PyTorch Compilation H100 Cases",
+      "canonical_key": ":nvidia: (h200 mig 18gb) pytorch compilation h100 cases",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20f-4cbd-aba7-13f1426e8c36&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) PyTorch Nightly Dependency Override Check",
+      "canonical_key": ":nvidia: (h200 mig 18gb) pytorch nightly dependency override check",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e210-41b1-820b-e44139e6e987&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Ray Dependency Compatibility Check",
+      "canonical_key": ":nvidia: (h200 mig 18gb) ray dependency compatibility check",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e214-41f4-93ac-a54e28a39957&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Regression",
+      "canonical_key": ":nvidia: (h200 mig 18gb) regression",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f5-4803-bbd0-665811173c36&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Spec Decode Draft Model",
+      "canonical_key": ":nvidia: (h200 mig 18gb) spec decode draft model",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21b-4358-877f-c9be7e9f0366&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) V1 Logits + Oracle",
+      "canonical_key": ":nvidia: (h200 mig 18gb) v1 logits + oracle",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f5-4cdd-b9dd-4d05c417d957&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) V1 Sample",
+      "canonical_key": ":nvidia: (h200 mig 18gb) v1 sample",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f6-4671-ba59-6f6538c3c8ce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) vLLM IR",
+      "canonical_key": ":nvidia: (h200 mig 18gb) vllm ir",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1df-466f-ab2f-4c7885eaea7d&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Acceptance Length (Large Models)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) acceptance length (large models)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f6-4d8d-b1c6-81a83d431a6d&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Async Engine, Inputs, Utils, Worker",
+      "canonical_key": ":nvidia: (h200 mig 35gb) async engine, inputs, utils, worker",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f6-4898-a59d-16eb752a49fe&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fc-472f-87eb-cfbfe76d691c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 10",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 10",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fe-4d95-8034-638a26799e7d&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 11",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 11",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fe-437e-b8b2-6da13b22bfae&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 12",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 12",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fe-41c7-bcf3-f5ac58076025&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 13",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 13",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fe-44dd-9992-8a31f714c9e8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 14",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 14",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fe-473a-83da-2c19fc45eb13&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fc-4d2b-bbe9-f757b721eb05&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 3",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-4196-86b3-c324e2a1c743&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 4",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 4",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-4ede-af64-36c100cc497b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 5",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 5",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-419f-87ca-3172a3700796&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 6",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 6",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-4832-842a-61085c16ba7b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 7",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 7",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-4471-a6fd-aa676f538c2c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 8",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 8",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-4b53-b430-e13d497de02c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard 9",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (extra initialization) shard 9",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fd-407b-ae1b-d61b3bc42514&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Basic Models (Other)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) basic models (other)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fe-4705-a147-64526269c15e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Core Operation Kernels Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) core operation kernels shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e0-41c5-8cec-9691b3784f99&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Core Operation Kernels Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) core operation kernels shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e0-48fe-9224-fe5e96ffdff5&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Core Operation Kernels Shard 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) core operation kernels shard 3",
+      "state": "failed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e0-4946-b2c6-4f5e32ef41de&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) CUDAGraph",
+      "canonical_key": ":nvidia: (h200 mig 35gb) cudagraph",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e15b-42f8-8368-2320eeeed9e8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) E2E Core",
+      "canonical_key": ":nvidia: (h200 mig 35gb) e2e core",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e17e-490b-81e4-40bba155b6ba&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server Generate)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server generate)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e180-41eb-8d06-28639bf16808&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server OpenAI - Part 1)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server openai - part 1)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e180-42ce-8659-3752970d5bfb&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server OpenAI - Part 2)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server openai - part 2)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e180-4ecc-8fc0-37bd4f45c26b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server) 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server) 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e181-4f67-92ce-858d606f0941&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server) 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server) 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e181-4058-a198-7e73771ce1fe&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server) 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server) 3",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e181-41c3-a941-67bbbf8456f1&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server) 4",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (api server) 4",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e181-487a-bcb6-9cbb253dbf08&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (LLM)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (llm)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e181-42dc-b547-e85275e13c27&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Multimodal)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (multimodal)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e181-48d2-b07d-cd8d7c067155&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Pooling)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (pooling)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e182-48f5-9142-b8c4b05fb424&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Responses API)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (responses api)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e182-4d1b-b4d8-62f67052a722&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Speech to Text)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints integration (speech to text)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e182-4151-a6ca-5fefa159f402&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Entrypoints Unit",
+      "canonical_key": ":nvidia: (h200 mig 35gb) entrypoints unit",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e183-4b5c-b9d8-5edebc01ca6f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Examples",
+      "canonical_key": ":nvidia: (h200 mig 35gb) examples",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f7-46e1-98fa-b974266b5180&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Generation)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extended generation)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e202-419d-906a-d7d248ba257f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Pooling) Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extended pooling) shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e203-46d7-b781-b46cf5d36b47&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Pooling) Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extended pooling) shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e203-4e3b-9cc8-06a92c18c15a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Pooling) Shard 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extended pooling) shard 3",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e203-4986-871e-03cbba1ce2cb&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extended Pooling) Shard 4",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extended pooling) shard 4",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e203-46d9-8c53-44e22afca47e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extra Standard) Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extra standard) shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e203-4ce8-8b3b-ee473d4e4b12&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Extra Standard) Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (extra standard) shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e203-4795-b013-113276d8f2d6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Hybrid) Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (hybrid) shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e204-4d8e-97ab-5dbd9ebb5d73&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Language Models (Hybrid) Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) language models (hybrid) shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e204-4fcc-9e84-c3b95243e1ab&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) LM Eval KV-Offload",
+      "canonical_key": ":nvidia: (h200 mig 35gb) lm eval kv-offload",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ec-4460-94c0-9ad2bc63c5e2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) LM Eval Small Models",
+      "canonical_key": ":nvidia: (h200 mig 35gb) lm eval small models",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ec-4ff5-8314-e2a41733ce7b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) LoRA Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) lora shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ef-4e4a-9d90-19fbbff34e7c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) LoRA Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) lora shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ef-4fd9-981a-ed46e825b1de&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) LoRA Shard 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) lora shard 3",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ef-475e-8efe-7d04992a92af&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) LoRA Shard 4",
+      "canonical_key": ":nvidia: (h200 mig 35gb) lora shard 4",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f0-4b76-9fd3-ae7e4cf23b10&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Mamba Kernels",
+      "canonical_key": ":nvidia: (h200 mig 35gb) mamba kernels",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e0-4e2d-9e0f-702287896f7f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Model Executor",
+      "canonical_key": ":nvidia: (h200 mig 35gb) model executor",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f9-40f2-8b12-9421610710b4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) MRCR Eval Small Models",
+      "canonical_key": ":nvidia: (h200 mig 35gb) mrcr eval small models",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ed-4155-a484-818c9d666ebd&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Accuracy Eval (Small Models)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal accuracy eval (small models)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20a-4b3f-ba6b-87fa938c26c0&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 1)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (extended generation 1)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20a-4351-95e0-f4722cb820b8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 2) Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (extended generation 2) shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20a-432e-b655-da329328b2ce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 2) Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (extended generation 2) shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20a-4c47-bd7f-4a86ae1a0175&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 2) Shard 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (extended generation 2) shard 3",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20a-453a-86c6-a91e1080733d&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 2) Shard 4",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (extended generation 2) shard 4",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20b-4d9f-a13b-e0ea0ee6ae53&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 3)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (extended generation 3)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20b-4525-affb-32b17e4a986a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (PPL)",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (ppl)",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20b-4877-b0a7-d28eba8b9ad4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Standard) 3: llava + qwen2_vl",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (standard) 3: llava + qwen2_vl",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20b-4c78-b1e1-73e34ccf94db&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Multimodal Models (Standard) 4: other + whisper",
+      "canonical_key": ":nvidia: (h200 mig 35gb) multimodal models (standard) 4: other + whisper",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20c-4bee-a709-c3cb7d41097d&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) No Runtime JITs E2E",
+      "canonical_key": ":nvidia: (h200 mig 35gb) no runtime jits e2e",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d7-45fb-915b-e9ddb50f20b8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) PyTorch Compilation",
+      "canonical_key": ":nvidia: (h200 mig 35gb) pytorch compilation",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e210-412d-8b2d-fb025722ae8a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) PyTorch Fullgraph",
+      "canonical_key": ":nvidia: (h200 mig 35gb) pytorch fullgraph",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e210-4377-8d81-f2ce873bf5ce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Quantization Shard 1",
+      "canonical_key": ":nvidia: (h200 mig 35gb) quantization shard 1",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e212-40f5-9d45-cb8f41d2d2f0&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Quantization Shard 2",
+      "canonical_key": ":nvidia: (h200 mig 35gb) quantization shard 2",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e212-449d-b3d0-9d56312dced0&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Quantization Shard 3",
+      "canonical_key": ":nvidia: (h200 mig 35gb) quantization shard 3",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e212-4608-9672-078c76c5ae4e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Quantization Shard 4",
+      "canonical_key": ":nvidia: (h200 mig 35gb) quantization shard 4",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e212-442c-9a21-5d4bf43b94f8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Quantized Fusions",
+      "canonical_key": ":nvidia: (h200 mig 35gb) quantized fusions",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e213-4403-9821-d4f00b5911d1&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Quantized Models",
+      "canonical_key": ":nvidia: (h200 mig 35gb) quantized models",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e213-422f-9951-35b6db9e5ade&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Samplers",
+      "canonical_key": ":nvidia: (h200 mig 35gb) samplers",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e218-40a2-8be1-180242021a0c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode AL DFlash Nightly",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode al dflash nightly",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21b-4775-867a-88bbc89cfb74&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode AL DSpark Nightly",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode al dspark nightly",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21b-4258-99f5-5fb58988708e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode AL MTP + Other Acceptance Nightly",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode al mtp + other acceptance nightly",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21b-4948-95e5-d5eef77a1de2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode Eagle 1: DeepSeek + Qwen",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode eagle 1: deepseek + qwen",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21c-4338-a27d-a34dbfaa6cd4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode Eagle 2: Llama 3 + Qwen VL + Other",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode eagle 2: llama 3 + qwen vl + other",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21c-4fab-8ef2-4fa18e546d11&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode N-Gram + Suffix",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode n-gram + suffix",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21c-485f-aad5-dcbe3f7cbf04&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Spec Decode Speculators + MTP",
+      "canonical_key": ":nvidia: (h200 mig 35gb) spec decode speculators + mtp",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21d-443d-bcbe-1fae99635e85&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) V1 Core",
+      "canonical_key": ":nvidia: (h200 mig 35gb) v1 core",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f7-4fb3-947a-673646a17e83&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) V1 Executor + Worker",
+      "canonical_key": ":nvidia: (h200 mig 35gb) v1 executor + worker",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f7-49b1-9666-de8e7c8e7270&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) V1 KV Connectors",
+      "canonical_key": ":nvidia: (h200 mig 35gb) v1 kv connectors",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f7-405a-af49-59a204c68600&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) V1 KV Offload",
+      "canonical_key": ":nvidia: (h200 mig 35gb) v1 kv offload",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f7-4d1a-8057-627c1bc35d83&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) V1 Metrics + LM Eval",
+      "canonical_key": ":nvidia: (h200 mig 35gb) v1 metrics + lm eval",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f8-4de5-8b5a-a668edea229b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) V1 Spec Decode",
+      "canonical_key": ":nvidia: (h200 mig 35gb) v1 spec decode",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21d-4ded-a030-c207e129531b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "AsyncTP Correctness",
+      "canonical_key": "asynctp correctness",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e15f-416e-9951-68c43fa53952&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "BitsAndBytes Plugin",
+      "canonical_key": "bitsandbytes plugin",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e20e-44ca-92d1-8247873d383c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "DeepGEMM Kernels",
+      "canonical_key": "deepgemm kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1dd-4cb0-a6ba-dd41cb056e7a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed FlashInfer NixlConnector PD accuracy",
+      "canonical_key": "distributed flashinfer nixlconnector pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16c-4ece-83ba-b134fcf54e01&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Models Shard 1",
+      "canonical_key": "distributed models shard 1",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e200-4f4b-ab51-204f7c9fc8e1&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Models Shard 2",
+      "canonical_key": "distributed models shard 2",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e200-4435-91d8-bbde889074dd&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed Models Shard 3",
+      "canonical_key": "distributed models shard 3",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e200-4d56-8d6d-cbbf7df1b3c9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Distributed MooncakeConnector PD accuracy",
+      "canonical_key": "distributed mooncakeconnector pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e170-47cb-af79-bb2c8a532d8a&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "DSv4-Flash Disaggregated DP EP",
+      "canonical_key": "dsv4-flash disaggregated dp ep",
+      "state": "passed",
+      "queue": "nvidia_h200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e166-4b12-baba-bb06c1df5ff4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Fault Tolerance E2E",
+      "canonical_key": "fault tolerance e2e",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e185-4f63-a9f2-a45bd01a56a4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "FP4 MoE Kernels",
+      "canonical_key": "fp4 moe kernels",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d8-4919-9ce1-b0aebc944f98&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion and Compile",
+      "canonical_key": "fusion and compile",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e160-4922-9d3d-f9f7a99bb1ac&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion E2E TP2",
+      "canonical_key": "fusion e2e tp2",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e160-47aa-b2ac-bb6284123d13&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion E2E TP2 AR-RMS Config Sweep",
+      "canonical_key": "fusion e2e tp2 ar-rms config sweep",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e161-4206-9618-33d1814925d4&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion E2E TP2 AsyncTP Config Sweep",
+      "canonical_key": "fusion e2e tp2 asynctp config sweep",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e161-445c-9b24-955600fc5470&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Fusion E2E TP2 Quick",
+      "canonical_key": "fusion e2e tp2 quick",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e162-4b8c-b609-a97aaa52a7ae&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "GH200 Test",
+      "canonical_key": "gh200 test",
+      "state": "soft_fail",
+      "queue": "gh200_queue",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e18a-4c06-9fd8-f8170e31af1f&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "GLM5Next",
+      "canonical_key": "glm5next",
+      "state": "passed",
+      "queue": "nvidia_h200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ff-4752-8b94-83ea48ead05e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Granite Language Model Compatibility",
+      "canonical_key": "granite language model compatibility",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e204-4ec5-ae58-87bf4530ead6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Inkling",
+      "canonical_key": "inkling",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fc-420e-a9ab-cafda89dee62&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kernels Shard 1",
+      "canonical_key": "kernels shard 1",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d9-4808-9ad5-908c9394bbf8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kernels Shard 2",
+      "canonical_key": "kernels shard 2",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d9-4838-95ed-8f788a5cd99c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kernels Shard 3",
+      "canonical_key": "kernels shard 3",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d9-46c5-9a7a-44255ff49d8b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kimi K3",
+      "canonical_key": "kimi k3",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fc-4573-b72c-a25d28b3c3ec&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kimi-K3 GEMM-RS/AR",
+      "canonical_key": "kimi-k3 gemm-rs/ar",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e173-4d69-81e9-5ef8c49e83c3&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Kimi-Linear-48B-A3B Disaggregated DP EP",
+      "canonical_key": "kimi-linear-48b-a3b disaggregated dp ep",
+      "state": "failed",
+      "queue": "nvidia_h200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e169-4975-bce0-14e5f97355c1&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval KV-Offload Large",
+      "canonical_key": "lm eval kv-offload large",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ea-4a6f-ac59-0554d21d43d6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval KV-Offload Medium",
+      "canonical_key": "lm eval kv-offload medium",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1eb-46ab-bf76-b388d7055f25&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Large Models EP",
+      "canonical_key": "lm eval large models ep",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e6-41fa-bd98-b1cd654c10dd&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval PCP",
+      "canonical_key": "lm eval pcp",
+      "state": "failed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e6-4260-8d53-2cb05fc7a2bb&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Qwen3.5 Models",
+      "canonical_key": "lm eval qwen3.5 models",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e7-426b-9121-44ab6382fcce&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Small Models Distributed",
+      "canonical_key": "lm eval small models distributed",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e7-4b6f-bba5-a59fd21d7c0b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LM Eval Spec Decode",
+      "canonical_key": "lm eval spec decode",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e7-475b-9958-c8c5e4a70267&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LoRA TP (Distributed) 1",
+      "canonical_key": "lora tp (distributed) 1",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f0-4545-ba22-9e363266aebe&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LoRA TP (Distributed) 2",
+      "canonical_key": "lora tp (distributed) 2",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f0-47f7-b001-9fff77c48ca6&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LoRA TP (Distributed) 3",
+      "canonical_key": "lora tp (distributed) 3",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f0-4ded-87b5-0c7a86c46301&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "LoRA TP (Distributed) 4",
+      "canonical_key": "lora tp (distributed) 4",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f0-49ca-9213-1b38e152b5f3&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "MiniMax Reduce RMS Kernels",
+      "canonical_key": "minimax reduce rms kernels",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1df-4abf-8d28-22e4dc8cf0c8&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "passed",
+        "jobs": [
+          {
+            "label": "MiniMax Reduce RMS Kernels",
+            "state": "passed",
+            "queue": "amd_mi300_2",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/12902/steps/canvas?jid=01a09a00-0dce-4292-8e31-d629efe48f5e&tab=output"
+          },
+          {
+            "label": "MiniMax Reduce RMS Kernels",
+            "state": "passed",
+            "queue": "amd_mi355_2",
+            "url": "https://buildkite.com/vllm/amd-ci/builds/12902/steps/canvas?jid=01a09a00-0df2-4899-b2d5-2d7922a354ac&tab=output"
+          }
+        ]
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Miscellaneous Kernels",
+      "canonical_key": "miscellaneous kernels",
+      "state": "failed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d9-409c-aa28-6de04f2f3ae2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "MLA Kernel Test",
+      "canonical_key": "mla kernel test",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1df-4c07-8e7c-7117c5dcbf70&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Mooncake EC TCP E2E",
+      "canonical_key": "mooncake ec tcp e2e",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e171-4b32-bdde-1b86c5f09424&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "NixlConnector PD edge case",
+      "canonical_key": "nixlconnector pd edge case",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16e-48f9-a034-52bc730097c0&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Push NixlConnector PP prefill PD accuracy",
+      "canonical_key": "push nixlconnector pp prefill pd accuracy",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16e-43ee-ab40-730cdcab40ee&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "PyTorch Fullgraph CUDAGraph Compatibility",
+      "canonical_key": "pytorch fullgraph cudagraph compatibility",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e211-406f-bdd2-00ce3a81836e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Quantized MoE",
+      "canonical_key": "quantized moe",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e212-4b28-8eec-db3cf404460e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Qwen3.8-Flash-Next-FP8 Accuracy Eval",
+      "canonical_key": "qwen3.8-flash-next-fp8 accuracy eval",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e8-408c-b9f0-b6a4c57ce63b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Qwen4 Exp",
+      "canonical_key": "qwen4 exp",
+      "state": "passed",
+      "queue": "nvidia_h200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ff-4973-8fe2-1de1b2c076ae&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Scale-out EC Connector E2E",
+      "canonical_key": "scale-out ec connector e2e",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e16f-4f9f-898a-917ced6e6465&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Sequence Parallel Correctness",
+      "canonical_key": "sequence parallel correctness",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e160-4929-9e51-62276ce9a45b&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Sharded RDT Weight Transfer",
+      "canonical_key": "sharded rdt weight transfer",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e178-4c11-aa7a-798c1e68c6d2&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Spec Decode DeepSeek MTP Parallel Load",
+      "canonical_key": "spec decode deepseek mtp parallel load",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e219-47a7-a64a-4baf1f0e6ad5&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Spec Decode Draft Model Nightly",
+      "canonical_key": "spec decode draft model nightly",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21a-4da3-be1a-5a1519892a72&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Spec Decode Eagle Nightly",
+      "canonical_key": "spec decode eagle nightly",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21a-4221-a482-e8c1d78b8ed9&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Spec Decode Speculators + MTP Nightly",
+      "canonical_key": "spec decode speculators + mtp nightly",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21a-4045-bf73-64ed3698ba0c&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Speculators Correctness Nightly",
+      "canonical_key": "speculators correctness nightly",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21b-498e-b44a-879f5188827e&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": "Torch Stable ABI Audit",
+      "canonical_key": "torch stable abi audit",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e21e-4314-ba35-513b18982ba5&tab=output",
+      "exclusion_reasons": [],
+      "decision": "new_candidate",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "unknown",
+      "internal_signal": {
+        "state": "not_observed",
+        "jobs": []
+      },
+      "proposal_matches": []
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Rust Frontend Core Correctness",
+      "canonical_key": ":nvidia: (h200 mig 18gb) rust frontend core correctness",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e216-4add-a5c1-65a8444ffe26&tab=output",
+      "exclusion_reasons": [
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Rust Frontend OpenAI Coverage",
+      "canonical_key": ":nvidia: (h200 mig 18gb) rust frontend openai coverage",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e216-4499-9fa1-f668157fe91a&tab=output",
+      "exclusion_reasons": [
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": ":nvidia: (H200 MIG 18GB) Rust Frontend Serve/Admin Coverage",
+      "canonical_key": ":nvidia: (h200 mig 18gb) rust frontend serve/admin coverage",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_18gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e217-4b21-8b75-e51bcec55a33&tab=output",
+      "exclusion_reasons": [
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": ":nvidia: (H200 MIG 35GB) Rust Frontend Tool Use",
+      "canonical_key": ":nvidia: (h200 mig 35gb) rust frontend tool use",
+      "state": "passed",
+      "queue": "nvidia_h200_mig_35gb",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e217-4256-b1c8-5b9eeeaa4c33&tab=output",
+      "exclusion_reasons": [
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": ":satellite: Report nightly results to CRCR",
+      "canonical_key": ":satellite: report nightly results to crcr",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e157-4a27-b642-e72c359cda7f&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Arm CPU Test Shard 1",
+      "canonical_key": "arm cpu test shard 1",
+      "state": "failed",
+      "queue": "arm-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e14e-4288-9cc8-b203a0ec379a&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Arm CPU Test Shard 2",
+      "canonical_key": "arm cpu test shard 2",
+      "state": "passed",
+      "queue": "arm-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e151-49e4-98dc-8344b8a901d5&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Arm CPU Test Shard 3",
+      "canonical_key": "arm cpu test shard 3",
+      "state": "passed",
+      "queue": "arm-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e151-4de0-b872-b40e1eedb023&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Ascend NPU Test",
+      "canonical_key": "ascend npu test",
+      "state": "soft_fail",
+      "queue": "ascend",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e186-4c6d-b782-352151e9ef46&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Basic Models Other",
+      "canonical_key": "basic models other",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fb-4fef-af81-3d3ec6d5f9f9&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Distributed Tests (DP+TP)",
+      "canonical_key": "cpu-distributed test (dp+tp)",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e151-401c-8333-beb475c6969e&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Distributed Tests (PP+TP)",
+      "canonical_key": "cpu-distributed test (pp+tp)",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e154-4236-9374-35079b3aa3f4&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Kernel Tests Shard 1",
+      "canonical_key": "cpu-kernel test shard 1",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e154-4146-916f-8d83178e2557&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Kernel Tests Shard 2",
+      "canonical_key": "cpu-kernel test shard 2",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e155-4ae0-97d9-da2b6135c6e9&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Language Generation and Pooling Model Tests Shard 1",
+      "canonical_key": "cpu-language generation and pooling model test shard 1",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e155-4d8d-83d4-6e52ff9ebf9d&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Language Generation and Pooling Model Tests Shard 2",
+      "canonical_key": "cpu-language generation and pooling model test shard 2",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e155-43a8-8f04-0348b6532b34&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Language Generation and Pooling Model Tests Shard 3",
+      "canonical_key": "cpu-language generation and pooling model test shard 3",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e155-4a91-9347-c46106eec8a6&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Multi-Modal Model Tests 1",
+      "canonical_key": "cpu-multi-modal model test 1",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e155-4128-8e52-b4a2b27068b9&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Multi-Modal Model Tests 2",
+      "canonical_key": "cpu-multi-modal model test 2",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e156-4c36-b46b-87e5d05218fd&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Multi-Modal Model Tests 3",
+      "canonical_key": "cpu-multi-modal model test 3",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e156-477b-abf3-a0f4913a0a3a&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Multi-Modal Model Tests 4",
+      "canonical_key": "cpu-multi-modal model test 4",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e156-49ec-81e0-e1649758f3f7&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Quantization Model Tests",
+      "canonical_key": "cpu-quantization model test",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e156-4252-bb0b-2f44401a35c7&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "CPU-Qwen2.5-VL Multimodal Tests",
+      "canonical_key": "cpu-qwen2.5-vl multimodal test",
+      "state": "passed",
+      "queue": "intel-cpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e156-4ae5-a11a-1f65f7ff37c1&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Docker Build Metadata",
+      "canonical_key": "docker build metadata",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e179-4eed-baee-6ead36023f17&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu",
+        "docker_metadata_review"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Intel HPU Test",
+      "canonical_key": "intel hpu test",
+      "state": "passed",
+      "queue": "intel-hpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e18d-4236-b490-2c84b9d24048&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming Activation FP8/INT8 TEMPORARY",
+      "canonical_key": "lm eval humming activation fp8/int8 temporary",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e6-4ce8-9ac0-cf9608ce3ea2&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming Activation FP8/INT8 TEMPORARY",
+      "canonical_key": "lm eval humming activation fp8/int8 temporary",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e9-426e-875b-765f415dcb72&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming Activation INT8 TEMPORARY",
+      "canonical_key": "lm eval humming activation int8 temporary",
+      "state": "passed",
+      "queue": "nvidia_a100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e4-4b62-bb63-29c299008cf0&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY",
+      "canonical_key": "lm eval humming fp16 temporary",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e6-4918-8640-82e8b7d75b86&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY Shard 1",
+      "canonical_key": "lm eval humming fp16 temporary shard 1",
+      "state": "failed",
+      "queue": "nvidia_a100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e5-4f04-91f5-952c0addaac5&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY Shard 1",
+      "canonical_key": "lm eval humming fp16 temporary shard 1",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ea-4a67-91b1-610217e45ca2&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY Shard 2",
+      "canonical_key": "lm eval humming fp16 temporary shard 2",
+      "state": "passed",
+      "queue": "nvidia_a100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e5-4dab-8146-e0dbc962a0b0&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY Shard 2",
+      "canonical_key": "lm eval humming fp16 temporary shard 2",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ea-434a-b457-ad1ea7a5c1b2&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY Shard 3",
+      "canonical_key": "lm eval humming fp16 temporary shard 3",
+      "state": "passed",
+      "queue": "nvidia_a100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e5-40f3-adc5-24e6006be075&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "LM Eval Humming FP16 TEMPORARY Shard 3",
+      "canonical_key": "lm eval humming fp16 temporary shard 3",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1ea-4d88-8441-831764948009&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor DP Integration TEMPORARY",
+      "canonical_key": "moe refactor dp integration temporary",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e8-428c-ab89-0585b82700ab&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration TEMPORARY",
+      "canonical_key": "moe refactor integration temporary",
+      "state": "passed",
+      "queue": "nvidia_h100",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1eb-4caa-b237-7b78be61f0a1&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration TEMPORARY Shard 1",
+      "canonical_key": "moe refactor integration temporary shard 1",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e8-4f41-8691-da2f9f75801a&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration TEMPORARY Shard 2",
+      "canonical_key": "moe refactor integration temporary shard 2",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e8-403e-9c3b-b5f718fc82ba&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration TEMPORARY Shard 3",
+      "canonical_key": "moe refactor integration temporary shard 3",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e8-41b8-ae0a-a6d676ec7d1c&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "MoE Refactor Integration TEMPORARY Shard 4",
+      "canonical_key": "moe refactor integration temporary shard 4",
+      "state": "passed",
+      "queue": "nvidia_b200",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e8-4f25-8d64-87a3c3bdb65d&tab=output",
+      "exclusion_reasons": [
+        "temporary"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Multimodal + Config",
+      "canonical_key": "multimodal + config",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f2-4049-8f9c-587190b8c85b&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Multimodal Processor Shard 1",
+      "canonical_key": "multimodal processor shard 1",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e205-4f85-9d7e-de96c39b8cf1&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Multimodal Processor Shard 2",
+      "canonical_key": "multimodal processor shard 2",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e208-4f80-9e6c-50daf3cccd93&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Multimodal Processor Shard 3",
+      "canonical_key": "multimodal processor shard 3",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e208-4cc5-b081-2f8158f9786f&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Multimodal Processor Shard 4",
+      "canonical_key": "multimodal processor shard 4",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e208-48cd-a032-86f550643188&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Params, Env, Tokenizers, Parser",
+      "canonical_key": "params, env, tokenizers, parser",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f2-4d12-a235-e2b51d2a095d&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Qwen4 Exp",
+      "canonical_key": "qwen4 exp",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1fb-4150-b511-b596db61c3df&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Reasoning + Renderers",
+      "canonical_key": "reasoning + renderers",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f3-445b-bfb8-3f77ec731728&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Rust Frontend Cargo",
+      "canonical_key": "rust frontend cargo",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e215-4baf-aea0-e001cfc6589e&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu",
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Rust Frontend Cargo Style + Clippy",
+      "canonical_key": "rust frontend cargo style + clippy",
+      "state": "passed",
+      "queue": "medium_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e215-4c78-b243-cc9b01bbe8ad&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu",
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Rust Frontend Distributed",
+      "canonical_key": "rust frontend distributed",
+      "state": "passed",
+      "queue": "nvidia_l4",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e217-4be5-b9c6-0d39b58d0156&tab=output",
+      "exclusion_reasons": [
+        "rust_frontend_long_term"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Spark b12x Linear Kernels Nightly",
+      "canonical_key": "spark b12x linear kernels nightly",
+      "state": "passed",
+      "queue": "nvidia_dgx",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1da-425d-afa2-e5341643d195&tab=output",
+      "exclusion_reasons": [
+        "not_gpu_like"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Spark GPQA Eval (GPT-OSS)",
+      "canonical_key": "spark gpqa eval (gpt-oss)",
+      "state": "passed",
+      "queue": "nvidia_dgx",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1e9-4f76-a5ed-1d222ed862bb&tab=output",
+      "exclusion_reasons": [
+        "not_gpu_like"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "Tool Parsers",
+      "canonical_key": "tool parsers",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f3-4d8c-a8a4-b7e6ee4b0f81&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "V1 Others",
+      "canonical_key": "v1 others",
+      "state": "passed",
+      "queue": "small_cpu_queue_premerge",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1f4-445a-a362-687ae6396c31&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU compressed tensors FP8 test",
+      "canonical_key": "xpu compressed tensors fp8 test",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d5-45f8-97fd-51d1d633420a&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU example Test",
+      "canonical_key": "xpu example test",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d5-4167-81d3-5d1c86fbc0b8&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU Graph",
+      "canonical_key": "xpu graph",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d1-48f8-9bfa-d1e80c835cd2&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU quantization test",
+      "canonical_key": "xpu quantization test",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d5-4833-8e66-4186e8de58e0&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU server test",
+      "canonical_key": "xpu server test",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d6-4de0-84ac-adec00e1eceb&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU V1 test",
+      "canonical_key": "xpu v1 test",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d4-4c02-9306-8336a28617f0&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "label": "XPU W8A8 FP8 Linear Examples",
+      "canonical_key": "xpu w8a8 fp8 linear examples",
+      "state": "passed",
+      "queue": "intel-gpu",
+      "url": "https://buildkite.com/vllm/ci/builds/88482/steps/canvas?jid=01a09435-e1d5-416a-aa74-e1ababb737df&tab=output",
+      "exclusion_reasons": [
+        "cpu_or_non_gpu"
+      ],
+      "decision": "excluded"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 7,
+      "label": "Core Operation Kernels Shard %N",
+      "canonical_key": "core operation kernels shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 9,
+      "label": "LoRA TP (Distributed)",
+      "canonical_key": "lora tp (distributed)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 10,
+      "label": "Basic Models (Initialization)",
+      "canonical_key": "basic models (initialization)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 11,
+      "label": "Basic Models (Other)",
+      "canonical_key": "basic models (other)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 12,
+      "label": "Distributed Models",
+      "canonical_key": "distributed models",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 13,
+      "label": "Language Models (Extra Standard) Shard %N",
+      "canonical_key": "language models (extra standard) shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 14,
+      "label": "PyTorch Fullgraph",
+      "canonical_key": "pytorch fullgraph",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 15,
+      "label": "Entrypoints Integration (Speech to Text)",
+      "canonical_key": "entrypoints integration (speech to text)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 16,
+      "label": "Entrypoints Integration (Pooling)",
+      "canonical_key": "entrypoints integration (pooling)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 18,
+      "label": "Basic Correctness",
+      "canonical_key": "basic correctness",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 20,
+      "label": "E2E Core",
+      "canonical_key": "e2e core",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 25,
+      "label": "LoRA Shard %N",
+      "canonical_key": "lora shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 26,
+      "label": "V1 Core + KV + Metrics",
+      "canonical_key": "v1 core + kv + metrics",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 27,
+      "label": "Basic Models (Extra Initialization) Shard %N",
+      "canonical_key": "basic models (extra initialization) shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 28,
+      "label": "Multimodal Models (Standard) 4: other + whisper",
+      "canonical_key": "multimodal models (standard) 4: other + whisper",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 30,
+      "label": "Quantization",
+      "canonical_key": "quantization",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 31,
+      "label": "Spec Decode Eagle",
+      "canonical_key": "spec decode eagle",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 38,
+      "label": "Kernels KDA Test",
+      "canonical_key": "kernels kda test",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 40,
+      "label": "LM Eval TurboQuant KV Cache",
+      "canonical_key": "lm eval turboquant kv cache",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 41,
+      "label": "MRCR Eval Small Models",
+      "canonical_key": "mrcr eval small models",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 42,
+      "label": "Extract Hidden States Integration (2 GPUs)",
+      "canonical_key": "extract hidden states integration (2 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 43,
+      "label": "GGUF Plugin",
+      "canonical_key": "gguf plugin",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 44,
+      "label": "Quantized Fusions",
+      "canonical_key": "quantized fusions",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 46,
+      "label": "Benchmarks CLI",
+      "canonical_key": "benchmarks cli",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 51,
+      "label": "CUDA Platform",
+      "canonical_key": "cuda platform",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 61,
+      "label": "V1 e2e (4 GPUs)",
+      "canonical_key": "v1 e2e (4 gpus)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 63,
+      "label": "EPLB Algorithm",
+      "canonical_key": "eplb algorithm",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 66,
+      "label": "Regression",
+      "canonical_key": "regression",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 67,
+      "label": "Examples",
+      "canonical_key": "examples",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 69,
+      "label": "Async Engine, Inputs, Utils, Worker",
+      "canonical_key": "async engine, inputs, utils, worker",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 71,
+      "label": "Acceptance Length (Large Models)",
+      "canonical_key": "acceptance length (large models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 72,
+      "label": "Model Executor",
+      "canonical_key": "model executor",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 73,
+      "label": "Language Models (Extended Generation)",
+      "canonical_key": "language models (extended generation)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 74,
+      "label": "Language Models (PPL)",
+      "canonical_key": "language models (ppl)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 75,
+      "label": "Multimodal Accuracy Eval (Small Models)",
+      "canonical_key": "multimodal accuracy eval (small models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 76,
+      "label": "PyTorch Compilation",
+      "canonical_key": "pytorch compilation",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 77,
+      "label": "PyTorch Fullgraph Smoke Test",
+      "canonical_key": "pytorch fullgraph smoke test",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 78,
+      "label": "PyTorch Nightly Dependency Override Check",
+      "canonical_key": "pytorch nightly dependency override check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 79,
+      "label": "Ray Dependency Compatibility Check",
+      "canonical_key": "ray dependency compatibility check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 81,
+      "label": "CUDAGraph",
+      "canonical_key": "cudagraph",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 88,
+      "label": "Entrypoints Unit",
+      "canonical_key": "entrypoints unit",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 89,
+      "label": "Entrypoints Integration (Responses API)",
+      "canonical_key": "entrypoints integration (responses api)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 90,
+      "label": "Entrypoints Integration (Multimodal)",
+      "canonical_key": "entrypoints integration (multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 91,
+      "label": "Mamba Kernels",
+      "canonical_key": "mamba kernels",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 93,
+      "label": "V1 Spec Decode",
+      "canonical_key": "v1 spec decode",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 94,
+      "label": "Python-only Installation",
+      "canonical_key": "python-only installation",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 95,
+      "label": "Language Models (Standard)",
+      "canonical_key": "language models (standard)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 96,
+      "label": "Language Models (MTEB)",
+      "canonical_key": "language models (mteb)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 97,
+      "label": "Multimodal Processor",
+      "canonical_key": "multimodal processor",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 98,
+      "label": "Multi-Modal Models (Extended Generation 2)",
+      "canonical_key": "multi-modal models (extended generation 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 99,
+      "label": "Multimodal Models (Extended Generation 3)",
+      "canonical_key": "multimodal models (extended generation 3)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 101,
+      "label": "Quantized Models",
+      "canonical_key": "quantized models",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 102,
+      "label": "Speculators Correctness",
+      "canonical_key": "speculators correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 105,
+      "label": "E2E Scheduling",
+      "canonical_key": "e2e scheduling",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 106,
+      "label": "Entrypoints Integration (LLM)",
+      "canonical_key": "entrypoints integration (llm)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 107,
+      "label": "Entrypoints Integration (API Server)",
+      "canonical_key": "entrypoints integration (api server)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 108,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "canonical_key": "entrypoints integration (api server openai - part 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 109,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "canonical_key": "entrypoints integration (api server openai - part 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 110,
+      "label": "Entrypoints Integration (API Server Generate)",
+      "canonical_key": "entrypoints integration (api server generate)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 111,
+      "label": "OpenAI API Correctness",
+      "canonical_key": "openai api correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 114,
+      "label": "V1 Sample + Logits",
+      "canonical_key": "v1 sample + logits",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 115,
+      "label": "Language Models (Hybrid) Shard %N",
+      "canonical_key": "language models (hybrid) shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 116,
+      "label": "Language Models Test (Extended Pooling)",
+      "canonical_key": "language models test (extended pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 117,
+      "label": "Multimodal Models (Standard) 1: qwen2",
+      "canonical_key": "multimodal models (standard) 1: qwen2",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 118,
+      "label": "Multimodal Models (Standard) 2: qwen3 + gemma",
+      "canonical_key": "multimodal models (standard) 2: qwen3 + gemma",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 119,
+      "label": "Multimodal Models (Standard) 3: llava + qwen2_vl",
+      "canonical_key": "multimodal models (standard) 3: llava + qwen2_vl",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 120,
+      "label": "Multimodal Models (Extended Generation 1)",
+      "canonical_key": "multimodal models (extended generation 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 121,
+      "label": "Multimodal Models (Extended Pooling)",
+      "canonical_key": "multimodal models (extended pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 122,
+      "label": "Samplers",
+      "canonical_key": "samplers",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 123,
+      "label": "Spec Decode Speculators + MTP",
+      "canonical_key": "spec decode speculators + mtp",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 124,
+      "label": "Spec Decode N-Gram + Suffix",
+      "canonical_key": "spec decode n-gram + suffix",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    },
+    {
+      "decision": "missing_from_upstream",
+      "target_id": 125,
+      "label": "Spec Decode Draft Model",
+      "canonical_key": "spec decode draft model",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green"
+    }
+  ],
+  "publication_retention": {
+    "policy": "retain_actionable_then_deterministic_whole_candidate_rows",
+    "max_bytes": 2097152,
+    "complete_relative_to_source": true,
+    "aggregate_scalars_complete": true,
+    "rows": {
+      "source": 359,
+      "published": 359,
+      "omitted": 0,
+      "complete": true
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "panoptes-dashboard-browser-smoke",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "pretest": "python3 ../../scripts/vllm/build_operations_snapshot.py && python3 ../../scripts/build_site.py",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

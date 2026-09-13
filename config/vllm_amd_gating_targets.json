@@ -1,0 +1,1129 @@
+{
+  "groups": [
+    {
+      "id": 1,
+      "label": "Distributed Torchrun + Shutdown",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 2,
+      "label": "Distributed Torchrun + Examples",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 3,
+      "label": "Distributed",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 4,
+      "label": "Pipeline + Context Parallelism",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 5,
+      "label": "RayExecutorV2",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 6,
+      "label": "EPLB Execution",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 7,
+      "label": "Core Operation Kernels Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 8,
+      "label": "FP8 MoE Kernels",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 9,
+      "label": "LoRA TP (Distributed)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 10,
+      "label": "Basic Models (Initialization)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 11,
+      "label": "Basic Models (Other)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 12,
+      "label": "Distributed Models",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 13,
+      "label": "Language Models (Extra Standard) Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 14,
+      "label": "PyTorch Fullgraph",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 15,
+      "label": "Entrypoints Integration (Speech to Text)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 16,
+      "label": "Entrypoints Integration (Pooling)",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 17,
+      "label": "Extract Hidden States Integration",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 18,
+      "label": "Basic Correctness",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Stefan",
+      "note": ""
+    },
+    {
+      "id": 19,
+      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Aarushi",
+      "note": ""
+    },
+    {
+      "id": 20,
+      "label": "E2E Core",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 21,
+      "label": "Elastic EP Scaling",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 22,
+      "label": "Attention Kernels Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 23,
+      "label": "MoE Kernels Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 24,
+      "label": "DeepEP FP8 MoE Kernels",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 25,
+      "label": "LoRA Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 26,
+      "label": "V1 Core + KV + Metrics",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Micah",
+      "note": ""
+    },
+    {
+      "id": 27,
+      "label": "Basic Models (Extra Initialization) Shard %N",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 28,
+      "label": "Multimodal Models (Standard) 4: other + whisper",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Djordje",
+      "note": ""
+    },
+    {
+      "id": 29,
+      "label": "PyTorch Compilation Passes",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Charlie",
+      "note": ""
+    },
+    {
+      "id": 30,
+      "label": "Quantization",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": ""
+    },
+    {
+      "id": 31,
+      "label": "Spec Decode Eagle",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": ""
+    },
+    {
+      "id": 32,
+      "label": "Hybrid SSM NixlConnector PD prefix cache",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 33,
+      "label": "MultiConnector (Nixl+Offloading) PD accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 34,
+      "label": "MultiConnector (Nixl+Offloading) PD edge cases",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 35,
+      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 36,
+      "label": "DeepSeek V4 Kernels",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "AMD Kernels Core covers the top-k subtest only; the fused DeepSeek V4 kernel has no AMD definition."
+    },
+    {
+      "id": 37,
+      "label": "Attention DiffKV Kernels",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "Covered within the broader AMD Kernels Attention Test; no one-to-one DiffKV definition."
+    },
+    {
+      "id": 38,
+      "label": "Kernels KDA Test",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 39,
+      "label": "FusedMoE Layer Kernels",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one FusedMoE layer definition."
+    },
+    {
+      "id": 40,
+      "label": "LM Eval TurboQuant KV Cache",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No AMD TurboQuant KV-cache definition."
+    },
+    {
+      "id": 41,
+      "label": "MRCR Eval Small Models",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 42,
+      "label": "Extract Hidden States Integration (2 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No one-to-one distributed 2-GPU AMD definition; the bare AMD step matches the unfiltered upstream suite."
+    },
+    {
+      "id": 43,
+      "label": "GGUF Plugin",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo"
+    },
+    {
+      "id": 44,
+      "label": "Quantized Fusions",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No AMD Quantized Fusions definition; AMD quantization and fusion jobs run different suites."
+    },
+    {
+      "id": 45,
+      "label": "Distributed 2-Node",
+      "source_signal": "red",
+      "readiness_signal": "purple",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No AMD multi-node definition; same-node checks are not equivalent."
+    },
+    {
+      "id": 46,
+      "label": "Benchmarks CLI",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 47,
+      "label": "Attention Benchmark Smoke",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "mi355"
+    },
+    {
+      "id": 48,
+      "label": "Distributed Compile",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 49,
+      "label": "Fusion E2E Quick",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 50,
+      "label": "Fusion E2E Config Sweep",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 51,
+      "label": "CUDA Platform",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 52,
+      "label": "Distributed Comm Ops",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 53,
+      "label": "Distributed DP Basic",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 54,
+      "label": "Distributed Compile + RPC",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 55,
+      "label": "Distributed DP Extended",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 56,
+      "label": "Distributed Compile + Comm",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 57,
+      "label": "Distributed DP + EP",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 58,
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 59,
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 60,
+      "label": "V1 E2E",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 61,
+      "label": "V1 e2e (4 GPUs)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 62,
+      "label": "V1 E2E Hybrid Chunked Prefill",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 63,
+      "label": "EPLB Algorithm",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 64,
+      "label": "LM Eval Large Models",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 65,
+      "label": "GPQA Eval (GPT-OSS)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 66,
+      "label": "Regression",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 67,
+      "label": "Examples",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 68,
+      "label": "Metrics, Tracing",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 69,
+      "label": "Async Engine, Inputs, Utils, Worker",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 70,
+      "label": "Batch Invariance",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 71,
+      "label": "Acceptance Length (Large Models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 72,
+      "label": "Model Executor",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 73,
+      "label": "Language Models (Extended Generation)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 74,
+      "label": "Language Models (PPL)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 75,
+      "label": "Multimodal Accuracy Eval (Small Models)",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 76,
+      "label": "PyTorch Compilation",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 77,
+      "label": "PyTorch Fullgraph Smoke Test",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 78,
+      "label": "PyTorch Nightly Dependency Override Check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 79,
+      "label": "Ray Dependency Compatibility Check",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 80,
+      "label": "Weight Loading Multi-GPU",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 81,
+      "label": "CUDAGraph",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 82,
+      "label": "Distributed NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 83,
+      "label": "DP EP Distributed NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 84,
+      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 85,
+      "label": "Hybrid SSM NixlConnector PD accuracy",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 86,
+      "label": "NixlConnector PD + Spec Decode acceptance",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 87,
+      "label": "Distributed Features",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 88,
+      "label": "Entrypoints Unit",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 89,
+      "label": "Entrypoints Integration (Responses API)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 90,
+      "label": "Entrypoints Integration (Multimodal)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 91,
+      "label": "Mamba Kernels",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 92,
+      "label": "Helion Kernels Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 93,
+      "label": "V1 Spec Decode",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 94,
+      "label": "Python-only Installation",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 95,
+      "label": "Language Models (Standard)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 96,
+      "label": "Language Models (MTEB)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 97,
+      "label": "Multimodal Processor",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 98,
+      "label": "Multi-Modal Models (Extended Generation 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 99,
+      "label": "Multimodal Models (Extended Generation 3)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 100,
+      "label": "Plugin Integration",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 101,
+      "label": "Quantized Models",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 102,
+      "label": "Speculators Correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 103,
+      "label": "V1 Attention Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 104,
+      "label": "V1 Engine",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 105,
+      "label": "E2E Scheduling",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 106,
+      "label": "Entrypoints Integration (LLM)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 107,
+      "label": "Entrypoints Integration (API Server)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 108,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 109,
+      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 110,
+      "label": "Entrypoints Integration (API Server Generate)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 111,
+      "label": "OpenAI API Correctness",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 112,
+      "label": "Quantization Kernels Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 113,
+      "label": "LM Eval Small Models",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 114,
+      "label": "V1 Sample + Logits",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 115,
+      "label": "Language Models (Hybrid) Shard %N",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 116,
+      "label": "Language Models Test (Extended Pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 117,
+      "label": "Multimodal Models (Standard) 1: qwen2",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 118,
+      "label": "Multimodal Models (Standard) 2: qwen3 + gemma",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 119,
+      "label": "Multimodal Models (Standard) 3: llava + qwen2_vl",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 120,
+      "label": "Multimodal Models (Extended Generation 1)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 121,
+      "label": "Multimodal Models (Extended Pooling)",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 122,
+      "label": "Samplers",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 123,
+      "label": "Spec Decode Speculators + MTP",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 124,
+      "label": "Spec Decode N-Gram + Suffix",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    },
+    {
+      "id": 125,
+      "label": "Spec Decode Draft Model",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": ""
+    }
+  ]
+}

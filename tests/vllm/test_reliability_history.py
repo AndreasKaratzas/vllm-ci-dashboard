@@ -1,0 +1,1076 @@
+"""Contract tests for bounded all-main pipeline reliability datasets."""
+
+from __future__ import annotations
+
+import copy
+import json
+from datetime import datetime, timedelta, timezone
+
+from vllm import collect_analytics as ca
+from vllm.ci.incident_transitions import (
+    INCIDENT_TRANSITION_POLICY_ID,
+    advance_incident,
+)
+from vllm.ci.reliability_history import (
+    BUILD_MESSAGE_MAX_CHARS,
+    LEGACY_OBSERVATION_DERIVED_FIELDS,
+    build_all_main_reliability,
+    collapse_nightly_attempts,
+    compact_main_builds,
+    compute_nightly_change_history,
+    hydrate_reliability_observation,
+    hydrate_reliability_observations,
+    resolve_reliability_build,
+    validate_all_main_reliability,
+)
+
+
+GENERATED_AT = "2026-04-24T12:00:00Z"
+NIGHTLY_PATTERN = r"AMD Full CI Run - nightly"
+BASE = datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc)
+
+
+def _iso(value: datetime) -> str:
+    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _job(
+    job_id: str,
+    name: str,
+    state: str = "passed",
+    *,
+    step_id: str | None = None,
+    step_key: str = "shared-step",
+    queue: str = "amd_mi300_1",
+    minute: int = 0,
+    soft_failed: bool = False,
+    **extra,
+) -> dict:
+    runnable = BASE + timedelta(minutes=minute)
+    started = runnable + timedelta(minutes=5)
+    finished = started + timedelta(minutes=20)
+    return {
+        "id": job_id,
+        "type": "script",
+        "name": name,
+        "state": state,
+        "soft_failed": soft_failed,
+        "runnable_at": _iso(runnable),
+        "started_at": _iso(started),
+        "finished_at": _iso(finished),
+        "agent_query_rules": [f"queue={queue}"],
+        "step": {
+            "id": step_id or f"step-{job_id}",
+            "key": step_key,
+        },
+        **extra,
+    }
+
+
+def _build(
+    number: int,
+    jobs: list[dict],
+    *,
+    message: str = "merge queue validation",
+    branch: str = "main",
+    state: str = "passed",
+    finished: bool = True,
+    hour_offset: int = 0,
+) -> dict:
+    created = BASE + timedelta(hours=hour_offset)
+    return {
+        "number": number,
+        "branch": branch,
+        "state": state,
+        "commit": f"commit-{number}",
+        "message": message,
+        "created_at": _iso(created),
+        "started_at": _iso(created + timedelta(minutes=1)),
+        "finished_at": _iso(created + timedelta(hours=1)) if finished else None,
+        "web_url": f"https://buildkite.com/vllm/amd-ci/builds/{number}",
+        "jobs": jobs,
+    }
+
+
+def _dataset(builds: list[dict], pipeline_slug: str = "amd-ci", **kwargs) -> dict:
+    return build_all_main_reliability(
+        builds,
+        pipeline_slug=pipeline_slug,
+        window_days=30,
+        generated_at=GENERATED_AT,
+        nightly_pattern=NIGHTLY_PATTERN,
+        **kwargs,
+    )
+
+
+def test_all_main_includes_nightly_and_non_nightly_once_but_rejects_untrusted():
+    nightly = _build(
+        101,
+        [_job("nightly-job", "mi300_1: Nightly Group")],
+        message="AMD Full CI Run - nightly",
+    )
+    non_nightly = _build(
+        102,
+        [_job("main-job", "mi300_1: Main Group")],
+        message="Merge pull request #123",
+        state="failed",
+        hour_offset=1,
+    )
+    duplicate = {**non_nightly, "message": "duplicate API page row"}
+    feature = _build(103, [_job("feature-job", "mi300_1: Feature")], branch="feature")
+    running = _build(104, [_job("running-job", "mi300_1: Running")], state="running")
+    unfinished = _build(105, [_job("unfinished-job", "mi300_1: Unfinished")], finished=False)
+
+    result = _dataset([unfinished, feature, non_nightly, nightly, duplicate, running])
+
+    assert [row["number"] for row in result["builds"]] == [102, 101]
+    assert result["cohort"]["build_count"] == 2
+    assert result["cohort"]["canonical_nightly_build_count"] == 1
+    assert result["cohort"]["non_nightly_main_build_count"] == 1
+    assert result["cohort"]["includes_canonical_nightlies"] is True
+    assert result["denominator"]["eligible_observations"] == 2
+
+
+def test_group_identity_keeps_gpu_hardware_queue_and_shard_variants_distinct():
+    labels = [
+        "mi300_4: V1 e2e (4 GPUs)",
+        "mi300_4: V1 e2e (4xH100-4xMI300)",
+        "mi300_4: Sharded Models 1/2",
+        "mi300_4: Sharded Models 2/2",
+    ]
+    jobs = [
+        _job(
+            f"variant-{index}",
+            label,
+            step_key="variant-step",
+            queue="amd_mi300_4",
+        )
+        for index, label in enumerate(labels)
+    ]
+
+    groups = _dataset([_build(201, jobs)])["groups"]
+
+    assert len(groups) == 4
+    assert len({row["group_id"] for row in groups}) == 4
+    assert {row["raw_name"] for row in groups} == set(labels)
+    assert {row["name"] for row in groups} == {
+        "V1 e2e (4 GPUs)",
+        "V1 e2e (4xH100-4xMI300)",
+        "Sharded Models 1/2",
+        "Sharded Models 2/2",
+    }
+    assert {row["hardware"] for row in groups} == {"mi300"}
+    assert {row["queue"] for row in groups} == {"amd_mi300_4"}
+
+
+def test_upstream_identity_reports_explicit_and_generic_hardware_without_conflation():
+    jobs = [
+        _job("h100", "Kernel test (H100)", queue="gpu_4_queue", step_key="kernel"),
+        _job("generic", "Generic GPU test", queue="gpu_4_queue", step_key="generic"),
+        _job("b200", "Large model test", queue="B200", step_key="large"),
+        _job("cpu", "CPU correctness", queue="cpu_queue_postmerge", step_key="cpu"),
+    ]
+
+    groups = _dataset([_build(202, jobs)], pipeline_slug="ci")["groups"]
+
+    assert {row["hardware"] for row in groups} == {"h100", "gpu", "b200", "cpu"}
+    assert len({row["group_id"] for row in groups}) == 4
+
+
+def test_upstream_amd_mirrors_keep_amd_hardware_identity():
+    jobs = [
+        _job(
+            "mi250-mirror",
+            "AMD: Samplers Test (mi250_1)",
+            queue="amd_mi250_1",
+            step_key="samplers-mi250",
+        ),
+        _job(
+            "mi325-mirror",
+            "AMD: Samplers Test (mi325_1)",
+            queue="amd_mi325_1",
+            step_key="samplers-mi325",
+        ),
+        _job(
+            "mixed-label",
+            "AMD: V1 e2e (4xH100-4xMI300)",
+            queue="amd_mi300_4",
+            step_key="v1-e2e-mi300",
+        ),
+    ]
+
+    groups = _dataset([_build(203, jobs)], pipeline_slug="ci")["groups"]
+
+    assert {row["hardware"] for row in groups} == {"mi250", "mi300", "mi325"}
+    assert all(row["hardware"] != "unknown" for row in groups)
+    mixed = next(row for row in groups if "4xH100" in row["name"])
+    assert mixed["hardware"] == "mi300"
+
+
+def test_reliability_denominator_excludes_non_pass_fail_soft_fail_states():
+    jobs = [
+        _job("pass", "mi300_1: Denominator", "passed"),
+        _job("fail", "mi300_1: Denominator", "failed", minute=1),
+        _job("soft", "mi300_1: Denominator", "failed", minute=2, soft_failed=True),
+        _job("skip", "mi300_1: Denominator", "skipped", minute=3),
+        _job("cancel", "mi300_1: Denominator", "canceled", minute=4),
+        _job("unknown", "mi300_1: Denominator", "unknown", minute=5),
+        _job("only-skip", "mi300_1: Excluded Only", "skipped", minute=6),
+    ]
+
+    result = _dataset([_build(301, jobs, state="failed")])
+    group = {row["name"]: row for row in result["groups"]}["Denominator"]
+
+    assert group["denominator"] == 3
+    assert (group["passed"], group["failed"], group["soft_failed"]) == (1, 1, 1)
+    assert group["incident_rate"] == 66.7
+    assert group["excluded_observations"] == 3
+    assert group["excluded_by_state"] == {"canceled": 1, "skipped": 1, "unknown": 1}
+    assert result["denominator"]["eligible_observations"] == 3
+    assert result["denominator"]["excluded_observations"] == 4
+    assert result["denominator"]["groups"] == 1
+    assert result["denominator"]["catalog_groups"] == 2
+    assert result["denominator"]["excluded_only_groups"] == 1
+    assert result["denominator"]["unit"] == (
+        "terminal job attempts with passed, failed, or soft-fail outcomes"
+    )
+
+
+def test_excluded_mi355b_queues_never_enter_groups_or_denominators():
+    jobs = [
+        _job(
+            "included-mi355",
+            "mi355_1: Included Group",
+            queue="amd_mi355_1",
+        ),
+        _job(
+            "excluded-mi355b",
+            "mi355B_1: Excluded Group",
+            queue="amd_mi355B_1",
+            retried=True,
+            retried_in_job_id="excluded-retry",
+        ),
+        _job(
+            "excluded-mi355b-variant",
+            "mi355B_8: Excluded Variant",
+            queue="amd_mi355b_8_extra",
+        ),
+    ]
+
+    result = _dataset([_build(302, jobs)])
+
+    assert [group["name"] for group in result["groups"]] == ["Included Group"]
+    assert result["denominator"]["eligible_observations"] == 1
+    assert result["denominator"]["groups"] == 1
+    assert result["denominator"]["out_of_scope_queue_observations"] == 2
+    assert result["summary"]["out_of_scope_queue_observations"] == 2
+    assert result["summary"]["retry_evidence_observations"] == 0
+    assert sum(len(build["jobs"]) for build in compact_main_builds(result)) == 1
+    assert result["provenance"]["queue_scope_source"] == (
+        "vllm.constants.is_excluded_queue"
+    )
+
+
+def test_durations_are_typed_and_test_duration_requires_exact_attempt_identity():
+    jobs = [
+        _job(
+            "attempt-a",
+            "mi300_1: Duration Group",
+            step_id="shared-step-id",
+            minute=0,
+        ),
+        _job(
+            "attempt-b",
+            "mi300_1: Duration Group",
+            step_id="shared-step-id",
+            minute=30,
+        ),
+    ]
+    parsed = [{
+        "number": 401,
+        "jobs": [{
+            "job_id": "attempt-a",
+            "step_id": "shared-step-id",
+            "test_duration_mins": 7.5,
+        }],
+    }]
+
+    result = _dataset([_build(401, jobs)], test_result_builds=parsed)
+    observations = {row["job_id"]: row for row in result["groups"][0]["observations"]}
+
+    assert observations["attempt-a"]["wall_completion_mins"] == 20.0
+    assert observations["attempt-a"]["test_duration_mins"] == 7.5
+    assert observations["attempt-a"]["queue_wait_mins"] == 5.0
+    assert observations["attempt-a"]["end_to_end_mins"] == 25.0
+    assert observations["attempt-b"]["test_duration_mins"] is None
+    assert result["groups"][0]["duration"]["wall_completion"]["samples"] == 2
+    assert result["groups"][0]["duration"]["test_reported"]["samples"] == 1
+    assert result["provenance"]["wall_completion_source"] == "job started_at to finished_at"
+    assert result["provenance"]["test_duration_source"] == (
+        "parsed test-result logs when exact job ID or unique step ID matches"
+    )
+
+
+def test_ambiguous_shared_step_does_not_attach_test_duration_without_job_id():
+    raw = _job("", "mi300_1: Ambiguous Duration", step_id="shared-step-id")
+    parsed = [{
+        "number": 402,
+        "jobs": [
+            {"job_id": "attempt-a", "step_id": "shared-step-id", "test_duration_mins": 3.0},
+            {"job_id": "attempt-b", "step_id": "shared-step-id", "test_duration_mins": 9.0},
+        ],
+    }]
+
+    observation = _dataset(
+        [_build(402, [raw])],
+        test_result_builds=parsed,
+    )["groups"][0]["observations"][0]
+
+    assert observation["test_duration_mins"] is None
+
+
+def test_retry_evidence_and_attempt_links_require_explicit_buildkite_fields():
+    failed = _job(
+        "failed-attempt",
+        "mi300_1: Retry Group",
+        "failed",
+        retried=True,
+        retried_in_job_id="passed-attempt",
+    )
+    passed = _job(
+        "passed-attempt",
+        "mi300_1: Retry Group",
+        "passed",
+        minute=30,
+        retries_count=1,
+        retry_source="manual",
+    )
+    unrelated_failure = _job(
+        "plain-failure",
+        "mi300_1: Retry Group",
+        "failed",
+        minute=60,
+    )
+
+    result = _dataset([_build(501, [failed, passed, unrelated_failure], state="failed")])
+    stored = {row["job_id"]: row for row in result["groups"][0]["observations"]}
+    observations = {
+        job_id: hydrate_reliability_observation(result, row)
+        for job_id, row in stored.items()
+    }
+    base = "https://buildkite.com/vllm/amd-ci/builds/501/steps/canvas"
+
+    assert all("job_url" not in row and "step_url" not in row for row in stored.values())
+    assert "retried_in_job_url" not in stored["failed-attempt"]["retry_evidence"]
+    assert observations["failed-attempt"]["job_url"] == (
+        f"{base}?jid=failed-attempt&tab=output"
+    )
+    assert observations["failed-attempt"]["step_url"] == (
+        f"{base}?sid=step-failed-attempt&tab=output"
+    )
+    assert observations["failed-attempt"]["retry_evidence"]["retried_in_job_url"] == (
+        f"{base}?jid=passed-attempt&tab=output"
+    )
+    assert observations["passed-attempt"]["retry_evidence"]["retries_count"] == 1
+    assert "retry_evidence" not in observations["plain-failure"]
+    assert result["summary"]["retry_evidence_observations"] == 2
+
+
+def test_schema_v2_hydrates_exact_legacy_popup_fields_without_mutation():
+    message = "Merge pull request #123: preserve the popup title exactly"
+    source = _dataset([_build(
+        550,
+        [_job(
+            "popup-job",
+            "mi300_1: Popup Evidence",
+            step_id="popup-step",
+        )],
+        message=message,
+    )])
+    stored = source["groups"][0]["observations"][0]
+    before = copy.deepcopy(stored)
+
+    assert not (set(LEGACY_OBSERVATION_DERIVED_FIELDS) & stored.keys())
+    assert resolve_reliability_build(source, 550) is source["builds"][0]
+    assert resolve_reliability_build(source, 999) is None
+
+    hydrated = hydrate_reliability_observation(source, stored)
+    assert hydrate_reliability_observations(source, [stored]) == [hydrated]
+    base = "https://buildkite.com/vllm/amd-ci/builds/550"
+    assert hydrated == {
+        **stored,
+        "source_pipeline": "amd-ci",
+        "build_url": base,
+        "build_commit": "commit-550",
+        "build_message": message,
+        "build_created_at": "2026-04-20T09:00:00Z",
+        "job_url": f"{base}/steps/canvas?jid=popup-job&tab=output",
+        "step_url": f"{base}/steps/canvas?sid=popup-step&tab=output",
+    }
+    assert stored == before
+
+
+def test_schema_v2_url_reconstruction_preserves_rare_non_derivable_fallback():
+    fallback_url = (
+        "https://buildkite.com/vllm/amd-ci/builds/551/steps/legacy-command"
+    )
+    source = _dataset([_build(551, [
+        _job(
+            "",
+            "mi300_1: Legacy URL",
+            step_id="legacy-step",
+            web_url=fallback_url,
+        ),
+    ])])
+    stored = source["groups"][0]["observations"][0]
+
+    assert stored["job_id"] == ""
+    assert stored["step_id"] == "legacy-step"
+    assert stored["job_url_override"] == fallback_url
+    assert "job_url" not in stored
+    hydrated = hydrate_reliability_observation(source, stored)
+    assert "job_url_override" not in hydrated
+    assert hydrated["job_url"] == fallback_url
+    assert hydrated["step_url"].endswith(
+        "/steps/canvas?sid=legacy-step&tab=output"
+    )
+    assert validate_all_main_reliability(source, "amd-ci")
+
+
+def test_schema_v1_migration_rows_validate_and_tampering_fails_closed():
+    normalized = _dataset([_build(552, [
+        _job("migration-job", "mi300_1: Migration", step_id="migration-step"),
+    ])])
+    legacy = copy.deepcopy(normalized)
+    legacy["schema_version"] = 1
+    legacy["groups"][0]["observations"][0] = hydrate_reliability_observation(
+        normalized,
+        normalized["groups"][0]["observations"][0],
+    )
+
+    assert validate_all_main_reliability(legacy, "amd-ci")
+
+    tampered = copy.deepcopy(legacy)
+    tampered["groups"][0]["observations"][0]["build_message"] = "spoofed"
+    assert not validate_all_main_reliability(tampered, "amd-ci")
+
+    partially_hydrated = copy.deepcopy(normalized)
+    partially_hydrated["groups"][0]["observations"][0]["build_commit"] = (
+        "wrong-commit"
+    )
+    assert not validate_all_main_reliability(partially_hydrated, "amd-ci")
+
+
+def test_schema_v1_sparse_empty_catalog_remains_valid_for_fallback_migration():
+    legacy = _dataset([_build(5521, [])])
+    legacy["schema_version"] = 1
+    for field in ("commit", "message", "created_at"):
+        legacy["builds"][0].pop(field)
+
+    assert validate_all_main_reliability(legacy, "amd-ci")
+
+    normalized = copy.deepcopy(legacy)
+    normalized["schema_version"] = 2
+    assert not validate_all_main_reliability(normalized, "amd-ci")
+
+
+def test_long_build_messages_are_bounded_once_in_authoritative_catalog():
+    long_message = "pathological-title:" + ("x" * (BUILD_MESSAGE_MAX_CHARS * 3))
+    source = _dataset([_build(553, [
+        _job(f"message-job-{index}", f"mi300_1: Message Group {index}")
+        for index in range(12)
+    ], message=long_message)])
+    catalog = source["builds"][0]
+
+    assert len(catalog["message"]) == BUILD_MESSAGE_MAX_CHARS
+    assert catalog["message"].endswith("…")
+    assert catalog["message_truncated"] is True
+    assert catalog["message_original_chars"] == len(long_message)
+    assert all(
+        "build_message" not in observation
+        for group in source["groups"]
+        for observation in group["observations"]
+    )
+    assert json.dumps(source, ensure_ascii=False).count(catalog["message"]) == 1
+    assert hydrate_reliability_observation(
+        source, source["groups"][0]["observations"][0]
+    )["build_message"] == catalog["message"]
+    assert validate_all_main_reliability(source, "amd-ci")
+
+
+def test_normalized_output_is_deterministic_across_build_and_job_order():
+    first_jobs = [
+        _job("det-z", "mi300_1: Deterministic Z", minute=10),
+        _job("det-a", "mi300_1: Deterministic A", minute=0),
+    ]
+    second_jobs = [
+        _job("det-z-2", "mi300_1: Deterministic Z", minute=20),
+        _job("det-a-2", "mi300_1: Deterministic A", minute=30),
+    ]
+    forward_builds = [
+        _build(554, first_jobs),
+        _build(555, second_jobs, hour_offset=1),
+    ]
+    reversed_builds = [
+        _build(555, list(reversed(second_jobs)), hour_offset=1),
+        _build(554, list(reversed(first_jobs))),
+    ]
+
+    assert _dataset(forward_builds) == _dataset(reversed_builds)
+
+
+def test_normalized_observations_materially_reduce_serialized_size():
+    builds = []
+    message = "size-regression:" + ("m" * 1000)
+    for build_index in range(10):
+        jobs = [
+            _job(
+                f"size-{build_index}-{group_index}",
+                f"mi300_1: Size Group {group_index}",
+                step_key=f"size-group-{group_index}",
+                minute=group_index,
+            )
+            for group_index in range(20)
+        ]
+        builds.append(_build(
+            560 + build_index,
+            jobs,
+            message=message,
+            hour_offset=build_index,
+        ))
+    normalized = _dataset(builds)
+    legacy = copy.deepcopy(normalized)
+    legacy["schema_version"] = 1
+    for group_index, group in enumerate(normalized["groups"]):
+        legacy["groups"][group_index]["observations"] = [
+            hydrate_reliability_observation(normalized, row)
+            for row in group["observations"]
+        ]
+
+    normalized_bytes = len(json.dumps(
+        normalized, sort_keys=True, separators=(",", ":")
+    ).encode())
+    legacy_bytes = len(json.dumps(
+        legacy, sort_keys=True, separators=(",", ":")
+    ).encode())
+
+    assert normalized_bytes < legacy_bytes * 0.5
+    assert normalized["denominator"] == legacy["denominator"]
+    assert [
+        (
+            group["observation_count"],
+            group["retained_observation_count"],
+            group["retained_eligible_observation_count"],
+            group["observations_truncated"],
+        )
+        for group in normalized["groups"]
+    ] == [
+        (
+            group["observation_count"],
+            group["retained_observation_count"],
+            group["retained_eligible_observation_count"],
+            group["observations_truncated"],
+        )
+        for group in legacy["groups"]
+    ]
+
+
+def test_catalog_is_not_top_twenty_truncated_and_group_history_is_bounded():
+    many_groups = [
+        _job(f"catalog-{index}", f"mi300_1: Catalog Group {index}", step_key=f"group-{index}")
+        for index in range(25)
+    ]
+    catalog = _dataset([_build(601, many_groups)])
+    assert len(catalog["groups"]) == 25
+
+    builds = []
+    for index in range(65):
+        builds.append(_build(
+            700 + index,
+            [_job(f"history-{index}", "mi300_1: Long History", minute=index)],
+            hour_offset=index,
+        ))
+    history = _dataset(builds)
+    group = history["groups"][0]
+
+    assert group["denominator"] == 65
+    assert group["observation_count"] == 65
+    assert group["retained_observation_count"] == 60
+    assert group["observations_truncated"] is True
+    assert [row["build_number"] for row in group["observations"][:2]] == [764, 763]
+    assert history["denominator"]["eligible_observations"] == 65
+    assert len(history["builds"]) == 65
+    assert sum(len(build["jobs"]) for build in compact_main_builds(history)) == 60
+
+
+def test_compact_main_builds_preserve_strict_identity_links_and_duration_types():
+    labels = [
+        "mi300_4: V1 e2e (4 GPUs)",
+        "mi300_4: V1 e2e (4xH100-4xMI300)",
+    ]
+    source = _dataset([_build(801, [
+        _job("four-gpu", labels[0], step_key="v1-four-gpu", queue="amd_mi300_4"),
+        _job("cross-hw", labels[1], step_key="v1-cross-hw", queue="amd_mi300_4"),
+    ])])
+
+    main_build = compact_main_builds(source)[0]
+    jobs = {job["raw_name"]: job for job in main_build["jobs"]}
+
+    assert main_build["branch"] == "main"
+    assert main_build["commit"] == "commit-801"
+    assert set(jobs) == set(labels)
+    assert jobs[labels[0]]["group_id"] != jobs[labels[1]]["group_id"]
+    assert jobs[labels[0]]["url"].endswith("?jid=four-gpu&tab=output")
+    assert jobs[labels[0]]["step_url"].endswith("?sid=step-four-gpu&tab=output")
+    assert jobs[labels[0]]["wall_duration_mins"] == 20.0
+    assert jobs[labels[0]]["wait_mins"] == 5.0
+    assert jobs[labels[0]]["end_to_end_mins"] == 25.0
+
+
+def test_collector_persists_only_authoritative_main_reliability():
+    source = _dataset([_build(802, [
+        _job("main-attempt", "mi300_1: Main Evidence"),
+    ])])
+    pipeline_data = {
+        "main_builds": [{"legacy": True}],
+        "main_builds_provenance": {"legacy": True},
+    }
+
+    ca.attach_main_reliability(pipeline_data, source)
+
+    assert pipeline_data["all_main_reliability"] is source
+    assert "main_builds" not in pipeline_data
+    assert "main_builds_provenance" not in pipeline_data
+
+
+def test_collector_preserves_complete_retry_analysis_when_raw_builds_are_unavailable():
+    source = _dataset([_build(803, [
+        _job("main-attempt", "mi300_1: Main Evidence"),
+    ])], pipeline_slug="ci")
+    preserved = {
+        "available": True,
+        "summary": {
+            "builds_evaluated": 30,
+            "builds_with_retries": 1,
+            "retry_attempt_count": 1,
+            "failed_then_passed_recovery_count": 0,
+        },
+        "retry_attempts": [{
+            "build_number": 803,
+            "job_id": "older-than-compaction-window",
+            "url": "https://buildkite.com/vllm/ci/builds/803/steps/canvas?jid=older-than-compaction-window",
+        }],
+        "failed_then_passed_recoveries": [],
+        "provenance": {
+            "source_pipeline": "ci",
+            "complete": True,
+            "cohort_build_numbers": [803],
+        },
+    }
+    pipeline_data = {}
+
+    ca.attach_main_reliability(
+        pipeline_data,
+        source,
+        retry_builds=None,
+        retry_analysis=preserved,
+    )
+
+    assert pipeline_data["main_retry_analysis"] is preserved
+
+
+def test_nightly_fixed_requires_current_pass_and_preserves_both_links():
+    def nightly_job(name: str, state: str, suffix: str) -> dict:
+        return {
+            "name": name,
+            "raw_name": name,
+            "state": state,
+            "step_key": name.lower().replace(" ", "-"),
+            "q": "amd_mi300_1",
+            "url": f"https://buildkite.com/vllm/amd-ci/builds/{suffix}",
+        }
+
+    previous = {
+        "number": 901,
+        "state": "failed",
+        "created_at": "2026-04-20T09:00:00Z",
+        "finished_at": "2026-04-20T10:00:00Z",
+        "web_url": "https://buildkite.com/vllm/amd-ci/builds/901",
+        "jobs": [
+            nightly_job("Actually Fixed", "failed", "901/steps/failure"),
+            nightly_job("Missing Now", "failed", "901/steps/missing"),
+            nightly_job("Indeterminate Now", "failed", "901/steps/unknown"),
+        ],
+    }
+    current = {
+        "number": 902,
+        "state": "passed",
+        "created_at": "2026-04-21T09:00:00Z",
+        "finished_at": "2026-04-21T10:00:00Z",
+        "web_url": "https://buildkite.com/vllm/amd-ci/builds/902",
+        "jobs": [
+            nightly_job("Actually Fixed", "passed", "902/steps/pass"),
+            nightly_job("Indeterminate Now", "skipped", "902/steps/unknown"),
+        ],
+    }
+
+    row = compute_nightly_change_history([previous, current])[0]
+
+    assert [item["name"] for item in row["fixed"]] == ["Actually Fixed"]
+    assert row["fixed"][0]["url"].endswith("902/steps/pass")
+    assert row["fixed"][0]["previous_url"].endswith("901/steps/failure")
+    assert [item["name"] for item in row["not_observed"]] == ["Missing Now"]
+    assert [item["name"] for item in row["indeterminate"]] == ["Indeterminate Now"]
+    held = row["indeterminate"][0]
+    assert held["state"] == "failed"
+    assert held["build_number"] == 901
+    assert held["url"].endswith("901/steps/unknown")
+    assert held["current_indeterminate_evidence"]["state"] == "skipped"
+    assert held["current_indeterminate_evidence"]["build_number"] == 902
+    assert held["current_indeterminate_evidence"]["url"].endswith(
+        "902/steps/unknown"
+    )
+    movement = row["failure_movement"]
+    assert movement["new"] == []
+    assert movement["recurring"] == []
+    assert [item["name"] for item in movement["fixed"]] == ["Actually Fixed"]
+    assert row["policy_id"] == INCIDENT_TRANSITION_POLICY_ID
+
+
+def test_soft_confirmation_requires_two_verifiable_distinct_builds():
+    decision = advance_incident(None, "soft", None)
+    assert decision["classification"] == "pending_soft"
+    assert decision["state"]["soft_streak"] == 0
+
+    decision = advance_incident(decision["state"], "soft", None)
+    assert decision["state"]["soft_streak"] == 0
+
+    decision = advance_incident(decision["state"], "soft", 1001)
+    assert decision["classification"] == "pending_soft"
+    assert decision["state"]["soft_streak"] == 1
+
+    decision = advance_incident(decision["state"], "soft", "1001")
+    assert decision["classification"] == "pending_soft"
+    assert decision["state"]["soft_streak"] == 1
+
+    decision = advance_incident(decision["state"], "soft", 1002)
+    assert decision["classification"] == "new"
+    assert decision["change"] == "confirmed"
+    assert decision["state"]["status"] == "confirmed"
+
+
+def test_missing_id_pending_soft_uses_hard_build_as_incident_generation():
+    pending = advance_incident(None, "soft", None)
+
+    hard = advance_incident(pending["state"], "hard", 1001)
+
+    assert hard["classification"] == "new"
+    assert hard["state"]["status"] == "confirmed"
+    assert hard["state"]["incident_start_build_id"] == 1001
+    assert hard["state"]["confirmed_build_id"] == 1001
+
+
+def test_retry_final_attempt_is_order_independent_with_original_only_linkage():
+    original = _job(
+        "retry-original",
+        "mi300_1: Linked Retry",
+        "failed",
+        retried_in_job_id="retry-final",
+    )
+    final = _job(
+        "retry-final",
+        "mi300_1: Linked Retry",
+        "passed",
+        minute=30,
+    )
+
+    for attempts in ([original, final], [final, original]):
+        selected = next(iter(collapse_nightly_attempts(attempts).values()))
+        assert selected["outcome"] == "passed"
+        assert selected["job"]["id"] == "retry-final"
+
+        row = compute_nightly_change_history([_build(1150, attempts)])[0]
+        assert row["new"] == []
+        assert row["pending_soft"] == []
+
+
+def test_nightly_hysteresis_does_not_merge_queue_or_step_variants():
+    name = "mi300_1: Strict signal"
+    builds = [
+        _build(1161, [
+            _job(
+                "variant-queue-one",
+                name,
+                "soft_fail",
+                queue="amd_mi300_1",
+                step_key="strict-step",
+                soft_failed=True,
+            )
+        ], hour_offset=1),
+        _build(1162, [
+            _job(
+                "variant-queue-two",
+                name,
+                "soft_fail",
+                queue="amd_mi300_2",
+                step_key="strict-step",
+                soft_failed=True,
+            )
+        ], hour_offset=2),
+        _build(1163, [
+            _job(
+                "variant-step",
+                name,
+                "soft_fail",
+                queue="amd_mi300_2",
+                step_key="other-step",
+                soft_failed=True,
+            )
+        ], hour_offset=3),
+    ]
+
+    newest = compute_nightly_change_history(builds)[0]
+
+    assert newest["new"] == []
+    assert len(newest["pending_soft"]) == 3
+    assert {row["soft_streak"] for row in newest["pending_soft"]} == {1}
+    assert len({row["group_id"] for row in newest["pending_soft"]}) == 3
+
+
+def test_nonterminal_and_unfinished_builds_hold_soft_state_and_evidence():
+    name = "mi300_1: Eligibility hold"
+
+    def soft_build(number: int, hour: int) -> dict:
+        return _build(number, [
+            _job(
+                f"eligibility-{number}",
+                name,
+                "soft_fail",
+                soft_failed=True,
+            )
+        ], hour_offset=hour)
+
+    first = soft_build(1171, 1)
+    running = soft_build(1172, 2)
+    running["state"] = "running"
+    unfinished = soft_build(1173, 3)
+    unfinished["finished_at"] = None
+    final = soft_build(1174, 4)
+
+    history = compute_nightly_change_history([final, unfinished, running, first])
+    rows = {row["build_number"]: row for row in history}
+
+    running_row = rows[1172]
+    assert running_row["transition_eligible"] is False
+    assert running_row["transition_ineligible_reason"] == "build_state_not_completed"
+    assert running_row["preceding_build_number"] == 1171
+    running_pending = running_row["pending_soft"][0]
+    assert running_pending["soft_streak"] == 1
+    assert running_pending["build_number"] == 1171
+    assert running_pending["state"] == "soft_fail"
+    assert running_pending["current_indeterminate_evidence"]["build_number"] == 1172
+    assert running_row["failure_movement"]["available"] is False
+    assert running_row["failure_movement"]["new"] == []
+    assert running_row["failure_movement"]["recurring"] == []
+    assert running_row["failure_movement"]["fixed"] == []
+
+    unfinished_row = rows[1173]
+    assert unfinished_row["transition_eligible"] is False
+    assert unfinished_row["transition_ineligible_reason"] == "finished_at_missing"
+    assert unfinished_row["preceding_build_number"] == 1171
+    assert unfinished_row["pending_soft"][0]["soft_streak"] == 1
+    assert unfinished_row["pending_soft"][0]["build_number"] == 1171
+    assert (
+        unfinished_row["pending_soft"][0]["current_indeterminate_evidence"][
+            "build_number"
+        ]
+        == 1173
+    )
+    assert unfinished_row["failure_movement"]["available"] is False
+    assert unfinished_row["failure_movement"]["new"] == []
+    assert unfinished_row["failure_movement"]["recurring"] == []
+    assert unfinished_row["failure_movement"]["fixed"] == []
+
+    assert rows[1174]["new"][0]["soft_streak"] == 2
+    assert rows[1174]["new"][0]["transition_change"] == "confirmed"
+    assert rows[1174]["preceding_build_number"] == 1171
+    assert rows[1174]["failure_movement"]["preceding_build_number"] == 1171
+    assert [
+        row["name"] for row in rows[1174]["failure_movement"]["recurring"]
+    ] == ["Eligibility hold"]
+
+
+def test_incident_policy_holds_unobserved_state_and_tracks_severity_changes():
+    pending = advance_incident(None, "soft_fail", 1101)
+    held = advance_incident(pending["state"], "absent", 1102)
+    assert held["classification"] == "pending_soft"
+    assert held["state"] == pending["state"]
+
+    cleared = advance_incident(held["state"], "passed", 1103)
+    assert cleared["classification"] == "none"
+    assert cleared["change"] == "pending_cleared"
+    assert cleared["state"]["status"] == "clear"
+
+    hard = advance_incident(cleared["state"], "failed", 1104)
+    assert hard["classification"] == "new"
+    assert hard["state"]["peak_severity"] == "hard"
+
+    indeterminate = advance_incident(hard["state"], "skipped", 1105)
+    assert indeterminate["classification"] == "indeterminate"
+    assert indeterminate["state"] == hard["state"]
+
+    softened = advance_incident(indeterminate["state"], "soft", 1106)
+    assert softened["classification"] == "recurring"
+    assert softened["change"] == "deescalated"
+    assert softened["state"]["severity"] == "soft"
+    assert softened["state"]["peak_severity"] == "hard"
+
+    escalated = advance_incident(softened["state"], "hard", 1107)
+    assert escalated["classification"] == "recurring"
+    assert escalated["change"] == "escalated"
+
+    fixed = advance_incident(escalated["state"], "passed", 1108)
+    assert fixed["classification"] == "fixed"
+    assert fixed["state"]["status"] == "clear"
+
+
+def test_observed_failure_movement_fixes_one_off_soft_failure():
+    builds = [
+        _build(1191, [_job("soft", "mi300_1: One-off soft", "soft_fail", soft_failed=True)]),
+        _build(1192, [_job("pass", "mi300_1: One-off soft", "passed")], hour_offset=1),
+    ]
+
+    rows = {row["build_number"]: row for row in compute_nightly_change_history(builds)}
+
+    assert rows[1191]["failure_movement"]["available"] is False
+    assert rows[1191]["failure_movement"]["new"] == []
+    assert rows[1191]["pending_soft"]
+    assert [row["name"] for row in rows[1192]["failure_movement"]["fixed"]] == [
+        "One-off soft"
+    ]
+    assert rows[1192]["fixed"] == []
+
+
+def test_nightly_history_replays_oldest_first_with_soft_hysteresis():
+    def nightly(number: int, hour: int, state: str | None) -> dict:
+        jobs = [] if state is None else [
+            _job(
+                f"nightly-{number}",
+                "mi300_1: Hysteresis",
+                state,
+                soft_failed=state == "soft_fail",
+            )
+        ]
+        return _build(number, jobs, hour_offset=hour)
+
+    rows = compute_nightly_change_history([
+        nightly(1205, 5, "passed"),
+        nightly(1203, 3, "soft_fail"),
+        nightly(1201, 1, "soft_fail"),
+        nightly(1204, 4, "failed"),
+        nightly(1202, 2, None),
+    ])
+    by_number = {row["build_number"]: row for row in rows}
+
+    assert by_number[1201]["new"] == []
+    assert by_number[1201]["pending_soft"][0]["soft_streak"] == 1
+    assert by_number[1201]["failure_movement"]["available"] is False
+    assert by_number[1201]["failure_movement"]["new"] == []
+    assert by_number[1202]["pending_soft"][0]["observed_in_current_build"] is False
+    assert by_number[1202]["failure_movement"]["new"] == []
+    assert by_number[1202]["failure_movement"]["recurring"] == []
+    assert by_number[1202]["failure_movement"]["fixed"] == []
+    assert by_number[1202]["failure_movement"]["available"] is False
+    assert by_number[1203]["new"][0]["transition_change"] == "confirmed"
+    assert by_number[1203]["new"][0]["soft_streak"] == 2
+    assert by_number[1203]["failure_movement"]["preceding_build_number"] == 1201
+    assert [
+        row["name"] for row in by_number[1203]["failure_movement"]["recurring"]
+    ] == [
+        "Hysteresis"
+    ]
+    assert by_number[1204]["recurring"][0]["transition_change"] == "escalated"
+    assert [row["name"] for row in by_number[1204]["failure_movement"]["recurring"]] == [
+        "Hysteresis"
+    ]
+    assert by_number[1205]["fixed"][0]["previous_state"] == "failed"
+    assert [row["name"] for row in by_number[1205]["failure_movement"]["fixed"]] == [
+        "Hysteresis"
+    ]
+
+
+def test_schema_reports_cohort_window_denominator_source_and_deterministic_order():
+    builds = [
+        _build(1001, [_job("z-job", "mi355_1: Z Group", queue="amd_mi355_1")]),
+        _build(1002, [_job("a-job", "mi300_1: A Group")], hour_offset=1),
+    ]
+
+    forward = _dataset(builds)
+    reverse = _dataset(list(reversed(builds)))
+
+    assert forward["schema_version"] == 2
+    assert forward["cohort"]["id"] == "amd-ci-main-completed-pass-fail"
+    assert forward["cohort"]["name"] == (
+        "amd-ci branch=main builds with state passed or failed and finished_at"
+    )
+    assert forward["cohort"]["window_days"] == 30
+    assert forward["cohort"]["observed_from"] == "2026-04-20T09:00:00Z"
+    assert forward["cohort"]["observed_to"] == "2026-04-20T10:00:00Z"
+    assert forward["provenance"]["provider"] == "Buildkite REST API"
+    assert forward["provenance"]["query"] == {
+        "branch": "main",
+        "created_from": "2026-03-25T12:00:00Z",
+        "include_retried_jobs": True,
+    }
+    assert forward["provenance"]["pagination"] == {
+        "page_size": 100,
+        "max_pages": 50,
+        "pages_fetched": None,
+        "termination_reason": "provided_builds",
+        "exhaustive": True,
+        "stop_conditions": ["empty page", "short page", "page adds no build numbers"],
+    }
+    assert forward["provenance"]["retry_source"] == "explicit Buildkite retry fields only"
+    assert [row["name"] for row in forward["groups"]] == ["A Group", "Z Group"]
+    assert [row["group_id"] for row in forward["groups"]] == [
+        row["group_id"] for row in reverse["groups"]
+    ]
+    assert [row["number"] for row in forward["builds"]] == [1002, 1001]
+
+
+def test_cohort_identity_is_pipeline_specific():
+    result = _dataset(
+        [_build(1101, [_job("upstream-job", "GPU Test")])],
+        pipeline_slug="ci",
+    )
+
+    assert result["cohort"]["id"] == "ci-main-completed-pass-fail"
+    assert result["cohort"]["name"] == (
+        "ci branch=main builds with state passed or failed and finished_at"
+    )
+    assert result["cohort"]["pipeline"] == "ci"
+    assert result["provenance"]["pipeline"] == "ci"
+    assert result["provenance"]["endpoint"] == (
+        "/organizations/vllm/pipelines/ci/builds"
+    )
+
+
+def test_strict_validation_rejects_lookalike_hosts_build_only_jobs_and_foreign_builds():
+    source = _dataset(
+        [_build(1201, [_job("upstream-job", "GPU Test")])],
+        pipeline_slug="ci",
+    )
+    assert validate_all_main_reliability(source, "ci")
+
+    observation = source["groups"][0]["observations"][0]
+    for field, value in (
+        (
+            "job_url",
+            "https://buildkite.com.evil/vllm/ci/builds/1201/steps/canvas?jid=upstream-job",
+        ),
+        ("job_url", "https://buildkite.com/vllm/ci/builds/1201"),
+        ("build_number", 9999),
+    ):
+        candidate = copy.deepcopy(source)
+        candidate["groups"][0]["observations"][0][field] = value
+        assert not validate_all_main_reliability(candidate, "ci")

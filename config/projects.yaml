@@ -1,0 +1,12 @@
+projects:
+  vllm:
+    repo: vllm-project/vllm
+    fork: sunway513/vllm
+    role: upstream_watch
+    track_authors: []
+    track_labels: [rocm, amd]
+    track_keywords: [ROCm, AMD, HIP]
+    depends_on: []
+    build_workflows:
+      - name: "Docker Image CI"
+        id: 141341664
