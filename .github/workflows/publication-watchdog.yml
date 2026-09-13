@@ -1,0 +1,692 @@
+name: Publication Recovery Watchdog
+
+on:
+  # A 15-minute opportunity bounds detection delay after the 95-minute
+  # publication-age trigger; repository_dispatch remains an independent tick.
+  schedule:
+    - cron: '10,25,40,55 * * * *'
+  repository_dispatch:
+    types: [publication_watchdog_tick]
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Data Collection
+      - Deploy to GitHub Pages
+      - Queue Lifecycle Monitor (2h)
+      - DNS Health Monitor
+      - Site Health Check
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: publication-watchdog
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    # Exact state/code/Pages proofs and a failed Site Health completion can
+    # compose with the checker's 1,507-second transport/deadline bound. Preserve
+    # more than five minutes for Git proofs and recovery dispatch afterward.
+    timeout-minutes: 35
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      # Never execute a triggering workflow's checkout or artifacts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Inspect durable state and choose recovery target
+        id: recovery-route
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TRUSTED_MAIN_SHA=$(git rev-parse --verify 'HEAD^{commit}')
+          STATUS_PATH="$RUNNER_TEMP/publication-status.json"
+          rm -f "$STATUS_PATH"
+          STATE_BRANCH=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["branch"])')
+          PREVIOUS_BRANCH=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["previous_branch"])')
+
+          probe_ref() {
+            local branch="$1"
+            local output="$2"
+            git ls-remote --exit-code --refs origin "refs/heads/$branch" \
+              > "$output"
+            local status=$?
+            if [ "$status" -eq 0 ]; then
+              local count sha
+              count=$(wc -l < "$output")
+              sha=$(awk -v ref="refs/heads/$branch" \
+                '$2 == ref {print $1}' "$output")
+              if [ "$count" -ne 1 ] || ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::Remote ref $branch resolved ambiguously." >&2
+                return 90
+              fi
+            elif [ "$status" -eq 2 ]; then
+              if [ -s "$output" ]; then
+                echo "::error::Absent ref $branch returned ambiguous output." >&2
+                return 90
+              fi
+            else
+              echo "::error::Could not determine whether remote ref $branch exists." >&2
+            fi
+            return "$status"
+          }
+
+          set +e
+          probe_ref "$STATE_BRANCH" "$RUNNER_TEMP/dashboard-state.ls-remote"
+          STATE_STATUS=$?
+          probe_ref "$PREVIOUS_BRANCH" "$RUNNER_TEMP/dashboard-state-previous.ls-remote"
+          PREVIOUS_STATUS=$?
+          set -e
+          if [[ "$STATE_STATUS" != 0 && "$STATE_STATUS" != 2 ]] || \
+             [[ "$PREVIOUS_STATUS" != 0 && "$PREVIOUS_STATUS" != 2 ]]; then
+            echo "::error::Dashboard state discovery was not definitive; refusing recovery dispatch."
+            exit 1
+          fi
+          if [ "$STATE_STATUS" -eq 2 ] && [ "$PREVIOUS_STATUS" -eq 2 ]; then
+            if ! python - <<'PY'
+          from scripts.vllm.check_site_health import bootstrap_policy_active
+
+          raise SystemExit(0 if bootstrap_policy_active() else 1)
+          PY
+            then
+              echo "::error::Both state refs are absent and frozen-main bootstrap is disabled."
+              exit 1
+            fi
+            {
+              echo "target=collector"
+              echo "force_reason=state-uninitialized"
+            } >> "$GITHUB_OUTPUT"
+            echo "Dashboard state is definitively uninitialized; canonical collector owns bootstrap."
+            exit 0
+          fi
+
+          STATE_SHA=absent
+          PREVIOUS_SHA=absent
+          if [ "$STATE_STATUS" -eq 0 ]; then
+            STATE_SHA=$(awk -v ref="refs/heads/$STATE_BRANCH" \
+              '$2 == ref {print $1}' "$RUNNER_TEMP/dashboard-state.ls-remote")
+          fi
+          if [ "$PREVIOUS_STATUS" -eq 0 ]; then
+            PREVIOUS_SHA=$(awk -v ref="refs/heads/$PREVIOUS_BRANCH" \
+              '$2 == ref {print $1}' \
+              "$RUNNER_TEMP/dashboard-state-previous.ls-remote")
+          fi
+          hydrate_proven_blob() {
+            local object_id="$1"
+            local expected_size="$2"
+            local max_bytes="$3"
+            local label="$4"
+            local object_type object_size
+            if ! [[ "$object_id" =~ ^[0-9a-f]{40}$ ]] || \
+               ! [[ "$expected_size" =~ ^[0-9]+$ ]] || \
+               [ "$expected_size" -gt "$max_bytes" ]; then
+              echo "::error::$label server-side size proof is malformed."
+              return 90
+            fi
+            if ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$object_id"; then
+              if ! git fetch --no-tags --filter=blob:none origin "$object_id"; then
+                echo "::error::Could not fetch size-proven $label object $object_id."
+                return 90
+              fi
+            fi
+            if ! object_type=$(GIT_NO_LAZY_FETCH=1 git cat-file -t "$object_id") || \
+               ! object_size=$(GIT_NO_LAZY_FETCH=1 git cat-file -s "$object_id"); then
+              echo "::error::Could not inspect fetched $label object."
+              return 90
+            fi
+            if [ "$object_type" != blob ] || [ "$object_size" != "$expected_size" ]; then
+              echo "::error::$label object disagrees with its GitHub tree proof."
+              return 90
+            fi
+          }
+
+          declare -A STATE_CODE_ANCESTRY=()
+          declare -A PROVEN_STATE_CODE_TREES=()
+          validate_deployable_slot() {
+            local state_sha="$1"
+            local label="$2"
+            [ "$state_sha" != absent ] || return 2
+            local remote_proof="$RUNNER_TEMP/$label-state-github-proof.json"
+            local remote_outputs="$RUNNER_TEMP/$label-state-github-proof.outputs"
+            : > "$remote_outputs"
+            local metadata_status
+            if python scripts/vllm/github_git_proof.py prove \
+              --repository "$GITHUB_REPOSITORY" \
+              --commit-sha "$state_sha" \
+              --profile dashboard-state \
+              --output "$remote_proof" \
+              --github-output "$remote_outputs"; then
+              metadata_status=0
+            else
+              metadata_status=$?
+            fi
+            case "$metadata_status" in
+              0) ;;
+              2) return 2 ;;
+              *) return 90 ;;
+            esac
+            local proven_tree manifest_oid manifest_bytes attestation_oid attestation_bytes
+            proven_tree=$(awk -F= '$1 == "tree_sha" {print $2}' "$remote_outputs")
+            manifest_oid=$(awk -F= '$1 == "state_manifest_oid" {print $2}' "$remote_outputs")
+            manifest_bytes=$(awk -F= '$1 == "state_manifest_bytes" {print $2}' "$remote_outputs")
+            attestation_oid=$(awk -F= '$1 == "state_attestation_oid" {print $2}' "$remote_outputs")
+            attestation_bytes=$(awk -F= '$1 == "state_attestation_bytes" {print $2}' "$remote_outputs")
+            if ! git fetch --no-tags --depth=1 --filter=blob:none \
+              origin "$state_sha"; then
+              return 90
+            fi
+            local fetched_sha fetched_tree
+            if ! fetched_sha=$(git rev-parse --verify "$state_sha^{commit}") || \
+               ! fetched_tree=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+                 --verify "$state_sha^{tree}") || \
+               [ "$fetched_sha" != "$state_sha" ] || \
+               [ "$fetched_tree" != "$proven_tree" ]; then
+              return 90
+            fi
+            hydrate_proven_blob "$manifest_oid" "$manifest_bytes" \
+              8388608 "$label state manifest" || return $?
+            hydrate_proven_blob "$attestation_oid" "$attestation_bytes" \
+              4096 "$label state projection attestation" || return $?
+            local manifest_file="$RUNNER_TEMP/$label-dashboard-state.json"
+            if ! GIT_NO_LAZY_FETCH=1 git show \
+              "$state_sha:data/vllm/ci/dashboard_state.json" \
+              > "$manifest_file"; then
+              return 2
+            fi
+            local code_sha
+            if ! code_sha=$(python - "$manifest_file" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8")).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit(1)
+          print(value)
+          PY
+            ); then
+              return 2
+            fi
+            if [[ -z "${STATE_CODE_ANCESTRY[$code_sha]+x}" ]]; then
+              local compare_status
+              if [ "$code_sha" = "$TRUSTED_MAIN_SHA" ]; then
+                # Equality proves ancestry without a GitHub Compare request.
+                STATE_CODE_ANCESTRY["$code_sha"]=ancestor
+              else
+                if python scripts/vllm/github_git_proof.py compare-ancestor \
+                  --repository "$GITHUB_REPOSITORY" \
+                  --base "$code_sha" \
+                  --head "$TRUSTED_MAIN_SHA"; then
+                  compare_status=0
+                else
+                  compare_status=$?
+                fi
+                case "$compare_status" in
+                  0) STATE_CODE_ANCESTRY["$code_sha"]=ancestor ;;
+                  3)
+                    echo "::warning::$label state code is definitively not an ancestor of protected main."
+                    STATE_CODE_ANCESTRY["$code_sha"]=nonancestor
+                    ;;
+                  *)
+                    echo "::error::$label state ancestry lookup was ambiguous."
+                    return 90
+                    ;;
+                esac
+              fi
+            fi
+            if [ "${STATE_CODE_ANCESTRY[$code_sha]}" != ancestor ]; then
+              return 2
+            fi
+            if [[ -z "${PROVEN_STATE_CODE_TREES[$code_sha]+x}" ]]; then
+              local code_proof="$RUNNER_TEMP/code-$code_sha-github-proof.json"
+              local code_outputs="$RUNNER_TEMP/code-$code_sha-github-proof.outputs"
+              : > "$code_outputs"
+              local code_proof_status
+              if python scripts/vllm/github_git_proof.py prove \
+                --repository "$GITHUB_REPOSITORY" \
+                --commit-sha "$code_sha" \
+                --profile dashboard-code \
+                --output "$code_proof" \
+                --github-output "$code_outputs"; then
+                code_proof_status=0
+              else
+                code_proof_status=$?
+              fi
+              case "$code_proof_status" in
+                0) ;;
+                2)
+                  PROVEN_STATE_CODE_TREES["$code_sha"]=invalid
+                  return 2
+                  ;;
+                *) return 90 ;;
+              esac
+              local proven_code_tree fetched_code_sha fetched_code_tree
+              proven_code_tree=$(awk -F= '$1 == "tree_sha" {print $2}' "$code_outputs")
+              if [ "$code_sha" != "$TRUSTED_MAIN_SHA" ]; then
+                if ! git fetch --no-tags --depth=1 --filter=blob:none \
+                  origin "$code_sha"; then
+                  echo "::error::Could not fetch $label state code after proving its ancestry."
+                  return 90
+                fi
+              fi
+              if ! fetched_code_sha=$(git rev-parse --verify "$code_sha^{commit}") || \
+                 ! fetched_code_tree=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+                   --verify "$code_sha^{tree}") || \
+                 [ "$fetched_code_sha" != "$code_sha" ] || \
+                 [ "$fetched_code_tree" != "$proven_code_tree" ]; then
+                return 90
+              fi
+              PROVEN_STATE_CODE_TREES["$code_sha"]="$proven_code_tree"
+            fi
+            if [ "${PROVEN_STATE_CODE_TREES[$code_sha]}" = invalid ]; then
+              return 2
+            fi
+            if ! GIT_NO_LAZY_FETCH=1 python \
+              scripts/vllm/dashboard_state.py validate-ref-metadata \
+              --ref "$state_sha" --expected-code-sha "$code_sha" >/dev/null; then
+              return 2
+            fi
+            local attestation_file="$RUNNER_TEMP/$label-public-projection-attestation.json"
+            if ! GIT_NO_LAZY_FETCH=1 git show \
+              "$state_sha:data/vllm/ci/public_projection_attestation.json" \
+              > "$attestation_file"; then
+              return 2
+            fi
+            if ! python - "$attestation_file" <<'PY'
+          import sys
+          from pathlib import Path
+
+          from scripts.vllm.public_projection import load_attestation
+
+          load_attestation(Path(sys.argv[1]))
+          PY
+            then
+              return 2
+            fi
+            VALIDATED_STATE_CODE_SHA="$code_sha"
+            VALIDATED_STATE_MANIFEST="$manifest_file"
+            VALIDATED_STATE_ATTESTATION="$attestation_file"
+            return 0
+          }
+
+          VALIDATED_STATE_CODE_SHA=
+          VALIDATED_STATE_MANIFEST=
+          VALIDATED_STATE_ATTESTATION=
+          if validate_deployable_slot "$STATE_SHA" current; then
+            CURRENT_VALIDATION=0
+          else
+            CURRENT_VALIDATION=$?
+          fi
+          CURRENT_VALIDATED_CODE_SHA="$VALIDATED_STATE_CODE_SHA"
+          CURRENT_VALIDATED_MANIFEST="$VALIDATED_STATE_MANIFEST"
+          CURRENT_VALIDATED_ATTESTATION="$VALIDATED_STATE_ATTESTATION"
+          VALIDATED_STATE_CODE_SHA=
+          VALIDATED_STATE_MANIFEST=
+          VALIDATED_STATE_ATTESTATION=
+          if validate_deployable_slot "$PREVIOUS_SHA" previous; then
+            PREVIOUS_VALIDATION=0
+          else
+            PREVIOUS_VALIDATION=$?
+          fi
+          PREVIOUS_VALIDATED_CODE_SHA="$VALIDATED_STATE_CODE_SHA"
+          PREVIOUS_VALIDATED_MANIFEST="$VALIDATED_STATE_MANIFEST"
+          PREVIOUS_VALIDATED_ATTESTATION="$VALIDATED_STATE_ATTESTATION"
+          if [ "$CURRENT_VALIDATION" -eq 90 ] || \
+             [ "$PREVIOUS_VALIDATION" -eq 90 ]; then
+            echo "::error::Dashboard state trust validation was ambiguous; refusing recovery dispatch."
+            exit 1
+          fi
+          if [ "$CURRENT_VALIDATION" -ne 0 ] && \
+             [ "$PREVIOUS_VALIDATION" -ne 0 ]; then
+            echo "::error::Neither dashboard state slot is deployable; refusing implicit bootstrap."
+            exit 1
+          fi
+          if [ "$CURRENT_VALIDATION" -ne 0 ] || \
+             [ "$PREVIOUS_VALIDATION" -ne 0 ]; then
+            {
+              echo "target=deploy-pages"
+              echo "force_reason=state-slot-repair"
+            } >> "$GITHUB_OUTPUT"
+            echo "Exactly one dashboard state slot is valid; deploy-only will atomically repair both slots before publication."
+            exit 0
+          fi
+
+          STATE_CODE_SHA="$CURRENT_VALIDATED_CODE_SHA"
+          STATE_MANIFEST="$CURRENT_VALIDATED_MANIFEST"
+          STATE_ATTESTATION="$CURRENT_VALIDATED_ATTESTATION"
+          STATE_GENERATED_AT=$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["generated_at"])' \
+            "$STATE_MANIFEST")
+          MISMATCH_TARGET=$(python - "$STATE_GENERATED_AT" <<'PY'
+          import sys
+          from datetime import datetime, timezone
+
+          from scripts.vllm.plan_publication_watchdog import (
+              state_pages_mismatch_target,
+          )
+
+          print(state_pages_mismatch_target(sys.argv[1], now=datetime.now(timezone.utc)))
+          PY
+          )
+          route_state_pages_mismatch() {
+            echo "target=$MISMATCH_TARGET" >> "$GITHUB_OUTPUT"
+            echo "force_reason=state-pages-mismatch" >> "$GITHUB_OUTPUT"
+            echo "Exact-state deployment repairs availability before a later freshness decision."
+          }
+          EXPECTED_MARKER="$RUNNER_TEMP/expected-publication-generation.json"
+          python scripts/vllm/dashboard_state.py write-public-marker \
+            --state-sha "$STATE_SHA" \
+            --metadata-only \
+            --code-sha "$STATE_CODE_SHA" \
+            --public-attestation "$STATE_ATTESTATION" \
+            --output "$EXPECTED_MARKER"
+
+          set +e
+          probe_ref gh-pages "$RUNNER_TEMP/gh-pages.ls-remote"
+          PAGES_STATUS=$?
+          set -e
+          if [[ "$PAGES_STATUS" != 0 && "$PAGES_STATUS" != 2 ]]; then
+            echo "::error::Pages discovery was not definitive; refusing recovery dispatch."
+            exit 1
+          fi
+          if [ "$PAGES_STATUS" -eq 2 ]; then
+            route_state_pages_mismatch
+            echo "Pages is definitively absent; selected bounded recovery route."
+            exit 0
+          fi
+
+          PAGES_SHA=$(awk '$2 == "refs/heads/gh-pages" {print $1}' \
+            "$RUNNER_TEMP/gh-pages.ls-remote")
+          PAGES_PROOF="$RUNNER_TEMP/pages-github-proof.json"
+          PAGES_PROOF_OUTPUTS="$RUNNER_TEMP/pages-github-proof.outputs"
+          : > "$PAGES_PROOF_OUTPUTS"
+          set +e
+          python scripts/vllm/github_git_proof.py prove \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit-sha "$PAGES_SHA" \
+            --profile pages \
+            --output "$PAGES_PROOF" \
+            --github-output "$PAGES_PROOF_OUTPUTS"
+          PAGES_PROOF_STATUS=$?
+          set -e
+          if [ "$PAGES_PROOF_STATUS" -eq 2 ]; then
+            route_state_pages_mismatch
+            echo "Pages definitively violates the bounded projection tree contract."
+            exit 0
+          fi
+          if [ "$PAGES_PROOF_STATUS" -ne 0 ]; then
+            echo "::error::Pages commit/tree proof was ambiguous; refusing recovery dispatch."
+            exit 1
+          fi
+          PAGES_TREE=$(awk -F= '$1 == "tree_sha" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          PAGES_MANIFEST_OID=$(awk -F= '$1 == "pages_manifest_oid" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          PAGES_MANIFEST_BYTES=$(awk -F= '$1 == "pages_manifest_bytes" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          PAGES_MARKER_OID=$(awk -F= '$1 == "pages_marker_oid" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          PAGES_MARKER_BYTES=$(awk -F= '$1 == "pages_marker_bytes" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          PAGES_STATUS_OID=$(awk -F= '$1 == "pages_status_oid" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          PAGES_STATUS_BYTES=$(awk -F= '$1 == "pages_status_bytes" {print $2}' \
+            "$PAGES_PROOF_OUTPUTS")
+          git fetch --no-tags --depth=1 --filter=blob:none origin "$PAGES_SHA"
+          FETCHED_PAGES_SHA=$(git rev-parse --verify "$PAGES_SHA^{commit}")
+          FETCHED_PAGES_TREE=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+            --verify "$PAGES_SHA^{tree}")
+          if [ "$FETCHED_PAGES_SHA" != "$PAGES_SHA" ] || \
+             [ "$FETCHED_PAGES_TREE" != "$PAGES_TREE" ]; then
+            echo "::error::Pages fetch disagrees with its GitHub proof."
+            exit 1
+          fi
+          hydrate_proven_blob "$PAGES_MANIFEST_OID" "$PAGES_MANIFEST_BYTES" \
+            8388608 "Pages projection manifest"
+          hydrate_proven_blob "$PAGES_MARKER_OID" "$PAGES_MARKER_BYTES" \
+            4096 "Pages publication marker"
+          hydrate_proven_blob "$PAGES_STATUS_OID" "$PAGES_STATUS_BYTES" \
+            1048576 "Pages publication status"
+          git update-ref refs/remotes/origin/gh-pages "$PAGES_SHA"
+          DEPLOYED_MARKER="$RUNNER_TEMP/deployed-publication-generation.json"
+          if ! GIT_NO_LAZY_FETCH=1 git show \
+            origin/gh-pages:publication_generation.json \
+            > "$DEPLOYED_MARKER" || \
+             ! cmp -s "$EXPECTED_MARKER" "$DEPLOYED_MARKER"; then
+            route_state_pages_mismatch
+            echo "Pages does not carry the exact current state/code marker."
+            exit 0
+          fi
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$STATE_CODE_SHA" != "$TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          if ! GIT_NO_LAZY_FETCH=1 python \
+            scripts/vllm/public_projection.py verify-git \
+            --repo-root . \
+            --git-ref origin/gh-pages \
+            --attestation "$STATE_ATTESTATION" \
+            --expected-marker "$EXPECTED_MARKER" \
+            "${PROJECTION_COMPAT_ARGS[@]}"; then
+            route_state_pages_mismatch
+            echo "Pages does not carry the exact state-bound public projection."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = workflow_run ] && \
+             [ "${{ github.event.workflow_run.name }}" = "Site Health Check" ] && \
+             [ "${{ github.event.workflow_run.conclusion }}" != success ]; then
+            HEALTH_REPORT="$RUNNER_TEMP/watchdog-site-health.json"
+            HEALTH_DETAILS="$RUNNER_TEMP/watchdog-site-health.md"
+            BOOTSTRAP_EVIDENCE="$RUNNER_TEMP/watchdog-dashboard-bootstrap-refs.json"
+            rm -f "$HEALTH_REPORT" "$HEALTH_DETAILS"
+            rm -f "$BOOTSTRAP_EVIDENCE"
+            if ! python scripts/vllm/check_site_health.py \
+              --write-bootstrap-ref-evidence "$BOOTSTRAP_EVIDENCE" \
+              --repository "$GITHUB_REPOSITORY"; then
+              echo "::warning::Dashboard-state ref evidence was ambiguous; legacy bootstrap health will fail closed."
+              rm -f "$BOOTSTRAP_EVIDENCE"
+            fi
+            if python scripts/vllm/check_site_health.py \
+              --site-url https://andreaskaratzas.github.io/vllm-ci-dashboard/ \
+              --max-publication-age-hours 3 \
+              --bootstrap-ref-evidence "$BOOTSTRAP_EVIDENCE" \
+              --repository "$GITHUB_REPOSITORY" \
+              --output "$HEALTH_REPORT" \
+              --markdown-output "$HEALTH_DETAILS"; then
+              echo "A fresh 2-of-3 synthetic quorum is healthy; the triggering failure was not a confirmed Pages outage."
+            else
+              if python scripts/vllm/validate_watchdog_health_report.py \
+                --input "$HEALTH_REPORT"; then
+                {
+                  echo "target=deploy-pages"
+                  echo "force_reason=site-health-failed"
+                } >> "$GITHUB_OUTPUT"
+                echo "A fresh 2-of-3 synthetic quorum confirmed a Pages outage; scheduling deduplicated deploy-only recovery."
+                exit 0
+              fi
+              echo "::error::The failed Site Health run could not be confirmed by a fresh bounded quorum; refusing speculative deployment."
+              exit 1
+            fi
+          fi
+
+          if ! GIT_NO_LAZY_FETCH=1 git show \
+            origin/gh-pages:data/vllm/ci/publication_status.json \
+            > "$STATUS_PATH"; then
+            {
+              echo "target=deploy-pages"
+              echo "force_reason=status-unavailable"
+            } >> "$GITHUB_OUTPUT"
+            echo "Exact-state Pages is missing its public status; deploy-only can repair it."
+            exit 0
+          fi
+
+          ATTEMPT_OUTPUTS="$RUNNER_TEMP/data-collection-attempt-observation.outputs"
+          : > "$ATTEMPT_OUTPUTS"
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/data_collection_attempt_budget.json observe \
+            --github-output "$ATTEMPT_OUTPUTS"
+          BUILDKITE_COLLECTION_REQUIRED=$(awk -F= \
+            '$1 == "required" {print $2}' "$ATTEMPT_OUTPUTS")
+          if [ "$BUILDKITE_COLLECTION_REQUIRED" = true ]; then
+            {
+              echo "target=collector"
+              echo "force_reason=buildkite-collection-due"
+            } >> "$GITHUB_OUTPUT"
+            echo "The durable Buildkite collection ledger is due; selecting the bounded collector independently of publication age."
+            exit 0
+          fi
+          if [ "$BUILDKITE_COLLECTION_REQUIRED" != false ]; then
+            echo "::error::Attempt-ledger observation returned an invalid due decision."
+            exit 1
+          fi
+          STATUS_CLASS=$(python - "$STATUS_PATH" <<'PY'
+          import sys
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          from scripts.vllm.plan_dns_publication_reconcile import (
+              STATUS_MAX_BYTES,
+              _has_valid_contract,
+              _load_bounded_json,
+          )
+          from scripts.vllm.plan_publication_watchdog import is_dns_only_degraded
+
+          loaded, payload = _load_bounded_json(
+              Path(sys.argv[1]), max_bytes=STATUS_MAX_BYTES
+          )
+          now = datetime.now(timezone.utc)
+          if not loaded or not _has_valid_contract(payload, now=now):
+              print("invalid")
+          elif is_dns_only_degraded(payload, now=now):
+              print("dns-only")
+          else:
+              print("valid")
+          PY
+          )
+          case "$STATUS_CLASS" in
+            dns-only)
+              echo "target=dns-health" >> "$GITHUB_OUTPUT"
+              echo "force_reason=dns-only-degraded" >> "$GITHUB_OUTPUT"
+              ;;
+            valid)
+              echo "target=collector" >> "$GITHUB_OUTPUT"
+              echo "force_reason=" >> "$GITHUB_OUTPUT"
+              ;;
+            invalid)
+              echo "target=deploy-pages" >> "$GITHUB_OUTPUT"
+              echo "force_reason=status-invalid" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::Unexpected publication status classification."
+              exit 1
+              ;;
+          esac
+
+      - name: Read selected recovery workflow state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_TARGET: ${{ steps.recovery-route.outputs.target }}
+        run: |
+          set -euo pipefail
+          case "$RECOVERY_TARGET" in
+            collector) WORKFLOW_FILE=hourly-master.yml ;;
+            deploy-pages) WORKFLOW_FILE=deploy-pages.yml ;;
+            dns-health) WORKFLOW_FILE=dns-health.yml ;;
+            *) echo "::error::Unknown recovery target: $RECOVERY_TARGET"; exit 1 ;;
+          esac
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&per_page=100" \
+            > "$RUNNER_TEMP/selected-recovery-runs.json"
+
+      - name: Plan deduplicated targeted recovery
+        id: recovery-plan
+        env:
+          RECOVERY_TARGET: ${{ steps.recovery-route.outputs.target }}
+          FORCE_REASON: ${{ steps.recovery-route.outputs.force_reason }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --status "$RUNNER_TEMP/publication-status.json"
+            --workflow-runs "$RUNNER_TEMP/selected-recovery-runs.json"
+            --recovery-target "$RECOVERY_TARGET"
+            --max-age-minutes 95
+            --active-run-max-age-minutes 75
+            --github-output "$GITHUB_OUTPUT"
+          )
+          if [ -n "$FORCE_REASON" ]; then
+            ARGS+=(--force-recovery-reason "$FORCE_REASON")
+          fi
+          if [ "$RECOVERY_TARGET" = dns-health ]; then
+            ARGS+=(--retry-cooldown-minutes 70)
+          else
+            ARGS+=(--retry-cooldown-minutes 15)
+          fi
+          python scripts/vllm/plan_publication_watchdog.py "${ARGS[@]}"
+
+      - name: Dispatch exact-state Pages recovery
+        if: >-
+          steps.recovery-plan.outputs.required == 'true' &&
+          steps.recovery-route.outputs.target == 'deploy-pages'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_KEY: ${{ steps.recovery-plan.outputs.recovery_key }}
+        run: |
+          set -euo pipefail
+          jq -n --arg recovery_key "$RECOVERY_KEY" \
+            '{ref: "main", inputs: {recovery_key: $recovery_key}}' | \
+            gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-pages.yml/dispatches" \
+            --input -
+
+      - name: Dispatch DNS-only recovery
+        if: >-
+          steps.recovery-plan.outputs.required == 'true' &&
+          steps.recovery-route.outputs.target == 'dns-health'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVERY_KEY: ${{ steps.recovery-plan.outputs.recovery_key }}
+        run: |
+          set -euo pipefail
+          jq -n --arg recovery_key "$RECOVERY_KEY" \
+            '{ref: "main", inputs: {recovery_key: $recovery_key}}' | \
+            gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/dns-health.yml/dispatches" \
+            --input -
+
+      - name: Dispatch stale collector recovery
+        if: >-
+          steps.recovery-plan.outputs.required == 'true' &&
+          steps.recovery-route.outputs.target == 'collector'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OBSERVED_GENERATION: ${{ steps.recovery-plan.outputs.observed_generation }}
+          RECOVERY_KEY: ${{ steps.recovery-plan.outputs.recovery_key }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg watchdog_generation "$OBSERVED_GENERATION" \
+            --arg recovery_key "$RECOVERY_KEY" \
+            '{ref: "main", inputs: {watchdog_generation: $watchdog_generation, recovery_key: $recovery_key}}' | \
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            --input -

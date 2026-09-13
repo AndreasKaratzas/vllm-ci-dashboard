@@ -1,0 +1,304 @@
+{
+  "collected_at": "2026-09-13T13:06:11Z",
+  "prs": [
+    {
+      "number": 56017,
+      "title": "[Bugfix][Scoring] Warn when serving original Qwen3 reranker without chat template",
+      "author": "100milliongold",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-09T06:31:37Z",
+      "updated_at": "2026-09-12T04:07:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/56017",
+      "labels": [
+        "bug",
+        "frontend",
+        "ready",
+        "v1",
+        "qwen",
+        "verified"
+      ],
+      "draft": false,
+      "body_head": "### Purpose\nFixes #55501.\n\nWhen an original Qwen3 reranker (`Qwen/Qwen3-Reranker-*` or `Qwen/Qwen3-VL-Reranker-*`) is served with `is_original_qwen3_reranker: true` but without `--chat-template`, query and document are concatenated directly without the `<Instruct>/<Query>/<Document>` template wrapper the model was trained with. This causes silent scoring inaccuracy in production environments.\n\n### Changes\n- In `CrossEncoderIOProcessor.__init__`, check if `is_original_qwen3_reranker` is enabled and `chat_template` is `None`.\n- If so, log a clear startup warning pointing the user to the matching shipped template (`examples/pooling/score/template/qwen3_reranker.jinja` or `examples/pooling/score/template/qwen3_vl_reranker.jinja`).\n- Add unit tests in `tests/entrypoints/pooling/test_io_processor.py` verifying the warning behavior for text and vision models, as well as no-warning when a template is passed.\n\n### Test\n- Added unit tests covering:\n  - `test_qwen3_reranker_warns_without_chat_template`\n  - `test_qwen3_vl_reranker_warns_with_vl_template`\n  - `test_qwen3_reranker_no_warning_when_template_provided`\n- Verified code formatting with `ruff check` and `ruff format` clean.",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        56397
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "bug",
+        "frontend",
+        "ready",
+        "v1",
+        "qwen",
+        "verified"
+      ]
+    },
+    {
+      "number": 52101,
+      "title": "[Distributed][MoonEP] BF16 integration of MoonEP balanced EP backend",
+      "author": "kaijunli-infr",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-08-13T04:57:26Z",
+      "updated_at": "2026-09-11T04:46:14Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/52101",
+      "labels": [
+        "ready",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\n\nFirst item of the MoonEP integration roadmap RFC #52095: MoonEP (https://github.com/MoonshotAI/MoonEP) as a vLLM all2all backend, BF16 and eager, working end to end with `--all2all-backend moonep`.\n\nMoonEP keeps every EP rank at exactly `S \u00d7 K` tokens regardless of router skew by planning a few dynamically redundant experts online and prefetching their weights before expert compute. Its contract differs from DeepEP-style backends: `dispatch` returns tokens already grouped per expert row (`[NvS, H]` + `cu_seqlens[E+B]` + an opaque plan), rows `[E, E+B)` are prefetch slots, and there are no per-token top-k ids after dispatch \u2014 so the expert compute is a grouped GEMM over `cu_seqlens` segments.\n\nIncluded:\n\n- `\"moonep\"` `All2AllBackend`, `has_moonep()`, and `check_moonep_system_support()` (NVSwitch multicast probe run at backend selection so unsupported hosts fail with a clear message)\n- `MoonEPAll2AllManager` owning the cached `moonep.Buffer`\n- `MoonEPPrepareAndFinalize` on the modular prepare/finalize interface: pad to static capacity \u2192 `dispatch` \u2192 `prefetch_weight` for the planned redundant experts (plan stashed between prepare and finalize, the same pattern DeepEP-HT uses for its handle) \u2192 `combine` in finalize (`TopKWeightAndReduceNoOP`)\n- `MoonEPExperts` (`FusedMoEExpertsModular`): three `torch._grouped_mm` calls (gate, up, down) over the `cu_seqlens[E+B]` segments, route weights applied before the down projection; empty segments and unused prefetch slots are skipped natively\n- `FusedMoE` wiring: `UnquantizedMoeBackend.MOONEP` (auto-selected when the backend is `moonep`); `convert_to_unquantized_kernel_format` builds the `[E+B]` layout \u2014 all-gather each rank's local experts into global order, split into contiguous gate / up / down tensors as MoonEP's prefetch requires \u2014 and `_setup_kernel` hands it to the P/F and experts\n- `tests/kernels/moe/test_moonep_bf16_poc.py`: multi-GPU test of the full dispatch/prefetch/compute/combine path against the shared ",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        56397
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "nvidia"
+      ]
+    },
+    {
+      "number": 55887,
+      "title": "[ROCm][Bugfix] Support shared KV prefill in AITER attention",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-08T11:23:48Z",
+      "updated_at": "2026-09-09T21:51:37Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/55887",
+      "labels": [
+        "bug",
+        "rocm"
+      ],
+      "draft": false,
+      "body_head": "- Let AITER attention read K/V from the shared cache when a layer supplies only Q, covering both prefill and chunked prefill.\r\n- Allocate the gather workspace using each attention group's KV dimensions and gather only the new prefill/extend tokens.\r\n- Cover NHD and SHUFFLE layouts, FP8 caches, sliding windows, and cache immutability with 18 regression cases.\r\n\r\n`git bisect run` from [nightly 12674](https://buildkite.com/vllm/amd-ci/builds/12674) identified [PR #54917](https://github.com/vllm-project/vllm/pull/54917) as the regression: Gemma stopped computing redundant K/V projections, but AITER still tried to slice those missing tensors. This broke the translation server in build 12711's [MI300](https://buildkite.com/vllm/amd-ci/builds/12711#01a08040-53d9-4f1f-a3f1-004c0a9ac6a4) and [MI355](https://buildkite.com/vllm/amd-ci/builds/12711#01a08040-53f9-493f-9e34-961a3efd1e15) speech jobs. \r\n\r\nThis fix was developed with AI assistance and restores the backend's shared-cache support.\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        56144
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "bug"
+      ]
+    },
+    {
+      "number": 54917,
+      "title": "[Bugfix][Gemma] Conditionally create KV projections/norms on KV-shared layers",
+      "author": "Josephasafg",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-02T07:41:18Z",
+      "updated_at": "2026-09-09T20:39:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/54917",
+      "labels": [
+        "bug",
+        "ready"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\ntransformers only creates `k_proj` / `v_proj` / `k_norm` on the **non-KV-shared** layers of Gemma 4 E2B/E4B and Gemma 3n. \r\nAny checkpoint that goes through `save_pretrained` (HF Trainer, TRL, verl, ...) therefore omits those tensors for the last `num_kv_shared_layers` layers. The original Google releases happen to ship them redundantly, so this only surfaces after fine-tuning.\r\n\r\nvLLM created those modules unconditionally, so fine-tuned checkpoints failed with:\r\n```bash\r\nValueError: Following weights were not initialized from checkpoint: {'...layers.24.self_attn.k_norm.weight', ...}\r\n```\r\nThis PR supersedes #41504, has it gone stale and author not responding. \r\n\r\n## Test Plan\r\n\r\nCPU unit tests in `tests/models/language/generation/test_gemma.py`:\r\n  - `test_gemma4_kv_shared_layer_loads_plain_q_proj`: shared-layer `q_proj` loads directly, `q/k/v` shards still reach the packed layer, redundant shared-layer K/V names are skipped.\r\n  - `test_gemma3n_kv_shared_layer_mapper`: exact routed names / shard ids for a non-shared and a shared layer.\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        56144
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "bug",
+        "ready"
+      ]
+    }
+  ],
+  "count_semantics": "complete",
+  "source_coverage": {
+    "complete": true,
+    "authoritative_complete": true,
+    "population_semantics": "complete",
+    "truncated": false,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 3,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:56397",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56397",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:56144",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56144",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:48510",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:48510",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs in vllm-project/vllm with label 'rocm'; newest 300 maximum",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 2,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 177,
+        "total_count_hint": 177,
+        "provider_incomplete": false,
+        "completion_reason": "reported_total"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 4,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 9,
+    "query_retention": {
+      "source": 9,
+      "published": 9,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 4,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 4,
+      "open": 1,
+      "ci": 4,
+      "rocm": 1
+    },
+    "rows": {
+      "source": 4,
+      "published": 4,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 8,
+      "published": 8,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 4,
+      "published": 4,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 9,
+      "published": 9,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}

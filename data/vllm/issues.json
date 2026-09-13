@@ -1,0 +1,265 @@
+{
+  "collected_at": "2026-09-13T13:06:11Z",
+  "issues": [
+    {
+      "number": 56397,
+      "title": "[CI Failure]: Multimodal Processor shards - test_tensor_schema[naver-hyperclovax/HyperCLOVAX-SEED-Think-32B] - upstream model_type hyperclovax_vision_v2 unknown to CI transformers",
+      "author": "kaijunli-infr",
+      "state": "open",
+      "created_at": "2026-09-11T04:46:03Z",
+      "updated_at": "2026-09-11T10:14:32Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/56397",
+      "labels": [
+        "rocm",
+        "multi-modality",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`models/multimodal/processing/test_tensor_schema.py::test_model_tensor_schema[naver-hyperclovax/HyperCLOVAX-SEED-Think-32B]`\n\n### Basic information\n\n- Jobs: every `Multimodal Processor` shard containing this model \u2014 observed on `computer-cpu-multimodal-processor-shard-2`, `shard-4`, `nvidia-h200-mig-18gb-multimodal-processor`, and `amd-mi355-multimodal-processor` in build 88212 (PR #52101, which does not touch multimodal code).\n- Deterministic, hardware-independent, and survives retries: the cause is external to the repo.\n\n### Description\n\nThe upstream Hugging Face repo changed its `model_type` to `hyperclovax_vision_v2`, which the transformers version in the CI images does not recognize, so `ModelConfig` validation fails:\n\n```text\npydantic_core._pydantic_core.ValidationError: 1 validation error for ModelConfig\n  Value error, The checkpoint you are trying to load has model type `hyperclovax_vision_v2` but Transformers does not recognize this architecture.\n```\n\n153/154 tests in each shard pass; only this model fails.\n\n### Possible fixes\n\nPin the test to a fixed revision of the HF repo, update/upgrade transformers in the CI image, or temporarily skip this model id in `test_tensor_schema`.\n",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 52101,
+          "url": "https://github.com/vllm-project/vllm/pull/52101"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 56017,
+          "url": "https://github.com/vllm-project/vllm/pull/56017"
+        }
+      ]
+    },
+    {
+      "number": 56144,
+      "title": "[CI Failure]: (MI300) Entrypoints Integration (Speech to Text) failing because of PR#54917",
+      "author": "rasmith",
+      "state": "open",
+      "created_at": "2026-09-09T20:01:36Z",
+      "updated_at": "2026-09-09T21:53:13Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/56144",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\nentrypoints/speech_to_text/translation/test_translation_validation.py\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n@AndreasKaratzas @hmellor @Josephasafg This [PR ](https://github.com/vllm-project/vllm/pull/54917) is causing CI failure in (MI300) Entrypoints Integration (Speech to Text)\nhttps://buildkite.com/vllm/amd-ci/builds/12767/list?sid=01a08566-8c90-42ab-b9e9-c4532ffd7644&tab=output\n\n### \ud83d\udcdd History of failing test\n\n09/09/2026 \nFailed on Rock 10 full CI  run\nhttps://buildkite.com/vllm/amd-ci/builds/12756/list?sid=01a0842a-ab68-4ff8-9c12-38d472f2c7ae&tab=output\nbut then also fails on recent full CI run:\nhttps://buildkite.com/vllm/amd-ci/builds/12767/list?sid=01a08566-8c90-42ab-b9e9-c4532ffd7644&tab=output\n\n### CC List.\n\n_No response_",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 54917,
+          "url": "https://github.com/vllm-project/vllm/pull/54917"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 55887,
+          "url": "https://github.com/vllm-project/vllm/pull/55887"
+        }
+      ]
+    },
+    {
+      "number": 48510,
+      "title": "[CI Failure]: `AMD: Language Models Test (Extended Pooling)` Workspace growth allocation after lock",
+      "author": "micah-wil",
+      "state": "open",
+      "created_at": "2026-07-13T17:07:33Z",
+      "updated_at": "2026-07-13T19:26:35Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/48510",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [
+        "micah-wil"
+      ],
+      "project_status": "Done",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter]\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter] is failing on ROCm due to `AssertionError: Workspace is locked but allocation from 'modular_kernel.py:1096:_allocate_buffers' requires 15.00 MB, current size is 0.06 MB. Workspace growth is not allowed after locking.`\n\nhttps://buildkite.com/vllm/ci/builds/77673/list?sid=019f5553-8716-4596-8f4c-62c6657cef31&tab=output\n\n### \ud83d\udcdd History of failing test\n\nSince transformers 5.10 upgrade\n\n### CC List.\n\n_No response_",
+      "linked_prs": []
+    }
+  ],
+  "count_semantics": "complete",
+  "source_coverage": {
+    "complete": true,
+    "authoritative_complete": true,
+    "population_semantics": "complete",
+    "truncated": false,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 3,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:56397",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56397",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:56144",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56144",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:48510",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:48510",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs in vllm-project/vllm with label 'rocm'; newest 300 maximum",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 2,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 177,
+        "total_count_hint": 177,
+        "provider_incomplete": false,
+        "completion_reason": "reported_total"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 4,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 9,
+    "query_retention": {
+      "source": 9,
+      "published": 9,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 3,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 3,
+      "open": 3,
+      "linked_pr_refs": 4
+    },
+    "rows": {
+      "source": 3,
+      "published": 3,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 3,
+      "published": 3,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 4,
+      "published": 4,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 9,
+      "published": 9,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}

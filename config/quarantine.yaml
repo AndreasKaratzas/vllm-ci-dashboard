@@ -1,0 +1,22 @@
+# CI Test Quarantine & Allowlist
+#
+# Quarantined tests are excluded from failure metrics but still tracked.
+# Allowlisted tests are known acceptable failures (e.g., unsupported on AMD).
+#
+# Format:
+#   quarantine:
+#     - test_id: "classname::test_name"
+#       reason: "Why this test is quarantined"
+#       issue: "https://github.com/vllm-project/vllm/issues/XXXX"
+#       added: "YYYY-MM-DD"
+#       expires: "YYYY-MM-DD"     # optional, auto-removed after this date
+#
+#   allowlist:
+#     - test_id: "classname::test_name"
+#       reason: "Why this failure is acceptable"
+#       permanent: true            # no expiry
+#
+
+quarantine: []
+
+allowlist: []
