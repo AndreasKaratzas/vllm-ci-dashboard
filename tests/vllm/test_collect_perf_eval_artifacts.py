@@ -9,6 +9,7 @@ parsing, AMD-only filtering, and dedup identity. No network is touched.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from fnmatch import fnmatchcase
 import importlib
 import json
 
@@ -160,6 +161,60 @@ def test_bk_paginate_fails_closed_when_last_allowed_page_is_full(monkeypatch):
         art._bk_paginate("/builds", "fake-token", max_pages=2)
 
     assert requested_pages == [1, 2]
+
+
+def test_result_artifact_discovery_paginates_both_kinds_without_sample_flood(monkeypatch):
+    artifacts = [
+        {"id": f"sample-{index}", "path": f"results/m-mi355x/task/samples_{index}.jsonl"}
+        for index in range(2_000)
+    ] + [
+        {"id": f"perf-{index}", "path": f"./results/m-mi355x/bench-config-{index}.json"}
+        for index in range(200)
+    ] + [
+        {"id": f"accuracy-{index}", "path": f"results/m-mi355x/task/results_{index}.json"}
+        for index in range(105)
+    ]
+    requests_made = []
+
+    def filtered_page(path, token, params):
+        assert path.endswith("/builds/563/artifacts")
+        requests_made.append(dict(params))
+        # Model the documented server-side path filter before pagination.
+        selected = [row for row in artifacts if fnmatchcase(row["path"], params["path"])]
+        start = (params["page"] - 1) * params["per_page"]
+        return selected[start:start + params["per_page"]]
+
+    monkeypatch.setattr(art, "_bk_get", filtered_page)
+    results = art._bk_result_artifacts(563, "fake-token")
+
+    assert {row["id"] for row in results} == {
+        row["id"] for row in artifacts if not row["id"].startswith("sample-")
+    }
+    assert [request["page"] for request in requests_made] == [1, 2, 3, 1, 2]
+    assert len(requests_made) < art._RESULT_ARTIFACT_MAX_PAGES
+    assert all(art.classify_artifact(row["path"]) for row in results)
+
+
+@pytest.mark.parametrize("first_count", [100, 900])
+def test_result_artifact_discovery_shares_existing_page_cap(monkeypatch, first_count):
+    requests_made = []
+
+    def capped_pages(path, token, params):
+        requests_made.append(dict(params))
+        if params["path"] == art._RESULT_ARTIFACT_PATHS[0]:
+            remaining = first_count - (params["page"] - 1) * 100
+            return [{"path": "results/m-mi355x/bench-one.json"}] * max(0, min(100, remaining))
+        return [{"path": "results/m-mi355x/task/results_one.json"}] * 100
+
+    monkeypatch.setattr(art, "_bk_get", capped_pages)
+    with pytest.raises(RuntimeError, match="safety cap"):
+        art._bk_result_artifacts(563, "fake-token")
+
+    assert len(requests_made) == 10
+    if first_count == 900:
+        assert all(request["path"] == art._RESULT_ARTIFACT_PATHS[0] for request in requests_made)
+    else:
+        assert [request["page"] for request in requests_made] == [1, 2, *range(1, 9)]
 
 
 # ── artifact classification ────────────────────────────────────────────────
@@ -337,7 +392,7 @@ def _stub_collection(monkeypatch, artifacts, downloads, *, build=None):
         if path.endswith("/builds"):
             return [selected_build]
         if path.endswith(f"/builds/{selected_build['number']}/artifacts"):
-            return artifacts
+            return [row for row in artifacts if fnmatchcase(row["path"], params["path"])]
         raise AssertionError(path)
 
     monkeypatch.setattr(art, "_bk_paginate", paginate)
@@ -351,6 +406,67 @@ def _stub_collection(monkeypatch, artifacts, downloads, *, build=None):
         }
 
     monkeypatch.setattr(art, "_bk_download_json", download)
+
+
+def test_collect_ingests_both_result_kinds_past_unrelated_artifact_flood(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    artifacts = [
+        {"id": f"sample-{index}", "path": f"results/m-mi355x/task/samples_{index}.jsonl"}
+        for index in range(1_001)
+    ] + [
+        {"id": "perf", "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json", "download_url": "perf"},
+        {"id": "accuracy", "path": "results/m-mi355x/gsm8k/results_one.json", "download_url": "accuracy"},
+    ]
+    monkeypatch.setattr(art, "fetch_workload_map", lambda _token: {"m-mi355x": (_ENTRY, _CONFIGS)})
+    requests_made = []
+
+    def get(path, token, params):
+        requests_made.append((path, dict(params)))
+        if path.endswith("/builds"):
+            return [_BUILD]
+        filtered = [row for row in artifacts if fnmatchcase(row["path"], params["path"])]
+        start = (params["page"] - 1) * params["per_page"]
+        return filtered[start:start + params["per_page"]]
+
+    monkeypatch.setattr(art, "_bk_get", get)
+    downloads = []
+
+    def download(url, token):
+        downloads.append(url)
+        if url == "perf":
+            return {"total_token_throughput": 10.0, "output_throughput": 1.0}
+        return {"results": {"gsm8k": {"exact_match,strict-match": 0.8}}, "config": {"model": "m"}}
+
+    monkeypatch.setattr(art, "_bk_download_json", download)
+    appended = []
+    monkeypatch.setattr(art, "append_events", lambda _store, events: appended.extend(events))
+
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 2
+    assert downloads == ["perf", "accuracy"]
+    assert {event["event"] for event in appended} == {"perf_result", "accuracy_result"}
+    assert {event["buildkite_artifact_id"] for event in appended} == {"perf", "accuracy"}
+    assert len(requests_made) == 3
+
+
+def test_collect_preserves_store_when_filtered_discovery_is_incomplete(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    original = json.dumps({"event": art.ARTIFACT_MARKER_EVENT, "build_number": 500, "buildkite_artifact_id": "old"}) + "\n"
+    store.write_text(original)
+    monkeypatch.setattr(art, "fetch_workload_map", lambda _token: {"m-mi355x": (_ENTRY, _CONFIGS)})
+
+    def get(path, token, params):
+        if path.endswith("/builds"):
+            return [_BUILD]
+        if params["path"] == art._RESULT_ARTIFACT_PATHS[0]:
+            return [{"id": "perf", "path": "results/m-mi355x/bench-one.json"}]
+        return [{"id": "accuracy", "path": "results/m-mi355x/task/results_one.json"}] * 100
+
+    monkeypatch.setattr(art, "_bk_get", get)
+    monkeypatch.setattr(art, "_bk_download_json", lambda *_: pytest.fail("incomplete inventory must not be consumed"))
+
+    with pytest.raises(RuntimeError, match="safety cap"):
+        art.collect(store, days=14, bk_token="bk", gh_token="gh")
+    assert store.read_text() == original
 
 
 def test_collect_skips_known_artifacts_before_download(tmp_path, monkeypatch):
