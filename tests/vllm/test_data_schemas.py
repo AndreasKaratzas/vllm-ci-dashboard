@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from vllm.ci import dns_failures as dns_backend
+from vllm.ci.ownership import load_ownership_config
 
 pytestmark = pytest.mark.live_data
 
@@ -1322,7 +1323,24 @@ class TestCiOwnership:
             <= set(row)
             for row in d["areas"]
         )
-        assert all(1 <= len(row["owners"]) <= 3 for row in d["areas"])
+        configured_areas = load_ownership_config(
+            ROOT / "config" / "vllm_ci_ownership.json"
+        )["areas"]
+        definition_areas = set((d.get("sources") or {}).get("definition_areas") or [])
+        for row in d["areas"]:
+            assert isinstance(row["owners"], list)
+            if row["area"] in configured_areas:
+                assert 1 <= len(row["owners"]) <= 3
+                continue
+            # Newly discovered source areas have no reviewed owner chain yet.
+            # They must retain the explicit CI-lead escalation contract.
+            assert row["area"] in definition_areas
+            assert row["owners"] == []
+            assert row["escalated_to_ci_lead"] is True
+            assert row["selection_reason"] == "no_ranked_owner_selected"
+            assert row["selected_owner"]["github_login"] == d["ci_lead"]["github_login"]
+            assert row["selected_owner"]["display_name"] == d["ci_lead"]["display_name"]
+            assert row["selected_owner"]["rank"] is None
         assert all(
             len({owner["rank"] for owner in row["owners"]})
             == len(row["owners"])
