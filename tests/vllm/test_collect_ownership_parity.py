@@ -132,6 +132,22 @@ def _oversized_parity_report() -> dict:
     return report
 
 
+def test_execution_catalog_is_bounded_and_accounts_for_omitted_physical_rows():
+    report = _oversized_parity_report()
+    report["amd_execution_definitions"] = [
+        {"definition_id": f".buildkite/test-amd.yaml#{index}", "label": "Long name " * 40, "execution_sha256": f"{index:064x}"}
+        for index in range(300)
+    ]
+    bounded = collect_ownership_parity.bounded_config_parity_payload(report, max_bytes=8_000)
+    assert len((json.dumps(bounded, indent=2) + "\n").encode()) <= 8_000
+    counts = bounded["publication_retention"]["collections"]["amd_execution_definitions"]
+    assert counts["source"] == 300
+    assert counts["published"] + counts["omitted"] == 300
+    assert counts["omitted"] > 0
+    assert counts["complete_relative_to_source"] is False
+    assert bounded["summary"] == report["summary"]
+
+
 def test_config_parity_compaction_drops_duplicate_targets_before_core_rows():
     report = _oversized_parity_report()
 
@@ -161,7 +177,7 @@ def test_config_parity_compaction_retains_actionable_rows_first_and_is_stable():
     report = _oversized_parity_report()
     reversed_report = dict(report)
     for name in collect_ownership_parity.CONFIG_PARITY_ROW_COLLECTIONS:
-        reversed_report[name] = list(reversed(report[name]))
+        reversed_report[name] = list(reversed(report.get(name, [])))
 
     bounded = collect_ownership_parity.bounded_config_parity_payload(
         report,

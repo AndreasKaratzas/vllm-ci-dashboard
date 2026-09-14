@@ -5748,11 +5748,17 @@ class DashboardAudit:
             rules = policy_block.get(rule_name)
             rule_rows = _rows(rules)
             titles = [str(rule.get("title") or "") for rule in rule_rows]
+            identities = (
+                [str(rule.get("health_group_id") or "") for rule in rule_rows]
+                if rule_name == "generic_alias_rules" and policy_block.get("generic_alias_match_policy")
+                else titles
+            )
             if (
                 not isinstance(rules, list)
                 or len(rule_rows) != len(rules)
                 or any(not title or not str(rule.get("reason") or "") for title, rule in zip(titles, rule_rows))
-                or len(set(titles)) != len(titles)
+                or any(not identity for identity in identities)
+                or len(set(identities)) != len(identities)
             ):
                 reject(f"source best-hardware {rule_name} are invalid")
         if not valid:
@@ -5799,7 +5805,11 @@ class DashboardAudit:
         ]
         published_policy["generic_alias_rules"] = [
             rule for rule in policy_block.get("generic_alias_rules") or []
-            if str(_mapping(rule).get("title") or "") in retained_alias_titles
+            if (
+                str(_mapping(rule).get("health_group_id") or "") in set(health_ids)
+                if policy_block.get("generic_alias_match_policy")
+                else str(_mapping(rule).get("title") or "") in retained_alias_titles
+            )
         ]
         published_matrix = {**matrix, "summary": published_summary, "best_hardware_policy": published_policy}
         return published_matrix, published_summary, True
@@ -5989,6 +5999,91 @@ class DashboardAudit:
         counts["reduce_duplicates"] = reduce_duplicates
         counts["ignore_mi355_only"] = ignore_mi355_only
         return counts
+
+    def audit_execution_alias_rules(
+        self,
+        policy: dict[str, Any],
+        rows: list[dict[str, Any]],
+        groups: dict[str, dict[str, Any]],
+        relpath: str,
+    ) -> None:
+        """Require concrete execution proof for every dynamic alias merge."""
+        from vllm.collect_amd_test_matrix import (
+            GENERIC_EXECUTION_ALIAS_POLICY,
+            GENERIC_EXECUTION_ALIAS_REASON,
+            _mi355_sensitive_reason,
+            command_fingerprint,
+            execution_fingerprint,
+        )
+
+        def reject(message: str) -> None:
+            self.error("matrix-best-hardware-policy-rules", message, relpath)
+
+        if policy.get("generic_alias_match_policy") != GENERIC_EXECUTION_ALIAS_POLICY:
+            reject("unsupported generic-alias execution policy")
+            return
+        rules = policy.get("generic_alias_rules")
+        if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+            reject("generic execution aliases must be an array of rule objects")
+            return
+        rows_by_id = {row.get("id"): row for row in rows}
+        classifications = {
+            item.get("row_id"): item
+            for item in _rows(policy.get("mi355_classification"))
+        }
+        for row in rows:
+            evidence = row.get("execution_identity")
+            if isinstance(evidence, dict) and (
+                not isinstance(evidence.get("commands"), list)
+                or json.loads(command_fingerprint(evidence)) != row.get("commands")
+            ):
+                reject(f"execution evidence disagrees with commands for {row.get('id')}")
+            classification = classifications.get(row.get("id"))
+            if classification is None:
+                continue
+            sensitive_reason = _mi355_sensitive_reason(row)
+            expected = "separate_gate" if sensitive_reason else "generic_replica"
+            if classification.get("classification") != expected or (
+                sensitive_reason and classification.get("reason") != sensitive_reason
+            ):
+                reject(f"MI355 execution policy disagrees with classification for {row.get('id')}")
+
+        seen = set()
+        for rule in rules:
+            group_id = rule.get("health_group_id")
+            if not isinstance(group_id, str) or group_id in seen or group_id not in groups:
+                reject("generic execution aliases must reference unique existing groups")
+                continue
+            seen.add(group_id)
+            group = groups[group_id]
+            fingerprints = set()
+            for member in _rows(group.get("members")):
+                row = rows_by_id.get(member.get("row_id"), {})
+                fingerprints.add(execution_fingerprint(row, str(member.get("architecture") or "")))
+            architectures = set(group.get("architectures") or [])
+            if (
+                not fingerprints
+                or None in fingerprints
+                or not isinstance(rule.get("execution_fingerprint"), str)
+                or fingerprints != {rule.get("execution_fingerprint")}
+                or not isinstance(rule.get("row_ids"), list)
+                or any(not isinstance(row_id, str) for row_id in rule["row_ids"])
+                or rule.get("row_ids") != group.get("member_row_ids")
+                or len(set(rule.get("row_ids") or [])) < 2
+                or rule.get("title") != group.get("title")
+                or rule.get("reason") != GENERIC_EXECUTION_ALIAS_REASON
+                or group.get("classification_reason") != GENERIC_EXECUTION_ALIAS_REASON
+                or group.get("gate_kind") != "generic_best_hardware"
+                or "mi355" not in architectures
+                or not architectures & {"mi250", "mi300", "mi325"}
+            ):
+                reject(f"generic alias group {group_id!r} lacks matching execution evidence")
+        expected_groups = {
+            group_id for group_id, group in groups.items()
+            if group.get("classification_reason") == GENERIC_EXECUTION_ALIAS_REASON
+        }
+        if seen != expected_groups:
+            reject("generic execution aliases do not exactly cover their materialized groups")
 
     def audit_best_hardware_health_groups(
         self,
@@ -6547,6 +6642,11 @@ class DashboardAudit:
                     },
                 )
 
+            if policy.get("generic_alias_match_policy") is not None:
+                self.audit_execution_alias_rules(policy, rows, group_by_id, relpath)
+                # Execution rules use group IDs, allowing distinct families to
+                # share a display title and surviving labels that change.
+                raw_alias_rules = []
             alias_rules = {
                 str(rule.get("title") or ""): str(rule.get("reason") or "")
                 for rule in raw_alias_rules

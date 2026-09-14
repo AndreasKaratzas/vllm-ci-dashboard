@@ -511,6 +511,128 @@ def test_matrix_category_is_not_used_as_a_lossy_area_fallback():
     ) == ("", "area_unmapped")
 
 
+@pytest.mark.parametrize("collection", ["matches", "inline_mirror_variants", "additional_variants"])
+def test_renamed_definition_in_new_source_area_keeps_attribution(collection):
+    known = {"kernels"}
+    index = parity_area_index(
+        {
+            collection: [
+                {
+                    "amd_label": ":amd: (MI300) Renamed connector coverage",
+                    "nvidia_label": ":nvidia: (L4) Renamed connector coverage",
+                    "nvidia_source": ".buildkite/test_areas/new_connector.yaml",
+                }
+            ]
+        },
+        known,
+    )
+
+    assert infer_target_area(
+        {
+            "label": "Reviewed connector title",
+            "runtime_resolution": {
+                "amd_definition_labels": [":amd: (MI300) Renamed connector coverage"]
+            },
+        },
+        index,
+        known,
+    ) == ("new_connector", "definition_parity")
+
+
+def test_new_source_areas_remain_visible_with_existing_ci_lead_fallback():
+    config = _config()
+    availability, availability_source = evaluate_availability(config["owners"], now=NOW)
+    current_parity = {
+        "source": {"commit_sha": "current"},
+        "nvidia_only": [
+            {
+                "label": "New upstream audit",
+                "source": ".buildkite/test_areas/new_audit.yaml",
+                "source_url": "https://example.invalid/new_audit.yaml",
+            }
+        ],
+    }
+    runtime_parity = {
+        "source": {"commit_sha": "nightly"},
+        "matches": [
+            {
+                "amd_label": ":amd: (MI300) New connector coverage",
+                "nvidia_source": ".buildkite/test_areas/new_connector.yaml",
+            }
+        ],
+    }
+    gating = {
+        "active_target_groups": [
+            {
+                "id": "new-connector",
+                "label": "New connector coverage",
+                "latest_amd_result": {"state": "hard", "build_number": 12916},
+            }
+        ]
+    }
+
+    status = build_ownership_status(
+        gating,
+        current_parity,
+        config,
+        availability,
+        availability_source,
+        generated_at="2026-09-14T12:00:00Z",
+        attribution_parity=runtime_parity,
+    )
+
+    areas = {row["area"]: row for row in status["areas"]}
+    assert set(areas) == {"kernels", "new_audit", "new_connector"}
+    assert set(config["areas"]) == {"kernels"}
+    assert status["sources"]["definition_areas"] == ["new_audit", "new_connector"]
+    assert status["summary"]["unmapped_targets"] == 0
+    assert status["summary"]["hard"] == 1
+    assert status["summary"]["upstream_parity_gaps"] == 1
+    assert areas["new_connector"]["regressions"][0]["label"] == "New connector coverage"
+    assert areas["new_audit"]["upstream_parity_gaps"][0]["label"] == "New upstream audit"
+    for area in (areas["new_audit"], areas["new_connector"]):
+        assert area["owners"] == []
+        assert area["selected_owner"]["github_login"] == "ci-lead"
+        assert area["selection_reason"] == "no_ranked_owner_selected"
+        assert area["escalated_to_ci_lead"] is True
+
+
+def test_area_discovery_does_not_invent_areas_from_standalone_pipeline_files():
+    index = parity_area_index(
+        {
+            "matches": [
+                {"amd_label": "Pipeline utility", "source_file": ".buildkite/test-amd.yaml"},
+                {"amd_label": "No source", "source_file": ""},
+            ]
+        },
+        {"kernels"},
+    )
+
+    assert index == {}
+
+
+@pytest.mark.parametrize(
+    ("label", "area"),
+    [
+        ("LM Eval Small Models Harness", "lm_eval"),
+        ("LM Eval Small Models FP8 + Mixed", "lm_eval"),
+        ("LM Eval Large Models ROCm Harness", "lm_eval"),
+        ("V1 E2E Hybrid Chunked Prefill", "e2e_integration"),
+        ("Weight Loading Multi-GPU (Large Models)", "weight_loading"),
+    ],
+)
+def test_current_amd_only_definition_names_keep_reviewed_ownership(label, area):
+    from vllm.ci.ownership import load_ownership_config
+
+    config = load_ownership_config(ROOT / "config" / "vllm_ci_ownership.json")
+    assert infer_target_area(
+        {"label": f":amd: (MI300) {label}"},
+        {},
+        set(config["areas"]),
+        config["target_area_overrides"],
+    ) == (area, "reviewed_area_override")
+
+
 def test_status_groups_regressions_and_parity_gaps_by_area():
     config = _config()
     availability, availability_source = evaluate_availability(

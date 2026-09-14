@@ -16,6 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg
 from vllm.dashboard_storage_budget import writer_max_bytes
+from vllm.reviewed_definition_labels import (
+    load_definition_parity,
+    resolve_reviewed_definition_labels,
+    validate_definition_ids,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -77,6 +82,7 @@ def load_targets(path: Path = CONFIG) -> list[dict[str, Any]]:
 
     normalized = []
     for row in groups:
+        validate_definition_ids(row, context=f"target {row['id']}")
         label = str(row.get("label") or "").strip()
         gating_signal = str(row.get("gating_signal") or row.get("source_signal") or "unknown")
         pf_signal = str(row.get("pf_signal") or row.get("readiness_signal") or "unknown")
@@ -93,11 +99,29 @@ def load_targets(path: Path = CONFIG) -> list[dict[str, Any]]:
             "target_signal": assigned_signal,
             "owner": str(row.get("owner") or ""),
             "note": str(row.get("note") or ""),
+            **{
+                field: row[field]
+                for field in (
+                    "upstream_definition_ids", "successor_definition_ids",
+                    "reviewed_label", "legacy_labels", "definition_note",
+                    "amd_execution_sha256s", "label_suffix",
+                )
+                if field in row
+            },
         })
     return normalized
 
 
-def build_payload(groups: list[dict[str, Any]], config_path: Path = CONFIG) -> dict[str, Any]:
+def build_payload(
+    groups: list[dict[str, Any]],
+    config_path: Path = CONFIG,
+    *,
+    definition_parity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if definition_parity is not None:
+        groups = resolve_reviewed_definition_labels(
+            groups, definition_parity, label_field="label"
+        )
     return {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": {
@@ -244,7 +268,10 @@ def main() -> None:
 
     groups = load_targets(args.config)
     payload = bounded_payload(
-        build_payload(groups, args.config),
+        build_payload(
+            groups, args.config,
+            definition_parity=load_definition_parity(args.output / "config_parity.json"),
+        ),
         max_bytes=GATING_TARGETS_MAX_BYTES,
     )
     args.output.mkdir(parents=True, exist_ok=True)

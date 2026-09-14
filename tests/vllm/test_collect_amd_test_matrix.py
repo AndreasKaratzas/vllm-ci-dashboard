@@ -1032,10 +1032,10 @@ steps:
     commands: [pytest entrypoints/openai]
   - label: ":amd: (MI300) Language Models (Extended Generation)"
     agent_pool: mi300_1
-    commands: [install mamba-old, pytest models/language/generation]
+    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@old, pytest models/language/generation]
   - label: ":amd: (MI355) Language Models (Extended Generation)"
     agent_pool: mi355_1
-    commands: [install mamba-new, pytest models/language/generation]
+    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@new, pytest models/language/generation]
 """)
     matrix = build_matrix(
         steps, architectures, {}, None, {}, {}, [],
@@ -1056,6 +1056,152 @@ steps:
         for group in matrix["health_groups"]
         for member in group["members"]
     )
+
+
+def _execution_matrix(definitions):
+    steps, architectures = parse_steps(json.dumps({"steps": definitions}))
+    return build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
+
+
+@pytest.mark.parametrize("title", [
+    "Entrypoints Integration (API Server OpenAI - Part 1)",
+    "Entrypoints Integration (OpenAI API completion)",
+    "An entirely new workload label",
+])
+def test_execution_aliases_follow_commands_after_renames(title):
+    matrix = _execution_matrix([
+        {"label": f":amd: (MI300) {title}", "agent_pool": "mi300_1", "commands": ["pytest -v -s entrypoints/openai/"]},
+        {"label": ":amd: (MI355) Independently renamed replica", "agent_pool": "mi355_1", "commands": ["pytest -v -s entrypoints/openai"]},
+    ])
+    assert len(matrix["health_groups"]) == 1
+    assert matrix["health_groups"][0]["architectures"] == ["mi300", "mi355"]
+    rules = matrix["best_hardware_policy"]["generic_alias_rules"]
+    assert len(rules) == 1
+    assert rules[0]["title"] == title
+    assert rules[0]["row_ids"] == matrix["health_groups"][0]["member_row_ids"]
+    assert rules[0]["execution_fingerprint"].startswith("execution-")
+
+
+@pytest.mark.parametrize("changed", [
+    {"commands": ["pytest -v -s other_tests/"]},
+    {"commands": ["pytest -v -s tests/api/ -m smoke"]},
+    {"commands": ["MODE=experimental pytest -v -s tests/api/"]},
+    {"commands": ["uv pip install some-new-dependency", "pytest -v -s tests/api/"]},
+    {"working_dir": "/different/workspace"},
+    {"agent_pool": "mi355_4"},
+    {"parallelism": 4},
+])
+def test_execution_aliases_do_not_merge_distinct_workloads_with_same_title(changed):
+    baseline = {"label": ":amd: (MI300) Renamed API", "agent_pool": "mi300_1", "commands": ["pytest -v -s tests/api/"]}
+    replica = {**baseline, "label": ":amd: (MI355) Renamed API", "agent_pool": "mi355_1", "commands": ["pytest -v -s tests/api"], **changed}
+    matrix = _execution_matrix([baseline, replica])
+    assert len(matrix["health_groups"]) == 2
+    assert matrix["best_hardware_policy"]["generic_alias_rules"] == []
+
+
+@pytest.mark.parametrize("left,right", [
+    ("pytest tests/api/ -k '$MODE'", 'pytest tests/api -k "$MODE"'),
+    ("pytest tests/api/\nother_command", "pytest tests/api other_command"),
+    ("pytest tests/api/ && echo done", "pytest tests/api && echo done"),
+    ('MODE="a  b" pytest tests/api/', 'MODE="a b" pytest tests/api'),
+    (r"pytest tests/api\ path/", r"pytest tests/api\  path"),
+    ("pytest tests/test_api.py/", "pytest tests/test_api.py"),
+    ("uv pip install git+https://github.com/other/project@old", "uv pip install git+https://github.com/other/project@new"),
+])
+def test_execution_aliases_preserve_shell_and_unreviewed_dependency_differences(left, right):
+    matrix = _execution_matrix([
+        {"label": ":amd: (MI300) First", "agent_pool": "mi300_1", "commands": [left]},
+        {"label": ":amd: (MI355) Second", "agent_pool": "mi355_1", "commands": [right]},
+    ])
+    assert len(matrix["health_groups"]) == 2
+    assert matrix["best_hardware_policy"]["generic_alias_rules"] == []
+
+
+def test_removed_policy_titles_are_not_published_as_required_rules():
+    matrix = _execution_matrix([
+        {"label": ":amd: (MI300) New Test", "agent_pool": "mi300_1", "commands": ["pytest tests/new.py"]},
+    ])
+    assert matrix["best_hardware_policy"]["generic_alias_rules"] == []
+    assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == []
+
+
+def test_sensitive_gate_survives_label_rename_with_reviewed_execution():
+    matrix = _execution_matrix([
+        {"label": f":amd: ({architecture}) Renamed Quantization Suite", "agent_pool": f"{architecture.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
+        for architecture in ["MI300", "MI355"]
+    ])
+    assert len(matrix["health_groups"]) == 2
+    sensitive = next(group for group in matrix["health_groups"] if group["gate_kind"] == "mi355_sensitive")
+    assert sensitive["architectures"] == ["mi355"]
+    assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == [{
+        "title": "Renamed Quantization Suite",
+        "reason": "architecture-sensitive quantization-kernel coverage",
+    }]
+
+
+def test_sensitive_execution_proof_does_not_ignore_model_or_topology_changes():
+    from vllm.collect_amd_test_matrix import _mi355_sensitive_reason
+
+    matrix = _execution_matrix([
+        {"label": ":amd: (MI355) Newly Named Quantization", "agent_pool": "mi355_4", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization --model different"]},
+    ])
+    assert _mi355_sensitive_reason(matrix["rows"][0]) is None
+
+
+def test_multimodal_area_survives_current_label_spelling():
+    from vllm.collect_amd_test_matrix import classify_area
+
+    assert classify_area("Entrypoints Integration (Multimodal)") == "Multi-Modal"
+
+
+def test_execution_route_hash_retains_same_label_topology_variants():
+    from vllm.config_parity import _parse_step
+    from vllm.reviewed_definition_labels import execution_sha256
+
+    definitions = [
+        {
+            "label": ":amd: (MI300) Distributed API",
+            "agent_pool": f"mi300_{width}",
+            "num_devices": width,
+            "working_dir": "/vllm-workspace/tests",
+            "commands": ["# comment\npytest -v -s tests/api --model 'quoted value'"],
+        }
+        for width in [2, 4]
+    ]
+    parsed, _ = parse_steps(json.dumps({"steps": definitions}))
+    expected = set()
+    for index, raw in enumerate(definitions):
+        config = _parse_step(raw, ".buildkite/test-amd.yaml", "AMD", index)
+        signature = execution_sha256({
+            "commands": config.commands,
+            "working_dir": config.working_dir,
+            "agent_pool": config.agent_pool,
+            "num_gpus": config.num_gpus,
+            "parallelism": config.parallelism,
+            "source_file": config.source_file,
+            "definition_fingerprint": config.definition_fingerprint,
+        })
+        assert parsed[index]["execution_sha256"] == signature
+        expected.add(signature)
+    assert len(expected) == 2
+    matrix = _execution_matrix(definitions)
+    assert len(matrix["rows"]) == 1
+    variant = matrix["rows"][0]["cells"]["mi300"]["variants"][0]
+    assert "execution_sha256" not in variant
+    assert {entry["execution_sha256"] for entry in variant["entries"]} == expected
+    assert {entry["agent_pool"] for entry in variant["entries"]} == {"mi300_2", "mi300_4"}
+    assert {entry["execution_sha256"] for entry in matrix["health_groups"][0]["members"][0]["variants"]} == expected
+
+
+def test_execution_route_hash_is_stable_across_label_changes_and_unique_aliases():
+    definitions = [
+        {"label": label, "agent_pool": "mi300_1", "commands": ["pytest tests/api"], "parallelism": 2}
+        for label in ["API", ":amd: (MI300) API"]
+    ]
+    matrix = _execution_matrix(definitions)
+    variant = matrix["rows"][0]["cells"]["mi300"]["variants"][0]
+    assert len(variant["entries"]) == 2
+    assert {entry["execution_sha256"] for entry in variant["entries"]} == {variant["execution_sha256"]}
 
 
 def test_best_hardware_policy_declares_exactly_fifteen_mi355_sensitive_rules():
@@ -1118,10 +1264,10 @@ def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
         "    commands: [pytest entrypoints/openai]",
         '  - label: ":amd: (MI300) Language Models (Extended Generation)"',
         "    agent_pool: mi300_1",
-        "    commands: [install mamba-old, pytest models/language/generation]",
+        "    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@old, pytest models/language/generation]",
         '  - label: ":amd: (MI355) Language Models (Extended Generation)"',
         "    agent_pool: mi355_1",
-        "    commands: [install mamba-new, pytest models/language/generation]",
+        "    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@new, pytest models/language/generation]",
     ))
 
     steps, architectures = parse_steps("\n".join(lines))

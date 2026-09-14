@@ -608,6 +608,41 @@ test('CI health parity is main-only and opens grouped gap tables', async ({ page
   await expect(dialog.locator('tbody tr').first()).toBeVisible();
 });
 
+test('CI parity explains changed definitions without transferring reviewed coverage', async ({ page }) => {
+  await page.route('**/operations_v2/test_group_parity.json*', async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const parity = payload.test_group_parity || payload;
+    parity.groups[0] = {
+      ...parity.groups[0],
+      title: 'Reviewed OpenAI group',
+      reviewed_title: 'Original reviewed title',
+      definition_resolution: {
+        status: 'unresolved',
+        commit_sha: 'a'.repeat(40),
+        successor_labels: ['OpenAI completion integration', 'OpenAI chat integration'],
+        note: 'The original step was split; replacement coverage needs review.',
+      },
+    };
+    await route.fulfill({ response, json: payload });
+  });
+  await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.locator('#tab-ci-health').getByRole('button', { name: /Browse complete \d+-group inventory/ }).click();
+  const inventory = page.getByRole('dialog');
+  await expect(inventory).toContainText('Current CI definition');
+  await inventory.getByPlaceholder('Filter test group, area, CUDA variant, status, or assessment').fill('Reviewed OpenAI group');
+  const row = inventory.locator('tbody tr').filter({ hasText: 'Reviewed OpenAI group' });
+  await expect(row).toContainText('Removed or changed');
+  await row.getByRole('button', { name: 'Reviewed OpenAI group', exact: true }).click();
+  const detail = page.getByRole('dialog').last();
+  await expect(detail).toContainText('Original reviewed title');
+  await expect(detail).toContainText('OpenAI completion integration');
+  await expect(detail).toContainText('replacement coverage needs review');
+  await expect(detail.getByRole('link', { name: 'Open current CI definitions' })).toHaveAttribute(
+    'href', 'https://github.com/vllm-project/vllm/tree/' + 'a'.repeat(40) + '/.buildkite/test_areas',
+  );
+});
+
 test('CI health uses logical AMD runtime groups and separates the reviewed plan', async ({ page }) => {
   await page.goto('/?ops_health_view=targets#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');

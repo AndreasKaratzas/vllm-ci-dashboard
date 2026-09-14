@@ -175,8 +175,8 @@ def _complete_current_area_keys(status: dict, config: dict) -> set[str] | None:
 
     Retirement is destructive state cleanup, so a partial status projection
     must be treated differently from a valid configuration that intentionally
-    removed an area. The status builder is expected to emit every configured
-    area, including areas with zero targets.
+    removed an area. The status builder must emit every configured area and
+    every area discovered from definition provenance, including empty areas.
     """
     if status.get("available") is not True:
         return None
@@ -194,6 +194,18 @@ def _complete_current_area_keys(status: dict, config: dict) -> set[str] | None:
         keys.append(area_key)
     current = set(keys)
     expected = {str(area_key) for area_key in configured}
+    sources = status.get("sources") or {}
+    if not isinstance(sources, dict):
+        return None
+    definition_areas = sources.get("definition_areas", [])
+    if not isinstance(definition_areas, list) or any(
+        not isinstance(area, str) or not re.fullmatch(r"[a-z0-9]+(?:_[a-z0-9]+)*", area)
+        for area in definition_areas
+    ):
+        return None
+    if len(set(definition_areas)) != len(definition_areas):
+        return None
+    expected.update(definition_areas)
     if len(current) != len(keys) or current != expected:
         return None
     return current

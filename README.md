@@ -140,8 +140,8 @@ UTC-day index. Its `source` object points to the exact vectors already published
 `source.vector_key`. This replaces schema v3's duplicated inline vectors without
 sampling them or reducing them to a daily average or percentile.
 
-Runtime target results follow a fail-closed identity chain: exact build-pinned
-AMD matrix labels first, then current upstream-to-AMD definition-parity aliases.
+Runtime target results follow a fail-closed identity chain: reviewed definition
+keys and exact executions first, with legacy label matching for unlinked targets.
 Only reviewed labels ending in `%N` may absorb numbered runtime shards; unrelated
 numeric suffixes and GPU counts remain distinct. Colliding matrix rows are merged
 with hard/soft incidents taking precedence over passes, while retaining every
@@ -149,6 +149,21 @@ exact Buildkite link. A target with no selected result is classified separately
 as lacking a one-to-one AMD definition, mapping review, ambiguous, or defined but not observed;
 the CI Health drawer shows that reason, the matched AMD labels, and source-commit
 alignment.
+
+CI display names are refreshed from the collected YAML definitions. Reviewed
+parity and target rows use explicit upstream step keys where available;
+standalone AMD targets can use exact execution identities covering commands,
+working directory, dependencies, and hardware topology. Runtime results resolve
+against the nightly's own definition snapshot and matrix execution identities.
+Renaming a label therefore does not require another alias-table edit. Removed,
+split, or ambiguous definitions remain visible as needing review, with known
+replacement names shown separately; they do not inherit an older coverage
+assessment automatically.
+
+Best-hardware grouping derives generic replicas from command evidence instead
+of a required list of display names. Hardware-sensitive exceptions remain
+explicit policy, and only rules applicable to the observed configuration are
+published. A removed name can no longer invalidate the entire CI Health surface.
 
 ### CI ownership and regression issues
 

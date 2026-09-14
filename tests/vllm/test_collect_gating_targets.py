@@ -130,6 +130,22 @@ def test_generated_payload_summarizes_targets() -> None:
     assert payload["summary"]["by_assigned_signal"]
 
 
+def test_current_names_preserve_reviewed_ids_and_changed_scope_evidence():
+    groups = {row["id"]: row for row in cgt.load_targets()}
+    assert len(groups) == 125
+    assert groups[38]["label"] == "KDA Kernels"
+    assert groups[77]["label"] == "PyTorch Fullgraph Smoke"
+    assert groups[98]["label"] == "Multimodal Models (Extended Generation 2)"
+    assert groups[116]["label"] == "Language Models (Extended Pooling)"
+    assert groups[108]["label"] == "Entrypoints Integration (OpenAI API completion)"
+    assert groups[108]["reviewed_label"] == "Entrypoints Integration (API Server OpenAI - Part 1)"
+    assert groups[108]["upstream_definition_ids"] != groups[108]["successor_definition_ids"]
+    assert "redistributed" in groups[108]["definition_note"]
+    assert groups[108]["source_signal"] == "green"
+    assert groups[26]["amd_execution_sha256s"]
+    assert not groups[26]["upstream_definition_ids"]
+
+
 def test_bounded_payload_retains_actionable_whole_rows_with_exact_accounting() -> None:
     groups = []
     for index in range(1, 81):

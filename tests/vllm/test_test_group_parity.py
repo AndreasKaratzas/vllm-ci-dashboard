@@ -79,6 +79,19 @@ def test_review_validator_rejects_duplicate_group_ids(tmp_path: Path) -> None:
         parity.load_review(config_path)
 
 
+def test_label_refresh_keeps_historical_review_scope_and_explicit_successors():
+    review = parity.load_review()
+    assert review["reviewed_at"] == "2026-08-22"
+    assert review["source"]["main_commit"] == "7ca49fbe4bab019e55d57cdc4b7fd3d55c67c1a6"
+    assert review["source"]["label_reference_commit"] == "995e8581f462a13e32f30cfba946c63d48cf31d7"
+    groups = {row["id"]: row for row in review["groups"]}
+    assert groups[79]["title"] == "MLA Kernel Test"
+    assert groups[79]["state"] == "unsupported"
+    assert groups[125]["upstream_definition_ids"] == [".buildkite/test_areas/misc.yaml#v1-core-kv-metrics"]
+    assert len(groups[125]["successor_definition_ids"]) == 5
+    assert "removed" in groups[128]["definition_note"]
+
+
 def test_review_validator_rejects_area_state_drift(tmp_path: Path) -> None:
     review = json.loads(parity.CONFIG.read_text())
     existing = next(row for row in review["groups"] if row["state"] == "existing")
@@ -135,12 +148,12 @@ def test_publish_compacts_oversized_definition_snapshot_truthfully(
 ) -> None:
     output_path = tmp_path / "test_group_parity.json"
     output_path.write_text('{"generation":"last-known-good"}\n')
-    monkeypatch.setattr(parity, "TEST_GROUP_PARITY_MAX_BYTES", 16_000)
+    monkeypatch.setattr(parity, "TEST_GROUP_PARITY_MAX_BYTES", 30_000)
 
     path, payload = parity.publish(output_dir=tmp_path, generated_at=GENERATED_AT)
 
     assert path == output_path
-    assert output_path.stat().st_size <= 16_000
+    assert output_path.stat().st_size <= 30_000
     assert json.loads(output_path.read_text()) == payload
     retention = payload["publication_retention"]
     assert retention["complete_relative_to_source"] is False

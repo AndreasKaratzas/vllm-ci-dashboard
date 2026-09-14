@@ -23,6 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.reviewed_definition_labels import (  # noqa: E402
+    load_definition_parity,
+    resolve_reviewed_definition_labels,
+    validate_definition_ids,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -196,6 +201,7 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
                 f"groups[{index}].state must be one of {sorted(ALL_STATES)}"
             )
         _nonempty_string(group.get("title"), f"groups[{index}].title")
+        validate_definition_ids(group, context=f"groups[{index}]")
         _nonempty_string(
             group.get("cuda_variants"), f"groups[{index}].cuda_variants"
         )
@@ -243,6 +249,7 @@ def build_payload(
     config_path: Path = CONFIG,
     *,
     generated_at: str | None = None,
+    definition_parity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the dashboard payload from a validated review."""
     areas = [dict(row) for row in review["areas"]]
@@ -250,6 +257,10 @@ def build_payload(
         (dict(row) for row in review["groups"]),
         key=lambda row: row["id"],
     )
+    if definition_parity is not None:
+        groups = resolve_reviewed_definition_labels(
+            groups, definition_parity, label_field="title"
+        )
     totals = Counter()
     for row in areas:
         totals.update({field: int(row[field]) for field in AREA_COUNT_FIELDS})
@@ -394,6 +405,7 @@ def publish(
     output_dir: Path = OUTPUT,
     *,
     generated_at: str | None = None,
+    definition_parity: dict[str, Any] | None = None,
 ) -> tuple[Path, dict[str, Any]]:
     """Validate the review and write ``test_group_parity.json``."""
     review = load_review(config_path)
@@ -402,6 +414,10 @@ def publish(
             review,
             config_path,
             generated_at=generated_at,
+            definition_parity=(
+                definition_parity if definition_parity is not None
+                else load_definition_parity(output_dir / "config_parity.json")
+            ),
         ),
         max_bytes=TEST_GROUP_PARITY_MAX_BYTES,
     )

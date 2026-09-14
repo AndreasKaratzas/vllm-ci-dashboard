@@ -47,6 +47,29 @@ def _step(
     )
 
 
+def test_execution_catalog_retains_physical_routes_and_name_free_identity(monkeypatch):
+    first = _step(
+        ":amd: (MI300) Reviewed", "reviewed", ["pytest test.py"],
+        ".buildkite/test-amd.yaml", definition_id=".buildkite/test-amd.yaml#1",
+        agent_pool="mi300_1", working_dir="tests/first", num_gpus=1,
+    )
+    second = _step(
+        ":amd: (MI355) Reviewed", "reviewed", ["pytest test.py"],
+        ".buildkite/test-amd.yaml", definition_id=".buildkite/test-amd.yaml#2",
+        agent_pool="mi355_1", working_dir="tests/second", num_gpus=1,
+    )
+    monkeypatch.setattr(config_parity, "_load_config_steps", lambda: ([first, second], [], []))
+    monkeypatch.setattr(config_parity, "_source_provenance", lambda: {"commit_sha": "a" * 40})
+    before = config_parity.build_config_parity()["amd_execution_definitions"]
+    assert len(before) == 2
+    assert before[0]["execution_sha256"] != before[1]["execution_sha256"]
+    first.label = ":amd: (MI300) Renamed"
+    first.definition_id = ".buildkite/test-amd.yaml#9"
+    after = config_parity.build_config_parity()["amd_execution_definitions"]
+    renamed = next(row for row in after if row["label"].endswith("Renamed"))
+    assert renamed["execution_sha256"] == before[0]["execution_sha256"]
+
+
 def test_shard_base_catalog_preserves_pipeline_provenance(monkeypatch):
     amd = _step(
         ":amd: (MI300) AMD model tests %N",

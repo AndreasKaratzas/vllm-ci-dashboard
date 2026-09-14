@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -41,6 +42,10 @@ from vllm.amd_nightly_handoff import (  # noqa: E402
     load_frozen_build_snapshot,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.reviewed_definition_labels import (  # noqa: E402
+    execution_sha256,
+    flatten_execution_commands,
+)
 
 
 log = logging.getLogger(__name__)
@@ -69,7 +74,7 @@ AREA_PATTERNS = [
     ("Attention", re.compile(r"attention", re.I)),
     ("Distributed", re.compile(r"distributed|torchrun|pipeline parallel|elastic ep|eplb", re.I)),
     ("Models", re.compile(r"models? test|weight loading", re.I)),
-    ("Multi-Modal", re.compile(r"multi-modal|whisper|vision|audio", re.I)),
+    ("Multi-Modal", re.compile(r"multi[- ]?modal|whisper|vision|audio", re.I)),
     ("Entrypoints", re.compile(r"entrypoint|api server|openai", re.I)),
     ("Compile", re.compile(r"compile|compilation|pytorch fullgraph|fullgraph", re.I)),
     ("Engine", re.compile(r"engine|async engine|inputs, utils, worker|shutdown", re.I)),
@@ -120,16 +125,38 @@ MI355_SENSITIVE_RULES = (
     ("V1 Attention Shard", "architecture-sensitive V1 attention coverage"),
 )
 
-# These command differences are semantically immaterial for health identity.
-# Keeping the aliases explicit prevents harmless spelling/dependency churn from
-# inflating the denominator while retaining both definitions as evidence.
-GENERIC_MI355_ALIAS_REASONS = {
-    "Entrypoints Integration (API Server OpenAI - Part 1)": (
-        "same test selection; only a trailing slash differs"
-    ),
-    "Language Models (Extended Generation)": (
-        "same test-family target; dependency revision is not a separate test group"
-    ),
+# Only this previously reviewed dependency is revision-insensitive for test
+# identity. Other repositories, packages, flags and test selections stay exact.
+REVIEWED_DEPENDENCY_REVISION_RE = re.compile(
+    r"git\+https://github\.com/AndreasKaratzas/mamba@[A-Za-z0-9._/-]+$"
+)
+GENERIC_EXECUTION_ALIAS_REASON = (
+    "same test execution after normalizing pytest directory paths and reviewed dependency revisions"
+)
+GENERIC_EXECUTION_ALIAS_POLICY = "execution-v1"
+
+# Exact execution fingerprints of the reviewed MI355 gates, including working
+# directory and agent topology. These preserve a gate when its display label
+# changes without silently classifying different commands as hardware-sensitive.
+# Verified against test-amd.yaml at commit b443c1cc4e12171be0b0bbb7cc107919bda4634f
+# and commit 995e8581f462a13e32f30cfba946c63d48cf31d7. Fingerprints exclude labels and
+# source-file triggers; neither changes the execution covered by a gate.
+MI355_SENSITIVE_EXECUTION_SIGNATURES: dict[str, tuple[str, ...]] = {
+    "Attention Benchmark Smoke": ("execution-d8e664bc1a8c08cd",),
+    "Distributed Features": ("execution-541320e55c49c180",),
+    "GPQA Eval (GPT-OSS)": ("execution-85aad33fd8238d81",),
+    "LM Eval Qwen3-5 Models": ("execution-13dc174816f2f5fe",),
+    "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy": ("execution-1065fe948d3d2a67",),
+    "LM Eval Large Models": ("execution-07945e2a5ffdcb28",),
+    "Kernels": ("execution-ee38af932881120d",),
+    "MLA Kernels": ("execution-7ac1cc234c8c0b8f",),
+    "Attention Kernels Shard": ("execution-5f59601d16518d5e",),
+    "MoE Kernels Shard": ("execution-fd79925765be2102",),
+    "Quantization Kernels": ("execution-714fb15eef89661d",),
+    "DeepEP FP8 MoE Kernels": ("execution-cff27977e957d0e6",),
+    "Quantized Models": ("execution-5c08bea049ae72c7",),
+    "Quantization": ("execution-1a7b4637f0b24f36",),
+    "V1 Attention Shard": ("execution-d4b19c2fab0274e0",),
 }
 
 
@@ -465,11 +492,116 @@ def matrix_health_policies(rows: list[dict[str, Any]]) -> dict[str, dict[str, An
     }
 
 
+def _normalized_execution_command(command: str) -> list[str]:
+    """Normalize only reviewed spelling differences, retaining shell syntax.
+
+    Non-POSIX tokens preserve quote styles: '$X' must not equal "$X". Complex
+    shell expressions and unparseable commands retain their exact spelling.
+    """
+    if "\n" in command or "\r" in command or "\\" in command:
+        return [command]
+    try:
+        lexer = shlex.shlex(command, posix=False, punctuation_chars=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
+        # Non-POSIX shlex does not retain embedded quoted whitespace as one
+        # token (e.g. MODE="a b"). Do not normalize those ambiguous forms.
+        if len(tokens) != len(shlex.split(command, comments=False, posix=True)):
+            return [command]
+    except ValueError:
+        return [command]
+    if any(token and set(token) <= set(";&|<>()") for token in tokens):
+        return [command]
+    executable = 0
+    while executable < len(tokens) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[executable]):
+        executable += 1
+    invocation = tokens[executable:]
+    pytest_start = None
+    if invocation[:1] == ["pytest"]:
+        pytest_start = executable + 1
+    elif invocation[:3] in (["python", "-m", "pytest"], ["python3", "-m", "pytest"]):
+        pytest_start = executable + 3
+    if pytest_start is not None:
+        takes_value = False
+        no_value_flags = {"-v", "-vv", "-vvv", "-s", "-q", "-x", "--collect-only", "--disable-warnings"}
+        for index in range(pytest_start, len(tokens)):
+            token = tokens[index]
+            if takes_value:
+                takes_value = False
+                continue
+            if token.startswith("-"):
+                takes_value = "=" not in token and token not in no_value_flags
+                continue
+            quote = token[0] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else ""
+            path = token[1:-1] if quote else token
+            # A slash on a file-like target can make it invalid; normalize only
+            # ordinary directory names, never .py targets or pytest node IDs.
+            if re.fullmatch(r"(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-]+/", path):
+                tokens[index] = quote + path.rstrip("/") + quote
+    if invocation[:3] == ["uv", "pip", "install"] or invocation[:2] == ["pip", "install"]:
+        for index in range(executable, len(tokens)):
+            token = tokens[index]
+            quote = token[0] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else ""
+            package = token[1:-1] if quote else token
+            if REVIEWED_DEPENDENCY_REVISION_RE.fullmatch(package):
+                tokens[index] = quote + package.split("@", 1)[0] + "@reviewed-revision" + quote
+    return tokens
+
+
+def execution_fingerprint(
+    row: dict[str, Any], arch: str, *, normalize: bool = True
+) -> str | None:
+    """Identify concrete commands, working directory and hardware shape.
+
+    Missing evidence cannot authorize a new merge. Existing duplicate-group
+    behavior remains independent of this stricter, cross-hardware alias proof.
+    """
+    evidence = row.get("execution_identity")
+    if not isinstance(evidence, dict):
+        return None
+    commands = evidence.get("commands")
+    working_dir = evidence.get("working_dir")
+    if (
+        not isinstance(working_dir, str)
+        or not isinstance(commands, list)
+        or not commands
+        or any(not isinstance(command, str) or not command.strip() for command in commands)
+    ):
+        return None
+    shapes = set()
+    for variant in row.get("cells", {}).get(arch, {}).get("variants", []):
+        for entry in variant.get("entries") or [variant]:
+            pool = str(entry.get("agent_pool") or "")
+            shape = re.sub(r"^mi\d+", "amd", pool, flags=re.I)
+            if not pool or shape == pool:
+                return None
+            parallelism = entry.get("parallelism", 1)
+            if type(parallelism) is not int or parallelism < 1:
+                return None
+            shapes.add((shape, parallelism))
+    if not shapes:
+        return None
+    payload = {
+        "working_dir": working_dir.strip(),
+        "commands": [
+            _normalized_execution_command(command.strip()) if normalize else command.strip()
+            for command in commands
+        ],
+        "agent_shapes": sorted(shapes),
+    }
+    return _stable_id("execution", json.dumps(payload, sort_keys=True))
+
+
 def _mi355_sensitive_reason(row: dict[str, Any]) -> str | None:
     """Return why an MI355 cell remains a separate best-hardware test group."""
     title = clean_label(row.get("canonical_title") or row.get("title", ""))
+    exact_execution = execution_fingerprint(row, "mi355", normalize=False)
     for rule_title, reason in MI355_SENSITIVE_RULES:
-        if title == rule_title:
+        if title == rule_title or (
+            exact_execution is not None
+            and exact_execution in MI355_SENSITIVE_EXECUTION_SIGNATURES.get(rule_title, ())
+        ):
             return reason
     return None
 
@@ -512,6 +644,8 @@ def _health_member(
                 "state": entry.get("latest_state"),
                 "url": entry.get("latest_url"),
             })
+            if entry.get("execution_sha256"):
+                variants[-1]["execution_sha256"] = entry["execution_sha256"]
     agent_pools = sorted({
         str(variant.get("agent_pool"))
         for variant in variants
@@ -560,42 +694,36 @@ def build_best_hardware_health_groups(
             else:
                 generic_components[row["duplicate_group_id"]].append((row, arch))
 
-    # Two intentionally generic definitions differ enough to evade the exact
-    # command duplicate cluster. Merge each MI355 row with its core title peer.
-    for alias_title in GENERIC_MI355_ALIAS_REASONS:
-        matching = [
-            (row, arch)
-            for members in generic_components.values()
-            for row, arch in members
-            if row.get("canonical_title") == alias_title
-        ]
-        core_group_id = next(
-            (row["duplicate_group_id"] for row, arch in matching if arch in CORE_AMD_ARCHITECTURES),
-            None,
-        )
-        if not core_group_id:
+    # A label is presentation, not proof that commands are equivalent. Only
+    # merge homogeneous components with the same concrete execution evidence.
+    # Sensitive MI355 cells have already been removed from these candidates.
+    by_execution: dict[str, list[str]] = defaultdict(list)
+    for group_id, owned in generic_components.items():
+        signatures = {execution_fingerprint(row, arch) for row, arch in owned}
+        if len(signatures) == 1 and None not in signatures:
+            by_execution[next(iter(signatures))].append(group_id)
+    alias_signatures: dict[str, str] = {}
+    for signature, group_ids in by_execution.items():
+        if len(group_ids) < 2:
             continue
-        for old_group_id in {
-            row["duplicate_group_id"] for row, _ in matching
-        }:
-            if old_group_id == core_group_id:
-                continue
-            generic_components[core_group_id].extend(
-                generic_components.pop(old_group_id, [])
-            )
+        architectures = {
+            arch for group_id in group_ids for _, arch in generic_components[group_id]
+        }
+        if "mi355" not in architectures or not architectures & CORE_AMD_ARCHITECTURES:
+            continue
+        group_ids.sort(key=lambda group_id: min(
+            row["yaml_order"] for row, _ in generic_components[group_id]
+        ))
+        target = group_ids[0]
+        for other in group_ids[1:]:
+            generic_components[target].extend(generic_components.pop(other))
+        alias_signatures[target] = signature
 
     health_groups: list[dict[str, Any]] = []
     for group_id, owned in generic_components.items():
         owned.sort(key=lambda item: (item[0]["yaml_order"], _arch_sort_key(item[1])))
         members = [_health_member(row, arch, source_url) for row, arch in owned]
-        alias_reason = next(
-            (
-                GENERIC_MI355_ALIAS_REASONS[title]
-                for title in GENERIC_MI355_ALIAS_REASONS
-                if any(row.get("canonical_title") == title for row, _ in owned)
-            ),
-            None,
-        )
+        alias_reason = GENERIC_EXECUTION_ALIAS_REASON if group_id in alias_signatures else None
         status = _best_hardware_status([
             row["cells"][arch] for row, arch in owned
         ])
@@ -684,6 +812,23 @@ def build_best_hardware_health_groups(
                 "reason": group["classification_reason"],
                 "health_group_id": group["id"],
             })
+    sensitive_rules = {
+        row["canonical_title"]: reason for row, _, reason in sensitive_cells
+    }
+    alias_rules = [
+        {
+            "title": group["title"],
+            "reason": GENERIC_EXECUTION_ALIAS_REASON,
+            "health_group_id": group["id"],
+            "row_ids": group["member_row_ids"],
+            "execution_fingerprint": execution_fingerprint(
+                next(row for row in rows if row["id"] == group["members"][0]["row_id"]),
+                group["members"][0]["architecture"],
+            ),
+        }
+        for group in health_groups
+        if group["classification_reason"] == GENERIC_EXECUTION_ALIAS_REASON
+    ]
     policy = {
         "status_rule": counts["status_rule"],
         "denominator_rule": counts["denominator_rule"],
@@ -694,12 +839,10 @@ def build_best_hardware_health_groups(
         "no_signal_states": ["canceled", "expired", "skipped", "unknown", "missing"],
         "mi355_sensitive_rules": [
             {"title": title, "reason": reason}
-            for title, reason in MI355_SENSITIVE_RULES
+            for title, reason in sorted(sensitive_rules.items())
         ],
-        "generic_alias_rules": [
-            {"title": title, "reason": reason}
-            for title, reason in GENERIC_MI355_ALIAS_REASONS.items()
-        ],
+        "generic_alias_match_policy": GENERIC_EXECUTION_ALIAS_POLICY,
+        "generic_alias_rules": alias_rules,
         "mi355_classification": mi355_classification,
     }
     return health_groups, counts, policy
@@ -894,6 +1037,8 @@ def merge_cell_variant(
         "aliases": [candidate["label"]],
         "raw_variant_count": 1,
     }
+    if candidate.get("execution_sha256"):
+        candidate_entry["execution_sha256"] = candidate["execution_sha256"]
     if not entries:
         entries.append({
             "label": existing["label"],
@@ -907,7 +1052,14 @@ def merge_cell_variant(
             "aliases": [existing["label"]],
             "raw_variant_count": 1,
         })
+        if existing.get("execution_sha256"):
+            entries[0]["execution_sha256"] = existing["execution_sha256"]
     entries.append(candidate_entry)
+    hashes = {entry.get("execution_sha256") for entry in entries}
+    if len(hashes) == 1 and None not in hashes:
+        existing["execution_sha256"] = next(iter(hashes))
+    else:
+        existing.pop("execution_sha256", None)
     existing["raw_variant_count"] = len(aliases)
     existing["optional"] = existing["optional"] or candidate["optional"]
     existing["parallelism"] = max(existing["parallelism"], candidate["parallelism"])
@@ -1040,6 +1192,21 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
                     for command in (step.get("commands") or [])
                     if _normalize_fingerprint_value(command)
                 ],
+                "execution_identity": {
+                    "working_dir": str(step.get("working_dir") or "").strip(),
+                    "commands": [str(command).strip() for command in step.get("commands") or []],
+                },
+                "execution_sha256": execution_sha256({
+                    "commands": flatten_execution_commands(
+                        [step["command"]] if "command" in step else step.get("commands", [])
+                    ),
+                    "working_dir": str(step.get("working_dir") or ""),
+                    "agent_pool": str(step.get("agent_pool") or ""),
+                    "num_gpus": step.get("num_devices") or step.get("num_gpus"),
+                    "parallelism": step.get("parallelism"),
+                    "source_file": ".buildkite/test-amd.yaml",
+                    "definition_fingerprint": definition_fingerprint(step),
+                }),
                 "area": classify_area(canonical_title(label)),
                 "arch": arch,
                 "yaml_order": idx,
@@ -1291,12 +1458,17 @@ def build_matrix(
                     "commands", step["command_key"]
                 ),
                 "commands": step["commands"],
+                "execution_identity": step.get("execution_identity"),
                 "_command_key": step["command_key"],
                 "area": step["area"],
                 "yaml_order": step["yaml_order"],
                 "cells": {arch: {"exists": False} for arch in architectures},
             },
         )
+        if row.get("execution_identity") != step.get("execution_identity"):
+            # Legacy definition normalization can hide shell-quote differences.
+            # An ambiguous row cannot provide new semantic-equivalence proof.
+            row["execution_identity"] = None
         row["yaml_order"] = min(row["yaml_order"], step["yaml_order"])
         cell = row["cells"][step["arch"]]
         if not cell.get("exists"):
@@ -1366,6 +1538,8 @@ def build_matrix(
             "raw_variant_count": 1,
             "entries": [],
         }
+        if step.get("execution_sha256"):
+            variant["execution_sha256"] = step["execution_sha256"]
         if cell["variants"]:
             merge_cell_variant(cell["variants"][0], variant, step["arch"], row["title"])
         else:
@@ -1381,6 +1555,8 @@ def build_matrix(
                 "aliases": [variant["label"]],
                 "raw_variant_count": 1,
             }]
+            if variant.get("execution_sha256"):
+                variant["entries"][0]["execution_sha256"] = variant["execution_sha256"]
             cell["variants"].append(variant)
         cell["variant_count"] = len(cell["variants"])
 
