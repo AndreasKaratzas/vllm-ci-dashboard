@@ -42,6 +42,7 @@ CONFIG_PARITY_ROW_COLLECTIONS = (
     "amd_only",
     "nvidia_only",
     "mirrors",
+    "amd_execution_definitions",
 )
 CONFIG_PARITY_DUPLICATE_COLLECTIONS = frozenset({"mirrors"})
 
@@ -61,6 +62,7 @@ def _config_parity_priority(
         "additional_variants": 4,
         "matches": 3,
         "inline_mirror_variants": 2,
+        "amd_execution_definitions": 1,
     }
     color = str(row.get("color") or "").casefold()
     color_rank = {"red": 3.0, "yellow": 2.0, "green": 1.0}.get(color, 2.0)

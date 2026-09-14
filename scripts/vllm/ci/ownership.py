@@ -441,6 +441,27 @@ def source_area(value: Any) -> str:
     return normalize_area(Path(source).name)
 
 
+def _definition_source_area(
+    value: Any,
+    known_areas: set[str],
+    aliases: dict[str, str],
+) -> str:
+    """Discover new test areas from YAML provenance, retaining reviewed aliases.
+
+    The owner rotation is policy, not an inventory of every upstream area.
+    A new test-area file must remain visible before its ranked owners are
+    configured. Standalone pipeline files and display categories do not
+    identify an upstream test area.
+    """
+    source = str(value or "").strip()
+    area = aliases.get(source_area(source), source_area(source))
+    if area in known_areas:
+        return area
+    if area and re.fullmatch(r"\.buildkite/test_areas/[^/]+\.ya?ml", source):
+        return area
+    return ""
+
+
 def parity_area_index(
     parity: dict,
     known_areas: set[str],
@@ -450,13 +471,17 @@ def parity_area_index(
     aliases = area_aliases or {}
 
     def add(label: Any, source: Any) -> None:
-        area = aliases.get(source_area(source), source_area(source))
-        if area not in known_areas:
+        area = _definition_source_area(source, known_areas, aliases)
+        if not area:
             return
         for key in label_keys(label):
             index.setdefault(key, set()).add(area)
 
-    for row in parity.get("matches") or []:
+    for row in [
+        *(parity.get("matches") or []),
+        *(parity.get("inline_mirror_variants") or []),
+        *(parity.get("additional_variants") or []),
+    ]:
         if not isinstance(row, dict):
             continue
         source = row.get("nvidia_source") or row.get("source_file")
@@ -464,7 +489,7 @@ def parity_area_index(
         add(row.get("nvidia_label"), source)
     for row in parity.get("nvidia_only") or []:
         if isinstance(row, dict):
-            add(row.get("label"), row.get("source"))
+            add(row.get("label"), row.get("source") or row.get("source_file"))
     for row in parity.get("mirrors") or []:
         if isinstance(row, dict):
             add(row.get("nvidia_label"), row.get("source_file"))
@@ -605,10 +630,11 @@ def upstream_parity_gaps(
     for row in parity.get("nvidia_only") or []:
         if not isinstance(row, dict):
             continue
-        source = source_area(row.get("source"))
-        area = aliases.get(source, source)
-        if area in gaps:
-            gaps[area].append(
+        area = _definition_source_area(
+            row.get("source") or row.get("source_file"), known_areas, aliases
+        )
+        if area:
+            gaps.setdefault(area, []).append(
                 {
                     "label": str(row.get("label") or "unknown"),
                     "url": str(row.get("source_url") or ""),
@@ -640,6 +666,12 @@ def build_ownership_status(
         known_areas,
         config.get("area_aliases") or {},
     )
+    definition_areas = {
+        area for area, gaps in parity_gaps.items() if gaps
+    } | {area for areas in parity_index.values() for area in areas}
+    known_areas.update(definition_areas)
+    for area in known_areas:
+        parity_gaps.setdefault(area, [])
     grouped: dict[str, list[dict]] = {area: [] for area in known_areas}
     unmapped: list[dict] = []
     targets = gating.get("active_target_groups") or []
@@ -677,7 +709,7 @@ def build_ownership_status(
 
     area_rows: list[dict] = []
     for area in sorted(known_areas):
-        chain = config["areas"][area]
+        chain = config["areas"].get(area, [])
         selection = select_owner(chain, availability, config["ci_lead"])
         rows = sorted(
             grouped[area],
@@ -729,6 +761,7 @@ def build_ownership_status(
         },
         "availability": availability_source,
         "sources": {
+            "definition_areas": sorted(definition_areas),
             "runtime_commit": str(
                 (((attribution_parity or parity).get("source") or {}).get("commit_sha"))
                 or ""

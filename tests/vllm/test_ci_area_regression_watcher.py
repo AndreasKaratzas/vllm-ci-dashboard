@@ -767,6 +767,32 @@ def test_complete_area_evidence_requires_every_configured_area_exactly_once():
     ) is None
 
 
+def test_complete_area_evidence_includes_source_derived_areas_without_hiding_omissions():
+    config = {"areas": {"kernels": []}}
+    status = {
+        "available": True,
+        "sources": {"definition_areas": ["new_connector"]},
+        "areas": [{"area": "kernels"}, {"area": "new_connector"}],
+    }
+
+    assert watcher._complete_current_area_keys(status, config) == {
+        "kernels", "new_connector"
+    }
+    assert watcher._complete_current_area_keys({**status, "sources": {}}, config) is None
+    for missing_area in ("kernels", "new_connector"):
+        assert watcher._complete_current_area_keys(
+            {
+                **status,
+                "areas": [row for row in status["areas"] if row["area"] != missing_area],
+            },
+            config,
+        ) is None
+    for invalid_inventory in ("new_connector", [""], ["new_connector", "new_connector"]):
+        assert watcher._complete_current_area_keys(
+            {**status, "sources": {"definition_areas": invalid_inventory}}, config
+        ) is None
+
+
 class _RetirementClient:
     def __init__(self, marker, *, open_numbers=(), states=None, lookup_error=None):
         self.marker = marker

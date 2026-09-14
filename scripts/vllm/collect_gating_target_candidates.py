@@ -39,11 +39,11 @@ STANDARD_AMD_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 STANDARD_PLATFORM_PREFIX_RE = re.compile(
-    r"^:(?:amd|nvidia|computer):\s*\(\s*[a-z0-9][a-z0-9._-]*\s*\)\s*",
+    r"^:(?:amd|nvidia|computer):\s*\(\s*[a-z0-9][a-z0-9._-]*(?:\s+[a-z0-9][a-z0-9._-]*)*\s*\)\s*",
     re.IGNORECASE,
 )
 STANDARD_GPU_PLATFORM_PREFIX_RE = re.compile(
-    r"^:(?:amd|nvidia):\s*\(\s*(?:(?=[a-z0-9._-]*\d)[a-z0-9][a-z0-9._-]*|mithril)\s*\)\s*",
+    r"^:(?:amd|nvidia):\s*\(\s*(?:(?=[a-z0-9._-]*\d)[a-z0-9][a-z0-9._-]*|mithril)(?:\s+[a-z0-9][a-z0-9._-]*)*\s*\)\s*",
     re.IGNORECASE,
 )
 AMD_DEVICE_SUFFIX_RE = re.compile(r"\s*\((mi\d{3,4}b?_\d+)\)\s*$", re.IGNORECASE)

@@ -4181,8 +4181,20 @@
     });
   }
 
+  function testGroupDefinitionState(row) {
+    const status = (row.definition_resolution || {}).status;
+    return {
+      resolved: 'Current',
+      unresolved: 'Removed or changed',
+      ambiguous: 'Mapping needs review',
+      unavailable: 'Snapshot unavailable',
+      unconfigured: 'Unlinked',
+    }[status] || 'Reviewed snapshot';
+  }
+
   function openTestGroupParityDetail(row, payload) {
     const source = (payload || {}).source || {};
+    const definition = row.definition_resolution || {};
     const commit = source.main_commit || source.commit_sha || '';
     const commitUrl = source.main_commit_url || (commit ? 'https://github.com/vllm-project/vllm/commit/' + commit : '');
     const presentation = testGroupParityState(row.state);
@@ -4194,12 +4206,17 @@
       fields: [
         {label: 'Inventory number', value: row.id},
         {label: 'Test area', value: row.area},
-        {label: 'Main status', value: presentation.label.replace(/^[●■]\s*/, '')},
+        {label: 'Reviewed coverage', value: presentation.label.replace(/^[●■]\s*/, '')},
+        {label: 'Current CI definition', value: testGroupDefinitionState(row)},
+        {label: 'Reviewed name', value: row.reviewed_title || row.title},
+        {label: 'Current replacement names', value: (definition.successor_labels || []).join(' · ') || '—'},
+        {label: 'Definition changes', value: definition.note || '—'},
         {label: 'Upstream CUDA variants', value: row.cuda_variants},
         {label: 'ROCm assessment', value: row.assessment},
       ],
       sources: [
         commitUrl ? {label: 'Open reviewed vLLM main commit', url: commitUrl} : null,
+        /^[0-9a-f]{40}$/.test(definition.commit_sha || '') ? {label: 'Open current CI definitions', url: 'https://github.com/vllm-project/vllm/tree/' + definition.commit_sha + '/.buildkite/test_areas'} : null,
       ],
     });
   }
@@ -4210,7 +4227,8 @@
       {label: 'Upstream logical test group', sticky: true, width: '330px', render: function (row) { return linkButton(row.title, function () { openTestGroupParityDetail(row, payload); }); }},
       {label: 'Area', width: '180px', render: function (row) { return value(row.area); }},
       {label: 'CUDA variants', width: '180px', render: function (row) { return value(row.cuda_variants); }},
-      {label: 'Main status', width: '225px', render: function (row) { const presentation = testGroupParityState(row.state); return linkedBadge(presentation.label, null, function () { openTestGroupParityDetail(row, payload); }, presentation.tone); }},
+      {label: 'Reviewed coverage', width: '225px', render: function (row) { const presentation = testGroupParityState(row.state); return linkedBadge(presentation.label, null, function () { openTestGroupParityDetail(row, payload); }, presentation.tone); }},
+      {label: 'Current CI definition', width: '190px', render: function (row) { return value(testGroupDefinitionState(row)); }},
       {label: 'ROCm counterpart or assessment', width: '480px', render: function (row) { return linkButton(row.assessment, function () { openTestGroupParityDetail(row, payload); }); }},
     ];
   }
@@ -4223,8 +4241,8 @@
       rows: rows,
       columns: testGroupParityColumns(payload),
       searchPlaceholder: 'Filter test group, area, CUDA variant, status, or assessment',
-      searchText: function (row) { return [row.id, row.title, row.area, row.cuda_variants, row.state, row.assessment].join(' '); },
-      geometry: {name: 'upstream-test-group-parity', minWidth: '1465px'},
+      searchText: function (row) { return [row.id, row.title, row.reviewed_title, row.area, row.cuda_variants, row.state, row.assessment, testGroupDefinitionState(row)].join(' '); },
+      geometry: {name: 'upstream-test-group-parity', minWidth: '1655px'},
     });
   }
 

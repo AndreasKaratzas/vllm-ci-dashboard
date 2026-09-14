@@ -4325,6 +4325,169 @@ def test_definition_parity_resolves_non_syntactic_amd_alias():
     assert row["runtime_resolution"]["command_similarity_pct"] == 67.0
 
 
+def test_reviewed_step_key_tracks_renames_without_selecting_reused_old_label():
+    definition_id = ".buildkite/test_areas/entrypoints.yaml#openai-completion"
+    target = {
+        "id": 108,
+        "label": "Old OpenAI API test",
+        "upstream_definition_ids": [definition_id],
+    }
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {
+            "latest_build_number": 12916,
+            "yaml_url": "https://github.com/vllm-project/vllm/blob/" + "a" * 40 + "/.buildkite/test-amd.yaml",
+        },
+        "rows": [
+            {
+                "id": title,
+                "canonical_title": title,
+                "cells": {"mi300": {
+                    "exists": True,
+                    "latest_state": state,
+                    "latest_url": f"https://buildkite.com/vllm/amd-ci/builds/12916#{index}",
+                    "variants": [{
+                        "label": title, "latest_state": state,
+                        "execution_sha256": str(index + 1) * 64,
+                    }],
+                }},
+            }
+            for index, (title, state) in enumerate([
+                ("Old OpenAI API test", "failed"),
+                ("AMD completion integration", "passed"),
+            ])
+        ],
+    }
+    parity = {
+        "source": {"commit_sha": "a" * 40},
+        "matches": [{
+            "nvidia_definition_id": definition_id,
+            "nvidia_label": ":nvidia: (H200) OpenAI completion integration",
+            "amd_label": "AMD completion integration",
+            "amd_definition_id": ".buildkite/test-amd.yaml#17",
+            "identity_key": "openai completion integration",
+            "command_similarity": 1.0,
+        }],
+        "amd_execution_definitions": [{
+            "definition_id": ".buildkite/test-amd.yaml#17",
+            "label": "AMD completion integration",
+            "execution_sha256": "2" * 64,
+        }],
+    }
+    row = ops._gating(
+        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity,
+    )["active_target_groups"][0]
+
+    assert row["label"] == "OpenAI completion integration"
+    assert row["reviewed_label"] == "Old OpenAI API test"
+    assert row["definition_resolution"]["status"] == "resolved"
+    assert row["runtime_resolution"]["method"] == "definition_key"
+    assert row["runtime_resolution"]["target_identity_key"] == definition_id
+    assert row["latest_amd_result"]["state"] == "passed"
+    assert row["runtime_resolution"]["amd_definition_labels"] == ["AMD completion integration"]
+
+    matrix["source"]["yaml_url"] = matrix["source"]["yaml_url"].replace("a" * 40, "b" * 40)
+    older_row = ops._gating(
+        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity,
+    )["active_target_groups"][0]
+    assert older_row["runtime_resolution"]["status"] == "stale_target_alias"
+    assert older_row["latest_amd_result"]["state"] == "unknown"
+    assert "same source commit" in older_row["runtime_resolution"]["reason"]
+
+    pinned = {**parity, "source": {"commit_sha": "b" * 40}}
+    row_with_pinned_evidence = ops._gating(
+        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity, pinned,
+    )["active_target_groups"][0]
+    assert row_with_pinned_evidence["latest_amd_result"]["state"] == "passed"
+    assert row_with_pinned_evidence["runtime_resolution"]["source_alignment"] == "same_commit"
+
+
+def test_execution_target_selects_exact_route_when_labels_and_hardware_are_shared():
+    target = {"id": 1, "label": "Previous label", "amd_execution_sha256s": ["1" * 64]}
+    parity = {
+        "source": {"commit_sha": "a" * 40},
+        "amd_execution_definitions": [
+            {
+                "definition_id": f".buildkite/test-amd.yaml#{index}",
+                "label": ":amd: (MI300) Shared title",
+                "execution_sha256": str(index) * 64,
+            }
+            for index in (1, 2)
+        ],
+    }
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "source": {"yaml_url": "https://github.com/vllm-project/vllm/blob/" + "a" * 40 + "/.buildkite/test-amd.yaml"},
+        "rows": [{
+            "id": "shared",
+            "canonical_title": "Shared title",
+            "cells": {"mi300": {
+                "exists": True, "latest_state": "failed",
+                "variants": [{
+                    "label": ":amd: (MI300) Shared title", "latest_state": "failed",
+                    "entries": [
+                        {
+                            "label": ":amd: (MI300) Shared title",
+                            "execution_sha256": str(index) * 64,
+                            "agent_pool": f"mi300_{index * 2}",
+                            "latest_state": "passed" if index == 1 else "failed",
+                            "latest_url": f"https://buildkite.com/vllm/amd-ci/builds/12916#route-{index}",
+                        }
+                        for index in (1, 2)
+                    ],
+                }],
+            }},
+        }],
+    }
+    result = ops._gating({"groups": [target]}, {}, matrix, {}, {}, parity)["active_target_groups"][0]
+    assert result["latest_amd_result"]["state"] == "passed"
+    assert result["runtime_resolution"]["method"] == "amd_execution"
+    assert len(result["latest_amd_result"]["evidence"]) == 1
+    assert result["latest_amd_result"]["evidence"][0]["url"].endswith("#route-1")
+
+    matrix["rows"][0]["cells"]["mi300"]["variants"][0]["entries"].pop(0)
+    missing = ops._gating({"groups": [target]}, {}, matrix, {}, {}, parity)["active_target_groups"][0]
+    assert missing["latest_amd_result"]["state"] == "unknown"
+    assert missing["latest_amd_result"]["evidence"] == []
+
+
+def test_removed_reviewed_step_key_does_not_fall_back_to_reused_label():
+    target = {
+        "id": 108,
+        "label": "Reused title",
+        "upstream_definition_ids": [".buildkite/test_areas/entrypoints.yaml#removed"],
+    }
+    matrix = {
+        "generated_at": GENERATED_AT,
+        "rows": [{
+            "id": "reused",
+            "canonical_title": "Reused title",
+            "cells": {"mi300": {
+                "exists": True,
+                "latest_state": "passed",
+                "variants": [{"label": "Reused title", "latest_state": "passed"}],
+            }},
+        }],
+    }
+    parity = {
+        "source": {"commit_sha": "a" * 40},
+        "matches": [{
+            "nvidia_definition_id": ".buildkite/test_areas/entrypoints.yaml#replacement",
+            "nvidia_label": "Reused title",
+            "amd_label": "Reused title",
+            "command_similarity": 1.0,
+        }],
+    }
+    row = ops._gating(
+        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity,
+    )["active_target_groups"][0]
+
+    assert row["runtime_resolution"]["status"] == "stale_target_alias"
+    assert row["latest_amd_result"]["state"] == "unknown"
+    assert row["latest_amd_result"]["evidence"] == []
+    assert row["definition_resolution"]["missing_definition_ids"] == target["upstream_definition_ids"]
+
+
 def test_definition_parity_merges_additional_variant_in_same_identity_family():
     target = {"id": 87, "label": "Distributed Tests (2 GPUs)(H100)"}
     matrix = {

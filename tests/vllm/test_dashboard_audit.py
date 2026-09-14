@@ -286,6 +286,92 @@ def test_best_hardware_audit_rejects_summary_source_and_classifier_drift(tmp_pat
     } <= codes
 
 
+def _execution_alias_audit_fixture():
+    from vllm.collect_amd_test_matrix import build_matrix, parse_steps
+
+    definitions = [
+        {"label": ":amd: (MI300) New API name", "agent_pool": "mi300_1", "commands": ["pytest -v -s tests/api/"]},
+        {"label": ":amd: (MI355) Another API name", "agent_pool": "mi355_1", "commands": ["pytest -v -s tests/api"]},
+    ]
+    steps, architectures = parse_steps(json.dumps({"steps": definitions}))
+    return build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
+
+
+def test_execution_alias_audit_accepts_changed_titles_and_absent_old_rules(tmp_path):
+    matrix = _execution_alias_audit_fixture()
+    audit = DashboardAudit(tmp_path)
+    audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
+    assert not audit.report.errors
+
+
+def test_execution_alias_audit_uses_group_ids_for_repeated_titles_and_bounded_detail(tmp_path):
+    from vllm.collect_amd_test_matrix import build_matrix, parse_steps
+
+    definitions = [
+        {"label": f":amd: ({arch}) Shared title", "agent_pool": f"{arch.lower()}_1", "commands": [f"pytest -v -s tests/{target}" + ("/" if arch == "MI300" else "")]}
+        for target in ["api", "models"] for arch in ["MI300", "MI355"]
+    ]
+    steps, architectures = parse_steps(json.dumps({"steps": definitions}))
+    matrix = build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
+    assert len(matrix["best_hardware_policy"]["generic_alias_rules"]) == 2
+    assert {rule["title"] for rule in matrix["best_hardware_policy"]["generic_alias_rules"]} == {"Shared title"}
+    audit = DashboardAudit(tmp_path)
+    audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
+    assert not audit.report.errors
+
+    for row in matrix["rows"]:
+        row["_retention_regression_padding"] = "x" * 30_000
+    bounded = bounded_matrix_payload(matrix, max_bytes=100_000)
+    assert len(bounded["health_groups"]) == 1
+    audit = DashboardAudit(tmp_path)
+    stats = audit.matrix_cell_stats(bounded)
+    view, summary, partial = audit.amd_matrix_audit_view(bounded, stats)
+    assert partial
+    audit.audit_best_hardware_health_groups(view, view["rows"], summary)
+    assert not audit.report.errors
+
+
+@pytest.mark.parametrize("tamper", ["commands", "working_dir", "topology", "fingerprint", "missing_rule", "duplicate_rule", "unknown_policy"])
+def test_execution_alias_audit_requires_matching_complete_evidence(tmp_path, tamper):
+    matrix = _execution_alias_audit_fixture()
+    policy = matrix["best_hardware_policy"]
+    if tamper == "commands":
+        matrix["rows"][1]["execution_identity"]["commands"] = ["pytest tests/different"]
+    elif tamper == "working_dir":
+        matrix["rows"][1]["execution_identity"]["working_dir"] = "/different/workspace"
+    elif tamper == "topology":
+        matrix["rows"][1]["cells"]["mi355"]["variants"][0]["agent_pool"] = "mi355_4"
+        matrix["rows"][1]["cells"]["mi355"]["variants"][0]["entries"][0]["agent_pool"] = "mi355_4"
+    elif tamper == "fingerprint":
+        policy["generic_alias_rules"][0]["execution_fingerprint"] = "execution-forged"
+    elif tamper == "missing_rule":
+        policy["generic_alias_rules"] = []
+    elif tamper == "duplicate_rule":
+        policy["generic_alias_rules"] *= 2
+    else:
+        policy["generic_alias_match_policy"] = "unknown-future-policy"
+    audit = DashboardAudit(tmp_path)
+    audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
+    assert "matrix-best-hardware-policy-rules" in {finding.code for finding in audit.report.errors}
+
+
+def test_execution_alias_audit_preserves_sensitive_gate_after_rename(tmp_path):
+    from vllm.collect_amd_test_matrix import build_matrix, parse_steps
+
+    steps, architectures = parse_steps(json.dumps({"steps": [
+        {"label": f":amd: ({arch}) Renamed Quantization", "agent_pool": f"{arch.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
+        for arch in ["MI300", "MI355"]
+    ]}))
+    matrix = build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
+    audit = DashboardAudit(tmp_path)
+    audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
+    assert not audit.report.errors
+    matrix["best_hardware_policy"]["mi355_classification"][0]["classification"] = "generic_replica"
+    audit = DashboardAudit(tmp_path)
+    audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
+    assert "matrix-best-hardware-policy-rules" in {finding.code for finding in audit.report.errors}
+
+
 def _production_shaped_compacted_matrix(*, max_bytes=AMD_TEST_MATRIX_MAX_BYTES):
     source = copy.deepcopy(json.loads(
         (ROOT / "data/vllm/ci/amd_test_matrix.json").read_text()

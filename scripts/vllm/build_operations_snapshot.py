@@ -55,6 +55,7 @@ from vllm.pipelines import (  # noqa: E402
     upstream_scheduled_gating_kind,
 )
 from vllm.queue_section_projection import compact_queue_section  # noqa: E402
+from vllm.reviewed_definition_labels import resolve_reviewed_definition_labels  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -3847,7 +3848,7 @@ def _public_matrix_evidence(bundle: dict) -> dict:
 
 def _candidate_source_labels(group: dict, candidates: dict) -> list[str]:
     target_id = str(group.get("id"))
-    labels = []
+    labels = list((group.get("definition_resolution") or {}).get("labels") or [])
     for row in candidates.get("rows") or []:
         if str(row.get("target_id")) != target_id:
             continue
@@ -3862,6 +3863,31 @@ def _candidate_source_labels(group: dict, candidates: dict) -> list[str]:
                 labels.append(shard_label)
     reviewed_label = str(group.get("label") or "").strip()
     return list(dict.fromkeys([*labels, reviewed_label]))
+
+
+def _matrix_execution_evidence(matrix: dict) -> dict[str, dict]:
+    """Index exact execution routes without merging reused display names."""
+    bundles: dict[str, list[dict]] = defaultdict(list)
+    for row in matrix.get("rows") or []:
+        for architecture, cell in (row.get("cells") or {}).items():
+            if not cell.get("exists"):
+                continue
+            for variant in cell.get("variants") or []:
+                for entry in variant.get("entries") or [variant]:
+                    identity = str(entry.get("execution_sha256") or "")
+                    if not re.fullmatch(r"[0-9a-f]{64}", identity):
+                        continue
+                    bundles[identity].append({
+                        "evidence": [_matrix_evidence_item(
+                            matrix, row, architecture, cell, definition=entry,
+                        )],
+                        "_matrix_row_ids": [row.get("id")],
+                        "_definition_labels": [entry.get("label") or variant.get("label")],
+                    })
+    return {
+        identity: _merge_matrix_evidence(rows, matrix.get("generated_at"))
+        for identity, rows in bundles.items()
+    }
 
 
 def _parity_rows_for_labels(
@@ -3950,12 +3976,75 @@ def _resolve_runtime_matrix(
     matrix: dict,
     definition_parity: dict,
     context: dict,
+    execution_index: dict[str, dict] | None = None,
 ) -> tuple[dict, dict]:
+    execution_index = execution_index or {}
     label = str(group.get("label") or "")
+    definition_ids = set(group.get("upstream_definition_ids") or [])
+    execution_hashes = set(group.get("amd_execution_sha256s") or [])
+    definition_resolution = group.get("definition_resolution") or {}
+    identity_unresolved = definition_resolution.get("status") != "resolved"
+    source_unaligned = context.get("source_alignment") != "same_commit"
+    if (definition_ids or execution_hashes) and (identity_unresolved or source_unaligned):
+        return {
+            "state": "unknown",
+            "build_number": None,
+            "observed_at": matrix.get("generated_at"),
+            "source_pipeline": "amd-ci",
+            "evidence": [],
+        }, {
+            "status": (
+                "ambiguous" if definition_resolution.get("status") == "ambiguous"
+                else "stale_target_alias"
+            ),
+            "method": "amd_execution" if execution_hashes else "definition_key",
+            "reason": (
+                "The reviewed definition identity did not resolve uniquely in the "
+                "current snapshot; no result was selected by its old label."
+                if identity_unresolved else
+                "The definition identity and nightly matrix are not pinned to the "
+                "same source commit; current names cannot attest older execution results."
+            ),
+            "target_identity_key": ", ".join(sorted(execution_hashes or definition_ids)),
+            "amd_definition_labels": [],
+            "candidate_count": 0,
+            **context,
+        }
+    if execution_hashes:
+        labels = definition_resolution.get("labels") or []
+        bundles = [execution_index.get(identity) for identity in sorted(execution_hashes)]
+        complete = bool(bundles) and all(bundles)
+        latest = _public_matrix_evidence(_merge_matrix_evidence(
+            bundles, matrix.get("generated_at"),
+        )) if complete else {
+            "state": "unknown", "build_number": None,
+            "observed_at": matrix.get("generated_at"),
+            "source_pipeline": "amd-ci", "evidence": [],
+        }
+        return latest, {
+            "status": (
+                "matched" if complete and latest.get("state") != "unknown"
+                else "not_observed" if complete else "stale_target_alias"
+            ),
+            "method": "amd_execution",
+            "reason": (
+                "Resolved the reviewed AMD execution by its commands and execution settings "
+                "and linked the same execution identities to nightly evidence."
+                if complete else
+                "The reviewed AMD execution resolved, but its exact execution "
+                "identity is absent from the build-pinned nightly matrix."
+            ),
+            "target_identity_key": ", ".join(sorted(execution_hashes)),
+            "amd_definition_labels": labels,
+            "candidate_count": len(bundles) if complete else 0,
+            "mapping_quality": "exact_commands",
+            "command_similarity_pct": 100.0,
+            **context,
+        }
     direct_key = _target_match_key(label)
     direct = exact_matrix_by_key.get(direct_key)
     canonical_candidate = canonical_matrix_by_key.get(direct_key)
-    if direct:
+    if direct and not definition_ids:
         latest = _public_matrix_evidence(direct)
         status = "matched" if latest.get("state") != "unknown" else "not_observed"
         method = (
@@ -3986,11 +4075,18 @@ def _resolve_runtime_matrix(
         *(definition_parity.get("inline_mirror_variants") or []),
         *(definition_parity.get("additional_variants") or []),
     ]
-    parity_matches, ambiguous_matches = _parity_rows_for_labels(
-        source_labels,
-        parity_relationships,
-        label_field="nvidia_label",
-    )
+    if definition_ids:
+        parity_matches = [
+            row for row in parity_relationships
+            if row.get("nvidia_definition_id") in definition_ids
+        ]
+        ambiguous_matches = []
+    else:
+        parity_matches, ambiguous_matches = _parity_rows_for_labels(
+            source_labels,
+            parity_relationships,
+            label_field="nvidia_label",
+        )
     shadowed_parity_matches = [
         row
         for row in parity_matches
@@ -4002,7 +4098,25 @@ def _resolve_runtime_matrix(
     resolved = []
     for parity_row in parity_matches:
         amd_label = str(parity_row.get("amd_label") or "")
-        bundle = exact_matrix_by_key.get(_target_match_key(amd_label))
+        if definition_ids:
+            physical_ids = set(parity_row.get("amd_member_definition_ids") or [])
+            if parity_row.get("amd_definition_id"):
+                physical_ids.add(parity_row["amd_definition_id"])
+            definitions = {
+                row.get("definition_id"): row
+                for row in definition_parity.get("amd_execution_definitions") or []
+                if row.get("definition_id") in physical_ids
+            }
+            executions = [
+                execution_index.get(definitions[identity].get("execution_sha256"))
+                for identity in sorted(physical_ids)
+                if identity in definitions
+            ]
+            bundle = _merge_matrix_evidence(executions, matrix.get("generated_at")) if (
+                physical_ids and set(definitions) == physical_ids and all(executions)
+            ) else None
+        else:
+            bundle = exact_matrix_by_key.get(_target_match_key(amd_label))
         if bundle:
             resolved.append((parity_row, bundle))
     if resolved:
@@ -4064,14 +4178,14 @@ def _resolve_runtime_matrix(
             mapping_quality = "unavailable"
         resolution = {
             "status": status,
-            "method": "definition_parity",
+            "method": "definition_key" if definition_ids else "definition_parity",
             "reason": (
                 matched_reason
                 if status == "matched"
                 else "Definition parity resolved the AMD step, but its latest "
                 "matrix result is not terminal."
             ),
-            "target_identity_key": ", ".join(identities),
+            "target_identity_key": ", ".join(sorted(definition_ids) if definition_ids else identities),
             "amd_definition_labels": amd_labels,
             "candidate_count": len(matrix_row_ids),
             "mapping_quality": mapping_quality,
@@ -4101,6 +4215,9 @@ def _resolve_runtime_matrix(
             "status": "stale_target_alias",
             "method": "definition_parity",
             "reason": (
+                "The current definition could not be linked to its exact "
+                "build-pinned AMD execution evidence."
+                if definition_ids else
                 "A current definition-parity alias exists, but its AMD label is "
                 "absent from the build-pinned nightly matrix."
             ),
@@ -4148,11 +4265,18 @@ def _resolve_runtime_matrix(
             **context,
         }
 
-    nvidia_only, nvidia_only_ambiguous = _parity_rows_for_labels(
-        source_labels,
-        definition_parity.get("nvidia_only") or [],
-        label_field="label",
-    )
+    if definition_ids:
+        nvidia_only = [
+            row for row in definition_parity.get("nvidia_only") or []
+            if row.get("definition_id") in definition_ids
+        ]
+        nvidia_only_ambiguous = []
+    else:
+        nvidia_only, nvidia_only_ambiguous = _parity_rows_for_labels(
+            source_labels,
+            definition_parity.get("nvidia_only") or [],
+            label_field="label",
+        )
     if nvidia_only:
         identities = sorted({
             str(row.get("identity_key") or "")
@@ -4228,15 +4352,22 @@ def _gating(
     capacity: dict,
     reliability: dict,
     definition_parity: dict | None = None,
+    runtime_definition_parity: dict | None = None,
 ) -> dict:
     definition_parity = definition_parity or {}
-    groups = list(targets.get("groups") or [])
+    groups = resolve_reviewed_definition_labels(
+        list(targets.get("groups") or []), definition_parity, label_field="label"
+    )
     target_summary = dict(targets.get("summary") or {})
     candidate_summary = dict(candidates.get("summary") or {})
     matrix_summary = dict(matrix.get("summary") or {})
     matrix_cells = int(matrix_summary.get("hardware_cells") or 0)
     exact_matrix_by_key, canonical_matrix_by_key = _matrix_evidence(matrix)
-    resolution_context = _runtime_resolution_context(matrix, definition_parity)
+    execution_index = _matrix_execution_evidence(matrix)
+    runtime_definition_parity = runtime_definition_parity or definition_parity
+    if _runtime_resolution_context(matrix, runtime_definition_parity)["source_alignment"] != "same_commit":
+        runtime_definition_parity = definition_parity
+    resolution_context = _runtime_resolution_context(matrix, runtime_definition_parity)
     history_pipeline = str(reliability.get("source_pipeline") or "ci")
     catalog_by_key: dict[str, list[dict]] = defaultdict(list)
     numbered_catalog_by_base: dict[str, list[dict]] = defaultdict(list)
@@ -4286,14 +4417,18 @@ def _gating(
             key=lambda row: str(row.get("observed_at") or ""),
             default=None,
         )
+        runtime_group = resolve_reviewed_definition_labels(
+            [group], runtime_definition_parity, label_field="label"
+        )[0]
         latest, runtime_resolution = _resolve_runtime_matrix(
-            group,
+            runtime_group,
             candidates,
             exact_matrix_by_key,
             canonical_matrix_by_key,
             matrix,
-            definition_parity,
+            runtime_definition_parity,
             resolution_context,
+            execution_index,
         )
         aggregate_group_ids = sorted({
             str(group_id)
@@ -4352,6 +4487,8 @@ def _gating(
         return {
             "id": group.get("id"),
             "label": group.get("label") or "Unknown group",
+            "reviewed_label": group.get("reviewed_label") or group.get("label"),
+            "definition_resolution": group.get("definition_resolution") or {},
             "area": group.get("area") or "other",
             "reviewed_plan": {
                 "status": "included" if reviewed else "observed_outside_reviewed_plan",
@@ -8405,6 +8542,13 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     }
     reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
     test_group_parity = loaded.get("test_group_parity") or {}
+    if test_group_parity:
+        test_group_parity = {
+            **test_group_parity,
+            "groups": resolve_reviewed_definition_labels(
+                test_group_parity.get("groups") or [], definition_parity, label_field="title"
+            ),
+        }
     gating = _gating(
         loaded.get("gating_targets") or {},
         loaded.get("gating_target_candidates") or {},
@@ -8412,6 +8556,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         loaded.get("capacity_monitor") or {},
         reliability,
         definition_parity,
+        _load_json(data_dir / "ownership_config_parity.json"),
     )
     gating["upstream_scheduled"] = _upstream_scheduled_gating(
         analytics.get("ci") or {},
@@ -10232,6 +10377,7 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
             "amd_only",
             "nvidia_only",
             "mirrors",
+            "amd_execution_definitions",
         ),
         row_priority=_definition_row_priority,
     )

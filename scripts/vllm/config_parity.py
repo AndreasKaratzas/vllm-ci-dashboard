@@ -41,6 +41,7 @@ from vllm.collect_amd_test_matrix import (
     canonical_title as matrix_canonical_title,
     definition_fingerprint as matrix_definition_fingerprint,
 )
+from vllm.reviewed_definition_labels import execution_sha256, flatten_execution_commands
 
 log = logging.getLogger(__name__)
 
@@ -309,18 +310,7 @@ def _source_provenance() -> dict:
 
 def _flatten_commands(raw_cmds) -> list[str]:
     """Flatten potentially nested command structures into a simple list."""
-    if not raw_cmds:
-        return []
-    flat = []
-    for c in raw_cmds:
-        if isinstance(c, list):
-            flat.extend(_flatten_commands(c))
-        elif isinstance(c, str):
-            for line in c.strip().split('\n'):
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    flat.append(line)
-    return flat
+    return flatten_execution_commands(raw_cmds)
 
 
 def _gpu_count(value) -> Optional[int]:
@@ -2106,6 +2096,27 @@ def build_config_parity() -> dict:
     return {
         "generated_at": source.get("fetched_at"),
         "source": source,
+        "amd_execution_definitions": [
+            {
+                "definition_id": step.definition_id,
+                "label": step.label,
+                "source_file": step.source_file,
+                "working_dir": step.working_dir,
+                "agent_pool": step.agent_pool,
+                "num_gpus": step.num_gpus,
+                "parallelism": step.parallelism,
+                "execution_sha256": execution_sha256({
+                    "commands": step.commands,
+                    "working_dir": step.working_dir,
+                    "agent_pool": step.agent_pool,
+                    "num_gpus": step.num_gpus,
+                    "parallelism": step.parallelism,
+                    "source_file": step.source_file,
+                    "definition_fingerprint": step.definition_fingerprint,
+                }),
+            }
+            for step in sorted(amd_steps, key=lambda step: step.definition_id)
+        ],
         "summary": {
             "total_amd_steps": total_amd,
             "amd_parity_nodes": total_amd,

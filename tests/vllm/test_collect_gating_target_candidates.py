@@ -30,12 +30,21 @@ def test_standardized_amd_jobs_remain_mirror_candidates() -> None:
 
 
 def test_standardized_nvidia_jobs_are_clean_gpu_candidates_not_amd_mirrors() -> None:
-    for device in ("H100", "H200", "L4", "A100", "B200", "GH200"):
+    for device in ("H100", "H200", "L4", "A100", "B200", "GH200", "H200 MIG 35GB", "H300 MIG 4g.40gb"):
         job = {"raw_name": f":nvidia: ({device}) Basic Correctness", "q": ""}
 
         assert collector.clean_job_label(job["raw_name"]) == "Basic Correctness"
         assert collector.is_amd_mirror_job(job) is False
         assert collector.is_gpu_like_job(job) is True
+
+
+def test_multiword_hardware_prefix_preserves_the_workload_and_gpu_count() -> None:
+    label = ":nvidia: (H200 MIG 35GB) Distributed (2 GPUs)"
+    assert collector.hardware_fold_key(label) == "distributed (2 gpus)"
+    assert collector.hardware_fold_key(label) != collector.hardware_fold_key(
+        ":nvidia: (H200 MIG 35GB) Distributed (4 GPUs)"
+    )
+    assert not collector.is_gpu_like_job({"raw_name": ":computer: (CPU Intel) Host tests"})
 
 
 def test_decorated_nvidia_build_matches_every_canonical_target() -> None:

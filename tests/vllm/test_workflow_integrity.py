@@ -4726,6 +4726,7 @@ class TestWorkflowPipInstallMatchesImports:
             "pathlib",
             "random",
             "re",
+            "shlex",
             "shutil",
             "socket",
             "ssl",

@@ -7,7 +7,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-torchrun-shutdown-tests-2-gpus"
+      ]
     },
     {
       "id": 2,
@@ -16,7 +19,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-torchrun-examples-4-gpus"
+      ]
     },
     {
       "id": 3,
@@ -25,7 +31,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-tests-4xa100"
+      ]
     },
     {
       "id": 4,
@@ -34,7 +43,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#pipeline-context-parallelism-4-gpus"
+      ]
     },
     {
       "id": 5,
@@ -43,7 +55,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#rayexecutorv2-4-gpus"
+      ]
     },
     {
       "id": 6,
@@ -52,7 +67,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/expert_parallelism.yaml#eplb-execution"
+      ]
     },
     {
       "id": 7,
@@ -61,7 +79,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-core-operation-test"
+      ]
     },
     {
       "id": 8,
@@ -70,7 +91,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-1xh100"
+      ]
     },
     {
       "id": 9,
@@ -79,7 +103,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lora.yaml#lora-tp-distributed"
+      ]
     },
     {
       "id": 10,
@@ -88,7 +115,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_basic.yaml#basic-models-tests-initialization"
+      ]
     },
     {
       "id": 11,
@@ -97,7 +127,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_basic.yaml#basic-models-tests-other"
+      ]
     },
     {
       "id": 12,
@@ -106,7 +139,9 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": ["fe1a5b13f7d961891d8320a18aeacf76123c05641bed9dd0490ec206a88482b0"]
     },
     {
       "id": 13,
@@ -115,7 +150,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-tests-extra-standard"
+      ]
     },
     {
       "id": 14,
@@ -124,7 +162,10 @@
       "readiness_signal": "red",
       "target_signal": "red",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-fullgraph-test"
+      ]
     },
     {
       "id": 15,
@@ -133,7 +174,10 @@
       "readiness_signal": "red",
       "target_signal": "gray",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-speech_to_text"
+      ]
     },
     {
       "id": 16,
@@ -142,7 +186,10 @@
       "readiness_signal": "red",
       "target_signal": "gray",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-pooling"
+      ]
     },
     {
       "id": 17,
@@ -151,7 +198,10 @@
       "readiness_signal": "red",
       "target_signal": "gray",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration"
+      ]
     },
     {
       "id": 18,
@@ -160,7 +210,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Stefan",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/basic_correctness.yaml#basic-correctness"
+      ]
     },
     {
       "id": 19,
@@ -169,7 +222,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Aarushi",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#deepseek-v2-lite-prefetch-offload-accuracy-h100"
+      ]
     },
     {
       "id": 20,
@@ -178,7 +234,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Matt",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#e2e-core-1-gpu"
+      ]
     },
     {
       "id": 21,
@@ -187,7 +246,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Divakar",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/expert_parallelism.yaml#elastic-ep-scaling-test"
+      ]
     },
     {
       "id": 22,
@@ -196,7 +258,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Matt",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-attention-test"
+      ]
     },
     {
       "id": 23,
@@ -205,7 +270,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Matt",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-moe-test"
+      ]
     },
     {
       "id": 24,
@@ -214,7 +282,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Divakar",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-2xh100"
+      ]
     },
     {
       "id": 25,
@@ -223,7 +294,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Divakar",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lora.yaml#lora"
+      ]
     },
     {
       "id": 26,
@@ -232,7 +306,9 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Micah",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": ["066b24b90b01ff279e07baba0ccc6032ed89bbd88f88615c606d9c5ff652d5d8", "65c82b1eb026e057c08a303f72e7fcf232050c49b959de7003cd6ed99c736cb2"]
     },
     {
       "id": 27,
@@ -241,7 +317,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Matt",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_basic.yaml#basic-models-tests-extra-initialization"
+      ]
     },
     {
       "id": 28,
@@ -250,7 +329,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Djordje",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-4-other-whisper"
+      ]
     },
     {
       "id": 29,
@@ -259,7 +341,10 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Charlie",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-passes-unit-tests"
+      ]
     },
     {
       "id": 30,
@@ -268,7 +353,9 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Divakar",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": ["7fe90926d513b741bc302852008edcd3265ae14638b5f3b1b6569a9c424c16a7", "eac11fd204cc1e28958a92bf46603625675ad99f8b40ae1c62c7fad5c931d87d"]
     },
     {
       "id": 31,
@@ -277,7 +364,9 @@
       "readiness_signal": "red",
       "target_signal": "green",
       "owner": "Matt",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": ["50c69ab99a73291bc4f559dc86c3ac6952fe14e77594755ebd16c4879e2202e6"]
     },
     {
       "id": 32,
@@ -286,7 +375,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#hybrid-ssm-nixlconnector-pd-prefix-cache-2-gpus"
+      ]
     },
     {
       "id": 33,
@@ -295,7 +387,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#multiconnector-nixl-offloading-pd-accuracy-2-gpus"
+      ]
     },
     {
       "id": 34,
@@ -304,7 +399,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#multiconnector-nixl-offloading-pd-edge-cases-2-gpus"
+      ]
     },
     {
       "id": 35,
@@ -313,7 +411,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-dp4-async-eplb-accuracy"
+      ]
     },
     {
       "id": 36,
@@ -322,7 +423,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "AMD Kernels Core covers the top-k subtest only; the fused DeepSeek V4 kernel has no AMD definition."
+      "note": "AMD Kernels Core covers the top-k subtest only; the fused DeepSeek V4 kernel has no AMD definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#deepseek-v4-kernel-test-h100"
+      ]
     },
     {
       "id": 37,
@@ -331,16 +435,25 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "Covered within the broader AMD Kernels Attention Test; no one-to-one DiffKV definition."
+      "note": "Covered within the broader AMD Kernels Attention Test; no one-to-one DiffKV definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-attention-diffkv-test-h100"
+      ]
     },
     {
       "id": 38,
-      "label": "Kernels KDA Test",
+      "label": "KDA Kernels",
       "source_signal": "red",
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [],
+      "reviewed_label": "Kernels KDA Test",
+      "legacy_labels": [
+        "Kernels KDA Test"
+      ],
+      "amd_execution_sha256s": ["42666ce0f351fb99cdec2fb70be64322d2deccd00ec9daf434b945e17c684794"]
     },
     {
       "id": 39,
@@ -349,7 +462,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one FusedMoE layer definition."
+      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one FusedMoE layer definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-fusedmoe-layer-test-2-h100s"
+      ]
     },
     {
       "id": 40,
@@ -358,7 +474,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "No AMD TurboQuant KV-cache definition."
+      "note": "No AMD TurboQuant KV-cache definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#lm-eval-turboquant-kv-cache"
+      ]
     },
     {
       "id": 41,
@@ -367,7 +486,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#mrcr-eval-small-models"
+      ]
     },
     {
       "id": 42,
@@ -376,7 +498,11 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "No one-to-one distributed 2-GPU AMD definition; the bare AMD step matches the unfiltered upstream suite."
+      "note": "No one-to-one distributed 2-GPU AMD definition; the bare AMD step matches the unfiltered upstream suite.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration-2-gpus"
+      ],
+      "label_suffix": " (2 GPUs)"
     },
     {
       "id": 43,
@@ -385,7 +511,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "todo"
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/plugins.yaml#gguf-plugin"
+      ]
     },
     {
       "id": 44,
@@ -394,7 +523,10 @@
       "readiness_signal": "yellow",
       "target_signal": "green",
       "owner": "",
-      "note": "No AMD Quantized Fusions definition; AMD quantization and fusion jobs run different suites."
+      "note": "No AMD Quantized Fusions definition; AMD quantization and fusion jobs run different suites.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/quantization.yaml#quantized-fusions"
+      ]
     },
     {
       "id": 45,
@@ -403,7 +535,10 @@
       "readiness_signal": "purple",
       "target_signal": "green",
       "owner": "",
-      "note": "No AMD multi-node definition; same-node checks are not equivalent."
+      "note": "No AMD multi-node definition; same-node checks are not equivalent.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#2-node-test-4-gpus"
+      ]
     },
     {
       "id": 46,
@@ -412,7 +547,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/benchmarks.yaml#benchmarks-cli-test"
+      ]
     },
     {
       "id": 47,
@@ -421,7 +559,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": "mi355"
+      "note": "mi355",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/benchmarks.yaml#attention-benchmarks-smoke-test-b200"
+      ]
     },
     {
       "id": 48,
@@ -430,7 +571,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/compile.yaml#distributed-compile-unit-tests-2xh100"
+      ]
     },
     {
       "id": 49,
@@ -439,7 +583,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/compile.yaml#fusion-e2e-quick-h100"
+      ]
     },
     {
       "id": 50,
@@ -448,7 +595,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/compile.yaml#fusion-e2e-config-sweep-b200"
+      ]
     },
     {
       "id": 51,
@@ -457,7 +607,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/cuda.yaml#platform-tests"
+      ]
     },
     {
       "id": 52,
@@ -466,7 +619,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-comm-ops"
+      ]
     },
     {
       "id": 53,
@@ -475,7 +631,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-dp-tests-2-gpus"
+      ]
     },
     {
       "id": 54,
@@ -484,7 +643,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-compile-rpc-tests-2-gpus"
+      ]
     },
     {
       "id": 55,
@@ -493,7 +655,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-dp-tests-4-gpus"
+      ]
     },
     {
       "id": 56,
@@ -502,7 +667,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-compile-comm-4-gpus"
+      ]
     },
     {
       "id": 57,
@@ -511,7 +679,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-tests-8xh100"
+      ]
     },
     {
       "id": 58,
@@ -520,7 +691,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#deepseek-v2-lite-sync-eplb-accuracy-4xh100"
+      ]
     },
     {
       "id": 59,
@@ -529,7 +703,11 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-2xb200",
+        ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-4xh100"
+      ]
     },
     {
       "id": 60,
@@ -538,16 +716,25 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#v1-e2e-2-gpus"
+      ]
     },
     {
       "id": 61,
-      "label": "V1 e2e (4 GPUs)",
+      "label": "V1 E2E (4 GPUs)",
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "definition_note": "The reviewed 4-GPU target has no distinct current keyed definition. Its scope must be reviewed separately from V1 E2E and V1 E2E Hybrid Chunked Prefill.",
+      "reviewed_label": "V1 e2e (4 GPUs)",
+      "legacy_labels": [
+        "V1 e2e (4 GPUs)"
+      ]
     },
     {
       "id": 62,
@@ -556,7 +743,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#v1-e2e-hybrid-chunked-prefill-b200"
+      ]
     },
     {
       "id": 63,
@@ -565,7 +755,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/expert_parallelism.yaml#eplb-algorithm"
+      ]
     },
     {
       "id": 64,
@@ -574,7 +767,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#lm-eval-large-models-8xh200"
+      ]
     },
     {
       "id": 65,
@@ -583,7 +779,11 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xb200",
+        ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xh100"
+      ]
     },
     {
       "id": 66,
@@ -592,7 +792,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#regression"
+      ]
     },
     {
       "id": 67,
@@ -601,7 +804,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#examples"
+      ]
     },
     {
       "id": 68,
@@ -610,7 +816,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#metrics-tracing-2-gpus"
+      ]
     },
     {
       "id": 69,
@@ -619,7 +828,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#async-engine-inputs-utils-worker"
+      ]
     },
     {
       "id": 70,
@@ -628,7 +840,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#batch-invariance-a100"
+      ]
     },
     {
       "id": 71,
@@ -637,7 +852,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#acceptance-length-test-large-models"
+      ]
     },
     {
       "id": 72,
@@ -646,7 +864,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/model_executor.yaml#model-executor"
+      ]
     },
     {
       "id": 73,
@@ -655,7 +876,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-test-extended-generation"
+      ]
     },
     {
       "id": 74,
@@ -664,7 +888,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-test-ppl"
+      ]
     },
     {
       "id": 75,
@@ -673,7 +900,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-accuracy-eval-small-models"
+      ]
     },
     {
       "id": 76,
@@ -682,16 +912,25 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-unit-tests"
+      ]
     },
     {
       "id": 77,
-      "label": "PyTorch Fullgraph Smoke Test",
+      "label": "PyTorch Fullgraph Smoke",
       "source_signal": "red",
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "PyTorch Fullgraph Smoke Test",
+      "legacy_labels": [
+        "PyTorch Fullgraph Smoke Test"
+      ],
+      "amd_execution_sha256s": ["a6a475dc93fceab884bd1efab9e32fa7a591590dbbe859e783a615e5ae282df5"]
     },
     {
       "id": 78,
@@ -700,7 +939,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-nightly-dependency-override-check"
+      ]
     },
     {
       "id": 79,
@@ -709,7 +951,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/ray_compat.yaml#ray-dependency-compatibility-check"
+      ]
     },
     {
       "id": 80,
@@ -718,7 +963,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/weight_loading.yaml#weight-loading-multiple-gpu"
+      ]
     },
     {
       "id": 81,
@@ -727,7 +975,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/cuda.yaml#cudagraph"
+      ]
     },
     {
       "id": 82,
@@ -736,7 +987,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#distributed-nixlconnector-pd-accuracy-4-gpus"
+      ]
     },
     {
       "id": 83,
@@ -745,7 +999,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
+      ]
     },
     {
       "id": 84,
@@ -754,7 +1011,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#crosslayer-kv-layout-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
+      ]
     },
     {
       "id": 85,
@@ -763,7 +1023,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#hybrid-ssm-nixlconnector-pd-accuracy-tests-4-gpus"
+      ]
     },
     {
       "id": 86,
@@ -772,7 +1035,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#nixlconnector-pd-spec-decode-acceptance-2-gpus"
+      ]
     },
     {
       "id": 87,
@@ -781,7 +1047,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-tests-2xh100-2xmi300"
+      ]
     },
     {
       "id": 88,
@@ -790,7 +1059,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-unit-tests"
+      ]
     },
     {
       "id": 89,
@@ -799,7 +1071,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-responses-api"
+      ]
     },
     {
       "id": 90,
@@ -808,7 +1083,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-multimodal"
+      ]
     },
     {
       "id": 91,
@@ -817,7 +1095,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-mamba-test"
+      ]
     },
     {
       "id": 92,
@@ -826,7 +1107,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-helion-test"
+      ]
     },
     {
       "id": 93,
@@ -835,7 +1119,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#v1-spec-decode"
+      ]
     },
     {
       "id": 94,
@@ -844,7 +1131,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#python-only-installation"
+      ]
     },
     {
       "id": 95,
@@ -853,7 +1143,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-tests-standard"
+      ]
     },
     {
       "id": 96,
@@ -862,7 +1155,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-test-mteb"
+      ]
     },
     {
       "id": 97,
@@ -871,16 +1167,25 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-processor"
+      ]
     },
     {
       "id": 98,
-      "label": "Multi-Modal Models (Extended Generation 2)",
+      "label": "Multimodal Models (Extended Generation 2)",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "Multi-Modal Models (Extended Generation 2)",
+      "legacy_labels": [
+        "Multi-Modal Models (Extended Generation 2)"
+      ],
+      "amd_execution_sha256s": ["4043045d2e6fb812dc30665065fbaa926b891fea6a9b2d254182fba0c1fc77dc"]
     },
     {
       "id": 99,
@@ -889,7 +1194,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-3"
+      ]
     },
     {
       "id": 100,
@@ -898,7 +1206,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/plugins.yaml#plugin-tests-2-gpus"
+      ]
     },
     {
       "id": 101,
@@ -907,7 +1218,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/quantization.yaml#quantized-models-test"
+      ]
     },
     {
       "id": 102,
@@ -916,7 +1230,9 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": ["8e197cc05d7bfb30326665acdb45693b793adc8203a95a05c8195538767f2a31"]
     },
     {
       "id": 103,
@@ -925,7 +1241,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/attention.yaml#v1-attention-b200"
+      ]
     },
     {
       "id": 104,
@@ -934,7 +1253,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#engine-1-gpu"
+      ]
     },
     {
       "id": 105,
@@ -943,7 +1265,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#e2e-scheduling-1-gpu"
+      ]
     },
     {
       "id": 106,
@@ -952,7 +1277,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-llm"
+      ]
     },
     {
       "id": 107,
@@ -961,25 +1289,51 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server"
+      ]
     },
     {
       "id": 108,
-      "label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "label": "Entrypoints Integration (OpenAI API completion)",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-1"
+      ],
+      "successor_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-completion"
+      ],
+      "definition_note": "Upstream replaced Part 1/Part 2 and redistributed completion tests. The historical coverage assessment does not certify the replacement scope; review required.",
+      "reviewed_label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "legacy_labels": [
+        "Entrypoints Integration (API Server OpenAI - Part 1)"
+      ]
     },
     {
       "id": 109,
-      "label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "label": "Entrypoints Integration (OpenAI API chat_completion)",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-2"
+      ],
+      "successor_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-completion",
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-chat_completion"
+      ],
+      "definition_note": "Upstream replaced Part 1/Part 2 and redistributed completion tests. The historical coverage assessment does not certify the replacement scope; review required.",
+      "reviewed_label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "legacy_labels": [
+        "Entrypoints Integration (API Server OpenAI - Part 2)"
+      ]
     },
     {
       "id": 110,
@@ -988,7 +1342,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-generate"
+      ]
     },
     {
       "id": 111,
@@ -997,7 +1354,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#openai-api-correctness"
+      ]
     },
     {
       "id": 112,
@@ -1006,7 +1366,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-quantization-test"
+      ]
     },
     {
       "id": 113,
@@ -1015,7 +1378,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#lm-eval-small-models-1xb200"
+      ]
     },
     {
       "id": 114,
@@ -1024,7 +1390,9 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": ["3fbdb45f8b4a6d29a24537ae6af2848144a2e723e06f8cbc58c3d31e86972a3d", "dd7ac63ac1def79f8beed7984e9f33c07d4bfe7c48ffef91b64d7f6896a608c3"]
     },
     {
       "id": 115,
@@ -1033,16 +1401,25 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-tests-hybrid"
+      ]
     },
     {
       "id": 116,
-      "label": "Language Models Test (Extended Pooling)",
+      "label": "Language Models (Extended Pooling)",
       "source_signal": "green",
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "Language Models Test (Extended Pooling)",
+      "legacy_labels": [
+        "Language Models Test (Extended Pooling)"
+      ],
+      "amd_execution_sha256s": ["718509de0a491afc7367a31374054901f2fb35235dca41c0588e166b9452da82", "fff34a49664f9985eefd4cddc3180db7983bdef4a88c5e9611bc5bcb86b86061"]
     },
     {
       "id": 117,
@@ -1051,7 +1428,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-1-qwen2"
+      ]
     },
     {
       "id": 118,
@@ -1060,7 +1440,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-2-qwen3-gemma"
+      ]
     },
     {
       "id": 119,
@@ -1069,7 +1452,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-3-llava-qwen2-vl"
+      ]
     },
     {
       "id": 120,
@@ -1078,7 +1464,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-1"
+      ]
     },
     {
       "id": 121,
@@ -1087,7 +1476,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-pooling"
+      ]
     },
     {
       "id": 122,
@@ -1096,7 +1488,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/samplers.yaml#samplers-test"
+      ]
     },
     {
       "id": 123,
@@ -1105,7 +1500,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#spec-decode-speculators-mtp"
+      ]
     },
     {
       "id": 124,
@@ -1114,7 +1512,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#spec-decode-ngram-suffix"
+      ]
     },
     {
       "id": 125,
@@ -1123,7 +1524,10 @@
       "readiness_signal": "green",
       "target_signal": "green",
       "owner": "",
-      "note": ""
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#spec-decode-draft-model"
+      ]
     }
   ]
 }

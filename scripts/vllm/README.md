@@ -371,13 +371,34 @@ Browser authentication, user signup, Test Build, Ready Tickets, and Admin have
 been retired end-to-end. They have no public route, collector, publication
 surface, or mutation workflow.
 
-Runtime target matching is intentionally conservative. Exact build-pinned matrix
-labels win; definition-parity aliases are the fallback. Only an explicit
+Runtime target matching is intentionally conservative. Reviewed upstream YAML
+keys resolve through the exact nightly definition snapshot; standalone AMD
+targets use execution identities that include commands, working directory,
+dependencies, and hardware topology. Matrix entries retain those identities,
+so same-label executions on different pools cannot exchange results. Display
+names follow the current collected definitions while runtime evidence remains
+pinned to its build. Older unlinked targets retain exact matrix-label and
+definition-parity matching. Only an explicit
 trailing `%N` target can aggregate numbered shards. Duplicate matrix identities
 merge incident-first and retain each job URL. Unmatched targets publish a
 resolution status (`no_amd_definition`, `stale_target_alias`, `ambiguous`, or
 `not_observed`) instead of presenting every identity failure as missing runtime
 signal.
+
+`reviewed_definition_labels.py` projects names without changing reviewed
+coverage or gating decisions. Configured step keys are explicit YAML `key`
+values, never list positions. Renames preserve their links; missing keys,
+splits, incomplete snapshots, and ambiguous evidence publish a resolution
+status. The parity drawer shows replacement definitions and scope notes where
+available. Historical review names and source commits remain available for
+comparison.
+
+The AMD matrix derives generic cross-hardware aliases from conservative
+execution evidence, including equivalent pytest directory spellings. An
+explicit, narrow policy covers the reviewed Mamba dependency-revision
+difference. Hardware-sensitive rules remain reviewed policy with exact
+execution evidence for renames, and the output contains only applicable
+rules. Tests cover both historical and renamed configurations.
 
 The area incident watcher uses all exact matrix definition rows, not the
 smaller reviewed runtime-target plan. Area attribution prefers commit-pinned
