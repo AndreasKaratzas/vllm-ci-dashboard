@@ -95,6 +95,12 @@ _NIGHTLY_WORD_RE = re.compile(r"\bnightly\b", re.IGNORECASE)
 # ``results/<workload>/<task>/results_*.json`` (accuracy).
 _PERF_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/bench-(?P<cfg>.+)\.json$")
 _ACC_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/(?P<task>[^/]+)/results_.*\.json$")
+# The REST artifact endpoint supports path globs with '*' wildcards:
+# https://buildkite.com/docs/apis/rest-api/artifacts#list-artifacts-for-a-build
+# Keep discovery broader than the local classifiers, including './results/'
+# paths, while excluding the pipeline's much larger sample/log artifact tree.
+_RESULT_ARTIFACT_PATHS = ("*results/*/bench-*.json", "*results/*/*/results_*.json")
+_RESULT_ARTIFACT_MAX_PAGES = 10
 
 # Result events retain the exact Buildkite artifact that produced them. Legacy
 # result rows predate these fields, so once such a row is encountered again we
@@ -481,6 +487,39 @@ def _bk_paginate(path: str, token: str, params: Optional[dict] = None, max_pages
     raise AssertionError("unreachable")
 
 
+def _bk_result_artifacts(build_number: Any, token: str) -> list[dict]:
+    """Discover both result kinds within the existing per-build page budget.
+
+    The API applies each path filter before pagination. A broad artifact list
+    can contain thousands of samples that the collector never consumes. Both
+    filtered listings must terminate normally before any result is returned;
+    exhausting the shared budget still fails the collection closed.
+    """
+    path = (
+        f"/organizations/{BK_ORG}/pipelines/{PIPELINE_SLUG}"
+        f"/builds/{build_number}/artifacts"
+    )
+    remaining_pages = _RESULT_ARTIFACT_MAX_PAGES
+    artifacts: list[dict] = []
+    for path_filter in _RESULT_ARTIFACT_PATHS:
+        if remaining_pages < 1:
+            raise RuntimeError(
+                f"Buildkite result artifact discovery safety cap reached for {path} "
+                f"after {_RESULT_ARTIFACT_MAX_PAGES} pages"
+            )
+        rows = _bk_paginate(
+            path,
+            token,
+            {"path": path_filter, "per_page": 100},
+            max_pages=remaining_pages,
+        )
+        # A successful listing ends on one short (possibly empty) page.
+        # Count that page as well as every full page across both filters.
+        remaining_pages -= len(rows) // 100 + 1
+        artifacts.extend(rows)
+    return artifacts
+
+
 def _bk_download_json(download_url: str, token: str) -> Optional[dict]:
     """Download a JSON artifact. Buildkite redirects to a presigned URL;
     requests drops the auth header on the cross-host hop automatically."""
@@ -582,10 +621,7 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
             "date": build.get("finished_at") or build.get("created_at") or night["date"],
             "image": amd_image(build.get("env") or {}, night["vllm_commit"]),
         }
-        artifacts = _bk_paginate(
-            f"/organizations/{BK_ORG}/pipelines/{PIPELINE_SLUG}/builds/{number}/artifacts",
-            bk_token,
-        )
+        artifacts = _bk_result_artifacts(number, bk_token)
         for art in artifacts:
             kind = classify_artifact(art.get("path") or "")
             if kind is None:
