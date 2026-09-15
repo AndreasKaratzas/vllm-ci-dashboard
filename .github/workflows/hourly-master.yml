@@ -2439,12 +2439,14 @@ jobs:
           # The outer workflow retains its real guard identity for every other
           # process; guard unit tests need a blank transport class in order to
           # install synthetic identities without weakening identity replacement.
+          # Simulated GitHub clocks must also be isolated from collector cooldowns.
           env \
             -u BUILDKITE_TOKEN \
             -u BUILDKITE_API_TOKEN \
             -u BUILDKITE_REQUEST_GUARD_FILE \
             -u BUILDKITE_REQUEST_GUARD_ATTEMPT_ID \
             -u BUILDKITE_REQUEST_GUARD_ALLOWANCE \
+            -u GITHUB_REQUEST_STATE_FILE \
             pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e

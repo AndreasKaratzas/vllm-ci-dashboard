@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -70,3 +71,38 @@ def test_durable_success_requires_collection_evidence() -> None:
     step = _step("hourly-master.yml", "collect-and-deploy", "Mark durable Data Collection success")
     assert "--require-collection-evidence" in step["run"]
     assert "steps.publication-commit.outputs.state_sha" in step["env"]["DURABLE_STATE_SHA"]
+
+
+def test_test_subprocess_cannot_read_or_change_collector_cooldowns(tmp_path: Path) -> None:
+    state = tmp_path / "collector-cooldown.json"
+    original = b'{"search_not_before":4000000000,"cooldown_until":4000000000}\n'
+    state.write_bytes(original)
+    executable_dir = tmp_path / "bin"
+    executable_dir.mkdir()
+    pytest_command = executable_dir / "pytest"
+    pytest_command.write_text(f"#!{sys.executable}\n" + '''
+import os
+from github_cli import _TRANSPORT
+from github_transport import GitHubResponse, GitHubTransport
+
+assert "GITHUB_REQUEST_STATE_FILE" not in os.environ
+assert _TRANSPORT.state_path is None
+policy = GitHubTransport(clock=lambda: 1000.0)
+result = policy.request("/search/issues", lambda: GitHubResponse(200, {}, "{}"))
+assert result.status_code == 200
+print("1 passed")
+''')
+    pytest_command.chmod(0o755)
+    step = _step("hourly-master.yml", "collect-and-deploy", "Run test suite")
+    # Execute the actual shell boundary, including import-time transport setup.
+    # The outer workflow must retain its real state path for later collectors.
+    script = step["run"] + '\nprintf "%s" "$GITHUB_REQUEST_STATE_FILE" > parent-state-path\n'
+    result = _execute(
+        script, tmp_path,
+        GITHUB_REQUEST_STATE_FILE=str(state),
+        PYTHONPATH=str(ROOT / "scripts"),
+        PATH=os.pathsep.join((str(executable_dir), str(Path(sys.executable).parent), os.environ["PATH"])),
+    )
+    assert result["exit_code"] == "0"
+    assert state.read_bytes() == original
+    assert (tmp_path / "parent-state-path").read_text() == str(state)
