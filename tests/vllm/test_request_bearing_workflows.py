@@ -153,6 +153,7 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
         "BUILDKITE_REQUEST_GUARD_FILE",
         "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID",
         "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
+        "GITHUB_REQUEST_STATE_FILE",
     ):
         assert f"-u {name}" in tests["run"]
 
