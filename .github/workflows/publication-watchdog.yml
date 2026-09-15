@@ -544,9 +544,15 @@ jobs:
           BUILDKITE_COLLECTION_REQUIRED=$(awk -F= \
             '$1 == "required" {print $2}' "$ATTEMPT_OUTPUTS")
           if [ "$BUILDKITE_COLLECTION_REQUIRED" = true ]; then
+            COLLECTION_RETRY_REQUIRED=$(awk -F= \
+              '$1 == "collection_retry_required" {print $2}' "$ATTEMPT_OUTPUTS")
+            COLLECTION_REASON=buildkite-collection-due
+            if [ "$COLLECTION_RETRY_REQUIRED" = true ]; then
+              COLLECTION_REASON=collection-retry-due
+            fi
             {
               echo "target=collector"
-              echo "force_reason=buildkite-collection-due"
+              echo "force_reason=$COLLECTION_REASON"
             } >> "$GITHUB_OUTPUT"
             echo "The durable Buildkite collection ledger is due; selecting the bounded collector independently of publication age."
             exit 0

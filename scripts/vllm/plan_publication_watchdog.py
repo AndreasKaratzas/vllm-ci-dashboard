@@ -62,6 +62,7 @@ FAILED_ATTEMPT_CONCLUSIONS = frozenset(
 FORCED_RECOVERY_REASONS = frozenset(
     {
         "buildkite-collection-due",
+        "collection-retry-due",
         "dns-only-degraded",
         "site-health-failed",
         "state-slot-repair",

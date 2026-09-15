@@ -22,6 +22,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from vllm.collection_recovery import (  # noqa: E402
+    CollectionEvidenceError,
+    normalize_collection_evidence,
+    read_collection_evidence,
+)
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_VERSION = 1
@@ -288,7 +296,11 @@ def _normalize_attempt(
         "durable_ref",
         "actual_request_starts",
     }
-    if not isinstance(raw, dict) or set(raw) != fields:
+    if (
+        not isinstance(raw, dict)
+        or not fields <= set(raw)
+        or set(raw) - fields - {"collection_evidence", "pending_collection_evidence"}
+    ):
         raise AttemptBudgetError(f"attempt {index} has an unexpected shape")
     attempt_id = raw.get("id")
     if not isinstance(attempt_id, str) or not SAFE_ID_RE.fullmatch(attempt_id):
@@ -342,7 +354,7 @@ def _normalize_attempt(
             )
             if actual > allowance:
                 raise AttemptBudgetError(f"attempt {index} actual starts exceed allowance")
-    return {
+    normalized = {
         "id": attempt_id,
         "reserved_at": _iso(reserved_at),
         "request_start_allowance": allowance,
@@ -355,6 +367,31 @@ def _normalize_attempt(
         "durable_ref": durable_ref,
         "actual_request_starts": actual,
     }
+    if "collection_evidence" in raw:
+        if policy.producer != "data_collection" or source != "runtime" or succeeded_at is None:
+            raise AttemptBudgetError("collection evidence requires a published Data Collection attempt")
+        try:
+            normalized["collection_evidence"] = normalize_collection_evidence(
+                raw["collection_evidence"], durable_ref=durable_ref,
+            )
+        except CollectionEvidenceError as exc:
+            raise AttemptBudgetError(str(exc)) from exc
+    if "pending_collection_evidence" in raw:
+        if policy.producer != "data_collection" or source != "runtime":
+            raise AttemptBudgetError("pending collection evidence requires a Data Collection reservation")
+        pending = raw["pending_collection_evidence"]
+        try:
+            if not isinstance(pending, dict):
+                raise CollectionEvidenceError("pending collection evidence must be an object")
+            pending_ref = _full_sha(pending.get("durable_ref"), label="pending durable ref")
+            normalized["pending_collection_evidence"] = normalize_collection_evidence(
+                pending, durable_ref=pending_ref,
+            )
+            if not pending["retry_surfaces"] or "collection_evidence" in raw:
+                raise CollectionEvidenceError("pending collection evidence must describe an unresolved retry")
+        except CollectionEvidenceError as exc:
+            raise AttemptBudgetError(str(exc)) from exc
+    return normalized
 
 
 def _normalize_ledger(value: object, policy: AttemptPolicy) -> dict[str, Any]:
@@ -688,15 +725,16 @@ def _request_mode(
     latest = max(attempts, key=lambda row: (row["reserved_at"], row["id"]), default=None)
     if latest is not None:
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
-        interval = (
-            policy.success_interval_minutes
-            if latest["succeeded_at"] is not None
-            else policy.failed_retry_interval_minutes
+        collection_failed = bool(
+            policy.producer == "data_collection"
+            and (latest.get("collection_evidence") or latest.get("pending_collection_evidence") or {}).get("retry_surfaces")
         )
+        complete = latest["succeeded_at"] is not None and not collection_failed
+        interval = policy.success_interval_minutes if complete else policy.failed_retry_interval_minutes
         available = reserved_at + timedelta(minutes=interval)
         if now < available:
             return (
-                "success_gated" if latest["succeeded_at"] is not None else "retry_gated",
+                "success_gated" if complete else "retry_gated",
                 available,
             )
 
@@ -722,6 +760,63 @@ def _request_mode(
     if blocked_until:
         return "cap_gated", max(blocked_until)
     return "reserved", None
+
+
+def _collection_context(
+    root: Path, policy: AttemptPolicy, attempts: list[dict[str, Any]], *, remote: str,
+    prior_attempts: Sequence[Mapping[str, Any]] = (),
+) -> tuple[dict[str, object], dict[str, Any] | None]:
+    """Enrich the latest published attempt without changing its success history.
+
+    A failed unpublished retry still inherits the last published retry intent.
+    Read-only observation never writes this migration; a later reservation
+    includes it in the same leased commit that charges its execution slot.
+    """
+    outputs: dict[str, object] = {
+        "retry_surfaces": "", "collection_retry_required": "false",
+        "collection_evidence_status": "not_applicable",
+    }
+    if policy.producer != "data_collection":
+        return outputs, None
+    # An Actions outage can outlast the entire accounting window. The last
+    # durable ledger still contains bounded outcome evidence even then. Use it
+    # for recovery intent, while only active rows count or enter the new ledger.
+    # Active row objects win so an enriched legacy proof persists under lease.
+    recovery_rows = {row["id"]: dict(row) for row in prior_attempts}
+    recovery_rows.update({row["id"]: row for row in attempts})
+    latest = max(
+        (row for row in recovery_rows.values() if row["succeeded_at"] is not None or "pending_collection_evidence" in row),
+        key=lambda row: (row["reserved_at"], row["id"]), default=None,
+    )
+    if latest is None or latest["source"] != "runtime":
+        return outputs, None
+    # Carry unresolved proof on every retry reservation so intent survives the
+    # expiry of old charged rows. A newly proven publication removes this field.
+    if "pending_collection_evidence" in latest:
+        evidence = latest["pending_collection_evidence"]
+        outputs.update({
+            "retry_surfaces": ",".join(evidence["retry_surfaces"]),
+            "collection_retry_required": "true",
+            "collection_evidence_status": "incomplete",
+        })
+        return outputs, evidence
+    if "collection_evidence" not in latest:
+        try:
+            latest["collection_evidence"] = read_collection_evidence(
+                root, durable_ref=latest["durable_ref"],
+                reserved_at=latest["reserved_at"], succeeded_at=latest["succeeded_at"],
+                remote=_safe_remote(remote),
+            )
+        except CollectionEvidenceError:
+            outputs["collection_evidence_status"] = "unavailable"
+            return outputs, None
+    surfaces = latest["collection_evidence"]["retry_surfaces"]
+    outputs.update({
+        "retry_surfaces": ",".join(surfaces),
+        "collection_retry_required": "true" if surfaces else "false",
+        "collection_evidence_status": "incomplete" if surfaces else "complete",
+    })
+    return outputs, latest["collection_evidence"]
 
 
 def initialize(
@@ -824,8 +919,12 @@ def reserve(
         )
     established = _fetch_observed(root, remote, observed_sha, policy)
     attempts = _active_attempts(established.ledger, now=now, policy=policy)
+    collection, pending_evidence = _collection_context(
+        root, policy, attempts, remote=remote, prior_attempts=established.ledger["attempts"],
+    )
     decision_at = _iso(now)
     base = {
+        **collection,
         "decision_at": decision_at,
         "budget_sha": established.commit_sha,
         "attempt_id": attempt_id,
@@ -861,10 +960,13 @@ def reserve(
             event_name=event_name,
         )
     )
+    if pending_evidence is not None and pending_evidence["retry_surfaces"]:
+        attempts[-1]["pending_collection_evidence"] = dict(pending_evidence)
     ledger = _new_ledger(attempts, now=now, policy=policy)
     created = _create_commit(root, ledger, policy)
     _push(root, remote, created.commit_sha, observed_sha, policy)
     return {
+        **collection,
         "request_mode": "reserved",
         "decision_at": decision_at,
         "budget_sha": created.commit_sha,
@@ -903,6 +1005,9 @@ def observe(
         )
     established = _fetch_observed(root, remote, observed_sha, policy)
     attempts = _active_attempts(established.ledger, now=now, policy=policy)
+    collection, _ = _collection_context(
+        root, policy, attempts, remote=remote, prior_attempts=established.ledger["attempts"],
+    )
     request_mode, available = _request_mode(attempts, now=now, policy=policy)
     successful = [row for row in attempts if row["succeeded_at"] is not None]
     latest_success = max(
@@ -911,6 +1016,7 @@ def observe(
         default=None,
     )
     return {
+        **collection,
         "observation_valid": "true",
         "required": "true" if request_mode == "reserved" else "false",
         "request_mode": request_mode,
@@ -937,6 +1043,7 @@ def mark_success(
     actual_request_starts: int,
     now: datetime,
     remote: str,
+    require_collection_evidence: bool = False,
 ) -> dict[str, object]:
     if not SAFE_ID_RE.fullmatch(attempt_id):
         raise AttemptBudgetError("attempt id is invalid")
@@ -954,28 +1061,50 @@ def mark_success(
     row = matches[0]
     if not row["request_start_bound_proven"] or row["source"] != "runtime":
         raise AttemptBudgetError("only a guarded runtime attempt can be marked successful")
+    evidence = None
+    if policy.producer == "data_collection":
+        if row.get("durable_ref") == durable_ref and "collection_evidence" in row:
+            evidence = row["collection_evidence"]
+        else:
+            try:
+                evidence = read_collection_evidence(
+                    root, durable_ref=durable_ref, reserved_at=row["reserved_at"],
+                    succeeded_at=row["succeeded_at"] or _iso(now), remote=_safe_remote(remote),
+                )
+            except CollectionEvidenceError as exc:
+                if require_collection_evidence:
+                    raise AttemptBudgetError(f"durable collection evidence is invalid: {exc}") from exc
+    elif require_collection_evidence:
+        raise AttemptBudgetError("collection evidence is only supported for Data Collection")
     if row["succeeded_at"] is not None:
         if (
             row["durable_ref"] == durable_ref
             and row["actual_request_starts"] == actual_request_starts
         ):
-            return {
-                "budget_sha": established.commit_sha,
-                "attempt_id": attempt_id,
-                "succeeded_at": row["succeeded_at"],
-                "actual_request_starts": actual_request_starts,
-            }
-        raise AttemptBudgetError("attempt success was already marked with different evidence")
-    row["succeeded_at"] = _iso(now)
+            if evidence is None or row.get("collection_evidence") == evidence:
+                return {
+                    "budget_sha": established.commit_sha,
+                    "attempt_id": attempt_id,
+                    "succeeded_at": row["succeeded_at"],
+                    "actual_request_starts": actual_request_starts,
+                }
+            # An idempotent legacy success may acquire exact collection proof.
+            # Preserve its original success time and request accounting.
+        else:
+            raise AttemptBudgetError("attempt success was already marked with different evidence")
+    row["succeeded_at"] = row["succeeded_at"] or _iso(now)
     row["durable_ref"] = durable_ref
     row["actual_request_starts"] = actual_request_starts
+    if evidence is not None:
+        row["collection_evidence"] = evidence
+        row.pop("pending_collection_evidence", None)
     ledger = _new_ledger(attempts, now=now, policy=policy)
     created = _create_commit(root, ledger, policy)
     _push(root, remote, created.commit_sha, observed_sha, policy)
     return {
         "budget_sha": created.commit_sha,
         "attempt_id": attempt_id,
-        "succeeded_at": _iso(now),
+        "succeeded_at": row["succeeded_at"],
         "actual_request_starts": actual_request_starts,
     }
 
@@ -1024,6 +1153,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     success.add_argument("--attempt-id", required=True)
     success.add_argument("--durable-ref", required=True)
     success.add_argument("--actual-request-starts", type=int, required=True)
+    success.add_argument("--require-collection-evidence", action="store_true")
     success.add_argument("--now")
     success.add_argument("--remote", default="origin")
     success.add_argument("--github-output", type=Path)
@@ -1072,6 +1202,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 attempt_id=args.attempt_id,
                 durable_ref=args.durable_ref,
                 actual_request_starts=args.actual_request_starts,
+                require_collection_evidence=args.require_collection_evidence,
                 now=_clock(args.now),
                 remote=args.remote,
             )

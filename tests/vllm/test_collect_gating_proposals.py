@@ -8,6 +8,7 @@ import requests
 import pytest
 
 from vllm import collect_gating_proposals as cgp
+from github_transport import GitHubResponse, GitHubTransport
 
 
 BASE_YAML = """
@@ -69,7 +70,9 @@ class FakeClient:
             raise value
         return value
 
-    def get_json(self, url, *, params=None):
+    def get_json(self, url, *, params=None, before_request=None):
+        if before_request is not None:
+            before_request()
         key = (url, tuple(sorted((params or {}).items())))
         if key in self.mapping:
             return self._resolve(key)
@@ -77,6 +80,90 @@ class FakeClient:
 
     def get_text(self, url):
         return self._resolve(url)
+
+
+def _transport_client(responses, *, max_attempts=3):
+    now = [1_800_000_000.0]
+    sleeps = []
+    calls = []
+    iterator = iter(responses)
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return next(iterator)
+
+    client = cgp.GitHubClient(
+        Session(), transport=GitHubTransport(
+            clock=lambda: now[0], sleep=sleep, max_attempts=max_attempts,
+        ),
+    )
+    return client, calls, sleeps
+
+
+def test_search_transport_retry_is_charged_and_can_recover_complete_author():
+    client, calls, sleeps = _transport_client([
+        GitHubResponse(403, {}, "secondary rate limit"),
+        GitHubResponse(200, {}, json.dumps({"items": [], "total_count": 0})),
+    ])
+    budget = cgp.SearchRequestBudget(limit=2)
+    candidates, errors = cgp.search_pr_candidates_with_errors(
+        client, "vllm-project/vllm", ["alice"], budget=budget,
+    )
+    assert candidates == errors == []
+    assert len(calls) == budget.used == 2
+    assert sleeps == [60]
+
+
+def test_search_malformed_json_retry_is_charged_without_accepting_empty_data():
+    client, calls, _sleeps = _transport_client([
+        GitHubResponse(200, {}, "{truncated"),
+        GitHubResponse(200, {}, json.dumps({"items": [], "total_count": 0})),
+    ])
+    budget = cgp.SearchRequestBudget(limit=2)
+    candidates, errors = cgp.search_pr_candidates_with_errors(
+        client, "vllm-project/vllm", ["alice"], budget=budget,
+    )
+    assert candidates == errors == []
+    assert len(calls) == budget.used == 2
+
+
+def test_search_transport_cannot_retry_past_collector_request_ceiling():
+    client, calls, sleeps = _transport_client([
+        GitHubResponse(503, {}, "unavailable"),
+        GitHubResponse(503, {}, "unavailable"),
+    ])
+    budget = cgp.SearchRequestBudget(limit=2)
+    candidates, errors = cgp.search_pr_candidates_with_errors(
+        client, "vllm-project/vllm", ["alice"], budget=budget,
+    )
+    assert candidates == []
+    assert len(calls) == budget.used == 2
+    assert errors[0]["scope"] == "search_budget"
+
+
+def test_search_throttling_exhaustion_stops_remaining_authors_and_other_reads():
+    client, calls, sleeps = _transport_client([
+        GitHubResponse(403, {}, "secondary rate limit"),
+        GitHubResponse(403, {}, "secondary rate limit"),
+    ], max_attempts=2)
+    budget = cgp.SearchRequestBudget()
+    authors = list(cgp.TRACKED_AUTHORS)
+    candidates, errors = cgp.search_pr_candidates_with_errors(
+        client, "vllm-project/vllm", authors, budget=budget,
+    )
+    assert candidates == []
+    assert {error["author"] for error in errors} == set(authors)
+    assert all(error["reason_class"] == "rate-limit" for error in errors)
+    assert len(calls) == budget.used == 2
+    assert sleeps == [60]
+    with pytest.raises(requests.RequestException, match="rate limit"):
+        client.get_text("https://raw.githubusercontent.com/org/repo/main/file.yaml")
+    assert len(calls) == 2
 
 
 def pr_search_item(number: int, *, author: str = "alice", title: str | None = None) -> dict:
@@ -194,7 +281,9 @@ def test_search_request_budget_is_global_and_below_github_minute_limit():
         def __init__(self):
             self.calls = 0
 
-        def get_json(self, url, *, params=None):
+        def get_json(self, url, *, params=None, before_request=None):
+            if before_request is not None:
+                before_request()
             self.calls += 1
             return {
                 "items": [],

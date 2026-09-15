@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from vllm import request_bearing_attempt_budget as budget
+from vllm import collection_recovery as recovery
 
 
 BASE = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
@@ -111,6 +113,64 @@ def reserve(
 def remote_sha(root: Path, policy: budget.AttemptPolicy) -> str | None:
     output = git(root, "ls-remote", "--refs", "origin", f"refs/heads/{policy.branch}")
     return output.split()[0] if output else None
+
+
+def published_state(root: Path, *, failures=(), fallback=(), fresh=(), generated_at=None,
+                    corrupt_manifest=False, parent=None) -> str:
+    """A real parentless commit with manifest-bound recovery evidence."""
+    fallback = sorted(set(fallback) | set(failures))
+    payload = {
+        "schema_version": 2,
+        "generated_at": generated_at or budget._iso(BASE + timedelta(minutes=5)),
+        "mode": "mixed" if fallback and fresh else (
+            "fallback" if fallback else "degraded" if fresh else "current"
+        ),
+        "fallback_surfaces": fallback,
+        "fresh_degraded_surfaces": sorted(fresh),
+        "degraded_surfaces": sorted(set(fallback) | set(fresh)),
+        "collector_failures": [
+            {"schema_version": 1, "surface": surface, "collector": "collect.py",
+             "step": "Requested collector", "reason_class": "rate-limit", "exit_code": 1}
+            for surface in failures
+        ],
+    }
+    state = root / recovery.STATE_PATH
+    state.parent.mkdir(parents=True, exist_ok=True)
+    raw = (json.dumps(payload) + "\n").encode()
+    state.write_bytes(raw)
+    oid = git(root, "hash-object", "-w", str(state))
+    manifest = {
+        "schema_version": 2,
+        "generated_files": {
+            recovery.STATE_PATH: {
+                "bytes": len(raw), "git_oid": oid, "mode": "100644",
+                "sha256": "0" * 64 if corrupt_manifest else hashlib.sha256(raw).hexdigest(),
+            },
+        },
+    }
+    (root / recovery.MANIFEST_PATH).write_text(json.dumps(manifest))
+    git(root, "add", "--", recovery.STATE_PATH, recovery.MANIFEST_PATH)
+    tree = git(root, "write-tree")
+    parent_args = ["-p", parent] if parent else []
+    return git(root, "commit-tree", tree, *parent_args, input_text="Publication evidence fixture\n")
+
+
+def record_publication(root, policy, *, state_sha, monkeypatch=None):
+    started = reserve(root, policy, 2000, BASE)
+    kwargs = dict(
+        attempt_id=started["attempt_id"], durable_ref=state_sha,
+        actual_request_starts=123, now=BASE + timedelta(minutes=10), remote="origin",
+    )
+    if monkeypatch is None:
+        budget.mark_success(root, policy, require_collection_evidence=True, **kwargs)
+    else:
+        # Model an existing success written by the pre-recovery workflow.
+        with monkeypatch.context() as patch:
+            def unavailable(*args, **kwargs):
+                raise recovery.CollectionEvidenceError("legacy writer")
+            patch.setattr(budget, "read_collection_evidence", unavailable)
+            budget.mark_success(root, policy, **kwargs)
+    return started
 
 
 def test_repository_policies_match_audited_composed_caps() -> None:
@@ -361,3 +421,167 @@ def test_fresh_dns_publication_clock_cannot_mask_stale_durable_collection(
     assert fresh_publication_generated_at == "2026-09-01T12:00:00Z"
     assert mode == "reserved"
     assert available is None
+
+
+def test_published_collector_failures_retry_at_thirty_minutes(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    sha = published_state(checkout, failures=["ci_gating", "github_home"])
+    record_publication(checkout, policy, state_sha=sha)
+    unchanged = remote_sha(checkout, policy)
+
+    gated = budget.observe(checkout, policy, now=BASE + timedelta(minutes=29, seconds=59), remote="origin")
+    assert gated["request_mode"] == "retry_gated"
+    assert gated["available_at"] == budget._iso(BASE + timedelta(minutes=30))
+    assert gated["retry_surfaces"] == "ci_gating,github_home"
+    assert gated["collection_retry_required"] == "true"
+    due = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert due["required"] == "true"
+    assert due["collection_evidence_status"] == "incomplete"
+    assert remote_sha(checkout, policy) == unchanged
+    retried = reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))
+    assert retried["request_mode"] == "reserved"
+    assert retried["active_attempts"] == 3
+    assert retried["rolling_reserved_request_starts"] == 1600
+    assert retried["retry_surfaces"] == "ci_gating,github_home"
+
+    # Failure before a durable publication must not lose the pending perf or
+    # GitHub intent merely because the latest ledger row has no durable_ref.
+    after_failed_retry = budget.observe(checkout, policy, now=BASE + timedelta(minutes=60), remote="origin")
+    assert after_failed_retry["required"] == "true"
+    assert after_failed_retry["retry_surfaces"] == "ci_gating,github_home"
+
+
+@pytest.mark.parametrize("kwargs", [
+    {}, {"failures": ["queue", "dns_health"]},
+    {"fallback": ["ci_core", "ci_analytics"]},
+    {"fresh": ["ci_core", "perf_eval"]},
+])
+def test_complete_or_intentionally_degraded_publications_keep_two_hour_cadence(repo, policy, kwargs):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    sha = published_state(checkout, **kwargs)
+    record_publication(checkout, policy, state_sha=sha)
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert observed["request_mode"] == "success_gated"
+    assert observed["collection_retry_required"] == "false"
+    assert observed["collection_evidence_status"] == "complete"
+    assert observed["available_at"] == budget._iso(BASE + timedelta(minutes=120))
+
+
+def test_legacy_success_migrates_exact_state_only_in_next_leased_reservation(repo, policy, monkeypatch):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    failed_sha = published_state(checkout, failures=["perf_eval", "github_home"])
+    record_publication(checkout, policy, state_sha=failed_sha, monkeypatch=monkeypatch)
+    original_ledger = remote_sha(checkout, policy)
+    old = next(row for row in budget.validate_ledger_ref(checkout, original_ledger, policy).ledger["attempts"] if row["source"] == "runtime")
+    assert "collection_evidence" not in old
+    # A later healthy-looking queue/DNS publication is not the old attempt's
+    # durable_ref and cannot erase its typed collection failure.
+    newer = published_state(checkout, generated_at=budget._iso(BASE + timedelta(minutes=20)))
+    git(checkout, "update-ref", "refs/heads/dashboard-state", newer)
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert observed["required"] == "true"
+    assert observed["latest_durable_ref"] == failed_sha
+    assert observed["retry_surfaces"] == "github_home,perf_eval"
+    assert remote_sha(checkout, policy) == original_ledger
+
+    reserved = reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))
+    rows = budget.validate_ledger_ref(checkout, reserved["budget_sha"], policy).ledger["attempts"]
+    migrated = next(row for row in rows if row["id"] == old["id"])
+    assert {key: migrated[key] for key in old} == old
+    assert migrated["collection_evidence"]["durable_ref"] == failed_sha
+    # The compact proof is now durable; no historical-state fetch is needed.
+    monkeypatch.setattr(budget, "read_collection_evidence", lambda *a, **kw: pytest.fail("proof already persisted"))
+    assert budget.observe(checkout, policy, now=BASE + timedelta(minutes=31), remote="origin")["retry_surfaces"] == "github_home,perf_eval"
+
+
+@pytest.mark.parametrize("corruption", ["manifest", "clock", "parent"])
+def test_invalid_legacy_evidence_cannot_authorize_early_retry(repo, policy, monkeypatch, corruption):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    parent = published_state(checkout) if corruption == "parent" else None
+    sha = published_state(
+        checkout, failures=["github_home"], corrupt_manifest=corruption == "manifest",
+        generated_at=budget._iso(BASE - timedelta(minutes=1)) if corruption == "clock" else None,
+        parent=parent,
+    )
+    record_publication(checkout, policy, state_sha=sha, monkeypatch=monkeypatch)
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert observed["request_mode"] == "success_gated"
+    assert observed["collection_evidence_status"] == "unavailable"
+    assert observed["retry_surfaces"] == ""
+    assert reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))["request_mode"] == "success_gated"
+
+
+def test_recovery_clears_retry_intent_only_after_next_complete_publication(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    failed = published_state(checkout, failures=["perf_eval"])
+    record_publication(checkout, policy, state_sha=failed)
+    retry = reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))
+    healthy = published_state(checkout, generated_at=budget._iso(BASE + timedelta(minutes=35)))
+    budget.mark_success(
+        checkout, policy, attempt_id=retry["attempt_id"], durable_ref=healthy,
+        actual_request_starts=99, now=BASE + timedelta(minutes=40), remote="origin",
+        require_collection_evidence=True,
+    )
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=60), remote="origin")
+    assert observed["request_mode"] == "success_gated"
+    assert observed["retry_surfaces"] == ""
+    assert observed["available_at"] == budget._iso(BASE + timedelta(minutes=150))
+
+
+def test_incomplete_success_does_not_bypass_sixteen_attempt_cap(policy):
+    rows = [budget._attempt_row(
+        attempt_id=f"runtime-{number}", reserved_at=BASE - timedelta(minutes=31 + number * 30),
+        policy=policy, source="runtime", bound_proven=True, workflow_run_id=str(number + 1),
+        workflow_run_attempt=1, event_name="schedule", succeeded_at=BASE - timedelta(minutes=30),
+        durable_ref=REF, actual_request_starts=1,
+    ) for number in range(16)]
+    rows[0]["collection_evidence"] = {
+        "schema_version": 1, "durable_ref": REF, "publication_state_oid": "b" * 40,
+        "retry_surfaces": ["github_home"],
+    }
+    assert budget._request_mode(rows, now=BASE, policy=policy)[0] == "cap_gated"
+    assert sum(row["request_start_allowance"] for row in rows) == 12_800
+
+
+def test_strict_mark_success_rejects_missing_evidence_before_ledger_mutation(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    started = reserve(checkout, policy, 2000, BASE)
+    before = remote_sha(checkout, policy)
+    with pytest.raises(budget.AttemptBudgetError, match="durable collection evidence"):
+        budget.mark_success(
+            checkout, policy, attempt_id=started["attempt_id"], durable_ref=REF,
+            actual_request_starts=10, now=BASE + timedelta(minutes=10), remote="origin",
+            require_collection_evidence=True,
+        )
+    assert remote_sha(checkout, policy) == before
+
+
+@pytest.mark.parametrize("elapsed", [timedelta(hours=25, minutes=31), timedelta(hours=50)])
+def test_retry_intent_survives_expiry_of_original_published_attempt(repo, policy, monkeypatch, elapsed):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    failed_sha = published_state(checkout, failures=["perf_eval"])
+    record_publication(checkout, policy, state_sha=failed_sha)
+    first_retry = reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))
+    assert first_retry["retry_surfaces"] == "perf_eval"
+    # No subsequent attempt publishes. A later retry still carries the exact
+    # unresolved proof, but expired executions remain outside the request cap.
+    reserve(checkout, policy, 2002, BASE + timedelta(hours=24))
+    monkeypatch.setattr(budget, "read_collection_evidence", lambda *a, **kw: pytest.fail("persisted intent needs no source fetch"))
+    now = BASE + elapsed
+    observed = budget.observe(checkout, policy, now=now, remote="origin")
+    assert observed["required"] == "true"
+    assert observed["retry_surfaces"] == "perf_eval"
+    assert observed["collection_retry_required"] == "true"
+    next_retry = reserve(checkout, policy, 2003, now)
+    assert next_retry["retry_surfaces"] == "perf_eval"
+    assert next_retry["active_attempts"] == (1 if elapsed > timedelta(hours=49) else 2)
+    rows = budget.validate_ledger_ref(checkout, next_retry["budget_sha"], policy).ledger["attempts"]
+    assert all(row["id"] not in {"data-2000-1", "data-2001-1"} for row in rows)
+    assert rows[-1]["pending_collection_evidence"]["durable_ref"] == failed_sha

@@ -254,7 +254,35 @@ two-stage concurrency gate and before the first step can receive
 lease-conflicted state fails closed with zero Buildkite requests. A reservation
 survives cancellation and failure for 25 hours. A successful attempt is due
 again 120 minutes after its **reservation time** (start-to-start); a failed
-attempt can retry after 30 minutes. The 50-minute workflow timeout leaves at
+attempt can retry after 30 minutes. Durable publication and complete collection
+are tracked separately: typed failures of requested CI, GitHub, or perf-eval
+collectors retain that 30-minute retry cadence even when other surfaces publish
+successfully. The 15-minute watchdog observes the same ledger decision and
+coalesces active recovery runs. A pending perf-eval or GitHub retry overrides
+its ordinary regeneration/freshness gate. Queue/DNS failures, current degraded
+evidence, and intentional upstream-retry fallback do not accelerate the full
+collector.
+
+Collection outcomes retain the exact durable state and publication-state blob
+identities. Older successful entries are classified from that immutable state,
+using bounded GitHub commit/tree proof before missing blobs are fetched; newer
+queue/DNS publication timestamps cannot hide failed collection. Observation is
+read-only, and the next leased reservation persists the classification without
+changing the original success time or request counts. Each retry reservation
+carries its unresolved proof forward, including across expiry of the original
+charged attempt or a scheduling outage longer than 25 hours; expired attempts
+remain excluded from request accounting. Missing or invalid legacy
+proof retains the previous two-hour cadence rather than authorizing an early
+retry. Every retry still consumes one of the existing sixteen execution slots
+and the same fixed 800-start allowance.
+
+GitHub Search requests are paced 2.1 seconds apart and use at most three
+attempts. Confirmed server rate limits are honored within a 180-second total
+wait budget per process; shared runner cooldown state contains timestamps only.
+Home label discovery uses bounded repository Issues REST reads. These transport
+retries reduce transient fallback before a separate collection retry is needed.
+
+The 50-minute workflow timeout leaves at
 least ten minutes between the last possible request's rolling-24-hour boundary
 and reservation expiry, so a 25-hour ledger proves the corresponding bound.
 

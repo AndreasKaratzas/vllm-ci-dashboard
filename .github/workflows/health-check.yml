@@ -42,6 +42,8 @@ jobs:
       - name: Observe durable core collection freshness
         id: core-freshness
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python scripts/vllm/request_bearing_attempt_budget.py \

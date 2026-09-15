@@ -572,6 +572,25 @@ def test_forced_target_dispatches_after_selected_workflow_cooldown(tmp_path) -> 
     ]
 
 
+@pytest.mark.parametrize("active", [False, True])
+def test_collection_retry_due_ignores_recent_publication_but_respects_active_run(tmp_path, active):
+    status_path = tmp_path / "status.json"
+    runs_path = tmp_path / "runs.json"
+    output_path = tmp_path / "github-output"
+    status_path.write_text(json.dumps(_status(age_minutes=1)))
+    runs_path.write_text(json.dumps({"workflow_runs": [
+        _run(age_minutes=5, status="in_progress")
+    ] if active else []}))
+    assert watchdog.main([
+        "--status", str(status_path), "--workflow-runs", str(runs_path),
+        "--recovery-target", "collector", "--force-recovery-reason", "collection-retry-due",
+        "--now", NOW.isoformat(), "--github-output", str(output_path),
+    ]) == 0
+    output = output_path.read_text()
+    assert f"required={'false' if active else 'true'}" in output
+    assert f"reason={'collection-active' if active else 'collection-retry-due'}" in output
+
+
 def test_dns_success_with_same_key_is_cooled_down_to_avoid_gate_loop() -> None:
     status = _status(age_minutes=10)
     observation = watchdog.observe_publication(status, now=NOW)
