@@ -478,6 +478,8 @@ jobs:
             echo "PUBLICATION_FAILED_SURFACES_FILE=$FAILED_SURFACES_FILE"
             echo "PUBLICATION_COLLECTOR_FAILURES_FILE=$COLLECTOR_FAILURES_FILE"
             echo "PUBLICATION_COLLECTOR_HELPERS=$COLLECTOR_HELPERS"
+            # Carry confirmed cooldowns between serial GitHub collectors.
+            echo "GITHUB_REQUEST_STATE_FILE=$RUNNER_TEMP/github-request-state.json"
           } >> "$GITHUB_ENV"
           echo "code_sha=$CODE_SHA" >> "$GITHUB_OUTPUT"
           echo "Pinned immutable publication code: $CODE_SHA"
@@ -1394,6 +1396,7 @@ jobs:
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           ATTEMPT_ID: data-${{ github.run_id }}-${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           OUTPUTS="$RUNNER_TEMP/data-collection-attempt.outputs"
@@ -1880,10 +1883,15 @@ jobs:
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           DISPATCH_TYPE: ${{ github.event.action }}
+          RETRY_SURFACES: ${{ steps.request-attempt.outputs.retry_surfaces }}
+          REQUEST_MODE: ${{ steps.request-attempt.outputs.request_mode }}
         run: |
           RUN=false
           if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]; then
             echo "DNS reconciliation does not force unrelated perf-eval regeneration."
+          elif [ "$REQUEST_MODE" = reserved ] && [[ ",$RETRY_SURFACES," == *,perf_eval,* ]]; then
+            RUN=true
+            echo "Retrying a proven perf-eval collector failure from the durable attempt ledger."
           elif [ -n "$HOURLY_WATCHDOG_GENERATION_INPUT" ]; then
             echo "Publication watchdog recovery does not force unrelated perf-eval regeneration."
           elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
@@ -1929,6 +1937,9 @@ jobs:
       - name: Check GitHub data freshness
         id: freshness
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        env:
+          RETRY_SURFACES: ${{ steps.request-attempt.outputs.retry_surfaces }}
+          REQUEST_MODE: ${{ steps.request-attempt.outputs.request_mode }}
         run: |
           python3 - <<'PY'
           import datetime
@@ -1963,6 +1974,12 @@ jobs:
               reasons.append("prs_missing")
           elif prs_age_seconds > 3600:
               reasons.append("prs_stale")
+          if (
+              os.environ.get("REQUEST_MODE") == "reserved"
+              and "github_home" in os.environ.get("RETRY_SURFACES", "").split(",")
+          ):
+              stale = True
+              reasons.append("collector_retry")
           reason = ",".join(reasons) or "fresh"
 
           print(
@@ -2675,6 +2692,7 @@ jobs:
         env:
           DURABLE_STATE_SHA: ${{ steps.publication-commit.outputs.state_sha }}
           ACTUAL_REQUEST_STARTS: ${{ steps.request-guard-report.outputs.actual_request_starts }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           for MARK_ATTEMPT in 1 2 3; do
@@ -2682,6 +2700,7 @@ jobs:
               --config config/data_collection_attempt_budget.json mark-success \
               --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
               --durable-ref "$DURABLE_STATE_SHA" \
+              --require-collection-evidence \
               --actual-request-starts "$ACTUAL_REQUEST_STARTS"; then
               exit 0
             fi
@@ -4260,6 +4279,8 @@ jobs:
 
       - name: Check whether durable Buildkite collection is still due
         id: generation-check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python scripts/vllm/request_bearing_attempt_budget.py \
@@ -4290,6 +4311,8 @@ jobs:
 
       - name: Coalesce webhook behind the durable request-attempt ledger
         id: cadence-check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python scripts/vllm/request_bearing_attempt_budget.py \

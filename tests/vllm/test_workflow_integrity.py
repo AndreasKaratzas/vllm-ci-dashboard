@@ -960,7 +960,7 @@ class TestHourlyMasterWorkflow:
             for step in watchdog_preflight["steps"]
             if step.get("id") == "generation-check"
         )
-        assert "env" not in generation_check
+        assert generation_check["env"] == {"GH_TOKEN": "${{ github.token }}"}
         for token in (
             "request_bearing_attempt_budget.py",
             "config/data_collection_attempt_budget.json observe",
@@ -992,7 +992,11 @@ class TestHourlyMasterWorkflow:
             for step in collect["steps"]
             if step.get("name") == "Decide whether to regenerate perf-eval"
         )
-        assert perf["env"] == {"DISPATCH_TYPE": "${{ github.event.action }}"}
+        assert perf["env"] == {
+            "DISPATCH_TYPE": "${{ github.event.action }}",
+            "RETRY_SURFACES": "${{ steps.request-attempt.outputs.retry_surfaces }}",
+            "REQUEST_MODE": "${{ steps.request-attempt.outputs.request_mode }}",
+        }
         assert 'if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]' in perf["run"]
         assert 'elif [ -n "$HOURLY_WATCHDOG_GENERATION_INPUT" ]' in perf["run"]
         assert 'if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]' in perf["run"]

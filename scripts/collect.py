@@ -11,6 +11,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 import yaml
+import requests
+
+from github_cli import github_cli_json
 
 from vllm.bounded_json import atomic_write_bytes, pretty_json_bytes
 from vllm.github_home_bundle import (
@@ -30,13 +33,12 @@ PROJECT_URL = f"https://github.com/orgs/{PROJECT_ORG}/projects/{PROJECT_NUMBER}"
 # repository growth from making collection cost unbounded.
 REST_PAGE_SIZE = 100
 MAX_OPEN_ITEM_PAGES = 5
-MAX_LABEL_SEARCH_PAGES = 3
+MAX_LABEL_ISSUE_PAGES = 3
 MAX_PROJECT_OPEN_ISSUES = 100
 MAX_ISSUE_COMMENT_PAGES = 2
 MAX_LINKED_PRS_PER_ISSUE = 20
 MAX_DIRECT_LINKED_PR_LOOKUPS = 100
 MAX_COPYBARA_AUTHOR_LOOKUPS = 50
-GH_TRANSIENT_ATTEMPTS = 2
 
 
 class GitHubAPIError(RuntimeError):
@@ -59,65 +61,16 @@ _PR_CONTEXT_REF_RE = re.compile(
 )
 
 
-def _transient_gh_failure(stderr):
-    message = str(stderr or "").lower()
-    return any(
-        token in message
-        for token in (
-            "http 429",
-            "http 500",
-            "http 502",
-            "http 503",
-            "http 504",
-            "connection reset",
-            "temporary failure",
-            "timed out",
-            "timeout",
-            "unexpected eof",
-        )
-    )
-
-
 def gh_api(endpoint, method="GET", *, fail_closed=False):
-    """Call GitHub API via gh CLI with one bounded transient retry."""
+    """Call GitHub through the shared bounded retry and cooldown transport."""
     cmd = ["gh", "api", endpoint, "--method", method]
-    for attempt in range(1, GH_TRANSIENT_ATTEMPTS + 1):
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            if attempt < GH_TRANSIENT_ATTEMPTS and _transient_gh_failure(e.stderr):
-                print(
-                    f"  WARNING: transient gh api failure for {endpoint}; "
-                    "retrying once",
-                    file=sys.stderr,
-                )
-                continue
-            detail = str(e.stderr or "").strip()
-            print(f"  WARNING: gh api {endpoint} failed: {detail}", file=sys.stderr)
-            if fail_closed:
-                raise GitHubAPIError(f"GitHub API request failed: {endpoint}") from e
-            return []
-        try:
-            if not result.stdout.strip():
-                raise json.JSONDecodeError("empty GitHub response", "", 0)
-            return json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            if attempt < GH_TRANSIENT_ATTEMPTS:
-                print(
-                    f"  WARNING: invalid gh api response for {endpoint}; "
-                    "retrying once",
-                    file=sys.stderr,
-                )
-                continue
-            print(
-                f"  WARNING: could not parse response for {endpoint}", file=sys.stderr
-            )
-            if fail_closed:
-                raise GitHubAPIError(
-                    f"GitHub API returned invalid JSON: {endpoint}"
-                ) from e
-            return []
-    raise AssertionError("bounded GitHub retry loop exhausted unexpectedly")
+    try:
+        return github_cli_json(cmd, endpoint=endpoint, runner=subprocess.run)
+    except requests.RequestException as exc:
+        print(f"  WARNING: gh api {endpoint} failed: {exc}", file=sys.stderr)
+        if fail_closed:
+            raise GitHubAPIError(f"GitHub API request failed: {endpoint}: {exc}") from exc
+        return []
 
 
 def _reset_source_coverage():
@@ -277,7 +230,7 @@ def _bounded_rest_items(
 
 
 def gh_graphql(query, variables=None, *, fail_closed=False):
-    """Call a read-only GitHub GraphQL query with one transient retry."""
+    """Call an authorized GraphQL read with shared bounded recovery."""
     if re.search(r"\bmutation\b", query, flags=re.IGNORECASE):
         raise ValueError("scripts/collect.py does not permit GraphQL mutations")
     variables = variables or {}
@@ -289,44 +242,20 @@ def gh_graphql(query, variables=None, *, fail_closed=False):
     env = os.environ.copy()
     if os.getenv("PROJECTS_READ_TOKEN"):
         env["GH_TOKEN"] = os.getenv("PROJECTS_READ_TOKEN")
-    for attempt in range(1, GH_TRANSIENT_ATTEMPTS + 1):
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, env=env
-            )
-        except subprocess.CalledProcessError as e:
-            if attempt < GH_TRANSIENT_ATTEMPTS and _transient_gh_failure(e.stderr):
-                print(
-                    "  WARNING: transient gh graphql failure; retrying once",
-                    file=sys.stderr,
-                )
-                continue
-            detail = str(e.stderr or "").strip()
-            print(f"  WARNING: gh graphql failed: {detail}", file=sys.stderr)
-            if fail_closed:
-                raise GitHubAPIError("GitHub GraphQL request failed") from e
-            return {}
-        try:
-            if not result.stdout.strip():
-                raise json.JSONDecodeError("empty GitHub response", "", 0)
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            if attempt < GH_TRANSIENT_ATTEMPTS:
-                print(
-                    "  WARNING: invalid gh graphql response; retrying once",
-                    file=sys.stderr,
-                )
-                continue
-            print("  WARNING: could not parse GraphQL response", file=sys.stderr)
-            if fail_closed:
-                raise GitHubAPIError("GitHub GraphQL returned invalid JSON") from e
-            return {}
-        if fail_closed and (
-            not isinstance(payload, dict) or payload.get("errors") or not payload
-        ):
-            raise GitHubAPIError("GitHub GraphQL returned errors or an empty payload")
-        return payload
-    raise AssertionError("bounded GitHub GraphQL retry loop exhausted unexpectedly")
+    try:
+        payload = github_cli_json(
+            cmd, endpoint="graphql", env=env, runner=subprocess.run
+        )
+    except requests.RequestException as exc:
+        print(f"  WARNING: gh graphql failed: {exc}", file=sys.stderr)
+        if fail_closed:
+            raise GitHubAPIError(f"GitHub GraphQL request failed: {exc}") from exc
+        return {}
+    if fail_closed and (
+        not isinstance(payload, dict) or payload.get("errors") or not payload
+    ):
+        raise GitHubAPIError("GitHub GraphQL returned errors or an empty payload")
+    return payload
 
 
 def discover_email_domain_authors(repo, email_domains, max_pages=3):
@@ -441,22 +370,25 @@ def normalize_pr(pr):
 
 
 def fetch_open_label_prs(repo, labels):
-    """Fetch all open PRs that carry any of ``labels``.
+    """Read a bounded label-filtered issue population and retain its PRs.
 
-    GitHub's Pulls REST endpoint does not support server-side label filters,
-    so use the search/issues API with ``is:pr`` and validate the returned
-    shape before normalizing.
+    Repository Issues supports server-side labels and includes pull requests,
+    avoiding GitHub Search's separate throttling for this repository query.
+    The page cap counts both issues and PRs; reaching it is a lower bound even
+    when filtering ordinary issues leaves fewer than 300 displayed PRs.
     """
     prs = []
     seen = set()
     for label in labels:
         items = _bounded_rest_items(
-            f"/search/issues?q=repo:{repo}+is:pr+is:open+label:{quote(label)}"
-            "&sort=updated&order=desc&per_page=100",
+            f"/repos/{repo}/issues?state=open&labels={quote(label, safe='')}"
+            "&sort=updated&direction=desc&per_page=100",
             query_name=f"open_prs_label:{label}",
-            scope=f"open PRs in {repo} with label {label!r}; newest 300 maximum",
-            max_pages=MAX_LABEL_SEARCH_PAGES,
-            item_key="items",
+            scope=(
+                f"open PRs among the newest {MAX_LABEL_ISSUE_PAGES * REST_PAGE_SIZE} "
+                f"issues and PRs in {repo} with label {label!r}"
+            ),
+            max_pages=MAX_LABEL_ISSUE_PAGES,
             allow_partial=True,
         )
         for item in items:

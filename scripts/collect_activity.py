@@ -10,6 +10,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import yaml
+import requests
+
+from github_cli import github_cli_json
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "projects.yaml"
@@ -37,7 +40,6 @@ WORKFLOW_IDS = {
 
 REST_PAGE_SIZE = 100
 MAX_ACTIVITY_PAGES = 5
-GH_TRANSIENT_ATTEMPTS = 2
 
 
 class GitHubAPIError(RuntimeError):
@@ -48,65 +50,16 @@ _SOURCE_QUERY_COVERAGE = []
 _WORKFLOW_RUNS_CACHE = {}
 
 
-def _transient_gh_failure(stderr):
-    message = str(stderr or "").lower()
-    return any(
-        token in message
-        for token in (
-            "http 429",
-            "http 500",
-            "http 502",
-            "http 503",
-            "http 504",
-            "connection reset",
-            "temporary failure",
-            "timed out",
-            "timeout",
-            "unexpected eof",
-        )
-    )
-
-
 def gh_api(endpoint, method="GET", *, fail_closed=False):
-    """Call GitHub API via gh CLI with one bounded transient retry."""
+    """Call GitHub through the shared bounded retry and cooldown transport."""
     cmd = ["gh", "api", endpoint, "--method", method]
-    for attempt in range(1, GH_TRANSIENT_ATTEMPTS + 1):
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as e:
-            if attempt < GH_TRANSIENT_ATTEMPTS and _transient_gh_failure(e.stderr):
-                print(
-                    f"  WARNING: transient gh api failure for {endpoint}; "
-                    "retrying once",
-                    file=sys.stderr,
-                )
-                continue
-            detail = str(e.stderr or "").strip()
-            print(f"  WARNING: gh api {endpoint} failed: {detail}", file=sys.stderr)
-            if fail_closed:
-                raise GitHubAPIError(f"GitHub API request failed: {endpoint}") from e
-            return {}
-        try:
-            if not result.stdout.strip():
-                raise json.JSONDecodeError("empty GitHub response", "", 0)
-            return json.loads(result.stdout)
-        except json.JSONDecodeError as e:
-            if attempt < GH_TRANSIENT_ATTEMPTS:
-                print(
-                    f"  WARNING: invalid gh api response for {endpoint}; "
-                    "retrying once",
-                    file=sys.stderr,
-                )
-                continue
-            print(
-                f"  WARNING: could not parse response for {endpoint}", file=sys.stderr
-            )
-            if fail_closed:
-                raise GitHubAPIError(
-                    f"GitHub API returned invalid JSON: {endpoint}"
-                ) from e
-            return {}
-    raise AssertionError("bounded GitHub retry loop exhausted unexpectedly")
+    try:
+        return github_cli_json(cmd, endpoint=endpoint, runner=subprocess.run)
+    except requests.RequestException as exc:
+        print(f"  WARNING: gh api {endpoint} failed: {exc}", file=sys.stderr)
+        if fail_closed:
+            raise GitHubAPIError(f"GitHub API request failed: {endpoint}: {exc}") from exc
+        return {}
 
 
 def _reset_source_coverage():

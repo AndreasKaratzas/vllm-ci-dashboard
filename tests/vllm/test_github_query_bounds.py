@@ -279,18 +279,18 @@ def test_authoritative_rest_cap_publishes_truthful_lower_bound(
         lambda *_args, **_kwargs: _project_payload(has_next_page=False),
     )
 
-    def full_search_page(endpoint, **_kwargs):
-        assert "/search/issues" in endpoint
-        return {
-            "total_count": 1000,
-            "incomplete_results": False,
-            "items": [{"number": index} for index in range(100)],
-        }
+    calls = []
 
-    monkeypatch.setattr(collect, "gh_api", full_search_page)
+    def full_label_page(endpoint, **_kwargs):
+        calls.append(endpoint)
+        assert "/repos/vllm-project/vllm/issues?state=open&labels=rocm" in endpoint
+        return [{"number": index} for index in range(100)]
+
+    monkeypatch.setattr(collect, "gh_api", full_label_page)
     monkeypatch.setattr(collect, "fetch_releases", lambda *_args: [])
     collect.collect_project("vllm", {"repo": "vllm-project/vllm"})
 
+    assert len(calls) == collect.MAX_LABEL_ISSUE_PAGES == 3
     for name in ("prs", "issues"):
         payload = json.loads(paths[name].read_text())
         assert payload["count_semantics"] == "lower_bound"
@@ -298,6 +298,75 @@ def test_authoritative_rest_cap_publishes_truthful_lower_bound(
         assert payload["source_coverage"]["truncated"] is True
     project = json.loads(paths["project"].read_text())
     assert project["count_semantics"] == "lower_bound"
+
+
+def test_open_label_pr_scan_counts_interleaved_issues_before_proving_complete(monkeypatch):
+    collect._reset_source_coverage()
+    calls = []
+
+    def issue(number, *, pr=False):
+        return {
+            "number": number,
+            "state": "open",
+            "updated_at": f"2026-09-15T12:{number % 60:02d}:00Z",
+            "html_url": f"https://github.com/example/repo/{'pull' if pr else 'issues'}/{number}",
+            **({"pull_request": {"url": "https://api.github.com/pr"}} if pr else {}),
+        }
+
+    def fake_api(endpoint, **kwargs):
+        calls.append(endpoint)
+        assert kwargs == {"fail_closed": True}
+        assert "/search/" not in endpoint
+        assert "labels=amd%20%2F%20rocm&sort=updated&direction=desc" in endpoint
+        if endpoint.endswith("page=1"):
+            return [issue(number, pr=number == 7) for number in range(100)]
+        return [issue(101, pr=True), issue(102)]
+
+    monkeypatch.setattr(collect, "gh_api", fake_api)
+    prs = collect.fetch_open_label_prs("example/repo", ["amd / rocm"])
+
+    assert {row["number"] for row in prs} == {7, 101}
+    assert len(calls) == 2
+    coverage = collect._source_coverage_snapshot()
+    assert coverage["complete"] is True
+    assert coverage["queries"][0]["items_observed"] == 102
+    assert coverage["queries"][0]["completion_reason"] == "short_page"
+
+
+def test_open_label_pr_scan_deduplicates_across_labels(monkeypatch):
+    collect._reset_source_coverage()
+    monkeypatch.setattr(collect, "gh_api", lambda *_args, **_kwargs: [{
+        "number": 7, "html_url": "https://github.com/example/repo/pull/7",
+        "updated_at": "2026-09-15T12:00:00Z",
+    }])
+
+    assert len(collect.fetch_open_label_prs("example/repo", ["rocm", "amd"])) == 1
+    assert len(collect._source_coverage_snapshot()["queries"]) == 2
+
+
+def test_label_scan_error_preserves_every_prior_home_file(tmp_path, monkeypatch):
+    data_root = tmp_path / "data"
+    paths = _seed_home_surface(data_root)
+    before = {name: path.read_bytes() for name, path in paths.items()}
+    monkeypatch.setattr(collect, "DATA", data_root)
+    monkeypatch.setattr(
+        collect, "gh_graphql",
+        lambda *_args, **_kwargs: _project_payload(has_next_page=False),
+    )
+
+    def fail_rest(endpoint, **kwargs):
+        assert "/issues?state=open&labels=rocm" in endpoint
+        assert kwargs == {"fail_closed": True}
+        raise collect.GitHubAPIError("HTTP 403 secondary rate limit")
+
+    monkeypatch.setattr(collect, "gh_api", fail_rest)
+    with pytest.raises(collect.GitHubAPIError, match="secondary rate limit"):
+        collect.collect_project("vllm", {"repo": "vllm-project/vllm"})
+
+    assert {name: path.read_bytes() for name, path in paths.items()} == before
+    query = collect._source_coverage_snapshot()["queries"][-1]
+    assert query["complete"] is False
+    assert query["error"] is True
 
 
 def test_search_incomplete_results_are_never_marked_exhaustive(monkeypatch):
@@ -412,6 +481,10 @@ def test_incomplete_activity_search_count_is_a_lower_bound(monkeypatch):
 
 
 def test_transient_rest_failure_is_retried_once(monkeypatch):
+    import github_cli
+    from github_transport import GitHubTransport
+
+    monkeypatch.setattr(github_cli, "_TRANSPORT", GitHubTransport(sleep=lambda _delay: None))
     calls = []
 
     def fake_run(*_args, **_kwargs):
@@ -420,11 +493,13 @@ def test_transient_rest_failure_is_retried_once(monkeypatch):
             raise subprocess.CalledProcessError(
                 1, ["gh", "api"], stderr="HTTP 502: upstream unavailable"
             )
-        return subprocess.CompletedProcess(["gh", "api"], 0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(
+            ["gh", "api"], 0, stdout="HTTP/2.0 200 OK\n\n[]", stderr=""
+        )
 
     monkeypatch.setattr(collect.subprocess, "run", fake_run)
     assert collect.gh_api("/repos/example/repo/issues", fail_closed=True) == []
-    assert len(calls) == collect.GH_TRANSIENT_ATTEMPTS == 2
+    assert len(calls) == 2
 
 
 def test_workflow_runs_are_reused_across_activity_metrics(monkeypatch):

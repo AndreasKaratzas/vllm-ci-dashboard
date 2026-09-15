@@ -24,6 +24,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.dashboard_storage_budget import writer_max_bytes
+from github_transport import GitHubResponse, GitHubTransport, GitHubTransportError
 
 import requests
 import yaml
@@ -73,7 +74,7 @@ class MirrorStep:
 
 @dataclass
 class SearchRequestBudget:
-    """One collector-wide ceiling below GitHub Search's 30/minute bucket."""
+    """One collector-wide ceiling including transport retries."""
 
     limit: int = MAX_SEARCH_REQUESTS
     used: int = 0
@@ -83,6 +84,10 @@ class SearchRequestBudget:
             return False
         self.used += 1
         return True
+
+    def require(self) -> None:
+        if not self.reserve():
+            raise GitHubCoverageError(f"global Search request ceiling {self.limit} reached")
 
 
 class GitHubCoverageError(RuntimeError):
@@ -179,18 +184,28 @@ def new_mirrors(base_yaml: str, head_yaml: str, path: str) -> list[MirrorStep]:
 
 
 class GitHubClient:
-    def __init__(self, session: requests.Session | None = None):
+    def __init__(self, session: requests.Session | None = None, *, transport=None):
         self.session = session or requests.Session()
+        self.transport = transport or GitHubTransport()
 
-    def get_json(self, url: str, *, params: dict[str, Any] | None = None) -> Any:
-        resp = self.session.get(url, headers=_github_headers(), params=params, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
+    def _get(self, url: str, *, params=None, before_request=None, validate_json=False) -> GitHubResponse:
+        def send():
+            resp = self.session.get(url, headers=_github_headers(), params=params, timeout=30)
+            response = GitHubResponse(resp.status_code, resp.headers, resp.text)
+            if validate_json and 200 <= response.status_code < 300:
+                try:
+                    response.json()
+                except ValueError as exc:
+                    raise requests.RequestException("GitHub returned invalid JSON") from exc
+            return response
+
+        return self.transport.request(url, send, before_request=before_request)
+
+    def get_json(self, url: str, *, params: dict[str, Any] | None = None, before_request=None) -> Any:
+        return self._get(url, params=params, before_request=before_request, validate_json=True).json()
 
     def get_text(self, url: str) -> str:
-        resp = self.session.get(url, headers=_github_headers(), timeout=30)
-        resp.raise_for_status()
-        return resp.text
+        return self._get(url).text
 
 
 def collection_error(scope: str, exc: BaseException, **fields: Any) -> dict[str, Any]:
@@ -199,6 +214,8 @@ def collection_error(scope: str, exc: BaseException, **fields: Any) -> dict[str,
     status_code = getattr(response, "status_code", None)
     if status_code is not None:
         error["status_code"] = status_code
+    if isinstance(exc, GitHubTransportError):
+        error["reason_class"] = exc.reason
     return error
 
 
@@ -257,7 +274,11 @@ def search_pr_candidates_with_errors(
     budget = budget or SearchRequestBudget()
     candidates: dict[int, dict[str, Any]] = {}
     errors: list[dict[str, Any]] = []
+    throttled: GitHubTransportError | None = None
     for author in authors:
+        if throttled is not None:
+            errors.append(collection_error("search_rate_limit", throttled, author=author))
+            continue
         parts = [f"repo:{repo}", "is:pr"]
         if state:
             parts.append(f"is:{state}")
@@ -271,29 +292,22 @@ def search_pr_candidates_with_errors(
         complete = False
         total_count: int | None = None
         for page in range(1, MAX_SEARCH_PAGES_PER_AUTHOR + 1):
-            if not budget.reserve():
-                error = GitHubCoverageError(
-                    f"global Search request ceiling {budget.limit} reached"
-                )
-                author_errors.append(
-                    collection_error(
-                        "search_budget",
-                        error,
-                        author=author,
-                        page=page,
-                    )
-                )
-                break
             try:
                 payload = client.get_json(
                     "https://api.github.com/search/issues",
                     params={"q": query, "sort": "updated", "order": "desc", "per_page": 100, "page": page},
+                    before_request=budget.require,
                 )
+            except GitHubCoverageError as exc:
+                author_errors.append(collection_error("search_budget", exc, author=author, page=page))
+                break
             except requests.RequestException as exc:
                 log.warning("GitHub search failed for author %s page %s: %s", author, page, exc)
                 author_errors.append(
                     collection_error("search", exc, author=author, page=page)
                 )
+                if isinstance(exc, GitHubTransportError) and exc.reason == "rate-limit":
+                    throttled = exc
                 break
             if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
                 author_errors.append(
