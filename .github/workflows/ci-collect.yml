@@ -1,0 +1,78 @@
+name: CI Data Collection (Canonical Dispatch)
+
+# Compatibility entry point for operators. It never receives a Buildkite
+# token; every request-bearing manual run is dispatched into the authoritative
+# Data Collection workflow and therefore shares its durable attempt/request cap.
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Days of history to fetch'
+        required: false
+        default: '1'
+      pipeline:
+        description: 'Pipeline to collect (amd/upstream/both)'
+        required: false
+        default: 'both'
+
+concurrency:
+  group: ci-collect-validation
+  cancel-in-progress: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Validate compatibility inputs
+        id: normalized
+        env:
+          RAW_DAYS: ${{ inputs.days }}
+          RAW_PIPELINE: ${{ inputs.pipeline }}
+        run: |
+          set -euo pipefail
+          read -r DAYS PIPELINE < <(python - <<'PY'
+          import os
+          import re
+
+          raw_days = os.environ["RAW_DAYS"] or "1"
+          pipeline = os.environ["RAW_PIPELINE"] or "both"
+          if not re.fullmatch(r"[1-9]\d*", raw_days) or not 1 <= int(raw_days) <= 30:
+              raise SystemExit("days must be a canonical integer between 1 and 30")
+          if pipeline not in {"amd", "upstream", "both"}:
+              raise SystemExit("pipeline must be amd, upstream, or both")
+          print(int(raw_days), pipeline)
+          PY
+          )
+          echo "days=$DAYS" >> "$GITHUB_OUTPUT"
+          echo "pipeline=$PIPELINE" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch authoritative guarded collection
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS: ${{ steps.normalized.outputs.days }}
+        run: |
+          set -euo pipefail
+          jq -n --arg days "$DAYS" \
+            '{ref: "main", inputs: {ci_days: $days}}' | \
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+              --input -
+
+      - name: Report canonical handoff
+        run: |
+          echo "## Canonical collection dispatched" >> "$GITHUB_STEP_SUMMARY"
+          echo "Requested ${{ steps.normalized.outputs.days }} day(s); compatibility pipeline input was ${{ steps.normalized.outputs.pipeline }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "The Data Collection workflow owns the shared durable Buildkite request guard and publication transaction." >> "$GITHUB_STEP_SUMMARY"

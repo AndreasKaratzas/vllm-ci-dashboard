@@ -1,0 +1,3793 @@
+{
+  "generated_at": "2026-09-19T14:53:47Z",
+  "source": {
+    "config_path": "config/vllm_amd_gating_targets.json",
+    "description": "Canonical AMD gating target list supplied by the ROCm CI owners."
+  },
+  "summary": {
+    "target_group_count": 125,
+    "by_area": {
+      "distributed": 19,
+      "engine": 13,
+      "entrypoints": 11,
+      "fusion": 3,
+      "kernels": 13,
+      "lm-eval": 5,
+      "lora": 1,
+      "misc": 9,
+      "models-language": 12,
+      "models-multimodal": 10,
+      "other": 15,
+      "pytorch": 5,
+      "quantization": 2,
+      "spec-decode": 7
+    },
+    "by_gating_signal": {
+      "green": 45,
+      "red": 80
+    },
+    "by_pf_signal": {
+      "green": 80,
+      "purple": 1,
+      "red": 31,
+      "yellow": 13
+    },
+    "by_assigned_signal": {
+      "gray": 3,
+      "green": 108,
+      "red": 14
+    },
+    "by_target_signal": {
+      "gray": 3,
+      "green": 108,
+      "red": 14
+    }
+  },
+  "groups": [
+    {
+      "id": 1,
+      "label": "Distributed Torchrun + Shutdown",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-torchrun-shutdown-tests-2-gpus"
+      ],
+      "reviewed_label": "Distributed Torchrun + Shutdown",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-torchrun-shutdown-tests-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed Torchrun + Shutdown"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 2,
+      "label": "Distributed Torchrun + Examples",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-torchrun-examples-4-gpus"
+      ],
+      "reviewed_label": "Distributed Torchrun + Examples",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-torchrun-examples-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed Torchrun + Examples"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 3,
+      "label": "Distributed",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-tests-4xa100"
+      ],
+      "reviewed_label": "Distributed",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-tests-4xa100"
+        ],
+        "labels": [
+          ":nvidia: (A100) Distributed"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 4,
+      "label": "Pipeline + Context Parallelism",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#pipeline-context-parallelism-4-gpus"
+      ],
+      "reviewed_label": "Pipeline + Context Parallelism",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#pipeline-context-parallelism-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Pipeline + Context Parallelism"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 5,
+      "label": "RayExecutorV2",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#rayexecutorv2-4-gpus"
+      ],
+      "reviewed_label": "RayExecutorV2",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#rayexecutorv2-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) RayExecutorV2"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 6,
+      "label": "EPLB Execution",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/expert_parallelism.yaml#eplb-execution"
+      ],
+      "reviewed_label": "EPLB Execution",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/expert_parallelism.yaml#eplb-execution"
+        ],
+        "labels": [
+          ":nvidia: (L4) EPLB Execution"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 7,
+      "label": "Core Operation Kernels Shard %N",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-core-operation-test"
+      ],
+      "reviewed_label": "Core Operation Kernels Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-core-operation-test"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Core Operation Kernels Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 8,
+      "label": "FP8 MoE Kernels",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-1xh100"
+      ],
+      "reviewed_label": "FP8 MoE Kernels",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-1xh100"
+        ],
+        "labels": [
+          ":nvidia: (H100) FP8 MoE Kernels"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 9,
+      "label": "LoRA TP (Distributed) %N",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lora.yaml#lora-tp-distributed"
+      ],
+      "reviewed_label": "LoRA TP (Distributed)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lora.yaml#lora-tp-distributed"
+        ],
+        "labels": [
+          ":nvidia: (L4) LoRA TP (Distributed) %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 10,
+      "label": "Basic Models (Initialization)",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_basic.yaml#basic-models-tests-initialization"
+      ],
+      "reviewed_label": "Basic Models (Initialization)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_basic.yaml#basic-models-tests-initialization"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Basic Models (Initialization)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 11,
+      "label": "Basic Models (Other)",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_basic.yaml#basic-models-tests-other"
+      ],
+      "reviewed_label": "Basic Models (Other)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_basic.yaml#basic-models-tests-other"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Basic Models (Other)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 12,
+      "label": "Distributed Models",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": [
+        "fe1a5b13f7d961891d8320a18aeacf76123c05641bed9dd0490ec206a88482b0"
+      ],
+      "reviewed_label": "Distributed Models",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "fe1a5b13f7d961891d8320a18aeacf76123c05641bed9dd0490ec206a88482b0"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "label": "Language Models (Extra Standard) Shard %N",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-tests-extra-standard"
+      ],
+      "reviewed_label": "Language Models (Extra Standard) Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_language.yaml#language-models-tests-extra-standard"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Language Models (Extra Standard) Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 14,
+      "label": "PyTorch Fullgraph",
+      "area": "pytorch",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "red",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "red",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-fullgraph-test"
+      ],
+      "reviewed_label": "PyTorch Fullgraph",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/pytorch.yaml#pytorch-fullgraph-test"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) PyTorch Fullgraph"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 15,
+      "label": "Entrypoints Integration (Speech to Text)",
+      "area": "entrypoints",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "gray",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-speech_to_text"
+      ],
+      "reviewed_label": "Entrypoints Integration (Speech to Text)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-speech_to_text"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Speech to Text)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 16,
+      "label": "Entrypoints Integration (Pooling)",
+      "area": "entrypoints",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "gray",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-pooling"
+      ],
+      "reviewed_label": "Entrypoints Integration (Pooling)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-pooling"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Pooling)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 17,
+      "label": "Extract Hidden States Integration",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "gray",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "gray",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration"
+      ],
+      "reviewed_label": "Extract Hidden States Integration",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Extract Hidden States Integration"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 18,
+      "label": "Basic Correctness",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Stefan",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/basic_correctness.yaml#basic-correctness"
+      ],
+      "reviewed_label": "Basic Correctness",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/basic_correctness.yaml#basic-correctness"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Basic Correctness"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 19,
+      "label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Aarushi",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#deepseek-v2-lite-prefetch-offload-accuracy-h100"
+      ],
+      "reviewed_label": "DeepSeek V2-Lite Prefetch Offload Accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/e2e_integration.yaml#deepseek-v2-lite-prefetch-offload-accuracy-h100"
+        ],
+        "labels": [
+          ":nvidia: (H100) DeepSeek V2-Lite Prefetch Offload Accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 20,
+      "label": "E2E Core",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#e2e-core-1-gpu"
+      ],
+      "reviewed_label": "E2E Core",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/engine.yaml#e2e-core-1-gpu"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) E2E Core"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 21,
+      "label": "Elastic EP Scaling",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/expert_parallelism.yaml#elastic-ep-scaling-test"
+      ],
+      "reviewed_label": "Elastic EP Scaling",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/expert_parallelism.yaml#elastic-ep-scaling-test"
+        ],
+        "labels": [
+          ":nvidia: (H100) Elastic EP Scaling"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 22,
+      "label": "Attention Kernels Shard %N",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-attention-test"
+      ],
+      "reviewed_label": "Attention Kernels Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-attention-test"
+        ],
+        "labels": [
+          ":nvidia: (L4) Attention Kernels Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 23,
+      "label": "MoE Kernels Shard %N",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-moe-test"
+      ],
+      "reviewed_label": "MoE Kernels Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-moe-test"
+        ],
+        "labels": [
+          ":nvidia: (L4) MoE Kernels Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 24,
+      "label": "DeepEP FP8 MoE Kernels",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-2xh100"
+      ],
+      "reviewed_label": "DeepEP FP8 MoE Kernels",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-2xh100"
+        ],
+        "labels": [
+          ":nvidia: (H100) DeepEP FP8 MoE Kernels"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 25,
+      "label": "LoRA Shard %N",
+      "area": "lora",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lora.yaml#lora"
+      ],
+      "reviewed_label": "LoRA Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lora.yaml#lora"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) LoRA Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 26,
+      "label": "V1 Core + KV + Metrics",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Micah",
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": [
+        "066b24b90b01ff279e07baba0ccc6032ed89bbd88f88615c606d9c5ff652d5d8",
+        "65c82b1eb026e057c08a303f72e7fcf232050c49b959de7003cd6ed99c736cb2"
+      ],
+      "reviewed_label": "V1 Core + KV + Metrics",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "066b24b90b01ff279e07baba0ccc6032ed89bbd88f88615c606d9c5ff652d5d8",
+          "65c82b1eb026e057c08a303f72e7fcf232050c49b959de7003cd6ed99c736cb2"
+        ]
+      }
+    },
+    {
+      "id": 27,
+      "label": "Basic Models (Extra Initialization) Shard %N",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_basic.yaml#basic-models-tests-extra-initialization"
+      ],
+      "reviewed_label": "Basic Models (Extra Initialization) Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_basic.yaml#basic-models-tests-extra-initialization"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Basic Models (Extra Initialization) Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 28,
+      "label": "Multimodal Models (Standard) 4: other + whisper",
+      "area": "models-multimodal",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Djordje",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-4-other-whisper"
+      ],
+      "reviewed_label": "Multimodal Models (Standard) 4: other + whisper",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-4-other-whisper"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Multimodal Models (Standard) 4: other + whisper"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 29,
+      "label": "PyTorch Compilation Passes",
+      "area": "pytorch",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Charlie",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-passes-unit-tests"
+      ],
+      "reviewed_label": "PyTorch Compilation Passes",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-passes-unit-tests"
+        ],
+        "labels": [
+          ":nvidia: (L4) PyTorch Compilation Passes"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 30,
+      "label": "Quantization",
+      "area": "quantization",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Divakar",
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": [
+        "7fe90926d513b741bc302852008edcd3265ae14638b5f3b1b6569a9c424c16a7",
+        "eac11fd204cc1e28958a92bf46603625675ad99f8b40ae1c62c7fad5c931d87d"
+      ],
+      "reviewed_label": "Quantization",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "7fe90926d513b741bc302852008edcd3265ae14638b5f3b1b6569a9c424c16a7",
+          "eac11fd204cc1e28958a92bf46603625675ad99f8b40ae1c62c7fad5c931d87d"
+        ]
+      }
+    },
+    {
+      "id": 31,
+      "label": "Spec Decode Eagle",
+      "area": "spec-decode",
+      "gating_signal": "red",
+      "pf_signal": "red",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "red",
+      "target_signal": "green",
+      "owner": "Matt",
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": [
+        "50c69ab99a73291bc4f559dc86c3ac6952fe14e77594755ebd16c4879e2202e6"
+      ],
+      "reviewed_label": "Spec Decode Eagle",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "50c69ab99a73291bc4f559dc86c3ac6952fe14e77594755ebd16c4879e2202e6"
+        ]
+      }
+    },
+    {
+      "id": 32,
+      "label": "Hybrid SSM NixlConnector PD prefix cache",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#hybrid-ssm-nixlconnector-pd-prefix-cache-2-gpus"
+      ],
+      "reviewed_label": "Hybrid SSM NixlConnector PD prefix cache",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#hybrid-ssm-nixlconnector-pd-prefix-cache-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Hybrid SSM NixlConnector PD prefix cache"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 33,
+      "label": "MultiConnector (Nixl+Offloading) PD accuracy",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#multiconnector-nixl-offloading-pd-accuracy-2-gpus"
+      ],
+      "reviewed_label": "MultiConnector (Nixl+Offloading) PD accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#multiconnector-nixl-offloading-pd-accuracy-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) MultiConnector (Nixl+Offloading) PD accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 34,
+      "label": "MultiConnector (Nixl+Offloading) PD edge cases",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#multiconnector-nixl-offloading-pd-edge-cases-2-gpus"
+      ],
+      "reviewed_label": "MultiConnector (Nixl+Offloading) PD edge cases",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#multiconnector-nixl-offloading-pd-edge-cases-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) MultiConnector (Nixl+Offloading) PD edge cases"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 35,
+      "label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-dp4-async-eplb-accuracy"
+      ],
+      "reviewed_label": "Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-dp4-async-eplb-accuracy"
+        ],
+        "labels": [
+          ":nvidia: (H100) Qwen3-30B-A3B-FP8 DP4 Async EPLB Accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 36,
+      "label": "DeepSeek V4 Kernels",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "AMD Kernels Core covers the top-k subtest only; the fused DeepSeek V4 kernel has no AMD definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#deepseek-v4-kernel-test-h100"
+      ],
+      "reviewed_label": "DeepSeek V4 Kernels",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#deepseek-v4-kernel-test-h100"
+        ],
+        "labels": [
+          ":nvidia: (H100) DeepSeek V4 Kernels"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 37,
+      "label": "Attention DiffKV Kernels",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "Covered within the broader AMD Kernels Attention Test; no one-to-one DiffKV definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-attention-diffkv-test-h100"
+      ],
+      "reviewed_label": "Attention DiffKV Kernels",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-attention-diffkv-test-h100"
+        ],
+        "labels": [
+          ":nvidia: (H100) Attention DiffKV Kernels"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 38,
+      "label": "KDA Kernels",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [],
+      "reviewed_label": "Kernels KDA Test",
+      "legacy_labels": [
+        "Kernels KDA Test"
+      ],
+      "amd_execution_sha256s": [
+        "42666ce0f351fb99cdec2fb70be64322d2deccd00ec9daf434b945e17c684794"
+      ],
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [
+          ":amd: (MI300) KDA Kernels"
+        ],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": []
+      }
+    },
+    {
+      "id": 39,
+      "label": "FusedMoE Layer Kernels",
+      "area": "kernels",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "Covered within the broader AMD Kernels MoE Test; no one-to-one FusedMoE layer definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-fusedmoe-layer-test-2-h100s"
+      ],
+      "reviewed_label": "FusedMoE Layer Kernels",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-fusedmoe-layer-test-2-h100s"
+        ],
+        "labels": [
+          ":nvidia: (H100) FusedMoE Layer Kernels"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 40,
+      "label": "LM Eval TurboQuant KV Cache",
+      "area": "lm-eval",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No AMD TurboQuant KV-cache definition.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#lm-eval-turboquant-kv-cache"
+      ],
+      "reviewed_label": "LM Eval TurboQuant KV Cache",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lm_eval.yaml#lm-eval-turboquant-kv-cache"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) LM Eval TurboQuant KV Cache"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 41,
+      "label": "MRCR Eval Small Models",
+      "area": "lm-eval",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#mrcr-eval-small-models"
+      ],
+      "reviewed_label": "MRCR Eval Small Models",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lm_eval.yaml#mrcr-eval-small-models"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) MRCR Eval Small Models"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 42,
+      "label": "Extract Hidden States Integration (2 GPUs)",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No one-to-one distributed 2-GPU AMD definition; the bare AMD step matches the unfiltered upstream suite.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration-2-gpus"
+      ],
+      "label_suffix": " (2 GPUs)",
+      "reviewed_label": "Extract Hidden States Integration (2 GPUs)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#extract-hidden-states-integration-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Extract Hidden States Integration"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 43,
+      "label": "GGUF Plugin",
+      "area": "misc",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "todo",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/plugins.yaml#gguf-plugin"
+      ],
+      "reviewed_label": "GGUF Plugin",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/plugins.yaml#gguf-plugin"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) GGUF Plugin"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 44,
+      "label": "Quantized Fusions",
+      "area": "fusion",
+      "gating_signal": "red",
+      "pf_signal": "yellow",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "yellow",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No AMD Quantized Fusions definition; AMD quantization and fusion jobs run different suites.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/quantization.yaml#quantized-fusions"
+      ],
+      "reviewed_label": "Quantized Fusions",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/quantization.yaml#quantized-fusions"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Quantized Fusions"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 45,
+      "label": "Distributed 2-Node",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "purple",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "purple",
+      "target_signal": "green",
+      "owner": "",
+      "note": "No AMD multi-node definition; same-node checks are not equivalent.",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#2-node-test-4-gpus"
+      ],
+      "reviewed_label": "Distributed 2-Node",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#2-node-test-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed 2-Node"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 46,
+      "label": "Benchmarks CLI",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/benchmarks.yaml#benchmarks-cli-test"
+      ],
+      "reviewed_label": "Benchmarks CLI",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/benchmarks.yaml#benchmarks-cli-test"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Benchmarks CLI"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 47,
+      "label": "Attention Benchmark Smoke",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "mi355",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/benchmarks.yaml#attention-benchmarks-smoke-test-b200"
+      ],
+      "reviewed_label": "Attention Benchmark Smoke",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/benchmarks.yaml#attention-benchmarks-smoke-test-b200"
+        ],
+        "labels": [
+          ":nvidia: (B200) Attention Benchmark Smoke"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 48,
+      "label": "Distributed Compile",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/compile.yaml#distributed-compile-unit-tests-2xh100"
+      ],
+      "reviewed_label": "Distributed Compile",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/compile.yaml#distributed-compile-unit-tests-2xh100"
+        ],
+        "labels": [
+          ":nvidia: (H100) Distributed Compile"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 49,
+      "label": "Fusion E2E Quick",
+      "area": "fusion",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/compile.yaml#fusion-e2e-quick-h100"
+      ],
+      "reviewed_label": "Fusion E2E Quick",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/compile.yaml#fusion-e2e-quick-h100"
+        ],
+        "labels": [
+          ":nvidia: (H100) Fusion E2E Quick"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 50,
+      "label": "Fusion E2E Config Sweep",
+      "area": "fusion",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/compile.yaml#fusion-e2e-config-sweep-b200"
+      ],
+      "reviewed_label": "Fusion E2E Config Sweep",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/compile.yaml#fusion-e2e-config-sweep-b200"
+        ],
+        "labels": [
+          ":nvidia: (B200) Fusion E2E Config Sweep"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 51,
+      "label": "CUDA Platform",
+      "area": "misc",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/cuda.yaml#platform-tests"
+      ],
+      "reviewed_label": "CUDA Platform",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/cuda.yaml#platform-tests"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) CUDA Platform"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 52,
+      "label": "Distributed Comm Ops",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-comm-ops"
+      ],
+      "reviewed_label": "Distributed Comm Ops",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-comm-ops"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed Comm Ops"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 53,
+      "label": "Distributed DP Basic",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-dp-tests-2-gpus"
+      ],
+      "reviewed_label": "Distributed DP Basic",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-dp-tests-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed DP Basic"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 54,
+      "label": "Distributed Compile + RPC",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-compile-rpc-tests-2-gpus"
+      ],
+      "reviewed_label": "Distributed Compile + RPC",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-compile-rpc-tests-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed Compile + RPC"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 55,
+      "label": "Distributed DP Extended",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-dp-tests-4-gpus"
+      ],
+      "reviewed_label": "Distributed DP Extended",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-dp-tests-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed DP Extended"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 56,
+      "label": "Distributed Compile + Comm",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-compile-comm-4-gpus"
+      ],
+      "reviewed_label": "Distributed Compile + Comm",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-compile-comm-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed Compile + Comm"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 57,
+      "label": "Distributed DP + EP",
+      "area": "distributed",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-tests-8xh100"
+      ],
+      "reviewed_label": "Distributed DP + EP",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-tests-8xh100"
+        ],
+        "labels": [
+          ":nvidia: (H100) Distributed DP + EP"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 58,
+      "label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#deepseek-v2-lite-sync-eplb-accuracy-4xh100"
+      ],
+      "reviewed_label": "DeepSeek V2-Lite Sync EPLB Accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/e2e_integration.yaml#deepseek-v2-lite-sync-eplb-accuracy-4xh100"
+        ],
+        "labels": [
+          ":nvidia: (H100) DeepSeek V2-Lite Sync EPLB Accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 59,
+      "label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-2xb200",
+        ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-4xh100"
+      ],
+      "reviewed_label": "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-2xb200",
+          ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-4xh100"
+        ],
+        "labels": [
+          ":nvidia: (B200) Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
+          ":nvidia: (H100) Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 60,
+      "label": "V1 E2E",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#v1-e2e-2-gpus"
+      ],
+      "reviewed_label": "V1 E2E",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/engine.yaml#v1-e2e-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) V1 E2E"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 61,
+      "label": "V1 E2E (4 GPUs)",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "V1 e2e (4 GPUs)",
+      "legacy_labels": [
+        "V1 e2e (4 GPUs)"
+      ],
+      "definition_note": "The reviewed 4-GPU target has no distinct current keyed definition. Its scope must be reviewed separately from V1 E2E and V1 E2E Hybrid Chunked Prefill.",
+      "definition_resolution": {
+        "status": "unconfigured",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "note": "The reviewed 4-GPU target has no distinct current keyed definition. Its scope must be reviewed separately from V1 E2E and V1 E2E Hybrid Chunked Prefill."
+      }
+    },
+    {
+      "id": 62,
+      "label": "V1 E2E Hybrid Chunked Prefill",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#v1-e2e-hybrid-chunked-prefill-b200"
+      ],
+      "reviewed_label": "V1 E2E Hybrid Chunked Prefill",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/engine.yaml#v1-e2e-hybrid-chunked-prefill-b200"
+        ],
+        "labels": [
+          ":nvidia: (B200) V1 E2E Hybrid Chunked Prefill"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 63,
+      "label": "EPLB Algorithm",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/expert_parallelism.yaml#eplb-algorithm"
+      ],
+      "reviewed_label": "EPLB Algorithm",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/expert_parallelism.yaml#eplb-algorithm"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) EPLB Algorithm"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 64,
+      "label": "LM Eval Large Models",
+      "area": "lm-eval",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#lm-eval-large-models-8xh200"
+      ],
+      "reviewed_label": "LM Eval Large Models",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lm_eval.yaml#lm-eval-large-models-8xh200"
+        ],
+        "labels": [
+          ":nvidia: (H200) LM Eval Large Models"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 65,
+      "label": "GPQA Eval (GPT-OSS)",
+      "area": "lm-eval",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xb200",
+        ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xh100"
+      ],
+      "reviewed_label": "GPQA Eval (GPT-OSS)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xb200",
+          ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xh100"
+        ],
+        "labels": [
+          ":nvidia: (B200) GPQA Eval (GPT-OSS)",
+          ":nvidia: (H100) GPQA Eval (GPT-OSS)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 66,
+      "label": "Regression",
+      "area": "misc",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#regression"
+      ],
+      "reviewed_label": "Regression",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#regression"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Regression"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 67,
+      "label": "Examples",
+      "area": "misc",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#examples"
+      ],
+      "reviewed_label": "Examples",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#examples"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Examples"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 68,
+      "label": "Metrics, Tracing",
+      "area": "misc",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#metrics-tracing-2-gpus"
+      ],
+      "reviewed_label": "Metrics, Tracing",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#metrics-tracing-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Metrics, Tracing"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 69,
+      "label": "Async Engine, Inputs, Utils, Worker",
+      "area": "engine",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#async-engine-inputs-utils-worker"
+      ],
+      "reviewed_label": "Async Engine, Inputs, Utils, Worker",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#async-engine-inputs-utils-worker"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Async Engine, Inputs, Utils, Worker"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 70,
+      "label": "Batch Invariance",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#batch-invariance-a100"
+      ],
+      "reviewed_label": "Batch Invariance",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#batch-invariance-a100"
+        ],
+        "labels": [
+          ":nvidia: (A100) Batch Invariance"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 71,
+      "label": "Acceptance Length (Large Models)",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#acceptance-length-test-large-models"
+      ],
+      "reviewed_label": "Acceptance Length (Large Models)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#acceptance-length-test-large-models"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Acceptance Length (Large Models)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 72,
+      "label": "Model Executor",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/model_executor.yaml#model-executor"
+      ],
+      "reviewed_label": "Model Executor",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/model_executor.yaml#model-executor"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Model Executor"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 73,
+      "label": "Language Models (Extended Generation)",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-test-extended-generation"
+      ],
+      "reviewed_label": "Language Models (Extended Generation)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_language.yaml#language-models-test-extended-generation"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Language Models (Extended Generation)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 74,
+      "label": "Language Models (PPL)",
+      "area": "models-language",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-test-ppl"
+      ],
+      "reviewed_label": "Language Models (PPL)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_language.yaml#language-models-test-ppl"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Language Models (PPL)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 75,
+      "label": "Multimodal Accuracy Eval (Small Models)",
+      "area": "models-multimodal",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-accuracy-eval-small-models"
+      ],
+      "reviewed_label": "Multimodal Accuracy Eval (Small Models)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-accuracy-eval-small-models"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Multimodal Accuracy Eval (Small Models)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 76,
+      "label": "PyTorch Compilation",
+      "area": "pytorch",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-unit-tests"
+      ],
+      "reviewed_label": "PyTorch Compilation",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/pytorch.yaml#pytorch-compilation-unit-tests"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) PyTorch Compilation"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 77,
+      "label": "PyTorch Fullgraph Smoke",
+      "area": "pytorch",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "PyTorch Fullgraph Smoke Test",
+      "legacy_labels": [
+        "PyTorch Fullgraph Smoke Test"
+      ],
+      "amd_execution_sha256s": [
+        "a6a475dc93fceab884bd1efab9e32fa7a591590dbbe859e783a615e5ae282df5"
+      ],
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [
+          ":amd: (MI250) PyTorch Fullgraph Smoke"
+        ],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": []
+      }
+    },
+    {
+      "id": 78,
+      "label": "PyTorch Nightly Dependency Override Check",
+      "area": "pytorch",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/pytorch.yaml#pytorch-nightly-dependency-override-check"
+      ],
+      "reviewed_label": "PyTorch Nightly Dependency Override Check",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/pytorch.yaml#pytorch-nightly-dependency-override-check"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) PyTorch Nightly Dependency Override Check"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 79,
+      "label": "Ray Dependency Compatibility Check",
+      "area": "other",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/ray_compat.yaml#ray-dependency-compatibility-check"
+      ],
+      "reviewed_label": "Ray Dependency Compatibility Check",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/ray_compat.yaml#ray-dependency-compatibility-check"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Ray Dependency Compatibility Check"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 80,
+      "label": "Weight Loading Multi-GPU",
+      "area": "misc",
+      "gating_signal": "red",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "red",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/weight_loading.yaml#weight-loading-multiple-gpu"
+      ],
+      "reviewed_label": "Weight Loading Multi-GPU",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/weight_loading.yaml#weight-loading-multiple-gpu"
+        ],
+        "labels": [],
+        "missing_definition_ids": [
+          ".buildkite/test_areas/weight_loading.yaml#weight-loading-multiple-gpu"
+        ]
+      }
+    },
+    {
+      "id": 81,
+      "label": "CUDAGraph",
+      "area": "kernels",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/cuda.yaml#cudagraph"
+      ],
+      "reviewed_label": "CUDAGraph",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/cuda.yaml#cudagraph"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) CUDAGraph"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 82,
+      "label": "Distributed NixlConnector PD accuracy",
+      "area": "distributed",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#distributed-nixlconnector-pd-accuracy-4-gpus"
+      ],
+      "reviewed_label": "Distributed NixlConnector PD accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#distributed-nixlconnector-pd-accuracy-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Distributed NixlConnector PD accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 83,
+      "label": "DP EP Distributed NixlConnector PD accuracy",
+      "area": "distributed",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
+      ],
+      "reviewed_label": "DP EP Distributed NixlConnector PD accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#dp-ep-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) DP EP Distributed NixlConnector PD accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 84,
+      "label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
+      "area": "distributed",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#crosslayer-kv-layout-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
+      ],
+      "reviewed_label": "CrossLayer KV layout Distributed NixlConnector PD accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#crosslayer-kv-layout-distributed-nixlconnector-pd-accuracy-tests-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) CrossLayer KV layout Distributed NixlConnector PD accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 85,
+      "label": "Hybrid SSM NixlConnector PD accuracy",
+      "area": "other",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#hybrid-ssm-nixlconnector-pd-accuracy-tests-4-gpus"
+      ],
+      "reviewed_label": "Hybrid SSM NixlConnector PD accuracy",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#hybrid-ssm-nixlconnector-pd-accuracy-tests-4-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Hybrid SSM NixlConnector PD accuracy"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 86,
+      "label": "NixlConnector PD + Spec Decode acceptance",
+      "area": "spec-decode",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/disaggregated.yaml#nixlconnector-pd-spec-decode-acceptance-2-gpus"
+      ],
+      "reviewed_label": "NixlConnector PD + Spec Decode acceptance",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/disaggregated.yaml#nixlconnector-pd-spec-decode-acceptance-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (A100) NixlConnector PD + Spec Decode acceptance"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 87,
+      "label": "Distributed Features",
+      "area": "distributed",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/distributed.yaml#distributed-tests-2xh100-2xmi300"
+      ],
+      "reviewed_label": "Distributed Features",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/distributed.yaml#distributed-tests-2xh100-2xmi300"
+        ],
+        "labels": [
+          ":nvidia: (H100) Distributed Features"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 88,
+      "label": "Entrypoints Unit",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-unit-tests"
+      ],
+      "reviewed_label": "Entrypoints Unit",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-unit-tests"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Unit"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 89,
+      "label": "Entrypoints Integration (Responses API)",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-responses-api"
+      ],
+      "reviewed_label": "Entrypoints Integration (Responses API)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-responses-api"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Responses API)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 90,
+      "label": "Entrypoints Integration (Multimodal)",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-multimodal"
+      ],
+      "reviewed_label": "Entrypoints Integration (Multimodal)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-multimodal"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (Multimodal)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 91,
+      "label": "Mamba Kernels",
+      "area": "kernels",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-mamba-test"
+      ],
+      "reviewed_label": "Mamba Kernels",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-mamba-test"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Mamba Kernels"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 92,
+      "label": "Helion Kernels Shard %N",
+      "area": "kernels",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-helion-test"
+      ],
+      "reviewed_label": "Helion Kernels Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-helion-test"
+        ],
+        "labels": [
+          ":nvidia: (H100) Helion Kernels Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 93,
+      "label": "V1 Spec Decode",
+      "area": "spec-decode",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#v1-spec-decode"
+      ],
+      "reviewed_label": "V1 Spec Decode",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/spec_decode.yaml#v1-spec-decode"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) V1 Spec Decode"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 94,
+      "label": "Python-only Installation",
+      "area": "misc",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/misc.yaml#python-only-installation"
+      ],
+      "reviewed_label": "Python-only Installation",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/misc.yaml#python-only-installation"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Python-only Installation"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 95,
+      "label": "Language Models (Standard)",
+      "area": "models-language",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-tests-standard"
+      ],
+      "reviewed_label": "Language Models (Standard)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_language.yaml#language-models-tests-standard"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Language Models (Standard)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 96,
+      "label": "Language Models (MTEB)",
+      "area": "models-language",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-test-mteb"
+      ],
+      "reviewed_label": "Language Models (MTEB)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_language.yaml#language-models-test-mteb"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Language Models (MTEB)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 97,
+      "label": "Multimodal Processor Shard %N",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-processor"
+      ],
+      "reviewed_label": "Multimodal Processor",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-processor"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Multimodal Processor Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 98,
+      "label": "Multimodal Models (Extended Generation 2)",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "Multi-Modal Models (Extended Generation 2)",
+      "legacy_labels": [
+        "Multi-Modal Models (Extended Generation 2)"
+      ],
+      "amd_execution_sha256s": [
+        "4043045d2e6fb812dc30665065fbaa926b891fea6a9b2d254182fba0c1fc77dc"
+      ],
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "4043045d2e6fb812dc30665065fbaa926b891fea6a9b2d254182fba0c1fc77dc"
+        ]
+      }
+    },
+    {
+      "id": 99,
+      "label": "Multimodal Models (Extended Generation 3)",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-3"
+      ],
+      "reviewed_label": "Multimodal Models (Extended Generation 3)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-3"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 3)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 100,
+      "label": "Plugin Integration",
+      "area": "misc",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/plugins.yaml#plugin-tests-2-gpus"
+      ],
+      "reviewed_label": "Plugin Integration",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/plugins.yaml#plugin-tests-2-gpus"
+        ],
+        "labels": [
+          ":nvidia: (L4) Plugin Integration"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 101,
+      "label": "Quantized Models",
+      "area": "quantization",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/quantization.yaml#quantized-models-test"
+      ],
+      "reviewed_label": "Quantized Models",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/quantization.yaml#quantized-models-test"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Quantized Models"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 102,
+      "label": "Speculators Correctness",
+      "area": "spec-decode",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": [
+        "8e197cc05d7bfb30326665acdb45693b793adc8203a95a05c8195538767f2a31"
+      ],
+      "reviewed_label": "Speculators Correctness",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "8e197cc05d7bfb30326665acdb45693b793adc8203a95a05c8195538767f2a31"
+        ]
+      }
+    },
+    {
+      "id": 103,
+      "label": "V1 Attention Shard %N",
+      "area": "engine",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/attention.yaml#v1-attention-b200"
+      ],
+      "reviewed_label": "V1 Attention Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/attention.yaml#v1-attention-b200"
+        ],
+        "labels": [
+          ":nvidia: (B200) V1 Attention Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 104,
+      "label": "V1 Engine",
+      "area": "engine",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#engine-1-gpu"
+      ],
+      "reviewed_label": "V1 Engine",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/engine.yaml#engine-1-gpu"
+        ],
+        "labels": [
+          ":nvidia: (L4) V1 Engine"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 105,
+      "label": "E2E Scheduling",
+      "area": "other",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/engine.yaml#e2e-scheduling-1-gpu"
+      ],
+      "reviewed_label": "E2E Scheduling",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/engine.yaml#e2e-scheduling-1-gpu"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) E2E Scheduling"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 106,
+      "label": "Entrypoints Integration (LLM)",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-llm"
+      ],
+      "reviewed_label": "Entrypoints Integration (LLM)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-llm"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (LLM)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 107,
+      "label": "Entrypoints Integration (API Server) %N",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server"
+      ],
+      "reviewed_label": "Entrypoints Integration (API Server)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server) %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 108,
+      "label": "Entrypoints Integration (OpenAI API completion)",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-1"
+      ],
+      "successor_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-completion"
+      ],
+      "reviewed_label": "Entrypoints Integration (API Server OpenAI - Part 1)",
+      "legacy_labels": [
+        "Entrypoints Integration (API Server OpenAI - Part 1)"
+      ],
+      "definition_note": "Upstream replaced Part 1/Part 2 and redistributed completion tests. The historical coverage assessment does not certify the replacement scope; review required.",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-1"
+        ],
+        "labels": [],
+        "missing_definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-1"
+        ],
+        "successor_definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-completion"
+        ],
+        "successor_labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (OpenAI API completion)"
+        ],
+        "note": "Upstream replaced Part 1/Part 2 and redistributed completion tests. The historical coverage assessment does not certify the replacement scope; review required."
+      }
+    },
+    {
+      "id": 109,
+      "label": "Entrypoints Integration (OpenAI API chat_completion)",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-2"
+      ],
+      "successor_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-completion",
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-chat_completion"
+      ],
+      "reviewed_label": "Entrypoints Integration (API Server OpenAI - Part 2)",
+      "legacy_labels": [
+        "Entrypoints Integration (API Server OpenAI - Part 2)"
+      ],
+      "definition_note": "Upstream replaced Part 1/Part 2 and redistributed completion tests. The historical coverage assessment does not certify the replacement scope; review required.",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-2"
+        ],
+        "labels": [],
+        "missing_definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-part-2"
+        ],
+        "successor_definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-completion",
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-openai-chat_completion"
+        ],
+        "successor_labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (OpenAI API chat_completion)",
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (OpenAI API completion)"
+        ],
+        "note": "Upstream replaced Part 1/Part 2 and redistributed completion tests. The historical coverage assessment does not certify the replacement scope; review required."
+      }
+    },
+    {
+      "id": 110,
+      "label": "Entrypoints Integration (API Server Generate)",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-generate"
+      ],
+      "reviewed_label": "Entrypoints Integration (API Server Generate)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#entrypoints-integration-api-server-generate"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Entrypoints Integration (API Server Generate)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 111,
+      "label": "OpenAI API Correctness",
+      "area": "entrypoints",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/entrypoints.yaml#openai-api-correctness"
+      ],
+      "reviewed_label": "OpenAI API Correctness",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/entrypoints.yaml#openai-api-correctness"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) OpenAI API Correctness"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 112,
+      "label": "Quantization Kernels Shard %N",
+      "area": "kernels",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/kernels.yaml#kernels-quantization-test"
+      ],
+      "reviewed_label": "Quantization Kernels Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/kernels.yaml#kernels-quantization-test"
+        ],
+        "labels": [
+          ":nvidia: (L4) Quantization Kernels Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 113,
+      "label": "LM Eval Small Models",
+      "area": "lm-eval",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/lm_eval.yaml#lm-eval-small-models-1xb200"
+      ],
+      "reviewed_label": "LM Eval Small Models",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/lm_eval.yaml#lm-eval-small-models-1xb200"
+        ],
+        "labels": [
+          ":nvidia: (B200) LM Eval Small Models"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 114,
+      "label": "V1 Sample + Logits",
+      "area": "engine",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "amd_execution_sha256s": [
+        "3fbdb45f8b4a6d29a24537ae6af2848144a2e723e06f8cbc58c3d31e86972a3d",
+        "dd7ac63ac1def79f8beed7984e9f33c07d4bfe7c48ffef91b64d7f6896a608c3"
+      ],
+      "reviewed_label": "V1 Sample + Logits",
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "3fbdb45f8b4a6d29a24537ae6af2848144a2e723e06f8cbc58c3d31e86972a3d",
+          "dd7ac63ac1def79f8beed7984e9f33c07d4bfe7c48ffef91b64d7f6896a608c3"
+        ]
+      }
+    },
+    {
+      "id": 115,
+      "label": "Language Models (Hybrid) Shard %N",
+      "area": "models-language",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_language.yaml#language-models-tests-hybrid"
+      ],
+      "reviewed_label": "Language Models (Hybrid) Shard %N",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_language.yaml#language-models-tests-hybrid"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Language Models (Hybrid) Shard %N"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 116,
+      "label": "Language Models (Extended Pooling)",
+      "area": "models-language",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [],
+      "reviewed_label": "Language Models Test (Extended Pooling)",
+      "legacy_labels": [
+        "Language Models Test (Extended Pooling)"
+      ],
+      "amd_execution_sha256s": [
+        "718509de0a491afc7367a31374054901f2fb35235dca41c0588e166b9452da82",
+        "fff34a49664f9985eefd4cddc3180db7983bdef4a88c5e9611bc5bcb86b86061"
+      ],
+      "definition_resolution": {
+        "status": "unresolved",
+        "source_kind": "amd_execution",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [],
+        "labels": [],
+        "missing_definition_ids": [],
+        "missing_execution_sha256s": [
+          "718509de0a491afc7367a31374054901f2fb35235dca41c0588e166b9452da82",
+          "fff34a49664f9985eefd4cddc3180db7983bdef4a88c5e9611bc5bcb86b86061"
+        ]
+      }
+    },
+    {
+      "id": 117,
+      "label": "Multimodal Models (Standard) 1: qwen2",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-1-qwen2"
+      ],
+      "reviewed_label": "Multimodal Models (Standard) 1: qwen2",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-1-qwen2"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Multimodal Models (Standard) 1: qwen2"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 118,
+      "label": "Multimodal Models (Standard) 2: qwen3 + gemma",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-2-qwen3-gemma"
+      ],
+      "reviewed_label": "Multimodal Models (Standard) 2: qwen3 + gemma",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-2-qwen3-gemma"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Multimodal Models (Standard) 2: qwen3 + gemma"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 119,
+      "label": "Multimodal Models (Standard) 3: llava + qwen2_vl",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-3-llava-qwen2-vl"
+      ],
+      "reviewed_label": "Multimodal Models (Standard) 3: llava + qwen2_vl",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-standard-3-llava-qwen2-vl"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Multimodal Models (Standard) 3: llava + qwen2_vl"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 120,
+      "label": "Multimodal Models (Extended Generation 1)",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-1"
+      ],
+      "reviewed_label": "Multimodal Models (Extended Generation 1)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-generation-1"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Multimodal Models (Extended Generation 1)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 121,
+      "label": "Multimodal Models (Extended Pooling)",
+      "area": "models-multimodal",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-pooling"
+      ],
+      "reviewed_label": "Multimodal Models (Extended Pooling)",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/models_multimodal.yaml#multi-modal-models-extended-pooling"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Multimodal Models (Extended Pooling)"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 122,
+      "label": "Samplers",
+      "area": "misc",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/samplers.yaml#samplers-test"
+      ],
+      "reviewed_label": "Samplers",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/samplers.yaml#samplers-test"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Samplers"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 123,
+      "label": "Spec Decode Speculators + MTP",
+      "area": "spec-decode",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#spec-decode-speculators-mtp"
+      ],
+      "reviewed_label": "Spec Decode Speculators + MTP",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/spec_decode.yaml#spec-decode-speculators-mtp"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Spec Decode Speculators + MTP"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 124,
+      "label": "Spec Decode N-Gram + Suffix",
+      "area": "spec-decode",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#spec-decode-ngram-suffix"
+      ],
+      "reviewed_label": "Spec Decode N-Gram + Suffix",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/spec_decode.yaml#spec-decode-ngram-suffix"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 35GB) Spec Decode N-Gram + Suffix"
+        ],
+        "missing_definition_ids": []
+      }
+    },
+    {
+      "id": 125,
+      "label": "Spec Decode Draft Model",
+      "area": "spec-decode",
+      "gating_signal": "green",
+      "pf_signal": "green",
+      "assigned_signal": "green",
+      "source_signal": "green",
+      "readiness_signal": "green",
+      "target_signal": "green",
+      "owner": "",
+      "note": "",
+      "upstream_definition_ids": [
+        ".buildkite/test_areas/spec_decode.yaml#spec-decode-draft-model"
+      ],
+      "reviewed_label": "Spec Decode Draft Model",
+      "definition_resolution": {
+        "status": "resolved",
+        "source_kind": "upstream_keys",
+        "commit_sha": "c3b48446349569512749db7f6e2164aa8a33437d",
+        "definition_ids": [
+          ".buildkite/test_areas/spec_decode.yaml#spec-decode-draft-model"
+        ],
+        "labels": [
+          ":nvidia: (H200 MIG 18GB) Spec Decode Draft Model"
+        ],
+        "missing_definition_ids": []
+      }
+    }
+  ],
+  "publication_retention": {
+    "policy": "actionable_signal_then_canonical_whole_target_rows_v1",
+    "max_bytes": 1048576,
+    "complete_relative_to_source": true,
+    "aggregate_summary_complete": true,
+    "groups": {
+      "source": 125,
+      "published": 125,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "by_gating_signal": {
+      "green": {
+        "source": 45,
+        "published": 45,
+        "omitted": 0
+      },
+      "red": {
+        "source": 80,
+        "published": 80,
+        "omitted": 0
+      }
+    },
+    "by_pf_signal": {
+      "green": {
+        "source": 80,
+        "published": 80,
+        "omitted": 0
+      },
+      "purple": {
+        "source": 1,
+        "published": 1,
+        "omitted": 0
+      },
+      "red": {
+        "source": 31,
+        "published": 31,
+        "omitted": 0
+      },
+      "yellow": {
+        "source": 13,
+        "published": 13,
+        "omitted": 0
+      }
+    },
+    "by_assigned_signal": {
+      "gray": {
+        "source": 3,
+        "published": 3,
+        "omitted": 0
+      },
+      "green": {
+        "source": 108,
+        "published": 108,
+        "omitted": 0
+      },
+      "red": {
+        "source": 14,
+        "published": 14,
+        "omitted": 0
+      }
+    }
+  }
+}

@@ -1,0 +1,359 @@
+name: DNS Health Monitor
+run-name: >-
+  DNS Health Monitor${{ inputs.recovery_key != '' && format(' [recovery:{0}]', inputs.recovery_key) || '' }}
+
+on:
+  schedule:
+    # Hourly opportunities recover quickly when GitHub delays or drops a cron.
+    # A durable 25-hour reservation ledger charges every request-bearing
+    # attempt its complete 110-start allowance before Buildkite access. The
+    # 990-start outstanding cap and one-hour hold cushion bound actual starts
+    # in every rolling 24 hours. Runs inside the three-hour scanner gate reserve
+    # nothing and make no Buildkite requests.
+    - cron: '37 * * * *'
+  # GitHub documents that scheduled events can be delayed or dropped. An
+  # independent scheduler can use this dedicated event without sharing the
+  # manual workflow-dispatch surface.
+  repository_dispatch:
+    types: [dns_health_tick]
+  workflow_dispatch:
+    inputs:
+      recovery_key:
+        description: Optional incident-scoped watchdog recovery key
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: dns-health-data-publish
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 34
+    env:
+      # Every token-bearing Python process imports the fail-closed transport
+      # guard from this trusted checkout before its script can execute.
+      PYTHONPATH: ${{ github.workspace }}/scripts
+    outputs:
+      dns_generation: ${{ steps.dns-generation.outputs.generated_at }}
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Validate optional recovery key
+        shell: bash
+        env:
+          RECOVERY_KEY: ${{ inputs.recovery_key || '' }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$RECOVERY_KEY" && ! "$RECOVERY_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid recovery_key: expected empty or 64 lowercase hex characters" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt requests cryptography
+
+      - name: Prepare private DNS classification cache key
+        id: dns-classification-cache-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="dns-classifications-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private DNS classification cache
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/dns-classifications-v1
+          key: ${{ steps.dns-classification-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}
+            ${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}
+            ${{ steps.dns-classification-cache-key.outputs.namespace_prefix }}
+
+      - name: Preflight DNS-only validator
+        run: |
+          set -euo pipefail
+          # -S proves this isolated validator does not depend on unrelated
+          # dashboard packages. Fail before the bounded scan, not after it.
+          python -S scripts/vllm/audit_dashboard_data.py --dns-only
+
+      - name: Resolve durable DNS scanner state
+        env:
+          DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DNS_STATE_ENCRYPTION_KEY:-}" ]; then
+            echo "::error::DNS state encryption key is unavailable; refusing to collect."
+            exit 1
+          fi
+          # A missing branch is the expected first-run bootstrap. Transport or
+          # lookup failures must not turn an established ledger into an empty
+          # orphan branch. The public orphan branch contains ciphertext only.
+          set +e
+          git ls-remote --exit-code origin refs/heads/dns-health-data >/dev/null 2>&1
+          DNS_DATA_STATUS=$?
+          set -e
+          if [ "$DNS_DATA_STATUS" -eq 0 ]; then
+            git fetch origin \
+              +refs/heads/dns-health-data:refs/remotes/origin/dns-health-data \
+              --depth=1
+            ENCRYPTED_STATE="$RUNNER_TEMP/dns-health-scan-state.fernet"
+            if ! git show \
+              origin/dns-health-data:data/vllm/ci/dns_health/scan_state.fernet \
+              > "$ENCRYPTED_STATE" 2>/dev/null; then
+              rm -f "$ENCRYPTED_STATE"
+              echo "::error::Durable encrypted DNS state is unavailable; refusing to collect."
+              exit 1
+            fi
+            python scripts/vllm/ci/dns_state_crypto.py decrypt \
+              "$ENCRYPTED_STATE" \
+              data/vllm/ci/dns_health/scan_state.json.gz
+            gzip -t data/vllm/ci/dns_health/scan_state.json.gz
+            rm -f "$ENCRYPTED_STATE"
+          elif [ "$DNS_DATA_STATUS" -eq 2 ]; then
+            echo "No dns-health-data branch exists; starting the first bounded bootstrap."
+          else
+            echo "::error::Could not determine durable DNS branch state; refusing to publish."
+            exit "$DNS_DATA_STATUS"
+          fi
+
+      - name: Reserve durable rolling DNS request budget
+        id: dns-request-budget
+        env:
+          ATTEMPT_ID: dns-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/dns-request-budget.outputs"
+          : > "$OUTPUTS"
+          python scripts/vllm/dns_request_budget.py reserve \
+            --state data/vllm/ci/dns_health/scan_state.json.gz \
+            --minimum-interval-hours 3 \
+            --reservation-id "$ATTEMPT_ID" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "reserved_request_starts" {print $2}' "$OUTPUTS")
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|interval_gated|capacity_gated)$ ]] || \
+             { [ "$REQUEST_MODE" = reserved ] && [ "$ALLOWANCE" != 110 ]; } || \
+             { [[ "$REQUEST_MODE" =~ ^(interval_gated|capacity_gated)$ ]] && \
+               [ "$ALLOWANCE" != 0 ]; }; then
+            echo "::error::DNS request ledger returned malformed gate outputs."
+            exit 1
+          fi
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+          # The interval-gated mode deliberately installs a zero allowance.
+          # It may reuse and republish the prior generation, but any accidental
+          # Buildkite transport is denied before reaching the network.
+          GUARD_FILE="$RUNNER_TEMP/dns-buildkite-request-guard-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance "$ALLOWANCE"
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+          } >> "$GITHUB_ENV"
+
+      - name: Report capacity-gated DNS request budget
+        if: steps.dns-request-budget.outputs.request_mode == 'capacity_gated'
+        run: >-
+          echo "DNS Health made zero Buildkite requests because the durable
+          rolling request budget is full; the next allowance is available at
+          ${{ steps.dns-request-budget.outputs.available_at }}."
+
+      - name: Collect DNS failure observations
+        id: collect-dns
+        if: steps.dns-request-budget.outputs.request_mode != 'capacity_gated'
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --state data/vllm/ci/dns_health/scan_state.json.gz
+            --output data/vllm/ci/dns_failures.json
+            --discover-days 30
+            --max-logs 500
+            --max-requests 110
+            --minimum-interval-hours 3
+            --now "${{ steps.dns-request-budget.outputs.decision_at }}"
+            # Full active-parent reconciliation can spend several minutes
+            # normalizing large build/job payloads before bounded log reads.
+            # Keep enough wall-clock headroom to finish that indivisible
+            # discovery phase; the independent 110-request ceiling remains the
+            # API-budget authority.
+            --time-budget-seconds 1200
+            --classification-cache data/vllm/ci/.cache/dns-classifications-v1
+          )
+          python scripts/vllm/collect_dns_failures.py "${ARGS[@]}"
+
+      - name: Read exact guarded Buildkite request total
+        id: dns-request-guard-report
+        if: >-
+          always() &&
+          steps.dns-request-budget.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate bounded DNS artifacts
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python -m json.tool data/vllm/ci/dns_failures.json >/dev/null
+          python -S scripts/vllm/audit_dashboard_data.py --dns-only
+          test -s data/vllm/ci/dns_health/scan_state.json.gz
+          gzip -t data/vllm/ci/dns_health/scan_state.json.gz
+          chmod 0600 data/vllm/ci/dns_health/scan_state.json.gz
+
+      - name: Capture validated DNS generation
+        id: dns-generation
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
+        run: |
+          set -euo pipefail
+          DNS_GENERATED_AT=$(jq -er '.generated_at | select(type == "string")' \
+            data/vllm/ci/dns_failures.json)
+          if [[ ! "$DNS_GENERATED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+            echo "::error::Validated DNS generation is not canonical whole-second UTC."
+            exit 1
+          fi
+          echo "generated_at=$DNS_GENERATED_AT" >> "$GITHUB_OUTPUT"
+
+      - name: Encrypt durable DNS scanner state
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
+        env:
+          DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          python scripts/vllm/ci/dns_state_crypto.py encrypt \
+            data/vllm/ci/dns_health/scan_state.json.gz \
+            "$RUNNER_TEMP/dns-health-scan-state.fernet"
+          test -s "$RUNNER_TEMP/dns-health-scan-state.fernet"
+          rm -f data/vllm/ci/dns_health/scan_state.json.gz
+
+      - name: Publish durable DNS evidence
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.collect-dns.outcome == 'success' &&
+          steps.dns-request-guard-report.outcome == 'success'
+        run: |
+          set -euo pipefail
+          # The orphan branch is publicly readable. Retain only the bounded
+          # aggregate and authenticated ciphertext on its single commit.
+          LIVE_ROOT=$(mktemp -d)
+          cleanup() {
+            git worktree remove --force "$LIVE_ROOT" 2>/dev/null || true
+            rm -rf "$LIVE_ROOT"
+          }
+          trap cleanup EXIT
+          git worktree add --detach "$LIVE_ROOT" HEAD
+          git -C "$LIVE_ROOT" switch --orphan dns-health-data-publish
+          git -C "$LIVE_ROOT" rm -rf --ignore-unmatch .
+          install -D -m 0644 data/vllm/ci/dns_failures.json \
+            "$LIVE_ROOT/data/vllm/ci/dns_failures.json"
+          install -D -m 0644 "$RUNNER_TEMP/dns-health-scan-state.fernet" \
+            "$LIVE_ROOT/data/vllm/ci/dns_health/scan_state.fernet"
+          git -C "$LIVE_ROOT" config user.name "github-actions[bot]"
+          git -C "$LIVE_ROOT" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$LIVE_ROOT" add \
+            data/vllm/ci/dns_failures.json \
+            data/vllm/ci/dns_health/scan_state.fernet
+          python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
+          git -C "$LIVE_ROOT" commit -m "dns: health observations $(date -u +%Y-%m-%dT%H:%M)"
+          git -C "$LIVE_ROOT" push --force origin HEAD:dns-health-data
+
+  reconcile-publication:
+    needs: collect
+    if: needs.collect.outputs.dns_generation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up exact Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Plan canonical publication reconciliation
+        id: publication-reconcile
+        run: |
+          set -euo pipefail
+          PUBLICATION_STATUS="$RUNNER_TEMP/publication_status.json"
+          if git fetch origin \
+            +refs/heads/gh-pages:refs/remotes/origin/gh-pages \
+            --depth=1 \
+            && git show \
+              origin/gh-pages:data/vllm/ci/publication_status.json \
+              > "$PUBLICATION_STATUS"; then
+            echo "Loaded the current canonical publication status."
+          else
+            rm -f "$PUBLICATION_STATUS"
+            echo "::warning::Canonical publication status is unavailable; requesting reconciliation."
+          fi
+          python scripts/vllm/plan_dns_publication_reconcile.py \
+            --status "$PUBLICATION_STATUS" \
+            --max-age-hours 3 \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Dispatch canonical DNS reconciliation
+        if: steps.publication-reconcile.outputs.required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECONCILE_REASON: ${{ steps.publication-reconcile.outputs.reason }}
+          TARGET_DNS_GENERATION: ${{ needs.collect.outputs.dns_generation }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg ref main \
+            --arg dns_generation "$TARGET_DNS_GENERATION" \
+            '{ref: $ref, inputs: {dns_generation: $dns_generation}}' | \
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            --input -
+          echo "Requested canonical reconciliation: $RECONCILE_REASON ($TARGET_DNS_GENERATION)"
