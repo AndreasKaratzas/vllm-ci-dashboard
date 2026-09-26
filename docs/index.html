@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vLLM AMD CI Operations</title>
+
+  <!--
+    Content Security Policy.
+
+    The dashboard is a single static page served from GitHub Pages. A
+    network attacker who can intercept and rewrite a page load could inject
+    arbitrary scripts or falsify operational data. CSP limits the origins
+    from which this static dashboard can load code and data:
+
+      - ``default-src 'self'``          — everything defaults to same-origin.
+      - ``script-src 'self' cdn.jsdelivr.net 'unsafe-inline'``
+          unsafe-inline covers the pre-paint theme bootstrap below; all
+          real code lives in same-origin ``assets/js/*``. Chart.js is loaded
+          asynchronously from jsDelivr after the operational shell renders.
+      - ``connect-src 'self' raw.githubusercontent.com``
+          The raw GitHub origin serves public queue snapshots. The dashboard
+          has no browser-side authentication or mutation API.
+      - ``base-uri 'self'``             — stops ``<base>`` injection attacks.
+      - ``form-action 'self'``          — no cross-origin form POSTs.
+
+    ``frame-ancestors`` is deliberately omitted here: browsers ignore it in
+    a meta-delivered policy. It must be set as an HTTP response header if the
+    dashboard moves behind a host that supports custom response headers.
+
+    When you add a new outbound host (e.g. a second CI backend), extend
+    ``connect-src`` explicitly — do not broaden to ``*``.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://avatars.githubusercontent.com https://github.com; font-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=58">
+  <link rel="stylesheet" href="assets/css/ops-v2.css?v=16">
+  <script>
+    // Apply theme before first paint to avoid flash
+    (function(){
+      var saved = localStorage.getItem('theme');
+      var theme = saved || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+  <script>
+    // Declare the active renderer before shared utilities initialize. On a DNS
+    // deep link, begin the small same-origin fallback request while the browser
+    // is still parsing the shell; the renderer still validates and arbitrates
+    // it against the live dns-health-data candidate before displaying it.
+    window.__DASHBOARD_V2__ = true;
+    (function(){
+      try {
+        var route = new URL(window.location.href);
+        if (route.searchParams.get('ops_analytics_view') !== 'dns') return;
+        var preload = document.createElement('link');
+        preload.rel = 'preload';
+        preload.as = 'fetch';
+        preload.crossOrigin = 'anonymous';
+        preload.fetchPriority = 'high';
+        preload.href = 'data/vllm/ci/dns_failures.json?_=' + Math.floor(Date.now() / 300000);
+        document.head.appendChild(preload);
+      } catch (_) {}
+    })();
+  </script>
+  <script>
+    (function() {
+      var issues = [];
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+      function remember(kind, detail) {
+        issues.push({
+          kind: kind || 'unknown',
+          detail: String(detail == null ? '' : detail),
+          at: Date.now(),
+        });
+      }
+      function activeV2OwnsBoot() {
+        var active = document.querySelector('.tab-panel.active');
+        var host = active && active.querySelector('.ops-v2-host');
+        return !!(host && ['loading', 'ready', 'error'].includes(host.dataset.renderState));
+      }
+      function renderFallback() {
+        var last = document.getElementById('last-updated');
+        var dash = document.getElementById('dashboard');
+        var weekly = document.getElementById('weekly-summary');
+        var parity = document.getElementById('parity-view');
+        if (!last || !dash) return;
+        if (activeV2OwnsBoot()) return;
+        if (last.textContent !== 'Loading...' && dash.textContent.trim()) return;
+        if (weekly) weekly.innerHTML = '';
+        if (parity) parity.innerHTML = '';
+        last.textContent = 'Dashboard startup failed';
+        var lines = issues.length
+          ? issues.slice(0, 6).map(function(issue) {
+              return issue.kind + ': ' + issue.detail;
+            })
+          : ['Startup timed out before the dashboard finished loading.'];
+        dash.innerHTML =
+          '<div style="margin:24px 0;padding:20px;border:1px solid #da3633;border-radius:12px;background:rgba(218,54,51,0.08)">' +
+          '<h2 style="margin:0 0 8px;color:#ffb3b3">Dashboard startup failed</h2>' +
+          '<p style="margin:0;color:var(--text,#e6edf3)">Open the browser console for the first error. A short summary is below.</p>' +
+          '<pre style="margin:12px 0 0;padding:12px;background:rgba(0,0,0,0.18);border-radius:8px;white-space:pre-wrap;color:var(--text-muted,#8b949e)">' +
+          esc(lines.join('\n')) +
+          '</pre>' +
+          '</div>';
+      }
+      window.__bootIssues = issues;
+      window.__recordBootIssue = function(kind, detail) {
+        remember(kind, detail);
+      };
+      window.__renderBootFallback = renderFallback;
+      window.addEventListener('error', function(e) {
+        if (e.target && e.target.tagName === 'SCRIPT') {
+          remember('script', e.target.src || '(inline script)');
+        } else {
+          remember('runtime', (e.message || 'Unknown error') +
+            (e.filename ? ' @ ' + e.filename + ':' + e.lineno : ''));
+        }
+        setTimeout(renderFallback, 0);
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = e.reason;
+        remember('promise', reason && (reason.stack || reason.message) || String(reason));
+        setTimeout(renderFallback, 0);
+      });
+      setTimeout(renderFallback, 12000);
+    })();
+  </script>
+</head>
+<body class="ops-v2">
+  <header id="ops-mobile-bar" class="ops-mobile-topbar" aria-label="Dashboard navigation">
+    <button id="ops-menu-toggle" class="ops-mobile-menu" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
+      <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+    </button>
+    <div class="ops-mobile-title ops-mobile-brand">
+      <strong>vLLM</strong>
+      <span>AMD CI Operations</span>
+    </div>
+    <span id="ops-mobile-freshness">Loading</span>
+  </header>
+  <button id="ops-nav-backdrop" class="ops-drawer-backdrop" type="button" tabindex="-1" aria-label="Close navigation"></button>
+  <button id="theme-toggle" title="Toggle light/dark mode" aria-label="Toggle theme"></button>
+  <!-- Sidebar Navigation -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <span class="ops-brand-kicker">vLLM</span>
+      <h1>AMD CI Operations</h1>
+      <p id="last-updated">Loading...</p>
+    </div>
+    <nav id="sidebar-nav">
+      <button class="nav-btn active" data-tab="projects">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9z"/></svg>
+        Home
+      </button>
+      <!-- CI sections are registered dynamically by registerCISection() -->
+      <div id="ci-nav-anchor"></div>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main id="main-content">
+    <section id="publication-status-banner" class="publication-status-banner" role="status" aria-live="polite" aria-atomic="true" hidden>
+      <span class="publication-status-icon" aria-hidden="true">!</span>
+      <div class="publication-status-copy">
+        <strong class="publication-status-title" data-publication-status-title></strong>
+        <p data-publication-status-message></p>
+        <p class="publication-status-meta" data-publication-status-meta hidden></p>
+      </div>
+    </section>
+    <div id="tab-projects" class="tab-panel active">
+      <section id="weekly-summary"></section>
+      <main id="dashboard"></main>
+      <section id="parity-view"></section>
+    </div>
+
+    <!-- CI tab panels are created dynamically by registerCISection() -->
+  </main>
+
+  <footer>
+    <p>Data collected via <a href="https://github.com/AndreasKaratzas/vllm-ci-dashboard">project-dashboard</a></p>
+  </footer>
+
+  <script src="assets/js/utils.js?v=62"></script>
+  <script src="assets/js/publication-status.js?v=4"></script>
+  <script src="assets/js/dashboard-nav.js?v=4"></script>
+  <script src="assets/js/ops-v2.js?v=31"></script>
+  <script>
+    (function(){
+      var btn = document.getElementById('theme-toggle');
+      function updateIcon() {
+        btn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+      }
+      updateIcon();
+      btn.onclick = function() {
+        var current = document.documentElement.getAttribute('data-theme');
+        var next = current === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('theme', next);
+        location.reload();
+      };
+      window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e) {
+        if (!localStorage.getItem('theme')) {
+          var theme = e.matches ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
+          updateIcon();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

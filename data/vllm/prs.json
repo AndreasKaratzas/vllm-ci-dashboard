@@ -1,0 +1,566 @@
+{
+  "collected_at": "2026-09-26T18:49:39Z",
+  "prs": [
+    {
+      "number": 49953,
+      "title": "[ROCm][AITER] Add GDN long-prefill split-QKV fast path",
+      "author": "LiuYinfeng01",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-07-27T08:12:24Z",
+      "updated_at": "2026-09-26T11:34:56Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/49953",
+      "labels": [
+        "rocm",
+        "ready",
+        "needs-rebase",
+        "v1",
+        "quantization"
+      ],
+      "draft": false,
+      "body_head": "## Motivation\n\nROCm/aiter#4299 adds a channel-last HIP path for `causal_conv1d_fwd_split_qkv`, which can consume Qwen3.5's contiguous `[T, D]` projection through its logical `[D, T]` transpose without materializing a copy.\n\nvLLM already fuses its packed post-conv split, normalization, and gating, so dispatching the AITER op unconditionally regresses short prompts. This change uses the AITER path only for long BF16 Qwen3.5 GDN prefills where it is faster, and retains the existing Triton/FLA path everywhere else.\n\nA search of open vLLM PRs/issues did not find another change implementing this Qwen3.5 GDN channel-last split-QKV fast path.\n\n## Summary\n\n- Probe for AITER's optional GDN prefill split-QKV op and gracefully fall back with older AITER builds.\n- Route non-interleaved Qwen3.5 BF16 prefills with at least 8192 tokens and width-4 convolution through the AITER channel-last kernel.\n- Add a fused Triton postprocessor that normalizes AITER's split Q/K outputs in place and computes GDN gating in the same launch; V is already in its final contiguous layout.\n- Precompute block-64 causal-conv metadata on the CPU to avoid a device-to-host synchronization at dispatch time while preserving block-8 metadata for the existing path.\n- Cover variable-length inputs, initial states, the vLLM null cache slot, long production-shaped inputs, and split-output postprocessing.\n\n## AITER dependency\n\n- Required feature: ROCm/aiter#4299, now merged (`a96ee7b6e3c2688b099d6e32ec662bce8886efa7`).\n- End-to-end validation pin: AITER main `d19f33251400bbc21a3a49cc8db421f918716b93`.\n- AITER at this revision requires FlyDSL >= 0.2.4; the benchmark runtime pins FlyDSL 0.2.4.\n- Older AITER builds remain supported through the importability probe and use the existing Triton/FLA fallback.\n\n## Test plan\n\n- [x] `pytest -q tests/kernels/test_fused_gdn_post_conv.py` \u2014 68 passed\n- [x] `pytest -q tests/kernels/mamba/test_aiter_gdn_prefill.py` \u2014 2 passed\n- [x] `pytest -q tests/v1/attention/test_gdn_metadata_bu",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        58134
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "ready",
+        "needs-rebase",
+        "v1",
+        "quantization"
+      ]
+    },
+    {
+      "number": 57369,
+      "title": "[CI] Relax sharded-sampling divergence bound on ROCm",
+      "author": "khluu",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-09-17T11:36:14Z",
+      "updated_at": "2026-09-24T16:09:42Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/57369",
+      "labels": [
+        "rocm",
+        "needs-rebase",
+        "ci-failure"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\n\n`tests/v1/e2e/general/test_sharded_sampling.py::test_sharded_sampling_outputs_match` asserts that batch-sharded sampling matches the replicated fallback up to near-tie boot-state noise, allowing at most `MAX_DIVERGENT_PROMPTS = 3` of 16 prompts to diverge. That bound was tuned on CUDA (measured \u2264 1 divergent prompt per engine boot).\n\nOn ROCm/MI300 the engine boots land in noisier kernel/collective states, and the test flakes at **4\u20137 divergent prompts** \u2014 above the CUDA bound but still far below the near-total divergence a real request-misrouting bug produces. In a scan of the last 200 CI builds, this single test accounted for **11 flaky failures**, all on `:amd: (MI300) Distributed DP Basic`, with divergence of 4/16, 5/16, 6/16, and 7/16.\n\nThis PR raises the divergence bound to `8` on ROCm only; CUDA keeps the tight bound of `3`. A genuine sharding bug (rows routed to the wrong request, misaligned gathers) still fails, since it diverges on nearly every prompt.\n\n## Why this is not a duplicate\n\nChecked open PRs/issues for `sharded_sampling`, `test_sharded_sampling`, and `prompts diverged`; no existing PR addresses this flake.\n\n## Test plan / commands run\n\n- Flake evidence: analyzed the public Buildkite `ci` pipeline's last 200 builds via the `/data/jobs` endpoint; extracted 240 \"failed-then-passed-on-retry\" jobs and read each failing attempt's log. 11 were this test, all AMD MI300, divergence 4\u20137/16 (data and method in the linked tracking issue).\n- `pre-commit run` passes (ruff, mypy, etc.) on the changed file.\n- This is a numerical-tolerance change to a distributed GPU test; I could not run the full 2-GPU test locally (no multi-GPU box). The ROCm path is exercised by the `:amd: (MI300) Distributed DP Basic` CI job.\n\n## AI assistance\n\nThis change was developed with AI assistance (Kimi Code), including the CI log analysis that identified the flake.\n\n\ud83e\udd16 Generated with AI assistance",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        57372
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "needs-rebase",
+        "ci-failure"
+      ]
+    },
+    {
+      "number": 58069,
+      "title": "[Dependency] Upgrade FlashInfer version to 0.7.0",
+      "author": "wzhao18",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-22T04:00:17Z",
+      "updated_at": "2026-09-24T05:45:24Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/58069",
+      "labels": [
+        "ready",
+        "ci/build",
+        "deepseek",
+        "nvidia",
+        "ready-run-all-tests",
+        "DSv4",
+        "DSv4.1"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\nUpgrade FlashInfer version to 0.7.0\r\n\r\n## Test Plan\r\n\r\n## Test Result\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</details>\r\n\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        58134
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "ci/build",
+        "deepseek",
+        "nvidia",
+        "ready-run-all-tests",
+        "DSv4",
+        "DSv4.1"
+      ]
+    },
+    {
+      "number": 56252,
+      "title": "[CPU] Adds support for fp32 attention sinks",
+      "author": "Ankit-Jaiswal-AMD",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-10T10:20:12Z",
+      "updated_at": "2026-09-23T13:55:10Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/56252",
+      "labels": [
+        "ready",
+        "cpu"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\n\r\nThis PR adds support for fp32 in attention sinks, to support running the gpt-oss-20B-Bf16 model on fp16. It converts all the tensors other than bf16 to fp32 to compute attention sinks.\r\nIt also updates the unit tests and adds test coverage for fp16.  \r\n\r\n## Test Plan\r\n\r\n1) Run the unit tests for the added support:\r\n   ` python -m pytest tests/kernels/attention/test_cpu_attn.py -q`\r\n1) Install the public fork in the validation env and run a real CPU accuracy benchmark:\r\n   `python -m pip install . --no-build-isolation --no-deps --force-reinstall`\r\n```\r\nlm_eval --model vllm \\\r\n    --model_args pretrained=unsloth/gpt-oss-20b-BF16,dtype=half \\\r\n    --tasks gsm8k \\\r\n    --batch_size auto \\\r\n    --trust_remote_code \\\r\n    --apply_chat_template \\\r\n    --num_fewshot 5 \\\r\n    --gen_kwargs \"max_gen_toks=2048\" \\\r\n    --log_samples \\\r\n    --output_path <output_path>\r\n```\r\n\r\n## Test Result\r\nThe Unit tests passed.\r\n`1242 passed, 1478 skipped, 14 warnings in 818.95s (0:13:38)`\r\nThe accuracy benchmark passes, with comparable accuracy. \r\n```\r\nvllm ({'pretrained': 'unsloth/gpt-oss-20b-BF16', 'dtype': 'half'}), gen_kwargs: ({'max_gen_toks': 2048}), limit: None, num_fewshot: 5, batch_size: auto\r\n|Tasks|Version|     Filter     |n-shot|  Metric   |   |Value |   |Stderr|\r\n|-----|------:|----------------|-----:|-----------|---|-----:|---|-----:|\r\n|gsm8k|      3|flexible-extract|     5|exact_match|\u2191  |0.8779|\u00b1  |0.0090|\r\n|     |       |strict-match    |     5|exact_match|\u2191  |0.0205|\u00b1  |0.0039|\r\n```\r\n\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [ ] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [ ] The test plan, such as providing test command.\r\n- [ ] The test results, such as pasting the results comparison before and after, or e2e results\r\n- [ ] (Optional) The necessary documentation update, such as updating `supported_models.md` and `examples` for a new model.\r\n</deta",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        58134
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "cpu"
+      ]
+    },
+    {
+      "number": 55721,
+      "title": "[XPU] Wire up SYCL apply_rotary_emb kernel in ApplyRotaryEmb",
+      "author": "mganczarenko",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-07T11:44:14Z",
+      "updated_at": "2026-09-23T07:57:41Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/55721",
+      "labels": [
+        "intel-gpu"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\n\r\n  `ApplyRotaryEmb.forward_cuda` imports `vllm.vllm_flash_attn.layers.rotary`, a CUDA-only\r\n  module, so there is no `forward_xpu` override and every XPU call falls back to the CustomOp\r\n  default `forward_native` (~8 elementwise kernels). `vllm_xpu_kernels` \u2014 already a pinned\r\n  dependency (`requirements/xpu.txt`) \u2014 ships a SYCL `apply_rotary_emb` kernel that vLLM never\r\n  calls. This adds an 11-line `forward_xpu` wiring it up, following the same per-backend pattern\r\n  already used by `forward_cuda`/`forward_hip` in this class.\r\n\r\n\r\n  ## Test Plan\r\n\r\n  `pytest tests/kernels/core/test_apply_rotary_emb.py -v` on XPU hardware \u2014 3 new XPU-gated\r\n  cases (text / GPT-J interleaved / partial-rotary) comparing `forward_xpu` against\r\n  `forward_native` bit-exact (`atol=0, rtol=0`).\r\n\r\n  Additional correctness sweep across 12 shapes (vision + text, both RoPE styles, partial\r\n  rotary), calling the real `forward_xpu`/CustomOp dispatch path (not the raw kernel).\r\n\r\n  End-to-end check on GLM-4.1V-9B-Thinking (vision-heavy multimodal, eager mode, 4 images @\r\n  1024px, 5 iterations), comparing wall-clock and output text SHA-256 before/after.\r\n\r\n  ## Test Result\r\n\r\n  `test_apply_rotary_emb.py`: 3 new cases pass; 4 pre-existing CUDA-only dispatch tests correctly\r\n  skip on XPU.\r\n\r\n  12-shape correctness sweep: maxerr 0.0 in all 12 cases.\r\n\r\n  GLM-4.1V-9B-Thinking E2E: median latency 2.5414s -> 2.4794s (1.025x). Output text SHA-256\r\n  identical between unpatched and patched arms across all 5 iterations \u2014 no behavior change\r\n  beyond speed. RoPE is a small fraction of this model's device time, so the wall-clock win here\r\n  is modest; the kernel-level win (measured separately, not included in this PR) is larger and\r\n  should generalize better on RoPE-heavier models.\r\n\r\n---\r\n<details>\r\n<summary> Essential Elements of an Effective PR Description Checklist </summary>\r\n\r\n- [x] The purpose of the PR, such as \"Fix some issue (link existing issues this PR will resolve)\".\r\n- [x] ",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        58134
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "intel-gpu"
+      ]
+    },
+    {
+      "number": 57945,
+      "title": "[Build] Fix CUDA 12 KV connector dependency selection",
+      "author": "jeejeelee",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-21T12:32:32Z",
+      "updated_at": "2026-09-22T13:13:10Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/57945",
+      "labels": [
+        "ci/build",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "Use LMCache 0.4.4 and CuPy CUDA 12 for CUDA 12 images, and constrain the installed Torch/CUDA stack during KV connector installation in Docker and CI. Dependency conflicts now fail the build instead of silently replacing Torch.\n\nRelated to #56829. Unlike #56967, this also selects CUDA 12-compatible connector dependencies; Torch constraints alone conflict with LMCache 0.5.5 requiring CUDA 13. The CUDA 13 requirements remain unchanged.\n\nValidation: `uv pip compile` passed for cu129/x86_64 and cu130/aarch64 with Torch 2.13.0 pinned; 10 mocked installer scenarios and `bash -n .buildkite/scripts/install-kv-connectors.sh` passed. Pre-commit passed except the Docker graph hook, skipped because its executable does not run on ARM. Full image builds and GPU/LMCache runtime tests remain pending.\n\nAI-assisted change.\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        58134
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ci/build",
+        "nvidia"
+      ]
+    },
+    {
+      "number": 57362,
+      "title": "[CI] Reclaim GPU memory between model initialization tests",
+      "author": "khluu",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-17T11:31:37Z",
+      "updated_at": "2026-09-19T00:04:14Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/57362",
+      "labels": [],
+      "draft": false,
+      "body_head": "## Summary\n\nDeflake the model-initialization tests in `tests/models/test_initialization.py` by reclaiming GPU memory between tests.\n\n### Flaky tests addressed\n\nFrom a Buildkite flaky-test analysis (suite `ci-1`):\n\n| Test | Reliability | Failed/Total |\n|---|---|---|\n| `test_can_initialize_small_subset[InternVLChatModel]` | 0.998 | 8/3288 |\n\nBuildkite: https://buildkite.com/organizations/vllm/analytics/suites/ci-1/tests/b1f1fe69-2515-83bb-bbd3-b15a219bbdce\n\nThe same failure mode plausibly affects the sibling tests in this module (`test_can_initialize_large_subset`, e.g. `Step3TextForCausalLM` 5/1072, `Step3VLForConditionalGeneration` 5/1050, `Gemma4MTPModel` 3/1050), which run at the same `gpu_memory_utilization=0.80`.\n\n### Root cause\n\nEach parametrized case in this module builds a full vLLM `LLM` in a fresh subprocess via `create_new_process_for_each_test()` with `gpu_memory_utilization=0.80` \u2014 the source itself carries the comment \"these tests seem to produce leftover memory\". On NVIDIA the subprocess is **forked**, and its VRAM is only reclaimed asynchronously by the driver when the subprocess exits. The next test can start (and allocate ~80% of the GPU, e.g. an 18 GiB H200 MIG slice) before that reclamation completes, so leftover memory from a preceding test OOMs a later one \u2014 consistent with the observed ~0.24% failure rate hitting the heavier multimodal archs like InternVLChatModel. Prior art: b6770d7b (#48527) hit OOM in this exact test on ROCm.\n\n### What changed\n\nAdded a module-level autouse fixture `cleanup_gpu_memory_between_tests` that runs after each test:\n\n1. `gc.collect()` + `torch.accelerator.empty_cache()`\n2. Wait (via NVML, using the existing `wait_for_gpu_memory_to_clear` / `wait_for_memory_to_settle` helpers from `tests/utils.py`) for the forked subprocess's VRAM to actually clear before the next test runs. A wait timeout is logged, not raised, so it can never fail a test.\n\nThis mirrors the established `clean_gpu_memory_between_tests` fixture in `te",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        57372
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": []
+    },
+    {
+      "number": 52101,
+      "title": "[Distributed][MoonEP] BF16 integration of MoonEP balanced EP backend",
+      "author": "kaijunli-infr",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-08-13T04:57:26Z",
+      "updated_at": "2026-09-18T14:34:02Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/52101",
+      "labels": [
+        "ready",
+        "nvidia"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\n\nFirst item of the MoonEP integration roadmap RFC #52095: MoonEP (https://github.com/MoonshotAI/MoonEP) as a vLLM all2all backend, BF16 and eager, working end to end with `--all2all-backend moonep`.\n\nMoonEP keeps every EP rank at exactly `S \u00d7 K` tokens regardless of router skew by planning a few dynamically redundant experts online and prefetching their weights before expert compute. Its contract differs from DeepEP-style backends: `dispatch` returns tokens already grouped per expert row (`[NvS, H]` + `cu_seqlens[E+B]` + an opaque plan), rows `[E, E+B)` are prefetch slots, and there are no per-token top-k ids after dispatch \u2014 so the expert compute is a grouped GEMM over `cu_seqlens` segments.\n\nIncluded:\n\n- `\"moonep\"` `All2AllBackend`, `has_moonep()`, and `check_moonep_system_support()` (NVSwitch multicast probe run at backend selection so unsupported hosts fail with a clear message)\n- `MoonEPAll2AllManager` owning the cached `moonep.Buffer`\n- `MoonEPPrepareAndFinalize` on the modular prepare/finalize interface: pad to static capacity \u2192 `dispatch` \u2192 `prefetch_weight` for the planned redundant experts (plan stashed between prepare and finalize, the same pattern DeepEP-HT uses for its handle) \u2192 `combine` in finalize (`TopKWeightAndReduceNoOP`)\n- `MoonEPExperts` (`FusedMoEExpertsModular`): three `torch._grouped_mm` calls (gate, up, down) over the `cu_seqlens[E+B]` segments, route weights applied before the down projection; empty segments and unused prefetch slots are skipped natively\n- `FusedMoE` wiring: `UnquantizedMoeBackend.MOONEP` (auto-selected when the backend is `moonep`); `convert_to_unquantized_kernel_format` builds the `[E+B]` layout \u2014 all-gather each rank's local experts into global order, split into contiguous gate / up / down tensors as MoonEP's prefetch requires \u2014 and `_setup_kernel` hands it to the P/F and experts\n- `tests/kernels/moe/test_moonep_bf16_poc.py`: multi-GPU test of the full dispatch/prefetch/compute/combine path against the shared ",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        56397
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "ready",
+        "nvidia"
+      ]
+    },
+    {
+      "number": 56017,
+      "title": "[Bugfix][Scoring] Warn when serving original Qwen3 reranker without chat template",
+      "author": "100milliongold",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-09T06:31:37Z",
+      "updated_at": "2026-09-12T04:07:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/56017",
+      "labels": [
+        "bug",
+        "frontend",
+        "ready",
+        "v1",
+        "qwen",
+        "verified"
+      ],
+      "draft": false,
+      "body_head": "### Purpose\nFixes #55501.\n\nWhen an original Qwen3 reranker (`Qwen/Qwen3-Reranker-*` or `Qwen/Qwen3-VL-Reranker-*`) is served with `is_original_qwen3_reranker: true` but without `--chat-template`, query and document are concatenated directly without the `<Instruct>/<Query>/<Document>` template wrapper the model was trained with. This causes silent scoring inaccuracy in production environments.\n\n### Changes\n- In `CrossEncoderIOProcessor.__init__`, check if `is_original_qwen3_reranker` is enabled and `chat_template` is `None`.\n- If so, log a clear startup warning pointing the user to the matching shipped template (`examples/pooling/score/template/qwen3_reranker.jinja` or `examples/pooling/score/template/qwen3_vl_reranker.jinja`).\n- Add unit tests in `tests/entrypoints/pooling/test_io_processor.py` verifying the warning behavior for text and vision models, as well as no-warning when a template is passed.\n\n### Test\n- Added unit tests covering:\n  - `test_qwen3_reranker_warns_without_chat_template`\n  - `test_qwen3_vl_reranker_warns_with_vl_template`\n  - `test_qwen3_reranker_no_warning_when_template_provided`\n- Verified code formatting with `ruff check` and `ruff format` clean.",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        56397
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "bug",
+        "frontend",
+        "ready",
+        "v1",
+        "qwen",
+        "verified"
+      ]
+    },
+    {
+      "number": 55887,
+      "title": "[ROCm][Bugfix] Support shared KV prefill in AITER attention",
+      "author": "AndreasKaratzas",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-08T11:23:48Z",
+      "updated_at": "2026-09-09T21:51:37Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/55887",
+      "labels": [
+        "bug",
+        "rocm"
+      ],
+      "draft": false,
+      "body_head": "- Let AITER attention read K/V from the shared cache when a layer supplies only Q, covering both prefill and chunked prefill.\r\n- Allocate the gather workspace using each attention group's KV dimensions and gather only the new prefill/extend tokens.\r\n- Cover NHD and SHUFFLE layouts, FP8 caches, sliding windows, and cache immutability with 18 regression cases.\r\n\r\n`git bisect run` from [nightly 12674](https://buildkite.com/vllm/amd-ci/builds/12674) identified [PR #54917](https://github.com/vllm-project/vllm/pull/54917) as the regression: Gemma stopped computing redundant K/V projections, but AITER still tried to slice those missing tensors. This broke the translation server in build 12711's [MI300](https://buildkite.com/vllm/amd-ci/builds/12711#01a08040-53d9-4f1f-a3f1-004c0a9ac6a4) and [MI355](https://buildkite.com/vllm/amd-ci/builds/12711#01a08040-53f9-493f-9e34-961a3efd1e15) speech jobs. \r\n\r\nThis fix was developed with AI assistance and restores the backend's shared-cache support.\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        56144
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "bug"
+      ]
+    },
+    {
+      "number": 54917,
+      "title": "[Bugfix][Gemma] Conditionally create KV projections/norms on KV-shared layers",
+      "author": "Josephasafg",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-02T07:41:18Z",
+      "updated_at": "2026-09-09T20:39:46Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/54917",
+      "labels": [
+        "bug",
+        "ready"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\r\ntransformers only creates `k_proj` / `v_proj` / `k_norm` on the **non-KV-shared** layers of Gemma 4 E2B/E4B and Gemma 3n. \r\nAny checkpoint that goes through `save_pretrained` (HF Trainer, TRL, verl, ...) therefore omits those tensors for the last `num_kv_shared_layers` layers. The original Google releases happen to ship them redundantly, so this only surfaces after fine-tuning.\r\n\r\nvLLM created those modules unconditionally, so fine-tuned checkpoints failed with:\r\n```bash\r\nValueError: Following weights were not initialized from checkpoint: {'...layers.24.self_attn.k_norm.weight', ...}\r\n```\r\nThis PR supersedes #41504, has it gone stale and author not responding. \r\n\r\n## Test Plan\r\n\r\nCPU unit tests in `tests/models/language/generation/test_gemma.py`:\r\n  - `test_gemma4_kv_shared_layer_loads_plain_q_proj`: shared-layer `q_proj` loads directly, `q/k/v` shards still reach the packed layer, redundant shared-layer K/V names are skipped.\r\n  - `test_gemma3n_kv_shared_layer_mapper`: exact routed names / shard ids for a non-shared and a shared layer.\r\n",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        56144
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": [
+        "bug",
+        "ready"
+      ]
+    }
+  ],
+  "count_semantics": "complete",
+  "source_coverage": {
+    "complete": true,
+    "authoritative_complete": true,
+    "population_semantics": "complete",
+    "truncated": false,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 5,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:58134",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:58134",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 5,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:57372",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:57372",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:56397",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56397",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:56144",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56144",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:48510",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:48510",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs among the newest 300 issues and PRs in vllm-project/vllm with label 'rocm'",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 2,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 197,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 11,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 13,
+    "query_retention": {
+      "source": 13,
+      "published": 13,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 11,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 11,
+      "open": 2,
+      "ci": 11,
+      "rocm": 3
+    },
+    "rows": {
+      "source": 11,
+      "published": 11,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 22,
+      "published": 22,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 11,
+      "published": 11,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 13,
+      "published": 13,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}

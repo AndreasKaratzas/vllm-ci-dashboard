@@ -1,0 +1,398 @@
+{
+  "collected_at": "2026-09-26T18:49:39Z",
+  "issues": [
+    {
+      "number": 58134,
+      "title": "[CI Failure]: (MI355) Core Operation Kernels Shard 1: kernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope",
+      "author": "mganczarenko",
+      "state": "open",
+      "created_at": "2026-09-22T10:18:01Z",
+      "updated_at": "2026-09-22T10:21:59Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/58134",
+      "labels": [
+        "rocm",
+        "ci-failure",
+        "quantization"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n```\nkernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope[True-0-False]\nkernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope[True-0-True]\nkernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope[True-64-False]\n```\n\n### Basic information\n\n- [ ] Flaky test \u2014 **no**, fails deterministically on every attempt, including in-build retries\n- [ ] Can reproduce locally \u2014 no MI355 hardware available to me; reproduced only in CI\n- [ ] Caused by external libraries \u2014 no, the failure is in vLLM code\n\n### \ud83e\uddea Describe the failing test\n\n`(MI355) Core Operation Kernels Shard 1` fails on ROCm only. The same test file passes on `(H200 MIG 35GB) Core Operation Kernels Shard *`, and MI355 shards 2 and 3 are green \u2014 only shard 1 receives `kernels/test_concat_mla_q.py`.\n\n```\nFAILED kernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope[True-0-False] - IndexError: tuple index out of range\nFAILED kernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope[True-0-True]  - IndexError: tuple index out of range\nFAILED kernels/test_concat_mla_q.py::test_concat_mla_q_fp8_nope_and_rope[True-64-False] - IndexError: tuple index out of range\n3 failed, 1164 passed, 168 skipped, 24 warnings in 1072.49s (0:17:52)\n```\n\nTraceback (from the nightly `main` build, Buildkite #90376):\n\n```\nkernels/test_concat_mla_q.py:177:\n/usr/local/lib/python3.12/dist-packages/vllm/model_executor/custom_op.py:134: in forward\n    return self._forward_method(*args, **kwargs)\n/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/attention/mla_attention.py:1561: in forward\n    decode_q, _ = quant_fn(self, decode_q_flat, scale, scale_ub)\n/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/input_quant_fp8.py:159: in forward_hip\n    return self.forward_cuda(x, scale, scale_ub)\n\nself = _DecodeConcatQuantFP8()\ndecode_ql_nope = tensor([[  24.8750,  276.0000, ...]], device='cuda:0', dtype=torch.bfloat16)\ndecode_q_pe = tensor(0.3000, device='cuda:0'), scale = None, scale_ub = None\n\n    def forward(\n        self,\n        decode_ql_nope: torch.Tensor,\n        decode_q_pe: torch.Tensor,\n        scale: torch.Tensor,\n        scale_ub: torch.Tensor | None = None,\n    ) -> torch.Tensor:\n>       if decode_q_pe.shape[-1] == 0 and decode_ql_nope.is_contiguous():\nE       IndexError: tuple index out of range\n\n/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/attention/mla_attention.py:1556: IndexError\n```\n\n#### Root cause: the HIP fallback re-enters the subclass override\n\n`_DecodeConcatQuantFP8` (`vllm/model_executor/layers/attention/mla_attention.py:1540-1568`) builds all three of its forward methods from one factory, so every method has the 4-argument signature `(decode_ql_nope, decode_q_pe, scale, scale_ub)`:\n\n```python\nforward_native = _make_forward(QuantFP8.forward_native)\nforward_cuda = _make_forward(QuantFP8.forward_cuda)\nforward_hip = _make_forward(QuantFP8.forward_hip)\n```\n\n`QuantFP8.forward_hip` ends with a fallback to the CUDA implementation (`vllm/model_executor/layers/quantization/input_quant_fp8.py:159`):\n\n```python\n# Fallback to CUDA implementation\nreturn self.forward_cuda(x, scale, scale_ub)\n```\n\nOn `_DecodeConcatQuantFP8`, `self.forward_cuda` is the *wrapped* 4-argument method, not `QuantFP8.forward_cuda`. So the 3-argument fallback call re-enters the wrapper with arguments shifted by one: `decode_q_pe` binds to the per-tensor `scale` (a 0-dim tensor, `tensor(0.3000)`), and `decode_q_pe.shape[-1]` raises `IndexError`.\n\nCUDA never re-dispatches, which is why only the ROCm lane fails. On MI355 the AITER early-return branches in `forward_hip` are not taken for this configuration, so the fallback path is reached.\n\nA minimal fix is to call the base implementation unbound, so the fallback cannot re-enter a subclass override with a different signature:\n\n```python\nreturn QuantFP8.forward_cuda(self, x, scale, scale_ub)\n```\n\nI have not opened a PR for this \u2014 I have no MI355 hardware to verify a fix, and I would rather leave it to the ROCm/attention owners than push an unverified change through CI.\n\n### \ud83d\udcdd History of failing test\n\nFirst red MI355 shard 1 today was Buildkite #90366 at 05:26Z. The guard line that raises (`if decode_q_pe.shape[-1] == 0 and decode_ql_nope.is_contiguous():`) was introduced by **#57458 \"[Perf][Attention] Reduce GLM sparse MLA preparation overhead\"** (merge commit `a369a7bec`, merged 2026-09-22T00:24:26Z), which is ~5 h before the first observed failure.\n\nNote the underlying re-dispatch is older than #57458 \u2014 before it, the wrapper's first statement was `torch.cat((decode_ql_nope, decode_q_pe), dim=-1)`, which would also fail on a 0-dim tensor. #57458 changed the symptom to `IndexError`, and the failure is what surfaced the latent dispatch bug.\n\nEvery finished `(MI355) Core Operation Kernels Shard 1` run I checked on 2026-09-22 is red, across unrelated PRs and on `main`:\n\n| Build | Trigger | Shard 1 | Shards 2 / 3 |\n|---|---|---|---|\n| [#90366](https://buildkite.com/vllm/ci/builds/90366) | PR #58069 | fail, 2 attempts | pass |\n| [#90376](https://buildkite.com/vllm/ci/builds/90376) | **`Full CI run - nightly` (`main`, no PR)** | fail, 2 attempts | pass |\n| [#90377](https://buildkite.com/vllm/ci/builds/90377) | PR #49953 | fail, 2 attempts | pass |\n| [#90380](https://buildkite.com/vllm/ci/builds/90380) | PR #56252 | fail, 3 attempts | pass |\n| [#90388](https://buildkite.com/vllm/ci/builds/90388) | PR #55721 | fail, 2 attempts | pass |\n| [#90390](https://buildkite.com/vllm/ci/builds/90390) | PR #57945 | fail, 2 attempts | pass |\n\nThe nightly `main` build #90376 has no PR attached and reproduces the failure with an identical log (same three parametrisations, same `mla_attention.py:1556`, `3 failed, 1164 passed`), so this is not caused by any of the PRs above.\n\nRetrying does not help \u2014 several of the builds above show 2-3 attempts on the same job, all failed. The step has no `soft_fail`, so it blocks the `buildkite/ci/pr` rollup for every PR whose diff matches the step's `source_file_dependencies` (which include `vllm/model_executor/layers/rotary_embedding/` and `tests/kernels/core`).\n\n### CC List.\n\n@GirasoleY @ZJY0516 (#57458), @LucasWilkinson @MatthewBonanni (`/vllm/model_executor/layers/attention` owners), @tjtanaa @dllehr-amd (ROCm)\n\n---\n\n_Investigation of the CI logs for this report was done with AI assistance (Claude Code)._\n",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 58069,
+          "url": "https://github.com/vllm-project/vllm/pull/58069"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 49953,
+          "url": "https://github.com/vllm-project/vllm/pull/49953"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 56252,
+          "url": "https://github.com/vllm-project/vllm/pull/56252"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 55721,
+          "url": "https://github.com/vllm-project/vllm/pull/55721"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 57945,
+          "url": "https://github.com/vllm-project/vllm/pull/57945"
+        }
+      ]
+    },
+    {
+      "number": 57372,
+      "title": "[CI Failure]: Recurring flaky infrastructure failures \u2014 AMD GPU hangs, H200-MIG step timeouts, agent loss (200-build analysis)",
+      "author": "khluu",
+      "state": "open",
+      "created_at": "2026-09-17T11:37:27Z",
+      "updated_at": "2026-09-17T11:37:42Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/57372",
+      "labels": [
+        "rocm",
+        "ci-failure",
+        "kimi"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "## Summary\n\nAn analysis of the last **200 builds** of the `ci` pipeline (builds 89402\u201389599, all branches) found **240 jobs that failed on their first attempt and then passed on retry** \u2014 i.e. flaky. Reading each failing attempt's log shows the flakiness is **~78% infrastructure/environment**, not vLLM code. This issue tracks the three dominant, recurring infrastructure causes so they can be triaged to fleet/runner owners.\n\nMethod: enumerated builds via the Buildkite API, listed each build's jobs from the public `/data/jobs` endpoint, selected jobs where the original attempt had `passed=false` and the `retried_in_job_uuid` replacement had `passed=true`, then fetched and read each failing attempt's log.\n\n## Root-cause distribution (240 flaky instances)\n\n| Category | Count | % | Nature |\n|---|---|---|---|\n| Step timeout (cancelled while passing) | 74 | 31% | Config/tuning |\n| Crash \u2014 AMD GPU HW fault | 57 | 24% | Hardware/driver |\n| Buildkite agent lost (empty log, exit -1) | 53 | 22% | Runner infra |\n| Docker build/pull EOF / registry | 19 | 8% | Infra |\n| Test assertion (genuinely flaky test) | 14 | 6% | Test code |\n| Network (HF/crates/github download) | 8 | 3% | Infra |\n| GPU free-memory < desired utilization | 6 | 2.5% | Runner hygiene |\n| Other (git-mirror checkout lock, etc.) | 7 | 3% | Infra |\n| Race/deadlock | 2 | 1% | \u2014 |\n\n## 1. AMD GPU hardware/driver hangs \u2014 ~44 instances (top specific cause)\n\nLogs show `HW Exception by GPU node-2 \u2026 reason: GPU Hang` \u2192 `Fatal Python error: Aborted` (SIGABRT / exit 134), plus a few `Memory access fault \u2026 write to read-only page` and SRAM/DRAM ECC failures. These hit many different AMD test jobs indiscriminately and clear on retry (the retry lands on a healthy GPU). This is a transient MI300/MI250 hardware / ROCm-driver issue, not a vLLM bug.\n\nRepresentative jobs: `:amd: (MI300) Basic Models (Other)`, `:amd: (MI300) Entrypoints Integration (OpenAI API chat_completion)`, `:amd: (MI300) V1 Spec Decode`, `:amd: (MI300) Multimodal Models (Standard) 4`.\n\n**Ask:** fleet-health / GPU-reset handling on the AMD runners; consider auto-cordoning nodes that raise repeated GPU Hang / ECC events.\n\n## 2. NVIDIA H200-MIG step timeouts \u2014 ~59 instances\n\nJobs are cancelled (`Received cancellation signal`, exit -1, `timed_out=True`) while tests are still *passing*. Concentrated in spec-decode and multimodal suites on the slower MIG slices:\n\n- `:nvidia: (H200 MIG 18GB) Spec Decode Draft Model` (10\u00d7)\n- `:nvidia: (H200 MIG 18GB) Multimodal Processor` (7\u00d7)\n- `:nvidia: (H200 MIG 35GB) Spec Decode N-Gram + Suffix` (7\u00d7)\n\nRoot causes visible in logs: slow Triton/JIT kernel warmup (one log showed 121 compile keys at ~57 s/key), repeated `EngineCore` startup per test, and long GSM8K/lm-eval runs. Several jobs had all tests pass but exceeded the step timeout in teardown.\n\n**Ask:** bump `timeout_in_minutes` (or shard further) for these suites on MIG hardware. This is data-backed tuning; happy to open a PR if a target timeout is agreed.\n\n## 3. Buildkite agent loss \u2014 53 instances (all NVIDIA/L4)\n\nEmpty 0-byte logs, `started_at: null`, exit -1: the runner agent died or never accepted the job, then a fresh agent passed on retry. Concentrated on the L4 NixlConnector / Pipeline+Context-Parallel distributed jobs.\n\n**Ask:** investigate L4 runner stability.\n\n## Already addressed\n\n- The dominant *test-code* flake, `test_sharded_sampling_outputs_match` on AMD (11\u00d7), is fixed by https://github.com/vllm-project/vllm/pull/57369.\n- The GPU free-memory flake already has a draft PR: https://github.com/vllm-project/vllm/pull/57362.\n\n## Environment\n\nObserved on `main` across builds 89402\u201389599 (2026-09-17).\n\n---\n\n\ud83e\udd16 This analysis was performed with AI assistance (Kimi Code); each classification was derived from reading the actual failing-attempt Buildkite log.\n",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 57369,
+          "url": "https://github.com/vllm-project/vllm/pull/57369"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 57362,
+          "url": "https://github.com/vllm-project/vllm/pull/57362"
+        }
+      ]
+    },
+    {
+      "number": 56397,
+      "title": "[CI Failure]: Multimodal Processor shards - test_tensor_schema[naver-hyperclovax/HyperCLOVAX-SEED-Think-32B] - upstream model_type hyperclovax_vision_v2 unknown to CI transformers",
+      "author": "kaijunli-infr",
+      "state": "open",
+      "created_at": "2026-09-11T04:46:03Z",
+      "updated_at": "2026-09-11T10:14:32Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/56397",
+      "labels": [
+        "rocm",
+        "multi-modality",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`models/multimodal/processing/test_tensor_schema.py::test_model_tensor_schema[naver-hyperclovax/HyperCLOVAX-SEED-Think-32B]`\n\n### Basic information\n\n- Jobs: every `Multimodal Processor` shard containing this model \u2014 observed on `computer-cpu-multimodal-processor-shard-2`, `shard-4`, `nvidia-h200-mig-18gb-multimodal-processor`, and `amd-mi355-multimodal-processor` in build 88212 (PR #52101, which does not touch multimodal code).\n- Deterministic, hardware-independent, and survives retries: the cause is external to the repo.\n\n### Description\n\nThe upstream Hugging Face repo changed its `model_type` to `hyperclovax_vision_v2`, which the transformers version in the CI images does not recognize, so `ModelConfig` validation fails:\n\n```text\npydantic_core._pydantic_core.ValidationError: 1 validation error for ModelConfig\n  Value error, The checkpoint you are trying to load has model type `hyperclovax_vision_v2` but Transformers does not recognize this architecture.\n```\n\n153/154 tests in each shard pass; only this model fails.\n\n### Possible fixes\n\nPin the test to a fixed revision of the HF repo, update/upgrade transformers in the CI image, or temporarily skip this model id in `test_tensor_schema`.\n",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 52101,
+          "url": "https://github.com/vllm-project/vllm/pull/52101"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 56017,
+          "url": "https://github.com/vllm-project/vllm/pull/56017"
+        }
+      ]
+    },
+    {
+      "number": 56144,
+      "title": "[CI Failure]: (MI300) Entrypoints Integration (Speech to Text) failing because of PR#54917",
+      "author": "rasmith",
+      "state": "open",
+      "created_at": "2026-09-09T20:01:36Z",
+      "updated_at": "2026-09-09T21:53:13Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/56144",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\nentrypoints/speech_to_text/translation/test_translation_validation.py\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\n@AndreasKaratzas @hmellor @Josephasafg This [PR ](https://github.com/vllm-project/vllm/pull/54917) is causing CI failure in (MI300) Entrypoints Integration (Speech to Text)\nhttps://buildkite.com/vllm/amd-ci/builds/12767/list?sid=01a08566-8c90-42ab-b9e9-c4532ffd7644&tab=output\n\n### \ud83d\udcdd History of failing test\n\n09/09/2026 \nFailed on Rock 10 full CI  run\nhttps://buildkite.com/vllm/amd-ci/builds/12756/list?sid=01a0842a-ab68-4ff8-9c12-38d472f2c7ae&tab=output\nbut then also fails on recent full CI run:\nhttps://buildkite.com/vllm/amd-ci/builds/12767/list?sid=01a08566-8c90-42ab-b9e9-c4532ffd7644&tab=output\n\n### CC List.\n\n_No response_",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 54917,
+          "url": "https://github.com/vllm-project/vllm/pull/54917"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 55887,
+          "url": "https://github.com/vllm-project/vllm/pull/55887"
+        }
+      ]
+    },
+    {
+      "number": 48510,
+      "title": "[CI Failure]: `AMD: Language Models Test (Extended Pooling)` Workspace growth allocation after lock",
+      "author": "micah-wil",
+      "state": "open",
+      "created_at": "2026-07-13T17:07:33Z",
+      "updated_at": "2026-07-13T19:26:35Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/48510",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [
+        "micah-wil"
+      ],
+      "project_status": "Done",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter]\n\n### Basic information\n\n- [ ] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nmodels/language/pooling/test_token_classification.py::test_openai_privacy_filter[bfloat16-openai/privacy-filter] is failing on ROCm due to `AssertionError: Workspace is locked but allocation from 'modular_kernel.py:1096:_allocate_buffers' requires 15.00 MB, current size is 0.06 MB. Workspace growth is not allowed after locking.`\n\nhttps://buildkite.com/vllm/ci/builds/77673/list?sid=019f5553-8716-4596-8f4c-62c6657cef31&tab=output\n\n### \ud83d\udcdd History of failing test\n\nSince transformers 5.10 upgrade\n\n### CC List.\n\n_No response_",
+      "linked_prs": []
+    }
+  ],
+  "count_semantics": "complete",
+  "source_coverage": {
+    "complete": true,
+    "authoritative_complete": true,
+    "population_semantics": "complete",
+    "truncated": false,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 5,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:58134",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:58134",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 5,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:57372",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:57372",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:56397",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56397",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:56144",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:56144",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:48510",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:48510",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs among the newest 300 issues and PRs in vllm-project/vllm with label 'rocm'",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 2,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 197,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 11,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 13,
+    "query_retention": {
+      "source": 13,
+      "published": 13,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 5,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 5,
+      "open": 5,
+      "linked_pr_refs": 11
+    },
+    "rows": {
+      "source": 5,
+      "published": 5,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 5,
+      "published": 5,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 11,
+      "published": 11,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 13,
+      "published": 13,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}
