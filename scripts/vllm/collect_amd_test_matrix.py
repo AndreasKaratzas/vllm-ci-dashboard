@@ -42,6 +42,10 @@ from vllm.amd_nightly_handoff import (  # noqa: E402
     load_frozen_build_snapshot,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.ci.analyzer import (  # noqa: E402
+    _parse_job_execution_label,
+    _strip_known_shard_index,
+)
 from vllm.reviewed_definition_labels import (  # noqa: E402
     execution_sha256,
     flatten_execution_commands,
@@ -88,15 +92,11 @@ AREA_PATTERNS = [
 ]
 
 MULTISPACE_RE = re.compile(r"\s+")
-SHARD_TEMPLATE_RE = re.compile(r"\s*%n\s*$", re.I)
+SHARD_TEMPLATE_RE = re.compile(r"\s*%n\b", re.I)
 HW_ARCH_RE = re.compile(r"mi\d{3}", re.I)
 TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
 AMD_VARIANT_TOKEN_RE = re.compile(r"mi(?:250|300|325|355)\b", re.I)
-DEVICE_LABEL_PREFIX_RE = re.compile(
-    r"^:(?:amd|computer):\s*\((?:mi\d{3,4}b?|cpu)\)\s*",
-    re.I,
-)
 CORE_AMD_ARCHITECTURES = frozenset({"mi250", "mi300", "mi325"})
 INCIDENT_STATES = frozenset({
     "failed", "timed_out", "broken", "soft_fail", "soft_failed"
@@ -183,7 +183,7 @@ def clean_label(label: str) -> str:
 
 
 def _without_shard_template(label: str) -> str:
-    """Remove Buildkite's trailing ``%N`` parallelism marker."""
+    """Remove Buildkite's ``%N`` parallelism marker."""
     return SHARD_TEMPLATE_RE.sub("", clean_label(label)).strip()
 
 
@@ -197,7 +197,8 @@ def canonical_title(label: str) -> str:
     # ``:amd: (<device>) <purpose>``.  The decorator is execution metadata,
     # not part of the logical family identity.  Keep it in ``link_label`` so
     # exact Buildkite matching and evidence URLs remain unchanged.
-    text = DEVICE_LABEL_PREFIX_RE.sub("", text, count=1).strip()
+    text, _, _ = _parse_job_execution_label(text)
+    text = text.strip()
     match = TRAILING_PARENS_RE.search(text)
     if match:
         payload = match.group(1).strip()
@@ -1103,11 +1104,10 @@ def _arch_sort_key(arch: str) -> int:
 
 
 def _normalize_job_name(name: str) -> str:
-    name = re.sub(r"^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*", "", name or "", flags=re.I)
     # Buildkite runtime names can wrap a standardized YAML label in the
     # internal queue prefix (``mi300_1: :amd: (MI300) ...``).  Remove both
     # layers before comparing YAML templates with concrete shard jobs.
-    name = DEVICE_LABEL_PREFIX_RE.sub("", name, count=1)
+    name, _, _ = _parse_job_execution_label(name)
     return MULTISPACE_RE.sub(" ", name).strip().lower()
 
 
@@ -1116,15 +1116,11 @@ def strip_shard_index(name: str, shard_bases: list[str]) -> str:
     # detail API can also return the literal template marker. Normalize both
     # representations through the same path used for YAML labels.
     lower = _without_shard_template(_normalize_job_name(name)).casefold()
-    for raw_base in shard_bases:
-        base = _without_shard_template(_normalize_job_name(raw_base)).casefold()
-        if not base:
-            continue
-        if lower.startswith(base) and lower != base:
-            rest = lower[len(base):]
-            if re.fullmatch(r"\s+\d+\s*", rest):
-                return base
-    return lower
+    bases = [
+        _without_shard_template(_normalize_job_name(base)).casefold()
+        for base in shard_bases
+    ]
+    return _strip_known_shard_index(lower, bases)
 
 
 def aggregate_state(states: list[str]) -> str | None:

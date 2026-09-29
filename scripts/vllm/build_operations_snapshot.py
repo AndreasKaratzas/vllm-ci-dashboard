@@ -181,10 +181,12 @@ SOURCE_FILES = {
 
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
-INTERNAL_AMD_PREFIX_RE = re.compile(r"^mi\d{3,4}b?_\d+:\s*", re.IGNORECASE)
+INTERNAL_AMD_PREFIX_RE = re.compile(
+    r"^mi\d{3,4}b?_[a-z0-9][a-z0-9_-]*:\s*", re.IGNORECASE
+)
 STANDARD_PLATFORM_PREFIX_RE = re.compile(
     r"^:(?:amd|computer):\s*"
-    r"\(\s*(?P<hardware>mi\d{3,4}b?|cpu)\s*\)\s*",
+    r"\(\s*(?P<hardware>mi\d{3,4}b?(?: +[a-z0-9][a-z0-9._-]*)*|cpu)\s*\)\s*",
     re.IGNORECASE,
 )
 AMD_DEVICE_SUFFIX_RE = re.compile(r"\s*\((mi\d{3,4}b?_\d+)\)\s*$", re.IGNORECASE)
@@ -194,7 +196,8 @@ AMD_TARGET_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 AMD_TEST_JOB_PREFIX_RE = re.compile(
-    r"^(?P<hardware_variant>mi\d{3}b?(?:_\d+)?):\s*(?P<display_name>.*)$",
+    r"^(?P<hardware_variant>mi\d{3}b?(?:_[a-z0-9][a-z0-9_-]*)?):\s*"
+    r"(?P<display_name>.*)$",
     re.IGNORECASE,
 )
 AMD_TEST_INCIDENT_STATUSES = {"failed", "error"}
@@ -860,10 +863,11 @@ def _amd_test_job_labels(exact_job_name: str) -> tuple[str, str, str, str]:
         return display_name, hardware, hardware_variant, f"amd_{hardware_variant}"
     standard = STANDARD_PLATFORM_PREFIX_RE.match(exact_job_name)
     if standard:
-        hardware = standard.group("hardware").lower()
+        hardware_variant = "_".join(standard.group("hardware").lower().split())
+        hardware = hardware_variant.split("_", 1)[0]
         display_name = exact_job_name[standard.end():].strip()
-        queue = "cpu" if hardware == "cpu" else f"amd_{hardware}"
-        return display_name, hardware, hardware, queue
+        queue = "cpu" if hardware == "cpu" else f"amd_{hardware_variant}"
+        return display_name, hardware, hardware_variant, queue
     return exact_job_name, "unknown", "unknown", ""
 
 

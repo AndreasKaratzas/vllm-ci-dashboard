@@ -694,12 +694,14 @@ class TestExtractHardwareFunction:
         assert _extract_hardware("mi250_1: Some Test") == "mi250"
         assert _extract_hardware("mi325_4: Another Test") == "mi325"
         assert _extract_hardware("mi355_2: Test (B200-MI355)") == "mi355"
+        assert _extract_hardware("mi355_dpx: Test (B200-MI355)") == "mi355"
 
     def test_standardized_platform_decorator(self):
         from vllm.ci.analyzer import _extract_hardware
 
         assert _extract_hardware(":amd: (MI300) Some Test") == "mi300"
         assert _extract_hardware(":amd: (MI355) Some Test") == "mi355"
+        assert _extract_hardware(":amd: (MI355 DPX) Some Test") == "mi355"
         assert _extract_hardware(":computer: (CPU) Some Test") == "cpu"
 
     def test_standardized_nvidia_decorator(self):
@@ -806,18 +808,35 @@ def test_multiword_nvidia_decorators_keep_distinct_hardware_buckets():
     }
 
 
-def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch):
+@pytest.mark.parametrize(("mi355_prefix", "suite_suffix"), [
+    ("mi355_1: :amd: (MI355)", ""),
+    ("mi355_dpx: :amd: (MI355 DPX)", ""),
+    (":amd: (MI355 DPX)", ""),
+    ("mi355_dpx: :amd: (MI355 DPX)", " (MI355 suite)"),
+])
+def test_standardized_decorators_collapse_logical_groups_and_shards(
+    monkeypatch, mi355_prefix, suite_suffix,
+):
     from vllm.ci import analyzer
     from vllm.ci.models import TestResult
 
-    monkeypatch.setattr(analyzer, "_SHARD_BASES", ["attention kernels shard"])
-    mi300_shard_1 = "mi300_1: :amd: (MI300) Attention Kernels Shard 1"
-    mi300_shard_2 = "mi300_1: :amd: (MI300) Attention Kernels Shard 2"
-    mi355 = "mi355_1: :amd: (MI355) Attention Kernels Shard 1"
+    normalized_label = f"attention kernels shard{suite_suffix.lower()}"
+    monkeypatch.setattr(
+        analyzer, "_SHARD_BASES", ["attention kernels shard", normalized_label],
+    )
+    mi300_shard_1 = f"mi300_1: :amd: (MI300) Attention Kernels Shard 1{suite_suffix}"
+    mi300_shard_2 = f"mi300_1: :amd: (MI300) Attention Kernels Shard 2{suite_suffix}"
+    mi355 = f"{mi355_prefix} Attention Kernels Shard 1{suite_suffix}"
 
-    assert analyzer._normalize_job_name(mi300_shard_1) == "attention kernels shard"
-    assert analyzer._normalize_job_name(mi300_shard_2) == "attention kernels shard"
-    assert analyzer._normalize_job_name(mi355) == "attention kernels shard"
+    assert analyzer._normalize_job_name(mi300_shard_1) == normalized_label
+    assert analyzer._normalize_job_name(mi300_shard_2) == normalized_label
+    assert analyzer._normalize_job_name(mi355) == normalized_label
+    assert analyzer._normalize_job_name(
+        f"{mi355_prefix} Attention Kernels Shard %N{suite_suffix}"
+    ) == normalized_label
+    assert analyzer._normalize_job_name(
+        "Attention Kernels Shard 2 (other suite)"
+    ) == "attention kernels shard 2 (other suite)"
     assert analyzer._normalize_job_name(
         ":amd: (MI355) Attention Kernels Shard %N"
     ) == "attention kernels shard"
@@ -879,14 +898,17 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(monkeypatch)
     assert parity_hardware_totals == {"mi300": 1, "mi355": 1}
 
 
-def test_aligned_amd_route_map_preserves_topology_distinct_groups(monkeypatch):
+@pytest.mark.parametrize("mi355_pool", ["mi355_2", "mi355_dpx"])
+def test_aligned_amd_route_map_preserves_topology_distinct_groups(
+    monkeypatch, mi355_pool,
+):
     from vllm.ci import analyzer
     from vllm.ci.models import TestResult
 
     source_commit = "a" * 40
     label = "qwen3 sync eplb accuracy"
     mi300 = "mi300_4: :amd: (MI300) Qwen3 Sync EPLB Accuracy"
-    mi355 = "mi355_2: :amd: (MI355) Qwen3 Sync EPLB Accuracy"
+    mi355 = f"{mi355_pool}: :amd: (MI355) Qwen3 Sync EPLB Accuracy"
     assert analyzer._normalize_job_name(mi300) == label
     assert analyzer._normalize_job_name(mi355) == label
 
@@ -896,7 +918,7 @@ def test_aligned_amd_route_map_preserves_topology_distinct_groups(monkeypatch):
         source_commit,
         {
             (label, "mi300_4"): "qwen3 sync eplb accuracy (4 gpus)",
-            (label, "mi355_2"): "qwen3 sync eplb accuracy (2 gpus)",
+            (label, mi355_pool): "qwen3 sync eplb accuracy (2 gpus)",
         },
     )
 

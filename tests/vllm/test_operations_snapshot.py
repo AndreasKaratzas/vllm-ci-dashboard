@@ -867,6 +867,30 @@ def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp
     ) == health["summary"]["latest_group_count"]
 
 
+@pytest.mark.parametrize("prefix", ["", "mi355_dpx: "])
+def test_amd_test_health_preserves_named_pool_without_analytics_metadata(
+    tmp_path, prefix
+):
+    exact_name = prefix + ":amd: (MI355 DPX) Attention Kernels Shard 2"
+    _write_jsonl(tmp_path / "test_results" / "2026-04-22_amd.jsonl", [{
+        "name": "test_attention",
+        "status": "passed",
+        "job_name": exact_name,
+        "build_number": 400,
+        "pipeline": "amd-ci",
+        "date": "2026-04-22",
+    }], trailing="\n")
+
+    health = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
+    group = health["group_catalog"][0]
+
+    assert group["exact_job_name"] == exact_name
+    assert group["name"] == "Attention Kernels Shard 2"
+    assert group["hardware"] == "mi355"
+    assert group["hardware_variant"] == "mi355_dpx"
+    assert group["queue"] == "amd_mi355_dpx"
+
+
 def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
     group_name = ":amd: (MI355) Attention Kernels Shard 2"
     assert ops._amd_test_job_labels(":computer: (CPU) CPU Unit Tests") == (

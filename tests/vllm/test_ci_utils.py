@@ -113,6 +113,11 @@ class TestHardwareFromJobName:
     def test_b_variant_preserved(self):
         assert hardware_from_job_name("mi355B_8: foo", None) == "mi355b"
 
+    def test_named_pool_preserves_hardware_when_queue_hint_differs(self):
+        assert hardware_from_job_name(
+            "mi355_dpx: :amd: (MI355 DPX) Attention Kernels", "amd_mi300_1"
+        ) == "mi355"
+
     def test_queue_fallback(self):
         assert hardware_from_job_name("no-prefix here", "amd_mi250_1") == "mi250"
 

@@ -16,6 +16,13 @@ from vllm.ci.analytics_cache import CacheValidationError
 NOW = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize("prefix", ["", "mi355_dpx: "])
+def test_named_amd_pool_keeps_queue_and_normalizes_execution_label(prefix):
+    name = prefix + ":amd: (MI355 DPX) Attention Kernels"
+    assert ca.normalize_job(name) == "Attention Kernels"
+    assert ca.queue_from_result_job_name(name) == "amd_mi355_dpx"
+
+
 def test_standardized_platform_labels_normalize_and_preserve_queue_family():
     assert ca.normalize_job(":amd: (MI300) Attention Kernels") == (
         "Attention Kernels"
