@@ -93,6 +93,16 @@ def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
     )
 
 
+def _strip_known_shard_index(name: str, shard_bases: list[str]) -> str:
+    """Collapse configured shards, including indices before suite qualifiers."""
+    match = re.search(r'\s+\d+(?=\s*(?:\([^)]*\))?$)', name)
+    if match:
+        base = (name[:match.start()] + name[match.end():]).strip()
+        if base.lower() in shard_bases:
+            return base
+    return name
+
+
 def _normalize_job_name(name: str) -> str:
     """Normalize a Buildkite job name for cross-pipeline matching.
 
@@ -113,7 +123,7 @@ def _normalize_job_name(name: str) -> str:
     """
     s, _, _ = _parse_job_execution_label(name)
     s = re.sub(r'#.*$', '', s).strip()
-    s = re.sub(r'\s*%N\s*$', '', s).strip()
+    s = re.sub(r'\s*%N\b', '', s, flags=re.I).strip()
     # Convert SINGLE-HW GPU-count tags to plain GPU count:
     #   (4xH100) → (4 GPUs)        — upstream single-HW with count
     #   (2xB200) → (2 GPUs)        — upstream single-HW with count
@@ -133,17 +143,7 @@ def _normalize_job_name(name: str) -> str:
     s = re.sub(r'(\d)\.(\d)', r'\1-\2', s)
     s = re.sub(r'\s+', ' ', s).strip()
 
-    # Only strip trailing shard index for known %N-expanded patterns.
-    # Use the global shard bases list (populated from YAML or auto-detected).
-    lower = s.lower()
-    for base in _SHARD_BASES:
-        if lower.startswith(base) and len(lower) > len(base):
-            rest = lower[len(base):]
-            # Match " N" (bare shard index) at end
-            if re.match(r'^\s+\d+\s*$', rest):
-                s = s[:len(base)]
-                break
-    return s.lower()
+    return _strip_known_shard_index(s, _SHARD_BASES).lower()
 
 
 _PARITY_KEY_OVERRIDES: dict[str, str] = {}

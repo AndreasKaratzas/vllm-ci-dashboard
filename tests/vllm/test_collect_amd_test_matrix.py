@@ -273,16 +273,17 @@ def test_strip_shard_index_unifies_nested_runtime_prefix_and_decorated_template(
     ) == "attention kernels shard"
 
 
-@pytest.mark.parametrize(("architecture", "agent_pool", "decorator"), [
-    ("mi300", "mi300_1", "MI300"),
-    ("mi355", "mi355_dpx", "MI355 DPX"),
+@pytest.mark.parametrize(("architecture", "agent_pool", "decorator", "suffix"), [
+    ("mi300", "mi300_1", "MI300", ""),
+    ("mi355", "mi355_dpx", "MI355 DPX", ""),
+    ("mi355", "mi355_dpx", "MI355 DPX", " (MI355 suite)"),
 ])
 def test_matrix_matches_nested_runtime_prefix_for_decorated_shards(
-    architecture, agent_pool, decorator,
+    architecture, agent_pool, decorator, suffix,
 ):
     steps, architectures = parse_steps(f"""
 steps:
-  - label: ":amd: ({decorator}) Attention Kernels Shard %N"
+  - label: ":amd: ({decorator}) Attention Kernels Shard %N{suffix}"
     agent_pool: {agent_pool}
     parallelism: 2
 """)
@@ -295,7 +296,7 @@ steps:
                 "type": "script",
                 "name": (
                     f"{agent_pool}: :amd: ({decorator}) "
-                    f"Attention Kernels Shard {shard}"
+                    f"Attention Kernels Shard {shard}{suffix}"
                 ),
                 "state": "passed",
                 "agent_query_rules": [f"queue=amd_{agent_pool}"],
@@ -303,7 +304,7 @@ steps:
             for shard in range(2)
         ],
     }
-    shard_bases = ["attention kernels shard"]
+    shard_bases = [f"attention kernels shard{suffix.lower()}"]
     latest_job_index = build_buildkite_job_index(build, shard_bases)
 
     matrix = build_matrix(
@@ -317,7 +318,7 @@ steps:
         yaml_url="https://example.invalid/test-amd.yaml",
     )
 
-    assert matrix["rows"][0]["canonical_title"] == "Attention Kernels Shard"
+    assert matrix["rows"][0]["canonical_title"] == f"Attention Kernels Shard{suffix}"
     cell = matrix["rows"][0]["cells"][architecture]
     assert cell["latest_matched"] is True
     assert cell["variants"][0]["latest_match_count"] == 2

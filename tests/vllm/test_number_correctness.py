@@ -808,25 +808,35 @@ def test_multiword_nvidia_decorators_keep_distinct_hardware_buckets():
     }
 
 
-@pytest.mark.parametrize("mi355_prefix", [
-    "mi355_1: :amd: (MI355)",
-    "mi355_dpx: :amd: (MI355 DPX)",
-    ":amd: (MI355 DPX)",
+@pytest.mark.parametrize(("mi355_prefix", "suite_suffix"), [
+    ("mi355_1: :amd: (MI355)", ""),
+    ("mi355_dpx: :amd: (MI355 DPX)", ""),
+    (":amd: (MI355 DPX)", ""),
+    ("mi355_dpx: :amd: (MI355 DPX)", " (MI355 suite)"),
 ])
 def test_standardized_decorators_collapse_logical_groups_and_shards(
-    monkeypatch, mi355_prefix,
+    monkeypatch, mi355_prefix, suite_suffix,
 ):
     from vllm.ci import analyzer
     from vllm.ci.models import TestResult
 
-    monkeypatch.setattr(analyzer, "_SHARD_BASES", ["attention kernels shard"])
-    mi300_shard_1 = "mi300_1: :amd: (MI300) Attention Kernels Shard 1"
-    mi300_shard_2 = "mi300_1: :amd: (MI300) Attention Kernels Shard 2"
-    mi355 = f"{mi355_prefix} Attention Kernels Shard 1"
+    normalized_label = f"attention kernels shard{suite_suffix.lower()}"
+    monkeypatch.setattr(
+        analyzer, "_SHARD_BASES", ["attention kernels shard", normalized_label],
+    )
+    mi300_shard_1 = f"mi300_1: :amd: (MI300) Attention Kernels Shard 1{suite_suffix}"
+    mi300_shard_2 = f"mi300_1: :amd: (MI300) Attention Kernels Shard 2{suite_suffix}"
+    mi355 = f"{mi355_prefix} Attention Kernels Shard 1{suite_suffix}"
 
-    assert analyzer._normalize_job_name(mi300_shard_1) == "attention kernels shard"
-    assert analyzer._normalize_job_name(mi300_shard_2) == "attention kernels shard"
-    assert analyzer._normalize_job_name(mi355) == "attention kernels shard"
+    assert analyzer._normalize_job_name(mi300_shard_1) == normalized_label
+    assert analyzer._normalize_job_name(mi300_shard_2) == normalized_label
+    assert analyzer._normalize_job_name(mi355) == normalized_label
+    assert analyzer._normalize_job_name(
+        f"{mi355_prefix} Attention Kernels Shard %N{suite_suffix}"
+    ) == normalized_label
+    assert analyzer._normalize_job_name(
+        "Attention Kernels Shard 2 (other suite)"
+    ) == "attention kernels shard 2 (other suite)"
     assert analyzer._normalize_job_name(
         ":amd: (MI355) Attention Kernels Shard %N"
     ) == "attention kernels shard"

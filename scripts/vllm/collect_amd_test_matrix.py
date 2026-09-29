@@ -42,7 +42,10 @@ from vllm.amd_nightly_handoff import (  # noqa: E402
     load_frozen_build_snapshot,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.ci.analyzer import _parse_job_execution_label  # noqa: E402
+from vllm.ci.analyzer import (  # noqa: E402
+    _parse_job_execution_label,
+    _strip_known_shard_index,
+)
 from vllm.reviewed_definition_labels import (  # noqa: E402
     execution_sha256,
     flatten_execution_commands,
@@ -89,7 +92,7 @@ AREA_PATTERNS = [
 ]
 
 MULTISPACE_RE = re.compile(r"\s+")
-SHARD_TEMPLATE_RE = re.compile(r"\s*%n\s*$", re.I)
+SHARD_TEMPLATE_RE = re.compile(r"\s*%n\b", re.I)
 HW_ARCH_RE = re.compile(r"mi\d{3}", re.I)
 TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
@@ -180,7 +183,7 @@ def clean_label(label: str) -> str:
 
 
 def _without_shard_template(label: str) -> str:
-    """Remove Buildkite's trailing ``%N`` parallelism marker."""
+    """Remove Buildkite's ``%N`` parallelism marker."""
     return SHARD_TEMPLATE_RE.sub("", clean_label(label)).strip()
 
 
@@ -1113,15 +1116,11 @@ def strip_shard_index(name: str, shard_bases: list[str]) -> str:
     # detail API can also return the literal template marker. Normalize both
     # representations through the same path used for YAML labels.
     lower = _without_shard_template(_normalize_job_name(name)).casefold()
-    for raw_base in shard_bases:
-        base = _without_shard_template(_normalize_job_name(raw_base)).casefold()
-        if not base:
-            continue
-        if lower.startswith(base) and lower != base:
-            rest = lower[len(base):]
-            if re.fullmatch(r"\s+\d+\s*", rest):
-                return base
-    return lower
+    bases = [
+        _without_shard_template(_normalize_job_name(base)).casefold()
+        for base in shard_bases
+    ]
+    return _strip_known_shard_index(lower, bases)
 
 
 def aggregate_state(states: list[str]) -> str | None:
