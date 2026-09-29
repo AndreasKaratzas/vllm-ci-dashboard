@@ -367,9 +367,11 @@ def normalize_job(name):
 
 def queue_from_result_job_name(name):
     """Derive a hardware queue from a parsed result when metadata is absent."""
-    # A concrete AMD queue includes the device width and is more specific than
-    # the standardized decorator retained inside a nested result label.
-    match = re.match(r"^(mi\d+_\d+):\s*", name or "", flags=re.IGNORECASE)
+    # A concrete AMD queue includes its numeric or named pool, which is more
+    # specific than the decorator retained inside a nested result label.
+    match = re.match(
+        r"^(mi\d+_[a-z0-9][a-z0-9_-]*):\s*", name or "", flags=re.IGNORECASE
+    )
     if match:
         return "amd_" + match.group(1).lower()
     match = re.match(r"^(amd[-_\w]+):\s*", name or "", flags=re.IGNORECASE)

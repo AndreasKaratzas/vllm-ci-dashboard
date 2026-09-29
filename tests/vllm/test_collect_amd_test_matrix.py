@@ -230,6 +230,9 @@ def test_canonical_title_strips_device_prefix_and_hardware_suffix():
     assert canonical_title(":amd: (MI355) Attention Kernels Shard %N") == (
         "Attention Kernels Shard"
     )
+    assert canonical_title(":amd: (MI355 DPX) Attention Kernels Shard %N") == (
+        "Attention Kernels Shard"
+    )
     assert canonical_title(":computer: (CPU) Basic Models Other") == (
         "Basic Models Other"
     )
@@ -270,11 +273,17 @@ def test_strip_shard_index_unifies_nested_runtime_prefix_and_decorated_template(
     ) == "attention kernels shard"
 
 
-def test_matrix_matches_nested_runtime_prefix_for_decorated_shards():
-    steps, architectures = parse_steps("""
+@pytest.mark.parametrize(("architecture", "agent_pool", "decorator"), [
+    ("mi300", "mi300_1", "MI300"),
+    ("mi355", "mi355_dpx", "MI355 DPX"),
+])
+def test_matrix_matches_nested_runtime_prefix_for_decorated_shards(
+    architecture, agent_pool, decorator,
+):
+    steps, architectures = parse_steps(f"""
 steps:
-  - label: ":amd: (MI300) Attention Kernels Shard %N"
-    agent_pool: mi300_1
+  - label: ":amd: ({decorator}) Attention Kernels Shard %N"
+    agent_pool: {agent_pool}
     parallelism: 2
 """)
     build = {
@@ -282,14 +291,14 @@ steps:
         "web_url": "https://buildkite.com/vllm/amd-ci/builds/12275",
         "jobs": [
             {
-                "id": f"mi300-attention-{shard}",
+                "id": f"{architecture}-attention-{shard}",
                 "type": "script",
                 "name": (
-                    "mi300_1: :amd: (MI300) "
+                    f"{agent_pool}: :amd: ({decorator}) "
                     f"Attention Kernels Shard {shard}"
                 ),
                 "state": "passed",
-                "agent_query_rules": ["queue=amd_mi300_1"],
+                "agent_query_rules": [f"queue=amd_{agent_pool}"],
             }
             for shard in range(2)
         ],
@@ -308,7 +317,8 @@ steps:
         yaml_url="https://example.invalid/test-amd.yaml",
     )
 
-    cell = matrix["rows"][0]["cells"]["mi300"]
+    assert matrix["rows"][0]["canonical_title"] == "Attention Kernels Shard"
+    cell = matrix["rows"][0]["cells"][architecture]
     assert cell["latest_matched"] is True
     assert cell["variants"][0]["latest_match_count"] == 2
     assert matrix["summary"]["hardware_cells"] == 1

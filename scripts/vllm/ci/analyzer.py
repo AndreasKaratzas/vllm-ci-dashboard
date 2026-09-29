@@ -54,9 +54,10 @@ _HW_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Hardware prefixes in Buildkite job names: "mi250_1: ", "mi325_8: ", "gpu_1: "
+# Hardware prefixes include numeric and named pools such as "mi355_dpx: ".
+_AMD_POOL = r'mi\d+(?:_[a-z0-9][a-z0-9_-]*)?'
 _JOB_PREFIX_RE = re.compile(
-    r'^(mi\d+_\d+|mi\d+|gpu_\d+|amd_\w+):\s*',
+    rf'^({_AMD_POOL}|gpu_\d+|amd_\w+):\s*',
     re.IGNORECASE,
 )
 # Standardized upstream labels introduced by vLLM #52976 use architecture
@@ -1174,7 +1175,9 @@ def apply_quarantine(
 # Build summary computation
 # ---------------------------------------------------------------------------
 
-_HW_FAMILY_RE = re.compile(r'^(mi\d+)_\d+:', re.IGNORECASE)
+_HW_FAMILY_RE = re.compile(
+    r'^(mi\d+)(?:_[a-z0-9][a-z0-9_-]*)?:', re.IGNORECASE,
+)
 # Upstream GPU tags in parens: (H100), (B200), (2xH100), (4xA100), (H100-MI250), etc.
 _UPSTREAM_HW_RE = re.compile(
     r'\((\d*x?)(H\d+|B\d+|A\d+|L\d+|GH?\d+)(?:\s+\w+)*(?:\s*-\s*[\w\s]+)?\)\s*$',
@@ -1201,8 +1204,12 @@ def _extract_hardware(job_name: str) -> str:
     # Standardized architecture decorator. Parse after removing a possible
     # outer queue so ``gpu_1: :nvidia: (L4) Foo`` retains the actual device
     # instead of falling through to the historical H100 default.
-    _, _, decorated_hardware = _parse_job_execution_label(job_name)
+    _, platform, decorated_hardware = _parse_job_execution_label(job_name)
     if decorated_hardware:
+        if platform == "amd":
+            family = re.match(r'^(mi\d+)(?:[ ._-]|$)', decorated_hardware)
+            if family:
+                return family.group(1)
         return decorated_hardware
     # Upstream GPU tag in parens
     m = _UPSTREAM_HW_RE.search(job_name)

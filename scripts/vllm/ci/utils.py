@@ -104,8 +104,10 @@ def classify_workload(pipeline_slug: str, branch: str, queue: str = "") -> str:
 # Hardware inference (AMD queue taxonomy)
 # ---------------------------------------------------------------------------
 
-# Matches a job-name prefix like "mi325_4: V1 e2e" or "mi355B_8: foo".
-_HW_IN_NAME = re.compile(r"^(mi\d+[a-zA-Z]?)_\d+\s*:", re.IGNORECASE)
+# Match numeric and named pools, preserving the hardware family.
+_HW_IN_NAME = re.compile(
+    r"^(mi\d+[a-zA-Z]?)_[a-z0-9][a-z0-9_-]*\s*:", re.IGNORECASE
+)
 
 
 def hardware_from_job_name(job_name: str, queue: str | None = None) -> str:

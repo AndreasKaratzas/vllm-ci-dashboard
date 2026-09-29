@@ -42,6 +42,7 @@ from vllm.amd_nightly_handoff import (  # noqa: E402
     load_frozen_build_snapshot,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.ci.analyzer import _parse_job_execution_label  # noqa: E402
 from vllm.reviewed_definition_labels import (  # noqa: E402
     execution_sha256,
     flatten_execution_commands,
@@ -93,10 +94,6 @@ HW_ARCH_RE = re.compile(r"mi\d{3}", re.I)
 TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
 AMD_VARIANT_TOKEN_RE = re.compile(r"mi(?:250|300|325|355)\b", re.I)
-DEVICE_LABEL_PREFIX_RE = re.compile(
-    r"^:(?:amd|computer):\s*\((?:mi\d{3,4}b?|cpu)\)\s*",
-    re.I,
-)
 CORE_AMD_ARCHITECTURES = frozenset({"mi250", "mi300", "mi325"})
 INCIDENT_STATES = frozenset({
     "failed", "timed_out", "broken", "soft_fail", "soft_failed"
@@ -197,7 +194,8 @@ def canonical_title(label: str) -> str:
     # ``:amd: (<device>) <purpose>``.  The decorator is execution metadata,
     # not part of the logical family identity.  Keep it in ``link_label`` so
     # exact Buildkite matching and evidence URLs remain unchanged.
-    text = DEVICE_LABEL_PREFIX_RE.sub("", text, count=1).strip()
+    text, _, _ = _parse_job_execution_label(text)
+    text = text.strip()
     match = TRAILING_PARENS_RE.search(text)
     if match:
         payload = match.group(1).strip()
@@ -1103,11 +1101,10 @@ def _arch_sort_key(arch: str) -> int:
 
 
 def _normalize_job_name(name: str) -> str:
-    name = re.sub(r"^(mi\d+_\d+|gpu_\d+|amd_\w+):\s*", "", name or "", flags=re.I)
     # Buildkite runtime names can wrap a standardized YAML label in the
     # internal queue prefix (``mi300_1: :amd: (MI300) ...``).  Remove both
     # layers before comparing YAML templates with concrete shard jobs.
-    name = DEVICE_LABEL_PREFIX_RE.sub("", name, count=1)
+    name, _, _ = _parse_job_execution_label(name)
     return MULTISPACE_RE.sub(" ", name).strip().lower()
 
 
