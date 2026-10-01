@@ -45,6 +45,7 @@ from collect_ci import (  # noqa: E402
     _cached_build_numbers,
     _cached_job_ids,
     _cached_job_names,
+    _load_cached_results,
     _compact_amd_build_snapshot,
     _completed_result_entries,
     _find_false_normalization_merges,
@@ -57,9 +58,10 @@ from collect_ci import (  # noqa: E402
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
     collect_pipeline,
+    load_existing_results,
     write_amd_nightly_snapshot,
 )
-from vllm.ci.models import TestResult  # noqa: E402
+from vllm.ci.models import TEST_RESULT_PARSER_VERSION, TestResult  # noqa: E402
 from vllm.ci import reporter as reporter_module  # noqa: E402
 from vllm.ci.reporter import prune_old_results  # noqa: E402
 
@@ -94,6 +96,7 @@ def _record(job_name: str, build_num: int = 7791, job_id: str = "") -> dict:
         "build_number": build_num,
         "pipeline": "amd-ci",
         "date": "2026-04-18",
+        "parser_version": TEST_RESULT_PARSER_VERSION,
     }
 
 
@@ -113,6 +116,15 @@ def test_parity_side_hardware_extends_even_when_merged_hardware_already_exists()
 
 
 class TestCachedJobNames:
+    def test_legacy_results_keep_their_parser_provenance(self, tmp_path):
+        path = tmp_path / "2026-04-18_amd.jsonl"
+        record = _record("mi300_2: Model Runner V2 Distributed")
+        record.pop("parser_version")
+        _write_jsonl(path, [record])
+
+        assert _load_cached_results(path)[0].parser_version == 0
+        assert load_existing_results(tmp_path)[0][2][0].parser_version == 0
+
     def test_empty_when_file_missing(self, tmp_path):
         # No cache file means no coverage — the collector must re-fetch.
         names = _cached_job_names(tmp_path / "missing.jsonl", 7791)
@@ -917,6 +929,38 @@ class TestCanonicalResultPublication:
         parse_results.assert_called_once()
         published = json.loads(cached_path.read_text())
         assert published["job_id"] == "retry-attempt"
+
+    def test_parser_upgrade_replaces_cached_results_once(self, tmp_path):
+        """Unchanged job IDs must not preserve results that omitted XPASS."""
+        from vllm.ci.log_parser import parse_job_results
+
+        build = self._build(state="passed", job_state="passed")
+        cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"
+        cached = _record("H100: Engine tests", build_num=84160, job_id="job-1")
+        cached.update(pipeline="ci", date="2026-08-17", status="xfailed")
+        cached["name"] = "__xfailed__ (1)"
+        cached.pop("parser_version")
+        _write_jsonl(cached_path, [cached])
+        parsed = parse_job_results(
+            build["jobs"][0], 84160, "ci", "2026-08-17",
+            log_text="=== 1 xfailed, 2 xpassed, 34 warnings in 354.38s ===",
+        )
+
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[build]),
+            patch("collect_ci.fetch_build_detail", return_value=build.copy()),
+            patch("collect_ci.parse_job_results", return_value=parsed) as parse_results,
+        ):
+            _, first = collect_pipeline("upstream", 8, tmp_path)
+            _, second = collect_pipeline("upstream", 8, tmp_path)
+
+        parse_results.assert_called_once()
+        assert first == second == {84160: parsed}
+        assert {row.status for row in second[84160]} == {"xpassed", "xfailed"}
+        assert all(
+            json.loads(line)["parser_version"] == TEST_RESULT_PARSER_VERSION
+            for line in cached_path.read_text().splitlines()
+        )
 
     def test_terminal_running_terminal_lifecycle_publishes_only_new_attempt(self, tmp_path):
         cached_path = tmp_path / "test_results" / "2026-08-17_upstream.jsonl"

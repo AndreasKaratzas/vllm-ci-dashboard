@@ -5,6 +5,8 @@ from typing import Optional
 
 
 PASS_RATE_CONTRACT_VERSION = 1
+# Bump when parsing changes require current-build caches to be refreshed.
+TEST_RESULT_PARSER_VERSION = 1
 TEST_PASS_RATE_BASIS = "pytest_assertions_excluding_skipped"
 OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS = (
     "unique logical test-group identities observed in this build; "
@@ -41,6 +43,7 @@ class TestResult:
     node: str = ""         # physical CI agent hostname parsed from the job log
                            # "Node:" line (e.g. "chi-mi325x-pod2-032"); "" when
                            # the log did not expose an identifiable node.
+    parser_version: int = TEST_RESULT_PARSER_VERSION
 
     def to_dict(self) -> dict:
         return {
@@ -57,6 +60,7 @@ class TestResult:
             "pipeline": self.pipeline,
             "date": self.date,
             "node": self.node,
+            "parser_version": self.parser_version,
         }
 
 

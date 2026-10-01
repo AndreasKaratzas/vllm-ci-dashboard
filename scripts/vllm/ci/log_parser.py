@@ -309,6 +309,22 @@ def parse_pytest_log(
             date=date,
         ))
 
+    if xpassed > 0:
+        results.append(TestResult(
+            test_id=f"{job_name}::__xpassed__",
+            name=f"__xpassed__ ({xpassed})",
+            classname=job_name,
+            status="xpassed",
+            duration_secs=total_duration if passed == 0 else 0.0,
+            failure_message="",
+            job_name=job_name,
+            job_id=job_id,
+            step_id=step_id,
+            build_number=build_number,
+            pipeline=pipeline,
+            date=date,
+        ))
+
     # Skipped
     if skipped > 0:
         results.append(TestResult(
@@ -431,7 +447,7 @@ def parse_job_results(
                         if r.status not in ("failed", "error")
                     ]
                     # If no passed entry exists, add a job-level pass
-                    if not any(r.status == "passed" for r in results):
+                    if not any(r.status in ("passed", "xpassed") for r in results):
                         results.append(TestResult(
                             test_id=f"{job_name}::__job_level__",
                             name="__job_level__",

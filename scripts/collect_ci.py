@@ -35,6 +35,7 @@ from vllm.ci.buildkite_client import (
 )
 from vllm.ci.backfill_checkpoint import (
     BackfillCheckpointError,
+    cached_result_parser_version,
     record_complete_shard,
     restore_complete_shards,
 )
@@ -74,7 +75,12 @@ from vllm.ci.reporter import (
     write_quarantine_report,
     write_test_results,
 )
-from vllm.ci.models import PASS_RATE_CONTRACT_VERSION, BuildSummary, TestResult
+from vllm.ci.models import (
+    PASS_RATE_CONTRACT_VERSION,
+    TEST_RESULT_PARSER_VERSION,
+    BuildSummary,
+    TestResult,
+)
 from vllm.pipelines import PIPELINES as VLLM_PIPELINES, BK_ORG as VLLM_ORG, SKIP_JOB_PATTERNS
 
 logging.basicConfig(
@@ -206,6 +212,7 @@ def load_existing_results(results_dir: Path) -> list[tuple[int, str, list[TestRe
                     continue
                 d = json.loads(line)
                 d.setdefault("step_id", "")
+                d.setdefault("parser_version", 0)
                 results.append(TestResult(**d))
 
         if results:
@@ -227,6 +234,7 @@ def _load_cached_results(jsonl_path: Path) -> list[TestResult]:
             if line:
                 d = json.loads(line)
                 d.setdefault("step_id", "")
+                d.setdefault("parser_version", 0)
                 loaded.append(TestResult(**d))
     return loaded
 
@@ -647,10 +655,10 @@ def _cache_covers_all_jobs(
             # the cache. Next cron tick will try again.
             log.warning(
                 "  Build #%d: couldn't fetch detail to verify cache "
-                "coverage (%s) — assuming cache is complete",
+                "coverage (%s) — retaining only current-parser cache",
                 build_num, e,
             )
-            return True
+            return cached_result_parser_version(jsonl_path) == TEST_RESULT_PARSER_VERSION
 
     roster_jobs = _nightly_test_jobs(build)
     if not roster_jobs:
@@ -710,6 +718,9 @@ def _cache_covers_all_jobs(
             len(missing_ids) + len(missing_names),
             ", ".join(sample),
         )
+        return False
+    if test_jobs and cached_result_parser_version(jsonl_path) != TEST_RESULT_PARSER_VERSION:
+        log.info("  Build #%d: cached results need the current log parser", build_num)
         return False
     return True
 
@@ -867,7 +878,7 @@ def collect_pipeline(
                 existing_dates.discard(date)
                 log.warning(
                     "  Build #%d (%s): invalidated cached canonical JSONL "
-                    "because active job attempts changed",
+                    "because job attempts or the log parser changed",
                     build_num,
                     date,
                 )

@@ -199,21 +199,51 @@ def load_or_reset(root: Path) -> dict[str, Any]:
         return _empty(root)
 
 
+def cached_result_parser_version(path: Path) -> int:
+    """Return the oldest parser version in a shard, or zero for legacy rows."""
+    minimum = None
+    try:
+        with path.open("rb") as handle:
+            for raw_line in handle:
+                if not raw_line.strip():
+                    continue
+                row = _decode_json(raw_line, label=f"cached shard {path.name}")
+                if not isinstance(row, dict):
+                    return 0
+                version = row.get("parser_version", 0)
+                if (
+                    isinstance(version, bool)
+                    or not isinstance(version, int)
+                    or version < 0
+                ):
+                    return 0
+                minimum = version if minimum is None else min(minimum, version)
+    except (OSError, BackfillCheckpointError):
+        return 0
+    return minimum if minimum is not None else 0
+
+
 def restore_complete_shards(root: Path, results_dir: Path) -> int:
     manifest = load_or_reset(root)
     results_dir.mkdir(parents=True, exist_ok=True)
     restored = 0
     for name, descriptor in manifest["shards"].items():
         destination = results_dir / name
+        source = root / SHARD_DIR / name
         if destination.exists() and destination.is_file() and not destination.is_symlink():
             try:
                 existing = _validate_shard(destination, name)
             except BackfillCheckpointError:
                 existing = None
             if existing is not None:
-                if existing["build_number"] >= descriptor["build_number"]:
+                if existing["build_number"] > descriptor["build_number"]:
                     continue
-        source = root / SHARD_DIR / name
+                if (
+                    existing["build_number"] == descriptor["build_number"]
+                    and cached_result_parser_version(destination)
+                    >= cached_result_parser_version(source)
+                ):
+                    continue
         temporary = destination.with_name(f".{destination.name}.backfill")
         shutil.copyfile(source, temporary)
         os.replace(temporary, destination)
