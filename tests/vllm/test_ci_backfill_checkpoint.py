@@ -15,15 +15,18 @@ def write_shard(
     build_number: int,
     pipeline: str = "amd",
     rows: int = 2,
+    parser_version: int | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     slug = "amd-ci" if pipeline == "amd" else "ci"
+    version = {"parser_version": parser_version} if parser_version is not None else {}
     payload = "".join(
         json.dumps(
             {
                 "pipeline": slug,
                 "build_number": build_number,
                 "job_id": f"job-{build_number}-{index}",
+                **version,
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -67,6 +70,49 @@ def test_progress_never_regresses_and_corrupt_restore_is_reset(tmp_path: Path) -
     reset = checkpoint.load_or_reset(root)
     assert reset["shards"] == {}
     assert checkpoint.validate(root) == {"shards": 0, "bytes": 0}
+
+
+@pytest.mark.parametrize(
+    ("existing_build", "existing_parser", "checkpoint_parser", "restored"),
+    [
+        (200, None, 1, 1),
+        (200, 1, None, 0),
+        (200, 1, 1, 0),
+        (201, None, 1, 0),
+        (199, 1, None, 1),
+    ],
+)
+def test_restore_preserves_parser_migration_progress_without_regressing_builds(
+    tmp_path: Path, existing_build, existing_parser, checkpoint_parser, restored,
+) -> None:
+    root = tmp_path / "checkpoint"
+    source = tmp_path / "parsed" / "2026-09-01_amd.jsonl"
+    write_shard(source, build_number=200, parser_version=checkpoint_parser)
+    checkpoint.record_complete_shard(root, source)
+    results_dir = tmp_path / "restored-public"
+    destination = results_dir / source.name
+    write_shard(
+        destination, build_number=existing_build, parser_version=existing_parser,
+    )
+    previous = destination.read_bytes()
+
+    assert checkpoint.restore_complete_shards(root, results_dir) == restored
+    assert destination.read_bytes() == (source.read_bytes() if restored else previous)
+
+
+@pytest.mark.parametrize(
+    ("versions", "expected"),
+    [([2, 1], 1), ([1, None], 0), ([1, "1"], 0), ([1, True], 0)],
+)
+def test_parser_generation_requires_every_cached_row(
+    tmp_path: Path, versions, expected,
+):
+    shard = tmp_path / "results.jsonl"
+    shard.write_text("".join(
+        json.dumps({"parser_version": version} if version is not None else {}) + "\n"
+        for version in versions
+    ))
+    assert checkpoint.cached_result_parser_version(shard) == expected
 
 
 def test_partial_or_wrong_pipeline_shard_is_never_checkpointed(tmp_path: Path) -> None:

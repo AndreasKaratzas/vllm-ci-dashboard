@@ -673,6 +673,11 @@ def _compute_job_group_parity(
                 g["passed"] += count
                 g["total"] += count
                 g["duration"] += r.duration_secs
+            elif r.name.startswith("__xpassed__"):
+                count = _extract_count(r.name)
+                g["xpassed"] += count
+                g["total"] += count
+                g["duration"] += r.duration_secs
             elif r.name.startswith("__skipped__"):
                 count = _extract_count(r.name)
                 g["skipped"] += count

@@ -88,8 +88,10 @@ class TestGroupCountCorrectness:
         label-only aggregation can therefore merge two GPU-count-distinct
         definitions that happen to have the same display label.  Reconstruct
         the expected same-build totals from the commit-pinned definition-family
-        assignments and matrix observations so that this cannot silently lower
-        either the total or the any-hardware passing count.
+        assignments and exact-build test results so that this cannot silently
+        lower either the total or the any-hardware passing count. Matrix job
+        states cannot establish test health: a passed job can contain only
+        skipped tests.
         """
         health = _load_json("ci_health.json")
         definition_parity = _load_json("config_parity.json")
@@ -119,7 +121,11 @@ class TestGroupCountCorrectness:
         if str(runtime_build or "") != str(matrix_build or ""):
             pytest.skip("AMD matrix and latest test signal use different builds")
 
-        from vllm.ci.analyzer import _normalize_job_name
+        from vllm.ci.analyzer import (
+            _JOB_PREFIX_RE,
+            _extract_hardware,
+            _normalize_job_name,
+        )
 
         family_rows = []
         for section in (
@@ -180,7 +186,7 @@ class TestGroupCountCorrectness:
             f"{ambiguous_definition_keys}"
         )
 
-        states_by_family = defaultdict(list)
+        matrix_families = set()
         missing_definition_keys = set()
         for group in matrix.get("health_groups", []):
             for member in group.get("members", []):
@@ -194,21 +200,67 @@ class TestGroupCountCorrectness:
                         missing_definition_keys.add(key)
                         continue
                     family = next(iter(families))
-                    states_by_family[family].append(variant.get("state"))
+                    matrix_families.add(family)
 
         assert not missing_definition_keys, (
             "Matrix variants lack definition-family assignments: "
             f"{sorted(missing_definition_keys)}"
         )
-        assert set(states_by_family) == all_families, (
+        assert matrix_families == all_families, (
             "Commit-aligned matrix does not cover every AMD identity family; "
-            f"missing={sorted(all_families - set(states_by_family))}, "
+            f"missing={sorted(all_families - matrix_families)}, "
+            f"extra={sorted(matrix_families - all_families)}"
+        )
+
+        states_by_family = defaultdict(lambda: defaultdict(set))
+        missing_result_keys = set()
+        passing_states = {"passed", "xpassed"}
+        failing_states = {"failed", "error"}
+        observed_states = passing_states | failing_states | {
+            "canceled", "skipped", "xfailed",
+        }
+        for path in sorted((DATA / "test_results").glob("*_amd.jsonl")):
+            with path.open() as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    result = json.loads(line)
+                    if str(result.get("build_number")) != str(runtime_build):
+                        continue
+                    state = result.get("status")
+                    if state not in observed_states:
+                        continue
+                    job_name = str(result.get("job_name") or "")
+                    route = _JOB_PREFIX_RE.match(job_name)
+                    key = (
+                        route.group(1).casefold() if route else "",
+                        _normalize_job_name(job_name),
+                    )
+                    families = families_by_definition.get(key, set())
+                    if not families:
+                        missing_result_keys.add(key)
+                        continue
+                    family = next(iter(families))
+                    hardware = _extract_hardware(job_name)
+                    states_by_family[family][hardware].add(state)
+
+        assert not missing_result_keys, (
+            "AMD test results lack definition-family assignments: "
+            f"{sorted(missing_result_keys)}"
+        )
+        assert set(states_by_family) == all_families, (
+            f"AMD build {runtime_build} test results do not cover every identity "
+            f"family; missing={sorted(all_families - set(states_by_family))}, "
             f"extra={sorted(set(states_by_family) - all_families)}"
         )
 
         expected_total = len(all_families)
         expected_passing = sum(
-            "passed" in states for states in states_by_family.values()
+            any(
+                states & passing_states and not states & failing_states
+                for states in hardware_states.values()
+            )
+            for hardware_states in states_by_family.values()
         )
         runtime_total = latest.get("unique_test_groups")
         runtime_passing = latest.get("test_groups_passing_or")
@@ -224,8 +276,8 @@ class TestGroupCountCorrectness:
             f"groups.{collision_hint}"
         )
         assert runtime_passing == expected_passing, (
-            f"Commit-aligned matrix has {expected_passing} identity families "
-            f"passing on at least one AMD route but ci_health reports "
+            f"AMD build {runtime_build} test results have {expected_passing} "
+            f"identity families passing on at least one hardware but ci_health reports "
             f"{runtime_passing}.{collision_hint}"
         )
 
@@ -334,6 +386,114 @@ class TestGroupCountCorrectness:
                 assert ci_val == jsonl_val, (
                     f"{hw}.{field}: ci_health={ci_val}, JSONL={jsonl_val}"
                 )
+
+
+@pytest.fixture
+def aligned_definition_audit(tmp_path, monkeypatch):
+    """Keep source identities fixed while varying exact-build test evidence."""
+    from vllm.ci import analyzer
+
+    monkeypatch.setattr(sys.modules[__name__], "DATA", tmp_path)
+    monkeypatch.setattr(analyzer, "_SHARD_BASES", ["shared"])
+    latest = {
+        "build_number": 500,
+        "commit": "a" * 40,
+        "unique_test_groups": 2,
+        "test_groups_passing_or": 1,
+    }
+    routes = [
+        ("mi300_1", ":amd: (MI300) Shared %N", "shared (1 gpu)"),
+        ("mi355_dpx", ":amd: (MI355 DPX) Shared %N", "shared (1 gpu)"),
+        ("mi300_2", ":amd: (MI300) Shared %N", "shared (2 gpus)"),
+    ]
+    payloads = {
+        "ci_health": {"amd": {"latest_test_signal_build": latest}},
+        "config_parity": {
+            "source": {"commit_sha": "a" * 40},
+            "summary": {"amd_identity_families": 2},
+            "amd_only": [
+                {"agent_pool": pool, "label": label,
+                 "amd_identity_family_key": family}
+                for pool, label, family in routes
+            ],
+        },
+        "amd_test_matrix": {
+            "source": {"latest_build_number": 500},
+            "health_groups": [{"members": [{"variants": [
+                {"agent_pool": pool, "label": label, "state": "passed"}
+                for pool, label, _family in routes
+            ]}]}],
+        },
+    }
+    results = [
+        {"build_number": 500, "job_name": f"{pool}: Shared {shard}",
+         "status": status}
+        for pool, shard, status in (
+            ("mi300_1", 1, "passed"),
+            ("mi300_1", 2, "passed"),
+            ("mi355_dpx", 1, "skipped"),
+            ("mi300_2", 1, "skipped"),
+        )
+    ]
+    results_dir = tmp_path / "test_results"
+    results_dir.mkdir()
+    (results_dir / "2026-10-01_amd.jsonl").write_text(json.dumps({
+        "build_number": 501, "job_name": "mi300_1: Unrelated", "status": "passed",
+    }) + "\n")
+
+    def audit():
+        for name, payload in payloads.items():
+            (tmp_path / f"{name}.json").write_text(json.dumps(payload))
+        (results_dir / "2026-09-30_amd.jsonl").write_text(
+            "".join(json.dumps(result) + "\n" for result in results)
+        )
+        validator = TestGroupCountCorrectness()
+        validator.test_commit_aligned_definition_families_match_runtime_groups()
+
+    return latest, results, audit
+
+
+@pytest.mark.parametrize(("statuses", "passing"), [
+    (("passed", "passed", "skipped"), 1),
+    (("passed", "error", "skipped"), 0),
+    (("passed", "failed", "xpassed"), 1),
+    (("canceled", "skipped", "xfailed"), 0),
+])
+def test_definition_audit_uses_test_signal_instead_of_job_passes(
+    aligned_definition_audit, statuses, passing,
+):
+    """Skip-only jobs cannot pass; failed shards need another passing hardware."""
+    latest, results, audit = aligned_definition_audit
+    latest["test_groups_passing_or"] = passing
+    for result, status in zip(results, statuses):
+        result["status"] = status
+    audit()
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("unique_test_groups", 1, "latest unique test groups"),
+    ("test_groups_passing_or", 2, "ci_health reports 2"),
+])
+def test_definition_audit_rejects_incorrect_runtime_counts(
+    aligned_definition_audit, field, value, message,
+):
+    latest, _results, audit = aligned_definition_audit
+    latest[field] = value
+    with pytest.raises(AssertionError, match=message):
+        audit()
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("build_number", 501, "do not cover every identity family"),
+    ("job_name", "mi300_8: Shared 1", "lack definition-family assignments"),
+])
+def test_definition_audit_requires_exact_build_and_source_routes(
+    aligned_definition_audit, field, value, message,
+):
+    _latest, results, audit = aligned_definition_audit
+    results[-1][field] = value
+    with pytest.raises(AssertionError, match=message):
+        audit()
 
 
 @pytest.mark.live_data
@@ -1070,6 +1230,47 @@ class TestSkipPatternsRobust:
                 assert pattern not in lower, (
                     f"SKIP_JOB_PATTERNS '{pattern}' matches upstream group '{group}'"
                 )
+
+
+@pytest.mark.parametrize(("summary_text", "expected"), [
+    ("1 xfailed, 2 xpassed, 34 warnings", {"xfailed": 1, "xpassed": 2}),
+    ("2 xpassed", {"xpassed": 2}),
+    ("3 passed, 2 xpassed", {"passed": 3, "xpassed": 2}),
+    ("1 failed, 2 xpassed", {"xpassed": 2}),
+    ("2 xfailed", {"xfailed": 2}),
+])
+def test_pytest_summary_preserves_xpass_counts(summary_text, expected):
+    """The build 13954 XPASS summary must retain real passing test evidence."""
+    from vllm.ci.analyzer import compute_build_summary, compute_parity
+    from vllm.ci.log_parser import parse_job_results
+
+    job = {
+        "id": "job",
+        "name": "mi300_2: :amd: (MI300) Model Runner V2 Distributed",
+        "state": "passed",
+    }
+    results = parse_job_results(
+        job, 13954, "amd-ci", "2026-10-01",
+        log_text=(
+            "\x1b_bk;t=1790848161565\x07\x1b[33m==== "
+            f"{summary_text} in 354.38s (0:05:54) ====\x1b[0m"
+        ),
+    )
+    assert sorted((result.status, result.name) for result in results) == sorted(
+        (status, f"__{status}__ ({count})") for status, count in expected.items()
+    )
+    summary = compute_build_summary({"number": 13954, "jobs": [job]}, results, "amd")
+    assert summary.passed == expected.get("passed", 0) + expected.get("xpassed", 0)
+    assert summary.skipped == expected.get("skipped", 0) + expected.get("xfailed", 0)
+    assert summary.unique_test_groups == 1
+    assert summary.test_groups_passing_or == int(summary.passed > 0)
+    if summary.passed:
+        assert summary.duration_secs == 354.4
+    parity = compute_parity(results, [])["job_groups"][0]["amd"]
+    assert parity["passed"] == expected.get("passed", 0)
+    assert parity["xpassed"] == expected.get("xpassed", 0)
+    assert parity["total"] == sum(expected.values())
+    assert parity["duration"] == (354.38 if summary.passed else 0.0)
 
 
 @pytest.mark.live_data
