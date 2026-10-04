@@ -1,0 +1,47 @@
+{
+  "pass_rate_contract_version": 1,
+  "collected_at": "2026-10-04T02:24:41Z",
+  "source": "buildkite",
+  "rocm": {
+    "workflow_name": "AMD Nightly (Buildkite)",
+    "run_url": "https://buildkite.com/vllm/amd-ci/builds/14043",
+    "run_date": "2026-10-03T09:00:00.424Z",
+    "conclusion": "success",
+    "summary": {
+      "total_jobs": 327,
+      "passed": 327,
+      "failed": 0,
+      "skipped": 0,
+      "pass_rate": 100.0,
+      "test_pass_rate_pct": 100.0,
+      "test_pass_rate_basis": "pytest_assertions_excluding_skipped",
+      "test_assertions": {
+        "total": 63515,
+        "passed": 50127,
+        "failed": 0,
+        "skipped": 13388
+      }
+    }
+  },
+  "cuda": {
+    "workflow_name": "Upstream Nightly (Buildkite)",
+    "run_url": "https://buildkite.com/vllm/ci/builds/92561",
+    "run_date": "2026-10-02T06:00:04.328Z",
+    "conclusion": "success",
+    "summary": {
+      "total_jobs": 486,
+      "passed": 476,
+      "failed": 9,
+      "skipped": 0,
+      "pass_rate": 100.0,
+      "test_pass_rate_pct": 100.0,
+      "test_pass_rate_basis": "pytest_assertions_excluding_skipped",
+      "test_assertions": {
+        "total": 125815,
+        "passed": 97902,
+        "failed": 9,
+        "skipped": 27904
+      }
+    }
+  }
+}
