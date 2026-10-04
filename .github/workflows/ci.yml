@@ -1,0 +1,311 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dev dependencies
+        run: pip install -c constraints.txt -e ".[dev]"
+
+      - name: Enforce tracked Git blob budget
+        run: python scripts/vllm/check_git_blob_sizes.py --root .
+
+      - name: Enforce composed dashboard-state budget
+        run: python scripts/vllm/check_dashboard_state_storage_budget.py --root .
+
+      - name: Ruff lint
+        run: ruff check scripts tests
+
+      - name: Mypy (strict on scripts/vllm/ci)
+        run: mypy scripts/vllm/ci
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22.23.2'
+          cache: 'npm'
+          cache-dependency-path: tools/spellcheck/package-lock.json
+
+      - name: Install cspell
+        run: npm ci --prefix tools/spellcheck --ignore-scripts --no-audit --no-fund
+
+      - name: Spellcheck (cspell)
+        run: |
+          tools/spellcheck/node_modules/.bin/cspell --no-progress --no-summary \
+            "scripts/**/*.py" "tests/**/*.py" \
+            "docs/assets/js/*.js" "docs/*.html" \
+            "README.md" "dashboards/**/*.md" \
+            ".github/workflows/*.yml"
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt -e ".[dev]"
+
+      - name: Run tests
+        id: run-tests
+        run: |
+          set -o pipefail
+          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
+
+      - name: Comment test results on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.existsSync('test-output.txt')
+              ? fs.readFileSync('test-output.txt', 'utf8')
+              : 'Pytest did not produce test-output.txt.';
+            const lines = output.split('\n');
+
+            // Pytest writes its aggregate result at the end. Search backwards
+            // for a numeric outcome so a test name containing "passed" cannot
+            // be mistaken for the terminal summary.
+            const outcomePattern = /\b\d+\s+(?:passed|failed|errors?|skipped|xfailed|xpassed|deselected|warnings?)\b/i;
+            const summary = [...lines].reverse().find(line => outcomePattern.test(line))
+              || 'No terminal pytest summary found';
+            const count = pattern => Number((summary.match(new RegExp(`\\b(\\d+)\\s+${pattern}\\b`, 'i')) || [,'0'])[1]);
+            const passed = count('passed');
+            const failed = count('failed');
+            const errors = count('errors?');
+            const skipped = count('skipped');
+            const stepFailed = '${{ steps.run-tests.outcome }}' !== 'success';
+            const hasFailures = stepFailed || failed > 0 || errors > 0;
+
+            const icon = hasFailures ? '❌' : '✅';
+            const status = hasFailures ? 'FAILED' : 'PASSED';
+
+            let body = `## ${icon} CI Tests ${status}\n\n`;
+            body += `| Passed | Failed | Errors | Skipped |\n|--------|--------|--------|---------|\n`;
+            body += `| ${passed} | ${failed} | ${errors} | ${skipped} |\n\n`;
+
+            if (hasFailures) {
+              // Show failed test details
+              const failures = lines.filter(l => l.includes('FAILED'));
+              if (failures.length) {
+                body += `### Failed Tests\n\`\`\`\n${failures.join('\n')}\n\`\`\`\n`;
+              }
+            }
+
+            body += `\n<details><summary>Full output</summary>\n\n\`\`\`\n${output.slice(-3000)}\n\`\`\`\n</details>`;
+
+            const prNum = context.payload.pull_request.number;
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: prNum
+            });
+            const existing = comments.data.find(c => c.body?.includes('CI Tests'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNum, body
+              });
+            }
+
+  validate-frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check JS brace balance
+        run: |
+          FAIL=0
+          for f in docs/assets/js/*.js; do
+            OPEN=$(grep -o '{' "$f" | wc -l)
+            CLOSE=$(grep -o '}' "$f" | wc -l)
+            if [ "$OPEN" -ne "$CLOSE" ]; then
+              echo "❌ $f: $OPEN { vs $CLOSE }"
+              FAIL=1
+            else
+              echo "✅ $f: balanced ($OPEN)"
+            fi
+          done
+          exit $FAIL
+
+      - name: Check required files exist
+        run: |
+          for f in docs/index.html docs/assets/css/dashboard.css \
+                   docs/assets/css/ops-v2.css docs/assets/js/utils.js \
+                   docs/assets/js/publication-status.js \
+                   docs/assets/js/dashboard-nav.js docs/assets/js/ops-v2.js; do
+            if [ ! -f "$f" ]; then
+              echo "❌ Missing: $f"
+              exit 1
+            fi
+            echo "✅ $f exists"
+          done
+
+      - name: Validate HTML structure
+        run: |
+          # Check that index.html has all required elements (static or dynamically registered)
+          for id in sidebar main-content parity-view; do
+            if ! grep -q "id=\"$id\"" docs/index.html; then
+              echo "❌ Missing element: #$id"
+              exit 1
+            fi
+            echo "✅ #$id present (HTML)"
+          done
+          # CI views are dynamically created by registerCISection() in utils.js
+          for id in ci-health ci-analytics ci-queue; do
+            if ! grep -q "id: '$id'" docs/assets/js/utils.js; then
+              echo "❌ Missing CI tab registration: $id"
+              exit 1
+            fi
+            echo "✅ #$id-view registered (JS)"
+          done
+
+  validate-data:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Validate JSON files
+        run: |
+          FAIL=0
+          for f in $(find data/ -name '*.json' -size +0c 2>/dev/null | head -50); do
+            if ! python3 -m json.tool "$f" > /dev/null 2>&1; then
+              echo "❌ Invalid JSON: $f"
+              FAIL=1
+            fi
+          done
+          if [ $FAIL -eq 1 ]; then exit 1; fi
+          echo "✅ All JSON files valid"
+
+      - name: Check CI data schema
+        run: |
+          python3 -c "
+          import json, sys
+          errors = []
+
+          # Validate ci_health.json
+          try:
+              d = json.load(open('data/vllm/ci/ci_health.json'))
+              if 'amd' not in d:
+                  errors.append('ci_health.json: missing amd key')
+              elif 'latest_build' not in d['amd']:
+                  errors.append('ci_health.json: missing amd.latest_build')
+              else:
+                  lb = d['amd']['latest_build']
+                  for f in ['total_tests','passed','failed','pass_rate']:
+                      if f not in lb:
+                          errors.append(f'ci_health.json: missing amd.latest_build.{f}')
+          except FileNotFoundError:
+              print('⚠️  ci_health.json not found (skipping)')
+          except Exception as e:
+              errors.append(f'ci_health.json: {e}')
+
+          # Validate parity_report.json
+          try:
+              d = json.load(open('data/vllm/ci/parity_report.json'))
+              if 'job_groups' not in d:
+                  errors.append('parity_report.json: missing job_groups')
+              elif len(d['job_groups']) == 0:
+                  errors.append('parity_report.json: job_groups is empty')
+          except FileNotFoundError:
+              print('⚠️  parity_report.json not found (skipping)')
+          except Exception as e:
+              errors.append(f'parity_report.json: {e}')
+
+          if errors:
+              for e in errors:
+                  print(f'❌ {e}')
+              sys.exit(1)
+          else:
+              print('✅ CI data schema valid')
+          "
+
+  e2e-smoke:
+    # End-to-end: assemble the exact public site, render every public route in
+    # Chromium with current generated data, and fail on browser/runtime errors.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dashboard build dependencies
+        run: pip install -c constraints.txt requests pyyaml
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22.23.2'
+          package-manager-cache: false
+
+      - name: Parse JS files with node --check
+        run: |
+          FAIL=0
+          for f in docs/assets/js/*.js; do
+            if ! node --check "$f" 2>&1; then
+              echo "❌ Syntax error in $f"
+              FAIL=1
+            else
+              echo "✅ $f parses"
+            fi
+          done
+          exit $FAIL
+
+      - name: Install browser smoke dependencies
+        working-directory: tests/browser
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: tests/browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run dashboard browser smoke
+        working-directory: tests/browser
+        run: npm test
+
+      - name: Upload browser traces on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dashboard-browser-traces
+          path: tests/browser/test-results
+          if-no-files-found: ignore
+          retention-days: 7
