@@ -622,6 +622,36 @@ def _remove_cache_tree(path: Path) -> None:
     path.rmdir()
 
 
+def _retire_legacy_partition(cache_dir: Path) -> int:
+    """Remove only the inactive AMD side-pipeline's private cache paths."""
+    removed_bytes = 0
+    for name in ("amd-ci.json", "amd-ci.shards"):
+        path = cache_dir / name
+        if path.exists() or path.is_symlink():
+            removed_bytes += _tree_bytes(path)
+            _remove_cache_tree(path)
+    return removed_bytes
+
+
+def _bounded_recent_builds(builds: list[dict], available_bytes: int) -> list[dict]:
+    """Keep whole creation-time groups, preserving one exhaustive recent interval."""
+    retained = []
+    used_bytes = 0
+    index = 0
+    while index < len(builds):
+        end = index + 1
+        while end < len(builds) and builds[end]["created_at"] == builds[index]["created_at"]:
+            end += 1
+        group = builds[index:end]
+        group_bytes = sum(len(_canonical_json(build)) for build in group)
+        if used_bytes + group_bytes > available_bytes:
+            break
+        retained.extend(group)
+        used_bytes += group_bytes
+        index = end
+    return retained
+
+
 def _rollback_uncommitted_generation(
     cache_dir: Path,
     pipeline: str,
@@ -780,12 +810,16 @@ def write_build_cache(
     last_full_at: datetime,
     updated_at: datetime,
     complete_from: datetime | None = None,
+    current_only: bool = False,
+    diagnostics: dict | None = None,
 ) -> Path:
     """Atomically write one validated private pipeline cache.
 
     Small projections retain the original single-file representation. Larger
     projections use content-addressed generation shards and publish their
     manifest last, so a failed write cannot invalidate the prior generation.
+    Current-only CI writes retire the inactive side-pipeline and, if necessary,
+    retain a complete recent interval within the same aggregate byte limit.
     """
     path = _cache_path(cache_dir, pipeline)
     watermark = _utc(watermark, "watermark")
@@ -823,10 +857,59 @@ def write_build_cache(
     if path.parent.is_symlink() or not path.parent.is_dir():
         raise CacheValidationError("unsafe_cache_path", "cache directory is unsafe")
 
+    if current_only and pipeline != "ci":
+        raise CacheValidationError("pipeline_mismatch", "current-only cache must use ci")
+    storage = diagnostics if diagnostics is not None else {}
+    if current_only:
+        storage["retired_bytes_removed"] = _retire_legacy_partition(path.parent)
     other_bytes = _other_pipeline_bytes(path.parent, pipeline)
+
+    def ensure_capacity(active_bytes: int) -> Path | None:
+        storage.update({
+            "active_bytes": active_bytes,
+            "other_bytes": other_bytes,
+            "aggregate_bytes": other_bytes + active_bytes,
+            "max_aggregate_bytes": _MAX_CACHE_TOTAL_BYTES,
+            "retained_builds": len(projected),
+            "complete_from": complete_from_text,
+        })
+        if other_bytes + active_bytes <= _MAX_CACHE_TOTAL_BYTES:
+            return None
+        if current_only:
+            # The complete representation's real framing cost bounds the
+            # smaller one, with additional room for descriptor/count changes.
+            framing_bytes = active_bytes - sum(
+                len(_canonical_json(build)) for build in projected
+            )
+            retained = _bounded_recent_builds(
+                projected,
+                _MAX_CACHE_TOTAL_BYTES - other_bytes - framing_bytes - 1024,
+            )
+            if retained and len(retained) < len(projected):
+                retained_from = _parse_timestamp(
+                    retained[-1]["created_at"], "retained.created_at", required=True,
+                )
+                assert retained_from is not None
+                if retained_from <= watermark:
+                    storage["original_active_bytes"] = active_bytes
+                    storage["builds_removed"] = len(projected) - len(retained)
+                    return write_build_cache(
+                        cache_dir,
+                        pipeline,
+                        builds=retained,
+                        watermark=watermark,
+                        window_days=window_days,
+                        last_full_at=last_full_at,
+                        updated_at=updated_at,
+                        complete_from=retained_from,
+                        diagnostics=storage,
+                    )
+        raise CacheValidationError("oversize", "aggregate cache exceeds safety limit")
+
     if len(monolith) < _MAX_CACHE_BYTES:
-        if other_bytes + len(monolith) > _MAX_CACHE_TOTAL_BYTES:
-            raise CacheValidationError("oversize", "aggregate cache exceeds safety limit")
+        bounded_path = ensure_capacity(len(monolith))
+        if bounded_path is not None:
+            return bounded_path
         _atomic_write(path, monolith)
         _cleanup_pipeline_shards(path.parent, pipeline, keep_generation=None)
         return path
@@ -865,8 +948,9 @@ def write_build_cache(
     active_bytes = len(serialized_manifest) + sum(
         len(serialized_chunk) for _, serialized_chunk in chunks
     )
-    if active_bytes > _MAX_CACHE_TOTAL_BYTES or other_bytes + active_bytes > _MAX_CACHE_TOTAL_BYTES:
-        raise CacheValidationError("oversize", "aggregate cache exceeds safety limit")
+    bounded_path = ensure_capacity(active_bytes)
+    if bounded_path is not None:
+        return bounded_path
 
     previous_generation = _recognized_manifest_generation(path, pipeline)
     # Discard generations left unreferenced by an older interrupted writer
@@ -1101,6 +1185,7 @@ def load_build_cache(
     cutoff: datetime,
     window_days: int,
     ref_now: datetime,
+    allow_partial_coverage: bool = False,
 ) -> CacheLoad:
     """Load a cache hit, or return a miss/invalid diagnostic without data."""
     cutoff = _utc(cutoff, "cutoff")
@@ -1174,7 +1259,7 @@ def load_build_cache(
             raise CacheValidationError("expired")
         if window_days > stored_window:
             raise CacheValidationError("window_expansion")
-        if cutoff < complete_from:
+        if cutoff < complete_from and not allow_partial_coverage:
             raise CacheValidationError("coverage_gap")
 
         builds = sanitize_builds(build_rows, pipeline)
@@ -1200,7 +1285,7 @@ def load_build_cache(
             raise CacheValidationError("coverage_violation")
         return CacheLoad(
             status="hit",
-            reason="ok",
+            reason="partial_coverage" if cutoff < complete_from else "ok",
             builds=builds,
             watermark=watermark,
             last_full_at=last_full_at,

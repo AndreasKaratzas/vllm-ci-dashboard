@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import subprocess
@@ -47,6 +48,204 @@ def test_surface_contract_version_has_one_owner() -> None:
         audit_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
     )
+
+
+def test_failed_selector_retains_pre_fallback_ci_evidence_and_both_finding_lanes(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    source = repo / selector_module.CI_HEALTH_PATH
+    source.parent.mkdir(parents=True)
+    def health(number):
+        return {"amd": {"latest_test_signal_build": {
+            "build_number": number, "branch": "main", "state": "failed",
+            "commit": "a" * 40,
+            "build_url": f"https://buildkite.com/vllm/ci/builds/{number}",
+            "unique_test_groups": 225, "agent_id": "private-agent-identity",
+            "raw_log": "private-raw-log", "token": "private-secret",
+        }}}
+    source.write_text(json.dumps(health(100)))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated historical health")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    source.write_text(json.dumps(health(200)))
+    specs = {"ci_core": SurfaceSpec(required_paths=(selector_module.CI_HEALTH_PATH,))}
+    class RejectBothAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = SimpleNamespace(errors=[], degradations=[])
+        def audit_publication_surface_files(self):
+            return None
+        def run(self):
+            current = json.loads(source.read_text())["amd"]["latest_test_signal_build"]["build_number"]
+            return SimpleNamespace(errors=[Finding(
+                "error", "candidate-count-mismatch" if current == 200 else "baseline-scope-mismatch",
+                "Current CI route count is inconsistent", selector_module.CI_HEALTH_PATH,
+                {"build_number": current, "expected": 225, "actual": 215,
+                 "agent_id": "private-agent-identity", "raw_log": "private-raw-log"},
+            )], degradations=[Finding(
+                "degradation", "candidate-degraded" if current == 200 else "baseline-degraded",
+                "Current signal has incomplete coverage", selector_module.CI_HEALTH_PATH,
+            )])
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", RejectBothAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    outputs = tmp_path / "outputs.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+    artifact_path = tmp_path / "selection-diagnostics.json"
+    assert selector_module.main([
+        "--root", str(repo), "--baseline-ref", baseline,
+        "--diagnostics-output", str(artifact_path),
+    ]) == 1
+    artifact = json.loads(artifact_path.read_text())
+    assert artifact["mode"] == "blocked"
+    assert artifact["candidate_errors"][0]["code"] == "candidate-count-mismatch"
+    assert artifact["candidate_degradations"][0]["code"] == "candidate-degraded"
+    assert artifact["final_errors"][0]["code"] == "baseline-scope-mismatch"
+    assert artifact["final_degradations"][0]["code"] == "baseline-degraded"
+    captured = artifact["candidate_evidence"]["ci_health.json"]["cohorts"]["amd"]["latest_test_signal_build"]
+    assert captured["build_number"] == 200
+    assert captured["unique_test_groups"] == 225
+    assert captured["state"] == "failed"
+    assert captured["commit"] == "a" * 40
+    assert captured["pipeline_from_build_url"] == "ci"
+    assert captured["number_from_build_url"] == 200
+    assert json.loads(source.read_text())["amd"]["latest_test_signal_build"]["build_number"] == 100
+    encoded = next(line.split("=", 1)[1] for line in outputs.read_text().splitlines()
+                   if line.startswith("diagnostic_findings_b64="))
+    workflow = json.loads(base64.b64decode(encoded))
+    assert workflow["candidate_errors"][0]["context"]["build_number"] == 200
+    assert workflow["final_errors"][0]["context"]["build_number"] == 100
+    for private in ("private-agent-identity", "private-raw-log", "private-secret"):
+        assert private not in artifact_path.read_text()
+        assert private not in json.dumps(workflow)
+
+
+def test_selector_diagnostics_survive_failure_before_state_initialization(tmp_path, monkeypatch):
+    output = tmp_path / "early.json"
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    assert selector_module.main([
+        "--root", str(tmp_path), "--baseline-ref", "invalid",
+        "--diagnostics-output", str(output),
+    ]) == 1
+    diagnostics = json.loads(output.read_text())
+    assert diagnostics["exception_type"] == "ValueError"
+    assert diagnostics["candidate_errors"] == []
+    assert diagnostics["final_errors"][0]["code"] == "publication-selection-failed-before-audit"
+
+
+def test_selector_diagnostics_bound_all_lanes_without_losing_initial_findings():
+    finding = {"severity": "error", "code": "route-count-mismatch",
+               "message": "token=private-value agent_id=private-machine 10.1.2.3 " + "x" * 2000,
+               "context": {"expected": 225, "observed": 215, "agent_id": "private-machine",
+                           "raw_log": "private-value", "cache": ".cache/private"},
+               "surfaces": ["ci_core"]}
+    state = {"mode": "blocked", **{field: [finding] * 2000 for field in selector_module.DIAGNOSTIC_FINDING_FIELDS}}
+    diagnostics = {"generated_at": "2026-10-08T20:00:00Z", "_selection_state": state,
+                   "candidate_evidence": {"ci_health.json": {"latest_build_number": 93523}}}
+    for limit in (selector_module.SELECTION_DIAGNOSTICS_MAX_BYTES, selector_module.SELECTION_FINDINGS_OUTPUT_MAX_BYTES):
+        result = selector_module._bounded_selection_diagnostics(diagnostics, max_bytes=limit)
+        assert len(selector_module.pretty_json_bytes(result)) <= limit
+        for field in selector_module.DIAGNOSTIC_FINDING_FIELDS:
+            assert result[field][0]["code"] == "route-count-mismatch"
+            counts = result["retention"][field]
+            assert counts["source"] == 2000
+            assert counts["published"] > 0
+            assert counts["source"] == counts["published"] + counts["omitted"]
+        serialized = json.dumps(result)
+        for private in ("private-value", "private-machine", "10.1.2.3", ".cache/private"):
+            assert private not in serialized
+
+
+def test_candidate_ci_diagnostics_allow_source_routes_but_never_agent_or_log_fields(tmp_path):
+    data = tmp_path / "data/vllm/ci"
+    data.mkdir(parents=True)
+    matrix = {"source": {"pipeline": "ci", "commit_sha": "a" * 40,
+                         "latest_build_number": 93523, "token": "secret-source"},
+              "summary": {"configured_definition_cases": 225},
+              "rows": [{"cells": {"mi300": {"variants": [{
+                  "definition_id": ".buildkite/test_areas/core.yaml#current-main",
+                  "optional": True, "latest_matched": True,
+                  "agent_pool": "private-agent", "latest_node": "private-node",
+                  "commands": ["private-command"], "raw_log": "private-raw-log",
+              }]}}}]}
+    (data / "amd_test_matrix.json").write_text(json.dumps(matrix))
+    cache = data / ".cache"
+    cache.mkdir()
+    (cache / "private-cache").write_text("private-cache-content")
+    (data / "analytics.json").symlink_to(cache / "private-cache")
+    evidence = selector_module._candidate_ci_evidence(tmp_path)
+    assert evidence["amd_test_matrix.json"]["source"]["commit_sha"] == "a" * 40
+    assert evidence["amd_test_matrix.json"]["summary"]["configured_definition_cases"] == 225
+    assert evidence["amd_test_matrix.json"]["route_sample"][0]["definition_id"].endswith("#current-main")
+    assert evidence["analytics.json"]["readable"] is False
+    for private in ("secret-source", "private-agent", "private-node", "private-command", "private-raw-log", "private-cache-content"):
+        assert private not in json.dumps(evidence)
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_early_ci_core_diagnostic_preserves_audit_outcome_and_only_safe_facts(tmp_path, exit_code):
+    repo = tmp_path / "repo"
+    data = repo / "data/vllm/ci"
+    data.mkdir(parents=True)
+    (data / "ci_health.json").write_text(json.dumps({"amd": {"latest_test_signal_build": {
+        "build_number": 93523, "unique_test_groups": 225,
+        "build_url": "https://buildkite.com/vllm/ci/builds/93523",
+        "agent_id": "private-source-agent", "raw_log": "private-source-log",
+    }}}))
+    finding = {"severity": "error", "code": "matrix-health-test-group-count",
+               "message": "Current matrix and health disagree token=private-token agent_id=private-agent",
+               "context": {"matrix_count": 225, "health_count": 215,
+                           "agent_id": "private-agent", "raw_log": "private-log"}}
+    report = {"errors": [finding] * 2000 if exit_code else [],
+              "degradations": [{"severity": "degradation", "code": "current-coverage-partial"}],
+              "metrics": {"agent": "private-agent", "arbitrary_raw_log": "private-log"}}
+    artifact = tmp_path / "early.json"
+    selector_module.write_ci_core_diagnostics(repo, artifact, report, exit_code)
+    result = json.loads(artifact.read_text())
+    assert result["mode"] == ("blocked" if exit_code else "current")
+    assert result["phase"] == "ci-core-pre-analytics"
+    assert len(artifact.read_bytes()) <= selector_module.SELECTION_DIAGNOSTICS_MAX_BYTES
+    assert result["candidate_evidence"]["ci_health.json"]["cohorts"]["amd"]["latest_test_signal_build"]["build_number"] == 93523
+    assert result["candidate_degradations"][0]["code"] == "current-coverage-partial"
+    if exit_code:
+        for lane in ("candidate_errors", "final_errors"):
+            assert result[lane][0]["code"] == "matrix-health-test-group-count"
+            assert result[lane][0]["context"] == {"matrix_count": 225, "health_count": 215}
+            assert result["retention"][lane]["source"] == 2000
+            assert result["retention"][lane]["omitted"] > 0
+    else:
+        assert result["candidate_errors"] == result["final_errors"] == []
+    for private in ("private-source-agent", "private-source-log", "private-token", "private-agent", "private-log"):
+        assert private not in artifact.read_text()
+
+
+def test_early_ci_core_diagnostic_handles_a_missing_json_report_without_raw_error_output(tmp_path):
+    output = tmp_path / "early.json"
+    selector_module.write_ci_core_diagnostics(tmp_path / "repo", output, None, 1)
+    result = json.loads(output.read_text())
+    assert result["mode"] == "blocked"
+    assert result["candidate_errors"][0]["code"] == "ci-core-audit-report-unavailable"
+    assert result["candidate_errors"][0]["context"] == {"exit_code": 1}
+
+
+def test_early_ci_core_report_with_errors_cannot_succeed_even_if_auditor_returns_zero():
+    report = {"errors": [{"severity": "error", "code": "matrix-health-build", "message": "Current build mismatch"}],
+              "degradations": [], "warnings": [], "metrics": {}}
+    assert selector_module.ci_core_report_exit_code(report, 0) == 1
+    assert selector_module.ci_core_report_exit_code(report, 17) == 17
+
+
+@pytest.mark.parametrize("relative", ["data/vllm/ci/publication_state.json", "docs/data/vllm/ci/ci_health.json", "_site/index.html"])
+def test_diagnostic_output_cannot_replace_publication_state_or_site_assets(tmp_path, relative):
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True)
+    target.write_text("protected-publication-content")
+    assert selector_module.main([
+        "--root", str(tmp_path), "--baseline-ref", "invalid",
+        "--diagnostics-output", str(target),
+    ]) == 1
+    assert target.read_text() == "protected-publication-content"
 
 
 def test_surface_ownership_is_unique_and_covers_public_source_manifest() -> None:

@@ -48,6 +48,17 @@ so immutable request accounting remains readable. New evidence and retry request
 accept only active collectors. Workflow audits enforce the retained producer steps
 and reject references to deleted collectors.
 
+Current CI health, matrix, and source parity are checked before the longer
+analytics fetch. Failed preflight or publication selection retains a bounded
+diagnostic artifact with initial candidate findings and later fallback findings.
+The artifact excludes private caches, agent identities, and arbitrary logs.
+
+Current analytics cache writes remove the retired `amd-ci` partition. If the
+active cache reaches its existing 256 MiB cap, it keeps a complete recent
+interval with an exact coverage boundary; omitted older history is fetched
+before publishing the full window. Older GPU rosters without queue metadata
+refresh once before their cached results are reused.
+
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,
 current source coverage, retired navigation, malformed legacy restore proofs,

@@ -88,6 +88,7 @@ from vllm.pipelines import (
     _job_queue,
     pipeline_job_matches_scope,
 )
+from vllm.constants import TRACKED_QUEUES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -111,9 +112,89 @@ COMPLETE_JOB_STATES = frozenset(
     | {"expired", "not_run", "skipped"}
 )
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+_ROUTING_JOB_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I
+)
+_ROUTING_DIAGNOSTIC_LIMIT = 8
+_ROUTING_QUEUE_LIST_LIMIT = 4
+_ROUTING_DIAGNOSTIC_QUEUES = frozenset(queue.casefold() for queue in TRACKED_QUEUES) | {
+    "amd-cpu", "amd_mi355_dpx", "h100", "h200_18gb", "h200_35gb",
+    "b200-k8s", "l4-k8s", "dgx-spark", "gpu_1", "gpu_4",
+    *(f"amd_mi355b_{width}" for width in (1, 2, 4, 8)),
+}
 
 # Configure CI framework with vLLM-specific settings
 cfg.configure(VLLM_ORG, VLLM_PIPELINES)
+
+
+def _routing_queue_values(tags: object) -> list[str]:
+    if not isinstance(tags, list):
+        return []
+    return [value.split("=", 1)[1].strip().casefold() for value in tags
+            if isinstance(value, str) and value.casefold().startswith("queue=")]
+
+
+def _safe_routing_queue(value: str) -> str:
+    normalized = value.strip().casefold()
+    return normalized if normalized in _ROUTING_DIAGNOSTIC_QUEUES else "unrecognized"
+
+
+def _log_ci_routing_conflicts(build: dict, pipeline_key: str) -> None:
+    """Log bounded routing facts, excluding agent identities and other tags."""
+    number = build.get("number") if isinstance(build, dict) else None
+    if (cfg.PIPELINES[pipeline_key]["slug"] != "ci" or isinstance(number, bool)
+            or not isinstance(number, int) or not 0 < number < 10**12):
+        return
+    emitted = 0
+    jobs = build.get("jobs")
+    for job in jobs if isinstance(jobs, list) else []:
+        if not isinstance(job, dict) or job.get("type") != "script":
+            continue
+        identity = job.get("id")
+        if not isinstance(identity, str) or _ROUTING_JOB_UUID_RE.fullmatch(identity) is None:
+            continue
+        agent = job.get("agent")
+        metadata = agent.get("meta_data") if isinstance(agent, dict) else None
+        assigned = _routing_queue_values(metadata)
+        mapping_queue = metadata.get("queue") if isinstance(metadata, dict) else None
+        if isinstance(mapping_queue, str) and mapping_queue.strip():
+            assigned = [mapping_queue.strip().casefold()]
+        requested = _routing_queue_values(job.get("agent_query_rules"))
+        conflict = bool(assigned and assigned[0] and requested and requested[0]
+                        and assigned[0] != requested[0])
+        if not conflict and len(assigned) < 2:
+            continue
+
+        explicit = job.get("agent_queue") or job.get("queue") or job.get("q")
+        if isinstance(explicit, str) and explicit.strip():
+            branch = next(key for key in ("agent_queue", "queue", "q") if job.get(key))
+        elif assigned:
+            branch = "agent.meta_data.mapping" if isinstance(metadata, dict) else "agent.meta_data.tags"
+        else:
+            branch = "agent_query_rules"
+        queues = list(dict.fromkeys(queue for queue in assigned
+                                    if queue in _ROUTING_DIAGNOSTIC_QUEUES))
+        diagnostic = {
+            "build_number": number,
+            "job_id": identity.casefold(),
+            "assigned_queue_tag_count": len(assigned),
+            "assigned_queues": queues[:_ROUTING_QUEUE_LIST_LIMIT],
+            "assigned_queue_list_truncated": len(queues) > _ROUTING_QUEUE_LIST_LIMIT,
+            "requested_queue": _safe_routing_queue(requested[0]) if requested else "unavailable",
+            "selected_queue": _safe_routing_queue(_job_queue(job)),
+            "selected_queue_source": branch,
+            "assigned_requested_conflict": conflict,
+        }
+        log.warning("CI routing ambiguity: %s", json.dumps(diagnostic, sort_keys=True))
+        emitted += 1
+        if emitted >= _ROUTING_DIAGNOSTIC_LIMIT:
+            break
+
+
+def _fetch_build_detail_with_routing_diagnostics(pipeline_key: str, build_number: int) -> dict:
+    build = fetch_build_detail(pipeline_key, build_number)
+    _log_ci_routing_conflicts(build, pipeline_key)
+    return build
 
 
 def _is_parity_excluded_group(norm: str) -> bool:
@@ -750,7 +831,7 @@ def _cache_covers_all_jobs(
     # vacuously satisfied and must not trigger a second detail request.
     if "jobs" not in build or not isinstance(build.get("jobs"), list):
         try:
-            detail = fetch_build_detail(pipeline_key, build_num)
+            detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
             # Keep this exact response on the shared build object. Downstream
             # summaries, parity, and the frozen AMD matrix roster must all see
             # the same point-in-time job set used for this cache decision.
@@ -916,6 +997,13 @@ def collect_pipeline(
     )
 
     for build in builds:
+        # Older valid v2 rosters predate retained routing queues. Refresh them
+        # before using their display labels to split hardware or reuse logs;
+        # the updated roster makes this a one-time migration per old build.
+        queue_incomplete = slug == "ci" and any(
+            pipeline_job_matches_scope(job, pipeline_key) and not _job_queue(job)
+            for job in build.get("jobs") or []
+        )
         _scope_nightly_build(build, pipeline_key)
         build_num = build.get("number", 0)
         created = build.get("created_at", "")
@@ -942,9 +1030,16 @@ def collect_pipeline(
         # completeness checks must not discard otherwise valid historical
         # JSONL evidence merely because its list summary had no ``jobs`` key.
         roster_missing = not isinstance(build.get("jobs"), list) or not build["jobs"]
-        if state in cfg.TERMINAL_STATES and (verify_candidate or roster_missing):
+        if state in cfg.TERMINAL_STATES and (
+            verify_candidate or roster_missing or queue_incomplete
+        ):
+            if queue_incomplete:
+                log.info(
+                    "  Build #%d: refreshing queue-incomplete current CI roster",
+                    build_num,
+                )
             try:
-                detail = fetch_build_detail(pipeline_key, build_num)
+                detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
                 build.clear()
                 build.update(detail)
                 _scope_nightly_build(build, pipeline_key)
@@ -953,6 +1048,11 @@ def collect_pipeline(
             except BuildkiteRequestGuardError:
                 raise
             except Exception as exc:
+                if queue_incomplete:
+                    raise RuntimeError(
+                        f"Could not refresh queue-incomplete current CI roster "
+                        f"for build #{build_num}; refusing routing inferred from labels"
+                    ) from exc
                 log.warning(
                     "  Build #%d: couldn't refresh terminal roster (%s); "
                     "it will not be promoted unless the cached roster is complete",
@@ -1071,7 +1171,7 @@ def collect_pipeline(
             or is_running
             or (needs_log_hydration and not detail_hydrated_from_api)
         ):
-            detail = fetch_build_detail(pipeline_key, build_num)
+            detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
             # Keep the fetched detail in ``builds`` as well as this loop
             # variable. Later reporting must be able to see blocked jobs even
             # when there are no test-result rows for the build.
@@ -1752,7 +1852,7 @@ def main():
             )
         if amd_snapshot_build and not amd_snapshot_build.get("jobs"):
             try:
-                detail = fetch_build_detail("amd", amd_build_num)
+                detail = _fetch_build_detail_with_routing_diagnostics("amd", amd_build_num)
                 amd_snapshot_build.clear()
                 amd_snapshot_build.update(detail)
                 _scope_nightly_build(amd_snapshot_build, "amd")
@@ -1984,7 +2084,7 @@ def main():
             )
             if up_latest_build and not up_latest_build.get("jobs"):
                 try:
-                    up_latest_build = fetch_build_detail("upstream", up_build_num)
+                    up_latest_build = _fetch_build_detail_with_routing_diagnostics("upstream", up_build_num)
                 except BuildkiteRequestGuardError:
                     raise
                 except Exception:

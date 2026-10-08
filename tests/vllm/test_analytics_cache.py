@@ -481,6 +481,103 @@ def test_aggregate_directory_cap_counts_other_pipeline_and_preserves_cache(
     assert ci_path.read_bytes() == original
 
 
+def test_current_only_write_retires_large_legacy_partition_with_exact_ci_evidence(
+    monkeypatch, tmp_path
+):
+    _force_small_shards(monkeypatch)
+    legacy_builds = _large_builds(12)
+    legacy_path = cache.write_build_cache(
+        _cache_dir(tmp_path),
+        "amd-ci",
+        builds=legacy_builds,
+        watermark=NOW,
+        window_days=30,
+        last_full_at=NOW,
+        updated_at=NOW,
+        complete_from=NOW - timedelta(days=30),
+    )
+    legacy_bytes = sum(len(value) for value in _cache_file_snapshot(_cache_dir(tmp_path)).values())
+    assert legacy_path.exists()
+    assert (legacy_path.parent / "amd-ci.shards").is_dir()
+    monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", legacy_bytes + 100)
+    current = _large_builds(4)
+    diagnostics = {}
+
+    _write(tmp_path, builds=current, current_only=True, diagnostics=diagnostics)
+
+    assert not legacy_path.exists()
+    assert not (legacy_path.parent / "amd-ci.shards").exists()
+    assert _load(tmp_path).builds == cache.sanitize_builds(current, "ci")
+    assert diagnostics["retired_bytes_removed"] == legacy_bytes
+    assert diagnostics["other_bytes"] == 0
+    assert diagnostics["aggregate_bytes"] == diagnostics["active_bytes"]
+    assert diagnostics["aggregate_bytes"] <= diagnostics["max_aggregate_bytes"]
+
+
+def test_current_only_write_keeps_unknown_cache_entries_inside_byte_accounting(
+    monkeypatch, tmp_path
+):
+    path = _write(tmp_path)
+    original = path.read_bytes()
+    unknown = path.parent / "unrecognized.json"
+    unknown.write_bytes(b"x" * 10_000)
+    monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 5_000)
+    diagnostics = {}
+
+    with pytest.raises(cache.CacheValidationError, match="aggregate cache"):
+        _write(tmp_path, current_only=True, diagnostics=diagnostics)
+
+    assert unknown.read_bytes() == b"x" * 10_000
+    assert path.read_bytes() == original
+    assert diagnostics["other_bytes"] == 10_000
+    assert diagnostics["aggregate_bytes"] > diagnostics["max_aggregate_bytes"]
+
+
+def test_bounded_current_cache_preserves_complete_creation_time_groups(
+    monkeypatch, tmp_path
+):
+    _force_small_shards(monkeypatch)
+    builds = _large_builds(10)
+    builds[1]["created_at"] = builds[0]["created_at"]
+    monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 12_000)
+    diagnostics = {}
+
+    _write(tmp_path, builds=builds, current_only=True, diagnostics=diagnostics)
+
+    assert _load(tmp_path).reason == "coverage_gap"
+    loaded = _load(tmp_path, allow_partial_coverage=True)
+    assert loaded.valid is True
+    assert loaded.reason == "partial_coverage"
+    assert 2 <= len(loaded.builds) < len(builds)
+    assert loaded.builds == cache.sanitize_builds(builds, "ci")[:len(loaded.builds)]
+    assert loaded.complete_from == datetime.fromisoformat(loaded.builds[-1]["created_at"])
+    assert all(
+        datetime.fromisoformat(row["created_at"]) < loaded.complete_from
+        for row in builds if row["number"] not in {build["number"] for build in loaded.builds}
+    )
+    assert diagnostics["original_active_bytes"] > diagnostics["max_aggregate_bytes"]
+    assert diagnostics["retained_builds"] == len(loaded.builds)
+    assert diagnostics["builds_removed"] == len(builds) - len(loaded.builds)
+    assert sum(len(value) for value in _cache_file_snapshot(_cache_dir(tmp_path)).values()) <= cache._MAX_CACHE_TOTAL_BYTES
+
+
+def test_current_cache_cannot_drop_part_of_one_oversized_timestamp_group(
+    monkeypatch, tmp_path
+):
+    path = _write(tmp_path)
+    original = path.read_bytes()
+    builds = _large_builds(5)
+    for build in builds:
+        build["created_at"] = builds[0]["created_at"]
+    monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 5_000)
+
+    with pytest.raises(cache.CacheValidationError, match="aggregate cache"):
+        _write(tmp_path, builds=builds, current_only=True)
+
+    assert path.read_bytes() == original
+    assert _load(tmp_path).valid is True
+
+
 def test_sharded_manifest_replace_failure_keeps_legacy_cache_readable(
     monkeypatch, tmp_path
 ):

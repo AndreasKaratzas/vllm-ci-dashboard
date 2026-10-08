@@ -1009,6 +1009,7 @@ def _fetch_pipeline_build_leg(
     filter_name: str,
     since: str,
     max_pages: int | None = None,
+    created_to: str | None = None,
 ) -> tuple[list[dict], dict]:
     """Fetch one exhaustive Buildkite list leg for a timestamp filter."""
     if filter_name not in {"created_from", "finished_from"}:
@@ -1021,16 +1022,19 @@ def _fetch_pipeline_build_leg(
     pages_fetched = 0
     for page in range(1, page_limit + 1):
         pages_fetched = page
+        params = {
+            "branch": "main",
+            filter_name: since,
+            "per_page": BUILD_FETCH_PAGE_SIZE,
+            "page": page,
+            "include_retried_jobs": "true",
+        }
+        if created_to is not None:
+            params["created_to"] = created_to
         rows = bk_get(
             path,
             token,
-            {
-                "branch": "main",
-                filter_name: since,
-                "per_page": BUILD_FETCH_PAGE_SIZE,
-                "page": page,
-                "include_retried_jobs": "true",
-            },
+            params,
         )
         if not isinstance(rows, list):
             raise RuntimeError(
@@ -1088,10 +1092,13 @@ def _fetch_pipeline_build_leg(
         "termination_reason": termination_reason,
         "exhaustive": exhaustive,
     }
+    if created_to is not None:
+        provenance["created_to"] = created_to
     return builds_raw, provenance
 
 
 def _as_utc_datetime(value: object) -> datetime | None:
+    parsed: datetime | None
     if isinstance(value, datetime):
         parsed = value
     else:
@@ -1182,7 +1189,9 @@ def _reliability_builds_with_cache_aliases(
     the generic classified alias remains a fallback for uncataloged rows.
     """
     previous_messages = {}
-    if validate_all_main_reliability(previous_reliability, pipeline_slug):
+    if previous_reliability is not None and validate_all_main_reliability(
+        previous_reliability, pipeline_slug,
+    ):
         previous_messages = {
             _safe_build_number(build): _bounded_catalog_message(
                 build.get("message")
@@ -1271,6 +1280,8 @@ def _full_cached_fetch(
         )
 
     builds = merge_builds([], rows, cutoff=cutoff)
+    storage = {}
+    diagnostics["storage"] = storage
     try:
         write_build_cache(
             cache_dir,
@@ -1281,6 +1292,8 @@ def _full_cached_fetch(
             last_full_at=ref_now,
             updated_at=ref_now,
             complete_from=cutoff,
+            current_only=pipeline_slug == "ci",
+            diagnostics=storage,
         )
     except Exception as exc:
         _mark_cache_write_disabled(diagnostics, pipeline_slug, exc)
@@ -1289,7 +1302,8 @@ def _full_cached_fetch(
     diagnostics["returned_builds"] = len(builds)
     diagnostics["watermark"] = ref_now.isoformat()
     diagnostics["last_full_at"] = ref_now.isoformat()
-    diagnostics["complete_from"] = cutoff.isoformat()
+    diagnostics["complete_from"] = storage.get("complete_from", cutoff.isoformat())
+    log.info("  private analytics cache storage for %s: %s", pipeline_slug, storage)
     return builds, provenance
 
 
@@ -1360,9 +1374,26 @@ def _incremental_cached_fetch(
             "created": created_leg,
             "finished": finished_leg,
         }
-        if (
-            created_leg.get("exhaustive") is not True
-            or finished_leg.get("exhaustive") is not True
+        older = []
+        complete_from = _as_utc_datetime(cache.complete_from)
+        partial_cache = complete_from is not None and cutoff < complete_from
+        if partial_cache:
+            assert complete_from is not None
+            # A bounded cache proves only its retained recent interval. Fetch
+            # every omitted older build before publishing the full window.
+            older, older_leg = _fetch_pipeline_build_leg(
+                pipeline_slug,
+                token,
+                filter_name="created_from",
+                since=cutoff.isoformat(),
+                created_to=complete_from.isoformat(),
+                max_pages=max_pages,
+            )
+            diagnostics["legs"]["uncached_older"] = older_leg
+            diagnostics["uncached_older_builds"] = len(older)
+        if any(
+            leg.get("exhaustive") is not True
+            for leg in diagnostics["legs"].values()
         ):
             diagnostics["failure"] = "incremental_pagination_incomplete"
             return None, diagnostics
@@ -1373,6 +1404,7 @@ def _incremental_cached_fetch(
             for build_number in refresh_numbers
         ]
         fresh = merge_builds(created, finished, cutoff=cutoff)
+        fresh = merge_builds(fresh, older, cutoff=cutoff)
         fresh = merge_builds(fresh, refreshed, cutoff=cutoff)
         builds = merge_builds(cache.builds, fresh, cutoff=cutoff)
         last_full_at = _as_utc_datetime(cache.last_full_at)
@@ -1408,9 +1440,11 @@ def _incremental_cached_fetch(
             ),
         })
         if (
-            cached_materialized_bytes
+            not partial_cache
+            and cached_materialized_bytes
             and materialized_delta_bytes
             >= ANALYTICS_CACHE_SUSPICIOUS_GROWTH_MIN_BYTES
+            and materialized_growth_ratio is not None
             and materialized_growth_ratio
             >= ANALYTICS_CACHE_SUSPICIOUS_GROWTH_RATIO
         ):
@@ -1427,6 +1461,8 @@ def _incremental_cached_fetch(
             # validated cache.
             return None, diagnostics
         cache_written = True
+        storage = {}
+        diagnostics["storage"] = storage
         try:
             write_build_cache(
                 cache_dir,
@@ -1437,10 +1473,13 @@ def _incremental_cached_fetch(
                 last_full_at=last_full_at,
                 updated_at=ref_now,
                 complete_from=cutoff,
+                current_only=pipeline_slug == "ci",
+                diagnostics=storage,
             )
         except Exception as exc:
             cache_written = False
             _mark_cache_write_disabled(diagnostics, pipeline_slug, exc)
+        log.info("  private analytics cache storage for %s: %s", pipeline_slug, storage)
     except BuildkiteRequestGuardError:
         raise
     except Exception as exc:
@@ -1457,11 +1496,12 @@ def _incremental_cached_fetch(
             "returned_builds": len(builds),
             "cache_written": cache_written,
             "watermark": ref_now.isoformat(),
+            "complete_from": storage.get("complete_from", cutoff.isoformat()),
         }
     )
     pages_fetched = sum(
         int(leg.get("pages_fetched") or 0)
-        for leg in (created_leg, finished_leg)
+        for leg in diagnostics["legs"].values()
     )
     provenance = {
         # This is the completeness boundary of the merged cache, not the
@@ -1498,6 +1538,7 @@ def _fetch_pipeline_builds_cached(
         cutoff=cutoff,
         window_days=days,
         ref_now=frozen_now,
+        allow_partial_coverage=pipeline_slug == "ci",
     )
     last_full_at = _as_utc_datetime(cache.last_full_at)
     cache_generated_at = _as_utc_datetime(cache.generated_at)
@@ -2255,7 +2296,7 @@ def _cap_reliability_observations(payload: dict, limit: int) -> tuple[dict, int]
 
 
 def _analytics_component_bytes(payload: dict) -> dict[str, dict[str, Any]]:
-    diagnostics = {}
+    diagnostics: dict[str, dict[str, Any]] = {}
     for slug, block in payload.items():
         if not isinstance(block, dict):
             diagnostics[str(slug)] = {"bytes": _compact_json_bytes(block)}
