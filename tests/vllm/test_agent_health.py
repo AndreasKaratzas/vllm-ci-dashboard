@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -413,6 +414,171 @@ def _retained_failure(day: str, index: int, *, padding: int = 0) -> dict:
         "e": f"{day}T12:{index % 60:02d}:30Z",
         "d": day,
     }
+
+
+def _run_scoped_collection(monkeypatch, tmp_path, *, pipeline=None, fail=False):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+
+    calls = []
+
+    def fetch(slug, days, *, query_time):
+        calls.append((slug, days, query_time))
+        if fail:
+            raise RuntimeError("source request failed")
+        row = ah._observe(
+            slug, _build(),
+            _job(f"new-{slug}", "current group", "failed", "amd_mi300_1", "current-node",
+                 "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
+            NIGHTLY_RE,
+        )
+        assert row is not None
+        return [row]
+
+    argv = ["collect_agent_health.py", "--output", str(tmp_path)]
+    if pipeline is not None:
+        argv.extend(["--pipeline", pipeline])
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(ah, "datetime", Clock)
+    monkeypatch.setattr(ah.cfg, "BK_TOKEN", "unit-test-token")
+    monkeypatch.setattr(ah, "_fetch_pipeline_observations", fetch)
+    assert ah.main() == 0
+    return calls, json.loads((tmp_path / ah.OUTPUT_JSON).read_text())
+
+
+def _seed_scoped_history(tmp_path, pipelines, *, generated_at="2026-07-13T12:00:00Z"):
+    store = tmp_path / ah.STORE_SUBDIR
+    store.mkdir()
+    node = _retained_node_day("2026-07-10")
+    failures = [_retained_failure("2026-07-10", 1), _retained_failure("2026-07-10", 2)]
+    failures[1]["p"] = "ci"
+    (store / ah.NODE_DAYS_JSONL).write_bytes(ah._encoded_jsonl([node]))
+    (store / ah.INFRA_FAILURES_JSONL).write_bytes(ah._encoded_jsonl(failures))
+    (tmp_path / ah.OUTPUT_JSON).write_text(json.dumps({
+        "pipelines": pipelines,
+        "generated_at": generated_at,
+        "retention": {"pipeline_scope": {"collected_from": "2026-05-10T12:00:00Z"}},
+    }))
+    return node, failures
+
+
+@pytest.mark.parametrize("old_scope", [("amd-ci", "ci"), ("amd-ci",), None])
+def test_default_agent_health_discards_mixed_or_unproven_retained_totals(
+    monkeypatch, tmp_path, old_scope,
+):
+    _seed_scoped_history(tmp_path, old_scope)
+
+    calls, payload = _run_scoped_collection(monkeypatch, tmp_path)
+
+    assert [slug for slug, _, _ in calls] == ["ci"]
+    assert payload["pipelines"] == ["ci"]
+    assert payload["total_runs"] == 1
+    assert payload["infra_failure_count"] == 1
+    assert {row["p"] for row in payload["failing_runs"]} == {"ci"}
+    assert {row["d"] for row in payload["node_days"]} == {"2026-07-14"}
+    assert payload["retention"]["pipeline_scope"] == {
+        "collected_from": "2026-07-11T12:00:00Z", "complete_window": False,
+    }
+    assert ah._load_jsonl(tmp_path / ah.STORE_SUBDIR / ah.NODE_DAYS_JSONL) == payload["node_days"]
+    assert ah._load_jsonl(tmp_path / ah.STORE_SUBDIR / ah.INFRA_FAILURES_JSONL) == payload["failing_runs"]
+
+
+def test_current_agent_health_retains_verified_ci_history_and_filters_legacy_failures(
+    monkeypatch, tmp_path,
+):
+    node, failures = _seed_scoped_history(tmp_path, ["ci"])
+
+    _, payload = _run_scoped_collection(monkeypatch, tmp_path)
+
+    assert payload["total_runs"] == node["a"][0] + 1
+    assert payload["infra_failure_count"] == 2
+    assert failures[1] in payload["failing_runs"]
+    assert failures[0] not in payload["failing_runs"]
+    assert {row["p"] for row in payload["failing_runs"]} == {"ci"}
+    assert payload["retention"]["pipeline_scope"] == {
+        "collected_from": "2026-05-10T12:00:00Z", "complete_window": True,
+    }
+
+
+@pytest.mark.parametrize("pipeline,expected", [
+    ("amd-ci", ["amd-ci"]), ("both", ["amd-ci", "ci"]),
+])
+def test_explicit_agent_health_historical_scope_keeps_truthful_provenance(
+    monkeypatch, tmp_path, pipeline, expected,
+):
+    calls, payload = _run_scoped_collection(monkeypatch, tmp_path, pipeline=pipeline)
+
+    assert [slug for slug, _, _ in calls] == expected
+    assert payload["pipelines"] == expected
+    assert payload["total_runs"] == len(expected)
+    assert {row["p"] for row in payload["failing_runs"]} == set(expected)
+
+
+def test_agent_health_missing_incremental_overlap_does_not_claim_complete_scope(
+    monkeypatch, tmp_path,
+):
+    _seed_scoped_history(tmp_path, ["ci"], generated_at="2026-07-10T12:00:00Z")
+
+    _, payload = _run_scoped_collection(monkeypatch, tmp_path)
+
+    assert payload["retention"]["pipeline_scope"] == {
+        "collected_from": "2026-07-11T12:00:00Z", "complete_window": False,
+    }
+
+
+@pytest.mark.parametrize("stored_start,expected,complete", [
+    ("2026-05-10T15:30:00+03:30", "2026-05-10T12:00:00Z", True),
+    ("2026-05-10T12:00:00", "2026-07-11T12:00:00Z", False),
+    ("invalid", "2026-07-11T12:00:00Z", False),
+])
+def test_agent_health_scope_start_requires_timezone_and_normalizes_to_utc(
+    monkeypatch, tmp_path, stored_start, expected, complete,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    path = tmp_path / ah.OUTPUT_JSON
+    previous = json.loads(path.read_text())
+    previous["retention"]["pipeline_scope"]["collected_from"] = stored_start
+    path.write_text(json.dumps(previous))
+
+    _, payload = _run_scoped_collection(monkeypatch, tmp_path)
+
+    assert payload["retention"]["pipeline_scope"] == {
+        "collected_from": expected, "complete_window": complete,
+    }
+
+
+def test_agent_health_keeps_prior_byte_pruning_visible_in_scope_coverage(
+    monkeypatch, tmp_path,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    path = tmp_path / ah.OUTPUT_JSON
+    previous = json.loads(path.read_text())
+    previous["retention"].update({
+        "dropped_oldest_day_count": 2,
+        "retained_start": "2026-07-10",
+    })
+    path.write_text(json.dumps(previous))
+
+    _, payload = _run_scoped_collection(monkeypatch, tmp_path)
+
+    assert payload["retention"]["pipeline_scope"] == {
+        "collected_from": "2026-07-10T00:00:00Z", "complete_window": False,
+    }
+
+
+def test_agent_health_scope_migration_source_failure_preserves_prior_generation(
+    monkeypatch, tmp_path,
+):
+    _seed_scoped_history(tmp_path, ["amd-ci", "ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+
+    with pytest.raises(RuntimeError, match="source request failed"):
+        _run_scoped_collection(monkeypatch, tmp_path, fail=True)
+
+    assert {path: path.read_bytes() for path in paths} == before
 
 
 def test_agent_health_generation_is_bounded_by_dropping_oldest_whole_days():

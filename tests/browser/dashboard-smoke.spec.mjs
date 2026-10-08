@@ -338,6 +338,53 @@ test('CI health keeps configured health policy in AMD hardware', async ({ page }
   await expect(dialog).toContainText(`${total} configured AMD test groups`);
 });
 
+test('CI agent health discloses current pipeline scope and incomplete source history', async ({ page }) => {
+  const collectedFrom = '2026-10-05T20:00:00Z';
+  await page.route('**/operations_v2/amd_agent_health.json*', async route => {
+    const response = await route.fetch();
+    const packet = await response.json();
+    const agent = packet.amd_agent_health;
+    Object.assign(agent, {
+      pipelines: ['ci'], generated_at: '2026-10-08T20:00:00Z', max_window_days: 60,
+      node_days: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', a: [10, 0, 1, 0], n: [10, 0, 1, 0]}],
+      failing_runs: [],
+      failure_accounting: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', s: 'hard', i: 1, ng: 1, bc: 0, c: 1}],
+      retention: {
+        byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3,
+        pipeline_scope: {collected_from: collectedFrom, complete_window: false},
+      },
+      operations_publication_retention: {
+        node_days: {source: 1, published: 1, complete: true},
+        failure_accounting: {source: 1, published: 1, complete: true},
+        failure_evidence: {source: 0, published: 0, complete: true},
+      },
+    });
+    await route.fulfill({json: packet});
+  });
+  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.locator('.ops-loading')).toHaveCount(0);
+  await expect(panel.locator('.ops-evidence-note.is-info')).toContainText('all branches and PRs across the ci pipeline');
+  await expect(panel).not.toContainText('AMD nightly and upstream CI pipelines');
+  const notice = panel.locator('.ops-evidence-note.is-warning');
+  await expect(notice).toContainText('Agent-health pipeline history is incomplete');
+  await expect(notice).toContainText(collectedFrom);
+  await expect(notice).toContainText('the full 60-day window is not yet complete');
+  await expect(notice).not.toContainText('dropped 0 oldest UTC days');
+  const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('Unavailable');
+  await panel.locator('.ops-agent-controls').getByRole('button', {name: '1d', exact: true}).click();
+  await expect(row).toContainText('10.0%');
+  await expect(row).not.toContainText('Unavailable');
+  await expect(notice).toContainText('the full 60-day window is not yet complete');
+  await panel.locator('.ops-agent-controls').getByRole('button', {name: '3d', exact: true}).click();
+  await expect(row).toContainText('Unavailable');
+  await panel.locator('.ops-agent-controls').getByRole('button', {name: '60d', exact: true}).click();
+  await expect(row).toContainText('Unavailable');
+  await expect(panel.locator('.ops-error')).toHaveCount(0);
+});
+
 test('CI health upstream parity exposes the main backlog and not-targeted set', async ({ page }) => {
   await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
 

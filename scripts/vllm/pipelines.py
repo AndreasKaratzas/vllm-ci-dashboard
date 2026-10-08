@@ -106,9 +106,15 @@ def _job_hardware_scope(job: dict) -> str:
     if re.search(r":nvidia:\s*\(", name, flags=re.I):
         return "cuda_gpu"
     hardware = str(job.get("hardware") or job.get("device") or "").casefold()
+    if "cpu" in re.split(r"[_ -]+", hardware):
+        return ""
     if re.fullmatch(r"mi\d+b?(?:[_ -][a-z0-9_-]+)?", hardware):
         return "amd_gpu"
-    if re.fullmatch(r"(?:[abhl]\d+|gh\d+)(?:[_ -][a-z0-9_-]+)?", hardware):
+    # BuildSummary preserves architecture decorators, including MIG profiles,
+    # DGX Spark, and explicit GPU counts such as ``4xB200``.
+    if hardware in {"h200 mig 18gb", "h200 mig 35gb", "dgx", "dgx-spark"} or re.fullmatch(
+        r"(?:[1-9]\d*x)?(?:[abhl]\d+|gh\d+)(?:[_ -][a-z0-9_-]+)?", hardware
+    ):
         return "cuda_gpu"
     return ""
 

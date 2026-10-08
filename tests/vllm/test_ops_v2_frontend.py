@@ -101,6 +101,21 @@ const sourceComplete = sandbox.window.OpsV2Test.agentSourceHistoryComplete;
 assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 60}}), true);
 assert.equal(sourceComplete({retention: {byte_limited: true, dropped_oldest_day_count: 2, original_day_count: 60, retained_day_count: 58}}), false);
 assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 59}}), false);
+assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3, pipeline_scope: {collected_from: '2026-10-05T20:00:00Z', complete_window: false}}}), false);
+assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3, pipeline_scope: {complete_window: true}}}), true);
+assert.equal(sourceComplete({retention: {byte_limited: true, dropped_oldest_day_count: 2, original_day_count: 60, retained_day_count: 58, pipeline_scope: {complete_window: true}}}), false);
+const partialScope = {generated_at: '2026-10-08T20:00:00Z', retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3, pipeline_scope: {collected_from: '2026-10-05T20:00:00Z', complete_window: false}}};
+assert.equal(sourceComplete(partialScope, '2026-10-07'), true);
+assert.equal(sourceComplete(partialScope, '2026-10-05'), false);
+assert.equal(sourceComplete(partialScope, '2026-10-01'), false);
+assert.equal(sourceComplete(partialScope, '2026-10-09'), false);
+assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, byte_limited: true}}, '2026-10-07'), false);
+assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, pipeline_scope: {complete_window: false}}}, '2026-10-07'), false);
+const scopeLabel = sandbox.window.OpsV2Test.agentPipelineScopeLabel;
+assert.equal(scopeLabel({pipelines: ['ci']}), 'the ci pipeline');
+assert.equal(scopeLabel({pipelines: ['amd-ci', 'ci']}), 'the amd-ci and ci pipelines');
+assert.equal(scopeLabel({pipelines: [' ci ', 'ci', '', null]}), 'the ci pipeline');
+assert.equal(scopeLabel({}), 'the declared pipeline scope');
 """
     result = subprocess.run(
         [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],

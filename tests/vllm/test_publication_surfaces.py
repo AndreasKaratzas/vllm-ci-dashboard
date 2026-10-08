@@ -50,6 +50,15 @@ def test_surface_contract_version_has_one_owner() -> None:
     )
 
 
+def test_current_agent_health_scope_finding_routes_only_to_agent_health() -> None:
+    finding = Finding(
+        "error", "operations-agent-health-pipeline-scope",
+        "Current agent health contains a legacy pipeline",
+        "data/vllm/ci/operations_v2.json",
+    )
+    assert finding_surfaces(finding) == frozenset({"agent_health"})
+
+
 def test_failed_selector_retains_pre_fallback_ci_evidence_and_both_finding_lanes(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     source = repo / selector_module.CI_HEALTH_PATH

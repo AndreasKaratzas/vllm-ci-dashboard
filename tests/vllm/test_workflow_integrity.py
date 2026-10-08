@@ -4981,6 +4981,20 @@ class TestWorkflowPipInstallMatchesImports:
 class TestAlertAutomationWorkflow:
     """All state-owned alert watchers run after their authoritative collectors."""
 
+    def test_normal_agent_health_collection_uses_only_current_ci(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values()))["steps"]
+        collector = next(
+            step for step in steps
+            if step.get("name") == "Collect AMD agent health (all builds, all branches)"
+        )
+        command = collector["run"]
+        assert "python scripts/vllm/collect_agent_health.py" in command
+        assert "--days 3 --pipeline ci --output data/vllm/ci/" in command
+        assert "--pipeline both" not in command
+        assert "--pipeline amd-ci" not in command
+        assert "run_surface_collector agent_health" in command
+
     def test_alert_watchers_restore_state_and_run_after_collection(self):
         data = _load_workflow("hourly-master.yml")
         job = next(iter(data["jobs"].values()))
