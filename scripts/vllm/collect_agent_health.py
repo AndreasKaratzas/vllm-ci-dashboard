@@ -3,7 +3,7 @@
 
 Unlike ``scripts/collect_ci.py`` — which tracks only main-branch *nightly*
 builds for the dashboard's headline CI health — this collector walks **every**
-build in the AMD-relevant pipelines: all branches, all triggers (PRs, release
+build in the current ``ci`` pipeline: all branches, all triggers (PRs, release
 branches, scheduled). For each job that ran on a physical AMD **GPU** node it
 observes one run. Physical node identity comes from the Buildkite agent's
 ``k8s:node`` tag, which the build *list* endpoint already returns inline, so no
@@ -121,7 +121,7 @@ MAX_INCREMENTAL_SLICE_WORKERS = 3
 # long backfills retain 100/page so their request count does not double.
 UPSTREAM_INCREMENTAL_PER_PAGE = 50
 
-# AMD-relevant pipeline slugs to walk.
+# Explicit historical/manual collection can still select either or both slugs.
 AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
 
 _QUEUE_RULE_RE = re.compile(r"^queue=(.+)$", re.IGNORECASE)
@@ -500,6 +500,75 @@ def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cuto
     return list(seen.values())
 
 
+def _scoped_retained_history(
+    output_dir: Path,
+    pipelines: tuple[str, ...],
+    query_from: datetime,
+) -> tuple[list[dict], list[dict], datetime]:
+    """Reuse rollups only when their paired generation proves the same scope.
+
+    Older node-day rows combine both pipelines and cannot be decomposed into
+    current CI denominators from their failing-run evidence. Replace that
+    mixed history with the fetched window instead of relabeling its totals.
+    """
+    store_dir = output_dir / STORE_SUBDIR
+    node_days = _load_jsonl(store_dir / NODE_DAYS_JSONL)
+    failing = _load_jsonl(store_dir / INFRA_FAILURES_JSONL)
+    summary_path = output_dir / OUTPUT_JSON
+    summary = {}
+    if summary_path.exists():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("retained agent-health scope summary is invalid") from exc
+        if not isinstance(summary, dict):
+            raise RuntimeError("retained agent-health scope summary is not an object")
+    declared = summary.get("pipelines")
+    if (
+        not isinstance(declared, list)
+        or not all(isinstance(slug, str) for slug in declared)
+        or set(declared) != set(pipelines)
+    ):
+        if node_days or failing:
+            log.info(
+                "Replacing agent-health history outside selected pipeline scope %s "
+                "(%d node-days, %d failure rows)",
+                list(pipelines), len(node_days), len(failing),
+            )
+        return [], [], query_from
+
+    failing = [row for row in failing if row.get("p") in pipelines]
+    collected_from = query_from
+    retention = summary.get("retention") or {}
+    scope = (retention.get("pipeline_scope") or {}) if isinstance(retention, dict) else {}
+    value = scope.get("collected_from") if isinstance(scope, dict) else None
+    previous_end = summary.get("generated_at")
+    if isinstance(value, str) and isinstance(previous_end, str):
+        try:
+            previous_start = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            previous_end = datetime.fromisoformat(previous_end.replace("Z", "+00:00"))
+        except ValueError:
+            previous_start = None
+            previous_end = None
+        if (
+            previous_start is not None and previous_start.tzinfo is not None
+            and previous_end is not None and previous_end.tzinfo is not None
+            and previous_end >= query_from
+        ):
+            collected_from = min(query_from, previous_start.astimezone(timezone.utc))
+    if isinstance(retention, dict) and retention.get("dropped_oldest_day_count"):
+        retained_start = retention.get("retained_start")
+        if isinstance(retained_start, str):
+            try:
+                retained_from = datetime.strptime(retained_start, "%Y-%m-%d").replace(
+                    tzinfo=timezone.utc,
+                )
+            except ValueError:
+                retained_from = query_from
+            collected_from = min(query_from, max(collected_from, retained_from))
+    return node_days, failing, collected_from
+
+
 def _assemble(
     node_days: list[dict],
     failing: list[dict],
@@ -508,6 +577,7 @@ def _assemble(
     retention: dict | None = None,
     failure_accounting: list[dict] | None = None,
     source_failure_count: int | None = None,
+    pipelines: tuple[str, ...] = AGENT_HEALTH_SLUGS,
 ) -> dict:
     accounting = (
         failure_accounting
@@ -530,7 +600,7 @@ def _assemble(
         "default_cofailure_window_mins": DEFAULT_COFAILURE_WINDOW_MINS,
         "exclude_cancelled_default": True,
         "nightly_only_default": False,
-        "pipelines": list(AGENT_HEALTH_SLUGS),
+        "pipelines": list(pipelines),
         "hardware_types": hardware_types,
         "infra_suspect_min_pass_rate": INFRA_SUSPECT_MIN_PASS_RATE,
         "infra_suspect_min_samples": INFRA_SUSPECT_MIN_SAMPLES,
@@ -563,6 +633,8 @@ def _prepare_generation(
     *,
     max_file_bytes: int = AGENT_HEALTH_MAX_FILE_BYTES,
     max_generation_bytes: int = AGENT_HEALTH_MAX_GENERATION_BYTES,
+    pipelines: tuple[str, ...] = AGENT_HEALTH_SLUGS,
+    pipeline_scope: dict | None = None,
 ) -> dict:
     """Fit one honest generation by bounding days, then exact link evidence."""
     if max_file_bytes <= 0 or max_generation_bytes <= 0:
@@ -641,6 +713,8 @@ def _prepare_generation(
                     "complete_relative_to_source": True,
                 },
             }
+            if pipeline_scope is not None:
+                retention["pipeline_scope"] = pipeline_scope
             payload = _assemble(
                 retained_node_days,
                 published_failing,
@@ -648,6 +722,7 @@ def _prepare_generation(
                 retention=retention,
                 failure_accounting=failure_accounting,
                 source_failure_count=len(source_failing),
+                pipelines=pipelines,
             )
             encoded = {
                 NODE_DAYS_JSONL: _encoded_jsonl(retained_node_days),
@@ -856,8 +931,8 @@ def main() -> int:
     parser.add_argument("--days", type=int, default=3, help="How many days back to walk (max 60).")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Data dir.")
     parser.add_argument(
-        "--pipeline", choices=("amd-ci", "ci", "both"), default="both",
-        help="Restrict to one pipeline slug.",
+        "--pipeline", choices=("amd-ci", "ci", "both"), default="ci",
+        help="Pipeline scope (default: current ci; legacy collection is explicit).",
     )
     parser.add_argument("--dry-run", action="store_true", help="Fetch + report, but do not write.")
     args = parser.parse_args()
@@ -872,7 +947,10 @@ def main() -> int:
 
     obs: list[dict] = []
     for slug in slugs:
-        obs.extend(_fetch_pipeline_observations(slug, days, query_time=now))
+        obs.extend(
+            row for row in _fetch_pipeline_observations(slug, days, query_time=now)
+            if row.get("pipeline") in slugs
+        )
     _mark_infra_suspect(obs)
 
     fresh_rollups = list(_rollup_rows(obs).values())
@@ -894,23 +972,29 @@ def main() -> int:
         log.info("[dry-run] sample failure: %s", json.dumps(fresh_failing[:2], ensure_ascii=False))
         return 0
 
-    store_dir = args.output / STORE_SUBDIR
-    node_days_path = store_dir / NODE_DAYS_JSONL
-    failing_path = store_dir / INFRA_FAILURES_JSONL
-
-    earliest_day = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+    query_from = now - timedelta(days=days)
+    earliest_day = query_from.strftime("%Y-%m-%d")
     cutoff_day = (now - timedelta(days=MAX_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    stored_node_days, stored_failing, collected_from = _scoped_retained_history(
+        args.output, slugs, query_from,
+    )
 
     node_days = _merge_by_day(
-        _load_jsonl(node_days_path), fresh_rollups, earliest_day, cutoff_day,
+        stored_node_days, fresh_rollups, earliest_day, cutoff_day,
         key=lambda r: (r["nd"], r["d"]),
     )
     failing = _merge_by_day(
-        _load_jsonl(failing_path), fresh_failing, earliest_day, cutoff_day,
+        stored_failing, fresh_failing, earliest_day, cutoff_day,
         key=lambda r: r["j"],
     )
 
-    generation = _prepare_generation(node_days, failing, now)
+    generation = _prepare_generation(
+        node_days, failing, now, pipelines=slugs,
+        pipeline_scope={
+            "collected_from": collected_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "complete_window": collected_from <= now - timedelta(days=MAX_WINDOW_DAYS),
+        },
+    )
     _publish_generation(args.output, generation)
     payload = generation["payload"]
     out_path = args.output / OUTPUT_JSON

@@ -37,3 +37,25 @@ def test_both_current_populations_have_the_same_authority_and_nightly_filter():
     assert PIPELINES["amd"]["slug"] == PIPELINES["upstream"]["slug"] == "ci"
     assert PIPELINES["amd"]["name_pattern"] == PIPELINES["upstream"]["name_pattern"]
     assert _job_queue({"agent_queue": "amd_mi300_1", "q": "gpu_1"}) == "amd_mi300_1"
+
+
+@pytest.mark.parametrize("label,hardware", [
+    (":nvidia: (H200 MIG 18GB) Basic Correctness Models", "h200 mig 18gb"),
+    (":nvidia: (H200 MIG 35GB) E2E Core Large Memory", "h200 mig 35gb"),
+    (":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)", "dgx"),
+    (":nvidia: (4xB200) Distributed workload", "4xb200"),
+])
+def test_normalized_current_cuda_hardware_retains_its_scope(label, hardware):
+    from vllm.ci.analyzer import _extract_hardware
+
+    assert _extract_hardware(label) == hardware
+    assert is_upstream_cuda_ci_job({"hardware": hardware})
+    assert not is_amd_ci_job({"hardware": hardware})
+
+
+@pytest.mark.parametrize("hardware", [
+    "cpu", "amd_cpu", "h200 cpu", "h200_cpu", "mi300", "mi355 dpx",
+    "unknown", "mystery_gpu", "h200 mig bogus", "0xb200", "dgx-unknown",
+])
+def test_normalized_cuda_hardware_rejects_cpu_amd_and_unknown_families(hardware):
+    assert not is_upstream_cuda_ci_job({"hardware": hardware})

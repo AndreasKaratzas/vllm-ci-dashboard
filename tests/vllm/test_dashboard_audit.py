@@ -4897,3 +4897,79 @@ def test_ci_core_accepts_exact_full_or_public_runtime_commit(tmp_path, commit):
     audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
     audit.audit_ci_core()
     assert audit.report.errors == []
+
+
+def test_ci_core_accepts_actual_cuda_decorators_and_rejects_foreign_hardware(tmp_path):
+    from collect_ci import _scope_nightly_build
+    from vllm.ci.analyzer import compute_build_summary
+    from vllm.ci.models import TestResult
+
+    output = _current_ci_core_fixture(tmp_path)
+    path = output / "ci_health.json"
+    health = json.loads(path.read_text())
+    build = {
+        "number": 93523, "commit": "a" * 40, "branch": "main", "state": "passed",
+        "web_url": "https://buildkite.com/vllm/ci/builds/93523",
+        "created_at": "2026-10-08T06:00:00Z",
+        "jobs": [
+            {"type": "script", "id": f"cuda-{index}", "state": "passed",
+             "name": label, "agent_queue": "gpu_1"}
+            for index, label in enumerate((
+                ":nvidia: (H200 MIG 18GB) Basic Correctness Models",
+                ":nvidia: (H200 MIG 35GB) E2E Core Large Memory",
+                ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)",
+                ":nvidia: (4xB200) Distributed workload",
+            ))
+        ],
+    }
+    results = [TestResult(
+        test_id="__job_level__", name="__job_level__", classname="", status="passed",
+        duration_secs=0.0, failure_message="", job_name=job["name"], job_id=job["id"],
+        step_id="", build_number=93523, pipeline="ci", date="2026-10-08",
+    ) for job in build["jobs"]]
+    summary = compute_build_summary(_scope_nightly_build(build, "upstream"), results, "upstream").to_dict()
+    assert set(summary["by_hardware"]) == {"h200 mig 18gb", "h200 mig 35gb", "dgx", "4xb200"}
+    health["upstream"] = {key: summary for key in (
+        "latest_build", "latest_pipeline_build", "latest_test_signal_build",
+    )}
+    path.write_text(json.dumps(health))
+    (output / "test_results/2026-10-08_upstream.jsonl").write_text(
+        "".join(json.dumps(row.to_dict()) + "\n" for row in results)
+    )
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    audit.audit_ci_core()
+    assert audit.report.errors == []
+
+    for hardware in ("cpu", "amd_cpu", "mi300", "unknown", "h200 mig bogus", "dgx-unknown"):
+        summary["by_hardware"] = {hardware: {"groups": 1}}
+        path.write_text(json.dumps(health))
+        audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+        audit.audit_ci_core()
+        assert "current-runtime-hardware-scope" in {finding.code for finding in audit.report.errors}
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("pipelines", [["ci"], ["amd-ci"], ["amd-ci", "ci"], [], None, "ci"])
+def test_current_operations_agent_health_requires_ci_scope_even_for_fallback(tmp_path, fallback, pipelines):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "amd_agent_health": {"pipelines": pipelines},
+    }))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=fallback)
+    audit.audit_operations_v2()
+    codes = {finding.code for finding in audit.report.errors}
+    assert ("operations-agent-health-pipeline-scope" in codes) is (pipelines != ["ci"])
+
+
+def test_manual_agent_health_audit_preserves_explicit_legacy_scope_compatibility(tmp_path):
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health({"amd_agent_health": {
+        "pipelines": ["amd-ci", "ci"],
+        "window_options": [{"hours": 24}],
+        "cofailure_window_options": [{"minutes": 10}],
+        "default_cofailure_window_mins": 10,
+        "node_days": [], "failing_runs": [],
+    }}, "manual-agent-health.json")
+    assert audit.report.errors == []

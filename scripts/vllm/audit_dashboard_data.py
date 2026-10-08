@@ -3541,6 +3541,12 @@ class DashboardAudit:
                 relpath,
             )
 
+        if _mapping(payload.get("amd_agent_health")).get("pipelines") != ["ci"]:
+            self.error(
+                "operations-agent-health-pipeline-scope",
+                "Current Operations agent health must contain only the ci pipeline, including retained fallback evidence",
+                relpath,
+            )
         self.audit_agent_health(payload, relpath)
 
         for retired in ("gating", "trajectory", "comparison_retry_evidence"):

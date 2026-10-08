@@ -59,6 +59,12 @@ interval with an exact coverage boundary; omitted older history is fetched
 before publishing the full window. Older GPU rosters without queue metadata
 refresh once before their cached results are reused.
 
+Current runtime validation recognizes the hardware names emitted by the CI
+analyzer, including H200 MIG profiles, DGX, and GPU-count prefixes. Physical
+AMD node-health percentages also use `ci` by default. Mixed legacy rollups are
+replaced by the freshly collected CI window when their pipeline scope cannot
+be separated; subsequent CI-only generations retain their scoped history.
+
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,
 current source coverage, retired navigation, malformed legacy restore proofs,

@@ -1511,14 +1511,31 @@
       && aggregateCountMatches;
   }
 
-  function agentSourceHistoryComplete(agentHealth) {
+  function agentSourceHistoryComplete(agentHealth, startDay) {
     const retention = ((agentHealth || {}).retention) || {};
+    const scope = retention.pipeline_scope || {};
+    const start = typeof startDay === 'string' ? Date.parse(startDay + 'T00:00:00Z') : NaN;
+    const collected = Date.parse(scope.collected_from);
+    const end = Date.parse((agentHealth || {}).generated_at);
+    const scopeComplete = scope.complete_window !== false
+      || (Number.isFinite(start) && Number.isFinite(collected) && Number.isFinite(end)
+        && start >= collected && start <= end && collected <= end);
     const dropped = Number(retention.dropped_oldest_day_count);
     const originalDays = Number(retention.original_day_count);
     const retainedDays = Number(retention.retained_day_count);
-    return retention.byte_limited !== true
+    return scopeComplete
+      && retention.byte_limited !== true
       && (!Number.isFinite(dropped) || dropped === 0)
       && (!Number.isFinite(originalDays) || !Number.isFinite(retainedDays) || originalDays === retainedDays);
+  }
+
+  function agentPipelineScopeLabel(agentHealth) {
+    const pipelines = Array.from(new Set((Array.isArray((agentHealth || {}).pipelines) ? agentHealth.pipelines : [])
+      .filter(function (pipeline) { return typeof pipeline === 'string' && pipeline.trim(); })
+      .map(function (pipeline) { return pipeline.trim(); })));
+    return pipelines.length
+      ? 'the ' + pipelines.join(' and ') + (pipelines.length === 1 ? ' pipeline' : ' pipelines')
+      : 'the declared pipeline scope';
   }
 
   function reliabilityPublicationState(reliability) {
@@ -4996,9 +5013,11 @@
     const operationsNodeRetention = operationsRetention.node_days || {};
     const operationsAccountingRetention = operationsRetention.failure_accounting || {};
     const sourceRetention = (agentHealth || {}).retention || {};
-    const sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth);
-    const nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
-    const failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
+    const sourcePipelineScope = sourceRetention.pipeline_scope || {};
+    const pipelineHistoryIncomplete = sourcePipelineScope.complete_window === false;
+    let sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth);
+    let nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
+    let failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
     const aggregateAccountingComplete = operationsRetention.aggregate_accounting_complete === true;
     const evidenceRetention = (((agentHealth || {}).retention || {}).failure_evidence) || {};
     const evidenceIncomplete = evidenceRetention.complete_relative_to_source === false
@@ -5051,8 +5070,8 @@
     if (evidenceIncomplete || nodeDetailIncomplete || failureDetailIncomplete) {
       const retentionNote = n('div', 'ops-evidence-note is-warning');
       add(retentionNote, [
-        n('strong', '', 'Agent-health drill-down evidence is storage-bounded. '),
-        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + 'When node detail or source history is incomplete, node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
+        n('strong', '', pipelineHistoryIncomplete ? 'Agent-health pipeline history is incomplete. ' : 'Agent-health drill-down evidence is storage-bounded. '),
+        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (pipelineHistoryIncomplete ? 'Collection for ' + agentPipelineScopeLabel(agentHealth) + ' begins ' + value(sourcePipelineScope.collected_from) + '; the full ' + integer(agentHealth.max_window_days || 60) + '-day window is not yet complete. Compact accounting is exact only for the available history. ' : sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + (pipelineHistoryIncomplete ? 'For selections that start before available UTC history or omit node rows, ' : 'When node detail or source history is incomplete, ') + 'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
       ]);
       host.append(retentionNote);
     }
@@ -5113,7 +5132,7 @@
 
     function pageHeaderNote() {
       const note = n('div', 'ops-evidence-note is-info');
-      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Every build on AMD GPU hardware — all branches and PRs across the AMD nightly and upstream CI pipelines — is attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering run on the Failure signal you pick below: "infra-suspect" (the default — anomalous, node-attributable failures, since most PR failures are code bugs), all hard failures, or all failures. Toggle the signal, build scope, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
+      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Every build on AMD GPU hardware — all branches and PRs across ' + agentPipelineScopeLabel(agentHealth) + ' — is attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering run on the Failure signal you pick below: "infra-suspect" (the default — anomalous, node-attributable failures, since most PR failures are code bugs), all hard failures, or all failures. Toggle the signal, build scope, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
       return note;
     }
 
@@ -5225,6 +5244,9 @@
       const days = AGENT_WINDOW_DAYS[windowId] || 7;
       const startMs = endMs - days * 86400000;
       const startDay = new Date(startMs).toISOString().slice(0, 10);
+      sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth, startDay);
+      nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
+      failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
 
       const byNode = new Map();
       let totalRuns = 0;
@@ -5431,7 +5453,9 @@
 
     function tableDescription(view) {
       const count = integer(view.agents.length) + ' node(s) in ' + windowId;
-      const base = nodeDetailIncomplete || failureDetailIncomplete
+      const base = sourceHistoryIncomplete
+        ? 'Only available source history is shown. Compact accounting covers that retained interval; node counts and node-specific Fail % are unavailable, and displayed counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
+        : nodeDetailIncomplete || failureDetailIncomplete
         ? 'Operations retained only a bounded suffix of node-granular rows. Exact date/hardware run and failure totals remain in compact accounting, but node counts and node-specific Fail % are unavailable; displayed node counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
         : 'Runs come from the node_days rollup of every build. Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown.';
       if (signal === 'infra') {
@@ -8254,6 +8278,7 @@
       reliabilityPublicationState: reliabilityPublicationState,
       groupPublicationHistoryComplete: groupPublicationHistoryComplete,
       agentSourceHistoryComplete: agentSourceHistoryComplete,
+      agentPipelineScopeLabel: agentPipelineScopeLabel,
       amdHealthPublicationState: amdHealthPublicationState,
       agentFailureAccountingCounts: agentFailureAccountingCounts,
       agentAggregateRunCounts: agentAggregateRunCounts,
