@@ -202,11 +202,9 @@ jobs:
             --max-requests 110
             --minimum-interval-hours 3
             --now "${{ steps.dns-request-budget.outputs.decision_at }}"
-            # Full active-parent reconciliation can spend several minutes
-            # normalizing large build/job payloads before bounded log reads.
-            # Keep enough wall-clock headroom to finish that indivisible
-            # discovery phase; the independent 110-request ceiling remains the
-            # API-budget authority.
+            # Discovery gets half the wall budget and reserves 40 of the 110
+            # request starts for logs. Validated partial discovery is saved,
+            # with explicit incomplete coverage, when the daily sweep is large.
             --time-budget-seconds 1200
             --classification-cache data/vllm/ci/.cache/dns-classifications-v1
           )

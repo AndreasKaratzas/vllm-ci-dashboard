@@ -88,6 +88,14 @@ process that can see `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` exits with
 status 78 unless the workflow has supplied a complete durable request-guard
 reservation; exporting a token alone is not a supported local run mode.
 
+DNS Health discovers current AMD jobs before its daily active-build sweep.
+Each scan keeps the 110-request limit, reserves 40 request starts for log
+classification, and gives discovery half the collection time budget. When
+discovery reaches its budget, validated observations are saved as an encrypted
+checkpoint with `discovery.complete: false`; the public panel continues to
+show incomplete coverage and pending jobs. A failed scan before any validated
+discovery page preserves the prior generation.
+
 ```bash
 pip install requests pyyaml
 python scripts/collect.py

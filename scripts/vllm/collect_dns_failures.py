@@ -83,6 +83,8 @@ DEFAULT_MAX_LOGS = 500
 DEFAULT_MAX_REQUESTS = 110
 DEFAULT_TIME_BUDGET_SECONDS = 0
 FINALIZATION_RESERVE_SECONDS = 30
+# Discovery cannot consume the allowance needed to classify the newest jobs.
+DISCOVERY_LOG_REQUEST_RESERVE = 40
 BOOTSTRAP_DISCOVERY_HOURS = 24
 INCREMENTAL_DISCOVERY_OVERLAP_HOURS = 2
 MAX_INCREMENTAL_DISCOVERY_GAP_HOURS = 24
@@ -269,6 +271,8 @@ class BuildkiteClient:
         self._quota_lock = threading.Lock()
         self._metrics_lock = threading.Lock()
         self._request_starts = {"build_page": 0, "graphql": 0, "job_log": 0}
+        self._discovery_request_limit: int | None = None
+        self._discovery_progress: Callable[[Iterable[dict]], None] | None = None
         self._metrics = {
             "pacing_wait_seconds": 0.0,
             "quota_wait_seconds": 0.0,
@@ -414,6 +418,14 @@ class BuildkiteClient:
                 with self._metrics_lock:
                     starts = sum(self._request_starts.values())
                     if self.max_request_starts and starts >= self.max_request_starts:
+                        raise RequestBudgetExhausted()
+                    if (
+                        kind != "job_log"
+                        and self._discovery_request_limit is not None
+                        and self._request_starts["build_page"]
+                        + self._request_starts["graphql"]
+                        >= self._discovery_request_limit
+                    ):
                         raise RequestBudgetExhausted()
                     self._request_starts[kind] += 1
                 if attempt:
@@ -772,6 +784,9 @@ class BuildkiteClient:
                     raise CollectionError("invalid_response")
                 discovered[(pipeline, metadata["job_id"])] = metadata
 
+            if self._discovery_progress is not None:
+                self._discovery_progress(discovered.values())
+
             has_next_page = page_info.get("hasNextPage")
             if not isinstance(has_next_page, bool):
                 raise CollectionError("invalid_response")
@@ -839,6 +854,8 @@ class BuildkiteClient:
                 if number not in seen_numbers:
                     seen_numbers.add(number)
                     builds.append(build)
+            if self._discovery_progress is not None:
+                self._discovery_progress(discover_job_metadata({pipeline: batch}))
             if len(batch) < PAGE_SIZE:
                 return builds
         raise CollectionError("invalid_response")
@@ -899,7 +916,18 @@ class BuildkiteClient:
                 done, _ = wait(tuple(in_flight), return_when=FIRST_COMPLETED)
                 for future in sorted(done, key=in_flight.__getitem__):
                     index = in_flight.pop(future)
-                    results[index] = future.result()
+                    try:
+                        results[index] = future.result()
+                    except BudgetExhausted:
+                        # A sibling may have rejected malformed/authenticated
+                        # source data. Drain the admitted work so a budget
+                        # exception cannot hide that harder failure.
+                        for pending_future in in_flight:
+                            try:
+                                pending_future.result()
+                            except BudgetExhausted:
+                                pass
+                        raise
                 submit_available(pool)
 
         merged: dict[int, dict] = {}
@@ -956,6 +984,11 @@ class BuildkiteClient:
                 ):
                     raise CollectionError("invalid_response")
                 validated_batch.append((number, build))
+            if self._discovery_progress is not None:
+                # A full leaf may need subdivision before completeness can be
+                # proved, but its validated job observations are still useful
+                # in an explicitly incomplete checkpoint if the budget expires.
+                self._discovery_progress(discover_job_metadata({pipeline: batch}))
             if len(batch) == PAGE_SIZE:
                 midpoint = range_start + (range_end - range_start) / 2
                 if midpoint <= range_start or midpoint >= range_end:
@@ -1371,7 +1404,11 @@ def _discovery_window(
         )
         if generated_at > clock:
             raise StateValidationError("prior state generated_at is in the future")
-        intervals.append((max(target_start, discovery_start), generated_at))
+        intervals.append((
+            max(target_start, discovery_start)
+            if state["discovery"]["complete"] else generated_at,
+            generated_at,
+        ))
 
     if not intervals:
         return bootstrap_start, bootstrap_start
@@ -1748,7 +1785,67 @@ def collect(
         if isinstance(client, BuildkiteClient)
         else {"build_page": 0, "graphql": 0, "job_log": 0}
     )
-    if full_active_reconciliation:
+    discovery_complete = True
+    if isinstance(client, BuildkiteClient):
+        progress: dict[tuple[str, str], dict] = {}
+        progress_lock = threading.Lock()
+        progress_pages = 0
+
+        def record_progress(metadata_rows: Iterable[dict]) -> None:
+            nonlocal progress_pages
+            with progress_lock:
+                progress_pages += 1
+                for metadata in metadata_rows:
+                    progress[(metadata["pipeline"], metadata["job_id"])] = metadata
+
+        prior_progress = client._discovery_progress
+        prior_limit = client._discovery_request_limit
+        client._discovery_progress = record_progress
+        if client.max_request_starts:
+            log_reserve = min(
+                DISCOVERY_LOG_REQUEST_RESERVE,
+                client.max_request_starts // 2,
+            )
+            client._discovery_request_limit = client.max_request_starts - log_reserve
+        discovery_deadline = (
+            started_monotonic + (deadline - started_monotonic) / 2
+            if deadline is not None else None
+        )
+        try:
+            # Current AMD job observations come first, even after a stale
+            # checkpoint or UTC rollover. The expensive active-parent sweep
+            # may add older observations only within the discovery subbudget.
+            discovered.extend(client.discover_incremental_job_metadata(
+                created_from=finished_from,
+                finished_from=finished_from,
+                deadline=discovery_deadline,
+            ))
+            if full_active_reconciliation:
+                for pipeline in PIPELINES:
+                    builds = client.discover_builds(
+                        pipeline,
+                        finished_from=finished_from,
+                        active_created_from=active_created_from,
+                        active_created_to=active_created_to,
+                        deadline=discovery_deadline,
+                    )
+                    discovered_builds += len(builds)
+                    discovered.extend(discover_job_metadata({pipeline: builds}))
+            else:
+                discovery_complete = False
+        except BudgetExhausted:
+            # Only live, validated observations can advance the generation.
+            # An exception before the first successful discovery page must
+            # leave the established evidence untouched.
+            if not progress_pages and not discovered:
+                raise
+            discovery_complete = False
+            log.info("DNS discovery stopped at its subbudget; preserving validated partial progress")
+        finally:
+            client._discovery_progress = prior_progress
+            client._discovery_request_limit = prior_limit
+        discovered.extend(progress.values())
+    else:
         for pipeline in PIPELINES:
             builds = client.discover_builds(
                 pipeline,
@@ -1759,19 +1856,6 @@ def collect(
             )
             discovered_builds += len(builds)
             discovered.extend(discover_job_metadata({pipeline: builds}))
-    else:
-        discovered.extend(
-            client.discover_incremental_job_metadata(
-                created_from=finished_from,
-                finished_from=finished_from,
-                deadline=deadline,
-            )
-        )
-    if not full_active_reconciliation:
-        # Direct recent-job discovery deliberately defers the rare case of a
-        # newly-finished job in an old, still-active parent to the daily sweep.
-        # Keep the public completeness flag conservative between sweeps.
-        coverage_start = clock - timedelta(seconds=1)
     requests_after_discovery = (
         client.request_starts()
         if isinstance(client, BuildkiteClient)
@@ -1843,6 +1927,7 @@ def collect(
         )
 
     state = empty_state(clock, coverage_start)
+    state["discovery"]["complete"] = discovery_complete
     state["jobs"] = prune_state_jobs(rows, retention_start, clock)
     state = validate_state(state)
     output = build_public_output(state)

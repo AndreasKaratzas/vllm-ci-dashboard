@@ -2060,12 +2060,12 @@ def test_same_day_incremental_discovery_stays_conservatively_partial(tmp_path: P
     assert client.incremental_calls == [(overlap_start, overlap_start)]
     state = dns.load_state(state_path)
     assert state is not None
-    assert state["discovery"]["start"] == _timestamp(seconds=-1)
+    assert state["discovery"]["complete"] is False
     assert output["coverage"]["discovery_complete"] is False
     assert output["windows"]["1h"]["coverage"]["discovery_complete"] is False
 
 
-def test_new_utc_day_runs_the_full_active_reconciliation(tmp_path: Path):
+def test_new_utc_day_discovers_recent_jobs_before_full_active_reconciliation(tmp_path: Path):
     prior_end = NOW - timedelta(hours=13)
     state_path = tmp_path / "dns_health" / "scan_state.json.gz"
     dns.write_state(
@@ -2080,7 +2080,7 @@ def test_new_utc_day_runs_the_full_active_reconciliation(tmp_path: Path):
                 session=_FakeSession([]),
                 sleep=lambda _: None,
             )
-            self.full_calls: list[str] = []
+            self.calls: list[str] = []
 
         def discover_builds(
             self,
@@ -2091,11 +2091,12 @@ def test_new_utc_day_runs_the_full_active_reconciliation(tmp_path: Path):
             active_created_to: str | None = None,
             deadline: float | None = None,
         ) -> list[dict]:
-            self.full_calls.append(pipeline)
+            self.calls.append(pipeline)
             return []
 
         def discover_incremental_job_metadata(self, *args, **kwargs):
-            raise AssertionError("a new UTC day requires full reconciliation")
+            self.calls.append("recent-jobs")
+            return []
 
         def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
             raise AssertionError("empty discovery has no logs")
@@ -2108,7 +2109,177 @@ def test_new_utc_day_runs_the_full_active_reconciliation(tmp_path: Path):
         now=NOW,
     )
 
-    assert client.full_calls == ["amd-ci", "ci"]
+    assert client.calls == ["recent-jobs", "amd-ci", "ci"]
+
+
+@pytest.mark.parametrize("exhaustion", [collector.BudgetExhausted, collector.RequestBudgetExhausted])
+def test_stale_discovery_preserves_current_partial_progress_and_scans_logs(
+    tmp_path: Path, exhaustion,
+):
+    state_path = tmp_path / "scan_state.json.gz"
+    prior_end = NOW - timedelta(days=3)
+    dns.write_state(state_path, dns.empty_state(prior_end, prior_end - timedelta(days=5)))
+    deadlines = []
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+            self.incremental_calls = 0
+            self.log_calls = []
+
+        def discover_incremental_job_metadata(self, *, deadline, **kwargs):
+            self.incremental_calls += 1
+            deadlines.append(deadline)
+            assert self._discovery_request_limit == 70
+            metadata = _metadata(self.incremental_calls)
+            assert self._discovery_progress is not None
+            self._discovery_progress([metadata])
+            if self.incremental_calls == 1:
+                raise exhaustion()
+            return [metadata]
+
+        def discover_builds(self, *args, **kwargs):
+            raise AssertionError("a bounded recent phase must not restart the full sweep")
+
+        def fetch_job_log(self, metadata, *, deadline):
+            self.log_calls.append((metadata["job_id"], deadline))
+            return "ordinary successful output", 26
+
+    client = Client()
+    for hours in (0, 3):
+        output = collector.collect(
+            client=client, state_path=state_path, output_path=tmp_path / "dns_failures.json",
+            time_budget_seconds=1200, minimum_interval_hours=3,
+            now=NOW + timedelta(hours=hours), monotonic=lambda: 0.0,
+        )
+        state = dns.load_state(state_path)
+        assert state is not None and state["discovery"]["complete"] is False
+        assert output["generated_at"] == _timestamp(hours=hours)
+        assert output["coverage"]["discovery_complete"] is False
+        assert output["coverage"]["scanned_jobs"] == hours // 3 + 1
+    assert deadlines == [585.0, 585.0]
+    assert client.log_calls == [(_uuid(1), 1170.0), (_uuid(2), 1170.0)]
+    assert client._discovery_request_limit is None
+    assert client._discovery_progress is None
+
+
+def test_partial_discovery_cannot_extend_exhaustive_coverage():
+    prior_end = NOW - timedelta(hours=1)
+    state = dns.empty_state(prior_end, NOW - timedelta(days=10))
+    state["discovery"]["complete"] = False
+    state = dns.validate_state(state)
+    query_start, coverage_start = collector._discovery_window(
+        [state], clock=NOW, target_start=NOW - timedelta(days=30),
+    )
+    assert query_start == coverage_start == NOW - timedelta(hours=3)
+    assert dns.build_public_output(state)["windows"]["1h"]["coverage"]["discovery_complete"] is False
+
+
+def test_recent_graphql_page_checkpoint_reserves_transport_starts_for_logs(tmp_path: Path):
+    queue = "amd_mi355_1"
+    queue_id = "queue-id"
+    queue_payload = {"data": {"organization": {"cluster": {"queues": {
+        "edges": [{"node": {"id": queue_id, "key": queue}}],
+        "pageInfo": {"hasNextPage": False, "endCursor": None},
+    }}}}}
+    nodes = [{
+        "uuid": _uuid(index), "createdAt": _timestamp(hours=-0.75),
+        "startedAt": _timestamp(hours=-0.5), "finishedAt": _timestamp(hours=-0.1),
+        "state": "FINISHED", "passed": True, "softFailed": False,
+        "agent": {"metaData": [f"queue={queue}", "k8s:node=crsuse2-m2m-295"]},
+        "clusterQueue": {"id": queue_id, "key": queue},
+        "build": {"number": 13000 + index, "pipeline": {"slug": "amd-ci"}},
+    } for index in (1, 2)]
+    jobs_payload = {"data": {"organization": {"jobs": {
+        "edges": [{"node": node} for node in nodes],
+        "pageInfo": {"hasNextPage": True, "endCursor": "page-2"},
+    }}}}
+    session = _FakeSession([
+        _FakeResponse(200, json_payload=queue_payload),
+        _FakeResponse(200, json_payload=jobs_payload),
+        _FakeResponse(200, body=b"ordinary output", headers={"Content-Type": "text/plain"}),
+        _FakeResponse(200, body=b"ordinary output", headers={"Content-Type": "text/plain"}),
+    ])
+    client = collector.BuildkiteClient(
+        "memory-only-token", max_request_starts=4, session=session, sleep=lambda _: None,
+    )
+    output = collector.collect(
+        client=client, state_path=tmp_path / "scan_state.json.gz",
+        output_path=tmp_path / "dns_failures.json", now=NOW,
+    )
+    assert client.request_starts() == {"build_page": 0, "graphql": 2, "job_log": 2}
+    assert len(session.calls) == 4
+    assert output["coverage"]["scanned_jobs"] == 2
+    assert output["coverage"]["discovery_complete"] is False
+
+
+def test_validated_empty_job_page_can_advance_explicitly_partial_generation(tmp_path: Path):
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+
+        def discover_incremental_job_metadata(self, **kwargs):
+            assert self._discovery_progress is not None
+            self._discovery_progress([])
+            raise collector.RequestBudgetExhausted()
+
+    output = collector.collect(
+        client=Client(), state_path=tmp_path / "scan_state.json.gz",
+        output_path=tmp_path / "dns_failures.json", now=NOW,
+    )
+    assert output["generated_at"] == _timestamp()
+    assert output["coverage"]["eligible_jobs"] == 0
+    assert output["coverage"]["discovery_complete"] is False
+    assert output["coverage"]["status"] == "partial"
+
+
+def test_production_discovery_exhaustion_before_validated_page_preserves_state(tmp_path: Path):
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    dns.write_state(state_path, _state([_negative_record(1)]))
+    before = state_path.read_bytes()
+    output_path.write_text("durable output\n")
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+
+        def discover_incremental_job_metadata(self, **kwargs):
+            raise collector.RequestBudgetExhausted()
+
+    with pytest.raises(collector.RequestBudgetExhausted):
+        collector.collect(
+            client=Client(), state_path=state_path, output_path=output_path,
+            now=NOW + timedelta(hours=3),
+        )
+    assert state_path.read_bytes() == before
+    assert output_path.read_text() == "durable output\n"
+
+
+@pytest.mark.parametrize("reason", ["invalid_response", "authentication", "network_error"])
+def test_hard_discovery_failure_keeps_durable_evidence_after_partial_page(tmp_path: Path, reason):
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    dns.write_state(state_path, _state([_negative_record(1)]))
+    before = state_path.read_bytes()
+    output_path.write_text("durable output\n")
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+
+        def discover_incremental_job_metadata(self, **kwargs):
+            assert self._discovery_progress is not None
+            self._discovery_progress([_metadata(2)])
+            raise collector.CollectionError(reason)
+
+    with pytest.raises(collector.CollectionError, match=reason):
+        collector.collect(
+            client=Client(), state_path=state_path, output_path=output_path,
+            now=NOW + timedelta(hours=3),
+        )
+    assert state_path.read_bytes() == before
+    assert output_path.read_text() == "durable output\n"
 
 
 def test_minimum_interval_republishes_validated_state_without_buildkite_io(
@@ -2537,3 +2708,72 @@ def test_cli_contract_has_no_token_flag_and_exposes_budget(capsys):
     assert "--merge-state-git-ref" in help_text
     assert "--dry-run" in help_text
     assert "--token" not in help_text
+
+
+@pytest.mark.parametrize(
+    "budget_error", [collector.BudgetExhausted, collector.RequestBudgetExhausted]
+)
+@pytest.mark.parametrize("hard_reason", ["invalid_response", "authentication"])
+def test_partial_discovery_budget_cannot_hide_concurrent_source_failure(
+    tmp_path: Path, monkeypatch, budget_error, hard_reason: str,
+):
+    """Every admitted source response must pass before partial progress is saved."""
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    dns.write_state(state_path, _state([_negative_record(1)]))
+    output_path.write_text("durable-public-output\n")
+    before_state = state_path.read_bytes()
+    collection_clock = NOW + timedelta(hours=25)
+    hard_failure_released = threading.Event()
+    all_slices_started = threading.Event()
+    slice_lock = threading.Lock()
+    slice_calls: list[datetime] = []
+    original_wait = collector.wait
+
+    def release_hard_failure_after_budget_finishes(futures, *, return_when):
+        result = original_wait(futures, return_when=return_when)
+        # The first completed future carries only budget exhaustion. Its
+        # admitted sibling rejects source data after the completion snapshot.
+        hard_failure_released.set()
+        return result
+
+    monkeypatch.setattr(collector, "wait", release_hard_failure_after_budget_finishes)
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__(
+                "memory-only-token", session=_FakeSession([]), sleep=lambda _: None,
+            )
+
+        def discover_incremental_job_metadata(self, **kwargs):
+            metadata = [_metadata(2)]
+            self._discovery_progress(metadata)
+            return metadata
+
+        def _active_slice_builds(
+            self, pipeline: str, *, created_from: datetime,
+            created_to: datetime, deadline: float | None = None,
+        ):
+            with slice_lock:
+                slice_calls.append(created_to)
+                if len(slice_calls) == collector.MAX_CONCURRENT_ACTIVE_SLICES:
+                    all_slices_started.set()
+            assert all_slices_started.wait(timeout=5)
+            if created_to == collection_clock:
+                raise budget_error()
+            assert hard_failure_released.wait(timeout=5)
+            if created_to == collection_clock - timedelta(
+                hours=collector.ACTIVE_DISCOVERY_SLICE_HOURS
+            ):
+                raise collector.CollectionError(hard_reason)
+            return []
+
+    with pytest.raises(collector.CollectionError, match=hard_reason):
+        collector.collect(
+            client=Client(), state_path=state_path, output_path=output_path,
+            now=collection_clock,
+        )
+
+    assert len(slice_calls) == collector.MAX_CONCURRENT_ACTIVE_SLICES
+    assert state_path.read_bytes() == before_state
+    assert output_path.read_text() == "durable-public-output\n"

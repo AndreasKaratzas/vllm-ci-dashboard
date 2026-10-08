@@ -886,8 +886,8 @@ def validate_state(payload: object) -> dict:
     discovery_end = parse_timestamp(discovery.get("end_exclusive"), "discovery.end_exclusive")
     if discovery_end != generated or discovery_start >= discovery_end:
         raise StateValidationError("discovery boundaries are inconsistent")
-    if discovery.get("complete") is not True:
-        raise StateValidationError("persisted discovery must be exhaustive")
+    if not isinstance(discovery.get("complete"), bool):
+        raise StateValidationError("persisted discovery completeness must be boolean")
     if discovery.get("pipelines") != list(PIPELINES) or discovery.get("include_retried_jobs") is not True:
         raise StateValidationError("discovery scope does not match the contract")
 
