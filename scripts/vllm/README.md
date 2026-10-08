@@ -9,13 +9,10 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `collect_queue_snapshot.py` | Captures current Buildkite queue-native metrics every permitted poll and refreshes the complete active-job overlay at most hourly; incomplete detail pagination retains the last complete overlay with explicit timestamps/status | Every 10 min via `queue-monitor.yml` (detail at most hourly) |
 | `collect_queue_lifecycle.py` | Resumably collects seven-day privacy-minimized queue lifecycle events through exhaustive disjoint parent-created query units without publishing partial generations | 30-minute recovery checks with a two-hour successful cadence via `queue-lifecycle.yml` |
 | `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every two hours via `hourly-master.yml` |
-| `collect_amd_test_matrix.py` | Normalizes upstream `test-amd.yaml` into a dynamic per-architecture coverage matrix, matched against the latest AMD nightly | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
+| `collect_amd_test_matrix.py` | Derives inline and native AMD GPU main CI routes at the exact observed nightly commit | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
-| `collect_gating_targets.py` | Regenerates `gating_targets.json` from the authoritative `config/vllm_amd_gating_targets.json` | Every canonical `hourly-master.yml` run |
-| `collect_gating_proposals.py` | Finds recent open PRs from tracked AMD engineers that add new `.buildkite/test_areas` AMD mirrors, then follows cached proposal PRs until they stop adding mirrors | Every two hours via `hourly-master.yml` |
-| `collect_gating_target_candidates.py` | Builds a review-only audit of upstream nightly GPU jobs vs the canonical AMD gating target list, including likely duplicates, exclusions, new candidates, and explicit `%N` shard aggregation | Every two hours via `hourly-master.yml` |
 | `merge_perf_eval_events.py` | Strictly merges a validated durable baseline with candidate perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
-| `build_operations_snapshot.py` | Builds the private v2 operations input plus its public manifest and lazy section shards; runtime targets resolve through exact matrix aliases and definition parity with explicit unresolved reasons | Every canonical collection and Pages assembly |
+| `build_operations_snapshot.py` | Builds the private operations input and bundle-v3 manifest with eleven retained lazy sections, current runtime GPU cohorts, source parity, and exact five-nightly latency | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
 | `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
@@ -235,9 +232,6 @@ private analytics.json    --> ci/public_analytics.py during build_site.py
                            --> bounded _site/data/vllm/ci/analytics.json
 collect_amd_test_matrix.py --> data/vllm/ci/amd_test_matrix.json
 collect_ownership_parity.py --> data/vllm/ci/ownership_config_parity.json
-collect_gating_targets.py --> data/vllm/ci/gating_targets.json
-collect_gating_proposals.py --> data/vllm/ci/gating_proposals.json
-collect_gating_target_candidates.py --> data/vllm/ci/gating_target_candidates.json
 config_parity.py          --> data/vllm/ci/config_parity.json
 amd_test_matrix.json + config_parity.json + ownership_config_parity.json
                          + config/vllm_ci_ownership.json
@@ -301,12 +295,12 @@ discarded and reconciled once from the exhaustive source before it can replace
 the cache.
 
 The immutable dashboard-state tree has a checked 256 MiB ceiling. Its shared
-allocation policy reserves only 240 MiB, guaranteeing 16 MiB of global
-headroom, and gives unclassified code/config assets a separate 16 MiB envelope.
-Generated operational data is never charged to that code reserve: gating
-control (6 MiB), Operations control files (5 MiB), watcher state (3 MiB),
-GitHub Home (768 KiB), group changes (1 MiB), and small fixed operational files
-(256 KiB) have disjoint aggregate groups. The final staged-index guard checks
+allocation policy now assigns 223 MiB, leaving 33 MiB of global headroom, and
+includes a separate 18 MiB envelope for unclassified code/config assets.
+Generated operational data has disjoint aggregate groups: Operations control
+files (5 MiB), watcher state (3 MiB), GitHub Home (768 KiB), and small fixed
+operational files (256 KiB). Retired gating, hotness, and group-change data have
+no active allocation. The final staged-index guard checks
 every group before commit; bounded evidence writers compact whole units and
 attest source/published/omitted counts.
 
@@ -331,14 +325,13 @@ create dangling links.
 
 ## Bounded last-known-good publication
 
-The canonical workflow splits CI into five atomic publication surfaces: core
-health/matrix/ownership, private analytics/reliability, gating configuration
-and nightly evidence, test-group changes, and workload hotness. Queue,
-lifecycle, agent-health, GitHub-home, and perf-eval inputs remain separate
-surfaces. An analytics capacity failure can therefore
-retain reliability history without rolling back unrelated health, matrix,
-ownership, or gating data; if the analytics command fails before producing a
-fresh nightly seed, gating is quarantined too. A routed degradation keeps fresh
+The canonical workflow separates core health/matrix/current-source parity from
+private analytics/reliability. Queue observations, capacity, workload, Omni,
+lifecycle, agent health, GitHub home, and perf evaluation have independent
+transactions. Contract v6 validates historical v5 restore proofs before dropping
+the retired gating, group-change, and hotness domains and their clocks. The
+current main inventory refresh uses an immutable source SHA and needs no
+Buildkite request. A routed degradation keeps fresh
 candidate bytes and publishes an explicit warning. A collector failure or hard
 routed audit error instead rejects that surface's entire candidate transaction.
 The selector restores the whole failed surface from the validated durable state
@@ -422,3 +415,36 @@ Before each root replacement, the publisher size-proves the existing Pages
 tree and overlays only bounded whole `pr-preview/pr-N` cohorts. The combined
 tree is re-bounded and its preview inventory digest is verified after deploy,
 so retired canonical files disappear without silently deleting valid previews.
+
+## Current main CI and view retirement
+
+Current runtime metrics use AMD and CUDA GPU jobs from the `ci` pipeline.
+Legacy `amd-ci` data does not contribute to current coverage, health, or latency.
+Parity and AMD mirrors are derived from an immutable upstream `main` commit;
+`config/vllm_upstream_test_group_parity.json` stores explicit unsupported-group
+classification policy, rather than a frozen coverage inventory. Coverage and
+required blocking gates are distinct counts, with optional and soft-fail routes
+shown separately. Runtime definitions remain pinned to the observed nightly.
+
+Latency uses the global latest five completed main CI nightlies. Each group
+contributes at most one sample per nightly: maximum wall time of the complete
+parallel shard group, followed by the median across available nightly samples.
+Missing groups are unavailable; older nightlies never fill missing samples.
+
+The private `operations_v2.json.gz` build input produces bundle v3 with eleven
+allowlisted lazy sections. Canonical publication replaces the Pages tree,
+validates historical restore proofs, and purges retired artifacts. The removal
+inventory is tracked in [Dashboard Cleanup](dashboards/dashboard-cleanup.md).
+
+Organization rollups consume
+[`org_summary.json`](https://andreaskaratzas.github.io/vllm-ci-dashboard/data/vllm/ci/org_summary.json).
+Schema v7 keeps current observed AMD logical groups and exact job variants,
+current configuration parity, and queue activity in distinct populations.
+`queues.daily_served_job_waits` references the independently bounded lifecycle
+vectors through `source.path`, `source.key`, and `source.vector_key`.
+
+Buildkite collection runs only through the guarded **Data Collection**,
+**Queue Monitor**, **Queue Lifecycle Monitor**, and **DNS Health Monitor**
+GitHub Actions workflows. Local tests and rendering use fixtures without a
+Buildkite token. Request allowances and successful collection cadence remain
+bounded by the durable ledgers.

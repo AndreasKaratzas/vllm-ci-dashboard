@@ -69,12 +69,13 @@ from vllm.ci.reliability_history import (  # noqa: E402
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
-from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG  # noqa: E402
+from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG, _job_queue  # noqa: E402
+from vllm.ci.nightly_latency import build_current_nightly_latency  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
 
-PIPELINES = {"amd-ci": "AMD CI", "ci": "Upstream CI"}
+PIPELINES = {"amd-ci": "Legacy AMD CI history", "ci": "Main CI"}
 ANALYTICS_WINDOWS_DAYS = (1, 3, 7, 14, 30)
 BUILD_PASS_RATE_BASIS = "terminal_build_state_all_green"
 TERMINAL_BUILD_STATES = frozenset({
@@ -89,8 +90,6 @@ ANALYTICS_BUILD_LIMIT = 120
 ANALYTICS_NIGHTLY_LIMIT = 30
 ANALYTICS_WINDOW_BUILD_LIMIT = 50
 ANALYTICS_WINDOW_NIGHTLY_LIMIT = 30
-GATING_NIGHTLY_LIMIT = 30
-GATING_NIGHTLIES_MAX_BYTES = writer_max_bytes("gating_nightlies")
 # GitHub rejects individual blobs at 100 MiB. Keep the private collector
 # artifact below that boundary with enough headroom for byte/display-unit
 # differences and fail before replacing the validated baseline.
@@ -661,7 +660,22 @@ def load_test_result_builds(
 
 def choose_analytics_builds(buildkite_builds: list[dict], result_builds: list[dict],
                             previous_builds: list[dict] | None = None, pipeline_slug: str = "") -> list[dict]:
-    """Prefer parsed test-result builds, with guards against empty overwrites."""
+    """Keep current CI metadata authoritative; enrich exact jobs with tests."""
+    if pipeline_slug == "ci" and buildkite_builds:
+        # Current source rosters and the global latest-five cohort must survive
+        # even when only older nightlies have parsed logs. Enrich exact current
+        # attempts with assertion counts, preserving all Buildkite metadata.
+        parsed_jobs = {
+            (build.get("number"), str(job.get("job_id"))): job
+            for build in result_builds for job in build.get("jobs") or []
+            if job.get("job_id")
+        }
+        fields = ("tests", "passed_tests", "failed_tests", "skipped_tests", "test_duration_mins")
+        return [{**build, "jobs": [
+            {**job, **{key: parsed_jobs.get((build.get("number"), str(job.get("job_id"))), {}).get(key)
+                       for key in fields if key in parsed_jobs.get((build.get("number"), str(job.get("job_id"))), {})}}
+            for job in build.get("jobs") or []
+        ]} for build in buildkite_builds]
     if result_builds:
         if buildkite_builds and len(result_builds) < max(2, len(buildkite_builds) // 2):
             log.warning(
@@ -1612,7 +1626,7 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             norm = normalize_job(name)
             state = j.get("state", "")
             sf = j.get("soft_failed", False)
-            queue = j.get("q") or queue_from_rules(j.get("agent_query_rules"))
+            queue = _job_queue(j)
 
             dur = duration_mins(j.get("started_at"), j.get("finished_at"))
             wait = duration_mins(j.get("runnable_at"), j.get("started_at"))
@@ -1639,6 +1653,8 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
                 "started_at": j.get("started_at") or "",
                 "finished_at": j.get("finished_at") or "",
                 "runnable_at": j.get("runnable_at") or "",
+                "parallel_group_index": j.get("parallel_group_index"),
+                "parallel_group_total": j.get("parallel_group_total"),
             }
             for key in RETRY_FIELDS:
                 value = j.get(key, (j.get("step") or {}).get("key") if key == "step_key" else None)
@@ -1867,25 +1883,6 @@ def _buildkite_url_ids(url: str) -> dict[str, str]:
     return {key: match.group(2)}
 
 
-def gating_job_summary(job):
-    """Return only fields needed by the AMD gating executive view."""
-    keep = ("name", "raw_name", "state", "q", "job_id", "step_id")
-    out = {key: job[key] for key in keep if key in job and job[key] not in (None, "")}
-    if not out.get("job_id") and not out.get("step_id"):
-        out.update(_buildkite_url_ids(str(job.get("url") or job.get("web_url") or "")))
-    if not out.get("job_id") and not out.get("step_id") and (job.get("url") or job.get("web_url")):
-        out["url"] = job.get("url") or job.get("web_url")
-    return out
-
-
-def gating_build_summary(build):
-    """Slim nightly build payload for CI Health gating matching."""
-    keep = ("number", "state", "created_at", "date", "message", "web_url")
-    out = {key: build[key] for key in keep if key in build and build[key] not in (None, "")}
-    out["jobs"] = [gating_job_summary(job) for job in build.get("jobs") or []]
-    return out
-
-
 def _atomic_write_text(out_path: Path, text: str) -> None:
     """Replace ``out_path`` only after a same-directory file is durable."""
     out_path = Path(out_path)
@@ -1912,73 +1909,6 @@ def _atomic_write_text(out_path: Path, text: str) -> None:
             pass
         temporary_path.unlink(missing_ok=True)
         raise
-
-
-def write_gating_nightlies(output: Path, all_data: dict[str, dict[str, Any]], generated_at: str) -> None:
-    payload = {
-        "generated_at": generated_at,
-        "source": "scripts/vllm/collect_analytics.py",
-    }
-    for slug in ("ci", "amd-ci"):
-        block = all_data.get(slug) or {}
-        source_builds = block.get("builds") or []
-        selected_builds = [
-            gating_build_summary(build)
-            for build in source_builds[:GATING_NIGHTLY_LIMIT]
-        ]
-        payload[slug] = {
-            "pipeline": slug,
-            "display_name": block.get("display_name") or PIPELINES.get(slug, slug),
-            "builds": selected_builds,
-            "retention": {
-                "policy": "drop_oldest_complete_builds",
-                "configured_build_limit": GATING_NIGHTLY_LIMIT,
-                "source_build_count": len(source_builds),
-                "selected_build_count": len(selected_builds),
-                "retained_build_count": len(selected_builds),
-                "omitted_by_count_limit": max(0, len(source_builds) - len(selected_builds)),
-                "omitted_by_byte_limit": 0,
-                "byte_limited": False,
-                "max_bytes": GATING_NIGHTLIES_MAX_BYTES,
-            },
-        }
-
-    def serialized() -> str:
-        return _compact_json(payload) + "\n"
-
-    candidate = serialized()
-    while len(candidate.encode("utf-8")) > GATING_NIGHTLIES_MAX_BYTES:
-        # Each list is newest-first. Remove from the longer retained suffix so
-        # both pipelines keep comparable recent coverage, and never publish a
-        # partial build or discard the newest build of a nonempty pipeline.
-        removable = [
-            slug for slug in ("ci", "amd-ci") if len(payload[slug]["builds"]) > 1
-        ]
-        if not removable:
-            required = len(candidate.encode("utf-8"))
-            raise IncompleteAnalyticsCollection(
-                "gating_nightlies.json cannot fit its byte budget while "
-                "preserving the newest complete build for each pipeline: "
-                f"{required} > {GATING_NIGHTLIES_MAX_BYTES} bytes",
-                {
-                    "collector": "ci_analytics",
-                    "artifact": "gating_nightlies.json",
-                    "reason_class": "payload-budget",
-                    "serialized_bytes": required,
-                    "max_bytes": GATING_NIGHTLIES_MAX_BYTES,
-                },
-            )
-        slug = max(removable, key=lambda item: (len(payload[item]["builds"]), item))
-        payload[slug]["builds"].pop()
-        retention = payload[slug]["retention"]
-        retention["retained_build_count"] = len(payload[slug]["builds"])
-        retention["omitted_by_byte_limit"] += 1
-        retention["byte_limited"] = True
-        candidate = serialized()
-
-    out_path = output / "gating_nightlies.json"
-    _atomic_write_text(out_path, candidate)
-    log.info("Wrote %s (%d bytes)", out_path, len(candidate.encode("utf-8")))
 
 
 def _legacy_reliability_migration_error(
@@ -2447,7 +2377,7 @@ def write_analytics(out_path: Path, payload: dict) -> dict[str, Any]:
 def main():
     parser = argparse.ArgumentParser(description="Collect CI analytics for rich dashboard")
     parser.add_argument("--days", type=int, default=90, help="Days of history (default: 90)")
-    parser.add_argument("--pipeline", choices=["amd-ci", "ci", "both"], default="both")
+    parser.add_argument("--pipeline", choices=["amd-ci", "ci", "both"], default="ci")
     parser.add_argument("--output", type=str, default=str(OUTPUT))
     parser.add_argument(
         "--github-output",
@@ -2471,14 +2401,10 @@ def main():
         except json.JSONDecodeError:
             log.warning("Ignoring malformed previous analytics at %s", previous_path)
 
-    pipelines = ["amd-ci", "ci"] if args.pipeline == "both" else [args.pipeline]
-    # A targeted refresh must not erase the other pipeline's analytics and
-    # reliability history.
-    all_data = {
-        slug: block
-        for slug, block in previous_data.items()
-        if slug not in pipelines and isinstance(block, dict)
-    }
+    # The normal artifact has one authoritative source. The deprecated `both`
+    # option follows current CI; explicit amd-ci remains a historical CLI mode.
+    pipelines = ["ci"] if args.pipeline == "both" else [args.pipeline]
+    all_data: dict[str, dict] = {}
     ref_now = datetime.now(timezone.utc)
     generated_at = ref_now.strftime("%Y-%m-%dT%H:%M:%SZ")
     cache_dir = output / ".cache" / CACHE_DIR_NAME
@@ -2487,9 +2413,8 @@ def main():
     for slug in pipelines:
         log.info("=== %s ===", PIPELINES.get(slug, slug))
 
-        # Fetch branch=main once. Nightly regression streams remain pipeline
-        # specific; strict test-group reliability is published for both pipelines.
-        # Upstream CI remains the only source for flake and retry analysis.
+        # Fetch current branch=main once for both hardware roles, preserving
+        # exact job scope for nightly health and shared reliability evidence.
         previous_pipeline_data = previous_data.get(slug) or {}
         previous_builds = previous_pipeline_data.get("builds") or []
         previous_all_main = previous_pipeline_data.get("all_main_reliability")
@@ -2590,6 +2515,15 @@ def main():
             "default_window": default_window_key,
             "windows": windows,
         }
+        if slug == "ci":
+            # Timing must come from the freshly consulted raw CI roster. Parsed
+            # test-result fallback and preserved analytics are historical inputs
+            # and cannot silently become the current five-nightly comparison.
+            all_data[slug]["current_nightly_latency"] = build_current_nightly_latency(
+                buildkite_builds,
+                generated_at=generated_at,
+                source_available=bool(token) and collection_provenance.get("exhaustive") is True,
+            )
         preserved_retry_analysis = None
         all_main_reliability = None
         complete_retry_builds = None
@@ -2644,9 +2578,6 @@ def main():
 
     # Write output
     out_path = output / "analytics.json"
-    # CI Health consumes this slim artifact independently. Publish it first so
-    # an analytics storage-budget failure cannot withhold fresh gating data.
-    write_gating_nightlies(output, all_data, generated_at)
     write_analytics(out_path, all_data)
     log.info("Wrote %s", out_path)
     if args.github_output:

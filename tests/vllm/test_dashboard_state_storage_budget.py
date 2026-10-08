@@ -22,7 +22,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
 
     assert budget.allocated_bytes + budget.required_headroom_bytes <= budget.max_tree_bytes
     assert budget.required_headroom_bytes >= 16 * 1024 * 1024
-    assert budget.allocated_bytes == 240 * 1024 * 1024
+    assert budget.allocated_bytes == 223 * 1024 * 1024
 
     groups = budget.groups
     writers = budget.writer_limits
@@ -46,13 +46,11 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         <= groups["test_results"].max_bytes
     )
     assert writers["test_result_shard"].max_bytes < writers["test_result_store"].max_bytes
-    assert writers["gating_nightlies"].max_bytes == groups["gating_nightlies"].max_bytes
     assert (
         writers["perf_eval_events"].max_bytes
         + writers["perf_eval_summary"].max_bytes
         == groups["perf_eval"].max_bytes
     )
-    assert writers["hotness"].max_bytes == groups["hotness"].max_bytes
     assert writers["workload_mapping"].max_bytes == groups["workload_mapping"].max_bytes
     assert groups["dns_failures"].max_bytes == 6 * 1024 * 1024
     assert writers["dns_failures"].max_bytes == groups["dns_failures"].max_bytes
@@ -73,13 +71,6 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         + writers["config_parity_pair"].max_bytes
         + writers["test_group_parity"].max_bytes
         <= groups["current_definitions"].max_bytes
-    )
-    assert writers["group_changes"].max_bytes == groups["ci_changes"].max_bytes
-    assert (
-        writers["gating_proposals"].max_bytes
-        + writers["gating_target_candidates"].max_bytes
-        + writers["gating_targets"].max_bytes
-        == groups["ci_gating_control"].max_bytes
     )
     assert (
         writers["operations_manifest"].max_bytes
@@ -189,11 +180,6 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         collect_amd_test_matrix,
         collect_analytics,
         collect_capacity_monitor,
-        collect_group_changes,
-        collect_gating_proposals,
-        collect_gating_target_candidates,
-        collect_gating_targets,
-        collect_hotness,
         collect_ownership_parity,
         collect_queue_lifecycle,
         collect_queue_snapshot,
@@ -222,7 +208,6 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         public_projection.MAX_ATTESTATION_BYTES
         == writers["public_projection_attestation"].max_bytes
     )
-    assert collect_analytics.GATING_NIGHTLIES_MAX_BYTES == writers["gating_nightlies"].max_bytes
     assert reporter.TEST_RESULT_SHARD_MAX_BYTES == writers["test_result_shard"].max_bytes
     assert reporter.TEST_RESULT_STORE_MAX_BYTES == writers["test_result_store"].max_bytes
     assert (
@@ -244,7 +229,6 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
     )
     assert perf_eval_webhook.PERF_EVAL_MAX_BYTES == writers["perf_eval_events"].max_bytes
     assert perf_eval_webhook.PERF_EVAL_MAX_BYTES == writers["perf_eval_summary"].max_bytes
-    assert collect_hotness.HOTNESS_MAX_BYTES == writers["hotness"].max_bytes
     assert (
         collect_workload_mapping.WORKLOAD_MAPPING_MAX_BYTES
         == writers["workload_mapping"].max_bytes
@@ -265,23 +249,10 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         build_test_group_parity.TEST_GROUP_PARITY_MAX_BYTES
         == writers["test_group_parity"].max_bytes
     )
-    assert (
-        collect_group_changes.GROUP_CHANGES_MAX_BYTES
-        == writers["group_changes"].max_bytes
-    )
     assert dns_failures.PUBLIC_OUTPUT_MAX_BYTES == writers["dns_failures"].max_bytes
     assert (
         collect_queue_snapshot.QUEUE_DETAILS_MAX_BYTES
         == writers["queue_details"].max_bytes
-    )
-    assert collect_gating_proposals.MAX_OUTPUT_BYTES == writers["gating_proposals"].max_bytes
-    assert (
-        collect_gating_target_candidates.CANDIDATES_MAX_BYTES
-        == writers["gating_target_candidates"].max_bytes
-    )
-    assert (
-        collect_gating_targets.GATING_TARGETS_MAX_BYTES
-        == writers["gating_targets"].max_bytes
     )
     assert (
         build_operations_snapshot.ORG_SUMMARY_MAX_BYTES
@@ -378,7 +349,10 @@ def test_config_rejects_allocations_that_consume_required_headroom(tmp_path: Pat
     state = json.loads((ROOT / "config" / "dashboard_state.json").read_text())
     (config_dir / "dashboard_state.json").write_text(json.dumps(state))
     payload = json.loads(DEFAULT_CONFIG_PATH.read_text())
-    payload["unmanaged_max_bytes"] += 1
+    budget = load_storage_budget()
+    payload["unmanaged_max_bytes"] = budget.unmanaged_max_bytes + (
+        budget.max_tree_bytes - budget.required_headroom_bytes - budget.allocated_bytes
+    ) + 1
     candidate = config_dir / "dashboard_state_storage_budget.json"
     candidate.write_text(json.dumps(payload))
 

@@ -1,4 +1,4 @@
-"""Atomic, bounded handoff of one exhaustive AMD nightly job roster."""
+"""Atomic, bounded handoff of one exhaustive main CI nightly job roster."""
 
 # cspell:ignore CLOEXEC closefd
 
@@ -15,7 +15,7 @@ from vllm.bounded_json import atomic_write_bytes
 from vllm.private_ci_cache_budget import PRIVATE_CI_CACHE_BUDGET
 
 
-AMD_NIGHTLY_HANDOFF_SCHEMA_VERSION = 2
+AMD_NIGHTLY_HANDOFF_SCHEMA_VERSION = 3
 AMD_NIGHTLY_HANDOFF_MAX_BYTES = (
     PRIVATE_CI_CACHE_BUDGET.amd_frozen_nightly_max_bytes
 )
@@ -167,7 +167,7 @@ def build_amd_nightly_handoff_payload(
         "schema_version": AMD_NIGHTLY_HANDOFF_SCHEMA_VERSION,
         "generated_at": generated_at
         or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "build": compact,
         "publication_retention": retention,
     }
@@ -271,9 +271,9 @@ def load_frozen_build_snapshot(
             f"Frozen AMD build snapshot {path} must use schema_version "
             f"{AMD_NIGHTLY_HANDOFF_SCHEMA_VERSION}"
         )
-    if payload.get("pipeline") != "amd-ci":
+    if payload.get("pipeline") != "ci":
         raise AmdNightlyHandoffError(
-            f"Frozen AMD build snapshot {path} must identify amd-ci"
+            f"Frozen AMD build snapshot {path} must identify ci"
         )
     if not isinstance(payload.get("generated_at"), str) or not payload[
         "generated_at"

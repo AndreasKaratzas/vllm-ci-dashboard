@@ -67,6 +67,8 @@ def test_handoff_is_exhaustive_privacy_projected_and_bounded(tmp_path: Path) -> 
     raw = path.read_bytes()
     payload = json.loads(raw)
 
+    assert payload["schema_version"] == 3
+    assert payload["pipeline"] == "ci"
     assert len(raw) <= 4_096
     assert payload["publication_retention"]["job_rows"] == {
         "source": 2,
@@ -84,6 +86,16 @@ def test_handoff_is_exhaustive_privacy_projected_and_bounded(tmp_path: Path) -> 
     assert load_frozen_build_snapshot(
         path, 1234, max_bytes=4_096
     ) == payload["build"]
+
+
+@pytest.mark.parametrize("schema_version,pipeline", [(2, "amd-ci"), (3, "amd-ci")])
+def test_reader_rejects_legacy_side_pipeline_rosters(tmp_path, schema_version, pipeline):
+    path = write_amd_nightly_snapshot(_build(), tmp_path, max_bytes=4_096)
+    payload = json.loads(path.read_text())
+    payload.update(schema_version=schema_version, pipeline=pipeline)
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="schema_version|must identify ci"):
+        load_frozen_build_snapshot(path, 1234, max_bytes=4_096)
 
 
 def test_overflow_preserves_last_known_good_snapshot(tmp_path: Path) -> None:

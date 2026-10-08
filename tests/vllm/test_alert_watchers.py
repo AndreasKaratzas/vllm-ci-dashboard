@@ -177,6 +177,46 @@ def _amd_group(group_id, observations, name="AMD group"):
     }
 
 
+def test_current_amd_failure_watcher_uses_ci_gpu_groups_only(monkeypatch):
+    now = datetime.now(timezone.utc)
+    build = _raw_amd_watcher_build(90001, now - timedelta(hours=1), result="failed")
+    build["web_url"] = "https://buildkite.com/vllm/ci/builds/90001"
+    cuda = copy.deepcopy(build["jobs"][0])
+    cuda.update(id="cuda-job", name=":nvidia: (H100) CUDA failure", agent_query_rules=["queue=gpu_1"])
+    cuda["step"] = {"id": "cuda-step", "key": "cuda-step"}
+    build["jobs"].append(cuda)
+    reliability = build_all_main_reliability([build], pipeline_slug="ci", window_days=30,
+                                           generated_at=now.isoformat(), collection_provenance={"exhaustive": True})
+    assert validate_all_main_reliability(reliability, "ci")
+    old = amd._default_state()
+    old["active"] = {"retired": {"name": "Legacy failure", "hardware": "mi300", "queue": "amd_mi300_1", "job_url": "https://buildkite.com/vllm/amd-ci/builds/100#old"}}
+    captured = []
+    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andreaskaratzas/vllm-ci-dashboard")
+    monkeypatch.setattr(amd, "_read_reliability", lambda pipeline: reliability if pipeline == "ci" else None)
+    monkeypatch.setattr(amd, "_read_state", lambda path: old)
+    monkeypatch.setattr(amd, "GitHubIssueClient", lambda *args: object())
+    monkeypatch.setattr(amd, "reconcile_managed_issue", lambda state, **kwargs: state)
+    monkeypatch.setattr(amd, "_write_state", lambda state, path, **kwargs: captured.append((state, path, kwargs)))
+    assert amd.run_watcher(amd.AMD_CONFIG) == 0
+    active = captured[0][0]["active"]
+    assert len(active) == 1
+    assert all(row["hardware"].startswith("mi") for row in active.values())
+    assert "retired" not in active
+    assert captured[0][2]["state_filename"] == "open_amd_main_failure_issues.json"
+
+
+def test_amd_duration_regressions_exclude_cuda_and_retired_held_state():
+    reliability = _duration_reliability([120] * 3, [100] * 12)
+    cuda = copy.deepcopy(reliability["groups"][0])
+    cuda.update(group_id="cuda-duration", hardware="h100", queue="gpu_1", raw_name=":nvidia: (H100) Duration group")
+    reliability["groups"].append(cuda)
+    state = duration._default_state()
+    state["active"] = {"retired": {"hardware": "mi300", "queue": "amd_mi300_1", "latest_observed_at": "2026-07-17T11:00:00Z", "latest_job_url": "https://buildkite.com/vllm/amd-ci/builds/100#old"}}
+    active = duration.evaluate_regressions(reliability, state)
+    assert set(active) == {"duration-group"}
+
+
 def _amd_reliability(builds, groups, generated_at="2026-07-17T12:10:00Z"):
     return {
         "generated_at": generated_at,

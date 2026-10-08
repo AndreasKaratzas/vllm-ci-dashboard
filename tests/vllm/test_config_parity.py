@@ -194,6 +194,7 @@ def _snapshot_archive() -> bytes:
     stream = io.BytesIO()
     with tarfile.open(fileobj=stream, mode="w:gz") as archive:
         files = {
+            "vllm-deadbeef/.buildkite/ci_config.yaml": b"job_dirs: [.buildkite/test_areas]\n",
             "vllm-deadbeef/.buildkite/test-amd.yaml": b"steps:\n  - label: AMD test\n    commands: [pytest amd]\n",
             "vllm-deadbeef/.buildkite/test_areas/basic.yaml": b"group: basic\nsteps:\n  - label: Upstream test\n    commands: [pytest upstream]\n",
             "vllm-deadbeef/README.md": b"not part of the parity snapshot\n",
@@ -236,7 +237,7 @@ def test_source_snapshot_resolves_requested_sha_once_and_pins_archive(monkeypatc
     assert first is second
     assert first.commit_sha == requested_sha
     assert sorted(first.files) == [
-        ".buildkite/test-amd.yaml",
+        ".buildkite/ci_config.yaml",
         ".buildkite/test_areas/basic.yaml",
     ]
     assert calls == [
@@ -1670,3 +1671,30 @@ def test_source_provenance_describes_collision_safe_matching(monkeypatch):
     assert "exact YAML label" in joined
     assert "platform target-suite selector" in joined
     assert "Ambiguous command matches remain unmatched" in joined
+
+
+def test_production_config_inventory_uses_explicit_main_ci_routes_and_ignores_legacy(monkeypatch):
+    path = ".buildkite/test_areas/example.yaml"
+    current = config_parity.ConfigSourceSnapshot("a" * 40, {
+        ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+        ".buildkite/test-amd.yaml": {"steps": [{"label": "Legacy only", "agent_pool": "mi300"}]},
+        path: {"group": "Example", "steps": [
+            {"key": "cuda", "label": ":nvidia: (H100) Original CUDA label %N", "device": "h100",
+             "commands": ["pytest cuda.py"], "parallelism": 2,
+             "mirror": {"amd": {"label": ":amd: (MI355) Renamed AMD workload %N", "device": "mi355",
+                                 "commands": ["pytest rocm.py"], "optional": True}}},
+            {"key": "native", "label": ":amd: (MI300) Native AMD", "device": "mi300", "commands": ["pytest native.py"]},
+            {"key": "cpu", "label": ":computer: (CPU) CPU", "device": "cpu", "commands": ["pytest cpu.py"]},
+        ]}}, "2026-10-08T20:00:00Z")
+    monkeypatch.setattr(config_parity, "_SOURCE_SNAPSHOT", current)
+    amd, cuda, mirrors = config_parity._load_config_steps()
+    assert len(amd) == 2
+    assert len(cuda) == len(mirrors) == 1
+    assert {step.source_file for step in amd} == {path}
+    assert all("Legacy" not in step.label for step in amd)
+    report = config_parity.build_config_parity()
+    assert report["source"]["pipeline"] == "ci"
+    assert report["summary"]["inline_mirror_variants"] == 1
+    assert report["inline_mirror_variants"][0]["nvidia_definition_id"] == f"{path}#cuda"
+    catalog = config_parity.extract_shard_base_catalog()
+    assert any(row["pipeline"] == "amd" and row["source_file"] == path for row in catalog["definitions"])

@@ -424,7 +424,7 @@ class TestFrontendFiles:
         """CI tabs can be in HTML or dynamically registered via JS."""
         html = (DOCS / "index.html").read_text()
         js = (DOCS / "assets" / "js" / "utils.js").read_text()
-        for tab in ["ci-health", "ci-analytics", "ci-queue"]:
+        for tab in ["ci-health", "ci-analytics", "ci-perf-eval", "ci-omni"]:
             in_html = f'data-tab="{tab}"' in html
             in_js = f"id: '{tab}'" in js
             assert in_html or in_js, f"missing tab: {tab} (not in HTML or registerCISection)"

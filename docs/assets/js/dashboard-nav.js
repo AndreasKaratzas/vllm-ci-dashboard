@@ -11,6 +11,60 @@
     return Boolean(id && document.getElementById('tab-' + id));
   }
 
+  function supportedRoute(target) {
+    const url = new URL(location.href);
+    let changed = false;
+    if (target === 'ci-queue') {
+      if (url.searchParams.get('ops_queue_view') === 'dns') {
+        const dnsWindow = url.searchParams.get('ops_queue_dns_window');
+        const dnsScope = url.searchParams.get('ops_queue_scope');
+        target = 'ci-analytics';
+        url.searchParams.set('ops_analytics_view', 'dns');
+        if (['1h', '3h', '12h', '72h', '168h', '720h'].includes(dnsWindow)) {
+          url.searchParams.set('ops_analytics_dns_window', dnsWindow);
+        }
+        if (dnsScope === 'canonical') url.searchParams.set('ops_analytics_dns_scope', 'canonical');
+      } else {
+        target = 'ci-omni';
+      }
+      changed = true;
+    } else if (target === 'ci-hotness') {
+      target = 'ci-health';
+      changed = true;
+    }
+    if (target === 'ci-health' && url.searchParams.get('ops_health_view') === 'targets') {
+      url.searchParams.delete('ops_health_view');
+      url.searchParams.delete('ops_health_result');
+      changed = true;
+    }
+    if (target === 'ci-analytics' && ['flakes', 'retries'].includes(url.searchParams.get('ops_analytics_view'))) {
+      url.searchParams.delete('ops_analytics_view');
+      url.searchParams.delete('ops_analytics_window');
+      changed = true;
+    }
+    const oldPipeline = url.searchParams.get('ops_analytics_pipeline');
+    if (oldPipeline === 'amd-ci' || oldPipeline === 'ci') {
+      if (oldPipeline === 'amd-ci') url.searchParams.delete('ops_analytics_pipeline');
+      else url.searchParams.set('ops_analytics_pipeline', 'ci-cuda');
+      changed = true;
+    }
+    Array.from(url.searchParams.keys()).forEach(function (key) {
+      if (/^ops_(?:queue_|trajectory_|capacity_)/.test(key)) {
+        url.searchParams.delete(key);
+        changed = true;
+      }
+    });
+    if (!hasTab(target)) {
+      target = 'projects';
+      changed = true;
+    }
+    if (changed) {
+      url.hash = target;
+      history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+    return target;
+  }
+
   function resetRouteScroll(panel) {
     const main = document.getElementById('main-content');
     const reset = function () {
@@ -31,7 +85,7 @@
   }
 
   function switchTab(target) {
-    if (!hasTab(target)) target = 'projects';
+    target = supportedRoute(target);
     document.querySelectorAll('.nav-btn').forEach(function (button) {
       button.classList.remove('active');
       button.removeAttribute('aria-current');
@@ -74,7 +128,7 @@
   }
 
   const hash = location.hash.replace('#', '');
-  if (hash && hasTab(hash)) switchTab(hash);
+  if (hash) switchTab(hash);
   let routeSyncPending = false;
   function syncLocationRoute() {
     if (routeSyncPending) return;
@@ -82,7 +136,7 @@
     setTimeout(function () {
       routeSyncPending = false;
       const target = location.hash.replace('#', '');
-      if (target && hasTab(target)) switchTab(target);
+      switchTab(target);
     }, 0);
   }
   window.addEventListener('hashchange', syncLocationRoute);

@@ -30,8 +30,6 @@ DATA = ROOT / "data"
 
 # Files that the collectors may not have written yet on a fresh clone.
 OPTIONAL_DATA_FILES = {
-    "data/vllm/ci/hotness.json",
-    "data/vllm/ci/group_changes.json",
     # Written by the GitHub Home collector when its Project V2 query succeeds.
     # It can be absent on a fresh clone before the first collection.
     "data/vllm/ci/project_items.json",
@@ -102,17 +100,19 @@ class TestIndexHtml:
         for retired in ("auth.js", "token-vault.js", "ci-testbuild.js", "ci-ready.js", "ci-admin.js"):
             assert retired not in html
 
-    def test_queue_lifecycle_renderer_has_a_cache_busted_release(self):
+    def test_current_operations_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "index.html").read_text()
-        assert 'assets/css/ops-v2.css?v=16' in html
-        assert 'assets/js/ops-v2.js?v=31' in html
-        assert 'assets/js/utils.js?v=62' in html
-        assert 'assets/js/dashboard-nav.js?v=4' in html
+        assert 'assets/css/ops-v2.css?v=17' in html
+        assert 'assets/js/ops-v2.js?v=32' in html
+        assert 'assets/js/utils.js?v=63' in html
+        assert 'assets/js/dashboard-nav.js?v=5' in html
         source = (JS / "ops-v2.js").read_text()
-        assert "assets/js/amd-mirror-inventory.js?v=2" in source
-        assert "queueLifecycle: QUEUE_LIFECYCLE_LIVE_BASE + 'queue_lifecycle.json'" in source
-        assert "/queue-lifecycle-data/data/vllm/ci/" in source
-        assert "queueLifecycleFallback: 'data/vllm/ci/queue_lifecycle.json'" in source
+        assert "assets/js/amd-mirror-inventory.js?v=3" in source
+        assert "queueLifecycle" not in source
+        assert "function renderQueue(" not in source
+        assert "function renderTrajectory(" not in source
+        assert "function renderLatencyComparison" in source
+        assert "(ops.test_group_parity || {}).mirror_inventory" in source
 
 
 class TestJsFilesPresent:

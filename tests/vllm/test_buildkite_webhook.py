@@ -6,8 +6,8 @@ import json
 from vllm.ci import webhook
 
 
-def test_webhook_accepts_standard_amd_nightly():
-    assert webhook.is_nightly_build({"message": "AMD Full CI Run - nightly"}, "amd-ci")
+def test_webhook_does_not_refresh_current_core_for_legacy_amd_nightly():
+    assert not webhook.is_nightly_build({"branch": "main", "message": "AMD Full CI Run - nightly"}, "amd-ci")
 
 
 def test_webhook_ignores_therock_amd_nightly():
@@ -18,7 +18,8 @@ def test_webhook_ignores_therock_amd_nightly():
 
 
 def test_webhook_accepts_standard_upstream_nightly():
-    assert webhook.is_nightly_build({"message": "Full CI run - nightly"}, "ci")
+    assert webhook.is_nightly_build({"branch": "main", "message": "Full CI run - nightly"}, "ci")
+    assert not webhook.is_nightly_build({"branch": "feature", "message": "Full CI run - nightly"}, "ci")
 
 
 def test_perf_eval_nightly_requires_canonical_main_build_message():

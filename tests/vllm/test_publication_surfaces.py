@@ -38,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_surface_contract_version_has_one_owner() -> None:
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 5
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 6
     assert (
         selector_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
@@ -1732,7 +1732,7 @@ def test_active_retry_preflight_preserves_real_candidate_matrix_defects(
         }
 
     def analytics_payload(build: int) -> dict:
-        return {"amd-ci": {"builds": [{"number": build}]}}
+        return {"ci": {"builds": [{"number": build, "jobs": [{"name": "AMD test", "agent_queue": "amd-mi300"}]}]}}
 
     def matrix_payload(build: int, *, corrupt_summary: bool = False) -> dict:
         summary = {
@@ -2048,7 +2048,7 @@ def test_legacy_ci_state_migrates_clocks_without_restoring_independent_domains(
     baseline = _git(repo, "rev-parse", "HEAD")
 
     child_paths = {
-        surface: SURFACE_SPECS[surface].required_paths[0]
+        surface: surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths[0]
         for surface in (
             "ci_core",
             "ci_analytics",
@@ -2139,13 +2139,7 @@ def test_legacy_ci_state_drops_independently_mutated_watcher_ledger(
     )
 
     assert migrated is not None
-    assert set(migrated["fallback_surfaces"]) == {
-        "ci_core",
-        "ci_analytics",
-        "ci_gating",
-        "ci_changes",
-        "ci_hotness",
-    }
+    assert set(migrated["fallback_surfaces"]) == {"ci_core", "ci_analytics"}
     assert all(
         ledger_relative not in entries
         for entries in migrated["restored_manifest"].values()
@@ -2207,8 +2201,8 @@ def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
     )
 
     assert migrated is not None
-    expected = {"ci_core", "ci_analytics", "ci_gating"}
-    assert migrated["surface_contract_version"] == 5
+    expected = {"ci_core", "ci_analytics"}
+    assert migrated["surface_contract_version"] == 6
     assert set(migrated["fallback_surfaces"]) == expected
     assert migrated["fallback_since"] == {
         surface: since for surface in expected
@@ -2217,9 +2211,7 @@ def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
     assert set(migrated["restored_manifest"]["ci_analytics"]) == {
         "data/vllm/ci/analytics.json"
     }
-    assert "data/vllm/ci/gating_nightlies.json" in migrated[
-        "restored_manifest"
-    ]["ci_gating"]
+    assert "ci_gating" not in migrated["restored_manifest"]
 
 
 def test_contract_v5_ci_core_fallback_is_not_reinterpreted_as_pre_analytics(
@@ -2264,7 +2256,7 @@ def test_contract_v5_ci_core_fallback_is_not_reinterpreted_as_pre_analytics(
     )
 
     assert validated is not None
-    assert validated["surface_contract_version"] == 5
+    assert validated["surface_contract_version"] == 6
     assert validated["degraded_surfaces"] == ["ci_core"]
     assert validated["fallback_surfaces"] == ["ci_core"]
     assert set(validated["restored_manifest"]) == {"ci_core"}
@@ -2386,7 +2378,7 @@ def test_v4_queue_fallback_is_partitioned_before_live_only_refresh(
     )
 
     companions = {"queue_capacity", "queue_omni", "queue_workload"}
-    assert state["surface_contract_version"] == 5
+    assert state["surface_contract_version"] == 6
     assert set(state["degraded_surfaces"]) == companions
     assert state["fresh_degraded_surfaces"] == []
     assert set(state["fallback_surfaces"]) == companions
@@ -2592,7 +2584,7 @@ def test_v4_fresh_degraded_queue_expands_clocks_without_restore_proof(
     )
 
     assert migrated is not None
-    assert migrated["surface_contract_version"] == 5
+    assert migrated["surface_contract_version"] == 6
     assert migrated["mode"] == "degraded"
     assert set(migrated["degraded_surfaces"]) == selector_module.QUEUE_SPLIT_SURFACES
     assert set(migrated["fresh_degraded_surfaces"]) == (
@@ -2642,7 +2634,7 @@ def test_v4_mixed_queue_fallback_preserves_independent_non_queue_clock(
 
     assert migrated is not None
     companions = selector_module.QUEUE_SPLIT_SURFACES
-    assert migrated["surface_contract_version"] == 5
+    assert migrated["surface_contract_version"] == 6
     assert migrated["mode"] == "mixed"
     assert migrated["fresh_degraded_surfaces"] == ["dns_health"]
     assert set(migrated["fallback_surfaces"]) == companions
@@ -2837,7 +2829,7 @@ def test_clean_candidate_writes_schema_v2_current_state(
     assert source.read_text() == '{"version":"candidate"}\n'
     assert state == {
         "schema_version": 2,
-        "surface_contract_version": 5,
+        "surface_contract_version": 6,
         "generated_at": state["generated_at"],
         "baseline_ref": baseline,
         "mode": "current",
@@ -3954,3 +3946,92 @@ def test_shard_source_must_match_completed_evidence_commit(tmp_path: Path) -> No
     assert {finding.code for finding in audit.report.errors} == {
         "shard-config-evidence-mismatch"
     }
+
+
+@pytest.mark.parametrize("retired", sorted(surfaces_module.RETIRED_SURFACES))
+def test_v5_retired_failure_is_verified_then_cleared_without_stale_alert(tmp_path, retired):
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entries = {}
+    for relative in surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS[retired].required_paths:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"path": relative}) + "\n")
+        entries[relative] = _manifest_descriptor(path.read_bytes())
+    failure = {"schema_version": 1, "surface": retired,
+               "collector": "retired.py", "step": "Retired collector",
+               "reason_class": "command-error", "exit_code": 1, "details": {}}
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({
+        "schema_version": 2, "surface_contract_version": 5,
+        "generated_at": since, "baseline_ref": "0"*40, "mode": "fallback",
+        "degraded_surfaces": [retired], "fresh_degraded_surfaces": [],
+        "fallback_surfaces": [retired], "degraded_since": {retired: since},
+        "fallback_since": {retired: since}, "fallback_max_age_hours": 36,
+        "restored_manifest": {retired: entries}, "restored_paths": {retired: sorted(entries)},
+        "collector_failures": [failure], "incident_policy": {"alert": True},
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "retired v5 evidence")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    migrated = selector_module._baseline_publication_state(repo, baseline, state_path)
+    assert migrated["surface_contract_version"] == 6
+    assert migrated["mode"] == "current"
+    assert migrated["fallback_surfaces"] == []
+    assert migrated["collector_failures"] == []
+    assert migrated["degraded_since"] == migrated["restored_manifest"] == {}
+    assert migrated["incident_policy"]["alert"] is False
+    # Retiring a producer must not accept a corrupted old byte proof.
+    damaged = json.loads(state_path.read_text())
+    first = next(iter(entries))
+    damaged["restored_manifest"][retired][first]["sha256"] = "0"*64
+    state_path.write_text(json.dumps(damaged))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "corrupted retired proof")
+    with pytest.raises(RuntimeError, match="manifest"):
+        selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+
+
+def test_retirement_does_not_escalate_a_surviving_first_transient_failure(tmp_path):
+    repo = tmp_path / "repo"
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    surfaces = ["ci_hotness", "ci_analytics"]
+    manifests = {}
+    failures = []
+    for surface in surfaces:
+        entries = {}
+        for relative in surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths:
+            path = repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"path": relative}) + "\n")
+            entries[relative] = _manifest_descriptor(path.read_bytes())
+        manifests[surface] = entries
+        failures.append({"schema_version": 1, "surface": surface, "collector": "collector.py",
+                         "step": surface, "reason_class": "command-error" if surface == "ci_hotness" else "network",
+                         "exit_code": 1, "details": {}})
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps({
+        "schema_version": 2, "surface_contract_version": 5, "generated_at": since,
+        "baseline_ref": "0"*40, "mode": "fallback", "fallback_max_age_hours": 36,
+        "degraded_surfaces": surfaces, "fresh_degraded_surfaces": [], "fallback_surfaces": surfaces,
+        "degraded_since": {surface: since for surface in surfaces},
+        "fallback_since": {surface: since for surface in surfaces},
+        "restored_manifest": manifests, "restored_paths": {surface: sorted(entries) for surface, entries in manifests.items()},
+        "collector_failures": failures, "incident_policy": {"alert": True},
+        "candidate_errors": [{"code": "publication-collector-failed", "surfaces": [surface]} for surface in surfaces],
+    }))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "mixed retired and transient evidence")
+    state = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+    assert state["fallback_surfaces"] == ["ci_analytics"]
+    assert state["collector_incident_policy"]["alert"] is False
+    assert state["incident_policy"]["alert"] is False
+    assert state["collector_incident_policy"]["max_observed_streak"] == 1
+    assert state["candidate_errors"] == [{"code": "publication-collector-failed", "surfaces": ["ci_analytics"]}]

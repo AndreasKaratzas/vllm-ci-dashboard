@@ -24,6 +24,7 @@ from vllm.ci.utils import queue_from_rules
 from vllm.pipelines import (
     NIGHTLY_NAME_PATTERNS_BY_SLUG,
     SCHEDULED_GATING_KINDS,
+    _job_queue,
     upstream_scheduled_gating_kind,
 )
 
@@ -248,7 +249,7 @@ def _sanitize_job(job: object, build_number: int) -> dict:
         if value is not None:
             row[key] = value
 
-    queue = job.get("q")
+    queue = _job_queue(job) or None
     if queue is None:
         rules = job.get("agent_query_rules")
         if rules is not None and (
@@ -259,6 +260,11 @@ def _sanitize_job(job: object, build_number: int) -> dict:
     queue = _token(queue, "job.q")
     if queue:
         row["q"] = queue
+
+    for key in ("parallel_group_index", "parallel_group_total"):
+        parallel_value = _optional_nonnegative_int(job.get(key), f"job.{key}")
+        if parallel_value is not None:
+            row[key] = parallel_value
 
     step = job.get("step")
     if step is not None:

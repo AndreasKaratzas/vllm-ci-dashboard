@@ -1089,13 +1089,14 @@ class TestQueueViewContract:
 
 
 
-    def test_ci_queue_tab_registered(self):
-        """CI queue tab can be in HTML or dynamically registered via JS."""
+    def test_retired_ci_queue_page_is_absent_and_omni_is_registered(self):
+        """Queue automation remains shared with Omni after its page is retired."""
         html = (DOCS / "index.html").read_text()
         js = (DOCS / "assets" / "js" / "utils.js").read_text()
         in_html = 'data-tab="ci-queue"' in html
         in_js = "id: 'ci-queue'" in js
-        assert in_html or in_js, "ci-queue tab not found in HTML or registerCISection"
+        assert not in_html and not in_js
+        assert "id: 'ci-omni'" in js
 
 
 

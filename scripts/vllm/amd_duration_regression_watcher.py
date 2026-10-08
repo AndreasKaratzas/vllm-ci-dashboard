@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Open one state-owned issue for AMD main test groups that become slower.
 
-The source is amd-ci.all_main_reliability from analytics.json. For each strict
+The source is ci.all_main_reliability from analytics.json. For each strict
 label + step + hardware + queue identity, the watcher compares the median wall
 completion time of the latest three successful final attempts with the median
 of the preceding six to twelve successful attempts. Queue wait is excluded.
@@ -47,7 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 ANALYTICS = ROOT / "data" / "vllm" / "ci" / "analytics.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_amd_duration_regression_issues.json"
 
-PIPELINE = "amd-ci"
+PIPELINE = "ci"
 RECENT_RUNS = 3
 MIN_BASELINE_RUNS = 6
 MAX_BASELINE_RUNS = 12
@@ -269,8 +269,11 @@ def evaluate_regressions(reliability: dict, state: dict) -> dict[str, dict]:
     active: dict[str, dict] = {}
     evaluated: set[str] = set()
 
+    from vllm.pipelines import is_amd_ci_job
     for group in reliability.get("groups") or []:
         if not isinstance(group, dict):
+            continue
+        if not is_amd_ci_job(group):
             continue
         group_id = str(group.get("group_id") or "")
         if not group_id:
@@ -339,7 +342,7 @@ def evaluate_regressions(reliability: dict, state: dict) -> dict[str, dict]:
         }
 
     for group_id, row in previous.items():
-        if group_id in active or group_id in evaluated or not isinstance(row, dict):
+        if group_id in active or group_id in evaluated or not isinstance(row, dict) or not is_amd_ci_job(row) or "/vllm/ci/builds/" not in str(row.get("latest_job_url") or row.get("latest_build_url") or ""):
             continue
         last_seen = _parse_ts(row.get("latest_observed_at"))
         if last_seen is not None and last_seen >= cutoff:
@@ -405,7 +408,7 @@ def _issue_body(active: dict[str, dict], reliability: dict, run_url: str, owner:
             f"- Baseline: median of the preceding {MIN_BASELINE_RUNS}-"
             f"{MAX_BASELINE_RUNS} successful attempts."
         ),
-        "- Scope: exhaustive completed amd-ci builds on branch=main.",
+        "- Scope: AMD GPU jobs in exhaustive completed ci builds on branch=main.",
         "- Identity: exact test label + Buildkite step key + hardware + queue.",
         "- Queue wait is excluded; this alert measures job start-to-finish time.",
         "- The baseline is fixed while an incident is open so a slowdown cannot normalize itself.",
@@ -452,7 +455,7 @@ def _issue_body(active: dict[str, dict], reliability: dict, run_url: str, owner:
         for evidence in row.get("recent_evidence") or []:
             build = int(evidence.get("build_number") or 0)
             url = str(evidence.get("job_url") or evidence.get("build_url") or "")
-            label = f"amd-ci #{build}" if build else "AMD observation"
+            label = f"ci AMD #{build}" if build else "AMD observation"
             link = f"[{label}]({url})" if url else label
             lines.append(
                 f"- {link}: {_minutes(evidence.get('wall_completion_mins'))}, "

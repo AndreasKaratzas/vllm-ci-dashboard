@@ -1260,6 +1260,12 @@ def compute_build_summary(
     Uses actual test counts extracted from summary entries (e.g.,
     '__passed__ (136)' counts as 136, not 1).
     """
+    # The two current dashboard sides share a CI build but have independent
+    # AMD/CUDA GPU rosters. Preserve that scope in every denominator.
+    if build.get("job_scope"):
+        from vllm.pipelines import pipeline_job_matches_scope
+        test_results = [row for row in test_results if row.pipeline == "ci"
+                        and pipeline_job_matches_scope({"job_name": row.job_name}, pipeline_key)]
     # Count actual tests, not entries
     passed = 0
     failed = 0
@@ -1392,6 +1398,8 @@ def compute_build_summary(
     # Job-level stats (count ALL script jobs, including running/waiting)
     jobs = build.get("jobs", [])
     script_jobs = [j for j in jobs if j.get("type") == "script"]
+    if build.get("job_scope"):
+        script_jobs = [job for job in script_jobs if pipeline_job_matches_scope(job, pipeline_key)]
 
     # Attest an active retry only from Buildkite's explicit predecessor ->
     # successor linkage.  A merely running build or job is not retry evidence.

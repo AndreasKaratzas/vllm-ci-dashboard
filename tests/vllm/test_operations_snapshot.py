@@ -1,3 +1,4 @@
+# cspell:ignore kwdefaults
 """Fixture-driven tests for the compact v2 operations snapshot."""
 
 from __future__ import annotations
@@ -21,6 +22,20 @@ GENERATED_AT = "2026-04-22T12:00:00Z"
 
 
 def _write_json(path: Path, payload: dict) -> None:
+    if path.name == "analytics.json":
+        for block in payload.values():
+            for build in block.get("builds") or []:
+                build.setdefault("branch", "main")
+                build.setdefault("web_url", f"https://buildkite.com/vllm/ci/builds/{build['number']}")
+    if path.name == "ci_health.json":
+        for side in ("amd", "upstream"):
+            block = payload.get(side) or {}
+            references = [*(block.get("builds") or [])]
+            references.extend(block.get(key) for key in ("latest_build", "latest_pipeline_build", "latest_test_signal_build"))
+            for build in references:
+                if isinstance(build, dict) and build.get("build_number"):
+                    build.setdefault("branch", "main")
+                    build.setdefault("build_url", f"https://buildkite.com/vllm/ci/builds/{build['build_number']}")
     path.write_text(json.dumps(payload))
 
 
@@ -41,7 +56,7 @@ def _job(name: str, state: str, url: str, dur: float = 10.0, **extra) -> dict:
     }
 
 
-def _build(number: int, date: str, jobs: list[dict], pipeline: str = "amd-ci") -> dict:
+def _build(number: int, date: str, jobs: list[dict], pipeline: str = "ci") -> dict:
     return {
         "number": number,
         "created_at": f"{date}T09:00:00Z",
@@ -60,7 +75,7 @@ def _retarget_build(build: dict, pipeline: str) -> dict:
     row["message"] = "nightly"
     for job in row.get("jobs") or []:
         if job.get("url"):
-            job["url"] = str(job["url"]).replace("/amd-ci/", f"/{pipeline}/")
+            job["url"] = str(job["url"]).replace("/ci/", f"/{pipeline}/")
         job_id = job.get("job_id") or str(job.get("url") or "").rstrip("/").split("/")[-1]
         job["id"] = job_id
         job["job_id"] = job_id
@@ -76,25 +91,25 @@ def _retarget_build(build: dict, pipeline: str) -> dict:
 
 def _fixture_data(tmp_path: Path) -> Path:
     previous = _build(102, "2026-04-21", [
-        _job("Recurring", "soft_fail", "https://buildkite.com/vllm/amd-ci/builds/102/steps/recurring"),
-        _job("Fixed", "failed", "https://buildkite.com/vllm/amd-ci/builds/102/steps/fixed"),
+        _job("Recurring", "soft_fail", "https://buildkite.com/vllm/ci/builds/102/steps/recurring"),
+        _job("Fixed", "failed", "https://buildkite.com/vllm/ci/builds/102/steps/fixed"),
         _job(
             "Mixed hard",
             "passed",
-            "https://buildkite.com/vllm/amd-ci/builds/102/steps/mixed-hard",
+            "https://buildkite.com/vllm/ci/builds/102/steps/mixed-hard",
             raw_name="mi300_1: Mixed hard",
         ),
-        _job("Mixed soft", "passed", "https://buildkite.com/vllm/amd-ci/builds/102/steps/mixed-soft"),
+        _job("Mixed soft", "passed", "https://buildkite.com/vllm/ci/builds/102/steps/mixed-soft"),
     ])
     latest = _build(103, "2026-04-22", [
-        _job("Recurring", "failed", "https://buildkite.com/vllm/amd-ci/builds/103/steps/recurring", 31),
-        _job("New hard", "failed", "https://buildkite.com/vllm/amd-ci/builds/103/steps/new-hard", 42),
-        _job("New soft", "soft_fail", "https://buildkite.com/vllm/amd-ci/builds/103/steps/new-soft", 15),
-        _job("Fixed", "passed", "https://buildkite.com/vllm/amd-ci/builds/103/steps/fixed", 8),
+        _job("Recurring", "failed", "https://buildkite.com/vllm/ci/builds/103/steps/recurring", 31),
+        _job("New hard", "failed", "https://buildkite.com/vllm/ci/builds/103/steps/new-hard", 42),
+        _job("New soft", "soft_fail", "https://buildkite.com/vllm/ci/builds/103/steps/new-soft", 15),
+        _job("Fixed", "passed", "https://buildkite.com/vllm/ci/builds/103/steps/fixed", 8),
         _job(
             "Mixed hard",
             "failed",
-            "https://buildkite.com/vllm/amd-ci/builds/103/steps/mixed-hard-failed",
+            "https://buildkite.com/vllm/ci/builds/103/steps/mixed-hard-failed",
             33,
             raw_name="mi300_1: Mixed hard",
             job_id="mixed-hard-failed",
@@ -113,7 +128,7 @@ def _fixture_data(tmp_path: Path) -> Path:
         _job(
             "Mixed hard",
             "passed",
-            "https://buildkite.com/vllm/amd-ci/builds/103/steps/mixed-hard-retry",
+            "https://buildkite.com/vllm/ci/builds/103/steps/mixed-hard-retry",
             30,
             raw_name="mi300_1: Mixed hard",
             job_id="mixed-hard-retry",
@@ -125,7 +140,7 @@ def _fixture_data(tmp_path: Path) -> Path:
             retry_type="manual",
             step_key="mixed-hard",
         ),
-        _job("Mixed soft", "soft_fail", "https://buildkite.com/vllm/amd-ci/builds/103/steps/mixed-soft", 18),
+        _job("Mixed soft", "soft_fail", "https://buildkite.com/vllm/ci/builds/103/steps/mixed-soft", 18),
     ])
     oldest = _build(101, "2026-04-20", [
         _job("Mixed soft", "skipped", "", 1),
@@ -187,21 +202,10 @@ def _fixture_data(tmp_path: Path) -> Path:
         },
     )
     _write_json(tmp_path / "analytics.json", {
-        "amd-ci": {
-            "display_name": "AMD CI",
-            "generated_at": "2026-04-22T10:00:00Z",
-            "builds": amd_main_builds,
-            "failure_ranking": rankings,
-            "duration_ranking": [
-                {**rankings[0], "median_dur": 30, "p90_dur": 60, "max_dur": 70, "queues": ["amd_mi300_1"]},
-                {**rankings[3], "median_dur": 10, "p90_dur": 12, "max_dur": 13, "queues": ["amd_mi300_1"]},
-            ],
-            "retry_analysis": retry_analysis,
-        },
         "ci": {
             "display_name": "Upstream CI",
             "generated_at": "2026-04-22T10:00:00Z",
-            "builds": upstream_main_builds,
+            "builds": [{**build, "jobs": [*amd_main_builds[index]["jobs"], *build["jobs"]]} for index, build in enumerate(upstream_main_builds)],
             "all_main_reliability": upstream_reliability,
             "main_retry_analysis": retry_analysis,
             "retry_analysis": retry_analysis,
@@ -255,7 +259,7 @@ def _fixture_data(tmp_path: Path) -> Path:
                     "exists": True,
                     "latest_state": "failed",
                     "latest_build_number": 103,
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/103/steps/fixed",
+                    "latest_url": "https://buildkite.com/vllm/ci/builds/103/steps/fixed",
                 }},
             },
             {
@@ -264,7 +268,7 @@ def _fixture_data(tmp_path: Path) -> Path:
                     "exists": True,
                     "latest_state": "passed",
                     "latest_build_number": 103,
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/103/steps/mixed-soft",
+                    "latest_url": "https://buildkite.com/vllm/ci/builds/103/steps/mixed-soft",
                 }},
             },
         ],
@@ -325,7 +329,7 @@ def _fixture_data(tmp_path: Path) -> Path:
             "excluded_queue_classes": ["perf_eval"],
             "workload_pipelines": {
                 "omni": ["vllm-omni-amd-ci"],
-                "main": ["ci", "amd-ci", "amd-distributed-inference-ci"],
+                "main": ["ci", "ci", "amd-distributed-inference-ci"],
             },
         },
         "totals": {
@@ -420,8 +424,28 @@ def test_ci_ownership_snapshot_is_top_level_but_raw_source_is_private(tmp_path):
     payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
 
     assert payload["ownership"] == ownership
-    assert "ownership" not in payload["gating"]
+    assert "gating" not in payload
     assert payload["sources"]["ci_ownership"]["published"] is False
+
+
+def test_current_ci_snapshot_rejects_legacy_amd_evidence_and_latency_fallback(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    _write_jsonl(data_dir / "test_results" / "2026-04-22_amd.jsonl", [{
+        "pipeline": "amd-ci", "build_number": 103, "job_name": "mi300_1: Legacy failure",
+        "status": "failed", "name": "test_legacy", "date": "2026-04-22",
+    }])
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+    assert payload["nightly"]["primary_pipeline"] == "ci"
+    assert payload["nightly"]["primary_cohort"] == "ci-amd"
+    assert {row["cohort_id"] for row in payload["nightly"]["pipelines"]} == {"ci-amd", "ci-cuda"}
+    assert all(row["source_pipeline"] == "ci" for row in payload["nightly"]["pipelines"])
+    assert payload["amd_test_health"]["source_pipeline"] == "ci"
+    assert payload["amd_test_health"]["job_scope"] == "amd_gpu"
+    assert payload["amd_test_health"]["available"] is False
+    assert payload["amd_test_health"]["group_catalog"] == []
+    assert payload["latency"]["available"] is False
+    assert payload["latency"]["rows"] == []
+    assert not {"gating", "trajectory"} & payload.keys()
 
 
 def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tmp_path):
@@ -431,14 +455,14 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     stable = "mi300_2: Stable tests"
     latest_only = "mi250_1: Latest only"
     _write_json(tmp_path / "analytics.json", {
-        "amd-ci": {
+        "ci": {
             "generated_at": GENERATED_AT,
             "builds": [
                 {
                     "number": 301,
                     "date": "2026-04-22",
                     "created_at": "2026-04-22T09:00:01Z",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/301",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/301",
                     "jobs": [
                         {
                             "raw_name": alpha,
@@ -466,7 +490,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
                     "number": 300,
                     "date": "2026-04-21",
                     "created_at": "2026-04-21T09:00:01Z",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/300",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/300",
                     "jobs": [
                         {
                             "raw_name": alpha,
@@ -513,7 +537,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_id": "alpha-pass-300",
             "step_id": "alpha-step-300",
             "build_number": 300,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-21",
         },
         {
@@ -524,7 +548,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_id": "alpha-pass-300",
             "step_id": "alpha-step-300",
             "build_number": 300,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-21",
         },
         {
@@ -535,7 +559,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_id": "beta-hard-300",
             "step_id": "beta-fail-step-300",
             "build_number": 300,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-21",
         },
         {
@@ -546,7 +570,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_id": "beta-hard-300",
             "step_id": "beta-fail-step-300",
             "build_number": 300,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-21",
         },
         {
@@ -556,7 +580,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_name": unknown,
             "step_id": "unknown-step-300",
             "build_number": 300,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-21",
         },
         {
@@ -566,7 +590,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_name": stable,
             "job_id": "stable-300",
             "build_number": 300,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-21",
         },
     ], trailing="\n")
@@ -579,7 +603,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_id": "alpha-soft-301",
             "step_id": "alpha-step-301",
             "build_number": 301,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-22",
         },
         {
@@ -590,7 +614,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_id": "alpha-soft-301",
             "step_id": "alpha-step-301",
             "build_number": 301,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-22",
         },
         {
@@ -600,7 +624,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_name": stable,
             "job_id": "stable-301",
             "build_number": 301,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-22",
         },
         {
@@ -610,7 +634,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "job_name": latest_only,
             "job_id": "latest-hard-301",
             "build_number": 301,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-04-22",
         },
     ], trailing="\n")
@@ -621,7 +645,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
 
     assert payload["schema_version"] == 2
     assert health["available"] is True
-    assert health["source_pipeline"] == "amd-ci"
+    assert health["source_pipeline"] == "ci"
     assert health["cohort"]["aggregation_key"] == ["build_number", "exact_job_name"]
     assert health["summary"] == {
         "build_count": 2,
@@ -632,8 +656,8 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
         "latest_group_count": 3,
         "latest_job_variant_count": 3,
         "latest_build_number": 301,
-        "latest_build_url": "https://buildkite.com/vllm/amd-ci/builds/301",
-        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/301",
+        "latest_build_url": "https://buildkite.com/vllm/ci/builds/301",
+        "latest_url": "https://buildkite.com/vllm/ci/builds/301",
         "latest_observed_at": "2026-04-22T09:00:01Z",
         "latest_state_counts": {
             "passed": 1,
@@ -709,7 +733,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     assert sum(health["summary"]["latest_state_counts"].values()) == 3
 
     alpha_group = groups[alpha]
-    assert alpha_group["id"] == hashlib.sha1(f"amd-ci:{alpha}".encode()).hexdigest()[:20]
+    assert alpha_group["id"] == hashlib.sha1(f"ci:{alpha}".encode()).hexdigest()[:20]
     assert len(alpha_group["id"]) == 20
     assert alpha_group["name"] == alpha_group["display_name"] == "Alpha tests"
     assert alpha_group["job_name"] == alpha_group["exact_job_name"] == alpha
@@ -741,10 +765,10 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     assert latest_alpha["status_counts"] == {"error": 2, "passed": 1}
     assert latest_alpha["failed_tests"] == latest_alpha["error_tests"] == 2
     assert latest_alpha["job_url"] == (
-        "https://buildkite.com/vllm/amd-ci/builds/301/steps/canvas"
+        "https://buildkite.com/vllm/ci/builds/301/steps/canvas"
         "?jid=alpha-soft-301&tab=output"
     )
-    assert latest_alpha["build_url"] == "https://buildkite.com/vllm/amd-ci/builds/301"
+    assert latest_alpha["build_url"] == "https://buildkite.com/vllm/ci/builds/301"
 
     beta_group = groups[beta]
     assert beta_group["latest_state"] == "hard"
@@ -803,14 +827,14 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
 def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp_path):
     group_name = "mi300_1: Retry-sensitive tests"
     _write_json(tmp_path / "analytics.json", {
-        "amd-ci": {
+        "ci": {
             "generated_at": GENERATED_AT,
             "builds": [
                 {
                     "number": 11651,
                     "date": "2026-08-04",
                     "created_at": "2026-08-04T09:00:00Z",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/11651",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/11651",
                     "jobs": [{
                         "raw_name": group_name,
                         "job_id": "nightly-job",
@@ -822,7 +846,7 @@ def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp
                     "number": 11591,
                     "date": "2026-08-03",
                     "created_at": "2026-08-03T09:00:00Z",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/11591",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/11591",
                     "jobs": [{
                         "raw_name": group_name,
                         "job_id": "late-retry-job",
@@ -840,7 +864,7 @@ def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp
         "job_name": group_name,
         "job_id": "late-retry-job",
         "build_number": 11591,
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "date": "2026-08-03",
     }], trailing="\n")
     _write_jsonl(tmp_path / "test_results" / "2026-08-04_amd.jsonl", [{
@@ -850,7 +874,7 @@ def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp
         "job_name": group_name,
         "job_id": "nightly-job",
         "build_number": 11651,
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "date": "2026-08-04",
     }], trailing="\n")
 
@@ -868,7 +892,7 @@ def test_amd_test_catalog_prefers_newer_build_over_late_retry_of_older_build(tmp
 
 
 @pytest.mark.parametrize("prefix", ["", "mi355_dpx: "])
-def test_amd_test_health_preserves_named_pool_without_analytics_metadata(
+def test_amd_test_health_preserves_named_pool_with_current_ci_metadata(
     tmp_path, prefix
 ):
     exact_name = prefix + ":amd: (MI355 DPX) Attention Kernels Shard 2"
@@ -877,9 +901,13 @@ def test_amd_test_health_preserves_named_pool_without_analytics_metadata(
         "status": "passed",
         "job_name": exact_name,
         "build_number": 400,
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "date": "2026-04-22",
     }], trailing="\n")
+
+    _write_json(tmp_path / "analytics.json", {"ci": {"builds": [
+        _build(400, "2026-04-22", [_job(exact_name, "passed", "https://buildkite.com/vllm/ci/builds/400#job")])
+    ]}})
 
     health = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
     group = health["group_catalog"][0]
@@ -908,11 +936,11 @@ def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
         "amd_mi355_2",
     )
     _write_json(tmp_path / "analytics.json", {
-        "amd-ci": {
+        "ci": {
             "builds": [{
                 "number": 400,
                 "created_at": "2026-08-05T09:00:00Z",
-                "web_url": "https://buildkite.com/vllm/amd-ci/builds/400",
+                "web_url": "https://buildkite.com/vllm/ci/builds/400",
                 "jobs": [{
                     "raw_name": group_name,
                     "job_id": "standard-label-job",
@@ -939,7 +967,7 @@ def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
         "job_name": group_name,
         "job_id": "standard-label-job",
         "build_number": 400,
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "date": "2026-08-05",
     }])
 
@@ -1030,12 +1058,12 @@ def test_amd_test_health_publishes_reconciled_logical_group_inventory(tmp_path):
         ),
     ]
     _write_json(tmp_path / "analytics.json", {
-        "amd-ci": {
+        "ci": {
             "builds": [{
                 "number": 500,
                 "commit": commit,
                 "created_at": "2026-08-06T09:00:00Z",
-                "web_url": "https://buildkite.com/vllm/amd-ci/builds/500",
+                "web_url": "https://buildkite.com/vllm/ci/builds/500",
                 "jobs": [
                     {
                         "raw_name": name,
@@ -1085,7 +1113,7 @@ def test_amd_test_health_publishes_reconciled_logical_group_inventory(tmp_path):
             "job_name": name,
             "job_id": job_id,
             "build_number": 500,
-            "pipeline": "amd-ci",
+            "pipeline": "ci",
             "date": "2026-08-06",
         }
         for name, job_id, _, test_status in variants
@@ -1167,7 +1195,7 @@ def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path)
     missing = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
 
     assert missing["available"] is False
-    assert missing["source_pipeline"] == "amd-ci"
+    assert missing["source_pipeline"] == "ci"
     assert missing["summary"]["build_count"] == 0
     assert missing["summary"]["retained_group_count"] == 0
     assert missing["summary"]["group_count"] == 0
@@ -1191,7 +1219,8 @@ def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path)
     assert corrupt["builds"] == []
     assert corrupt["group_catalog"] == []
     assert corrupt["provenance"]["test_results"]["files_read"] == 1
-    assert corrupt["provenance"]["test_results"]["malformed_rows"] == 3
+    assert corrupt["provenance"]["test_results"]["malformed_rows"] == 2
+    assert corrupt["provenance"]["test_results"]["ignored_rows"] == 1
 
 
 def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_results(tmp_path):
@@ -1199,8 +1228,9 @@ def test_latest_infrastructure_blocked_nightly_is_not_dropped_or_given_stale_res
     health_path = data_dir / "ci_health.json"
     health = json.loads(health_path.read_text())
     blocked = {
+        "branch": "main",
         "build_number": 104,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/104",
+        "build_url": "https://buildkite.com/vllm/ci/builds/104",
         "created_at": "2026-04-23T09:00:00Z",
         "finished_at": "2026-04-23T10:00:00Z",
         "state": "failed",
@@ -1296,7 +1326,7 @@ def test_nightly_pipeline_projects_newer_core_references_over_analytics_lkg():
     }
 
     pipeline = ops._nightly_pipeline(
-        "amd-ci",
+        "ci",
         {"builds": [analytics_build]},
         {
             "builds": [latest_pipeline, latest_signal],
@@ -1329,13 +1359,13 @@ def test_nightly_pipeline_marks_analytics_head_ahead_of_older_core():
             _job(
                 "New analytics result",
                 "failed",
-                "https://buildkite.com/vllm/amd-ci/builds/103/steps/new-result",
+                "https://buildkite.com/vllm/ci/builds/103/steps/new-result",
             )
         ],
     )
 
     pipeline = ops._nightly_pipeline(
-        "amd-ci",
+        "ci",
         {"builds": [analytics_head, _build(102, "2026-04-21", [])]},
         {
             "builds": [core_head],
@@ -1369,7 +1399,6 @@ def test_attention_uses_current_hardness_instead_of_newness():
     }
     shared = (
         {},
-        {"active_target_summary": {"by_latest_amd_state": {}}},
         {"snapshot": {}},
         {"status": "healthy", "current": {}},
     )
@@ -1434,7 +1463,6 @@ def test_attention_uses_reconciled_logical_amd_runtime_groups():
     attention = ops._attention(
         {"pipelines": [{"builds": []}]},
         {},
-        {"active_target_summary": {"by_latest_amd_state": {"soft": 99}}},
         {"snapshot": {}},
         {"status": "healthy", "current": {}},
         amd_health,
@@ -1512,13 +1540,13 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
 
     assert payload["schema_version"] == 2
     assert payload["generated_at"] == GENERATED_AT
-    assert payload["nightly"]["pipeline_order"] == ["amd-ci", "ci"]
+    assert payload["nightly"]["pipeline_order"] == ["ci-amd", "ci-cuda"]
     assert payload["nightly"]["transition_policy_id"] == "confirmed-incidents-v1"
     assert (
         payload["nightly"]["failure_movement_policy_id"]
         == "observed-failure-movement-v1"
     )
-    assert payload["nightly"]["pipelines"][0]["pipeline"] == "amd-ci"
+    assert payload["nightly"]["pipelines"][0]["pipeline"] == "ci"
     assert (
         payload["nightly"]["pipelines"][0]["transition_policy_id"]
         == "confirmed-incidents-v1"
@@ -1627,1125 +1655,8 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "issue_state": "open_omni_surge_issues.json",
         "mapping_history": "workload_mapping.json",
     }
-    assert payload["trajectory"]["provenance"]["source_paths"] == {
-        "build_history": "analytics.json",
-        "group_changes": "group_changes.json",
-        "capacity": "capacity_monitor.json",
-        "target_topology": "amd_test_matrix.json",
-        "historical_load": "workload_mapping.json",
-        "queue_history": "queue_timeseries.jsonl",
-    }
-    assert payload["trajectory"]["source_pipeline"] == "ci"
-    assert payload["trajectory"]["pipeline_order"] == ["ci"]
-    assert [row["pipeline"] for row in payload["trajectory"]["pipelines"]] == ["ci"]
-    assert payload["trajectory"]["pipelines"][0]["source_key"] == "ci.all_main_reliability"
+    assert "trajectory" not in payload
     assert all("timestamp" in source for source in payload["sources"].values())
-
-
-def test_exact_capacity_projection_expands_parallelism_and_queue_width():
-    capacity = {
-        "projection": {
-            "target_groups": 2,
-            "declared_existing_groups": 1,
-            "declared_new_groups": 1,
-            "projected_total_gpus": 4,
-        },
-        "summary": {
-            "capacity_scoped_group_count": 1,
-            "capacity": {
-                "future_eligible": {
-                    "queue_count": 2,
-                    "concurrent_jobs": 21,
-                    "gpus": 28,
-                    "eight_gpu_node_equivalents": 3.5,
-                },
-                "retiring": {"gpus": 220},
-            },
-        },
-        "queues": [
-            {
-                "id": "amd_mi300_1",
-                "label": "mi300_1",
-                "family": "MI300",
-                "gpus_per_job": 1,
-                "future_max_concurrent_jobs": 20,
-                "future_gpu_capacity": 20,
-                "capacity_eligible": True,
-                "gated_groups": 1,
-                "gated_jobs": 2,
-            },
-            {
-                "id": "amd_mi300_8",
-                "label": "mi300_8",
-                "family": "MI300",
-                "gpus_per_job": 8,
-                "future_max_concurrent_jobs": 1,
-                "future_gpu_capacity": 8,
-                "capacity_eligible": True,
-                "gated_groups": 0,
-                "gated_jobs": 0,
-            },
-            {
-                "id": "amd_mi325_1",
-                "label": "mi325_1",
-                "family": "MI325",
-                "gpus_per_job": 1,
-                "max_concurrent_jobs": 188,
-                "gpu_capacity": 188,
-                "capacity_eligible": False,
-                "lifecycle": "retiring",
-                "gated_groups": 0,
-                "gated_jobs": 0,
-            },
-        ],
-    }
-    matrix = {
-        "source": {
-            "latest_build_number": 7,
-            "latest_build_date": "2026-04-22",
-        },
-        "rows": [
-            {
-                "id": "one",
-                "cells": {
-                    "mi300": {
-                        "exists": True,
-                        "variants": [{
-                            "agent_pool": "mi300_1",
-                            "parallelism": 2,
-                            "latest_url": "https://buildkite.com/vllm/amd-ci/builds/7/steps/canvas?sid=step-one",
-                        }],
-                    },
-                },
-            },
-            {
-                "id": "eight",
-                "cells": {
-                    "mi300": {
-                        "exists": True,
-                        "variants": [{
-                            "agent_pool": "mi300_8",
-                            "parallelism": 2,
-                            "latest_url": "https://buildkite.com/vllm/amd-ci/builds/7/steps/canvas?sid=step-eight",
-                        }],
-                    },
-                },
-            },
-        ],
-    }
-    amd_analytics = {
-        "builds": [{
-            "number": 7,
-            "date": "2026-04-22",
-            "jobs": [
-                {"name": "one-1", "q": "amd_mi300_1", "step_id": "step-one", "wall_completion_mins": 10},
-                {"name": "one-2", "q": "amd_mi300_1", "step_id": "step-one", "wall_completion_mins": 20},
-                {"name": "eight-1", "q": "amd_mi300_8", "step_id": "step-eight", "wall_completion_mins": 30},
-                {"name": "eight-2", "q": "amd_mi300_8", "step_id": "step-eight", "wall_completion_mins": 40},
-            ],
-        }],
-    }
-
-    projection = ops._exact_target_topology(capacity, matrix, amd_analytics)
-
-    assert projection["groups"] == 2
-    assert projection["jobs"] == 4
-    assert projection["gpu_slots"] == 18
-    assert projection["scenarios"][0]["shape_gap_gpus"] == 8
-    assert projection["scenarios"][0]["queue_gaps"][0]["id"] == "amd_mi300_8"
-    assert projection["scenarios"][1]["family_gap_gpus"] == 8
-    recommendation = projection["recommendation"]
-    assert recommendation["net_new_hardware_required_for_one_suite"] is None
-    assert (
-        recommendation["overall_hardware_requirement"]
-        == "indeterminate_until_mi325_destination_modeled"
-    )
-    assert recommendation["mi325_migration_unplaced"] is True
-    assert recommendation["conditional_on_mi325_destination"] is True
-    assert (
-        recommendation["standalone_target_only"]["net_new_hardware_required"]
-        is False
-    )
-    assert recommendation["standalone_target_only"]["shape_gap_gpus"] == 8
-    assert "standalone target suite does not require net-new silicon" in (
-        recommendation["standalone_target_only"]["summary"]
-    )
-    assert "Overall hardware need is indeterminate" in recommendation["summary"]
-    assert projection["recommendation"]["repartition_possible_within_family"] is True
-    assert projection["runtime_estimate"]["selected_jobs"] == 4
-    assert projection["runtime_estimate"]["median_agent_hours"] == 1.67
-    assert projection["runtime_estimate"]["median_gpu_hours"] == 9.83
-    strategy = {
-        row["id"]: row
-        for row in projection["placement_profiles"]["strategies"]
-    }["mi355_preferred"]
-    strategy_queues = {row["id"]: row for row in strategy["queues"]}
-    assert strategy_queues["amd_mi300_1"]["service_minutes"] == 15
-    assert strategy_queues["amd_mi300_8"]["service_minutes"] == 35.1
-    assert (
-        strategy_queues["amd_mi300_1"]["service_minutes_source"]
-        == "placement_strategy_target_command_job_median_average"
-    )
-    assert projection["current_topology"] == {
-        "groups": 1,
-        "jobs": 2,
-        "gpu_slots": 2,
-        "agent_minutes": 30.0,
-    }
-    projected_queues = {row["id"]: row for row in projection["queues"]}
-    assert projected_queues["amd_mi300_1"]["current_gated_groups"] == 1
-    assert projected_queues["amd_mi300_1"]["current_gated_jobs"] == 2
-    assert projected_queues["amd_mi300_1"]["current_gated_gpu_slots"] == 2
-    assert projected_queues["amd_mi300_8"]["current_gated_gpu_slots"] == 0
-
-
-def test_capacity_projection_reallocates_multiple_same_family_queue_gaps():
-    capacity = {
-        "projection": {"target_groups": 2},
-        "summary": {
-            "capacity_scoped_group_count": 0,
-            "capacity": {
-                "future_eligible": {
-                    "queue_count": 3,
-                    "concurrent_jobs": 14,
-                    "gpus": 24,
-                    "eight_gpu_node_equivalents": 3,
-                },
-                "retiring": {"gpus": 0},
-            },
-        },
-        "queues": [
-            {
-                "id": "amd_mi300_1",
-                "label": "mi300_1",
-                "family": "MI300",
-                "gpus_per_job": 1,
-                "future_max_concurrent_jobs": 12,
-                "future_gpu_capacity": 12,
-                "capacity_eligible": True,
-            },
-            {
-                "id": "amd_mi300_4",
-                "label": "mi300_4",
-                "family": "MI300",
-                "gpus_per_job": 4,
-                "future_max_concurrent_jobs": 1,
-                "future_gpu_capacity": 4,
-                "capacity_eligible": True,
-            },
-            {
-                "id": "amd_mi300_8",
-                "label": "mi300_8",
-                "family": "MI300",
-                "gpus_per_job": 8,
-                "future_max_concurrent_jobs": 1,
-                "future_gpu_capacity": 8,
-                "capacity_eligible": True,
-            },
-        ],
-    }
-    matrix = {
-        "rows": [
-            {
-                "id": "four",
-                "cells": {
-                    "mi300": {
-                        "exists": True,
-                        "variants": [{"agent_pool": "mi300_4", "parallelism": 2}],
-                    },
-                },
-            },
-            {
-                "id": "eight",
-                "cells": {
-                    "mi300": {
-                        "exists": True,
-                        "variants": [{"agent_pool": "mi300_8", "parallelism": 2}],
-                    },
-                },
-            },
-        ],
-    }
-
-    projection = ops._exact_target_topology(capacity, matrix)
-
-    one_suite = projection["scenarios"][0]
-    assert one_suite["fits_aggregate_capacity"] is True
-    assert one_suite["fits_family_capacity"] is True
-    assert one_suite["fits_queue_shapes"] is False
-    assert one_suite["shape_gap_gpus"] == 12
-    assert len(one_suite["queue_gaps"]) == 2
-    recommendation = projection["recommendation"]
-    assert recommendation["net_new_hardware_required_for_one_suite"] is False
-    assert recommendation["repartition_possible_within_family"] is True
-    assert recommendation["additional_runner_jobs"] == 2
-    assert recommendation["additional_runner_gpus"] == 12
-    assert len(recommendation["queue_reallocations"]) == 2
-    assert {
-        row["family_spare_gpus"]
-        for row in recommendation["queue_reallocations"]
-    } == {12}
-    assert "does not require net-new silicon" in recommendation["summary"]
-
-
-def test_capacity_projection_publishes_exact_mi355_preferred_placement():
-    queues = []
-    for architecture, widths in {
-        "mi250": (1, 4),
-        "mi300": (1, 4, 8),
-        "mi355": (1, 4),
-    }.items():
-        for width in widths:
-            queues.append({
-                "id": f"amd_{architecture}_{width}",
-                "label": f"{architecture}_{width}",
-                "family": architecture.upper(),
-                "gpus_per_job": width,
-                "max_concurrent_jobs": 1000,
-                "gpu_capacity": 1000 * width,
-                "capacity_eligible": True,
-            })
-    capacity = {
-        "summary": {
-            "capacity_scoped_group_count": 0,
-            "capacity": {
-                "future_eligible": {
-                    "concurrent_jobs": 7000,
-                    "gpus": 21000,
-                },
-            },
-        },
-        "queues": queues,
-    }
-
-    def cell(pool: str, parallelism: int = 1) -> dict:
-        return {
-            "exists": True,
-            "variants": [{
-                "agent_pool": pool,
-                "parallelism": parallelism,
-            }],
-        }
-
-    matrix_rows = []
-    for index in range(21):
-        pool = "mi250_4" if index == 20 else "mi250_1"
-        parallelism = 2 if index < 5 else 1
-        matrix_rows.append({
-            "id": f"mi250-{index}",
-            "cells": {"mi250": cell(pool, parallelism)},
-        })
-    for index in range(38):
-        if index < 4:
-            preferred = cell("mi355_4")
-        elif index < 11:
-            preferred = cell("mi355_1", 2)
-        else:
-            preferred = cell("mi355_1")
-        matrix_rows.append({
-            "id": f"mi355-{index}",
-            "cells": {
-                "mi355": preferred,
-                "mi300": cell("mi300_1"),
-            },
-        })
-    for index in range(101):
-        if index < 14:
-            selected = cell("mi300_8")
-        elif index == 14:
-            selected = cell("mi300_4")
-        else:
-            selected = cell("mi300_1", 2 if index < 39 else 1)
-        matrix_rows.append({
-            "id": f"mi300-{index}",
-            "cells": {"mi300": selected},
-        })
-    matrix = {"rows": matrix_rows}
-
-    projection = ops._exact_target_topology(capacity, matrix)
-
-    assert projection["architecture_precedence"] == ["mi250", "mi355", "mi300"]
-    profiles = projection["placement_profiles"]
-    assert profiles["default_strategy_id"] == "mi355_preferred"
-    assert profiles["configurable"] is True
-    strategies = {row["id"]: row for row in profiles["strategies"]}
-    preferred = strategies["mi355_preferred"]
-    assert preferred["totals"] == {
-        "groups": 160,
-        "jobs": 196,
-        "gpu_slots": 312,
-    }
-    assert [
-        (row["family"], row["groups"], row["jobs"], row["gpu_slots"])
-        for row in preferred["families"]
-    ] == [
-        ("MI250", 21, 26, 29),
-        ("MI300", 101, 125, 226),
-        ("MI355", 38, 45, 57),
-    ]
-    assert preferred["coverage"]["architecture_definitions"]["mi355"] == 38
-    assert preferred["coverage"]["complete"] is True
-    assert "Only 38/160 semantic groups" in preferred["limitation"]
-    current = strategies["current_definition_precedence"]
-    assert current["coverage"]["selected_groups_by_architecture"] == {
-        "mi250": 21,
-        "mi300": 139,
-        "mi355": 0,
-    }
-    assert [
-        (row["family"], row["groups"], row["jobs"], row["gpu_slots"])
-        for row in projection["families"]
-    ] == [
-        ("MI250", 21, 26, 29),
-        ("MI300", 101, 125, 226),
-        ("MI355", 38, 45, 57),
-    ]
-
-    legacy_projection = ops._exact_target_topology(
-        capacity,
-        matrix,
-        architecture_preference=["mi250", "mi300", "mi355"],
-    )
-    assert (
-        legacy_projection["placement_profiles"]["default_strategy_id"]
-        == "current_definition_precedence"
-    )
-    assert legacy_projection["families"][1]["groups"] == 139
-
-
-def test_target_runtime_estimate_uses_configured_architecture_preference():
-    catalog = {
-        "amd_mi300_1": {
-            "id": "amd_mi300_1",
-            "gpus_per_job": 1,
-            "capacity_eligible": True,
-        },
-        "amd_mi355_1": {
-            "id": "amd_mi355_1",
-            "gpus_per_job": 1,
-            "capacity_eligible": True,
-        },
-    }
-    matrix = {
-        "source": {
-            "latest_build_number": 7,
-            "latest_build_date": "2026-04-22",
-        },
-        "rows": [{
-            "id": "dual-defined",
-            "cells": {
-                "mi300": {
-                    "exists": True,
-                    "variants": [{
-                        "agent_pool": "mi300_1",
-                        "latest_url": (
-                            "https://buildkite.com/vllm/amd-ci/builds/7/"
-                            "steps/canvas?sid=step-mi300"
-                        ),
-                    }],
-                },
-                "mi355": {
-                    "exists": True,
-                    "variants": [{
-                        "agent_pool": "mi355_1",
-                        "latest_url": (
-                            "https://buildkite.com/vllm/amd-ci/builds/7/"
-                            "steps/canvas?sid=step-mi355"
-                        ),
-                    }],
-                },
-            },
-        }],
-    }
-    analytics_payload = {
-        "builds": [{
-            "number": 7,
-            "date": "2026-04-22",
-            "jobs": [{
-                "name": "mi300 job",
-                "q": "amd_mi300_1",
-                "step_id": "step-mi300",
-                "wall_completion_mins": 30,
-            }, {
-                "name": "mi355 job",
-                "q": "amd_mi355_1",
-                "step_id": "step-mi355",
-                "wall_completion_mins": 10,
-            }],
-        }],
-    }
-
-    preferred = ops._target_runtime_estimate(
-        matrix,
-        analytics_payload,
-        catalog,
-    )
-    legacy = ops._target_runtime_estimate(
-        matrix,
-        analytics_payload,
-        catalog,
-        architecture_preference=["mi250", "mi300", "mi355"],
-    )
-
-    assert list(preferred["queues"]) == ["amd_mi355_1"]
-    assert preferred["median_agent_hours"] == 0.17
-    assert list(legacy["queues"]) == ["amd_mi300_1"]
-    assert legacy["median_agent_hours"] == 0.5
-
-
-def test_capacity_simulation_profile_publishes_source_backed_wait_inputs():
-    capacity = {
-        "summary": {"capacity_scoped_group_count": 1},
-        "queues": [
-            {
-                "id": "amd_mi300_1",
-                "gated_groups": 1,
-                "gated_jobs": 2,
-            },
-            {
-                "id": "amd_mi300_8",
-                "gated_groups": 0,
-                "gated_jobs": 0,
-            },
-        ],
-    }
-    target_queues = [
-        {
-            "id": "amd_mi300_1",
-            "label": "mi300_1",
-            "family": "MI300",
-            "provider": "Example provider",
-            "gpus_per_job": 1,
-            "max_concurrent_jobs": 20,
-            "groups": 1,
-            "jobs": 2,
-        },
-        {
-            "id": "amd_mi300_8",
-            "label": "mi300_8",
-            "family": "MI300",
-            "gpus_per_job": 8,
-            "max_concurrent_jobs": 1,
-            "groups": 1,
-            "jobs": 2,
-        },
-    ]
-    runtime = {
-        "sampled_jobs": 4,
-        "median_agent_hours": 2,
-        "queues": {
-            "amd_mi300_1": {
-                "sampled_jobs": 2,
-                "median_agent_hours": 1,
-            },
-            "amd_mi300_8": {
-                "sampled_jobs": 2,
-                "median_agent_hours": 1,
-            },
-        },
-    }
-    mapping = {
-        "generated_at": "2026-04-22T12:00:00Z",
-        "window": {
-            "days": 1,
-            "start_date": "2026-04-22",
-            "end_date": "2026-04-22",
-            "complete": True,
-            "lower_bound": False,
-        },
-        "totals": {
-            "main": {
-                "by_queue": {
-                    "amd_mi300_1": {
-                        "mapped_jobs": 12,
-                        "started_jobs": 6,
-                        "finished_jobs": 6,
-                        "mapped_gpu_slots": 12,
-                        "gpu_hours": 6,
-                    },
-                },
-            },
-            "omni": {"by_queue": {}},
-        },
-        "hourly": [
-            {
-                "hour": "2026-04-22T10:00:00Z",
-                "end_exclusive": "2026-04-22T11:00:00Z",
-                "observed_through": "2026-04-22T11:00:00Z",
-                "workloads": {
-                    "main": {
-                        "by_queue": {
-                            "amd_mi300_1": {"started_jobs": 4},
-                        },
-                    },
-                },
-            },
-            {
-                "hour": "2026-04-22T11:00:00Z",
-                "end_exclusive": "2026-04-22T12:00:00Z",
-                "observed_through": "2026-04-22T12:00:00Z",
-                "workloads": {
-                    "omni": {
-                        "by_queue": {
-                            "amd_mi300_1": {"started_jobs": 2},
-                        },
-                    },
-                },
-            },
-        ],
-    }
-    history = [
-        {
-            "ts": "2026-04-22T10:00:00Z",
-            "queues": {
-                "amd_mi300_1": {"running": 1, "waiting": 0},
-                "amd_mi300_8": {"running": 0, "waiting": 0},
-            },
-        },
-        {
-            "ts": "2026-04-22T11:00:00Z",
-            "queues": {
-                "amd_mi300_1": {"running": 3, "waiting": 2},
-                "amd_mi300_8": {"running": 0, "waiting": 0},
-            },
-        },
-        {
-            "ts": "2026-04-22T12:00:00Z",
-            "queues": {
-                "amd_mi300_1": {"running": 25, "waiting": 10},
-                "amd_mi300_8": {"running": 0, "waiting": 0},
-            },
-        },
-    ]
-
-    profile = ops._capacity_simulation_profile(
-        capacity,
-        target_queues,
-        runtime,
-        mapping,
-        history,
-    )
-
-    assert profile["defaults"]["baseline"] == "peak"
-    assert profile["workload_window"]["elapsed_hours"] == 12
-    assert profile["topology"]["current"] == {
-        "groups": 1,
-        "jobs": 2,
-        "gpu_slots": 2,
-        "agent_minutes": 60.0,
-    }
-    assert profile["topology"]["target"] == {
-        "groups": 2,
-        "jobs": 4,
-        "gpu_slots": 18,
-        "agent_minutes": 120.0,
-    }
-    assert profile["topology"]["delta"]["gpu_slots"] == 16
-    rows = {row["id"]: row for row in profile["queues"]}
-    one_gpu = rows["amd_mi300_1"]
-    assert one_gpu["provider"] == "Example provider"
-    assert "amd-cpu" in profile["assumptions"]["capacity"]
-    assert "Docker builds" in profile["assumptions"]["capacity"]
-    assert one_gpu["history"]["sample_count"] == 3
-    assert one_gpu["history"]["current"]["running"] == 25
-    assert one_gpu["history"]["current"]["waiting"] == 10
-    assert one_gpu["history"]["current"]["available_slots"] == 0
-    assert one_gpu["history"]["current"]["above_configured_capacity"] is True
-    assert one_gpu["history"]["snapshots_above_configured_capacity"] == 1
-    assert one_gpu["history"]["typical"]["running"] == 3
-    assert one_gpu["history"]["typical"]["waiting"] == 2
-    assert one_gpu["history"]["peak"]["running"] == 25
-    assert one_gpu["history"]["peak"]["waiting"] == 10
-    assert one_gpu["history"]["stress"]["observed_at"] == "2026-04-22T12:00:00Z"
-    assert one_gpu["history"]["marginal"]["peak"]["running"] == 22.8
-    assert one_gpu["history"]["marginal"]["peak"]["waiting"] == 9.2
-    assert (
-        profile["history"]["joint_baselines"]["peak"]["observed_at"]
-        == one_gpu["history"]["peak"]["observed_at"]
-    )
-    assert profile["integrity"]["quota_drift_detected"] is True
-    assert profile["integrity"]["queue"]["affected_queue_count"] == 1
-    assert one_gpu["workload"]["mapped_arrival_rate_jobs_per_hour"] == 1
-    assert one_gpu["workload"]["started_arrival_rate_jobs_per_hour"] == 0.5
-    assert one_gpu["workload"]["weekday_started_cohort_jobs"] == 6
-    assert (
-        one_gpu["workload"]["weekday_started_cohort_rate_jobs_per_hour"]
-        == 3
-    )
-    assert (
-        profile["defaults"]["arrival_rate_jobs_field"]
-        == "weekday_started_cohort_rate_jobs_per_hour"
-    )
-    assert one_gpu["workload"]["observed_service_minutes"] == 60
-    assert one_gpu["workload"]["target_runtime_service_minutes"] == 30
-    assert one_gpu["workload"]["service_minutes"] == 30
-    assert (
-        one_gpu["workload"]["service_minutes_source"]
-        == "target_command_job_median_average"
-    )
-    assert one_gpu["workload"]["service_minutes_is_proxy"] is False
-    eight_gpu = rows["amd_mi300_8"]
-    assert eight_gpu["history"]["current"]["available"] is True
-    assert eight_gpu["history"]["current"]["running"] == 0
-    assert eight_gpu["history"]["current"]["waiting"] == 0
-    assert eight_gpu["workload"]["observed_service_minutes"] is None
-    assert eight_gpu["workload"]["service_minutes"] == 30
-    assert (
-        eight_gpu["workload"]["service_minutes_source"]
-        == "target_command_job_median_average"
-    )
-    assert profile["model"]["kind"] == "planning_estimate_inputs_not_sla"
-    assert "FCFS list scheduling per queue as a planning estimate" in (
-        profile["model"]["burst_wait"]
-    )
-    assert "Only the full-service residual" in profile["model"]["burst_wait"]
-    assert "conservative FCFS" not in profile["model"]["burst_wait"]
-    assert "rho>=1" in profile["model"]["steady_wait"]
-    assert "not an SLA" in profile["model"]["steady_wait_assumptions"]
-    assert "primary service-time input" in profile["assumptions"]["service"]
-    assert "used only as a fallback" in profile["assumptions"]["service"]
-    assert profile["provenance"]["queue_history"] == "queue_timeseries.jsonl"
-
-
-def test_capacity_joint_history_uses_real_weekday_snapshots_and_observed_stress():
-    queue_rows = [
-        {
-            "id": "amd_mi300_1",
-            "family": "MI300",
-            "gpus_per_job": 1,
-            "capacity_jobs": 5,
-        },
-        {
-            "id": "amd_mi300_4",
-            "family": "MI300",
-            "gpus_per_job": 4,
-            "capacity_jobs": 1,
-        },
-    ]
-    history = [{
-        "ts": "2026-04-04T12:00:00Z",
-        "queues": {
-            "amd_mi300_1": {"running": 1000, "waiting": 0},
-            "amd_mi300_4": {"running": 0, "waiting": 0},
-        },
-    }, {
-        "ts": "2026-04-08T12:00:00Z",
-        "queues": {
-            "amd_mi300_1": {"running": 1, "waiting": 0},
-        },
-    }]
-    for pressure in range(1, 21):
-        history.append({
-            "ts": f"2026-04-09T{pressure - 1:02d}:00:00Z",
-            "queues": {
-                "amd_mi300_1": {
-                    "running": min(pressure, 5),
-                    "waiting": max(0, pressure - 5),
-                    "connected_agents": pressure,
-                    "connected_agents_source": "queue_native_metrics",
-                    "metrics_ts": f"2026-04-09T{pressure - 1:02d}:00:00Z",
-                },
-                "amd_mi300_4": {"running": 0, "waiting": 0},
-            },
-        })
-    history.extend([{
-        "ts": "2026-04-10T20:00:00Z",
-        "queues": {
-            "amd_mi300_1": {
-                "running": 4,
-                "waiting": 46,
-                "connected_agents": 7,
-                "connected_agents_source": "queue_native_metrics",
-                "metrics_ts": "2026-04-10T20:00:00Z",
-            },
-            "amd_mi300_4": {"running": 0, "waiting": 0},
-        },
-    }, {
-        "ts": "2026-04-10T23:00:00Z",
-        "queues": {
-            "amd_mi300_1": {
-                "running": 6,
-                "waiting": 94,
-                "connected_agents": 3,
-                "connected_agents_source": "queue_native_metrics",
-                "metrics_ts": "2026-04-10T22:59:00Z",
-            },
-            "amd_mi300_4": {"running": 1, "waiting": 0},
-        },
-    }])
-
-    published, selected, observations = ops._capacity_joint_history(
-        queue_rows,
-        history,
-    )
-
-    window = published["analysis_window"]
-    assert window["start_at"] == "2026-04-03T23:00:00Z"
-    assert window["end_at"] == "2026-04-10T23:00:00Z"
-    assert window["expected_weekday_hours"] == 120
-    assert window["weekend_snapshot_count_excluded"] == 1
-    assert window["incomplete_snapshot_count"] == 1
-    assert window["complete_snapshot_count"] == 22
-    assert window["missing_weekday_dates"] == [
-        "2026-04-03",
-        "2026-04-06",
-        "2026-04-07",
-    ]
-    assert window["weekday_date_coverage_complete"] is False
-    baselines = published["joint_baselines"]
-    assert baselines["typical"]["total_pressure_gpu_slots"] == 11
-    assert baselines["typical"]["observed_at"] == "2026-04-09T10:00:00Z"
-    assert baselines["peak"]["total_pressure_gpu_slots"] == 50
-    assert baselines["peak"]["observed_at"] == "2026-04-10T20:00:00Z"
-    assert baselines["stress"]["total_pressure_gpu_slots"] == 104
-    assert baselines["stress"]["observed_at"] == "2026-04-10T23:00:00Z"
-    assert (
-        selected["stress"]["by_queue"]["amd_mi300_1"]["connected_agents_source"]
-        == "queue_native_metrics"
-    )
-
-    queue_history = ops._capacity_history_baseline(
-        "amd_mi300_1",
-        5,
-        history,
-        joint_snapshots=selected,
-        joint_observations=observations,
-    )
-    assert queue_history["typical"]["observed_at"] == baselines["typical"]["observed_at"]
-    assert queue_history["peak"]["running"] == 4
-    assert queue_history["peak"]["waiting"] == 46
-    assert queue_history["stress"]["running"] == 6
-    assert queue_history["stress"]["waiting"] == 94
-    assert queue_history["stress"]["connected_agents"] == 3
-    assert (
-        queue_history["stress"]["connected_agents_source"]
-        == "queue_native_metrics"
-    )
-    assert queue_history["stress"]["metrics_timestamp"] == "2026-04-10T22:59:00Z"
-
-    integrity = ops._capacity_quota_integrity(
-        queue_rows,
-        observations,
-        window,
-    )
-    assert integrity["quota_drift_detected"] is True
-    assert integrity["queue"]["affected_queue_count"] == 1
-    assert integrity["family"]["affected_family_count"] == 1
-    queue_violation = integrity["queue"]["violations"][0]
-    assert queue_violation["maximum_running_occupancy_gpu_slots"] == 6
-    assert queue_violation["waiting_demand_gpu_slots_at_maximum"] == 94
-    family_violation = integrity["family"]["violations"][0]
-    assert family_violation["maximum_running_occupancy_gpu_slots"] == 10
-    assert family_violation["waiting_demand_gpu_slots_at_maximum"] == 94
-    connected = integrity["connected_agents"]
-    assert connected["queue_count"] == 2
-    assert connected["available_queue_count"] == 1
-    assert connected["unavailable_queue_count"] == 1
-    assert connected["mismatch_queue_count"] == 1
-    connected_rows = {row["id"]: row for row in connected["queues"]}
-    one_gpu_agents = connected_rows["amd_mi300_1"]
-    assert one_gpu_agents["configured_capacity_jobs"] == 5
-    assert one_gpu_agents["latest_connected_agents"] == 3
-    assert one_gpu_agents["signed_delta_jobs"] == -2
-    assert one_gpu_agents["direction"] == "below_planning_quota"
-    assert one_gpu_agents["source"] == "queue_native_metrics"
-    assert one_gpu_agents["metrics_timestamp"] == "2026-04-10T22:59:00Z"
-    assert one_gpu_agents["max_connected_agents_in_window"] == 20
-    assert one_gpu_agents["planning_capacity_preserved"] is True
-    assert connected_rows["amd_mi300_4"]["available"] is False
-
-
-def test_weekday_started_cohort_rate_handles_weekend_and_partial_hour():
-    workload_mapping = {
-        "generated_at": "2026-04-22T12:31:00Z",
-        "hourly": [{
-            "hour": "2026-04-15T12:00:00Z",
-            "end_exclusive": "2026-04-15T13:00:00Z",
-            "observed_through": "2026-04-15T13:00:00Z",
-            "workloads": {
-                "main": {
-                    "by_queue": {"amd_mi300_1": {"started_jobs": 99}},
-                },
-            },
-        }, {
-            "hour": "2026-04-16T10:00:00Z",
-            "end_exclusive": "2026-04-16T11:00:00Z",
-            "observed_through": "2026-04-16T11:00:00Z",
-            "workloads": {
-                "main": {
-                    "by_queue": {"amd_mi300_1": {"started_jobs": 3}},
-                },
-                "omni": {
-                    "by_queue": {"amd_mi300_1": {"started_jobs": 1}},
-                },
-            },
-        }, {
-            "hour": "2026-04-18T10:00:00Z",
-            "end_exclusive": "2026-04-18T11:00:00Z",
-            "observed_through": "2026-04-18T11:00:00Z",
-            "workloads": {
-                "main": {
-                    "by_queue": {"amd_mi300_1": {"started_jobs": 100}},
-                },
-            },
-        }, {
-            "hour": "2026-04-22T12:00:00Z",
-            "end_exclusive": "2026-04-22T13:00:00Z",
-            "observed_through": "2026-04-22T12:30:00Z",
-            "open": True,
-            "partial": True,
-            "workloads": {
-                "main": {
-                    "by_queue": {"amd_mi300_1": {"started_jobs": 1}},
-                },
-            },
-        }],
-    }
-    metadata, counts = ops._weekday_started_cohort_rates(
-        workload_mapping,
-        {
-            "start_at": "2026-04-15T12:30:00Z",
-            "end_at": "2026-04-22T12:30:00Z",
-            "expected_weekday_hours": 120,
-        },
-        {"amd_mi300_1"},
-    )
-
-    assert counts["amd_mi300_1"] == 5
-    assert metadata["elapsed_weekday_hours"] == 1.5
-    assert metadata["leading_boundary_bucket_count_excluded"] == 1
-    assert metadata["weekend_hour_bucket_count_excluded"] == 1
-    assert metadata["partial_hour_bucket_count"] == 1
-    assert metadata["timestamp_field"] == "job.created_at_hour"
-    assert "not a count of started_at events" in metadata["semantics"]
-    assert round(counts["amd_mi300_1"] / metadata["elapsed_weekday_hours"], 4) == 3.3333
-
-
-def test_capacity_simulation_profile_keeps_missing_inputs_explicit():
-    profile = ops._capacity_simulation_profile(
-        {"queues": [], "summary": {}},
-        [{
-            "id": "amd_mi355_8",
-            "label": "mi355_8",
-            "family": "MI355",
-            "gpus_per_job": 8,
-            "max_concurrent_jobs": 1,
-            "groups": 0,
-            "jobs": 0,
-        }],
-        {},
-        {},
-        [],
-    )
-
-    row = profile["queues"][0]
-    assert profile["history"]["snapshot_count"] == 0
-    assert profile["workload_window"]["elapsed_hours"] == 0
-    assert row["history"]["current"] == {
-        "kind": "latest_joint_snapshot",
-        "available": False,
-        "running": None,
-        "waiting": None,
-        "available_slots": None,
-        "utilization_pct": None,
-        "saturated": None,
-    }
-    assert row["history"]["typical"]["available"] is False
-    assert row["history"]["peak"]["available"] is False
-    assert row["workload"]["mapped_arrival_rate_jobs_per_hour"] is None
-    assert row["workload"]["started_arrival_rate_jobs_per_hour"] is None
-    assert row["workload"]["observed_service_minutes"] is None
-    assert row["workload"]["target_runtime_service_minutes"] is None
-    assert row["workload"]["target_global_service_minutes"] is None
-    assert row["workload"]["runtime_fallback_service_minutes"] is None
-    assert row["workload"]["service_minutes"] is None
-    assert row["workload"]["service_minutes_source"] == "unavailable"
-    assert row["workload"]["service_minutes_is_proxy"] is None
-
-
-def test_capacity_service_uses_completed_mapping_proxy_only_as_fallback():
-    profile = ops._capacity_simulation_profile(
-        {
-            "summary": {"capacity_scoped_group_count": 0},
-            "queues": [{"id": "amd_mi355_1"}],
-        },
-        [{
-            "id": "amd_mi355_1",
-            "label": "mi355_1",
-            "family": "MI355",
-            "gpus_per_job": 1,
-            "max_concurrent_jobs": 48,
-            "groups": 1,
-            "jobs": 1,
-        }],
-        {},
-        {
-            "generated_at": "2026-04-22T12:00:00Z",
-            "window": {"days": 1, "start_date": "2026-04-22"},
-            "totals": {
-                "main": {
-                    "by_queue": {
-                        "amd_mi355_1": {
-                            "finished_jobs": 2,
-                            "gpu_hours": 4,
-                        },
-                    },
-                },
-            },
-        },
-        [],
-    )
-
-    workload = profile["queues"][0]["workload"]
-    assert workload["observed_service_minutes"] == 120
-    assert workload["service_minutes"] == 120
-    assert (
-        workload["service_minutes_source"]
-        == "completed_agent_minutes_per_finished_job_proxy_fallback"
-    )
-    assert workload["service_minutes_is_proxy"] is True
-
-
-def test_capacity_profile_publishes_mi325_as_unplaced_without_inference():
-    capacity = {
-        "summary": {"capacity_scoped_group_count": 1},
-        "queues": [
-            {
-                "id": "amd_mi300_1",
-                "family": "MI300",
-                "gpus_per_job": 1,
-                "max_concurrent_jobs": 20,
-                "capacity_eligible": True,
-                "lifecycle": "active",
-                "gated_groups": 1,
-                "gated_jobs": 1,
-            },
-            {
-                "id": "amd_mi325_2",
-                "label": "mi325_2",
-                "family": "MI325",
-                "gpus_per_job": 2,
-                "max_concurrent_jobs": 8,
-                "gpu_capacity": 16,
-                "capacity_eligible": False,
-                "lifecycle": "retiring",
-            },
-        ],
-    }
-    mapping = {
-        "generated_at": "2026-04-23T00:00:00Z",
-        "window": {
-            "days": 14,
-            "start_date": "2026-04-09",
-            "end_date": "2026-04-22",
-            "complete": True,
-            "lower_bound": False,
-            "job_created_range_exhaustive": False,
-        },
-        "scope": {
-            "attribution": {
-                "parent_build_lookback_days": 3,
-                "exact_within_declared_source_window": True,
-                "limitation": (
-                    "Jobs added to parent builds older than the lookback can be absent."
-                ),
-            },
-        },
-        "totals": {
-            "main": {
-                "by_queue": {
-                    "amd_mi325_2": {
-                        "mapped_jobs": 3,
-                        "started_jobs": 2,
-                        "finished_jobs": 2,
-                        "mapped_gpu_slots": 6,
-                        "gpu_hours": 10,
-                    },
-                },
-            },
-            "omni": {
-                "by_queue": {
-                    "amd_mi325_2": {
-                        "mapped_jobs": 1,
-                        "started_jobs": 1,
-                        "finished_jobs": 1,
-                        "mapped_gpu_slots": 2,
-                        "gpu_hours": 2,
-                    },
-                },
-            },
-        },
-    }
-    history = [
-        {
-            "ts": "2026-04-22T10:00:00Z",
-            "queues": {"amd_mi325_2": {"running": 1, "waiting": 1}},
-        },
-        {
-            "ts": "2026-04-22T11:00:00Z",
-            "queues": {"amd_mi325_2": {"running": 2, "waiting": 2}},
-        },
-        {
-            "ts": "2026-04-22T12:00:00Z",
-            "queues": {"amd_mi325_2": {"running": 4, "waiting": 3}},
-        },
-    ]
-    profile = ops._capacity_simulation_profile(
-        capacity,
-        [{
-            "id": "amd_mi300_1",
-            "label": "mi300_1",
-            "family": "MI300",
-            "gpus_per_job": 1,
-            "max_concurrent_jobs": 20,
-            "groups": 1,
-            "jobs": 1,
-        }],
-        {},
-        mapping,
-        history,
-    )
-
-    unplaced = profile["unplaced_retiring_workload"]
-    assert unplaced["status"] == "unplaced"
-    assert unplaced["compatibility"] == "unknown"
-    assert unplaced["requires_manual_destination"] is True
-    assert unplaced["excluded_from_wait_and_headroom"] is True
-    assert unplaced["window"] == {
-        "days": 14,
-        "start_date": "2026-04-09",
-        "end_date": "2026-04-22",
-        "elapsed_hours": 336.0,
-        "complete": True,
-        "lower_bound": False,
-        "job_created_range_exhaustive": False,
-        "exact_within_declared_source_window": True,
-        "parent_build_lookback_days": 3,
-        "source_limitation": (
-            "Jobs added to parent builds older than the lookback can be absent."
-        ),
-    }
-    assert unplaced["totals"] == {
-        "mapped_jobs": 4,
-        "started_jobs": 3,
-        "finished_jobs": 3,
-        "mapped_gpu_slots": 8,
-        "gpu_hours": 12.0,
-        "average_gpus": 0.04,
-    }
-    assert unplaced["by_workload"]["main"]["mapped_jobs"] == 3
-    assert unplaced["by_workload"]["omni"]["mapped_jobs"] == 1
-    assert unplaced["occupancy"]["current"]["running_gpu_slots"] == 8.0
-    assert unplaced["occupancy"]["current"]["waiting_gpu_slots"] == 6.0
-    assert unplaced["occupancy"]["typical"]["running_gpu_slots"] == 4.0
-    assert unplaced["occupancy"]["peak"]["running_gpu_slots"] == 8.0
-    assert unplaced["occupancy"]["stress"]["running_gpu_slots"] == 8.0
-    assert (
-        unplaced["occupancy"]["peak"]["observed_at"]
-        == unplaced["occupancy"]["joint_baselines"]["peak"]["observed_at"]
-    )
-    assert unplaced["occupancy"]["peak"]["waiting_gpu_slots"] == 6.0
-    assert "No cross-family or queue-width compatibility is inferred" in unplaced["reason"]
 
 
 def test_omni_history_keeps_observed_counts_and_coverage_without_inference():
@@ -2914,644 +1825,6 @@ def test_reliability_only_marks_mixed_pass_failure_jobs_flaky(tmp_path):
         "terminal ci branch=main job observations"
     )
     assert payload["reliability"]["denominator"]["unknown_observations_excluded"] == 1
-    assert payload["gating"]["denominators"]["target_signal_counts"]["value"] == 2
-    assert payload["gating"]["denominators"]["matrix_cell_states"]["value"] == 4
-    assert payload["gating"]["denominators"]["matrix_group_counts"] == {
-        "value": 2,
-        "unit": "configured AMD definition cases",
-    }
-    assert payload["gating"]["denominators"]["matrix_deduplicated_case_counts"] == {
-        "value": 2,
-        "unit": (
-            "deduplicated configured AMD cases; not observed runtime test groups"
-        ),
-    }
-    assert all("owner" not in row for row in payload["gating"]["active_target_groups"])
-
-    gating = {row["label"]: row for row in payload["gating"]["active_target_groups"]}
-    fixed = gating["Fixed"]
-    assert fixed["latest_amd_result"]["state"] == "hard"
-    assert fixed["latest_amd_result"]["source_pipeline"] == "amd-ci"
-    assert fixed["latest_amd_result"]["evidence"][0]["url"].startswith(
-        "https://buildkite.com/vllm/amd-ci/"
-    )
-    assert fixed["main_reliability"]["source_pipeline"] == "ci"
-    assert fixed["main_reliability"]["latest_url"].startswith(
-        "https://buildkite.com/vllm/ci/"
-    )
-    assert fixed["nightly_green_streak"] == 1
-    assert fixed["last_incident"]["source_pipeline"] == "ci"
-    assert fixed["last_incident"]["job_url"].startswith("https://buildkite.com/vllm/ci/")
-    assert fixed["evidence"]
-    assert {row["source_pipeline"] for row in fixed["evidence"]} == {"ci"}
-    assert all(row["url"].startswith("https://buildkite.com/vllm/ci/") for row in fixed["evidence"])
-
-
-def test_platform_comparison_is_amd_first_and_matches_only_exact_cuda_labels():
-    def group(
-        group_id,
-        name,
-        hardware,
-        queue,
-        *,
-        runs,
-        passed,
-        failed=0,
-        soft_failed=0,
-        p90=10,
-    ):
-        incidents = failed + soft_failed
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": runs,
-            "build_count": min(runs, 100),
-            "passed": passed,
-            "failed": failed,
-            "soft_failed": soft_failed,
-            "incident_count": incidents,
-            "incident_rate_pct": round(incidents / runs * 100, 1),
-            "mixed_outcomes": bool(passed and incidents),
-            "latest_state": "passed" if passed else "hard",
-            "latest_observed_at": "2026-07-14T00:00:00Z",
-            "latest_url": f"https://buildkite.com/vllm/ci/builds/1/steps/canvas?jid={group_id}",
-            "median_dur": p90 / 2,
-            "p90_dur": p90,
-            "max_dur": p90 + 1,
-            "duration_basis": "job_wall",
-        }
-
-    catalog = [
-        group("amd-samplers", "AMD: Samplers Test (mi325_1)", "mi325", "amd_mi325_1", runs=50, passed=40, soft_failed=10, p90=20),
-        group("cuda-samplers", "Samplers Test", "h200", "h200_35gb", runs=80, passed=76, failed=4, p90=12),
-        group("intel-samplers", "Samplers Test", "gpu", "intel-gpu", runs=90, passed=1, failed=89, p90=99),
-        group("amd-unmatched", "AMD: Exact Name (mi300_1)", "mi300", "amd_mi300_1", runs=10, passed=10),
-        group("cuda-fuzzy", "Exact Names", "h100", "mithril-h100-pool", runs=10, passed=10),
-    ]
-    retry = {
-        "available": True,
-        "retry_attempts": [
-            {"name": "AMD: Samplers Test (mi325_1)", "retry_source": {"job_id": "a"}},
-            {"name": "AMD: Samplers Test (mi325_1)", "retry_source": {"job_id": "b"}},
-            {"name": "Samplers Test", "retry_source": {"job_id": "c"}},
-        ],
-        "failed_then_passed_recoveries": [
-            {"name": "AMD: Samplers Test (mi325_1)"},
-        ],
-    }
-
-    comparison = ops._platform_comparison(catalog, retry, cohort_builds=100)
-
-    assert comparison["available"] is True
-    assert comparison["summary"]["amd_base_group_count"] == 2
-    assert comparison["summary"]["matched_base_group_count"] == 1
-    assert comparison["summary"]["unmatched_amd_base_group_count"] == 1
-    samplers = next(row for row in comparison["rows"] if row["label"] == "Samplers Test")
-    assert samplers["match_status"] == "exact_cuda_pair"
-    assert samplers["comparison_eligible"] is True
-    assert samplers["amd"]["group_ids"] == ["amd-samplers"]
-    assert samplers["cuda"]["group_ids"] == ["cuda-samplers"]
-    assert samplers["amd"]["incident_rate_pct"] == 20.0
-    assert samplers["cuda"]["incident_rate_pct"] == 5.0
-    assert samplers["incident_rate_delta_pp"] == 15.0
-    assert samplers["amd"]["attempts_per_100_builds"] == 50.0
-    assert samplers["amd"]["retry_attempts"] == 2
-    assert samplers["amd"]["retry_frequency_pct"] == 4.0
-    assert samplers["amd"]["retry_recovery_rate_pct"] == 50.0
-    assert samplers["worst_p90_delta_mins"] == 8.0
-    unmatched = next(row for row in comparison["rows"] if row["label"] == "Exact Name")
-    assert unmatched["match_status"] == "no_cuda_equivalent"
-    assert unmatched["cuda"]["variant_count"] == 0
-
-
-def test_platform_comparison_pairs_each_amd_variant_with_one_cuda_reference():
-    def group(group_id, name, hardware, queue, runs=10):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": runs,
-            "build_count": runs,
-            "passed": runs,
-            "failed": 0,
-            "soft_failed": 0,
-            "incident_count": 0,
-            "incident_rate_pct": 0,
-            "mixed_outcomes": False,
-            "latest_state": "passed",
-            "latest_observed_at": "2026-08-07T00:00:00Z",
-            "latest_url": (
-                "https://buildkite.com/vllm/ci/builds/1/steps/canvas"
-                f"?jid={group_id}"
-            ),
-            "median_dur": 5,
-            "p90_dur": 10,
-            "max_dur": 11,
-            "duration_basis": "job_wall",
-        }
-
-    comparison = ops._platform_comparison(
-        [
-            group(
-                "amd-mi300",
-                "AMD: Shared Test (mi300_1)",
-                "mi300",
-                "amd_mi300_1",
-            ),
-            group(
-                "amd-mi355",
-                "AMD: Shared Test (mi355_1)",
-                "mi355",
-                "amd_mi355_1",
-            ),
-            group("cuda-h200", "Shared Test", "h200", "h200_35gb"),
-        ],
-        {
-            "available": True,
-            "retry_attempts": [
-                {
-                    "group_id": "amd-mi300",
-                    "name": "AMD: Shared Test (mi300_1)",
-                    "retry_source": {"job_id": "original"},
-                }
-            ],
-            "failed_then_passed_recoveries": [],
-        },
-        cohort_builds=10,
-    )
-
-    assert comparison["summary"]["amd_base_group_count"] == 1
-    assert comparison["summary"]["amd_comparison_row_count"] == 2
-    assert comparison["summary"]["matched_base_group_count"] == 1
-    assert comparison["summary"]["comparable_variant_pair_count"] == 2
-    assert comparison["summary"]["matched_cuda_variant_count"] == 1
-    assert len(comparison["rows"]) == 2
-    assert all(row["comparison_eligible"] for row in comparison["rows"])
-    assert all(row["match_status"] == "exact_cuda_pair" for row in comparison["rows"])
-    assert all(row["amd"]["variant_count"] == 1 for row in comparison["rows"])
-    assert all(row["cuda"]["variant_count"] == 1 for row in comparison["rows"])
-    assert {row["amd"]["group_ids"][0] for row in comparison["rows"]} == {
-        "amd-mi300",
-        "amd-mi355",
-    }
-    assert comparison["summary"]["matched_cuda"]["runs"] == 10
-    assert sum(row["amd"]["child_retry_attempts"] for row in comparison["rows"]) == 1
-
-
-def test_platform_comparison_retry_ledger_reconciles_by_exact_row_identity():
-    def group(group_id, name, hardware, queue):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": 10,
-            "build_count": 10,
-            "passed": 10,
-            "failed": 0,
-            "soft_failed": 0,
-            "incident_count": 0,
-            "incident_rate_pct": 0,
-            "mixed_outcomes": False,
-            "latest_state": "passed",
-            "latest_observed_at": "2026-08-07T00:00:00Z",
-            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
-            "median_dur": 5,
-            "p90_dur": 10,
-            "max_dur": 11,
-            "duration_basis": "job_wall",
-        }
-
-    retry = {
-        "available": True,
-        "retry_attempts": [
-            {"group_id": "amd-mi300", "retry_source": "manual"},
-            {"group_id": "amd-mi355", "retry_source": "manual"},
-            {"group_id": "cuda-h200", "retry_source": "manual"},
-        ],
-        "failed_then_passed_recoveries": [
-            {"group_id": "amd-mi300"},
-            {"group_id": "cuda-h200"},
-        ],
-    }
-    comparison = ops._platform_comparison(
-        [
-            group(
-                "amd-mi300",
-                "AMD: Shared Retry Test (mi300_1)",
-                "mi300",
-                "amd_mi300_1",
-            ),
-            group(
-                "amd-mi355",
-                "AMD: Shared Retry Test (mi355_1)",
-                "mi355",
-                "amd_mi355_1",
-            ),
-            group(
-                "cuda-h200",
-                "Shared Retry Test",
-                "h200",
-                "h200_35gb",
-            ),
-        ],
-        retry,
-        cohort_builds=10,
-    )
-
-    assert len(comparison["rows"]) == 2
-    assert all(row["comparison_eligible"] for row in comparison["rows"])
-    row_ids = {row["id"] for row in comparison["rows"]}
-    attempts = retry["retry_attempts"]
-    recoveries = retry["failed_then_passed_recoveries"]
-    by_group = {row["comparison_group_id"]: row for row in attempts}
-    assert by_group["amd-mi300"]["comparison_platform"] == "amd"
-    assert by_group["amd-mi300"]["comparison_key"] == "shared retry test"
-    assert by_group["amd-mi300"]["comparison_identity_method"] == (
-        "catalog_group_id"
-    )
-    assert len(by_group["amd-mi300"]["comparison_row_ids"]) == 1
-    assert set(by_group["cuda-h200"]["comparison_row_ids"]) == row_ids
-    assert by_group["cuda-h200"]["comparison_eligible_row_ids"] == (
-        by_group["cuda-h200"]["comparison_row_ids"]
-    )
-
-    for comparison_row in comparison["rows"]:
-        for platform in ("amd", "cuda"):
-            ledger_child_retries = sum(
-                bool(evidence.get("retry_source"))
-                and evidence.get("comparison_platform") == platform
-                and comparison_row["id"]
-                in evidence.get("comparison_eligible_row_ids", [])
-                for evidence in attempts
-            )
-            ledger_recoveries = sum(
-                evidence.get("comparison_platform") == platform
-                and comparison_row["id"]
-                in evidence.get("comparison_eligible_row_ids", [])
-                for evidence in recoveries
-            )
-            assert ledger_child_retries == comparison_row[platform][
-                "child_retry_attempts"
-            ]
-            assert ledger_recoveries == comparison_row[platform][
-                "recovered_chains"
-            ]
-
-
-def test_platform_comparison_coalesces_step_key_lineages_for_one_execution():
-    def group(group_id, name, hardware, queue, runs, step_key=""):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "step_key": step_key,
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": runs,
-            "build_count": runs,
-            "passed": runs,
-            "failed": 0,
-            "soft_failed": 0,
-            "incident_count": 0,
-            "incident_rate_pct": 0,
-            "mixed_outcomes": False,
-            "latest_state": "passed",
-            "latest_observed_at": "2026-08-07T00:00:00Z",
-            "latest_url": (
-                "https://buildkite.com/vllm/ci/builds/1/steps/canvas"
-                f"?jid={group_id}"
-            ),
-            "median_dur": 5,
-            "p90_dur": 10,
-            "max_dur": 11,
-            "duration_basis": "job_wall",
-        }
-
-    comparison = ops._platform_comparison(
-        [
-            group("amd-old", "AMD: Shared Test (mi300_1)", "mi300", "amd_mi300_1", 8),
-            group(
-                "amd-keyed",
-                ":amd: (MI300) Shared Test",
-                "mi300",
-                "amd_mi300_1",
-                2,
-                "amd-shared-test",
-            ),
-            group("cuda-old", "Shared Test", "h200", "h200_35gb", 7),
-            group(
-                "cuda-keyed",
-                ":nvidia: (H200) Shared Test",
-                "h200",
-                "h200_35gb",
-                3,
-                "shared-test",
-            ),
-        ],
-        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
-        cohort_builds=10,
-    )
-
-    assert comparison["summary"]["matched_base_group_count"] == 1
-    assert comparison["summary"]["comparable_variant_pair_count"] == 1
-    assert len(comparison["rows"]) == 1
-    row = comparison["rows"][0]
-    assert row["label"] == "Shared Test"
-    assert row["match_status"] == "exact_cuda_pair"
-    assert row["match_basis"] == "exact_step_key"
-    assert row["comparison_eligible"] is True
-    assert row["amd"]["variant_count"] == 1
-    assert row["cuda"]["variant_count"] == 1
-    assert row["amd"]["catalog_record_count"] == 2
-    assert row["cuda"]["catalog_record_count"] == 2
-    assert row["amd"]["runs"] == row["cuda"]["runs"] == 10
-    assert row["amd"]["group_ids"] == ["amd-keyed", "amd-old"]
-    assert row["cuda"]["group_ids"] == ["cuda-keyed", "cuda-old"]
-
-
-@pytest.mark.parametrize("memory_gb", [18, 35])
-@pytest.mark.parametrize("decorated_step_key", [False, True])
-def test_platform_comparison_coalesces_h200_mig_label_migration(memory_gb, decorated_step_key):
-    def group(group_id, name, runs, failed=0, *, queue=None, hardware="h200", step_key=""):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "hardware": hardware,
-            "queues": [queue or f"h200_{memory_gb}gb"],
-            "step_key": step_key,
-            "runs": runs,
-            "passed": runs - failed,
-            "failed": failed,
-            "soft_failed": 0,
-            "incident_count": failed,
-            "incident_rate_pct": round(failed / runs * 100, 1),
-            # Each alias has disjoint retained build evidence.
-            "observations": [{"build_number": len(catalog) + 1}],
-        }
-
-    step_key = "python-only-installation"
-    if decorated_step_key:
-        step_key = f"-nvidia--h200-mig-{memory_gb}gb-{step_key}"
-    catalog = []
-    catalog.append(group(
-        "amd", ":amd: (MI300) Python-only Installation", 64,
-        hardware="mi300", queue="amd_mi300_1", step_key=f"amd-{step_key}",
-    ))
-    catalog.append(group("cuda-legacy", "Python-only Installation", 28, 8))
-    catalog.append(group("cuda-h200", ":nvidia: (H200) Python-only Installation", 38, 5))
-    mig_name = f":nvidia: (H200 MIG {memory_gb}GB) Python-only Installation"
-    catalog.append(group("cuda-mig", mig_name, 23, 5))
-    catalog.append(group("cuda-keyed", mig_name, 4, 1, step_key=step_key))
-    other_memory_gb = 35 if memory_gb == 18 else 18
-    catalog.append(group(
-        "cuda-other-mig", f":nvidia: (H200 MIG {other_memory_gb}GB) Python-only Installation",
-        10, 10, queue=f"h200_{other_memory_gb}gb", step_key="python-only-installation-other-mig",
-    ))
-    catalog.append(group(
-        "cuda-h100", ":nvidia: (H100) Python-only Installation", 10, 10,
-        hardware="h100", queue="mithril-h100-pool", step_key="python-only-installation-h100",
-    ))
-    for decoration in ("H200 PCIe", "H200 MIG 80GB", "H200 MIG 18GB experimental"):
-        catalog.append(group(
-            f"unsupported-{decoration}", f":nvidia: ({decoration}) Python-only Installation",
-            10, 10, step_key="python-only-installation",
-        ))
-    catalog.append(group(
-        "body-hardware", "Python-only Installation (H200 MIG 18GB)", 10, 10,
-        step_key="python-only-installation",
-    ))
-
-    comparison = ops._platform_comparison(
-        catalog,
-        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
-        cohort_builds=100,
-    )
-
-    row, = comparison["rows"]
-    assert row["comparison_eligible"] is True
-    assert row["match_basis"] == "exact_step_key"
-    assert row["cuda"]["variant_count"] == 1
-    assert set(row["cuda"]["group_ids"]) == {"cuda-h200", "cuda-keyed", "cuda-legacy", "cuda-mig"}
-    assert row["cuda"]["queues"] == [f"h200_{memory_gb}gb"]
-    assert row["cuda"]["hardware"] == ["h200"]
-    assert row["cuda"]["runs"] == 93
-    assert row["cuda"]["passed"] == 74
-    assert row["cuda"]["incidents"] == 19
-    assert row["cuda"]["incident_rate_pct"] == 20.4
-    assert comparison["summary"]["matched_cuda_variant_count"] == 4
-    assert comparison["summary"]["matched_cuda"]["runs"] == 93
-
-
-def test_platform_comparison_uses_step_key_to_select_one_explicit_cuda_route():
-    def group(group_id, name, hardware, queue, step_key, runs=10):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "step_key": step_key,
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": runs,
-            "build_count": runs,
-            "passed": runs,
-            "failed": 0,
-            "soft_failed": 0,
-            "incident_count": 0,
-            "incident_rate_pct": 0,
-            "mixed_outcomes": False,
-            "latest_state": "passed",
-            "latest_observed_at": "2026-08-07T00:00:00Z",
-            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
-            "median_dur": 5,
-            "p90_dur": 10,
-            "max_dur": 11,
-            "duration_basis": "job_wall",
-        }
-
-    catalog = [
-        group(
-            "amd-mi300",
-            ":amd: (MI300) Attention Route",
-            "mi300",
-            "amd_mi300_1",
-            "amd-attention-route-h100",
-        ),
-        group(
-            "cuda-b200",
-            ":nvidia: (B200) Attention Route",
-            "b200",
-            "b200-k8s",
-            "attention-route-b200",
-        ),
-        group(
-            "cuda-h100",
-            ":nvidia: (H100) Attention Route",
-            "h100",
-            "mithril-h100-pool",
-            "attention-route-h100",
-        ),
-    ]
-    retry = {
-        "available": True,
-        "retry_attempts": [],
-        "failed_then_passed_recoveries": [],
-    }
-
-    comparison = ops._platform_comparison(catalog, retry, cohort_builds=10)
-    reversed_comparison = ops._platform_comparison(
-        list(reversed(catalog)),
-        retry,
-        cohort_builds=10,
-    )
-
-    assert comparison["rows"] == reversed_comparison["rows"]
-    assert comparison["summary"] == reversed_comparison["summary"]
-    row = comparison["rows"][0]
-    assert row["comparison_eligible"] is True
-    assert row["match_basis"] == "exact_step_key"
-    assert row["cuda"]["group_ids"] == ["cuda-h100"]
-    assert row["cuda"]["hardware"] == ["h100"]
-    assert comparison["summary"]["matched_cuda_variant_count"] == 1
-    assert comparison["summary"]["matched_cuda_lineage_count"] == 1
-    assert comparison["summary"]["matched_cuda"]["runs"] == 10
-
-
-def test_platform_comparison_fails_closed_for_ambiguous_and_generic_cuda_routes():
-    def group(group_id, name, hardware, queue, step_key=""):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "step_key": step_key,
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": 10,
-            "build_count": 10,
-            "passed": 10,
-            "failed": 0,
-            "soft_failed": 0,
-            "incident_count": 0,
-            "incident_rate_pct": 0,
-            "mixed_outcomes": False,
-            "latest_state": "passed",
-            "latest_observed_at": "2026-08-07T00:00:00Z",
-            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
-            "median_dur": 5,
-            "p90_dur": 10,
-            "max_dur": 11,
-            "duration_basis": "job_wall",
-        }
-
-    comparison = ops._platform_comparison(
-        [
-            group(
-                "amd-ambiguous",
-                "AMD: Ambiguous Route (mi300_1)",
-                "mi300",
-                "amd_mi300_1",
-                "amd-ambiguous-route",
-            ),
-            group(
-                "cuda-18gb",
-                ":nvidia: (H200 MIG 18GB) Ambiguous Route",
-                "h200",
-                "h200_18gb",
-                "ambiguous-route",
-            ),
-            group(
-                "cuda-35gb",
-                ":nvidia: (H200 MIG 35GB) Ambiguous Route",
-                "h200",
-                "h200_35gb",
-                "ambiguous-route",
-            ),
-            group(
-                "amd-generic",
-                "AMD: Generic Route (mi300_1)",
-                "mi300",
-                "amd_mi300_1",
-            ),
-            group(
-                "cuda-generic",
-                "Generic Route",
-                "gpu",
-                "gpu_1_queue",
-            ),
-        ],
-        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
-        cohort_builds=10,
-    )
-
-    by_label = {row["label"]: row for row in comparison["rows"]}
-    ambiguous = by_label["Ambiguous Route"]
-    assert ambiguous["comparison_eligible"] is False
-    assert ambiguous["match_status"] == "ambiguous_cuda_variants"
-    assert ambiguous["cuda"]["variant_count"] == 2
-    generic = by_label["Generic Route"]
-    assert generic["comparison_eligible"] is False
-    assert generic["match_status"] == "generic_or_unsupported_gpu_reference"
-    assert comparison["summary"]["comparable_variant_pair_count"] == 0
-    assert comparison["summary"]["matched_cuda"]["runs"] == 0
-
-
-def test_platform_comparison_hardware_specific_label_requires_step_corroboration():
-    def group(group_id, name, hardware, queue, step_key=""):
-        return {
-            "id": group_id,
-            "name": name,
-            "raw_names": [name],
-            "step_key": step_key,
-            "hardware": hardware,
-            "queues": [queue],
-            "runs": 10,
-            "build_count": 10,
-            "passed": 10,
-            "failed": 0,
-            "soft_failed": 0,
-            "incident_count": 0,
-            "incident_rate_pct": 0,
-            "mixed_outcomes": False,
-            "latest_state": "passed",
-            "latest_observed_at": "2026-08-07T00:00:00Z",
-            "latest_url": f"https://buildkite.com/vllm/ci/builds/1?jid={group_id}",
-            "median_dur": 5,
-            "p90_dur": 10,
-            "max_dur": 11,
-            "duration_basis": "job_wall",
-        }
-
-    comparison = ops._platform_comparison(
-        [
-            group(
-                "amd-mi325",
-                "AMD: V1 Attention (H100-MI300) (mi325_1)",
-                "mi325",
-                "amd_mi325_1",
-            ),
-            group(
-                "cuda-h100",
-                "V1 Attention (H100-MI300)",
-                "h100",
-                "mithril-h100-pool",
-                "v1-attention-h100-mi300",
-            ),
-        ],
-        {"available": True, "retry_attempts": [], "failed_then_passed_recoveries": []},
-        cohort_builds=10,
-    )
-
-    row = comparison["rows"][0]
-    assert row["comparison_eligible"] is False
-    assert row["match_status"] == "hardware_specific_label"
-
 
 def test_upstream_reliability_fails_closed_without_a_strict_main_cohort():
     payload = ops._reliability(
@@ -3668,1044 +1941,6 @@ def test_upstream_reliability_rejects_untrusted_legacy_main_builds():
 
     assert reliability["available"] is False
     assert reliability["denominator"]["builds"] == 0
-
-
-def test_upstream_scheduled_gating_exact_cohort_retry_shards_and_queue_waits():
-    def scheduled_build(number: int, message: str, jobs: list[dict]) -> dict:
-        return {
-            "number": number,
-            "branch": "main",
-            "state": "failed" if any(job.get("state") == "failed" for job in jobs) else "passed",
-            "message": message,
-            "created_at": f"2026-04-{number - 880:02d}T09:00:00Z",
-            "finished_at": f"2026-04-{number - 880:02d}T10:30:00Z",
-            "web_url": f"https://buildkite.com/vllm/ci/builds/{number}",
-            "jobs": jobs,
-        }
-
-    def job(
-        job_id: str,
-        name: str,
-        step_key: str,
-        state: str,
-        queue: str,
-        wait: float,
-        **extra,
-    ) -> dict:
-        return {
-            "type": "script",
-            "id": job_id,
-            "job_id": job_id,
-            "raw_name": name,
-            "name": name,
-            "step_key": step_key,
-            "state": state,
-            "q": queue,
-            "queue_wait_mins": wait,
-            "runnable_at": "2026-04-21T09:00:00Z",
-            "started_at": f"2026-04-21T09:{int(wait):02d}:00Z",
-            "finished_at": f"2026-04-21T10:{len(job_id):02d}:00Z",
-            **extra,
-        }
-
-    nightly = scheduled_build(901, "Full CI run - nightly", [
-        job(
-            "alpha-old",
-            "Alpha shard 1/2",
-            "amd-alpha",
-            "failed",
-            "queue-a",
-            9,
-            retried=True,
-            retried_in_job_id="alpha-new",
-        ),
-        job(
-            "alpha-new",
-            "Alpha shard 1/2",
-            "amd-alpha",
-            "passed",
-            "queue-a",
-            5,
-            retries_count=1,
-            retry_source="manual",
-        ),
-        job("alpha-two", "Alpha shard 2/2", "amd-alpha", "passed", "queue-a", 15),
-        job("beta", "Beta", "amd-beta", "failed", "queue-a", 20),
-        job("unconfigured", "Not configured", "amd-extra", "failed", "queue-z", 99),
-    ])
-    nightly["jobs"].append({"step": "malformed-unconfigured-step"})
-    daily = scheduled_build(900, "Full CI run - daily", [
-        job("alpha-daily", "Alpha", "amd-alpha", "soft_fail", "queue-a", 2),
-        job("beta-daily", "Beta", "amd-beta", "running", "queue-a", 3),
-        job("gamma-daily", "Gamma", "amd-gamma", "passed", "queue-b", 4),
-    ])
-    lookalikes = [
-        scheduled_build(904, "Full CI run torch nightly", []),
-        scheduled_build(903, "Full CI run - weekly", []),
-        scheduled_build(902, "Full CI run - nightly-ish", []),
-        scheduled_build(899, "Prefix Full CI run - daily", []),
-    ]
-    unobserved_scheduled = scheduled_build(905, "Full CI run - daily", [])
-    builds = [
-        unobserved_scheduled, lookalikes[0], nightly, lookalikes[1], daily,
-        *lookalikes[2:],
-    ]
-    collector = analytics.build_all_main_reliability(
-        builds,
-        pipeline_slug="ci",
-        window_days=30,
-        generated_at="2026-04-25T12:00:00Z",
-        nightly_pattern="nightly",
-        observation_limit=60,
-        collection_provenance={
-            "created_from": "2026-03-26T12:00:00Z",
-            "pages_fetched": 1,
-            "termination_reason": "short_page",
-            "exhaustive": True,
-        },
-    )
-    pipeline_analytics = {
-        "all_main_reliability": collector,
-    }
-    capacity = {"groups": [
-        {
-            "key": "alpha",
-            "label": "Alpha",
-            "area": "A",
-            "queue": "queue-a",
-            "in_capacity_scope": True,
-        },
-        {
-            "key": "alpha",
-            "label": "Duplicate Alpha",
-            "queue": "queue-a",
-            "in_capacity_scope": True,
-        },
-        {
-            "key": "beta",
-            "label": "Beta",
-            "area": "B",
-            "queue": "queue-a",
-            "in_capacity_scope": True,
-        },
-        {
-            "key": "gamma",
-            "label": "Gamma",
-            "area": "C",
-            "queue": "queue-b",
-            "in_capacity_scope": True,
-        },
-        {
-            "key": "not-in-scope",
-            "label": "Excluded",
-            "queue": "queue-z",
-            "in_capacity_scope": False,
-        },
-    ]}
-
-    result = ops._upstream_scheduled_gating(pipeline_analytics, capacity)
-
-    assert result["available"] is True
-    assert result["source"]["accepted"] is True
-    assert result["source"]["builds_key"] == "ci.all_main_reliability.builds"
-    assert result["source"]["observations_key"] == (
-        "ci.all_main_reliability.groups[].observations"
-    )
-    assert result["query"] == {
-        "url": "https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+",
-        "buildkite_query": "full ci run - ",
-        "exact_message_pattern": ops.UPSTREAM_SCHEDULED_GATING_NAME_PATTERN,
-        "exact_messages": {
-            "nightly": "Full CI run - nightly",
-            "daily": "Full CI run - daily",
-        },
-    }
-    assert result["scope"]["configured_group_count"] == 3
-    assert result["scope"]["configured_queue_count"] == 2
-    assert result["provenance"][
-        "matching_builds_without_retained_observations"
-    ] == 1
-    assert result["latest_by_kind"]["nightly"]["number"] == 901
-    assert result["latest_by_kind"]["daily"]["number"] == 900
-    assert [run["number"] for run in result["recent"]] == [901, 900]
-
-    latest = result["latest"]
-    assert latest["number"] == 901
-    assert latest["summary"] == {
-        "gated": 2,
-        "total": 3,
-        "passing": 1,
-        "failing": 1,
-        "soft_failing": 0,
-        "pending": 0,
-        "missing": 1,
-        "job_attempts": 4,
-        "selected_jobs": 3,
-        "queue_count": 1,
-        "configured_queue_count": 2,
-    }
-    assert latest["queue_wait_mins"] == {
-        "p50": 15.0,
-        "p95": 19.5,
-        "max": 20.0,
-        "sample_count": 3,
-    }
-    groups = {row["key"]: row for row in latest["groups"]}
-    assert set(groups) == {"alpha", "beta", "gamma"}
-    assert groups["alpha"]["state"] == "passing"
-    assert groups["alpha"]["job_attempts"] == 3
-    assert groups["alpha"]["selected_jobs"] == 2
-    assert {row["job_id"] for row in groups["alpha"]["jobs"]} == {
-        "alpha-new", "alpha-two",
-    }
-    assert groups["beta"]["state"] == "failing"
-    assert groups["beta"]["url"].endswith("?jid=beta&tab=output")
-    assert groups["gamma"]["state"] == "missing"
-    queues = {row["queue"]: row for row in latest["queues"]}
-    assert queues["queue-a"]["gated"] == 2
-    assert queues["queue-a"]["total"] == 2
-    assert queues["queue-a"]["selected_jobs"] == 3
-    assert queues["queue-a"]["used"] is True
-    assert queues["queue-a"]["queue_wait_mins"] == latest["queue_wait_mins"]
-    assert queues["queue-b"]["missing"] == 1
-    assert queues["queue-b"]["used"] is False
-    assert queues["queue-b"]["queue_wait_mins"]["sample_count"] == 0
-    assert result["latest_by_kind"]["daily"]["summary"] == {
-        "gated": 2,
-        "total": 3,
-        "passing": 1,
-        "failing": 0,
-        "soft_failing": 1,
-        "pending": 0,
-        "missing": 1,
-        "job_attempts": 2,
-        "selected_jobs": 2,
-        "queue_count": 2,
-        "configured_queue_count": 2,
-    }
-
-
-def test_upstream_scheduled_gating_fails_closed_and_shell_omits_detail():
-    capacity = {"groups": [{
-        "key": "alpha",
-        "label": "Alpha",
-        "queue": "queue-a",
-        "in_capacity_scope": True,
-    }]}
-    valid_empty_collector = analytics.build_all_main_reliability(
-        [],
-        pipeline_slug="ci",
-        window_days=30,
-        generated_at=GENERATED_AT,
-        nightly_pattern="nightly",
-        collection_provenance={
-            "created_from": "2026-03-23T12:00:00Z",
-            "pages_fetched": 0,
-            "termination_reason": "empty_page",
-            "exhaustive": True,
-        },
-    )
-    invalid_branch_collector = json.loads(json.dumps(valid_empty_collector))
-    invalid_branch_collector["provenance"]["query"]["branch"] = "feature"
-    incomplete_retry_collector = json.loads(json.dumps(valid_empty_collector))
-    incomplete_retry_collector["provenance"]["query"][
-        "include_retried_jobs"
-    ] = False
-    malformed_sources = [
-        None,
-        {"all_main_reliability": "not-an-object"},
-        {"all_main_reliability": invalid_branch_collector},
-        {"all_main_reliability": incomplete_retry_collector},
-    ]
-    for source in malformed_sources:
-        result = ops._upstream_scheduled_gating(source, capacity)
-        assert result["available"] is False
-        assert result["source"]["accepted"] is False
-        assert result["latest"] is None
-        assert result["latest_by_kind"] == {"nightly": None, "daily": None}
-        assert result["recent"] == []
-        assert result["scope"]["configured_group_count"] == 1
-
-    valid_empty_source = {"all_main_reliability": valid_empty_collector}
-    missing_groups = ops._upstream_scheduled_gating(valid_empty_source, {})
-    assert missing_groups["available"] is False
-    assert missing_groups["unavailable_reason"] == "configured_gating_groups_missing"
-    assert missing_groups["source"]["accepted"] is True
-    assert missing_groups["latest"] is None
-
-    detailed = {
-        "available": True,
-        "unavailable_reason": None,
-        "scope": {"configured_group_count": 1},
-        "query": {"url": ops.UPSTREAM_SCHEDULED_QUERY_URL},
-        "source": {"accepted": True},
-        "latest": {
-            "kind": "daily",
-            "number": 901,
-            "summary": {"gated": 1, "total": 1, "passing": 1},
-            "queue_wait_mins": {"p50": 2.0, "p95": 2.0, "max": 2.0, "sample_count": 1},
-            "queues": [{"queue": "queue-a", "gated": 1, "total": 1}],
-            "groups": [{"key": "alpha"}],
-        },
-        "latest_by_kind": {
-            "nightly": None,
-            "daily": {
-                "kind": "daily",
-                "number": 901,
-                "summary": {"gated": 1, "total": 1, "passing": 1},
-                "queue_wait_mins": {
-                    "p50": 2.0, "p95": 2.0, "max": 2.0, "sample_count": 1,
-                },
-                "queues": [{"queue": "queue-a", "gated": 1, "total": 1}],
-                "groups": [{"key": "alpha"}],
-            },
-        },
-        "recent": [{"number": 901}],
-    }
-    shell = ops._operations_shell({
-        "gating": {"matrix_summary": {}, "upstream_scheduled": detailed},
-    })["gating"]["upstream_scheduled"]
-
-    assert shell["latest"]["summary"]["gated"] == 1
-    assert shell["latest"]["queues"][0]["queue"] == "queue-a"
-    assert shell["latest_by_kind"]["daily"]["number"] == 901
-    assert "groups" not in shell["latest"]
-    assert "groups" not in shell["latest_by_kind"]["daily"]
-    assert "recent" not in shell
-
-
-def test_gating_pass_without_upstream_history_is_not_consistently_passing():
-    targets = {"groups": [{"id": 1, "label": "Upstream absent"}]}
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "rows": [{
-            "canonical_title": "Upstream absent",
-            "cells": {"mi300": {
-                "exists": True,
-                "latest_state": "passed",
-                "latest_build_number": 800,
-                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/800/steps/canvas?sid=amd",
-            }},
-        }],
-    }
-    reliability = ops._reliability({}, pipeline_slug="ci")
-
-    row = ops._gating(targets, {}, matrix, {}, reliability)["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "passed"
-    assert row["main_reliability"]["available"] is False
-    assert row["assessment"] == "passed_without_history"
-
-
-def test_gating_resolves_percent_n_matrix_and_numbered_history_variants():
-    targets = {"groups": [{"id": 22, "label": "Kernels Attention Test %N"}]}
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {
-            "latest_build_number": 11301,
-            "yaml_url": (
-                "https://raw.githubusercontent.com/vllm-project/vllm/"
-                "7f599d78546819948c32f2b23d913507bbb38875/.buildkite/test-amd.yaml"  # commit SHA
-            ),
-        },
-        "rows": [{
-            "id": "attention",
-            "canonical_title": "Kernels Attention Test",
-            "cells": {
-                "mi300": {
-                    "exists": True,
-                    "latest_state": "passed",
-                    "latest_build_number": 11301,
-                    "latest_url": (
-                        "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
-                        "canvas?sid=019fa2cd-a62d-46b6-a4e2-0df8be229132"
-                    ),
-                },
-                "mi355": {
-                    "exists": True,
-                    "latest_state": "soft_fail",
-                    "latest_build_number": 11301,
-                    "latest_url": (
-                        "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
-                        "canvas?sid=mi355-soft"
-                    ),
-                },
-            },
-        }],
-    }
-    reliability = {
-        "available": True,
-        "source_pipeline": "ci",
-        "group_catalog": [
-            {
-                "id": "attention-1",
-                "name": "Kernels Attention Test 1",
-                "runs": 2,
-                "passed": 2,
-                "failed": 0,
-                "soft_failed": 0,
-                "observations": [],
-            },
-            {
-                "id": "attention-2",
-                "name": "Kernels Attention Test 2",
-                "runs": 2,
-                "passed": 2,
-                "failed": 0,
-                "soft_failed": 0,
-                "observations": [],
-            },
-        ],
-    }
-
-    row = ops._gating(
-        targets,
-        {"rows": []},
-        matrix,
-        {},
-        reliability,
-    )["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "soft"
-    assert row["latest_amd_result"]["build_number"] == 11301
-    assert len(row["latest_amd_result"]["evidence"]) == 2
-    assert any(
-        "sid=019fa2cd-a62d-46b6-a4e2-0df8be229132" in evidence["url"]
-        for evidence in row["latest_amd_result"]["evidence"]
-    )
-    assert row["runtime_resolution"]["status"] == "matched"
-    assert row["runtime_resolution"]["method"] == "shard_template"
-    assert row["main_reliability"]["variant_count"] == 2
-    assert row["main_reliability"]["runs"] == 4
-
-
-def test_matrix_collision_merge_is_order_independent_and_incident_first():
-    rows = [
-        {
-            "id": "distributed-mi300",
-            "canonical_title": "Distributed Tests (2xH100-2xMI)",
-            "cells": {"mi300": {
-                "exists": True,
-                "latest_state": "passed",
-                "latest_build_number": 11301,
-                "latest_url": (
-                    "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
-                    "canvas?sid=shared-step"
-                ),
-            }},
-        },
-        {
-            "id": "distributed-mi355",
-            "canonical_title": "Distributed Tests (2xH100-2xMI)",
-            "cells": {"mi355": {
-                "exists": True,
-                "latest_state": "soft_fail",
-                "latest_build_number": 11301,
-                "latest_url": (
-                    "https://buildkite.com/vllm/amd-ci/builds/11301/steps/"
-                    "canvas?sid=shared-step"
-                ),
-            }},
-        },
-    ]
-
-    outputs = []
-    for ordered_rows in (rows, list(reversed(rows))):
-        gating = ops._gating(
-            {"groups": [{"id": 87, "label": "Distributed Tests (2xH100)"}]},
-            {"rows": []},
-            {
-                "generated_at": GENERATED_AT,
-                "source": {"latest_build_number": 11301},
-                "rows": ordered_rows,
-            },
-            {},
-            {},
-        )
-        outputs.append(gating["active_target_groups"][0])
-
-    assert [row["latest_amd_result"]["state"] for row in outputs] == ["soft", "soft"]
-    assert [
-        [
-            (evidence["architecture"], evidence["url"])
-            for evidence in row["latest_amd_result"]["evidence"]
-        ]
-        for row in outputs
-    ] == [[
-        (
-            "mi355",
-            "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=shared-step",
-        ),
-        (
-            "mi300",
-            "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=shared-step",
-        ),
-    ]] * 2
-
-
-def test_exact_matrix_alias_does_not_fold_h100_target_into_b200_variant():
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 11301},
-        "rows": [{
-            "id": "v1-attention",
-            "canonical_title": "V1 attention",
-            "cells": {
-                "mi300": {
-                    "exists": True,
-                    "latest_state": "passed",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=h100",
-                    "variants": [{
-                        "label": "V1 attention (H100-MI300)",
-                        "latest_state": "passed",
-                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=h100",
-                        "aliases": ["V1 attention (H100-MI300)"],
-                    }],
-                },
-                "mi355": {
-                    "exists": True,
-                    "latest_state": "soft_fail",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
-                    "variants": [{
-                        "label": "V1 attention (B200-MI355)",
-                        "latest_state": "soft_fail",
-                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
-                        "aliases": ["V1 attention (B200-MI355)"],
-                    }],
-                },
-            },
-        }],
-    }
-
-    row = ops._gating(
-        {"groups": [{"id": 103, "label": "V1 attention (H100-MI300)"}]},
-        {"rows": []},
-        matrix,
-        {},
-        {},
-    )["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "passed"
-    assert [item["architecture"] for item in row["latest_amd_result"]["evidence"]] == [
-        "mi300"
-    ]
-    assert row["runtime_resolution"]["method"] == "exact_matrix_label"
-
-
-def test_exact_yaml_alias_does_not_absorb_lossy_canonical_sibling():
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 11301},
-        "rows": [
-            {
-                "id": "small-models",
-                "title": "LM Eval Small Models",
-                "canonical_title": "LM Eval Small Models",
-                "cells": {"mi300": {
-                    "exists": True,
-                    "latest_state": "passed",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=base",
-                    "variants": [{
-                        "label": "LM Eval Small Models",
-                        "latest_state": "passed",
-                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=base",
-                        "aliases": ["LM Eval Small Models"],
-                    }],
-                }},
-            },
-            {
-                "id": "small-models-rocm",
-                "title": "LM Eval Small Models (MI300)",
-                "canonical_title": "LM Eval Small Models",
-                "cells": {"mi300": {
-                    "exists": True,
-                    "latest_state": "soft_fail",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=rocm",
-                    "variants": [{
-                        "label": "LM Eval Small Models (MI300)",
-                        "latest_state": "soft_fail",
-                        "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=rocm",
-                        "aliases": ["LM Eval Small Models (MI300)"],
-                    }],
-                }},
-            },
-        ],
-    }
-
-    row = ops._gating(
-        {"groups": [{"id": 113, "label": "LM Eval Small Models"}]},
-        {"rows": []},
-        matrix,
-        {},
-        {},
-    )["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "passed"
-    assert [item["url"] for item in row["latest_amd_result"]["evidence"]] == [
-        "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=base"
-    ]
-
-
-def test_lossy_canonical_title_does_not_rescue_stale_hardwareless_target():
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 11301},
-        "rows": [{
-            "id": "qwen-b200",
-            "canonical_title": "Qwen Sync Accuracy",
-            "cells": {"mi355": {
-                "exists": True,
-                "latest_state": "soft_fail",
-                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
-                "variants": [{
-                    "label": "Qwen Sync Accuracy (B200-MI355)",
-                    "latest_state": "soft_fail",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=b200",
-                    "aliases": ["Qwen Sync Accuracy (B200-MI355)"],
-                }],
-            }},
-        }],
-    }
-    parity = {"matches": [
-        {
-            "identity_key": "qwen sync accuracy (4 gpus)",
-            "nvidia_label": "Qwen Sync Accuracy (4xH100)",
-            "amd_label": "Qwen Sync Accuracy (4xH100-4xMI300)",
-        },
-        {
-            "identity_key": "qwen sync accuracy (2 gpus)",
-            "nvidia_label": "Qwen Sync Accuracy (2xB200)",
-            "amd_label": "Qwen Sync Accuracy (B200-MI355)",
-        },
-    ]}
-
-    row = ops._gating(
-        {"groups": [{"id": 59, "label": "Qwen Sync Accuracy"}]},
-        {"rows": [{
-            "target_id": 59,
-            "decision": "missing_from_upstream",
-            "label": "Qwen Sync Accuracy",
-        }]},
-        matrix,
-        {},
-        {},
-        parity,
-    )["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "unknown"
-    assert row["latest_amd_result"]["evidence"] == []
-    assert row["runtime_resolution"]["status"] == "stale_target_alias"
-    assert "lossy canonical matrix title" in row["runtime_resolution"]["reason"]
-
-
-def test_definition_parity_resolves_non_syntactic_amd_alias():
-    target = {"id": 70, "label": "Batch Invariance (A100)"}
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 11301},
-        "rows": [{
-            "id": "batch-mi250",
-            "canonical_title": "Batch Invariance",
-            "cells": {"mi250": {
-                "exists": True,
-                "latest_state": "passed",
-                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=batch",
-                "variants": [{
-                    "label": "Batch Invariance (H100-MI250)",
-                    "latest_state": "passed",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=batch",
-                    "aliases": ["Batch Invariance (H100-MI250)"],
-                }],
-            }},
-        }],
-    }
-    parity = {
-        "source": {"commit_sha": "a" * 40},
-        "matches": [{
-            "identity_key": "batch invariance",
-            "nvidia_label": "Batch Invariance (A100)",
-            "amd_label": "Batch Invariance (H100-MI250)",
-            "command_similarity": 0.6698,
-        }],
-    }
-
-    row = ops._gating(
-        {"groups": [target]},
-        {"rows": []},
-        matrix,
-        {},
-        {},
-        parity,
-    )["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "passed"
-    assert row["runtime_resolution"]["status"] == "matched"
-    assert row["runtime_resolution"]["method"] == "definition_parity"
-    assert row["runtime_resolution"]["target_identity_key"] == "batch invariance"
-    assert row["runtime_resolution"]["amd_definition_labels"] == [
-        "Batch Invariance (H100-MI250)"
-    ]
-    assert row["runtime_resolution"]["mapping_quality"] == "partial_commands"
-    assert row["runtime_resolution"]["command_similarity_pct"] == 67.0
-
-
-def test_reviewed_step_key_tracks_renames_without_selecting_reused_old_label():
-    definition_id = ".buildkite/test_areas/entrypoints.yaml#openai-completion"
-    target = {
-        "id": 108,
-        "label": "Old OpenAI API test",
-        "upstream_definition_ids": [definition_id],
-    }
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {
-            "latest_build_number": 12916,
-            "yaml_url": "https://github.com/vllm-project/vllm/blob/" + "a" * 40 + "/.buildkite/test-amd.yaml",
-        },
-        "rows": [
-            {
-                "id": title,
-                "canonical_title": title,
-                "cells": {"mi300": {
-                    "exists": True,
-                    "latest_state": state,
-                    "latest_url": f"https://buildkite.com/vllm/amd-ci/builds/12916#{index}",
-                    "variants": [{
-                        "label": title, "latest_state": state,
-                        "execution_sha256": str(index + 1) * 64,
-                    }],
-                }},
-            }
-            for index, (title, state) in enumerate([
-                ("Old OpenAI API test", "failed"),
-                ("AMD completion integration", "passed"),
-            ])
-        ],
-    }
-    parity = {
-        "source": {"commit_sha": "a" * 40},
-        "matches": [{
-            "nvidia_definition_id": definition_id,
-            "nvidia_label": ":nvidia: (H200) OpenAI completion integration",
-            "amd_label": "AMD completion integration",
-            "amd_definition_id": ".buildkite/test-amd.yaml#17",
-            "identity_key": "openai completion integration",
-            "command_similarity": 1.0,
-        }],
-        "amd_execution_definitions": [{
-            "definition_id": ".buildkite/test-amd.yaml#17",
-            "label": "AMD completion integration",
-            "execution_sha256": "2" * 64,
-        }],
-    }
-    row = ops._gating(
-        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity,
-    )["active_target_groups"][0]
-
-    assert row["label"] == "OpenAI completion integration"
-    assert row["reviewed_label"] == "Old OpenAI API test"
-    assert row["definition_resolution"]["status"] == "resolved"
-    assert row["runtime_resolution"]["method"] == "definition_key"
-    assert row["runtime_resolution"]["target_identity_key"] == definition_id
-    assert row["latest_amd_result"]["state"] == "passed"
-    assert row["runtime_resolution"]["amd_definition_labels"] == ["AMD completion integration"]
-
-    matrix["source"]["yaml_url"] = matrix["source"]["yaml_url"].replace("a" * 40, "b" * 40)
-    older_row = ops._gating(
-        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity,
-    )["active_target_groups"][0]
-    assert older_row["runtime_resolution"]["status"] == "stale_target_alias"
-    assert older_row["latest_amd_result"]["state"] == "unknown"
-    assert "same source commit" in older_row["runtime_resolution"]["reason"]
-
-    pinned = {**parity, "source": {"commit_sha": "b" * 40}}
-    row_with_pinned_evidence = ops._gating(
-        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity, pinned,
-    )["active_target_groups"][0]
-    assert row_with_pinned_evidence["latest_amd_result"]["state"] == "passed"
-    assert row_with_pinned_evidence["runtime_resolution"]["source_alignment"] == "same_commit"
-
-
-def test_execution_target_selects_exact_route_when_labels_and_hardware_are_shared():
-    target = {"id": 1, "label": "Previous label", "amd_execution_sha256s": ["1" * 64]}
-    parity = {
-        "source": {"commit_sha": "a" * 40},
-        "amd_execution_definitions": [
-            {
-                "definition_id": f".buildkite/test-amd.yaml#{index}",
-                "label": ":amd: (MI300) Shared title",
-                "execution_sha256": str(index) * 64,
-            }
-            for index in (1, 2)
-        ],
-    }
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"yaml_url": "https://github.com/vllm-project/vllm/blob/" + "a" * 40 + "/.buildkite/test-amd.yaml"},
-        "rows": [{
-            "id": "shared",
-            "canonical_title": "Shared title",
-            "cells": {"mi300": {
-                "exists": True, "latest_state": "failed",
-                "variants": [{
-                    "label": ":amd: (MI300) Shared title", "latest_state": "failed",
-                    "entries": [
-                        {
-                            "label": ":amd: (MI300) Shared title",
-                            "execution_sha256": str(index) * 64,
-                            "agent_pool": f"mi300_{index * 2}",
-                            "latest_state": "passed" if index == 1 else "failed",
-                            "latest_url": f"https://buildkite.com/vllm/amd-ci/builds/12916#route-{index}",
-                        }
-                        for index in (1, 2)
-                    ],
-                }],
-            }},
-        }],
-    }
-    result = ops._gating({"groups": [target]}, {}, matrix, {}, {}, parity)["active_target_groups"][0]
-    assert result["latest_amd_result"]["state"] == "passed"
-    assert result["runtime_resolution"]["method"] == "amd_execution"
-    assert len(result["latest_amd_result"]["evidence"]) == 1
-    assert result["latest_amd_result"]["evidence"][0]["url"].endswith("#route-1")
-
-    matrix["rows"][0]["cells"]["mi300"]["variants"][0]["entries"].pop(0)
-    missing = ops._gating({"groups": [target]}, {}, matrix, {}, {}, parity)["active_target_groups"][0]
-    assert missing["latest_amd_result"]["state"] == "unknown"
-    assert missing["latest_amd_result"]["evidence"] == []
-
-
-def test_removed_reviewed_step_key_does_not_fall_back_to_reused_label():
-    target = {
-        "id": 108,
-        "label": "Reused title",
-        "upstream_definition_ids": [".buildkite/test_areas/entrypoints.yaml#removed"],
-    }
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "rows": [{
-            "id": "reused",
-            "canonical_title": "Reused title",
-            "cells": {"mi300": {
-                "exists": True,
-                "latest_state": "passed",
-                "variants": [{"label": "Reused title", "latest_state": "passed"}],
-            }},
-        }],
-    }
-    parity = {
-        "source": {"commit_sha": "a" * 40},
-        "matches": [{
-            "nvidia_definition_id": ".buildkite/test_areas/entrypoints.yaml#replacement",
-            "nvidia_label": "Reused title",
-            "amd_label": "Reused title",
-            "command_similarity": 1.0,
-        }],
-    }
-    row = ops._gating(
-        {"groups": [target]}, {"rows": []}, matrix, {}, {}, parity,
-    )["active_target_groups"][0]
-
-    assert row["runtime_resolution"]["status"] == "stale_target_alias"
-    assert row["latest_amd_result"]["state"] == "unknown"
-    assert row["latest_amd_result"]["evidence"] == []
-    assert row["definition_resolution"]["missing_definition_ids"] == target["upstream_definition_ids"]
-
-
-def test_definition_parity_merges_additional_variant_in_same_identity_family():
-    target = {"id": 87, "label": "Distributed Tests (2 GPUs)(H100)"}
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 11301},
-        "rows": [
-            {
-                "id": "distributed-mi300",
-                "canonical_title": "Distributed Tests",
-                "cells": {"mi300": {
-                    "exists": True,
-                    "latest_state": "passed",
-                    "latest_url": (
-                        "https://buildkite.com/vllm/amd-ci/builds/11301/"
-                        "steps/canvas?sid=distributed-mi300"
-                    ),
-                    "variants": [{
-                        "label": (
-                            "Distributed Tests (2xH100-2xMI300)"
-                        ),
-                        "latest_state": "passed",
-                        "latest_url": (
-                            "https://buildkite.com/vllm/amd-ci/builds/11301/"
-                            "steps/canvas?sid=distributed-mi300"
-                        ),
-                    }],
-                }},
-            },
-            {
-                "id": "distributed-mi355",
-                "canonical_title": "Distributed Tests",
-                "cells": {"mi355": {
-                    "exists": True,
-                    "latest_state": "passed",
-                    "latest_url": (
-                        "https://buildkite.com/vllm/amd-ci/builds/11301/"
-                        "steps/canvas?sid=distributed-mi355"
-                    ),
-                    "variants": [{
-                        "label": (
-                            "Distributed Tests (2xH100-2xMI355)"
-                        ),
-                        "latest_state": "passed",
-                        "latest_url": (
-                            "https://buildkite.com/vllm/amd-ci/builds/11301/"
-                            "steps/canvas?sid=distributed-mi355"
-                        ),
-                    }],
-                }},
-            },
-        ],
-    }
-    identity = "distributed tests (2 gpus)"
-    parity = {
-        "matches": [{
-            "identity_key": identity,
-            "nvidia_label": "Distributed Tests (2xH100)",
-            "amd_label": "Distributed Tests (2xH100-2xMI300)",
-            "command_similarity": 1.0,
-        }],
-        "additional_variants": [{
-            "identity_key": identity,
-            "nvidia_label": "Distributed Tests (2xH100)",
-            "amd_label": "Distributed Tests (2xH100-2xMI355)",
-            "command_similarity": 0.8,
-        }],
-    }
-
-    row = ops._gating(
-        {"groups": [target]},
-        {"rows": []},
-        matrix,
-        {},
-        {},
-        parity,
-    )["active_target_groups"][0]
-
-    assert row["runtime_resolution"]["status"] == "matched"
-    assert row["runtime_resolution"]["candidate_count"] == 2
-    assert row["runtime_resolution"]["target_identity_key"] == identity
-    assert row["runtime_resolution"]["amd_definition_labels"] == [
-        "Distributed Tests (2xH100-2xMI300)",
-        "Distributed Tests (2xH100-2xMI355)",
-    ]
-
-
-def test_parity_metadata_cannot_steal_an_exact_command_twin():
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 11301},
-        "rows": [{
-            "id": "extract-hidden-states",
-            "canonical_title": "Extract Hidden States Integration",
-            "cells": {"mi300": {
-                "exists": True,
-                "latest_state": "passed",
-                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=extract",
-                "variants": [{
-                    "label": "Extract Hidden States Integration",
-                    "latest_state": "passed",
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/11301/steps/canvas?sid=extract",
-                    "aliases": ["Extract Hidden States Integration"],
-                }],
-            }},
-        }],
-    }
-    commands = ["pytest tests/extract_hidden_states"]
-    parity = {
-        "matches": [{
-            "identity_key": "extract hidden states integration (2 gpus)",
-            "nvidia_label": "Extract Hidden States Integration (2 GPUs)",
-            "amd_label": "Extract Hidden States Integration",
-            "command_similarity": 0.8794,
-            "amd_commands": commands,
-        }],
-        "nvidia_only": [{
-            "identity_key": "extract hidden states integration",
-            "label": "Extract Hidden States Integration",
-            "commands": commands,
-        }],
-    }
-
-    row = ops._gating(
-        {"groups": [{
-            "id": 42,
-            "label": "Extract Hidden States Integration (2 GPUs)",
-        }]},
-        {"rows": []},
-        matrix,
-        {},
-        {},
-        parity,
-    )["active_target_groups"][0]
-
-    assert row["latest_amd_result"]["state"] == "unknown"
-    assert row["runtime_resolution"]["status"] == "no_amd_definition"
-    assert row["assessment"] == "no_matching_amd_definition"
-
-
-def test_unresolved_runtime_target_distinguishes_no_definition_from_stale_alias():
-    parity = {
-        "matches": [{
-            "identity_key": "gpqa eval (gpt-oss) (2 gpus)",
-            "nvidia_label": "GPQA Eval (GPT-OSS) (2xH100)",
-            "amd_label": "GPQA Eval (GPT-OSS) (2xH100-2xMI300)",
-        }],
-        "nvidia_only": [{
-            "identity_key": "lm eval turboquant kv cache",
-            "label": "LM Eval TurboQuant KV Cache",
-        }],
-    }
-    result = ops._gating(
-        {"groups": [
-            {"id": 40, "label": "LM Eval TurboQuant KV Cache"},
-            {"id": 65, "label": "GPQA Eval (GPT-OSS) (H100)"},
-        ]},
-        {"rows": []},
-        {"generated_at": GENERATED_AT, "rows": []},
-        {},
-        {},
-        parity,
-    )
-    by_id = {row["id"]: row for row in result["active_target_groups"]}
-
-    assert by_id[40]["runtime_resolution"]["status"] == "no_amd_definition"
-    assert by_id[40]["assessment"] == "no_matching_amd_definition"
-    assert by_id[65]["runtime_resolution"]["status"] == "stale_target_alias"
-    assert by_id[65]["assessment"] == "target_mapping_needs_review"
-
-
-def test_reviewed_target_health_does_not_merge_upstream_capacity_labels():
-    result = ops._gating(
-        {"groups": [{"id": 1, "label": "MoE Kernels Shard %N", "area": "Kernels"}]},
-        {"rows": []},
-        {"generated_at": GENERATED_AT, "rows": []},
-        {
-            "groups": [{
-                "label": ":nvidia: (L4) MoE Kernels Shard %N",
-                "area": "Kernels",
-                "in_capacity_scope": True,
-            }]
-        },
-        {},
-    )
-
-    assert [row["label"] for row in result["target_groups"]] == [
-        "MoE Kernels Shard %N"
-    ]
-    assert result["active_target_groups"] == result["target_groups"]
-    assert result["active_target_summary"]["active_outside_canonical_count"] == 0
-    assert not any(
-        str(row["label"]).startswith(":nvidia:")
-        for row in result["active_target_groups"]
-    )
 
 
 def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
@@ -4893,16 +2128,16 @@ def test_normalized_reliability_produces_identical_popup_catalog_to_legacy():
 
 def test_nightly_fixed_requires_an_observed_pass():
     previous = _build(10, "2026-04-20", [
-        _job("Missing now", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/missing"),
-        _job("Actually fixed", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/fixed"),
-        _job("Held evidence", "failed", "https://buildkite.com/vllm/amd-ci/builds/10/steps/held"),
+        _job("Missing now", "failed", "https://buildkite.com/vllm/ci/builds/10/steps/missing"),
+        _job("Actually fixed", "failed", "https://buildkite.com/vllm/ci/builds/10/steps/fixed"),
+        _job("Held evidence", "failed", "https://buildkite.com/vllm/ci/builds/10/steps/held"),
     ])
     current = _build(11, "2026-04-21", [
-        _job("Actually fixed", "passed", "https://buildkite.com/vllm/amd-ci/builds/11/steps/fixed"),
-        _job("Held evidence", "skipped", "https://buildkite.com/vllm/amd-ci/builds/11/steps/held"),
+        _job("Actually fixed", "passed", "https://buildkite.com/vllm/ci/builds/11/steps/fixed"),
+        _job("Held evidence", "skipped", "https://buildkite.com/vllm/ci/builds/11/steps/held"),
     ])
 
-    row = ops._nightly_pipeline("amd-ci", {"builds": [current, previous]})["builds"][0]
+    row = ops._nightly_pipeline("ci", {"builds": [current, previous]})["builds"][0]
 
     assert [item["name"] for item in row["transitions"]["fixed"]] == ["Actually fixed"]
     assert [item["name"] for item in row["transitions"]["not_observed"]] == ["Missing now"]
@@ -4926,7 +2161,7 @@ def test_nightly_retry_collapse_is_order_independent_with_original_only_linkage(
     original = _job(
         "mi300_1: Linked retry",
         "failed",
-        "https://buildkite.com/vllm/amd-ci/builds/15/steps/original",
+        "https://buildkite.com/vllm/ci/builds/15/steps/original",
         job_id="retry-original",
         step_key="linked-retry",
         retried_in_job_id="retry-final",
@@ -4934,21 +2169,21 @@ def test_nightly_retry_collapse_is_order_independent_with_original_only_linkage(
     final = _job(
         "mi300_1: Linked retry",
         "passed",
-        "https://buildkite.com/vllm/amd-ci/builds/15/steps/final",
+        "https://buildkite.com/vllm/ci/builds/15/steps/final",
         job_id="retry-final",
         step_key="linked-retry",
     )
 
     for attempts in ([original, final], [final, original]):
         build = _build(15, "2026-04-20", attempts)
-        observations = ops._nightly_group_observations("amd-ci", build)
+        observations = ops._nightly_group_observations("ci", build)
         assert len(observations) == 1
         outcome, evidence = next(iter(observations.values()))
         assert outcome == "passed"
         assert evidence["url"].endswith("?jid=retry-final&tab=output")
 
         latest = ops._nightly_pipeline(
-            "amd-ci", {"builds": [build]}
+            "ci", {"builds": [build]}
         )["builds"][0]
         assert latest["transitions"]["new"] == []
         assert latest["transitions"]["pending_soft"] == []
@@ -4959,28 +2194,28 @@ def test_operations_and_analytics_share_strict_nightly_signal_ids():
         _job(
             "mi300_1: Strict signal",
             "failed",
-            "https://buildkite.com/vllm/amd-ci/builds/16/steps/base",
+            "https://buildkite.com/vllm/ci/builds/16/steps/base",
             job_id="strict-base",
             step_key="strict-step",
         ),
         _job(
             "mi300_1: Strict signal 2/2",
             "failed",
-            "https://buildkite.com/vllm/amd-ci/builds/16/steps/raw",
+            "https://buildkite.com/vllm/ci/builds/16/steps/raw",
             job_id="strict-raw",
             step_key="strict-step",
         ),
         _job(
             "mi300_1: Strict signal",
             "failed",
-            "https://buildkite.com/vllm/amd-ci/builds/16/steps/step",
+            "https://buildkite.com/vllm/ci/builds/16/steps/step",
             job_id="strict-step",
             step_key="other-step",
         ),
         _job(
             "mi300_1: Strict signal",
             "failed",
-            "https://buildkite.com/vllm/amd-ci/builds/16/steps/queue",
+            "https://buildkite.com/vllm/ci/builds/16/steps/queue",
             job_id="strict-queue",
             step_key="strict-step",
             q="amd_mi300_2",
@@ -4988,7 +2223,7 @@ def test_operations_and_analytics_share_strict_nightly_signal_ids():
         _job(
             "mi355_1: Strict signal",
             "failed",
-            "https://buildkite.com/vllm/amd-ci/builds/16/steps/hardware",
+            "https://buildkite.com/vllm/ci/builds/16/steps/hardware",
             job_id="strict-hardware",
             step_key="strict-step",
             q="amd_mi355_1",
@@ -4996,7 +2231,7 @@ def test_operations_and_analytics_share_strict_nightly_signal_ids():
     ]
     build = _build(16, "2026-04-20", jobs)
 
-    operations_ids = set(ops._nightly_group_observations("amd-ci", build))
+    operations_ids = set(ops._nightly_group_observations("ci", build))
     analytics_ids = {
         row["group_id"]
         for row in analytics.compute_nightly_change_history([build])[0]["new"]
@@ -5012,7 +2247,7 @@ def test_observed_failure_movement_matches_reliability_history():
         return _job(
             name,
             state,
-            f"https://buildkite.com/vllm/amd-ci/builds/{number}/steps/{slug}",
+            f"https://buildkite.com/vllm/ci/builds/{number}/steps/{slug}",
             job_id=f"{number}-{slug}",
             step_key=slug,
             soft_failed=soft_failed,
@@ -5032,7 +2267,7 @@ def test_observed_failure_movement_matches_reliability_history():
     operations_rows = {
         row["number"]: row["failure_movement"]
         for row in ops._nightly_pipeline(
-            "amd-ci", {"builds": [current, previous]}
+            "ci", {"builds": [current, previous]}
         )["builds"]
     }
     analytics_rows = {
@@ -5067,7 +2302,7 @@ def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
             _job(
                 name,
                 "soft_fail",
-                f"https://buildkite.com/vllm/amd-ci/builds/{number}/steps/hold",
+                f"https://buildkite.com/vllm/ci/builds/{number}/steps/hold",
                 job_id=f"hold-{number}",
                 step_key="eligibility-hold",
                 soft_failed=True,
@@ -5082,7 +2317,7 @@ def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
     final = soft_build(20, "2026-04-23")
 
     pipeline = ops._nightly_pipeline(
-        "amd-ci", {"builds": [final, unfinished, running, first]}
+        "ci", {"builds": [final, unfinished, running, first]}
     )
     rows = {row["number"]: row for row in pipeline["builds"]}
 
@@ -5134,13 +2369,13 @@ def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():
             _job(
                 name,
                 state,
-                f"https://buildkite.com/vllm/amd-ci/builds/{number}/steps/policy",
+                f"https://buildkite.com/vllm/ci/builds/{number}/steps/policy",
                 soft_failed=state == "soft_fail",
             )
         ]
         return _build(number, date, jobs)
 
-    pipeline = ops._nightly_pipeline("amd-ci", {"builds": [
+    pipeline = ops._nightly_pipeline("ci", {"builds": [
         build(26, "2026-04-26", "passed"),
         build(25, "2026-04-25", "soft_fail"),
         build(24, "2026-04-24", "failed"),
@@ -5168,192 +2403,6 @@ def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():
     assert rows[25]["recurring"][0]["peak_severity"] == "hard"
     assert rows[26]["fixed"][0]["current_state"] == "passed"
     assert [row["name"] for row in movement[26]["fixed"]] == [name]
-
-
-def test_gating_keeps_four_gpu_and_h100_mirror_evidence_distinct():
-    targets = {
-        "summary": {"target_group_count": 2},
-        "groups": [
-            {"id": 1, "label": "V1 e2e (4 GPUs)", "area": "engine"},
-            {"id": 2, "label": "V1 e2e (4xH100)", "area": "engine"},
-        ],
-    }
-    matrix = {
-        "generated_at": GENERATED_AT,
-        "source": {"latest_build_number": 10649},
-        "summary": {"unique_groups": 2, "hardware_cells": 2},
-        "rows": [
-            {
-                "title": "V1 e2e (4 GPUs)",
-                "cells": {"mi300": {
-                    "exists": True,
-                    "latest_state": "soft_fail",
-                    "latest_build_number": 10649,
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10649/steps/canvas?sid=soft",
-                }},
-            },
-            {
-                "title": "V1 e2e (4xH100-4xMI300)",
-                "cells": {"mi300": {
-                    "exists": True,
-                    "latest_state": "passed",
-                    "latest_build_number": 10649,
-                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/10649/steps/canvas?sid=passed",
-                }},
-            },
-        ],
-    }
-
-    reliability = {"source_pipeline": "ci", "group_catalog": [
-        {
-            "id": "four-gpu-mi300",
-            "group_ids": ["four-gpu-mi300"],
-            "name": "V1 e2e (4 GPUs)",
-            "hardware": "mi300",
-            "queues": ["amd_mi300_4"],
-            "runs": 2,
-            "passed": 1,
-            "failed": 1,
-            "soft_failed": 0,
-        },
-        {
-            "id": "four-gpu-mi325",
-            "group_ids": ["four-gpu-mi325"],
-            "name": "V1 e2e (4 GPUs)",
-            "hardware": "mi325",
-            "queues": ["amd_mi325_4"],
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-        },
-    ]}
-    result = ops._gating(targets, {"rows": []}, matrix, {}, reliability)
-    by_label = {row["label"]: row for row in result["active_target_groups"]}
-
-    assert by_label["V1 e2e (4 GPUs)"]["latest_amd_result"]["state"] == "soft"
-    assert by_label["V1 e2e (4 GPUs)"]["latest_amd_result"]["evidence"][0]["url"].endswith(
-        "sid=soft"
-    )
-    assert by_label["V1 e2e (4xH100)"]["latest_amd_result"]["state"] == "passed"
-    assert by_label["V1 e2e (4xH100)"]["latest_amd_result"]["evidence"][0]["url"].endswith(
-        "sid=passed"
-    )
-    assert by_label["V1 e2e (4 GPUs)"]["main_reliability"]["source_pipeline"] == "ci"
-    assert by_label["V1 e2e (4 GPUs)"]["main_reliability"]["group_ids"] == [
-        "four-gpu-mi300",
-        "four-gpu-mi325",
-    ]
-    assert {
-        (row["hardware"], tuple(row["queues"]))
-        for row in by_label["V1 e2e (4 GPUs)"]["main_reliability"]["variants"]
-    } == {
-        ("mi300", ("amd_mi300_4",)),
-        ("mi325", ("amd_mi325_4",)),
-    }
-
-
-def test_gating_never_promotes_upstream_history_to_latest_amd_result():
-    reliability = {
-        "source_pipeline": "ci",
-        "group_catalog": [{
-            "id": "upstream-group",
-            "group_ids": ["upstream-group"],
-            "name": "Upstream group",
-            "runs": 1,
-            "passed": 1,
-            "failed": 0,
-            "soft_failed": 0,
-            "latest_state": "passed",
-            "latest_observed_at": GENERATED_AT,
-            "latest_url": "https://buildkite.com/vllm/ci/builds/900/steps/upstream",
-            "green_streak": 1,
-            "nightly_green_streak": 1,
-            "observations": [{
-                "source_pipeline": "ci",
-                "state": "passed",
-                "build_number": 900,
-                "build_kind": "nightly",
-                "build_url": "https://buildkite.com/vllm/ci/builds/900",
-                "job_url": "https://buildkite.com/vllm/ci/builds/900/steps/upstream",
-                "observed_at": GENERATED_AT,
-            }],
-        }],
-    }
-
-    gating = ops._gating(
-        {"groups": [{"id": 1, "label": "Upstream group"}]},
-        {"rows": []},
-        {"generated_at": GENERATED_AT, "rows": []},
-        {},
-        reliability,
-    )
-    group = gating["active_target_groups"][0]
-
-    assert group["latest_amd_result"] == {
-        "state": "unknown",
-        "build_number": None,
-        "observed_at": GENERATED_AT,
-        "source_pipeline": "amd-ci",
-        "evidence": [],
-    }
-    assert group["assessment"] == "no_recent_amd_observation"
-    assert group["runtime_resolution"]["status"] == "not_observed"
-    assert group["main_reliability"]["latest_state"] == "passed"
-    assert group["nightly_green_streak"] == 1
-    assert {row["source_pipeline"] for row in group["evidence"]} == {"ci"}
-
-
-def test_gating_variant_aggregation_is_order_independent_and_incident_first():
-    def variant(identifier: str, state: str) -> dict:
-        observation = {
-            "source_pipeline": "ci",
-            "state": state,
-            "build_number": 901,
-            "build_kind": "nightly",
-            "build_url": "https://buildkite.com/vllm/ci/builds/901",
-            "job_url": (
-                "https://buildkite.com/vllm/ci/builds/901/steps/canvas"
-                f"?jid={identifier}"
-            ),
-            "observed_at": GENERATED_AT,
-        }
-        return {
-            "id": identifier,
-            "group_ids": [identifier],
-            "name": "Order independent target",
-            "hardware": identifier,
-            "queues": [f"gpu_{identifier}"],
-            "runs": 1,
-            "passed": int(state == "passed"),
-            "failed": int(state == "hard"),
-            "soft_failed": 0,
-            "latest_state": state,
-            "latest_observed_at": GENERATED_AT,
-            "latest_url": observation["job_url"],
-            "last_incident": observation if state == "hard" else None,
-            "observations": [observation],
-        }
-
-    outputs = []
-    variants = [variant("h100", "passed"), variant("h200", "hard")]
-    for catalog in (variants, list(reversed(variants))):
-        reliability = {
-            "available": True,
-            "source_pipeline": "ci",
-            "group_catalog": catalog,
-        }
-        outputs.append(ops._gating(
-            {"groups": [{"id": 1, "label": "Order independent target"}]},
-            {"rows": []},
-            {"generated_at": GENERATED_AT, "rows": []},
-            {},
-            reliability,
-        )["active_target_groups"][0])
-
-    assert [row["main_reliability"]["latest_state"] for row in outputs] == ["hard", "hard"]
-    assert [row["nightly_green_streak"] for row in outputs] == [0, 0]
-    assert [row["main_reliability"]["variant_count"] for row in outputs] == [2, 2]
 
 
 def test_snapshot_prefers_collector_all_main_variant_catalog(tmp_path):
@@ -5502,7 +2551,7 @@ def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp
         _build(
             1000 + index,
             (start + timedelta(days=index)).strftime("%Y-%m-%d"),
-            [_job(f"Group {index}", "passed", f"https://buildkite.com/vllm/amd-ci/builds/{1000 + index}")],
+            [_job(f"Group {index}", "passed", f"https://buildkite.com/vllm/ci/builds/{1000 + index}")],
         )
         for index in range(35)
     ]
@@ -5515,15 +2564,17 @@ def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp
         )
         for index in range(4)
     ]
-    analytics_payload["amd-ci"].update({"days": 30, "builds": amd_builds})
-    analytics_payload["ci"].update({"days": 30, "builds": upstream_builds})
+    for index, build in enumerate(amd_builds):
+        if index >= 31:
+            build["jobs"].append(_job("CUDA group", "passed", build["web_url"] + "#cuda", q="gpu_1"))
+    analytics_payload["ci"].update({"days": 30, "builds": amd_builds})
     _write_json(data_dir / "analytics.json", analytics_payload)
 
     nightly = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)["nightly"]
 
     canonical = nightly["canonical_history"]
-    assert canonical["pipeline"] == "amd-ci"
-    assert canonical["role"] == "canonical_nightly_comparison"
+    assert canonical["pipeline"] == "ci"
+    assert canonical["role"] == "canonical_amd_nightly"
     assert canonical["builds_available"] == 35
     assert len(canonical["builds"]) == 30
     assert [row["number"] for row in canonical["builds"][:2]] == [1034, 1033]
@@ -5532,8 +2583,9 @@ def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp
 
     parity = nightly["upstream_parity"]
     assert parity["pipeline"] == "ci"
-    assert parity["role"] == "upstream_parity"
-    assert len(parity["builds"]) == 4
+    assert parity["role"] == "upstream_cuda_nightly"
+    assert len(parity["builds"]) == 30
+    assert len([build for build in parity["builds"] if build["total_groups"]]) == 4
 
 
 def test_retry_analysis_retains_all_attempts_recoveries_and_exact_urls():
@@ -5689,10 +2741,10 @@ def test_retry_analysis_and_collector_retry_fields(monkeypatch):
         "created_at": "2026-04-22T09:00:00Z",
         "finished_at": "2026-04-22T10:00:00Z",
         "jobs": raw_jobs,
-        "web_url": "https://buildkite.com/vllm/amd-ci/builds/77",
+        "web_url": "https://buildkite.com/vllm/ci/builds/77",
     }])
 
-    builds = analytics.collect_pipeline("amd-ci", "token", 1)
+    builds = analytics.collect_pipeline("ci", "token", 1)
     for key in analytics.RETRY_FIELDS:
         assert key in builds[0]["jobs"][0]
         assert key in builds[0]["jobs"][1]
@@ -5778,14 +2830,11 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         "amd_test_health",
         "amd_agent_health",
         "comparison",
-        "comparison_retry_evidence",
         "reliability",
         "definition_parity",
         "test_group_parity",
-        "gating",
         "ownership",
         "queue",
-        "trajectory",
         "omni",
         "diagnostics",
     }
@@ -5793,7 +2842,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert "amd_agent_health" not in manifest["shell"]
     assert "ownership" not in manifest["shell"]
     assert len(manifest["shell"]["nightly"]["pipelines"]) == 1
-    assert manifest["shell"]["nightly"]["pipelines"][0]["pipeline"] == "amd-ci"
+    assert manifest["shell"]["nightly"]["pipelines"][0]["pipeline"] == "ci"
     assert len(manifest["shell"]["nightly"]["pipelines"][0]["builds"]) <= 7
 
     manifest_path = output.parent / ops.OPERATIONS_MANIFEST_NAME
@@ -5805,37 +2854,16 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
 
     comparison = json.loads(
         (output.parent / manifest["sections"]["comparison"]["path"]).read_text()
-    )["reliability"]
-    assert {
-        key: value
-        for key, value in comparison["platform_comparison"].items()
-        if key != "publication_retention"
-    } == payload["reliability"]["platform_comparison"]
-    assert "group_catalog" not in comparison
-    assert "latency_rankings" not in comparison
-    assert comparison["retry_analysis"]["evidence_deferred"] is True
-    assert "retry_attempts" not in comparison["retry_analysis"]
-    assert "failed_then_passed_recoveries" not in comparison["retry_analysis"]
-    retry_evidence = json.loads(
-        (
-            output.parent
-            / manifest["sections"]["comparison_retry_evidence"]["path"]
-        ).read_text()
-    )["reliability"]["retry_analysis"]
-    assert retry_evidence["evidence_deferred"] is False
-    assert retry_evidence["retry_attempts"] == payload["reliability"][
-        "retry_analysis"
-    ]["retry_attempts"]
-    assert manifest["sections"]["comparison"]["bytes"] < (
-        manifest["sections"]["reliability"]["bytes"]
     )
+    assert comparison == {"latency": payload["latency"]}
+    assert not {"gating", "trajectory", "comparison_retry_evidence"} & manifest["sections"].keys()
 
     nightly = json.loads(
         (output.parent / manifest["sections"]["nightly"]["path"]).read_text()
     )["nightly"]
     assert "canonical_history" not in nightly
     assert "upstream_parity" not in nightly
-    assert {row["pipeline"] for row in nightly["pipelines"]} == {"amd-ci", "ci"}
+    assert {row["cohort_id"] for row in nightly["pipelines"]} == {"ci-amd", "ci-cuda"}
 
     queue = json.loads(
         (output.parent / manifest["sections"]["queue"]["path"]).read_text()
@@ -5858,13 +2886,9 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert chart["wait_providers"][encoded_sample_peak[2]] == "scheduled_job_scan"
     assert encoded_sample_peak[3:] == [4, "2026-04-22T12:25:00Z", 4, True]
 
-    gating = json.loads(
-        (output.parent / manifest["sections"]["gating"]["path"]).read_text()
-    )["gating"]
     ownership = json.loads(
         (output.parent / manifest["sections"]["ownership"]["path"]).read_text()
     )["ownership"]
-    assert "ownership" not in gating
     assert {
         key: value
         for key, value in ownership.items()
@@ -5933,62 +2957,6 @@ def _retention_group(
         "linked_observation_count": len(observations),
         "observations": observations,
     }
-
-
-def test_public_retry_evidence_is_independently_bounded_and_keeps_newest(
-    monkeypatch,
-):
-    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 5000)
-    attempts = [
-        {
-            **_retention_observation(number, "passed"),
-            "name": "retry-" + "x" * 600,
-            "comparison_row_ids": [f"comparison-{number % 2}"],
-        }
-        for number in range(1, 9)
-    ]
-    recoveries = [
-        {
-            **_retention_observation(number, "passed"),
-            "name": "recovery-" + "y" * 600,
-            "failed_url": f"https://buildkite.com/vllm/ci/builds/{number}/failed",
-            "passed_url": f"https://buildkite.com/vllm/ci/builds/{number}/passed",
-        }
-        for number in (7, 9)
-    ]
-    source = {
-        "available": True,
-        "summary": {"retry_attempt_count": 8},
-        "retry_attempts": attempts,
-        "failed_then_passed_recoveries": recoveries,
-        "provenance": {"complete": True},
-    }
-
-    first = ops._bounded_public_retry_analysis(source)
-    second = ops._bounded_public_retry_analysis(source)
-
-    assert first == second
-    assert ops._json_bytes(first) <= 5000
-    assert max(row["build_number"] for row in first["retry_attempts"]) == 8
-    assert max(
-        row["build_number"]
-        for row in first["failed_then_passed_recoveries"]
-    ) == 9
-    retention = first["publication_retention"]
-    assert retention["complete_relative_to_source"] is False
-    assert retention["retry_attempts"]["source"] == 8
-    assert retention["retry_attempts"]["published"] < 8
-    assert retention["recoveries"]["source"] == 2
-    assert first["summary"]["retry_attempt_count"] == len(
-        first["retry_attempts"]
-    )
-    assert first["summary"]["failed_then_passed_recovery_count"] == len(
-        first["failed_then_passed_recoveries"]
-    )
-    assert retention["source_summary"]["retry_attempt_count"] == 8
-    assert retention["comparison_groups"]["published"] == 2
-    wrapped = ops._compact_comparison_retry_evidence({"retry_analysis": source})
-    assert ops._json_bytes(wrapped) <= 5000
 
 
 def test_bounded_retry_evidence_is_permutation_invariant(monkeypatch):
@@ -6074,156 +3042,6 @@ def test_full_reliability_keeps_retry_rows_while_total_section_fits(monkeypatch)
 
     assert public["retry_analysis"] == source["retry_analysis"]
     assert public["publication_retention"]["complete_relative_to_source"] is True
-
-
-def test_comparison_priority_recognizes_latest_incident_fields():
-    incident = {
-        "amd": {
-            "variants": [{
-                "latest_state": "hard",
-                "latest_observed_at": "2026-04-08T12:00:00Z",
-            }]
-        }
-    }
-    passing = {
-        "amd": {
-            "variants": [{
-                "latest_state": "passed",
-                "latest_observed_at": "2026-04-09T12:00:00Z",
-            }]
-        }
-    }
-
-    assert ops._comparison_row_priority(incident, 0)[0] is True
-    assert ops._comparison_row_priority(passing, 1)[0] is False
-
-
-def test_comparison_priority_keeps_incident_when_newer_sibling_passes():
-    row = {
-        "amd": {"variants": [{
-            "latest_state": "hard",
-            "latest_observed_at": "2026-04-08T12:00:00Z",
-        }]},
-        "cuda": {"variants": [{
-            "latest_state": "passed",
-            "latest_observed_at": "2026-04-09T12:00:00Z",
-        }]},
-    }
-
-    priority = ops._comparison_row_priority(row, 0)
-
-    assert priority[0] is True
-    assert priority[1] == "2026-04-09T12:00:00Z"
-
-
-def test_comparison_section_has_independent_exact_bound():
-    comparison_rows = [
-        {
-            "id": f"row-{index}",
-            "label": f"Comparison {index}",
-            "amd": {
-                "variants": [{
-                    "latest_state": "hard" if index == 0 else "passed",
-                    "latest_observed_at": f"2026-04-{index + 1:02d}T12:00:00Z",
-                }]
-            },
-            "padding": "x" * 200_000,
-        }
-        for index in range(10)
-    ]
-    reliability = {
-        "cohort": {"id": "main", "build_numbers": list(range(50_000))},
-        "platform_comparison": {
-            "available": True,
-            "rows": comparison_rows,
-        },
-        "retry_analysis": {"summary": {}},
-    }
-
-    comparison = ops._compact_reliability_comparison(reliability)
-
-    assert ops._json_bytes({"reliability": comparison}) <= (
-        ops.OPERATIONS_COMPARISON_SECTION_MAX_BYTES
-    )
-    retained = comparison["platform_comparison"]
-    assert retained["publication_retention"]["rows"]["source"] == 10
-    assert retained["publication_retention"]["rows"]["published"] < 10
-    assert "row-0" in {row["id"] for row in retained["rows"]}
-
-
-def test_bounded_platform_comparison_is_permutation_invariant(monkeypatch):
-    monkeypatch.setattr(
-        ops,
-        "OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES",
-        700_000,
-    )
-    rows = [
-        {
-            "id": f"row-{letter}",
-            "amd": {"variants": [{
-                "latest_state": "passed",
-                "latest_observed_at": "2026-04-01T12:00:00Z",
-            }]},
-            "padding": letter + "x" * 200_000,
-        }
-        for letter in "ABCDEFGH"
-    ]
-
-    forward, forward_stats = ops._bounded_public_platform_comparison({"rows": rows})
-    reverse, reverse_stats = ops._bounded_public_platform_comparison({
-        "rows": list(reversed(rows)),
-    })
-
-    assert forward == reverse
-    assert forward_stats == reverse_stats
-
-
-def test_platform_fixed_metadata_compaction_is_declared_incomplete():
-    bounded, stats = ops._bounded_public_platform_comparison({
-        "rows": [],
-        "summary": {"padding": "x" * (600 * 1024)},
-    })
-
-    assert bounded["publication_fixed_metadata_compacted"] is True
-    assert stats["fixed_metadata_compacted"] is True
-    assert (
-        bounded["publication_retention"]["complete_relative_to_source"]
-        is False
-    )
-
-
-def test_comparison_compaction_preserves_source_relative_retention(monkeypatch):
-    monkeypatch.setattr(
-        ops,
-        "OPERATIONS_RELIABILITY_COMPARISON_MAX_BYTES",
-        700_000,
-    )
-    comparison_rows = [
-        {
-            "id": f"row-{index}",
-            "amd": {"variants": [{
-                "latest_state": "passed",
-                "latest_observed_at": f"2026-04-{index + 1:02d}T12:00:00Z",
-            }]},
-            "padding": "x" * 200_000,
-        }
-        for index in range(10)
-    ]
-    first, _stats = ops._bounded_public_platform_comparison({
-        "available": True,
-        "rows": comparison_rows,
-    })
-
-    comparison = ops._compact_reliability_comparison({
-        "platform_comparison": first,
-        "retry_analysis": {},
-    })
-    retained = comparison["platform_comparison"]["publication_retention"]
-
-    assert retained["complete_relative_to_source"] is False
-    assert retained["rows"]["source"] == 10
-    assert retained["rows"]["published"] < 10
-    assert retained["rows"]["omitted"] > 0
 
 
 def test_group_catalog_keeps_current_incidents_before_older_groups():
@@ -6464,9 +3282,9 @@ def test_reliability_bound_failure_preserves_existing_generation(
     output = tmp_path / "published" / "operations_v2.json"
     output.parent.mkdir(parents=True)
     output.write_bytes(b"previous-generation")
-    monkeypatch.setattr(ops, "OPERATIONS_RETRY_EVIDENCE_MAX_BYTES", 1)
+    monkeypatch.setattr(ops._bounded_public_reliability, "__kwdefaults__", {"max_bytes": 1})
 
-    with pytest.raises(RuntimeError, match="bounded public retry evidence"):
+    with pytest.raises(RuntimeError, match="bounded public reliability section"):
         ops.write_snapshot_bundle(output, payload, log=False)
 
     assert output.read_bytes() == b"previous-generation"
@@ -6667,27 +3485,10 @@ def test_operations_collection_sections_compact_every_legal_growing_catalog() ->
         }
     )
 
-    for name in ("definition_parity", "test_group_parity", "gating", "ownership"):
+    for name in ("definition_parity", "test_group_parity", "ownership"):
         assert ops._json_bytes(sections[name]) <= (
             ops.OPERATIONS_CANARY_SECTION_MAX_BYTES[name]
         )
         retention = sections[name][name]["operations_publication_retention"]
         assert retention["complete_relative_to_source"] is False
         assert retention["aggregate_summaries_complete"] is True
-
-
-def test_capacity_projection_fails_closed_for_compacted_matrix_rows() -> None:
-    matrix_retention = {
-        "complete_relative_to_source": False,
-        "matrix_rows": {"source": 200, "published": 100, "omitted": 100},
-    }
-
-    projection = ops._exact_target_topology(
-        {},
-        {"publication_retention": matrix_retention},
-    )
-
-    assert projection["available"] is False
-    assert projection["unavailable_reason"] == "amd_test_matrix_publication_incomplete"
-    assert projection["target_topology_publication_retention"] == matrix_retention
-    assert projection["queues"] == []

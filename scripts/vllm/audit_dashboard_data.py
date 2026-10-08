@@ -45,6 +45,9 @@ from vllm.publication_surfaces import (  # noqa: E402
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
     PRE_QUEUE_SPLIT_SURFACE_SPEC,
+    PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
+    PRE_VIEW_RETIREMENT_SURFACE_SPECS,
+    RETIRED_SURFACES,
     SOURCE_SURFACES,
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
@@ -60,7 +63,6 @@ CI = VLLM / "ci"
 
 AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
-RESULT_SUFFIXES = {"amd-ci": "amd", "ci": "upstream"}
 OPERATIONS_SOURCE_MAX_AGE_HOURS = 6
 OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "analytics",
@@ -69,14 +71,11 @@ OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "ci_health",
     "config_parity",
     "test_group_parity",
-    "gating_targets",
-    "gating_target_candidates",
     "amd_test_matrix",
     "capacity_monitor",
     "queue_timeseries",
     "queue_jobs",
     "workload_mapping",
-    "group_changes",
     "omni_heuristic",
     "project_items",
 })
@@ -218,7 +217,7 @@ PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH = PRIVATE_ANALYTICS_CACHE_PATH.removeprefi
     "data/"
 )
 PRIVATE_ANALYTICS_CACHE_SAMPLE = (
-    f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/amd-ci.json"
+    f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/ci.json"
 )
 PRIVATE_ANALYTICS_CACHE_BOUNDARY_MARKER = "PRIVATE-ANALYTICS-CACHE-BOUNDARY"
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
@@ -247,14 +246,6 @@ PUBLICATION_SURFACE_REQUIRED_KEYS = {
         "total_flaky",
         "window_builds",
     },
-    "data/vllm/ci/hotness.json": {
-        "generated_at",
-        "window_hours",
-        "builds_examined",
-        "test_groups",
-        "branches",
-        "queues",
-    },
     "data/vllm/releases.json": {"collected_at", "releases"},
 }
 
@@ -275,22 +266,27 @@ def _publication_legacy_aliases() -> dict[str, frozenset[str]]:
     return LEGACY_SURFACE_ALIASES
 
 
+def _historical_publication_specs() -> dict[str, SurfaceSpec]:
+    return PRE_VIEW_RETIREMENT_SURFACE_SPECS if _uses_declared_publication_domain() else SURFACE_SPECS
+
+
 def _publication_fallback_closure(surfaces: set[str]) -> set[str]:
     if not _uses_declared_publication_domain():
         return set(surfaces)
-    return set(fallback_dependency_closure(surfaces))
+    retired = surfaces & set(RETIRED_SURFACES)
+    return set(fallback_dependency_closure(surfaces - retired)) | retired
 
 
 def _pre_queue_split_surface_names() -> set[str]:
     """Return the exact active surface-name domain used by contract v4."""
-    return set(SURFACE_SPECS) - set(QUEUE_COMPANION_SURFACES)
+    return set(_historical_publication_specs()) - set(QUEUE_COMPANION_SURFACES)
 
 
 def _pre_queue_split_spec(surface: str) -> SurfaceSpec:
     """Resolve one v4 surface without trusting the narrower v5 queue spec."""
     if surface == QUEUE_LIVE_SURFACE:
         return PRE_QUEUE_SPLIT_SURFACE_SPEC
-    return SURFACE_SPECS[surface]
+    return _historical_publication_specs()[surface]
 
 
 def _publication_spec_owns_path(spec: SurfaceSpec, relative: str) -> bool:
@@ -370,7 +366,7 @@ def _publication_surface_expansions(
     expanded: set[str] = set()
     for surface in surfaces:
         targets = aliases.get(surface, frozenset({surface}))
-        if not targets or not set(targets) <= set(SURFACE_SPECS):
+        if not targets or not set(targets) <= set(_historical_publication_specs()):
             raise ValueError(f"publication surface {surface!r} cannot be migrated")
         if expanded & set(targets):
             raise ValueError("publication surface aliases overlap active surfaces")
@@ -399,7 +395,7 @@ def _partition_publication_manifest(
             owners = [
                 target
                 for target in targets
-                if _publication_spec_owns_path(SURFACE_SPECS[target], relative)
+                if _publication_spec_owns_path(_historical_publication_specs()[target], relative)
             ]
             if len(owners) != 1:
                 raise ValueError(
@@ -408,7 +404,7 @@ def _partition_publication_manifest(
             child_entries[owners[0]][relative] = descriptor
         for target, entries_for_target in child_entries.items():
             if set(entries_for_target) != _publication_expected_paths(
-                root, SURFACE_SPECS[target]
+                root, _historical_publication_specs()[target]
             ):
                 raise ValueError(
                     f"legacy fallback manifest partition for {target} is incomplete"
@@ -578,7 +574,6 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         (
             "schema_version",
             "generated_at",
-            "reviewed_at",
             "source",
             "scope",
             "summary",
@@ -586,7 +581,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "areas",
             "groups",
         ),
-        "Reviewed upstream CUDA-to-ROCm logical test-group inventory",
+        "Immutable current-main CUDA logical groups and AMD route coverage",
     ),
     DataSpec(
         DNS_FAILURES_DATA_PATH,
@@ -622,22 +617,8 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "scripts/vllm/amd_main_failure_watcher.py",
             "scripts/vllm/ci_main_failure_watcher.py",
         ),
-        ("amd-ci", "ci"),
-        "Nightly comparison plus all-main reliability evidence",
-    ),
-    DataSpec(
-        "data/vllm/ci/gating_nightlies.json",
-        ("scripts/vllm/collect_analytics.py",),
-        ("config/public_data_manifest.json",),
-        ("generated_at", "ci", "amd-ci"),
-        "Slim nightly Buildkite job signal for the AMD gating executive view",
-    ),
-    DataSpec(
-        "data/vllm/ci/gating_targets.json",
-        ("scripts/vllm/collect_gating_targets.py",),
-        ("scripts/vllm/build_operations_snapshot.py",),
-        ("generated_at", "summary", "groups"),
-        "Canonical AMD gating target list used for still-to-gate tracking",
+        ("ci",),
+        "Current main CI GPU cohorts and all-main reliability evidence",
     ),
     DataSpec(
         "data/vllm/ci/amd_test_matrix.json",
@@ -656,20 +637,6 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "rows",
         ),
         "AMD hardware matrix, best-hardware test-group health, and cross-view counts",
-    ),
-    DataSpec(
-        "data/vllm/ci/gating_proposals.json",
-        ("scripts/vllm/collect_gating_proposals.py",),
-        ("scripts/vllm/collect_gating_target_candidates.py",),
-        ("generated_at", "source_repo", "tracked_authors", "summary", "pull_requests"),
-        "Open PRs from tracked engineers that propose new AMD mirror gating",
-    ),
-    DataSpec(
-        "data/vllm/ci/gating_target_candidates.json",
-        ("scripts/vllm/collect_gating_target_candidates.py",),
-        ("scripts/vllm/build_operations_snapshot.py",),
-        ("generated_at", "source", "heuristics", "summary", "rows"),
-        "Review-only daily audit for maintaining the canonical AMD gating target list",
     ),
     DataSpec(
         "data/vllm/ci/queue_timeseries.jsonl",
@@ -725,19 +692,12 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Hourly and daily Omni CI versus main vLLM mappings onto monitored AMD queues",
     ),
     DataSpec(
-        "data/vllm/ci/group_changes.json",
-        ("scripts/vllm/collect_group_changes.py",),
-        ("scripts/vllm/build_operations_snapshot.py",),
-        ("generated_at", "changes"),
-        "Test-group trend PR attribution",
-    ),
-    DataSpec(
         "data/vllm/ci/operations_v2.json",
         ("scripts/vllm/build_operations_snapshot.py",),
         ("docs/assets/js/ops-v2.js",),
         (
             "schema_version", "generated_at", "nightly", "reliability",
-            "gating", "queue", "amd_agent_health",
+            "queue", "amd_agent_health",
         ),
         "Versioned AMD current-signal and upstream reliability read model",
     ),
@@ -767,8 +727,6 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "test_groups",
             "test_group_parity",
             "health_checks",
-            "scheduled_cohorts",
-            "parity_targets",
             "queues",
             "definitions",
             "sources",
@@ -916,7 +874,6 @@ class DashboardAudit:
         self.audit_root_test_results()
         self.audit_test_result_retention()
         self.audit_shard_bases()
-        self.audit_gating_target_candidates()
         self.audit_analytics()
         self.audit_amd_matrix()
         self.audit_queue_data(validate_derived=True)
@@ -940,18 +897,15 @@ class DashboardAudit:
             "data/vllm/issues.json": ("publication_retention",),
             "data/vllm/releases.json": ("publication_retention",),
             "data/vllm/ci/project_items.json": ("publication_retention",),
-            "data/vllm/ci/hotness.json": ("publication_retention",),
             "data/vllm/ci/workload_mapping.json": ("retention", "publication"),
-            "data/vllm/ci/group_changes.json": ("publication_retention",),
             "data/vllm/ci/ci_health.json": ("publication_retention",),
+            "data/vllm/ci/config_parity.json": ("publication_retention",),
+            "data/vllm/ci/test_group_parity.json": ("publication_retention",),
             "data/vllm/ci/failure_trends.json": ("publication_retention",),
             "data/vllm/ci/flaky_tests.json": ("publication_retention",),
             "data/vllm/ci/parity_report.json": ("publication_retention",),
             "data/vllm/ci/amd_test_matrix.json": ("publication_retention",),
-            "data/vllm/ci/dns_failures.json": ("publication_retention",),
             "data/vllm/ci/queue_jobs.json": ("publication_retention",),
-            "data/vllm/ci/gating_proposals.json": ("publication_retention",),
-            "data/vllm/ci/gating_target_candidates.json": ("publication_retention",),
             "data/vllm/ci/shard_base_catalog.json": ("publication_retention",),
             "data/vllm/ci/publication_state.json": ("publication_retention",),
             "data/vllm/ci/omni_surge_heuristic.json": ("publication_retention",),
@@ -1306,7 +1260,7 @@ class DashboardAudit:
 
         if schema_version == 1:
             aliases = _publication_legacy_aliases()
-            allowed_v1 = set(SURFACE_SPECS) | set(aliases)
+            allowed_v1 = set(_historical_publication_specs()) | set(aliases)
             if (
                 mode not in {"current", "fallback", "blocked"}
                 or not valid_surface_list(degraded_raw, allowed_v1)
@@ -1362,7 +1316,7 @@ class DashboardAudit:
                 spec = (
                     LEGACY_CI_SURFACE_SPEC
                     if surface == LEGACY_CI_SURFACE and surface in aliases
-                    else SURFACE_SPECS[surface]
+                    else _historical_publication_specs()[surface]
                 )
                 migrated_entries = _migrated_publication_manifest_entries(
                     surface, manifest[surface]
@@ -1418,6 +1372,7 @@ class DashboardAudit:
                 not in (
                     None,
                     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+                    PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
                     SURFACE_CONTRACT_VERSION,
                 )
             ):
@@ -1438,6 +1393,8 @@ class DashboardAudit:
             allowed_v2 = (
                 _pre_queue_split_surface_names()
                 if historical_surface_contract
+                else set(_historical_publication_specs())
+                if surface_contract_version == PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION
                 else set(SURFACE_SPECS)
             )
             if (
@@ -1656,7 +1613,7 @@ class DashboardAudit:
                     spec = (
                         PRE_QUEUE_SPLIT_SURFACE_SPEC
                         if surface == QUEUE_LIVE_SURFACE
-                        else SURFACE_SPECS[surface]
+                        else _historical_publication_specs()[surface]
                     )
                     entries = _migrated_publication_manifest_entries(
                         surface, manifest[surface]
@@ -1692,7 +1649,7 @@ class DashboardAudit:
                             target
                             for target in targets
                             if _publication_spec_owns_path(
-                                SURFACE_SPECS[target], relative
+                                _historical_publication_specs()[target], relative
                             )
                         ]
                         if len(owners) != 1:
@@ -1712,7 +1669,7 @@ class DashboardAudit:
                     entries = partitioned.get(surface, {})
                     expected = (
                         _publication_expected_paths(
-                            self.root, SURFACE_SPECS[surface]
+                            self.root, _historical_publication_specs()[surface]
                         )
                         - ignored_watcher_state_paths(surface)
                     )
@@ -1742,7 +1699,7 @@ class DashboardAudit:
                     surface, manifest[surface]
                 )
                 valid = verify_manifest(
-                    surface, SURFACE_SPECS[surface], manifest[surface]
+                    surface, _historical_publication_specs()[surface], manifest[surface]
                 ) and valid
                 if restored_paths is not None:
                     valid = verify_restored_paths(
@@ -1754,6 +1711,8 @@ class DashboardAudit:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
 
+        # Every legacy proof was verified in full above before retirement.
+        fallback_surfaces -= set(RETIRED_SURFACES)
         now = datetime.now(timezone.utc)
         valid = True
         for surface in sorted(fallback_surfaces):
@@ -3160,7 +3119,7 @@ class DashboardAudit:
                         -1,
                     )
                     for row in _rows(
-                        _mapping(_mapping(analytics_payload).get("amd-ci")).get(
+                        _mapping(_mapping(analytics_payload).get("ci")).get(
                             "builds"
                         )
                     )
@@ -3211,221 +3170,6 @@ class DashboardAudit:
                         ),
                         relpath,
                     )
-
-        gating = _mapping(payload.get("gating"))
-        reviewed_targets = _rows(gating.get("target_groups"))
-        active = _rows(gating.get("active_target_groups"))
-        active_summary = _mapping(gating.get("active_target_summary"))
-        expected_active = _safe_int(active_summary.get("target_group_count"))
-        expected_canonical = _safe_int(
-            active_summary.get("canonical_group_count")
-        )
-        expected_outside_canonical = _safe_int(
-            active_summary.get("active_outside_canonical_count")
-        )
-        if len(active) != expected_active:
-            self.error(
-                "operations-active-target-count",
-                f"active target rows={len(active)} but summary target_group_count={expected_active}",
-                relpath,
-            )
-        if len(reviewed_targets) != expected_canonical:
-            self.error(
-                "operations-canonical-target-count",
-                (
-                    f"reviewed target rows={len(reviewed_targets)} but summary "
-                    f"canonical_group_count={expected_canonical}"
-                ),
-                relpath,
-            )
-        if expected_active != expected_canonical + expected_outside_canonical:
-            self.error(
-                "operations-active-target-summary",
-                (
-                    f"active target count={expected_active} but canonical "
-                    f"({expected_canonical}) + outside canonical "
-                    f"({expected_outside_canonical}) do not reconcile"
-                ),
-                relpath,
-            )
-
-        unsupported_owners = [
-            _mapping(row).get("label")
-            for row in active
-            if _mapping(row).get("owner") or "owner" in _mapping(row)
-        ]
-        if unsupported_owners:
-            self.error(
-                "operations-unsupported-owners",
-                f"{len(unsupported_owners)} gating rows publish an unsupported owner field",
-                relpath,
-            )
-
-        linked_gating = 0
-        observed_gating = 0
-        wrong_latest_pipeline = []
-        wrong_latest_urls = []
-        wrong_history_pipeline = []
-        wrong_history_evidence = []
-        wrong_history_urls = []
-        invalid_runtime_resolutions = []
-        runtime_resolution_counts: dict[str, int] = {}
-        allowed_runtime_resolutions = {
-            "matched",
-            "no_amd_definition",
-            "stale_target_alias",
-            "ambiguous",
-            "not_observed",
-        }
-        for raw_row in active:
-            row = _mapping(raw_row)
-            latest = _mapping(row.get("latest_amd_result"))
-            resolution = _mapping(row.get("runtime_resolution"))
-            resolution_status = str(resolution.get("status") or "")
-            runtime_resolution_counts[resolution_status] = (
-                runtime_resolution_counts.get(resolution_status, 0) + 1
-            )
-            latest_state = str(latest.get("state") or "unknown")
-            resolution_invalid = (
-                resolution_status not in allowed_runtime_resolutions
-                or (
-                    latest_state in {"passed", "soft", "hard"}
-                    and resolution_status != "matched"
-                )
-                or (
-                    resolution_status
-                    in {"no_amd_definition", "stale_target_alias", "ambiguous"}
-                    and (
-                        latest_state != "unknown"
-                        or bool(_rows(latest.get("evidence")))
-                    )
-                )
-                or (
-                    resolution_status == "not_observed"
-                    and latest_state != "unknown"
-                )
-            )
-            if resolution_invalid:
-                invalid_runtime_resolutions.append(row.get("label"))
-            if latest.get("source_pipeline") != "amd-ci":
-                wrong_latest_pipeline.append(row.get("label"))
-            latest_evidence = _rows(latest.get("evidence"))
-            if any(
-                not isinstance(item, dict)
-                or item.get("source_pipeline") != "amd-ci"
-                for item in latest_evidence
-            ):
-                wrong_latest_pipeline.append(row.get("label"))
-            latest_links = [
-                (
-                    item.get("url") or item.get("job_url") or item.get("build_url"),
-                    item.get("build_number") or latest.get("build_number"),
-                )
-                for item in latest_evidence
-                if isinstance(item, dict)
-                if item.get("url") or item.get("job_url") or item.get("build_url")
-            ]
-            if any(
-                not _buildkite_url_matches(
-                    url,
-                    "amd-ci",
-                    build_number,
-                    require_job=True,
-                )
-                for url, build_number in latest_links
-            ):
-                wrong_latest_urls.append(row.get("label"))
-            history = _mapping(row.get("main_reliability"))
-            if history.get("source_pipeline") != "ci":
-                wrong_history_pipeline.append(row.get("label"))
-            history_evidence = _rows(row.get("evidence"))
-            if any(
-                not isinstance(item, dict) or item.get("source_pipeline") != "ci"
-                for item in history_evidence
-            ):
-                wrong_history_evidence.append(row.get("label"))
-            bad_history_links = any(
-                not _buildkite_url_matches(
-                    item.get("url") or item.get("job_url"),
-                    "ci",
-                    item.get("build_number"),
-                    require_job=True,
-                )
-                for item in history_evidence
-                if isinstance(item, dict)
-            )
-            incident = _mapping(row.get("last_incident"))
-            if incident and (
-                incident.get("source_pipeline") != "ci"
-                or not _buildkite_url_matches(
-                    incident.get("job_url"),
-                    "ci",
-                    incident.get("build_number"),
-                    require_job=True,
-                )
-            ):
-                bad_history_links = True
-            if history.get("latest_url") and not _buildkite_url_matches(
-                history.get("latest_url"), "ci", require_job=True
-            ):
-                bad_history_links = True
-            if bad_history_links:
-                wrong_history_urls.append(row.get("label"))
-            if latest.get("state") in {"passed", "soft", "hard"}:
-                observed_gating += 1
-                if any(item.get("url") for item in latest_evidence if isinstance(item, dict)):
-                    linked_gating += 1
-        if observed_gating != linked_gating:
-            self.error(
-                "operations-gating-missing-links",
-                f"{observed_gating - linked_gating} of {observed_gating} observed gating rows lack exact AMD evidence",
-                relpath,
-            )
-        if wrong_latest_pipeline:
-            self.error(
-                "operations-gating-latest-source-pipeline",
-                f"{len(wrong_latest_pipeline)} gating rows do not source latest results from amd-ci",
-                relpath,
-            )
-        if wrong_latest_urls:
-            self.error(
-                "operations-gating-latest-source-url",
-                f"{len(wrong_latest_urls)} gating rows contain non-AMD links in latest AMD evidence",
-                relpath,
-            )
-        if wrong_history_pipeline or wrong_history_evidence or wrong_history_urls:
-            self.error(
-                "operations-gating-history-source-pipeline",
-                (
-                    f"{len(wrong_history_pipeline)} reliability summaries and "
-                    f"{len(wrong_history_evidence)} evidence lists do not source history from ci; "
-                    f"{len(wrong_history_urls)} rows contain non-ci history links"
-                ),
-                relpath,
-            )
-        if invalid_runtime_resolutions:
-            self.error(
-                "operations-gating-runtime-resolution",
-                (
-                    f"{len(invalid_runtime_resolutions)} gating rows have a "
-                    "runtime-resolution status inconsistent with AMD evidence"
-                ),
-                relpath,
-            )
-        declared_resolution_counts = _mapping(
-            active_summary.get("by_runtime_resolution")
-        )
-        if declared_resolution_counts and declared_resolution_counts != dict(
-            sorted(runtime_resolution_counts.items())
-        ):
-            self.error(
-                "operations-gating-runtime-resolution-count",
-                (
-                    "active_target_summary.by_runtime_resolution does not match "
-                    "the runtime target rows"
-                ),
-                relpath,
-            )
 
         reliability = _mapping(payload.get("reliability"))
         if reliability.get("source_pipeline") != "ci":
@@ -3481,7 +3225,7 @@ class DashboardAudit:
         canonical = _mapping(nightly.get("canonical_history")) or next(
             (
                 row for row in _rows(nightly.get("pipelines"))
-                if isinstance(row, dict) and row.get("pipeline") == "amd-ci"
+                if isinstance(row, dict) and row.get("pipeline") == "ci"
             ),
             {},
         )
@@ -3539,7 +3283,7 @@ class DashboardAudit:
                 relpath,
             )
         upstream_parity = _mapping(nightly.get("upstream_parity"))
-        if upstream_parity.get("pipeline") != "ci" or canonical.get("pipeline") != "amd-ci":
+        if upstream_parity.get("pipeline") != "ci" or canonical.get("pipeline") != "ci":
             self.error(
                 "operations-upstream-parity-scope",
                 "Canonical AMD nightly history and upstream parity must be published separately",
@@ -3566,116 +3310,6 @@ class DashboardAudit:
             for row in catalog
             if isinstance(row, dict) and row.get("id")
         }
-        comparison = _mapping(reliability.get("platform_comparison"))
-        comparison_rows = [
-            row
-            for row in _rows(comparison.get("rows"))
-            if isinstance(row, dict)
-        ]
-        comparison_summary = _mapping(comparison.get("summary"))
-        comparison_keys = {
-            str(row.get("comparison_key") or "")
-            for row in comparison_rows
-            if row.get("comparison_key")
-        }
-        eligible_comparison_rows = [
-            row for row in comparison_rows if row.get("comparison_eligible") is True
-        ]
-        matched_comparison_keys = {
-            str(row.get("comparison_key") or "")
-            for row in eligible_comparison_rows
-            if row.get("comparison_key")
-        }
-        label_matched_keys = {
-            str(row.get("comparison_key") or "")
-            for row in comparison_rows
-            if row.get("comparison_key")
-            and _safe_int(_mapping(row.get("cuda")).get("variant_count")) > 0
-        }
-        comparison_amd_ids = {
-            str(group_id)
-            for row in comparison_rows
-            for group_id in _rows(_mapping(row.get("amd")).get("group_ids"))
-            if group_id
-        }
-        matched_cuda_ids = {
-            str(group_id)
-            for row in eligible_comparison_rows
-            for group_id in _rows(_mapping(row.get("cuda")).get("group_ids"))
-            if group_id
-        }
-        comparison_counts = {
-            "amd_base_group_count": len(comparison_keys),
-            "amd_variant_count": len(comparison_amd_ids),
-            "label_matched_base_group_count": len(label_matched_keys),
-            "matched_base_group_count": len(matched_comparison_keys),
-            "comparable_base_group_count": len(matched_comparison_keys),
-            "review_required_base_group_count": (
-                len(comparison_keys) - len(matched_comparison_keys)
-            ),
-            "unmatched_amd_base_group_count": (
-                len(comparison_keys) - len(label_matched_keys)
-            ),
-            "matched_cuda_variant_count": len(matched_cuda_ids),
-        }
-        if comparison:
-            mismatched_counts = {
-                key: (comparison_summary.get(key), expected)
-                for key, expected in comparison_counts.items()
-                if _safe_int(comparison_summary.get(key), -1) != expected
-            }
-            if "amd_comparison_row_count" in comparison_summary and _safe_int(
-                comparison_summary.get("amd_comparison_row_count"), -1
-            ) != len(comparison_rows):
-                mismatched_counts["amd_comparison_row_count"] = (
-                    comparison_summary.get("amd_comparison_row_count"),
-                    len(comparison_rows),
-                )
-            if "comparable_variant_pair_count" in comparison_summary and _safe_int(
-                comparison_summary.get("comparable_variant_pair_count"), -1
-            ) != len(eligible_comparison_rows):
-                mismatched_counts["comparable_variant_pair_count"] = (
-                    comparison_summary.get("comparable_variant_pair_count"),
-                    len(eligible_comparison_rows),
-                )
-            if mismatched_counts:
-                self.error(
-                    "operations-platform-comparison-counts",
-                    (
-                        "platform_comparison summary does not reconcile with its "
-                        f"published rows: {mismatched_counts}"
-                    ),
-                    relpath,
-                )
-            invalid_pairs = [
-                row
-                for row in comparison_rows
-                if (
-                    row.get("comparison_eligible") is True
-                    and (
-                        row.get("match_status") != "exact_cuda_pair"
-                        or _safe_int(_mapping(row.get("amd")).get("variant_count")) != 1
-                        or _safe_int(_mapping(row.get("cuda")).get("variant_count")) != 1
-                    )
-                )
-                or (
-                    row.get("comparison_eligible") is not True
-                    and row.get("match_status") == "exact_cuda_pair"
-                )
-            ]
-            missing_catalog_ids = (
-                comparison_amd_ids | matched_cuda_ids
-            ) - set(catalog_by_id)
-            if invalid_pairs or missing_catalog_ids:
-                self.error(
-                    "operations-platform-comparison-eligibility",
-                    (
-                        f"{len(invalid_pairs)} comparison rows violate exact-pair "
-                        f"eligibility and {len(missing_catalog_ids)} referenced group "
-                        "IDs are absent from the reliability catalog"
-                    ),
-                    relpath,
-                )
         candidates = _rows(reliability.get("flaky_candidates"))
         cohort_build_numbers = {
             _safe_int(number, -1)
@@ -3796,30 +3430,6 @@ class DashboardAudit:
                 relpath,
             )
 
-        latency = _rows(_mapping(reliability.get("latency_rankings")).get("by_p90_duration"))
-        wrong_latency_source = [
-            _mapping(row).get("name")
-            for row in latency
-            if _mapping(row).get("source_pipeline") != "ci"
-        ]
-        if wrong_latency_source:
-            self.error(
-                "operations-latency-source",
-                f"{len(wrong_latency_source)} latency rows are not sourced from upstream ci",
-                relpath,
-            )
-        missing_latency_max = [
-            _mapping(row).get("name")
-            for row in latency
-            if _mapping(row).get("max_dur") is None
-        ]
-        if missing_latency_max:
-            self.error(
-                "operations-latency-max-duration",
-                f"{len(missing_latency_max)} latency rows omit max_dur",
-                relpath,
-            )
-
         retry = _mapping(reliability.get("retry_analysis"))
         retry_summary = _mapping(retry.get("summary"))
         retry_attempts = _rows(retry.get("retry_attempts"))
@@ -3895,26 +3505,13 @@ class DashboardAudit:
 
         queue_block = _mapping(payload.get("queue"))
         queue_provenance = _mapping(queue_block.get("provenance"))
-        trajectory_provenance = _mapping(_mapping(payload.get("trajectory")).get("provenance"))
         omni_provenance = _mapping(_mapping(payload.get("omni")).get("provenance"))
         expected_source_paths = {
-            "queue history": (
-                _mapping(queue_provenance.get("source_paths"))
-            ).get("history"),
-            "trajectory builds": (
-                _mapping(trajectory_provenance.get("source_paths"))
-            ).get("build_history"),
-            "trajectory changes": (
-                _mapping(trajectory_provenance.get("source_paths"))
-            ).get("group_changes"),
-            "Omni aggregates": (
-                _mapping(omni_provenance.get("source_paths"))
-            ).get("queue_aggregates"),
+            "queue history": _mapping(queue_provenance.get("source_paths")).get("history"),
+            "Omni aggregates": _mapping(omni_provenance.get("source_paths")).get("queue_aggregates"),
         }
         required_source_paths = {
             "queue history": "queue_timeseries.jsonl",
-            "trajectory builds": "analytics.json",
-            "trajectory changes": "group_changes.json",
             "Omni aggregates": "queue_timeseries.jsonl",
         }
         mismatched_paths = {
@@ -3926,33 +3523,6 @@ class DashboardAudit:
             self.error(
                 "operations-aggregate-provenance",
                 f"Published aggregate source paths are incomplete or incorrect: {mismatched_paths}",
-                relpath,
-            )
-
-        trajectory = _mapping(payload.get("trajectory"))
-        trajectory_pipelines = _rows(trajectory.get("pipelines"))
-        trajectory_pipeline = _mapping(trajectory_pipelines[0]) if trajectory_pipelines else {}
-        trajectory_history = _mapping(
-            _mapping(trajectory.get("provenance")).get("build_history")
-        )
-        if (
-            trajectory.get("source_pipeline") != "ci"
-            or trajectory.get("available") is not (reliability.get("available") is True)
-            or trajectory.get("pipeline_order") != ["ci"]
-            or len(trajectory_pipelines) != 1
-            or trajectory_pipeline.get("pipeline") != "ci"
-            or trajectory_pipeline.get("source_key") != "ci.all_main_reliability"
-            or trajectory_pipeline.get("groups")
-            != _safe_int(_mapping(reliability.get("denominator")).get("groups"))
-            or trajectory_pipeline.get("observations")
-            != _safe_int(_mapping(reliability.get("denominator")).get("observations"))
-            or trajectory_pipeline.get("cohort") != cohort
-            or trajectory_history.get("source_pipeline") != "ci"
-            or trajectory_history.get("source_key") != "ci.all_main_reliability"
-        ):
-            self.error(
-                "operations-trajectory-scope",
-                "Workload trajectory must use only the strict upstream ci all-main cohort",
                 relpath,
             )
 
@@ -3972,10 +3542,27 @@ class DashboardAudit:
 
         self.audit_agent_health(payload, relpath)
 
+        for retired in ("gating", "trajectory", "comparison_retry_evidence"):
+            if retired in payload:
+                self.error("operations-retired-view", f"Operations still publishes retired {retired} view data", relpath)
+        self.audit_current_source_parity(_mapping(payload.get("test_group_parity")), relpath)
+        self.audit_current_nightly_latency(_mapping(payload.get("latency")), relpath)
+        current_path = self.root / "data/vllm/ci/test_group_parity.json"
+        if current_path.exists():
+            current = _mapping(self.load_json(self.rel(current_path), {}))
+            embedded = _mapping(payload.get("test_group_parity"))
+            if any(embedded.get(key) != current.get(key) for key in ("source", "summary", "rocm_inventory")):
+                self.error("operations-current-parity-projection", "Operations coverage must use the exact current main source inventory and counts", relpath)
+        analytics_path = self.root / "data/vllm/ci/analytics.json"
+        if analytics_path.exists():
+            analytics = _mapping(self.load_json(self.rel(analytics_path), {}))
+            current_latency = _mapping(_mapping(analytics.get("ci")).get("current_nightly_latency"))
+            normalized_current = self._normalize_current_latency_evidence(current_latency, relpath)
+            normalized_embedded = self._normalize_current_latency_evidence(_mapping(payload.get("latency")), relpath)
+            if current_latency and normalized_current != normalized_embedded:
+                self.error("operations-current-latency-projection", "Operations timing must use the exact current main nightly cohort", relpath)
+
         self.report.metrics["operations_v2"] = {
-            "active_targets": len(active),
-            "canonical_targets": expected_canonical,
-            "active_targets_outside_canonical": expected_outside_canonical,
             "amd_latest_job_variants": _safe_int(
                 amd_health_summary.get("latest_job_variant_count")
                 or amd_health_summary.get("latest_group_count")
@@ -3986,7 +3573,6 @@ class DashboardAudit:
                     amd_health_summary.get("latest_test_group_counts")
                 ).get("total")
             ),
-            "linked_active_targets": linked_gating,
             "mixed_outcome_candidates": len(candidates),
             "reliability_groups": len(catalog),
             "reliability_observations": observations,
@@ -3998,10 +3584,514 @@ class DashboardAudit:
             "other_main_builds": cohort_other_main,
             "retry_attempts": len(retry_attempts),
             "retry_recoveries": len(recoveries),
-            "platform_comparison_base_groups": len(comparison_keys),
-            "platform_comparison_variant_pairs": len(eligible_comparison_rows),
             "source_age_hours": source_ages,
         }
+
+    def _normalize_current_latency_evidence(self, latency: dict, relpath: str) -> dict | None:
+        """Expand lossless public job vectors before checking timing evidence."""
+        import math
+        from vllm.ci.nightly_latency import JOB_COLUMNS
+
+        columns = JOB_COLUMNS
+
+        def invalid(message: str) -> None:
+            self.error("latency-job-representation", message, relpath)
+
+        columnar = "job_columns" in latency
+        if columnar and latency["job_columns"] != list(columns):
+            invalid("Latency job columns must use the exact ordered nine-field evidence schema")
+            return None
+        if not isinstance(latency.get("rows", []), list):
+            invalid("Latency workload rows must be an array")
+            return None
+        normalized = {key: value for key, value in latency.items() if key != "job_columns"}
+        normalized_rows = []
+        for raw_row in _rows(latency.get("rows")):
+            if not isinstance(raw_row, dict):
+                invalid("Latency workload rows must be objects")
+                return None
+            row = dict(raw_row)
+            for side in ("amd", "upstream"):
+                if not isinstance(row.get(side), dict) or not isinstance(
+                    row[side].get("samples"), list
+                ):
+                    invalid("Latency platform evidence must contain an exact sample array")
+                    return None
+                block = dict(row[side])
+                samples = []
+                for raw_sample in _rows(block.get("samples")):
+                    if not isinstance(raw_sample, dict):
+                        invalid("Latency samples must be objects")
+                        return None
+                    sample = dict(raw_sample)
+                    if not isinstance(sample.get("jobs"), list):
+                        invalid("Latency sample jobs must be an array of exact job evidence")
+                        return None
+                    jobs = []
+                    for raw_job in sample["jobs"]:
+                        if columnar:
+                            if not isinstance(raw_job, list) or len(raw_job) != len(columns):
+                                invalid(
+                                    "Latency job vectors must contain exactly nine ordered values"
+                                )
+                                return None
+                            job = dict(zip(columns, raw_job))
+                        elif isinstance(raw_job, dict):
+                            job = dict(raw_job)
+                        else:
+                            invalid(
+                                "Latency jobs require dictionaries unless exact job columns are declared"
+                            )
+                            return None
+                        if any(not isinstance(job.get(key), str) for key in columns[:-1]):
+                            invalid(
+                                "Latency job identifiers, links, routing, labels and dates must be strings"
+                            )
+                            return None
+                        duration = job.get("duration_mins")
+                        try:
+                            valid_duration = (
+                                type(duration) in (int, float)
+                                and math.isfinite(duration)
+                                and duration >= 0
+                            )
+                        except OverflowError:
+                            valid_duration = False
+                        if not valid_duration:
+                            invalid("Latency job duration must be a finite nonnegative number")
+                            return None
+                        jobs.append(job)
+                    sample["jobs"] = jobs
+                    samples.append(sample)
+                block["samples"] = samples
+                row[side] = block
+            normalized_rows.append(row)
+        normalized["rows"] = normalized_rows
+        return normalized
+
+    def audit_current_nightly_latency(
+        self, latency: dict, relpath: str, *, source_builds: list | None = None
+    ) -> None:
+        """Reconstruct medians from exact jobs in one fixed latest-five cohort."""
+        from statistics import median
+        from vllm.pipelines import is_amd_ci_job, is_upstream_cuda_ci_job
+
+        normalized = self._normalize_current_latency_evidence(latency, relpath)
+        if normalized is None:
+            return
+        latency = normalized
+
+        def fail(code: str, message: str) -> None:
+            self.error(f"latency-{code}", message, relpath)
+
+        if (
+            latency.get("schema_version") != 1
+            or latency.get("source_pipeline") != "ci"
+            or latency.get("branch") != "main"
+            or latency.get("build_limit") != 5
+            or latency.get("statistic") != "median_of_per_nightly_group_wall_minutes"
+            or latency.get("duration_basis") != "maximum_parallel_shard_wall_minutes"
+        ):
+            fail(
+                "source-contract",
+                "Latency must use the fixed five completed main-ci nightly wall-duration contract",
+            )
+        cohort = _mapping(latency.get("cohort"))
+        nightlies = _rows(cohort.get("nightlies"))
+        numbers = [_safe_int(_mapping(row).get("number"), -1) for row in nightlies]
+        if (
+            len(numbers) > 5
+            or len(set(numbers)) != len(numbers)
+            or any(number <= 0 for number in numbers)
+            or cohort.get("build_count") != len(numbers)
+        ):
+            fail(
+                "cohort-count",
+                "Latency cohort must contain at most five unique current nightly build numbers",
+            )
+        ordered = sorted(
+            nightlies,
+            key=lambda row: (
+                str(_mapping(row).get("created_at") or ""),
+                _safe_int(_mapping(row).get("number")),
+            ),
+            reverse=True,
+        )
+        if nightlies != ordered:
+            fail("cohort-order", "Latency nightly cohort must be newest first")
+        by_number = {_safe_int(_mapping(row).get("number")): _mapping(row) for row in nightlies}
+        for nightly in nightlies:
+            row = _mapping(nightly)
+            start, end = (
+                _parse_timestamp(row.get("created_at")),
+                _parse_timestamp(row.get("finished_at")),
+            )
+            if (
+                start is None
+                or end is None
+                or end < start
+                or not _buildkite_url_matches(row.get("web_url"), "ci", row.get("number"))
+            ):
+                fail(
+                    "cohort-provenance",
+                    "Latency nightly must identify an exact ci build and valid completed UTC interval",
+                )
+
+        def interval(rows: list) -> dict:
+            starts = [
+                row.get("created_at")
+                for row in rows
+                if isinstance(row, dict)
+                and isinstance(row.get("created_at"), str)
+                and row.get("created_at")
+            ]
+            ends = [
+                row.get("finished_at")
+                for row in rows
+                if isinstance(row, dict)
+                and isinstance(row.get("finished_at"), str)
+                and row.get("finished_at")
+            ]
+            return {"start": min(starts) if starts else None, "end": max(ends) if ends else None}
+
+        if latency.get("interval") != interval(nightlies):
+            fail(
+                "cohort-interval",
+                "Latency interval does not reconcile with its retained nightly dates",
+            )
+        rows = _rows(latency.get("rows"))
+        if latency.get("available") is not True:
+            if (
+                rows
+                or not isinstance(latency.get("unavailable_reason"), str)
+                or not latency.get("unavailable_reason")
+            ):
+                fail(
+                    "unavailable",
+                    "Unavailable latency must publish an explicit reason and no samples",
+                )
+            return
+        if not rows or latency.get("unavailable_reason") is not None:
+            fail(
+                "available",
+                "Available latency must publish timed AMD workloads without an unavailable reason",
+            )
+        if source_builds is not None:
+            from vllm.pipelines import UPSTREAM_NIGHTLY_NAME_PATTERN
+
+            eligible = {
+                _safe_int(_mapping(build).get("number")): _mapping(build)
+                for build in source_builds
+                if _mapping(build).get("branch") == "main"
+                and _mapping(build).get("state") in {"passed", "failed"}
+                and _parse_timestamp(_mapping(build).get("finished_at")) is not None
+                and re.search(
+                    UPSTREAM_NIGHTLY_NAME_PATTERN, str(_mapping(build).get("message") or ""), re.I
+                )
+                and _buildkite_url_matches(
+                    _mapping(build).get("web_url"), "ci", _mapping(build).get("number")
+                )
+            }
+            latest_five = sorted(
+                eligible.values(),
+                key=lambda row: (str(row.get("created_at") or ""), _safe_int(row.get("number"))),
+                reverse=True,
+            )[:5]
+            if numbers != [_safe_int(row.get("number")) for row in latest_five]:
+                fail(
+                    "global-cohort",
+                    "Latency must select the latest five completed main-ci nightlies before inspecting any workload",
+                )
+        clock = _parse_timestamp(latency.get("generated_at"))
+        newest = _parse_timestamp(_mapping(nightlies[0]).get("created_at")) if nightlies else None
+        if (
+            clock is None
+            or newest is None
+            or not 0 <= (clock - newest).total_seconds() <= 48 * 3600
+        ):
+            fail(
+                "cohort-freshness",
+                "Available latency must use a completed nightly created within the last 48 hours",
+            )
+        seen_ids = set()
+        for raw_row in rows:
+            row = _mapping(raw_row)
+            identity = row.get("id")
+            if not isinstance(identity, str) or not identity or identity in seen_ids:
+                fail("group-identity", "Latency rows require unique logical workload identities")
+            seen_ids.add(str(identity))
+            medians = {}
+            for side, predicate in (("amd", is_amd_ci_job), ("upstream", is_upstream_cuda_ci_job)):
+                block = _mapping(row.get(side))
+                samples = _rows(block.get("samples"))
+                sample_numbers = [
+                    _safe_int(_mapping(sample).get("build_number"), -1) for sample in samples
+                ]
+                if (
+                    block.get("source_pipeline") != "ci"
+                    or block.get("sample_count") != len(samples)
+                    or len(samples) > 5
+                    or len(set(sample_numbers)) != len(samples)
+                ):
+                    fail(
+                        "sample-count",
+                        f"{identity}/{side}: samples must be unique nightlies with exact counts",
+                    )
+                if block.get("interval") != interval(samples):
+                    fail(
+                        "sample-interval",
+                        f"{identity}/{side}: sample date interval does not reconcile",
+                    )
+                durations = []
+                for raw_sample in samples:
+                    sample = _mapping(raw_sample)
+                    number = _safe_int(sample.get("build_number"), -1)
+                    nightly = by_number.get(number, {})
+                    if (
+                        not nightly
+                        or any(
+                            sample.get(key) != nightly.get(key)
+                            for key in ("created_at", "finished_at")
+                        )
+                        or sample.get("build_url") != nightly.get("web_url")
+                    ):
+                        fail(
+                            "sample-cohort",
+                            f"{identity}/{side}: sample backfills or misidentifies the fixed nightly cohort",
+                        )
+                    jobs = _rows(sample.get("jobs"))
+                    job_durations = []
+                    job_ids = set()
+                    for raw_job in jobs:
+                        job = _mapping(raw_job)
+                        started, finished = (
+                            _parse_timestamp(job.get("started_at")),
+                            _parse_timestamp(job.get("finished_at")),
+                        )
+                        duration = _safe_float(job.get("duration_mins"), -1)
+                        job_id = str(job.get("job_id") or "")
+                        build_url = str(sample.get("build_url") or "")
+                        exact_urls = {
+                            f"{build_url}#{job_id}",
+                            f"{build_url}/steps/canvas?jid={job_id}&tab=output",
+                        }
+                        exact_job_link = _buildkite_url_matches(
+                            job.get("url"), "ci", number, require_job=True
+                        ) or (
+                            job.get("url") == f"{build_url}#{job_id}"
+                            and _buildkite_url_matches(build_url, "ci", number)
+                        )
+                        if (
+                            not job_id
+                            or job_id in job_ids
+                            or job.get("url") not in exact_urls
+                            or not exact_job_link
+                        ):
+                            fail(
+                                "job-link",
+                                f"{identity}/{side}: timing needs exact unique ci job links",
+                            )
+                        job_ids.add(job_id)
+                        if not predicate(
+                            {
+                                "raw_name": job.get("raw_name"),
+                                "queue": job.get("queue"),
+                                "hardware": job.get("hardware"),
+                            }
+                        ):
+                            fail(
+                                "hardware-scope",
+                                f"{identity}/{side}: timing includes a job outside this GPU platform",
+                            )
+                        if (
+                            started is None
+                            or finished is None
+                            or finished < started
+                            or duration < 0
+                            or not math.isclose(
+                                duration, (finished - started).total_seconds() / 60, abs_tol=0.0001
+                            )
+                        ):
+                            fail(
+                                "job-duration",
+                                f"{identity}/{side}: wall minutes disagree with exact job timestamps",
+                            )
+                        build_started, build_finished = (
+                            _parse_timestamp(nightly.get("created_at")),
+                            _parse_timestamp(nightly.get("finished_at")),
+                        )
+                        if (
+                            started is not None
+                            and finished is not None
+                            and build_started is not None
+                            and build_finished is not None
+                            and not build_started <= started <= finished <= build_finished
+                        ):
+                            fail(
+                                "job-interval",
+                                f"{identity}/{side}: timed job lies outside its exact completed nightly",
+                            )
+                        job_durations.append(duration)
+                    duration = _safe_float(sample.get("duration_mins"), -1)
+                    if not job_durations or not math.isclose(
+                        duration, max(job_durations), abs_tol=0.0001
+                    ):
+                        fail(
+                            "shard-wall",
+                            f"{identity}/{side}: each nightly must contribute maximum shard wall minutes once",
+                        )
+                    durations.append(duration)
+                expected = round(median(durations), 4) if durations else None
+                actual = block.get("median_duration_mins")
+                if (expected is None and actual is not None) or (
+                    expected is not None
+                    and not math.isclose(_safe_float(actual, -1), expected, abs_tol=0.0001)
+                ):
+                    fail(
+                        "median",
+                        f"{identity}/{side}: median does not reconcile with this cohort's samples",
+                    )
+                medians[side] = expected
+            matched = medians["upstream"] is not None
+            if medians["amd"] is None or row.get("match_status") != (
+                "matched" if matched else "unmatched"
+            ):
+                fail(
+                    "match-state",
+                    f"{identity}: match state must reflect current AMD/CUDA timing availability",
+                )
+            expected_ratio = (
+                round(medians["amd"] / medians["upstream"], 4)
+                if medians["amd"] is not None and medians["upstream"]
+                else None
+            )
+            expected_delta = (
+                round(medians["amd"] - medians["upstream"], 4)
+                if matched and medians["amd"] is not None
+                else None
+            )
+            for key, expected in (("ratio", expected_ratio), ("delta_mins", expected_delta)):
+                if (expected is None and row.get(key) is not None) or (
+                    expected is not None
+                    and not math.isclose(_safe_float(row.get(key), -999), expected, abs_tol=0.0001)
+                ):
+                    fail("comparison", f"{identity}: {key} disagrees with current cohort medians")
+        self.report.metrics["current_nightly_latency"] = {
+            "build_count": len(nightlies),
+            "groups": len(rows),
+            "source_pipeline": "ci",
+        }
+
+    def audit_current_source_parity(self, parity: dict, relpath: str) -> None:
+        """Reconcile current main logical coverage and source-flag gate counts."""
+        from collections import Counter
+
+        source = _mapping(parity.get("source"))
+        commit = str(source.get("current_definition_commit_sha") or "")
+        if (
+            source.get("pipeline") != "ci"
+            or not FULL_COMMIT_SHA_RE.fullmatch(commit)
+            or source.get("main_commit") != commit
+        ):
+            self.error(
+                "current-parity-source",
+                "Current parity must identify one immutable main-ci definition commit",
+                relpath,
+            )
+        summary = _mapping(parity.get("summary"))
+        configured, missing, unsupported = (
+            _safe_int(summary.get(key), -1)
+            for key in ("main_complete_groups", "main_missing_groups", "unsupported_groups")
+        )
+        applicable, total = (
+            _safe_int(summary.get(key), -1)
+            for key in ("applicable_groups", "upstream_logical_groups")
+        )
+        required, optional, soft = (
+            _safe_int(summary.get(key), -1)
+            for key in (
+                "main_required_groups",
+                "main_optional_only_groups",
+                "main_soft_fail_only_groups",
+            )
+        )
+        if (
+            min(configured, missing, unsupported, applicable, total, required, optional, soft) < 0
+            or configured + missing != applicable
+            or applicable + unsupported != total
+            or required + optional + soft != configured
+        ):
+            self.error(
+                "current-parity-counts",
+                "Configured, applicable, missing and source-flag gate counts do not reconcile",
+                relpath,
+            )
+        for rate_field, numerator in (
+            ("main_applicable_rate_pct", configured),
+            ("main_required_rate_pct", required),
+        ):
+            expected = round(numerator / applicable * 100, 1) if applicable > 0 else 0.0
+            if not math.isclose(_safe_float(summary.get(rate_field), -1), expected, abs_tol=0.05):
+                self.error(
+                    "current-parity-rate",
+                    f"{rate_field} disagrees with logical applicable denominator",
+                    relpath,
+                )
+        rows = _rows(parity.get("groups"))
+        retention = _mapping(parity.get("publication_retention"))
+        if retention.get("complete_relative_to_source") is not False:
+            counts = Counter(str(_mapping(row).get("state")) for row in rows)
+            gates = Counter(str(_mapping(row).get("gate_kind")) for row in rows)
+            if (
+                len(rows) != total
+                or any(
+                    counts[key] != value
+                    for key, value in (
+                        ("existing", configured),
+                        ("action", missing),
+                        ("unsupported", unsupported),
+                    )
+                )
+                or any(
+                    gates[key] != value
+                    for key, value in (
+                        ("required", required),
+                        ("optional", optional),
+                        ("soft_fail", soft),
+                    )
+                )
+            ):
+                self.error(
+                    "current-parity-rows",
+                    "Current logical workload rows do not reconcile with source coverage counts",
+                    relpath,
+                )
+        mirrors = _mapping(parity.get("mirror_inventory"))
+        mirror_rows = _rows(mirrors.get("rows"))
+        mirror_summary = _mapping(mirrors.get("summary"))
+        if _mapping(mirrors.get("source")) != source or mirror_summary.get("total") != len(
+            mirror_rows
+        ):
+            self.error(
+                "current-mirror-source",
+                "AMD mirror inventory must use the same current main pin and exact physical row count",
+                relpath,
+            )
+        for key in ("required", "optional", "soft_fail"):
+            if mirror_summary.get(key) != sum(bool(_mapping(row).get(key)) for row in mirror_rows):
+                self.error(
+                    "current-mirror-counts",
+                    f"AMD mirror {key} count disagrees with current source flags",
+                    relpath,
+                )
+        for raw_row in mirror_rows:
+            row = _mapping(raw_row)
+            required_flag = not bool(row.get("optional") or row.get("soft_fail"))
+            expected_url = (
+                f"https://github.com/vllm-project/vllm/blob/{commit}/{row.get('source_file')}"
+            )
+            if row.get("required") is not required_flag or row.get("source_url") != expected_url:
+                self.error("current-mirror-provenance", "AMD mirrors require exact pinned source links and independent optional/soft-fail flags", relpath)
 
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
         """Cross-check the pre-aggregated AMD CI agent-health block.
@@ -4226,69 +4316,6 @@ class DashboardAudit:
                     relpath,
                 )
             summary_mapping = _mapping(summary)
-            scheduled = _mapping(
-                _mapping(summary_mapping.get("scheduled_cohorts")).get(
-                    "upstream_nightly"
-                )
-            )
-            scheduled_count_fields = (
-                "configured",
-                "observed",
-                "green",
-                "non_green",
-                "failing",
-                "soft_failing",
-                "pending",
-                "missing",
-                "queues_configured",
-                "queues_with_observed_work",
-            )
-            scheduled_counts = {
-                key: scheduled.get(key) for key in scheduled_count_fields
-            }
-            scheduled_available = scheduled.get("available")
-            scheduled_invalid = type(scheduled_available) is not bool
-            if scheduled_available is True:
-                scheduled_invalid = scheduled_invalid or any(
-                    type(value) is not int or value < 0
-                    for value in scheduled_counts.values()
-                )
-                if not scheduled_invalid:
-                    scheduled_invalid = (
-                        scheduled_counts["configured"]
-                        != scheduled_counts["observed"]
-                        + scheduled_counts["missing"]
-                        or scheduled_counts["observed"]
-                        != sum(
-                            scheduled_counts[key]
-                            for key in (
-                                "green",
-                                "failing",
-                                "soft_failing",
-                                "pending",
-                            )
-                        )
-                        or scheduled_counts["non_green"]
-                        != scheduled_counts["observed"]
-                        - scheduled_counts["green"]
-                    )
-            elif scheduled_available is False:
-                # No retained nightly is a valid stable-API state. Keep it
-                # distinguishable from an observed zero-sized cohort: every
-                # unavailable denominator must remain explicitly null.
-                scheduled_invalid = scheduled_invalid or any(
-                    value is not None for value in scheduled_counts.values()
-                )
-            if scheduled_invalid:
-                self.error(
-                    "operations-bundle-org-summary-scheduled-denominators",
-                    (
-                        "organization summary upstream nightly denominators must "
-                        "be non-negative and reconcile when available, or all be "
-                        "null when the cohort is unavailable"
-                    ),
-                    relpath,
-                )
             daily_waits = _mapping(
                 _mapping(summary_mapping.get("queues")).get(
                     "daily_served_job_waits"
@@ -4364,20 +4391,14 @@ class DashboardAudit:
                 )
 
         expected = {
-            "nightly",
-            "amd_test_health",
-            "amd_agent_health",
-            "comparison",
-            "comparison_retry_evidence",
-            "reliability",
-            "definition_parity",
-            "gating",
-            "queue",
-            "trajectory",
-            "omni",
-            "diagnostics",
+            "nightly", "amd_test_health", "amd_agent_health", "comparison",
+            "reliability", "definition_parity", "test_group_parity", "ownership",
+            "queue", "omni", "diagnostics",
         }
         sections = _mapping(manifest.get("sections"))
+        retired_sections = {"gating", "trajectory", "comparison_retry_evidence"} & set(sections)
+        if retired_sections:
+            self.error("operations-bundle-retired-sections", f"Operations manifest publishes retired sections: {sorted(retired_sections)}", relpath)
         missing = expected - set(sections)
         if missing:
             self.error(
@@ -4473,17 +4494,6 @@ class DashboardAudit:
                     "flake/retry/latency comparison section is "
                     f"{section_sizes['comparison']} bytes; budget is "
                     f"{OPERATIONS_COMPARISON_MAX_BYTES}"
-                ),
-                relpath,
-            )
-        retry_evidence_size = section_sizes.get("comparison_retry_evidence", 0)
-        if retry_evidence_size > OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES:
-            self.error(
-                "operations-comparison-retry-evidence-payload-budget",
-                (
-                    "deferred flake/retry evidence section is "
-                    f"{retry_evidence_size} bytes; budget is "
-                    f"{OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES}"
                 ),
                 relpath,
             )
@@ -4787,6 +4797,17 @@ class DashboardAudit:
             legacy_is_ratio=True,
         )
 
+    def _audit_current_runtime_build(self, row: dict, side: str, relpath: str) -> None:
+        from vllm.pipelines import is_amd_ci_job, is_upstream_cuda_ci_job
+        number = row.get("build_number") or row.get("number")
+        url = row.get("build_url") or row.get("web_url")
+        if row.get("pipeline") not in {side, "ci"} or row.get("branch") != "main" or not _buildkite_url_matches(url, "ci", number):
+            self.error("current-runtime-source", f"{side} runtime must identify exact upstream ci main build metadata", relpath)
+        predicate = is_amd_ci_job if side == "amd" else is_upstream_cuda_ci_job
+        wrong_hardware = [hardware for hardware in _mapping(row.get("by_hardware")) if not predicate({"hardware": hardware})]
+        if wrong_hardware:
+            self.error("current-runtime-hardware-scope", f"{side} runtime includes hardware outside its GPU roster: {wrong_hardware}", relpath)
+
     def audit_ci_health(self) -> None:
         health = self.load_json("data/vllm/ci/ci_health.json", {})
         if not isinstance(health, dict):
@@ -4805,7 +4826,16 @@ class DashboardAudit:
             if not latest:
                 self.error("ci-health-latest", f"ci_health.json lacks {side}.latest_build")
                 continue
+            for key in ("latest_build", "latest_test_signal_build", "latest_pipeline_build"):
+                current = _mapping(_mapping(health.get(side)).get(key))
+                if current:
+                    self._audit_current_runtime_build(current, side, "data/vllm/ci/ci_health.json")
             path = self.latest_result_file(suffix)
+            if path is not None:
+                from vllm.pipelines import pipeline_job_matches_scope
+                for result in self.load_jsonl(self.rel(path)):
+                    if result.get("pipeline") != "ci" or not pipeline_job_matches_scope({"job_name": result.get("job_name")}, side):
+                        self.error("current-runtime-result-scope", f"{side} latest result shard includes a job from another hardware scope or legacy pipeline", self.rel(path))
             result_numbers = self.build_numbers_in_jsonl(path)
             build_number = latest.get("build_number") or latest.get("number")
             if result_numbers and build_number not in result_numbers:
@@ -4882,6 +4912,9 @@ class DashboardAudit:
                 )
                 continue
             summary = _mapping(block.get("summary"))
+            run_url = block.get("run_url")
+            if run_url and not re.fullmatch(r"https://buildkite\.com/vllm/ci/builds/[1-9]\d*/?", str(run_url)):
+                self.error("root-test-results-current-source", f"{platform} root results link to a legacy or non-ci build", path)
             if not rate_contract_enabled:
                 continue
             assertions = _mapping(summary.get("test_assertions"))
@@ -4968,43 +5001,6 @@ class DashboardAudit:
             "shard_bytes": marker["shard_bytes"],
         }
 
-    def audit_gating_target_candidates(self) -> None:
-        payload = self.load_json("data/vllm/ci/gating_target_candidates.json", {})
-        if not isinstance(payload, dict):
-            return
-        rows = payload.get("rows") or []
-        if not isinstance(rows, list):
-            self.error(
-                "gating-target-candidates-shape",
-                "gating_target_candidates.json rows must be a list",
-                "data/vllm/ci/gating_target_candidates.json",
-            )
-            return
-        default_gpu_offenders = [
-            row
-            for row in rows
-            if isinstance(row, dict)
-            and row.get("decision") == "excluded"
-            and "not_gpu_like" in (row.get("exclusion_reasons") or [])
-            and re.search(r"(^|[^a-z0-9])gpu_", str(row.get("queue") or ""), re.IGNORECASE)
-        ]
-        if default_gpu_offenders:
-            examples = "; ".join(
-                f"{row.get('label')} on {row.get('queue')}"
-                for row in default_gpu_offenders[:5]
-            )
-            self.error(
-                "gating-target-gpu-queue-excluded",
-                "Default Buildkite GPU queue rows must not be excluded as not_gpu_like. "
-                f"Examples: {examples}",
-                "data/vllm/ci/gating_target_candidates.json",
-            )
-        self.report.metrics["gating_target_candidates"] = {
-            "rows": len(rows),
-            "default_gpu_not_gpu_like_exclusions": len(default_gpu_offenders),
-            "summary": payload.get("summary") or {},
-        }
-
     def _audit_analytics_build_rate(self, summary: dict, label: str) -> None:
         path = "data/vllm/ci/analytics.json"
         passed = summary.get("passed")
@@ -5057,7 +5053,7 @@ class DashboardAudit:
             return
         metrics: dict[str, Any] = {}
 
-        for slug in ("amd-ci", "ci"):
+        for slug in ("ci",):
             block = analytics.get(slug)
             if not isinstance(block, dict):
                 self.error("analytics-pipeline-missing", f"analytics.json missing {slug}")
@@ -5079,7 +5075,7 @@ class DashboardAudit:
                     f"{slug}.summary",
                 )
 
-            suffix = RESULT_SUFFIXES[slug]
+            suffix = "upstream"
             latest_results = self.latest_result_file(suffix)
             result_numbers = self.build_numbers_in_jsonl(latest_results)
             latest = _mapping(builds[0])
@@ -5093,7 +5089,7 @@ class DashboardAudit:
                     right_surface="ci_core",
                     right_build=max(result_numbers),
                     context={
-                        "pipeline": "amd" if slug == "amd-ci" else "upstream"
+                        "pipeline": "upstream"
                     },
                 )
             if result_numbers and latest.get("source") != "test_results":
@@ -5192,15 +5188,6 @@ class DashboardAudit:
                 )
             all_main_metrics = None
             all_main = block.get("all_main_reliability") or {}
-            if slug == "amd-ci" and block.get("main_retry_analysis"):
-                self.error(
-                    "analytics-amd-retry-analysis",
-                    (
-                        "AMD analytics may publish strict main reliability, "
-                        "but not upstream flake/retry analysis"
-                    ),
-                    "data/vllm/ci/analytics.json",
-                )
             if not all_main:
                 if slug == "ci":
                     self.error(
@@ -5424,6 +5411,8 @@ class DashboardAudit:
             }
             if all_main_metrics is not None:
                 metrics[slug]["all_main"] = all_main_metrics
+        current_latency = _mapping(_mapping(analytics.get("ci")).get("current_nightly_latency"))
+        self.audit_current_nightly_latency(current_latency, "data/vllm/ci/analytics.json", source_builds=_rows(_mapping(analytics.get("ci")).get("builds")))
         self.report.metrics["analytics"] = metrics
 
     def amd_matrix_audit_view(
@@ -6833,9 +6822,13 @@ class DashboardAudit:
 
         source = matrix.get("source") or {}
         source_build = source.get("latest_build_number")
+        commit = str(source.get("commit_sha") or "")
+        runtime_commit = str(source.get("runtime_source_commit_sha") or "")
+        if source.get("pipeline") != "ci" or source.get("definition_source") != "main_ci_inline_and_native_amd" or not FULL_COMMIT_SHA_RE.fullmatch(commit) or (source_build and runtime_commit != commit):
+            self.error("matrix-current-source", "AMD matrix must expand main ci definitions at the exact observed nightly commit", "data/vllm/ci/amd_test_matrix.json")
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
         health = self.load_json("data/vllm/ci/ci_health.json", {})
-        analytics_build = (((analytics.get("amd-ci") or {}).get("builds") or [{}])[0]).get("number")
+        analytics_build = (((analytics.get("ci") or {}).get("builds") or [{}])[0]).get("number")
         health_build = ((health.get("amd") or {}).get("latest_build") or {}).get("build_number")
         if analytics_build and source_build != analytics_build:
             self.report_cross_surface_build_mismatch(
@@ -6917,6 +6910,8 @@ class DashboardAudit:
                 for url in candidates:
                     if not url:
                         continue
+                    if not _buildkite_url_matches(url, "ci", source_build):
+                        self.error("matrix-current-build-link", "AMD matrix runtime links must point to the exact upstream ci nightly", "data/vllm/ci/amd_test_matrix.json")
                     match = latest_url_build_re.search(str(url))
                     if match and source_build and int(match.group(1)) != int(source_build):
                         stale_urls.append(str(url))
@@ -6952,6 +6947,8 @@ class DashboardAudit:
             return
         parity_stats: dict[str, dict[str, int]] = {}
         for group in parity.get("job_groups") or []:
+            if _safe_int(_mapping(group.get("amd")).get("total")) <= 0:
+                continue
             amd_hardware = group.get("amd_hardware")
             hardware = (
                 amd_hardware
@@ -6997,11 +6994,11 @@ class DashboardAudit:
         for arch, mstats in matrix_stats["by_arch"].items():
             pstats = parity_stats.get(arch, {})
             matrix_total = (
-                _mapping(architecture_sources.get(arch)).get("group_count")
+                _mapping(architecture_sources.get(arch)).get("nightly_match_count")
                 if source_totals
-                else mstats["total"]
+                else mstats.get("matched", mstats["total"])
             )
-            totals_match = pstats.get("total") == matrix_total
+            totals_match = pstats.get("total", 0) == matrix_total
             if not totals_match:
                 self.error(
                     "parity-matrix-hardware-total",

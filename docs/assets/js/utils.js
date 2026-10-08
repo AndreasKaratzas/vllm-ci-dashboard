@@ -190,8 +190,6 @@ var DashboardTabs = (function() {
       family: 'ci',
       description: 'AMD nightly performance + accuracy from the vllm/perf-eval pipeline',
     },
-    { id: 'ci-queue', label: 'Queue Monitor', section: 'vLLM', family: 'ci' },
-    { id: 'ci-hotness', label: 'CI Workload Trajectory', section: 'vLLM', family: 'ci' },
     { id: 'ci-omni', label: 'Omni CI', section: 'vLLM', family: 'ci' },
   ];
   var _byId = {};
@@ -367,49 +365,6 @@ function el(tag, props, children) {
     else e.append(c);
   }
   return e;
-}
-
-// ── Shared overlay factory ──
-// ci-queue.js opens three overlays with identical backdrop + panel markup.
-// Consumers call ``createOverlay({title, color})`` to get ``{backdrop, body,
-// close}``; they populate ``body``, and ``backdrop.remove()`` (or ``close()``)
-// tears everything down. Escape-key + click-on-backdrop handlers are wired
-// automatically.
-function createOverlay(opts) {
-  opts = opts || {};
-  var bg = opts.background || 'rgba(0,0,0,.6)';
-  var panelBg = opts.panelBackground || 'var(--bg)';
-  var color = opts.color || 'var(--text)';
-  var title = opts.title || '';
-  var maxWidth = opts.maxWidth || '900px';
-
-  var backdrop = el('div', { style: {
-    position: 'fixed', inset: '0', background: bg, zIndex: '1000',
-    display: 'flex', justifyContent: 'center', alignItems: 'flex-start',
-    paddingTop: '40px', overflow: 'auto',
-  }});
-  function close() { backdrop.remove(); document.removeEventListener('keydown', onKey); }
-  function onKey(e) { if (e.key === 'Escape') close(); }
-  backdrop.onclick = function(e) { if (e.target === backdrop) close(); };
-  document.addEventListener('keydown', onKey);
-
-  var closeBtn = el('button', {
-    text: '\u2715',
-    onclick: close,
-    style: { background: 'none', border: 'none', color: color, fontSize: '20px', cursor: 'pointer', padding: '4px 8px' },
-  });
-  var header = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } }, [
-    el('h3', { text: title, style: { margin: '0', color: color } }),
-    closeBtn,
-  ]);
-  var body = el('div');
-  var panel = el('div', { style: {
-    background: panelBg, border: '1px solid var(--border)', borderRadius: '8px',
-    padding: '20px', maxWidth: maxWidth, width: '90%', maxHeight: '80vh', overflow: 'auto',
-  }}, [header, body]);
-  backdrop.append(panel);
-  document.body.append(backdrop);
-  return { backdrop: backdrop, panel: panel, body: body, close: close };
 }
 
 function formatDate(iso) {

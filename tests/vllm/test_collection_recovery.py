@@ -120,3 +120,17 @@ def test_boolean_schema_version_cannot_prove_collection_outcome():
             "schema_version": True, "durable_ref": "a" * 40,
             "publication_state_oid": "c" * 40, "retry_surfaces": ["github_home"],
         }, durable_ref="a" * 40)
+
+
+@pytest.mark.parametrize("surface", ("ci_gating", "ci_changes", "ci_hotness"))
+def test_retired_collector_is_never_retried_and_current_contract_rejects_it(surface):
+    payload = {"schema_version": 2, "surface_contract_version": 5, "mode": "fallback",
+               "fallback_surfaces": [surface], "fresh_degraded_surfaces": [],
+               "degraded_surfaces": [surface], "collector_failures": [{
+                   "schema_version": 1, "surface": surface, "collector": "retired.py",
+                   "step": "Retired", "reason_class": "timeout", "exit_code": 1,
+               }]}
+    assert recovery.retry_surfaces_from_state(payload) == []
+    payload["surface_contract_version"] = 6
+    with pytest.raises(recovery.CollectionEvidenceError, match="surface lanes"):
+        recovery.retry_surfaces_from_state(payload)

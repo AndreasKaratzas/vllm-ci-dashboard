@@ -57,6 +57,8 @@ from collect_ci import (  # noqa: E402
     _shard_catalog_evidence,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
+    _current_scope_results,
+    _scoped_result_entries,
     collect_pipeline,
     load_existing_results,
     write_amd_nightly_snapshot,
@@ -64,6 +66,7 @@ from collect_ci import (  # noqa: E402
 from vllm.ci.models import TEST_RESULT_PARSER_VERSION, TestResult  # noqa: E402
 from vllm.ci import reporter as reporter_module  # noqa: E402
 from vllm.ci.reporter import prune_old_results  # noqa: E402
+from vllm.ci.analyzer import compute_build_summary  # noqa: E402
 
 
 def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
@@ -94,10 +97,82 @@ def _record(job_name: str, build_num: int = 7791, job_id: str = "") -> dict:
         "job_id": job_id,
         "step_id": "",
         "build_number": build_num,
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "date": "2026-04-18",
         "parser_version": TEST_RESULT_PARSER_VERSION,
     }
+
+
+def test_same_ci_cache_is_scoped_before_coverage_and_denominators(tmp_path):
+    amd_name, cuda_name = ":amd: (MI300) Current group", ":nvidia: (H100) Current group"
+    records = [_record(amd_name, job_id="amd-job"), _record(cuda_name, job_id="cuda-job")]
+    path = tmp_path / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, records)
+    build = {"number": 7791, "state": "passed", "jobs": [
+        {**_job(amd_name), "id": "amd-job"},
+        {**_job(cuda_name), "id": "cuda-job"},
+    ]}
+    assert _cache_covers_all_jobs(build, path, "amd", 7791) is True
+    rows = _current_scope_results(_load_cached_results(path), "amd")
+    assert [row.job_id for row in rows] == ["amd-job"]
+    summary = compute_build_summary(build, _load_cached_results(path), "amd")
+    assert summary.job_count == summary.unique_test_groups == summary.passed == 1
+    assert set(summary.by_hardware) == {"mi300"}
+
+
+def test_legacy_amd_ci_cache_cannot_satisfy_current_ci_roster(tmp_path):
+    name = "mi300_1: Current group"
+    record = {**_record(name, job_id="same-job"), "pipeline": "amd-ci"}
+    path = tmp_path / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, [record])
+    build = {"number": 7791, "state": "passed", "jobs": [{**_job(name), "id": "same-job"}]}
+    assert _cache_covers_all_jobs(build, path, "amd", 7791) is False
+    assert _current_scope_results(_load_cached_results(path), "amd") == []
+
+
+def test_shared_historical_ci_rows_are_not_double_counted_across_role_shards():
+    row = TestResult(**_record(":amd: (MI300) Current group", job_id="amd-job"))
+    cuda = TestResult(**_record(":nvidia: (H100) Current group", job_id="cuda-job"))
+    entries = [(7791, "2026-04-18", [row]), (7791, "2026-04-18", [row, cuda])]
+    assert _scoped_result_entries(entries, "amd") == [(7791, "2026-04-18", [row])]
+    assert _scoped_result_entries(entries, "upstream") == [(7791, "2026-04-18", [cuda])]
+
+
+def test_new_amd_role_reuses_verified_ci_shard_without_refetching_logs(tmp_path):
+    amd_name, cuda_name = ":amd: (MI300) Current group", ":nvidia: (H100) Current group"
+    results_dir = tmp_path / "test_results"
+    _write_jsonl(results_dir / "2026-04-18_upstream.jsonl", [
+        _record(amd_name, job_id="amd-job"), _record(cuda_name, job_id="cuda-job"),
+    ])
+    # The date-keyed old AMD source is ineligible even if its number collides.
+    _write_jsonl(results_dir / "2026-04-18_amd.jsonl", [
+        {**_record(amd_name, job_id="legacy-job"), "pipeline": "amd-ci"},
+    ])
+    build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z", "jobs": [
+        {**_job(amd_name), "id": "amd-job"}, {**_job(cuda_name), "id": "cuda-job"},
+    ]}
+    with patch("collect_ci.fetch_nightly_builds", return_value=[build]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))), patch("collect_ci.parse_job_results") as parser:
+        _, results = collect_pipeline("amd", 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    parser.assert_not_called()
+    assert [row.job_id for row in results[7791]] == ["amd-job"]
+    assert [row.pipeline for row in _load_cached_results(results_dir / "2026-04-18_amd.jsonl")] == ["ci"]
+
+
+@pytest.mark.parametrize("side,expected_job", [("amd", "amd-job"), ("upstream", "cuda-job")])
+def test_shared_ci_build_logs_are_collected_for_one_hardware_side(tmp_path, side, expected_job):
+    names = {"amd-job": ":amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group", "cpu-job": ":computer: (CPU) CPU tests"}
+    build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z",
+             "jobs": [{**_job(name), "id": job_id, "raw_log_url": "https://example.invalid/log"} for job_id, name in names.items()]}
+    def parse(job, number, pipeline, date):
+        record = _record(job["name"], build_num=number, job_id=job["id"])
+        record.update(pipeline=pipeline, date=date)
+        return [TestResult(**record)]
+    with patch("collect_ci.fetch_nightly_builds", return_value=[build]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))), patch("collect_ci.parse_job_results", side_effect=parse) as parser:
+        builds, results = collect_pipeline(side, 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    assert parser.call_count == 1
+    assert [row.job_id for row in results[7791]] == [expected_job]
+    assert [job["id"] for job in builds[0]["jobs"]] == [expected_job]
+    assert all(row.pipeline == "ci" for row in results[7791])
 
 
 def test_parity_side_hardware_extends_even_when_merged_hardware_already_exists():
@@ -525,7 +600,7 @@ class TestCacheCoversAllJobs:
                 summary_only_build, jsonl, "amd", 7791
             ) is False
             m.assert_called_once_with("amd", 7791)
-        assert summary_only_build == full_detail
+        assert summary_only_build == {**full_detail, "job_scope": "amd_gpu", "source_pipeline": "ci"}
 
     def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
         # If Buildkite is flaky we must not make collection fail outright
@@ -1073,8 +1148,8 @@ class TestFrozenAmdNightlySnapshot:
         path = write_amd_nightly_snapshot(build, tmp_path)
         assert path == tmp_path / ".cache" / "amd_nightly_snapshot.json"
         payload = json.loads(path.read_text())
-        assert payload["schema_version"] == 2
-        assert payload["pipeline"] == "amd-ci"
+        assert payload["schema_version"] == 3
+        assert payload["pipeline"] == "ci"
         assert payload["build"] == compact
         assert payload["publication_retention"]["job_rows"] == {
             "source": 1,

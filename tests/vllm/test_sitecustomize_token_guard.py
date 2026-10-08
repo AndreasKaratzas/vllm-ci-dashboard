@@ -24,7 +24,6 @@ DIRECT_TOKEN_ENTRYPOINTS = (
     ("scripts/vllm/collect_agent_health.py", "BUILDKITE_TOKEN"),
     ("scripts/vllm/collect_analytics.py", "BUILDKITE_TOKEN"),
     ("scripts/vllm/collect_dns_failures.py", "BUILDKITE_TOKEN"),
-    ("scripts/vllm/collect_hotness.py", "BUILDKITE_TOKEN"),
     ("scripts/vllm/collect_perf_eval_artifacts.py", "BUILDKITE_TOKEN"),
     ("scripts/vllm/collect_queue_lifecycle.py", "BUILDKITE_API_TOKEN"),
     ("scripts/vllm/collect_queue_snapshot.py", "BUILDKITE_TOKEN"),

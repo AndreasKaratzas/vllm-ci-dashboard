@@ -503,14 +503,3 @@ def test_capacity_payload_compacts_detail_then_group_rows_with_exact_summary(
     assert retention["aggregate_summaries_complete"] is True
     assert retention["complete_relative_to_source"] is False
     assert retention["group_index"]["omitted"] > 0
-
-
-def test_local_vllm_checkout_has_capacity_scoped_amd_mirrors() -> None:
-    repo = Path("/app/vllm")
-    if not (repo / ".buildkite" / "test_areas").exists():
-        return
-
-    groups = ccm.parse_amd_mirror_groups(repo)
-
-    assert len(groups) >= 24
-    assert all(group["in_capacity_scope"] for group in groups)

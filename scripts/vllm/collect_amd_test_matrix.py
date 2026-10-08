@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build AMD test-group coverage and best-hardware health data from ``test-amd.yaml``.
+"""Build AMD hardware health from build-pinned main ``ci`` AMD definitions.
 
 The output powers the CI Analytics hardware matrix and CI Health test-group inspector:
 
@@ -42,6 +42,8 @@ from vllm.amd_nightly_handoff import (  # noqa: E402
     load_frozen_build_snapshot,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.main_ci_definitions import amd_source_steps, load_snapshot  # noqa: E402
+from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
 from vllm.ci.analyzer import (  # noqa: E402
     _parse_job_execution_label,
     _strip_known_shard_index,
@@ -58,11 +60,11 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
 RAW_YAML_URL = (
     "https://raw.githubusercontent.com/vllm-project/vllm/"
-    "refs/heads/main/.buildkite/test-amd.yaml"
+    "refs/heads/main/.buildkite/ci_config.yaml"
 )
 RAW_YAML_URL_TEMPLATE = (
     "https://raw.githubusercontent.com/vllm-project/vllm/"
-    "{commit}/.buildkite/test-amd.yaml"
+    "{commit}/.buildkite/ci_config.yaml"
 )
 DEFAULT_BUILD_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
 AMD_TEST_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
@@ -641,6 +643,9 @@ def _health_member(
                 "label": entry.get("label"),
                 "agent_pool": entry.get("agent_pool"),
                 "optional": bool(entry.get("optional")),
+                "soft_fail": bool(entry.get("soft_fail")),
+                "source_url": entry.get("source_url"),
+                "definition_id": entry.get("definition_id"),
                 "parallelism": entry.get("parallelism", 1),
                 "state": entry.get("latest_state"),
                 "url": entry.get("latest_url"),
@@ -663,7 +668,8 @@ def _health_member(
         "agent_pools": agent_pools,
         "command_fingerprint": row["command_fingerprint"],
         "commands": list(row.get("commands") or []),
-        "source_url": source_url,
+        "source_url": next((variant["source_url"] for variant in variants if variant.get("source_url")), source_url),
+        "source_urls": sorted({variant["source_url"] for variant in variants if variant.get("source_url")}),
         "url": cell.get("latest_url"),
         "latest_url": cell.get("latest_url"),
         "latest_matched": bool(cell.get("latest_matched")),
@@ -1040,6 +1046,9 @@ def merge_cell_variant(
     }
     if candidate.get("execution_sha256"):
         candidate_entry["execution_sha256"] = candidate["execution_sha256"]
+    for field in ("soft_fail", "source_url", "definition_id", "source_kind"):
+        if field in candidate:
+            candidate_entry[field] = candidate[field]
     if not entries:
         entries.append({
             "label": existing["label"],
@@ -1200,13 +1209,18 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
                     "agent_pool": str(step.get("agent_pool") or ""),
                     "num_gpus": step.get("num_devices") or step.get("num_gpus"),
                     "parallelism": step.get("parallelism"),
-                    "source_file": ".buildkite/test-amd.yaml",
+                    "source_file": step.get("source_file") or ".buildkite/test-amd.yaml",
                     "definition_fingerprint": definition_fingerprint(step),
                 }),
-                "area": classify_area(canonical_title(label)),
+                "area": step.get("area") or classify_area(canonical_title(label)),
+                "source_file": step.get("source_file"),
+                "definition_id": step.get("definition_id"),
+                "source_kind": step.get("source_kind"),
+                "source_url": step.get("source_url"),
                 "arch": arch,
                 "yaml_order": idx,
                 "optional": bool(step.get("optional")),
+                "soft_fail": bool(step.get("soft_fail")),
                 "parallelism": int(step.get("parallelism") or 1),
                 "agent_pool": step.get("agent_pool", ""),
             }
@@ -1216,11 +1230,22 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
     return steps, arch_list
 
 
+def parse_main_ci_steps(snapshot) -> tuple[list[dict[str, Any]], list[str]]:
+    """Expand build-pinned main-CI AMD routes with exact file attribution."""
+    routes = amd_source_steps(snapshot)
+    for route in routes:
+        route["source_url"] = f"https://github.com/vllm-project/vllm/blob/{snapshot.commit_sha}/{route['source_file']}"
+        route["commands"] = flatten_execution_commands(
+            [route["command"]] if "command" in route else route.get("commands", []))
+        route.pop("command", None)
+    return parse_steps(yaml.safe_dump({"steps": routes}))
+
+
 def build_latest_job_index(
     analytics: dict[str, Any],
     shard_bases: list[str],
 ) -> tuple[dict[str, dict[str, list[dict[str, Any]]]], dict[str, Any] | None]:
-    amd = analytics.get("amd-ci", {}) if isinstance(analytics, dict) else {}
+    amd = analytics.get("ci", {}) if isinstance(analytics, dict) else {}
     latest_builds = amd.get("builds", []) if isinstance(amd, dict) else []
     latest_build = latest_builds[0] if latest_builds else None
     index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
@@ -1229,6 +1254,8 @@ def build_latest_job_index(
         return index, None
 
     for job in latest_build.get("jobs", []) or []:
+        if not is_amd_ci_job(job):
+            continue
         arch = arch_from_queue(job.get("q", ""))
         if not arch:
             continue
@@ -1255,11 +1282,11 @@ def build_buildkite_job_index(
     )
     build_number = build.get("number")
     for job in build.get("jobs", []) or []:
-        if job.get("type") != "script" or job.get("retried_in_job_id"):
+        if not is_amd_ci_job(job) or job.get("retried_in_job_id"):
             continue
         full_name = clean_label(job.get("name", ""))
         agent_pool = _agent_pool_from_job_name(full_name)
-        queue = _queue_from_rules(job.get("agent_query_rules"))
+        queue = _job_queue(job)
         arch = arch_from_queue(queue) or arch_from_agent_pool(agent_pool)
         if not full_name or not arch:
             continue
@@ -1271,7 +1298,7 @@ def build_buildkite_job_index(
         )
         job_id = clean_label(job.get("id", ""))
         step_id = clean_label((job.get("step") or {}).get("id", ""))
-        base_url = f"https://buildkite.com/vllm/amd-ci/builds/{build_number}"
+        base_url = f"https://buildkite.com/vllm/ci/builds/{build_number}"
         if job_id:
             job_url = f"{base_url}/steps/canvas?jid={job_id}&tab=output"
         elif step_id:
@@ -1329,7 +1356,7 @@ def build_hotness_job_index(
         evidence = row.get("latest_evidence") or {}
         if not isinstance(evidence, dict):
             continue
-        if evidence.get("pipeline") != "amd-ci":
+        if evidence.get("pipeline") != "ci":
             continue
         if str(evidence.get("build_number") or "") != expected_build:
             continue
@@ -1355,7 +1382,7 @@ def build_hotness_job_index(
         job_url = clean_label(evidence.get("job_url", ""))
         if job_id:
             job_url = (
-                f"https://buildkite.com/vllm/amd-ci/builds/{expected_build}"
+                f"https://buildkite.com/vllm/ci/builds/{expected_build}"
                 f"/steps/canvas?jid={job_id}&tab=output"
             )
         job = {
@@ -1403,14 +1430,15 @@ def latest_build_metadata(
     build_url = (
         amd_latest.get("build_url")
         or amd_latest.get("web_url")
-        or f"https://buildkite.com/vllm/amd-ci/builds/{number}"
+        or f"https://buildkite.com/vllm/ci/builds/{number}"
     )
     return {
         "number": number,
         "created_at": created_at,
         "date": date,
         "web_url": build_url,
-        "message": amd_latest.get("message") or "AMD Full CI Run - nightly",
+        "message": amd_latest.get("message") or "Full CI run - nightly",
+        "commit": amd_latest.get("commit") or amd_latest.get("commit_sha"),
     }
 
 
@@ -1525,6 +1553,10 @@ def build_matrix(
             "label": step["link_label"],
             "agent_pool": step["agent_pool"],
             "optional": step["optional"],
+            "soft_fail": bool(step.get("soft_fail")),
+            "source_url": step.get("source_url"),
+            "definition_id": step.get("definition_id"),
+            "source_kind": step.get("source_kind"),
             "parallelism": step["parallelism"],
             "latest_matched": latest_matched,
             "latest_match_count": len(matches),
@@ -1553,6 +1585,8 @@ def build_matrix(
             }]
             if variant.get("execution_sha256"):
                 variant["entries"][0]["execution_sha256"] = variant["execution_sha256"]
+            for field in ("soft_fail", "source_url", "definition_id", "source_kind"):
+                variant["entries"][0][field] = variant[field]
             cell["variants"].append(variant)
         cell["variant_count"] = len(cell["variants"])
 
@@ -2063,9 +2097,19 @@ def main() -> None:
         shard_bases,
     )
     yaml_url = yaml_url_for_build(latest_build, args.yaml_url)
-    log.info("Fetching build-pinned AMD YAML from %s", yaml_url)
-    yaml_text = fetch_yaml_text(yaml_url)
-    steps, architectures = parse_steps(yaml_text)
+    if args.yaml_url:
+        # Explicit fixtures/diagnostics remain supported; production always
+        # expands current ci inline mirrors and native AMD routes together.
+        steps, architectures = parse_steps(fetch_yaml_text(yaml_url))
+        source_snapshot = None
+    else:
+        commit = str((latest_build or {}).get("commit") or "")
+        if latest_build and not re.fullmatch(r"[0-9a-f]{40}", commit, re.I):
+            raise ValueError("AMD main-ci matrix requires the exact observed nightly commit")
+        source_snapshot = load_snapshot(commit or None)
+        steps, architectures = parse_main_ci_steps(source_snapshot)
+        yaml_url = RAW_YAML_URL_TEMPLATE.format(commit=source_snapshot.commit_sha)
+        log.info("Loaded %s AMD routes from main ci at %s", len(steps), source_snapshot.commit_sha)
     parity_exact_index, parity_norm_index = build_parity_amd_index(parity, shard_bases)
 
     matrix = build_matrix(
@@ -2078,6 +2122,9 @@ def main() -> None:
         shard_bases=shard_bases,
         yaml_url=yaml_url,
     )
+    matrix["source"].update({"pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd",
+        "runtime_source_commit_sha": (latest_build or {}).get("commit"),
+        "commit_sha": source_snapshot.commit_sha if source_snapshot is not None else None})
 
     out_path = output / "amd_test_matrix.json"
     matrix = publish_matrix(

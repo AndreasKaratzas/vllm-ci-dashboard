@@ -699,8 +699,8 @@ class TestPrimaryCIWorkflow:
         )
 
         smoke = (REPO_ROOT / "tests" / "browser" / "dashboard-smoke.spec.mjs").read_text()
-        assert "'/#ci-hotness'" in smoke
-        assert "CI Workload Trajectory" in smoke
+        assert "Latest five completed main CI nightlies" in smoke
+        assert "resolves to a supported view" in smoke
         assert "browserErrors" in smoke
         assert ".ops-error" in smoke
         assert "12_500" in smoke
@@ -1501,43 +1501,14 @@ class TestHourlyMasterWorkflow:
                 not in (step.get("run", "") or "")
             )
 
-    def test_calls_collect_group_changes(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_group_changes.py" in text
 
     def test_calls_collect_amd_test_matrix(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_amd_test_matrix.py" in text
 
-    def test_calls_collect_gating_proposals(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_gating_proposals.py" in text
 
-    def test_calls_collect_gating_targets(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_gating_targets.py" in text
 
-    def test_hourly_rebuilds_gating_targets_after_live_data_sync(self):
-        data = _load_workflow("hourly-master.yml")
-        job = next(iter(data["jobs"].values()))
-        steps = job.get("steps", []) or []
-        names = [step.get("name") for step in steps]
 
-        restore = names.index("Restore validated dashboard state")
-        collect = names.index("Collect AMD gating target list")
-        candidates = names.index("Collect AMD gating target candidate audit")
-
-        assert restore < collect < candidates
-        assert 'run_surface_collector ci_gating "AMD gating target list"' in (
-            steps[collect]["run"]
-        )
-        assert "python scripts/vllm/collect_gating_targets.py" in steps[collect][
-            "run"
-        ]
-
-    def test_calls_collect_gating_target_candidates(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_gating_target_candidates.py" in text
 
     def test_amd_matrix_uses_the_frozen_collect_ci_roster(self):
         data = _load_workflow("hourly-master.yml")
@@ -1557,18 +1528,8 @@ class TestHourlyMasterWorkflow:
             in matrix["if"]
         )
 
-    def test_ci_collect_calls_collect_gating_proposals(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_gating_proposals.py" in text
-        assert "GITHUB_TOKEN" in text
 
-    def test_ci_collect_calls_collect_gating_targets(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_gating_targets.py" in text
 
-    def test_ci_collect_calls_collect_gating_target_candidates(self):
-        text = _load_workflow_text("hourly-master.yml")
-        assert "collect_gating_target_candidates.py" in text
 
     def test_ci_collect_validates_untrusted_collection_inputs(self):
         workflow = _load_workflow("ci-collect.yml")
@@ -1684,9 +1645,7 @@ class TestHourlyMasterWorkflow:
         assert '"timeout"' in helper
         assert '"schema-drift"' in helper
         assert "local status=${PIPESTATUS[0]}" in helper
-        assert "mirror_surface_failure()" in helper
-        assert 'mirrored["surface"] = target_surface' in helper
-        assert 'candidate.get("reason_class")' in helper
+        assert "mirror_surface_failure()" not in helper
         assert '"component_bytes"' in helper
         for name, surface in (
             ("Sync queue data from durable live branch", "queue"),
@@ -1714,8 +1673,8 @@ class TestHourlyMasterWorkflow:
         assert 'sort -u "$PUBLICATION_FAILED_SURFACES_FILE"' in selector_run
         assert selector.get("continue-on-error") is not True
         assert "Sync CI data from gh-pages" not in names
-        assert "run_surface_collector ci_gating" in steps[
-            names.index("Collect AMD gating target list")
+        assert "run_surface_collector ci_core" in steps[
+            names.index("Refresh current main CI parity")
         ]["run"]
         assert "Build v2 operations snapshot" not in names
         assert "run_surface_collector queue" in steps[
@@ -1728,22 +1687,18 @@ class TestHourlyMasterWorkflow:
         names = [step.get("name") for step in steps]
         baseline = steps[names.index("Capture immutable main code")]["run"]
         allowed_surfaces = (
-            "ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|"
+            "ci_core|ci_analytics|queue|"
             "queue_capacity|queue_workload|queue_omni|queue_lifecycle|agent_health|"
             "dns_health|github_home|perf_eval"
         )
-        assert baseline.count(allowed_surfaces) == 2
+        assert baseline.count(allowed_surfaces) == 1
 
         expected_collectors = {
             "Collect CI data": "ci_core",
+            "Refresh current main CI parity": "ci_core",
             "Collect CI analytics": "ci_analytics",
             "Collect AMD test matrix": "ci_core",
             "Collect build-pinned CI ownership parity": "ci_core",
-            "Collect AMD gating target list": "ci_gating",
-            "Collect AMD gating proposals": "ci_gating",
-            "Collect AMD gating target candidate audit": "ci_gating",
-            "Collect test group changes": "ci_changes",
-            "Collect AMD hotness (3d window)": "ci_hotness",
             "Collect queue capacity monitor": "queue_capacity",
             "Collect vLLM/Omni AMD workload mappings": "queue_workload",
             "Refresh Omni surge heuristic": "queue_omni",
@@ -1984,15 +1939,8 @@ class TestHourlyMasterWorkflow:
         collect = steps[collect_index]
         assert collect["id"] == "collect-analytics"
         assert "surface_is_current ci_analytics" in collect["run"]
-        assert "GATING_NIGHTLIES_BEFORE=$(gating_nightlies_digest)" in collect["run"]
-        assert "GATING_NIGHTLIES_AFTER=$(gating_nightlies_digest)" in collect["run"]
-        assert '"$GATING_NIGHTLIES_BEFORE" = "$GATING_NIGHTLIES_AFTER"' in collect[
-            "run"
-        ]
-        assert (
-            'mirror_surface_failure \\\n    ci_analytics ci_gating "CI gating nightly evidence"'
-            in collect["run"]
-        )
+        assert "gating_nightlies_digest" not in collect["run"]
+        assert "ci_gating" not in collect["run"]
         assert '--github-output "$GITHUB_OUTPUT"' in collect["run"]
         assert 'echo "cache_save=true"' in collect["run"]
         assert 'echo "cache_save=false"' in collect["run"]
@@ -2183,7 +2131,6 @@ class TestHourlyMasterWorkflow:
         dns_absent = "inputs.dns_generation == ''"
 
         expected_buildkite_steps = {
-            "Collect AMD hotness (3d window)",
             "Collect vLLM/Omni AMD workload mappings",
             "Collect CI data",
             "Collect CI analytics",
@@ -4509,24 +4456,6 @@ class TestDeployDataFreshness:
         deploy = _load_workflow_text("deploy-pages.yml")
         assert "collect_queue_snapshot.py" not in deploy
 
-    def test_hourly_hotness_collection_follows_stale_data_sync(self):
-        data = _load_workflow("hourly-master.yml")
-        steps = next(iter(data["jobs"].values())).get("steps", [])
-        sync_idx = next(
-            i
-            for i, step in enumerate(steps)
-            if step.get("name") == "Restore validated dashboard state"
-        )
-        hotness_idx = next(
-            i
-            for i, step in enumerate(steps)
-            if step.get("name", "").startswith("Collect AMD hotness")
-        )
-
-        assert sync_idx < hotness_idx
-        assert "git show origin/gh-pages:data/vllm/ci/hotness.json" not in (
-            _load_workflow_text("hourly-master.yml")
-        )
 
     def test_hourly_history_sync_precedes_prune_without_api_collection(self):
         data = _load_workflow("hourly-master.yml")

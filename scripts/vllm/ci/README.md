@@ -86,45 +86,18 @@ All files are written to `data/vllm/ci/`:
 | `quarantine.json` | Rendered quarantine/allowlist state |
 | `test_results/{date}_{pipeline}.jsonl` | Per-test results (one JSON per line) |
 
-### Upstream scheduled-gating contract
+### Current CI health and latency
 
-The browser-ready contract for scheduled upstream gating is generated at
-`data/vllm/ci/operations_v2/gating.json#/gating/upstream_scheduled`. Dashboard
-code should consume that projection instead of rebuilding the group-to-job
-join or counting raw Buildkite jobs.
+`ci` is the current runtime source for both AMD and CUDA GPU cohorts; CPU jobs
+and the legacy `amd-ci` pipeline are excluded. The immutable main CI definitions
+produce the current parity and mirror inventory. Observed AMD health uses the
+actual nightly logical groups with explicit any-hardware/all-hardware policies.
 
-The cohort is deliberately narrow: only `ci` pipeline builds on `main` whose
-message matches the `Full CI run - nightly` or `Full CI run - daily` marker are
-eligible (the classifier permits a whitespace-delimited suffix). Arbitrary
-`main` builds are excluded. Only terminal passed/failed builds with retained
-configured-group observations are surfaced; older catalog entries whose
-bounded observations have expired are omitted instead of being reported as
-zero gated. Retry attempts are collapsed before logical test groups are
-counted. For each selected build:
-
-- `summary.total` is the number of configured logical AMD mirror groups in
-  scope.
-- `summary.gated` is the number of those configured groups observed in the
-  build.
-- `summary.passing` is the number of observed groups whose selected final jobs
-  all pass.
-- `summary.queue_count` counts queues that gated at least one group in that
-  build, while `summary.configured_queue_count` records the full configured
-  queue inventory.
-- `queue_wait_mins` summarizes wait time from `runnable_at` to `started_at` as
-  `p50`, `p95`, `max`, and `sample_count`.
-- Each entry in `queues` repeats the logical-group counts, a `used` flag, and
-  `queue_wait_mins` for one Buildkite queue, so queue-level gating and latency
-  use the same selected job population as the build summary.
-
-`build_operations_snapshot.py` assembles the projection from
-`capacity_monitor.json`, which supplies the configured logical-group inventory
-and expected queues, and the validated
-`analytics.json#/ci/all_main_reliability` aggregate, which supplies retained
-build messages plus bounded group observations with outcomes, stable step keys,
-retry evidence, and queue timestamps. The public shard is the authoritative
-joined contract; the full analytics payload and the monolithic
-`operations_v2.json.gz` build input remains private and below the file ceiling.
+The latency shard uses only the global latest five completed main CI nightlies.
+Each platform/group has zero to five samples with exact build/job links and an
+explicit date interval. Complete parallel shards contribute their maximum wall
+time once per nightly; displayed latency is the median of those samples. No
+older build is fetched to replace a missing group. A stale cohort is unavailable.
 
 `all_main_reliability` schema v2 normalizes its retained observations: build
 metadata and base URLs live once in the authoritative `builds` catalog, while
@@ -999,8 +972,7 @@ collection does not save the new daily key; cache transport failures are
 non-fatal and collection continues from Buildkite.
 An incremental materialization that grows by at least 20% and 8 MiB is treated
 as suspicious and receives one exhaustive reconciliation before any cache
-replacement. Analytics and the independently consumed gating-nightly seed are
-written atomically; gating is written first so a later analytics budget failure
-does not withhold valid fresh gating evidence.
+replacement. Analytics is written atomically only after its complete current
+CI cohorts and five-nightly latency contract fit their bounded publication.
 This directory is private, gitignored, never published, and never restored
 from gh-pages. Delete the local directory to force a cache-free fetch.

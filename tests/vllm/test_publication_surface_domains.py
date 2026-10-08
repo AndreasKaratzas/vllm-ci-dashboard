@@ -30,13 +30,8 @@ from vllm.publication_surfaces import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CI_DOMAINS = frozenset({
-    "ci_core",
-    "ci_analytics",
-    "ci_gating",
-    "ci_changes",
-    "ci_hotness",
-})
+CI_DOMAINS = frozenset({"ci_core", "ci_analytics"})
+HISTORICAL_CI_DOMAINS = LEGACY_SURFACE_ALIASES["ci"]
 
 
 def test_every_operations_audit_code_has_explicit_source_lineage() -> None:
@@ -106,10 +101,10 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
     assert set(SOURCE_SURFACES.values()) <= set(SURFACE_SPECS)
 
     assert surface_for_path("data/vllm/ci/analytics.json") == "ci_analytics"
-    assert surface_for_path("data/vllm/ci/gating_nightlies.json") == "ci_gating"
-    assert surface_for_path("data/vllm/ci/gating_targets.json") == "ci_gating"
-    assert surface_for_path("data/vllm/ci/group_changes.json") == "ci_changes"
-    assert surface_for_path("data/vllm/ci/hotness.json") == "ci_hotness"
+    assert surface_for_path("data/vllm/ci/gating_nightlies.json") is None
+    assert surface_for_path("data/vllm/ci/gating_targets.json") is None
+    assert surface_for_path("data/vllm/ci/group_changes.json") is None
+    assert surface_for_path("data/vllm/ci/hotness.json") is None
     assert surface_for_path("data/vllm/ci/dns_failures.json") == "dns_health"
     assert (
         surface_for_path("data/vllm/ci/test_results/domain-contract.jsonl")
@@ -152,23 +147,23 @@ def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
     }
 
     assert LEGACY_CI_SURFACE == "ci"
-    assert LEGACY_SURFACE_ALIASES == {"ci": CI_DOMAINS}
+    assert LEGACY_SURFACE_ALIASES == {"ci": HISTORICAL_CI_DOMAINS}
     assert set(LEGACY_CI_SURFACE_SPEC.required_paths) == expected_required
     assert set(LEGACY_CI_SURFACE_SPEC.optional_paths) == expected_optional
     assert LEGACY_CI_SURFACE_SPEC.globs == ("data/vllm/ci/test_results/*.jsonl",)
 
     partitioned_required = {
         path
-        for surface in CI_DOMAINS
-        for path in SURFACE_SPECS[surface].required_paths
+        for surface in HISTORICAL_CI_DOMAINS
+        for path in surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths
     }
     partitioned_optional = {
         path
-        for surface in CI_DOMAINS
-        for path in SURFACE_SPECS[surface].optional_paths
+        for surface in HISTORICAL_CI_DOMAINS
+        for path in surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].optional_paths
     }
     partitioned_globs = {
-        pattern for surface in CI_DOMAINS for pattern in SURFACE_SPECS[surface].globs
+        pattern for surface in HISTORICAL_CI_DOMAINS for pattern in surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].globs
     }
     assert partitioned_required == expected_required
     assert partitioned_optional == expected_optional - set(
@@ -179,7 +174,7 @@ def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
     assert {
         surface_for_path(path)
         for path in expected_required | partitioned_optional
-    } <= CI_DOMAINS
+    } <= CI_DOMAINS | {None}
 
 
 def test_private_watcher_ledgers_have_no_publication_surface_owner() -> None:
@@ -200,9 +195,9 @@ def test_private_watcher_ledgers_have_no_publication_surface_owner() -> None:
     ("path", "expected"),
     (
         ("data/vllm/ci/ci_health.json", {"ci_core"}),
-        ("data/vllm/ci/gating_targets.json", {"ci_gating"}),
-        ("data/vllm/ci/group_changes.json", {"ci_changes"}),
-        ("data/vllm/ci/hotness.json", {"ci_hotness"}),
+        ("data/vllm/ci/gating_targets.json", set()),
+        ("data/vllm/ci/group_changes.json", set()),
+        ("data/vllm/ci/hotness.json", set()),
         ("data/vllm/ci/queue_timeseries.jsonl", {"queue"}),
         ("data/vllm/ci/capacity_monitor.json", {"queue_capacity"}),
         ("data/vllm/ci/workload_mapping.json", {"queue_workload"}),
@@ -222,31 +217,31 @@ def test_path_specific_findings_route_to_the_owning_domain(
     ("code", "source", "expected"),
     (
         ("operations-stale-source", "analytics", {"ci_analytics"}),
-        ("operations-stale-source", "gating_targets", {"ci_gating"}),
+        ("operations-stale-source", "gating_targets", set()),
         ("operations-stale-source", "queue_timeseries", {"queue"}),
         ("operations-stale-source", "queue_jobs", {"queue"}),
         ("operations-stale-source", "capacity_monitor", {"queue_capacity"}),
         ("operations-stale-source", "workload_mapping", {"queue_workload"}),
         ("operations-stale-source", "omni_heuristic", {"queue_omni"}),
         ("operations-stale-source", "omni_issue_state", {"queue_omni"}),
-        ("operations-source-schema", "group_changes", {"ci_changes"}),
+        ("operations-source-schema", "group_changes", set()),
         (
             "operations-gating-runtime-resolution",
             None,
-            {"ci_core", "ci_gating", "queue_capacity"},
+            set(),
         ),
         (
             "operations-gating-history-source-pipeline",
             None,
-            {"ci_analytics", "ci_gating", "queue_capacity"},
+            set(),
         ),
         (
             "operations-active-target-count",
             None,
-            {"ci_gating", "queue_capacity"},
+            set(),
         ),
-        ("operations-canonical-target-count", None, {"ci_gating"}),
-        ("operations-trajectory-scope", None, {"ci_analytics"}),
+        ("operations-canonical-target-count", None, set()),
+        ("operations-trajectory-scope", None, set()),
         (
             "operations-latest-nightly",
             None,
@@ -259,8 +254,8 @@ def test_path_specific_findings_route_to_the_owning_domain(
             None,
             {"ci_analytics", "ci_core"},
         ),
-        ("operations-platform-comparison-counts", None, {"ci_analytics"}),
-        ("operations-platform-comparison-eligibility", None, {"ci_analytics"}),
+        ("operations-platform-comparison-counts", None, set()),
+        ("operations-platform-comparison-eligibility", None, set()),
         ("operations-retry-attempt-count", None, {"ci_analytics"}),
         ("operations-retry-recovery-count", None, {"ci_analytics"}),
         ("operations-retry-links", None, {"ci_analytics"}),
@@ -274,11 +269,11 @@ def test_path_specific_findings_route_to_the_owning_domain(
         (
             "operations-bundle-org-summary-scheduled-denominators",
             None,
-            {"ci_analytics"},
+            set(),
         ),
         ("definition-parity-command", None, {"ci_core"}),
         ("matrix-summary-mismatch", None, {"ci_core"}),
-        ("gating-target-invalid", None, {"ci_gating"}),
+        ("gating-target-invalid", None, set()),
         ("analytics-invalid", None, {"ci_analytics"}),
         ("dns-health-invalid", None, {"dns_health"}),
     ),
@@ -322,7 +317,6 @@ def test_generic_findings_route_to_their_consuming_domains(
             {
                 "ci_analytics",
                 "ci_core",
-                "ci_gating",
                 "queue",
                 "queue_capacity",
                 "queue_lifecycle",
@@ -330,7 +324,7 @@ def test_generic_findings_route_to_their_consuming_domains(
         ),
         (
             "operations-comparison-retry-evidence-payload-budget",
-            {"ci_analytics"},
+            set(),
         ),
     ),
 )
@@ -361,10 +355,9 @@ def test_analytics_core_and_gating_fallbacks_are_independent() -> None:
     assert fallback_dependency_closure("ci_analytics") == frozenset(
         {"ci_analytics"}
     )
-    assert fallback_dependency_closure({"ci_gating"}) == frozenset({"ci_gating"})
-    assert fallback_dependency_closure({"ci_changes", "ci_hotness"}) == frozenset(
-        {"ci_changes", "ci_hotness"}
-    )
+    for retired in surfaces_module.RETIRED_SURFACES:
+        with pytest.raises(ValueError, match="unknown publication surfaces"):
+            fallback_dependency_closure({retired})
     assert fallback_dependency_closure(
         fallback_dependency_closure({"ci_core"})
     ) == frozenset({"ci_core"})
@@ -377,14 +370,14 @@ def test_fallback_dependency_closure_supports_multi_hop_graphs(
         surfaces_module,
         "FALLBACK_DEPENDENCIES",
         {
-            "ci_core": frozenset({"ci_gating"}),
-            "ci_gating": frozenset({"ci_changes"}),
-            "ci_changes": frozenset({"ci_hotness"}),
-            "ci_hotness": frozenset({"ci_analytics"}),
+            "ci_core": frozenset({"queue"}),
+            "queue": frozenset({"queue_capacity"}),
+            "queue_capacity": frozenset({"queue_workload"}),
+            "queue_workload": frozenset({"ci_analytics"}),
             "ci_analytics": frozenset({"ci_core"}),
         },
     )
-    assert fallback_dependency_closure({"ci_core"}) == CI_DOMAINS
+    assert fallback_dependency_closure({"ci_core"}) == CI_DOMAINS | {"queue", "queue_capacity", "queue_workload"}
 
 
 def test_fallback_dependency_closure_fails_closed_on_unknown_surfaces(

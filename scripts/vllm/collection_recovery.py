@@ -18,13 +18,16 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from vllm.publication_surfaces import SURFACE_SPECS
+from vllm.publication_surfaces import (
+    SURFACE_SPECS, PRE_VIEW_RETIREMENT_SURFACE_SPECS,
+    PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION, SURFACE_CONTRACT_VERSION,
+)
 from vllm import github_git_proof
 from vllm.dashboard_storage_budget import writer_max_bytes
 
 
 RETRY_SURFACES = frozenset({
-    "ci_core", "ci_analytics", "ci_gating", "ci_changes", "ci_hotness",
+    "ci_core", "ci_analytics",
     "agent_health", "github_home", "perf_eval",
 })
 REASON_CLASSES = frozenset({
@@ -67,12 +70,16 @@ def retry_surfaces_from_state(payload: object) -> list[str]:
         raise CollectionEvidenceError("unsupported publication state schema")
     if payload.get("mode") not in {"current", "degraded", "fallback", "mixed"}:
         raise CollectionEvidenceError("publication state is not publishable")
+    version = payload.get("surface_contract_version")
+    if version not in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION, SURFACE_CONTRACT_VERSION) or isinstance(version, bool):
+        raise CollectionEvidenceError("unsupported publication surface contract")
+    allowed = PRE_VIEW_RETIREMENT_SURFACE_SPECS if version in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION) else SURFACE_SPECS
     lanes: dict[str, set[str]] = {}
     for field in ("fallback_surfaces", "fresh_degraded_surfaces", "degraded_surfaces"):
         values = payload.get(field)
         if (
             not isinstance(values, list)
-            or any(not isinstance(value, str) or value not in SURFACE_SPECS for value in values)
+            or any(not isinstance(value, str) or value not in allowed for value in values)
             or len(values) != len(set(values))
         ):
             raise CollectionEvidenceError("invalid publication surface lanes")
@@ -98,7 +105,7 @@ def retry_surfaces_from_state(payload: object) -> list[str]:
         step = row.get("step")
         if (
             type(row.get("schema_version")) is not int or row["schema_version"] != 1
-            or not isinstance(surface, str) or surface not in SURFACE_SPECS
+            or not isinstance(surface, str) or surface not in allowed
             or not isinstance(collector, str)
             or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,160}", collector)
             or not isinstance(step, str) or not 1 <= len(step) <= 200

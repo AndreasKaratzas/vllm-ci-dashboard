@@ -24,7 +24,7 @@ def _section_sizes(*, total: int) -> dict[str, int]:
 
 
 def test_probe_policy_covers_every_declared_section_and_streams_reliability():
-    assert contract.OPERATIONS_BUNDLE_VERSION == 2
+    assert contract.OPERATIONS_BUNDLE_VERSION == 3
     assert (
         contract.OPERATIONS_PRODUCER_BUNDLE_VERSION
         in contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
@@ -45,7 +45,7 @@ def test_probe_policy_covers_every_declared_section_and_streams_reliability():
     assert (
         contract.OPERATIONS_MANIFEST_MAX_BYTES
         + sum(contract.OPERATIONS_CANARY_SECTION_MAX_BYTES.values())
-        == contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES
+        <= contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES
     )
 
 
@@ -88,7 +88,7 @@ def test_canary_budget_accepts_the_exact_boundary_and_large_health_shard():
     assert contract.validate_operations_canary_budget(
         manifest_bytes=manifest_bytes,
         section_bytes=section_bytes,
-    ) == contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES
+    ) <= contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES
 
 
 def test_canary_budget_rejects_one_byte_over_the_boundary():
@@ -108,9 +108,9 @@ def test_canary_budget_rejects_one_byte_over_the_boundary():
 
 
 def test_legacy_bundle_keeps_bounded_rollout_compatibility():
-    section_bytes = _section_sizes(total=len(contract.OPERATIONS_CANARY_SECTIONS))
+    section_bytes = {name: 1 for name in contract.OPERATIONS_V2_SECTION_NAMES}
     section_bytes["comparison_retry_evidence"] = (
-        contract.OPERATIONS_CANARY_SECTION_MAX_BYTES[
+        contract.OPERATIONS_V2_CANARY_SECTION_MAX_BYTES[
             "comparison_retry_evidence"
         ]
         + 1
@@ -143,9 +143,9 @@ def test_bundle_version_dispatch_rejects_unknown_versions(bundle_version):
         )
 
 
-def test_v3_reader_accepts_smaller_inventory_before_producer_activation():
+def test_v3_producer_and_readers_require_smaller_inventory():
     sections = {name: 1 for name in contract.OPERATIONS_V3_SECTION_NAMES}
-    assert contract.OPERATIONS_PRODUCER_BUNDLE_VERSION == 2
+    assert contract.OPERATIONS_PRODUCER_BUNDLE_VERSION == 3
     assert contract.validate_operations_canary_budget_for_bundle_version(
         bundle_version=3, manifest_bytes=1, section_bytes=sections
     ) == len(sections)

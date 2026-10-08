@@ -52,7 +52,8 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
 
     for text in (readme, renderer):
         assert "deployed automatically on every push to main" not in text
-        assert "scripts/vllm/collect_gating_targets.py" in text
+        assert "scripts/vllm/collect_gating_targets.py" not in text
+        assert "scripts/vllm/build_test_group_parity.py" in text
         assert "scripts/vllm/build_operations_snapshot.py" in text
         assert "scripts/vllm/collect_ownership_parity.py" in text
         assert "scripts/vllm/ci_area_regression_watcher.py" in text
@@ -65,20 +66,21 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "a schedule cannot be" in text
         assert "evaluated safely" in text
         assert "PROJECTS_WRITE_TOKEN" in text
-        assert "`gating_targets.json` is regenerated" in text
-        assert "`operations_v2.json.gz` is a private, bounded build input" in text
-        assert "best-hardware test-group health" in text
+        assert "`gating_targets.json` is regenerated" not in text
+        assert "The private `operations_v2.json.gz` build input produces bundle v3 with eleven" in text
+        assert "Current runtime metrics use AMD and CUDA GPU jobs from the `ci` pipeline." in text
         assert "runtime gates" not in text
 
     assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme
     assert "regional working-hour profiles" in scripts_readme
     assert "Every two hours via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
-    assert "five atomic publication surfaces" in scripts_readme
+    assert "Contract v6 validates historical v5 restore proofs" in scripts_readme
     assert "`ci_analytics` publication surface" in scripts_readme
     assert "`ci-collect.yml` workflow is validation-only" in scripts_readme
-    assert "exact active-job ledger counts remain separate" in audit
-    assert "hard failures, soft failures, and" in audit
+    assert "runtime health from the observed `ci` nightly" in audit
+    assert "CPU and legacy `amd-ci` jobs do not" in audit
+    assert "exact evidence links, five-nightly" in audit
 
 
 def _write(path: Path, text: str = "{}\n") -> None:
@@ -97,17 +99,14 @@ def _operation_generated_files() -> list[str]:
             "amd_agent_health",
             "amd_test_health",
             "comparison",
-            "comparison_retry_evidence",
             "definition_parity",
             "diagnostics",
-            "gating",
             "nightly",
             "omni",
             "ownership",
             "queue",
             "reliability",
             "test_group_parity",
-            "trajectory",
         )
     ]
 
@@ -580,10 +579,7 @@ def test_publication_status_projection_labels_split_and_legacy_ci_surfaces() -> 
     assert payload["affected_surfaces"] == [
         "CI analytics",
         "CI core health",
-        "CI gating",
         "CI health",
-        "CI test changes",
-        "CI workload hotness",
     ]
 
 
@@ -773,7 +769,6 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "site/projects.json",
         "vllm/ci/amd_test_matrix.json",
         "vllm/ci/dns_failures.json",
-        "vllm/ci/gating_targets.json",
         "vllm/ci/omni_surge_heuristic.json",
         "vllm/ci/queue_lifecycle.json",
         "vllm/ci/queue_timeseries.jsonl",
@@ -798,7 +793,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
     assert "vllm/ci/org_summary.json" in manifest["generated_files"]
     assert (
         "vllm/ci/operations_v2/comparison_retry_evidence.json"
-        in manifest["generated_files"]
+        not in manifest["generated_files"]
     )
 
     forbidden = {
@@ -909,7 +904,7 @@ def test_production_site_materializes_bounded_public_analytics(tmp_path: Path) -
     descriptor = manifest["projected_files"][0]
     assert output.is_file()
     assert output.stat().st_size <= descriptor["max_bytes"]
-    assert set(json.loads(output.read_text())) == {"amd-ci", "ci"}
+    assert set(json.loads(output.read_text())) == {"ci"}
     assert "all_main_reliability" not in output.read_text()
 
 

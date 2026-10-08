@@ -15,7 +15,7 @@ from typing import Any
 
 
 PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
-PUBLIC_ANALYTICS_PIPELINES = frozenset({"amd-ci", "ci"})
+PUBLIC_ANALYTICS_PIPELINES = frozenset({"ci"})
 
 _PIPELINE_STRING_FIELDS = (
     "display_name",
@@ -286,15 +286,16 @@ def project_public_analytics(payload: object) -> dict[str, dict[str, Any]]:
     """
     source = _require_object(payload, "analytics")
     pipeline_keys = set(source)
-    if pipeline_keys != PUBLIC_ANALYTICS_PIPELINES:
+    if "ci" not in pipeline_keys or pipeline_keys - {"ci", "amd-ci"}:
         missing = sorted(PUBLIC_ANALYTICS_PIPELINES - pipeline_keys)
-        unexpected = sorted(repr(key) for key in pipeline_keys - PUBLIC_ANALYTICS_PIPELINES)
+        unexpected = sorted(repr(key) for key in pipeline_keys - {"ci", "amd-ci"})
         raise ValueError(
-            "analytics must contain exactly the amd-ci and ci pipeline objects; "
+            "analytics must contain the current ci pipeline object; "
             f"missing={missing}, unexpected={unexpected}"
         )
     output: dict[str, dict[str, Any]] = {}
-    for pipeline_key, pipeline in source.items():
+    for pipeline_key in sorted(PUBLIC_ANALYTICS_PIPELINES):
+        pipeline = source[pipeline_key]
         if not isinstance(pipeline_key, str) or not pipeline_key:
             raise ValueError("analytics pipeline keys must be non-empty strings")
         output[pipeline_key] = _project_pipeline(

@@ -107,8 +107,8 @@ def _full_payload() -> dict:
     window_build["jobs"] = [{"name": "LEAK_ME_WINDOW_JOB", "state": "failed"}]
     window_duration = _duration_row()
     return {
-        "amd-ci": {
-            "pipeline": "amd-ci",
+        "ci": {
+            "pipeline": "ci",
             "display_name": "AMD CI",
             "days": 90,
             "generated_at": "2026-08-17T00:00:00Z",
@@ -148,8 +148,8 @@ def _full_payload() -> dict:
         },
         # This deliberately omits windows and every new explicit pass-rate
         # field. It exercises the renderer's top-level legacy fallbacks.
-        "ci": {
-            "pipeline": "ci",
+        "amd-ci": {
+            "pipeline": "amd-ci",
             "display_name": "Upstream CI",
             "days": 14,
             "summary": _summary(explicit=False),
@@ -189,8 +189,8 @@ def test_projection_preserves_exact_browser_contract_and_legacy_fallbacks() -> N
     projected = project_public_analytics(_full_payload())
 
     assert PUBLIC_ANALYTICS_PROJECTOR_ID == "public_analytics_v1"
-    assert set(projected) == {"amd-ci", "ci"}
-    amd = projected["amd-ci"]
+    assert set(projected) == {"ci"}
+    amd = projected["ci"]
     assert set(amd) == {
         "pipeline",
         "display_name",
@@ -272,23 +272,6 @@ def test_projection_preserves_exact_browser_contract_and_legacy_fallbacks() -> N
         "duration_ranking": [{"name": "models test", "median_dur": 42.5}],
     }
 
-    legacy = projected["ci"]
-    assert "windows" not in legacy
-    assert "default_window" not in legacy
-    assert "terminal_builds" not in legacy["summary"]
-    assert "build_pass_rate_pct" not in legacy["summary"]
-    assert "build_pass_rate_basis" not in legacy["summary"]
-    assert legacy["summary"]["pass_rate"] == 75.0
-    assert legacy["builds"][0]["created_at"] == "2026-08-15T09:00:00Z"
-    assert "date" not in legacy["builds"][0]
-    assert legacy["builds"][0]["jobs"] == [{"name": "engine test", "state": "passed"}]
-    assert legacy["duration_ranking"][0] == {
-        "name": "engine test",
-        "median_dur": 10,
-        "queues": ["gpu_1_queue"],
-        "median_wait": 2,
-    }
-
 
 def test_projection_strips_private_and_unknown_fields_at_every_nested_level() -> None:
     projected = project_public_analytics(_full_payload())
@@ -312,6 +295,12 @@ def test_projection_strips_private_and_unknown_fields_at_every_nested_level() ->
         assert f'"{private_key}"' not in encoded
 
 
+def test_current_public_analytics_discards_the_retired_pipeline_block():
+    source = {"ci": {"pipeline": "ci", "builds": []}, "amd-ci": {"private": "retired"}}
+    assert project_public_analytics(source) == {"ci": {"pipeline": "ci", "builds": []}}
+    assert source["amd-ci"] == {"private": "retired"}
+
+
 def test_projection_preserves_absent_fields_and_explicit_empty_structures() -> None:
     payload = {
         "amd-ci": {},
@@ -324,7 +313,7 @@ def test_projection_preserves_absent_fields_and_explicit_empty_structures() -> N
         },
     }
 
-    assert project_public_analytics(payload) == payload
+    assert project_public_analytics(payload) == {"ci": payload["ci"]}
 
 
 def test_projection_is_immutable_and_exactly_idempotent() -> None:
@@ -345,47 +334,47 @@ def test_projection_is_immutable_and_exactly_idempotent() -> None:
     ("payload", "message"),
     [
         ([], "analytics must be a JSON object"),
-        ({}, "must contain exactly"),
-        ({"amd-ci": {}, "ci": {}, "secret": {}}, "unexpected"),
-        ({"amd-ci": {}, "ci": []}, "analytics\\['ci'\\] must be a JSON object"),
+        ({}, "must contain the current"),
+        ({"ci": {}, "secret": {}}, "unexpected"),
+        ({"ci": []}, "analytics\\['ci'\\] must be a JSON object"),
         (
-            {"amd-ci": {"pipeline": "ci"}, "ci": {}},
+            {"ci": {"pipeline": "amd-ci"}},
             "pipeline must match its top-level key",
         ),
-        ({"amd-ci": {"summary": []}, "ci": {}}, "summary must be a JSON object"),
-        ({"amd-ci": {"builds": {}}, "ci": {}}, "builds must be a JSON array"),
-        ({"amd-ci": {"builds": [[]]}, "ci": {}}, "builds\\[0\\] must be a JSON object"),
+        ({"ci": {"summary": []}}, "summary must be a JSON object"),
+        ({"ci": {"builds": {}}}, "builds must be a JSON array"),
+        ({"ci": {"builds": [[]]}}, "builds\\[0\\] must be a JSON object"),
         (
-            {"amd-ci": {"builds": [{"jobs": {}}]}, "ci": {}},
+            {"ci": {"builds": [{"jobs": {}}]}},
             "jobs must be a JSON array",
         ),
         (
-            {"amd-ci": {"builds": [{"jobs": [{}]}]}, "ci": {}},
+            {"ci": {"builds": [{"jobs": [{}]}]}},
             "jobs\\[0\\]\\.name must be a string",
         ),
-        ({"amd-ci": {"windows": []}, "ci": {}}, "windows must be a JSON object"),
+        ({"ci": {"windows": []}}, "windows must be a JSON object"),
         (
-            {"amd-ci": {"windows": {"7d": []}}, "ci": {}},
+            {"ci": {"windows": {"7d": []}}},
             "windows\\['7d'\\] must be a JSON object",
         ),
         (
-            {"amd-ci": {"failure_ranking": [{}]}, "ci": {}},
+            {"ci": {"failure_ranking": [{}]}},
             "failure_ranking\\[0\\]\\.name must be a string",
         ),
         (
-            {"amd-ci": {"duration_ranking": [{"name": "job", "queues": {}}]}, "ci": {}},
+            {"ci": {"duration_ranking": [{"name": "job", "queues": {}}]}},
             "queues must be a JSON array",
         ),
         (
-            {"amd-ci": {"duration_ranking": [{"name": "job", "queues": [{}]}]}, "ci": {}},
+            {"ci": {"duration_ranking": [{"name": "job", "queues": [{}]}]}},
             "queues entries must be strings",
         ),
         (
-            {"amd-ci": {"summary": {"pass_rate": float("nan")}}, "ci": {}},
+            {"ci": {"summary": {"pass_rate": float("nan")}}},
             "pass_rate must be a finite number",
         ),
         (
-            {"amd-ci": {"display_name": {"sentinel": "private"}}, "ci": {}},
+            {"ci": {"display_name": {"sentinel": "private"}}},
             "display_name must be a string or null",
         ),
     ],
