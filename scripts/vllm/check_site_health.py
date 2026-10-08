@@ -30,10 +30,10 @@ from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_FILE_MAX_BYTES,
     OPERATIONS_CANARY_SECTIONS,
     OPERATIONS_MANIFEST_MAX_BYTES,
-    OPERATIONS_SECTION_NAMES,
     OPERATIONS_STREAMED_FILE_MAX_BYTES,
     OPERATIONS_STREAMED_LARGE_SECTIONS,
     OperationsBundleContractError,
+    operations_section_names_for_bundle_version,
     validate_operations_canary_budget_for_bundle_version,
 )
 from vllm.publication_limits import (  # noqa: E402
@@ -1059,9 +1059,16 @@ def _normalize_operations_manifest(
             "operations-projection-contract",
             "Operations section set disagreed with the exact public projection.",
         )
-    missing_canaries = [
-        name for name in OPERATIONS_CANARY_SECTIONS if name not in named_section_paths
-    ]
+    try:
+        section_names = operations_section_names_for_bundle_version(
+            value.get("bundle_version")
+        )
+    except OperationsBundleContractError as exc:
+        raise _ProjectionFailure("operations-canary-budget", str(exc)) from exc
+    canary_names = tuple(
+        name for name in section_names if name not in OPERATIONS_STREAMED_LARGE_SECTIONS
+    )
+    missing_canaries = [name for name in canary_names if name not in named_section_paths]
     if missing_canaries:
         raise _ProjectionFailure(
             "operations-manifest-contract",
@@ -1069,17 +1076,17 @@ def _normalize_operations_manifest(
             + ", ".join(missing_canaries)
             + ".",
         )
-    if set(raw_sections) != set(OPERATIONS_SECTION_NAMES):
+    if set(raw_sections) != set(section_names):
         raise _ProjectionFailure(
             "operations-manifest-contract",
             "Operations application manifest did not declare the exact supported "
             "section inventory.",
         )
     canary_paths = {
-        name: named_section_paths[name] for name in OPERATIONS_CANARY_SECTIONS
+        name: named_section_paths[name] for name in canary_names
     }
     canary_sizes = {
-        name: raw_sections[name]["bytes"] for name in OPERATIONS_CANARY_SECTIONS
+        name: raw_sections[name]["bytes"] for name in canary_names
     }
     streamed_paths = {
         name: named_section_paths[name]
@@ -1099,7 +1106,7 @@ def _normalize_operations_manifest(
                 else -1
             ),
             section_bytes={
-                name: raw_sections[name]["bytes"] for name in OPERATIONS_SECTION_NAMES
+                name: raw_sections[name]["bytes"] for name in section_names
             },
         )
     except OperationsBundleContractError as exc:
@@ -2067,7 +2074,11 @@ def check_site_health(
                     manifest,
                 )
                 verified_files.append(OPERATIONS_MANIFEST_PATH)
-                canary_rows = projection["operations_canaries"]
+                canary_rows = [
+                    {"name": name, "path": None, "http_status": None}
+                    for name in canary_paths
+                ]
+                projection["operations_canaries"] = canary_rows
                 for canary_row in canary_rows:
                     canary_name = canary_row["name"]
                     canary_path = canary_paths[canary_name]

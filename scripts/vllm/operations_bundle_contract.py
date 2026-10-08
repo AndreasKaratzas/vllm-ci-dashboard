@@ -12,7 +12,7 @@ from vllm.dashboard_storage_budget import writer_max_bytes
 # Keep the complete lazy-section inventory explicit. A new public route must
 # choose a bounded probe policy here instead of silently becoming an untested
 # file in the deployed projection.
-OPERATIONS_SECTION_NAMES = (
+OPERATIONS_V2_SECTION_NAMES = (
     "nightly",
     "amd_test_health",
     "amd_agent_health",
@@ -28,6 +28,12 @@ OPERATIONS_SECTION_NAMES = (
     "omni",
     "diagnostics",
 )
+OPERATIONS_V3_SECTION_NAMES = tuple(
+    name
+    for name in OPERATIONS_V2_SECTION_NAMES
+    if name not in {"gating", "trajectory", "comparison_retry_evidence"}
+)
+OPERATIONS_SECTION_NAMES = OPERATIONS_V2_SECTION_NAMES
 
 # Reliability is a separately bounded 64 MiB drill-down payload. The synthetic
 # monitor streams it through SHA-256 verification without retaining the body in
@@ -43,7 +49,7 @@ OPERATIONS_LEGACY_BUNDLE_VERSION = 1
 # after every prior-version health/watchdog run has drained.
 OPERATIONS_PRODUCER_BUNDLE_VERSION = OPERATIONS_BUNDLE_VERSION
 OPERATIONS_SUPPORTED_BUNDLE_VERSIONS = frozenset(
-    (OPERATIONS_LEGACY_BUNDLE_VERSION, OPERATIONS_BUNDLE_VERSION)
+    (OPERATIONS_LEGACY_BUNDLE_VERSION, OPERATIONS_BUNDLE_VERSION, 3)
 )
 OPERATIONS_CANARY_SECTIONS = tuple(
     name
@@ -86,6 +92,22 @@ OPERATIONS_LEGACY_CANARY_BUNDLE_MAX_BYTES = OPERATIONS_CANARY_BUNDLE_MAX_BYTES
 
 class OperationsBundleContractError(ValueError):
     """A public Operations bundle cannot be consumed within its fixed budget."""
+
+
+def operations_section_names_for_bundle_version(bundle_version: object) -> tuple[str, ...]:
+    """Resolve the exact inventory attested by an immutable publication."""
+    if (
+        type(bundle_version) is not int
+        or bundle_version not in OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
+    ):
+        raise OperationsBundleContractError(
+            "Operations bundle declares an unsupported bundle version"
+        )
+    return (
+        OPERATIONS_V3_SECTION_NAMES
+        if bundle_version == 3
+        else OPERATIONS_V2_SECTION_NAMES
+    )
 
 
 def validate_operations_canary_budget(
@@ -140,13 +162,7 @@ def validate_operations_canary_budget_for_bundle_version(
     section_bytes: Mapping[str, object],
 ) -> int:
     """Validate one immutable bundle using the contract it declares."""
-    if (
-        type(bundle_version) is not int
-        or bundle_version not in OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
-    ):
-        raise OperationsBundleContractError(
-            "Operations bundle declares an unsupported bundle version"
-        )
+    section_names = operations_section_names_for_bundle_version(bundle_version)
     if bundle_version == OPERATIONS_BUNDLE_VERSION:
         return validate_operations_canary_budget(
             manifest_bytes=manifest_bytes,
@@ -159,19 +175,25 @@ def validate_operations_canary_budget_for_bundle_version(
         raise OperationsBundleContractError(
             "Operations manifest exceeds its bounded read budget"
         )
-    if set(section_bytes) != set(OPERATIONS_SECTION_NAMES):
+    if set(section_bytes) != set(section_names):
         raise OperationsBundleContractError(
             "Operations bundle does not declare the exact supported section inventory"
         )
 
     total = manifest_bytes
-    for name in OPERATIONS_CANARY_SECTIONS:
+    canary_names = tuple(
+        name for name in section_names if name not in OPERATIONS_STREAMED_LARGE_SECTIONS
+    )
+    for name in canary_names:
         size = section_bytes.get(name)
-        if type(size) is not int or not 0 < size <= (
-            OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES
-        ):
+        section_limit = (
+            OPERATIONS_CANARY_SECTION_MAX_BYTES[name]
+            if bundle_version == 3
+            else OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES
+        )
+        if type(size) is not int or not 0 < size <= section_limit:
             raise OperationsBundleContractError(
-                "Legacy Operations canary bundle section "
+                "Operations canary bundle section "
                 f"{name!r} has an invalid byte size"
             )
         total += size

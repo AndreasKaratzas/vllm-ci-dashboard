@@ -1633,6 +1633,56 @@ def test_operations_manifest_uses_declared_legacy_budget_during_rollout():
     assert exc.value.code == "operations-canary-budget"
 
 
+def test_operations_manifest_accepts_v3_retired_section_inventory():
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    operations["bundle_version"] = 3
+    for name in ("gating", "trajectory", "comparison_retry_evidence"):
+        descriptor = operations["sections"].pop(name)
+        projection["files"].pop(f"data/vllm/ci/{descriptor['path']}")
+    files, canaries, _sizes, streamed, _streamed_sizes = (
+        health._normalize_operations_manifest(operations, projection)
+    )
+    assert len(canaries) == 10
+    assert set(streamed) == {"reliability"}
+    assert len(files) == 12
+    assert not {"gating", "trajectory", "comparison_retry_evidence"} & set(canaries)
+
+
+def test_checker_verifies_hash_bound_v3_without_requesting_retired_sections():
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    retired_paths = set()
+    operations["bundle_version"] = 3
+    for name in ("gating", "trajectory", "comparison_retry_evidence"):
+        descriptor = operations["sections"].pop(name)
+        path = f"data/vllm/ci/{descriptor['path']}"
+        projection["files"].pop(path)
+        fetcher.responses.pop(path)
+        retired_paths.add(path)
+    body = json.dumps(operations).encode()
+    fetcher.responses[health.OPERATIONS_MANIFEST_PATH] = _response(body)
+    projection["files"][health.OPERATIONS_MANIFEST_PATH].update(
+        bytes=len(body), sha256=hashlib.sha256(body).hexdigest()
+    )
+    projection["file_count"] = len(projection["files"])
+    projection["total_bytes"] = sum(row["bytes"] for row in projection["files"].values())
+    _rebind_manifest(fetcher, projection)
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is True
+    assert report["projection"]["application_section_count"] == 11
+    assert len(report["projection"]["operations_canaries"]) == 10
+    assert not any(
+        urlsplit(url).path.endswith(path)
+        for url, _limit in fetcher.calls
+        for path in retired_paths
+    )
+
+
 def test_operations_manifest_rejects_unknown_bundle_version():
     fetcher = Fetcher()
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
