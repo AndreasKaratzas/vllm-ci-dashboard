@@ -1,7 +1,7 @@
 """Project-wide constants for the vLLM CI dashboard.
 
 Everything that used to be copy-pasted across ``collect_queue_snapshot.py``,
-``collect_hotness.py``, ``collect_analytics.py``, ``queue_issue_watcher.py``
+``collect_analytics.py``, ``queue_issue_watcher.py``
 and friends lives here. Import from this module; do not redefine.
 
 Kept importable without network or process side effects. The checked-in shared
@@ -200,12 +200,7 @@ QUEUE_ISSUE_MAX_AGE_MIN = 24 * 60
 # Hotness window
 # ---------------------------------------------------------------------------
 
-HOTNESS_WINDOW_HOURS = 72
 
-# Multiple windows we pre-compute so the dashboard can switch between them
-# without re-fetching. Include the default so ``windows[f"{HOTNESS_WINDOW_HOURS}h"]``
-# is always present.
-HOTNESS_WINDOWS_HOURS: tuple[int, ...] = (1, 3, 24, 72)
 
 # ---------------------------------------------------------------------------
 # Omni surge detection

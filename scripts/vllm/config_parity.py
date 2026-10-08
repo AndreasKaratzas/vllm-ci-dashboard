@@ -1,7 +1,7 @@
 """YAML config parity analysis for vLLM CI pipelines.
 
 Compares test step definitions between:
-- AMD: .buildkite/test-amd.yaml
+- AMD: inline mirrors and native AMD routes in .buildkite/test_areas/*.yaml
 - NVIDIA: .buildkite/test_areas/*.yaml
 
 Fetches files directly from the upstream vLLM GitHub repo (main branch)
@@ -42,6 +42,7 @@ from vllm.collect_amd_test_matrix import (
     definition_fingerprint as matrix_definition_fingerprint,
 )
 from vllm.reviewed_definition_labels import execution_sha256, flatten_execution_commands
+from vllm.main_ci_definitions import MainCISnapshot, amd_source_steps, is_cuda_definition, load_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -147,52 +148,11 @@ def _load_source_snapshot() -> Optional[ConfigSourceSnapshot]:
 
     requested_ref = os.getenv("VLLM_CONFIG_SHA", "").strip() or VLLM_BRANCH
     try:
-        commit_sha = requested_ref.lower()
-        if not FULL_COMMIT_SHA_RE.fullmatch(commit_sha):
-            commit_response = requests.get(
-                f"{VLLM_API_BASE}/commits/{requested_ref}",
-                headers=_github_headers(),
-                timeout=30,
-            )
-            commit_response.raise_for_status()
-            commit_sha = str(commit_response.json().get("sha") or "").strip().lower()
-        if not FULL_COMMIT_SHA_RE.fullmatch(commit_sha):
-            raise ValueError(
-                "GitHub commit response did not contain a full 40-hex SHA"
-            )
-
-        archive_response = requests.get(
-            f"{VLLM_API_BASE}/tarball/{commit_sha}",
-            headers=_github_headers(),
-            timeout=120,
-        )
-        archive_response.raise_for_status()
-        files: dict[str, object] = {}
-        with tarfile.open(fileobj=io.BytesIO(archive_response.content), mode="r:gz") as archive:
-            for member in archive.getmembers():
-                if not member.isfile() or "/" not in member.name:
-                    continue
-                path = member.name.split("/", 1)[1]
-                if path != ".buildkite/test-amd.yaml" and not (
-                    path.startswith(".buildkite/test_areas/") and path.endswith(".yaml")
-                ):
-                    continue
-                handle = archive.extractfile(member)
-                if handle is not None:
-                    files[path] = yaml.safe_load(handle.read().decode("utf-8"))
-
-        if ".buildkite/test-amd.yaml" not in files:
-            raise ValueError("repository snapshot lacks .buildkite/test-amd.yaml")
-        if not any(path.startswith(".buildkite/test_areas/") for path in files):
-            raise ValueError("repository snapshot lacks .buildkite/test_areas YAML files")
-        _SOURCE_SNAPSHOT = ConfigSourceSnapshot(
-            commit_sha=commit_sha,
-            files=files,
-            fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        )
+        current = load_snapshot(requested_ref)
+        _SOURCE_SNAPSHOT = ConfigSourceSnapshot(current.commit_sha, current.files, current.fetched_at)
         return _SOURCE_SNAPSHOT
-    except Exception as e:
-        log.warning("Failed to download vLLM %s snapshot: %s", requested_ref, e)
+    except Exception as exc:
+        log.warning("Failed to download vLLM %s main CI snapshot: %s", requested_ref, exc)
         return None
 
 
@@ -229,7 +189,9 @@ def _source_provenance() -> dict:
         "branch": VLLM_BRANCH,
         "commit_sha": snapshot.commit_sha,
         "commit_url": f"https://github.com/{VLLM_REPOSITORY}/commit/{snapshot.commit_sha}",
-        "amd_definition_url": _source_url(".buildkite/test-amd.yaml", snapshot.commit_sha),
+        "pipeline": "ci",
+        "definition_source": "main_ci_inline_and_native_amd",
+        "amd_definition_url": f"https://github.com/{VLLM_REPOSITORY}/tree/{snapshot.commit_sha}/.buildkite/test_areas",
         "upstream_definitions_url": f"https://github.com/{VLLM_REPOSITORY}/tree/{snapshot.commit_sha}/.buildkite/test_areas",
         "fetched_at": snapshot.fetched_at,
         "matching_rules": [
@@ -465,7 +427,7 @@ def extract_shard_bases() -> list[str]:
 
 
 def _parse_amd_data(data: dict) -> list[ConfigStep]:
-    """Parse test-amd.yaml data into ConfigStep list."""
+    """Parse expanded main CI AMD execution routes into ConfigStep rows."""
     if not data:
         return []
     steps = []
@@ -480,7 +442,7 @@ def _parse_amd_data(data: dict) -> list[ConfigStep]:
         steps.append(
             _parse_step(
                 item,
-                '.buildkite/test-amd.yaml',
+                item.get('source_file') or '.buildkite/test_areas/unknown.yaml',
                 group,
                 yaml_index,
             )
@@ -501,6 +463,8 @@ def _parse_nvidia_data(
         group_name = data.get('group', Path(filename).stem)
 
         for yaml_index, item in enumerate(data.get('steps', [])):
+            if not is_cuda_definition(item):
+                continue
             step = _parse_step(item, filename, group_name, yaml_index)
             nvidia_steps.append(step)
 
@@ -511,6 +475,8 @@ def _parse_nvidia_data(
                     if isinstance(mirror.get('amd'), dict)
                     else {}
                 )
+                if not amd_cfg:
+                    continue
                 amd_cmds_raw = amd_cfg.get('commands')
                 commands_overridden = amd_cmds_raw is not None
 
@@ -529,6 +495,7 @@ def _parse_nvidia_data(
                     "command_similarity": commands_similarity(step.commands, amd_cmds),
                     "source_file": filename,
                     "nvidia_definition_id": step.definition_id,
+                    "amd_definition_id": f"{filename}#{amd_cfg.get('key') or 'amd-' + str(item.get('key') or yaml_index)}",
                     "amd_device": str(
                         amd_cfg.get("device")
                         or amd_cfg.get("agent_pool")
@@ -541,10 +508,11 @@ def _parse_nvidia_data(
 
 def _load_config_steps() -> tuple[list[ConfigStep], list[ConfigStep], list[dict]] | tuple[None, None, None]:
     """Fetch upstream YAML and return parsed AMD/NVIDIA config steps."""
-    log.info("Fetching test-amd.yaml from upstream...")
-    amd_data = _fetch_yaml_from_github(".buildkite/test-amd.yaml")
-    if not amd_data:
+    snapshot = _load_source_snapshot()
+    if snapshot is None:
         return None, None, None
+    current = MainCISnapshot(snapshot.commit_sha, snapshot.files, snapshot.fetched_at)
+    amd_data = {"steps": amd_source_steps(current)}
 
     log.info("Listing test_areas/ files from upstream...")
     area_files = _list_test_area_files()
@@ -1321,6 +1289,7 @@ def _classify_inline_mirror_variants(
         str,
         list[tuple[dict, int, ConfigStep]],
     ] = {}
+    mirrors_by_amd_definition: dict[str, list[tuple[dict, int, ConfigStep]]] = {}
     for mirror, index, step in _resolved_inline_mirrors(
         nvidia_steps,
         mirrors,
@@ -1328,17 +1297,19 @@ def _classify_inline_mirror_variants(
         mirrors_by_identity.setdefault(step.identity_key, []).append(
             (mirror, index, step)
         )
+        if mirror.get("amd_definition_id"):
+            mirrors_by_amd_definition.setdefault(mirror["amd_definition_id"], []).append((mirror, index, step))
 
     variants: list[ConfigMirrorVariant] = []
     remaining: list[ConfigStep] = []
     for amd_step in amd_only:
         candidates = []
-        for mirror, nvidia_index, nvidia_step in mirrors_by_identity.get(
-            amd_step.identity_key,
-            [],
-        ):
+        exact_source_routes = [entry for identity in (amd_step.member_definition_ids or (amd_step.definition_id,))
+                               for entry in mirrors_by_amd_definition.get(identity, [])]
+        source_candidates = exact_source_routes or mirrors_by_identity.get(amd_step.identity_key, [])
+        for mirror, nvidia_index, nvidia_step in source_candidates:
             weight = _identity_edge_weight(amd_step, nvidia_step)
-            compatible = weight is not None
+            compatible = bool(exact_source_routes) or weight is not None
             if weight is None:
                 weight = (
                     0,
@@ -1833,11 +1804,13 @@ def extract_parity_key_overrides() -> dict[str, str]:
     if amd_steps is None or nvidia_steps is None:
         return {}
 
-    matches, _, _ = _match_config_steps(amd_steps, nvidia_steps, mirrors or [])
+    matches, unmatched_amd, _ = _match_config_steps(amd_steps, nvidia_steps, mirrors or [])
+    variants, _ = _classify_inline_mirror_variants(unmatched_amd, nvidia_steps, mirrors or [])
     identities_by_label: dict[str, set[str]] = {}
     canonical_by_label: dict[str, str] = {}
-    for match in matches:
-        canonical = match.amd_step.identity_key
+    relationships = [(match, match.amd_step.identity_key) for match in matches]
+    relationships.extend((variant, variant.nvidia_step.identity_key) for variant in variants)
+    for match, canonical in relationships:
         labels = {
             *(match.amd_step.member_labels or (match.amd_step.label,)),
             match.nvidia_step.label,
@@ -1972,7 +1945,7 @@ def extract_amd_runtime_group_key_map_from_report(
 def build_config_parity() -> dict:
     """Build a YAML config parity report by fetching from upstream GitHub.
 
-    Fetches .buildkite/test-amd.yaml and .buildkite/test_areas/*.yaml
+    Fetches main CI inline/native AMD and CUDA routes in .buildkite/test_areas/*.yaml
     from vllm-project/vllm main branch.
 
     Returns:
@@ -1980,7 +1953,7 @@ def build_config_parity() -> dict:
     """
     amd_steps, nvidia_steps, mirrors = _load_config_steps()
     if amd_steps is None:
-        return {"error": "Failed to fetch test-amd.yaml from upstream"}
+        return {"error": "Failed to fetch main CI AMD definitions from upstream"}
     if nvidia_steps is None:
         return {"error": "Failed to list test_areas/ from upstream"}
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from vllm.collect_gating_target_candidates import hardware_fold_key
+from vllm.ci.group_identity import hardware_fold_key
 from vllm.ci.incident_transitions import advance_incident
 
 

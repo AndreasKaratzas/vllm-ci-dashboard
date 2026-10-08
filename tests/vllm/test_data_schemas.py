@@ -2,8 +2,7 @@
 
 The dashboard JS relies on specific top-level keys and row shapes. If a
 collector silently drops a field, these tests fail before the change
-hits the dashboard. Files that don't yet exist (e.g., hotness.json on
-a fresh clone) are skipped rather than failing.
+hits the dashboard. Optional files that do not exist in a fresh clone are skipped.
 """
 
 from __future__ import annotations
@@ -82,6 +81,18 @@ class TestCiHealth:
             block = d[side]
             _assert_has_keys(block, {"builds", "latest_build", "trend"}, f"ci_health.json.{side}")
 
+    def test_current_hardware_scopes_use_main_ci_source(self):
+        d = _load_json_or_skip("ci_health.json")
+        for side in ("amd", "upstream"):
+            for row in d[side].get("builds") or []:
+                assert row.get("branch") == "main"
+                assert row.get("build_url") == f"https://buildkite.com/vllm/ci/builds/{row['build_number']}"
+                hardware = set(row.get("by_hardware") or {})
+                if side == "amd":
+                    assert all(re.fullmatch(r"mi\d+b?(?:[_ -].*)?", device) for device in hardware)
+                else:
+                    assert not any(device.startswith("mi") or device == "cpu" for device in hardware)
+
     def test_build_rows_have_explicit_assertion_pass_rates(self):
         d = _load_json_or_skip("ci_health.json")
         _require_pass_rate_contract_v1(
@@ -157,9 +168,8 @@ class TestParityReport:
 class TestAnalytics:
     def test_pipelines_present(self):
         d = _load_json_or_skip("analytics.json")
-        # Must have at least one of the known pipeline keys.
-        assert set(d.keys()) & {"amd-ci", "ci"}, (
-            f"analytics.json should have known pipeline slugs, got {list(d.keys())}"
+        assert set(d.keys()) == {"ci"}, (
+            f"analytics.json must publish only current ci, got {list(d.keys())}"
         )
 
     def test_pipeline_block_schema(self):
@@ -274,86 +284,18 @@ class TestProjectTestResults:
             )
 
 
-class TestGatingExecutiveData:
-    def test_gating_nightlies_schema(self):
-        d = _load_json_or_skip("gating_nightlies.json")
-        _assert_has_keys(d, {"generated_at", "source", "ci", "amd-ci"}, "gating_nightlies.json")
-        for slug in ("ci", "amd-ci"):
-            block = d[slug]
-            _assert_has_keys(block, {"pipeline", "display_name", "builds"}, f"gating_nightlies.json[{slug}]")
-            if block["builds"]:
-                row = block["builds"][0]
-                _assert_has_keys(row, {"number", "created_at", "jobs"}, f"gating_nightlies.json[{slug}].builds[0]")
-
-    def test_gating_targets_schema(self):
-        d = _load_json_or_skip("gating_targets.json")
-        _assert_has_keys(d, {"generated_at", "source", "summary", "groups"}, "gating_targets.json")
-        groups = d["groups"]
-        assert groups
-        assert d["summary"]["target_group_count"] == len(groups)
-        assert len({row["id"] for row in groups}) == len(groups)
-        first = groups[0]
-        _assert_has_keys(
-            first,
-            {
-                "id",
-                "label",
-                "area",
-                "gating_signal",
-                "pf_signal",
-                "assigned_signal",
-                "source_signal",
-                "readiness_signal",
-                "target_signal",
-                "owner",
-                "note",
-            },
-            "gating_targets.json.groups[0]",
-        )
-
-    def test_gating_target_candidates_schema(self):
-        d = _load_json_or_skip("gating_target_candidates.json")
-        _assert_has_keys(
-            d,
-            {"generated_at", "source", "heuristics", "summary", "rows"},
-            "gating_target_candidates.json",
-        )
-        _assert_has_keys(
-            d["summary"],
-            {
-                "upstream_build",
-                "amd_ci_build",
-                "canonical_target_count",
-                "row_count",
-                "canonical_match_count",
-                "likely_duplicate_count",
-                "new_candidate_count",
-                "excluded_count",
-                "missing_from_upstream_count",
-                "by_decision",
-            },
-            "gating_target_candidates.json.summary",
-        )
-        if d["rows"]:
-            _assert_has_keys(
-                d["rows"][0],
-                {"decision", "label", "canonical_key"},
-                "gating_target_candidates.json.rows[0]",
-            )
-
-    def test_gating_target_candidates_do_not_exclude_default_gpu_queues_as_non_gpu(self):
-        d = _load_json_or_skip("gating_target_candidates.json")
-        offenders = [
-            row
-            for row in d.get("rows", [])
-            if row.get("decision") == "excluded"
-            and "not_gpu_like" in (row.get("exclusion_reasons") or [])
-            and re.search(r"(^|[^a-z0-9])gpu_", str(row.get("queue") or ""), re.IGNORECASE)
-        ]
-        assert offenders == []
 
 
 class TestAmdTestMatrix:
+    def test_source_is_observed_current_ci_definitions(self):
+        matrix = _load_json_or_skip("amd_test_matrix.json")
+        source = matrix.get("source") or {}
+        assert source.get("pipeline") == "ci"
+        assert source.get("definition_source") == "main_ci_inline_and_native_amd"
+        assert re.fullmatch(r"[0-9a-f]{40}", source.get("runtime_source_commit_sha") or "")
+        assert source.get("latest_build_url") == f"https://buildkite.com/vllm/ci/builds/{source['latest_build_number']}"
+
+
     def test_top_level_keys(self):
         d = _load_json_or_skip("amd_test_matrix.json")
         _assert_has_keys(
@@ -570,68 +512,6 @@ class TestAmdTestMatrix:
                 assert by_label[label] == "generic_replica"
 
 
-class TestGatingProposals:
-    def test_top_level_keys(self):
-        d = _load_json_or_skip("gating_proposals.json")
-        _assert_has_keys(
-            d,
-            {"generated_at", "source_repo", "tracked_authors", "summary", "collection", "pull_requests"},
-            "gating_proposals.json",
-        )
-
-    def test_summary_keys(self):
-        d = _load_json_or_skip("gating_proposals.json")
-        _assert_has_keys(
-            d["summary"],
-            {
-                "tracked_author_count",
-                "scanned_pr_count",
-                "proposal_pr_count",
-                "proposed_group_count",
-                "by_device",
-                "by_author",
-            },
-            "gating_proposals.json.summary",
-        )
-
-    def test_candidate_cache_keys(self):
-        d = _load_json_or_skip("gating_proposals.json")
-        collection = d.get("collection") or {}
-        _assert_has_keys(
-            collection,
-            {"complete", "error_count", "errors", "candidate_cache"},
-            "gating_proposals.json.collection",
-        )
-        cache = collection.get("candidate_cache") or {}
-        _assert_has_keys(
-            cache,
-            {"generated_at", "pr_count", "proposal_pr_numbers", "pull_requests"},
-            "gating_proposals.json.collection.candidate_cache",
-        )
-        if cache["pull_requests"]:
-            _assert_has_keys(
-                cache["pull_requests"][0],
-                {"number", "checked_at", "has_new_mirrors", "new_mirror_count"},
-                "gating_proposals.json.collection.candidate_cache.pull_requests[0]",
-            )
-
-    def test_pr_and_mirror_rows_if_populated(self):
-        d = _load_json_or_skip("gating_proposals.json")
-        prs = d.get("pull_requests", [])
-        if not prs:
-            return
-        pr = prs[0]
-        _assert_has_keys(
-            pr,
-            {"number", "title", "url", "author", "head_ref", "updated_at", "new_mirror_count", "new_mirrors"},
-            "gating_proposals.json.pull_requests[0]",
-        )
-        if pr["new_mirrors"]:
-            _assert_has_keys(
-                pr["new_mirrors"][0],
-                {"label", "area", "yaml_file", "device", "source_file_dependencies"},
-                "gating_proposals.json.pull_requests[0].new_mirrors[0]",
-            )
 
 
 class TestQueueTimeseries:
@@ -1464,14 +1344,6 @@ class TestFlakyTests:
         _assert_has_keys(d, {"generated_at", "tests", "total_flaky", "window_builds"}, "flaky_tests.json")
 
 
-class TestHotness:
-    def test_top_level_keys(self):
-        d = _load_json_or_skip("hotness.json")
-        _assert_has_keys(
-            d,
-            {"generated_at", "window_hours", "builds_examined", "test_groups", "branches", "queues"},
-            "hotness.json",
-        )
 
 
 class TestDnsFailures:

@@ -123,11 +123,73 @@ def test_default_yaml_url_is_pinned_to_the_observed_build_commit():
 
     assert yaml_url_for_build({"commit": commit}) == (
         "https://raw.githubusercontent.com/vllm-project/vllm/"
-        f"{commit}/.buildkite/test-amd.yaml"
+        f"{commit}/.buildkite/ci_config.yaml"
     )
     assert yaml_url_for_build(
         {"commit": commit}, "https://example.invalid/override.yml"
     ) == "https://example.invalid/override.yml"
+
+
+def test_current_matrix_ignores_legacy_side_pipeline_and_cuda_jobs():
+    analytics = {"ci": {"builds": [{"number": 300, "jobs": [
+        {"name": "AMD current", "q": "amd_mi355_dpx", "state": "passed"},
+        {"name": "CUDA current", "q": "gpu_1", "state": "passed"},
+        {"name": "CPU current", "q": "cpu", "state": "passed"},
+    ]}]}, "amd-ci": {"builds": [{"number": 999, "jobs": [
+        {"name": "Legacy only", "q": "amd_mi300_1", "state": "passed"}]}]}}
+    index, latest = build_latest_job_index(analytics, [])
+    assert latest["number"] == 300
+    assert set(index) == {"mi355"}
+    assert set(index["mi355"]) == {"amd current"}
+
+
+def test_native_main_ci_matrix_infers_exact_pool_without_queue_metadata():
+    from vllm.collect_amd_test_matrix import (
+        _agent_pool_from_job_name,
+        build_buildkite_job_index,
+    )
+
+    name = "AMD: :amd: (MI355 DPX) FP8 MoE Kernels (mi355_dpx)"
+    assert _agent_pool_from_job_name(name) == "mi355_dpx"
+    assert _agent_pool_from_job_name("amd_mi300_1: " + name) == "mi300_1"
+    index = build_buildkite_job_index(
+        {
+            "number": 93523,
+            "jobs": [
+                {"type": "script", "id": "native-job", "name": name, "state": "passed"},
+            ],
+        },
+        [],
+    )
+    assert list(index) == ["mi355"]
+    assert list(index["mi355"]) == ["fp8 moe kernels"]
+    assert index["mi355"]["fp8 moe kernels"][0]["q"] == "amd_mi355_dpx"
+    assert _agent_pool_from_job_name("CPU: Suite (mi355_dpx)") == "cpu"
+
+
+def test_current_matrix_expands_main_mirrors_and_native_routes_with_exact_source_links():
+    from vllm.collect_amd_test_matrix import parse_main_ci_steps
+    from vllm.main_ci_definitions import MainCISnapshot
+    sha = "c" * 40
+    path = ".buildkite/test_areas/example.yaml"
+    snapshot = MainCISnapshot(sha, {".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+        path: {"group": "Example", "steps": [
+            {"key": "cuda", "label": ":nvidia: (H100) Mirrored workload", "device": "h100",
+             "commands": ["pytest tests/main.py"], "mirror": {"amd": {
+                 "label": ":amd: (MI355 DPX) Mirrored workload", "device": "mi355_dpx", "soft_fail": True}}},
+            {"key": "amd", "label": ":amd: (MI300) Native workload", "device": "mi300", "commands": ["pytest tests/native.py"]},
+        ]}}, "2026-10-08T20:00:00Z")
+    steps, arches = parse_main_ci_steps(snapshot)
+    assert arches == ["mi300", "mi355"]
+    assert len(steps) == 2
+    assert steps[0]["source_file"] == path
+    assert steps[0]["source_kind"] == "inline_mirror"
+    assert steps[0]["soft_fail"] is True
+    assert steps[0]["commands"] == ["pytest tests/main.py"]
+    assert steps[0]["source_url"] == f"https://github.com/vllm-project/vllm/blob/{sha}/{path}"
+    assert steps[1]["source_kind"] == "native_amd"
+    matrix = build_matrix(steps, arches, {}, None, {}, {}, [], yaml_url_for_build({"commit": sha}))
+    assert all(member["source_url"] == steps[0]["source_url"] for group in matrix["health_groups"] for member in group["members"])
 
 
 def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
@@ -155,7 +217,7 @@ def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
         tmp_path,
     )
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [{
                 "number": 10972,
                 "jobs": [
@@ -289,7 +351,7 @@ steps:
 """)
     build = {
         "number": 12275,
-        "web_url": "https://buildkite.com/vllm/amd-ci/builds/12275",
+        "web_url": "https://buildkite.com/vllm/ci/builds/12275",
         "jobs": [
             {
                 "id": f"{architecture}-attention-{shard}",
@@ -338,7 +400,7 @@ steps:
 """)
     build = {
         "number": 11962,
-        "web_url": "https://buildkite.com/vllm/amd-ci/builds/11962",
+        "web_url": "https://buildkite.com/vllm/ci/builds/11962",
         "jobs": [
             {
                 "id": "mi300-quantization",
@@ -416,13 +478,13 @@ steps:
     agent_pool: mi300_4
 """)
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [
                 {
                     "number": 10649,
                     "date": "2026-07-09",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/10649",
-                    "message": "AMD Full CI Run - nightly",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/10649",
+                    "message": "Full CI run - nightly",
                     "jobs": [
                         {
                             "name": "V1 e2e (4xH100-4xMI300)",
@@ -455,7 +517,7 @@ steps:
                 "job_links": [
                     {
                         "hw": "mi300",
-                        "url": "https://buildkite.com/vllm/amd-ci/builds/10649/steps/canvas?sid=v1-e2e&tab=output",
+                        "url": "https://buildkite.com/vllm/ci/builds/10649/steps/canvas?sid=v1-e2e&tab=output",
                         "job_name": "mi300_4: V1 e2e (4xH100-4xMI300)",
                         "side": "amd",
                     }
@@ -494,7 +556,7 @@ def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
                 "latest_build": {
                     "build_number": 8193,
                     "created_at": "2026-05-04T06:00:03Z",
-                    "build_url": "https://buildkite.com/vllm/amd-ci/builds/8193",
+                    "build_url": "https://buildkite.com/vllm/ci/builds/8193",
                 }
             }
         },
@@ -505,8 +567,9 @@ def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
         "number": 8193,
         "created_at": "2026-05-04T06:00:03Z",
         "date": "2026-05-04",
-        "web_url": "https://buildkite.com/vllm/amd-ci/builds/8193",
-        "message": "AMD Full CI Run - nightly",
+        "web_url": "https://buildkite.com/vllm/ci/builds/8193",
+        "message": "Full CI run - nightly",
+        "commit": None,
     }
 
 
@@ -517,13 +580,13 @@ steps:
     agent_pool: mi250_1
 """)
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [
                 {
                     "number": 10972,
                     "date": "2026-07-17",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/10972",
-                    "message": "AMD Full CI Run - nightly",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/10972",
+                    "message": "Full CI run - nightly",
                     "jobs": [
                         {
                             "name": "Docker Build Metadata (ROCm)",
@@ -581,7 +644,7 @@ steps:
     assert cell["latest_state"] == "passed"
     assert cell["variants"][0]["latest_match_count"] == 1
     assert cell["latest_url"] == (
-        "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas"
+        "https://buildkite.com/vllm/ci/builds/10972/steps/canvas"
         "?jid=current-job&tab=output"
     )
 
@@ -593,24 +656,24 @@ steps:
     agent_pool: mi250_1
 """)
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [
                 {
                     "number": 10972,
                     "date": "2026-07-17",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/10972",
-                    "message": "AMD Full CI Run - nightly",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/10972",
+                    "message": "Full CI run - nightly",
                     "jobs": [],
                 }
             ]
         }
     }
     hotness_url = (
-        "https://buildkite.com/vllm/amd-ci/builds/10972"
+        "https://buildkite.com/vllm/ci/builds/10972"
         "#019f6f4e-00eb-43b1-8087-433d6a711d28"
     )
     exact_url = (
-        "https://buildkite.com/vllm/amd-ci/builds/10972/steps/canvas"
+        "https://buildkite.com/vllm/ci/builds/10972/steps/canvas"
         "?jid=019f6f4e-00eb-43b1-8087-433d6a711d28&tab=output"
     )
     hotness = {
@@ -619,7 +682,7 @@ steps:
                 "group": "Docker Build Metadata (ROCm)",
                 "hw": "mi250",
                 "latest_evidence": {
-                    "pipeline": "amd-ci",
+                    "pipeline": "ci",
                     "build_number": 10972,
                     "job_name": "mi250_1: Docker Build Metadata (ROCm)",
                     "job_id": "019f6f4e-00eb-43b1-8087-433d6a711d28",
@@ -657,7 +720,7 @@ def test_hotness_fallback_rejects_evidence_from_another_build():
                 "group": "Docker Build Metadata (ROCm)",
                 "hw": "mi250",
                 "latest_evidence": {
-                    "pipeline": "amd-ci",
+                    "pipeline": "ci",
                     "build_number": 10971,
                     "job_name": "mi250_1: Docker Build Metadata (ROCm)",
                     "state": "passed",
@@ -672,13 +735,13 @@ def test_hotness_fallback_rejects_evidence_from_another_build():
 def test_build_matrix_collapses_titles_and_matches_latest_nightly():
     steps, architectures = parse_steps(SAMPLE_YAML)
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [
                 {
                     "number": 7824,
                     "date": "2026-04-20",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/7824",
-                    "message": "AMD Full CI Run - nightly",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/7824",
+                    "message": "Full CI run - nightly",
                     "jobs": [
                         {"name": "Kernels", "state": "passed", "q": "amd_mi250_1"},
                         {"name": "Kernels (B200-MI355)", "state": "failed", "q": "amd_mi355_1"},
@@ -698,56 +761,56 @@ def test_build_matrix_collapses_titles_and_matches_latest_nightly():
             _parity_row(
                 "mi250_1: Kernels",
                 "mi250",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=kernels-mi250&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=kernels-mi250&tab=output",
             ),
             _parity_row(
                 "mi355_1: Kernels (B200-MI355)",
                 "mi355",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=kernels-mi355&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=kernels-mi355&tab=output",
                 failed=1,
             ),
             _parity_row(
                 "mi250_2: Distributed Tests (2 GPUs)",
                 "mi250",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi250&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi250&tab=output",
             ),
             _parity_row(
                 "mi355_2: Distributed Tests (2 GPUs)",
                 "mi355",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi355&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi355&tab=output",
             ),
             _parity_row(
                 "mi300_2: Distributed Tests (2xH100-2xMI250)",
                 "mi300",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi300-mi250&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi300-mi250&tab=output",
             ),
             _parity_row(
                 "mi300_2: Distributed Tests (2xH100-2xMI300)",
                 "mi300",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi300-mi300&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi300-mi300&tab=output",
                 failed=1,
             ),
             _parity_row(
                 "mi355_2: Distributed Tests (2xH100-2xMI355)",
                 "mi355",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi355-mi355&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi355-mi355&tab=output",
                 failed=1,
             ),
             _parity_row(
                 "mi300_1: LM Eval Small Models",
                 "mi300",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=lm-eval-mi300&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=lm-eval-mi300&tab=output",
             ),
             _parity_row(
                 "mi300_1: LM Eval Small Models (MI300)",
                 "mi300",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=lm-eval-mi300-rocm&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=lm-eval-mi300-rocm&tab=output",
                 failed=1,
             ),
             _parity_row(
                 "mi355_1: Kernels MoE Test 1",
                 "mi355",
-                "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=moe-1&tab=output",
+                "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=moe-1&tab=output",
             ),
         ]
     }
@@ -793,8 +856,8 @@ def test_build_matrix_collapses_titles_and_matches_latest_nightly():
     assert {
         entry["latest_url"] for entry in mi300_entries
     } == {
-        "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi300-mi250&tab=output",
-        "https://buildkite.com/vllm/amd-ci/builds/7824/steps/canvas?sid=dist-mi300-mi300&tab=output",
+        "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi300-mi250&tab=output",
+        "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi300-mi300&tab=output",
     }
     assert mirrored["cells"]["mi355"]["primary_label"] == "Distributed Tests (2xH100-2xMI355)"
 
@@ -846,13 +909,13 @@ steps:
 """
     steps, architectures = parse_steps(yaml_text)
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [
                 {
                     "number": 9001,
                     "date": "2026-07-17",
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/9001",
-                    "message": "AMD Full CI Run - nightly",
+                    "web_url": "https://buildkite.com/vllm/ci/builds/9001",
+                    "message": "Full CI run - nightly",
                     "jobs": [
                         {"name": "Core Check MI250", "state": "passed", "q": "amd_mi250_1"},
                         {"name": "Core Check MI300", "state": "failed", "q": "amd_mi300_1"},
@@ -979,7 +1042,7 @@ steps:
     commands: [pytest -v -s tests/generic]
 """)
     analytics = {
-        "amd-ci": {
+        "ci": {
             "builds": [{
                 "number": 11994,
                 "jobs": [

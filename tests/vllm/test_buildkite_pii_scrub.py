@@ -34,6 +34,7 @@ def _sample_build() -> dict:
             "author": {"email": "pr-author@example.invalid"},
         },
         "future_unreviewed_field": {"secret": "future-field-secret"},
+        "users": [{"id": "build-user-id-secret", "email": "user@example.invalid"}],
         "jobs": [
             {
                 "type": "script",
@@ -47,9 +48,16 @@ def _sample_build() -> dict:
                 "meta_data": {"tenant": "job-metadata-secret"},
                 "command": "export JOB_COMMAND_SECRET=value",
                 "agent": {
+                    "id": "agent-id-secret",
                     "name": "agent-name-secret",
-                    "meta_data": ["queue=private", "host=private-host"],
+                    "hostname": "private-host",
+                    "user": "agent-user-secret",
+                    "meta_data": [
+                        "queue=amd_mi300_1", "host=private-host",
+                        "tenant=agent-metadata-secret", "unknown=future-agent-field-secret",
+                    ],
                 },
+                "agent_query_rules": ["queue=amd_mi250_1", "agent-name=agent-name-secret"],
                 "creator": {"email": "job-creator@example.invalid"},
                 "step": {"id": "sensitive-step-id"},
                 "raw_log_url": "https://example.invalid/private-raw-log",
@@ -80,6 +88,7 @@ class TestNightlyRosterAllowlist:
             "state": "passed",
             "soft_failed": True,
             "step_key": "tests-mi250",
+            "agent_queue": "amd_mi300_1",
         }]
         assert set(projected["jobs"][0]) <= bk._ROSTER_JOB_FIELDS
 
@@ -99,8 +108,11 @@ class TestNightlyRosterAllowlist:
         assert payload["schema_version"] == bk.NIGHTLY_ROSTER_CACHE_SCHEMA_VERSION
         assert set(payload["build"]) == {"number", "created_at", "jobs"}
         assert set(payload["build"]["jobs"][0]) == {
-            "type", "id", "name", "state", "soft_failed", "step_key"
+            "type", "id", "name", "state", "soft_failed", "step_key", "agent_queue"
         }
+        # The observed operational queue survives; requested routing and the
+        # rest of the original agent object never enter the private shard.
+        assert payload["build"]["jobs"][0]["agent_queue"] == "amd_mi300_1"
 
         serialized = shard.read_text()
         for forbidden in (
@@ -108,7 +120,9 @@ class TestNightlyRosterAllowlist:
             "meta_data",
             "creator",
             "author",
-            "agent",
+            '"agent":',
+            "agent_query_rules",
+            "users",
             "command",
             "raw_log_url",
             "web_url",

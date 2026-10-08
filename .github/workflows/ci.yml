@@ -181,7 +181,7 @@ jobs:
             echo "✅ #$id present (HTML)"
           done
           # CI views are dynamically created by registerCISection() in utils.js
-          for id in ci-health ci-analytics ci-queue; do
+          for id in ci-health ci-analytics ci-omni; do
             if ! grep -q "id: '$id'" docs/assets/js/utils.js; then
               echo "❌ Missing CI tab registration: $id"
               exit 1

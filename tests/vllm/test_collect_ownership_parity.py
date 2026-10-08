@@ -14,19 +14,25 @@ COMMIT_SHA = "7f599d78546819948c32f2b23d913507bbb38875"
 
 
 def _write_matrix(input_dir: Path, yaml_url: str | None = None) -> None:
-    source = {}
+    source = {
+        "pipeline": "ci",
+        "definition_source": "main_ci_inline_and_native_amd",
+        "commit_sha": COMMIT_SHA,
+        "runtime_source_commit_sha": COMMIT_SHA,
+        "latest_build_number": 93523,
+        "latest_build_url": "https://buildkite.com/vllm/ci/builds/93523",
+        "latest_build_message": "Full CI run - nightly",
+    }
     if yaml_url is not None:
         source["yaml_url"] = yaml_url
     input_dir.mkdir(parents=True, exist_ok=True)
-    (input_dir / "amd_test_matrix.json").write_text(
-        json.dumps({"source": source}) + "\n"
-    )
+    (input_dir / "amd_test_matrix.json").write_text(json.dumps({"source": source}) + "\n")
 
 
 def _pinned_yaml_url(commit_sha: str = COMMIT_SHA) -> str:
     return (
         "https://raw.githubusercontent.com/vllm-project/vllm/"
-        f"{commit_sha}/.buildkite/test-amd.yaml"
+        f"{commit_sha}/.buildkite/ci_config.yaml"
     )
 
 
@@ -50,7 +56,11 @@ def test_collects_parity_from_the_matrix_commit(tmp_path, monkeypatch):
         observed["snapshot"] = collect_ownership_parity.config_parity._SOURCE_SNAPSHOT
         return {
             "generated_at": "2026-07-28T00:00:00Z",
-            "source": {"commit_sha": COMMIT_SHA},
+            "source": {
+                "commit_sha": COMMIT_SHA,
+                "pipeline": "ci",
+                "definition_source": "main_ci_inline_and_native_amd",
+            },
             "summary": {"matched": 123},
         }
 
@@ -88,7 +98,11 @@ def test_ownership_parity_overflow_preserves_lkg(tmp_path, monkeypatch):
         collect_ownership_parity.config_parity,
         "build_config_parity",
         lambda: {
-            "source": {"commit_sha": COMMIT_SHA},
+            "source": {
+                "commit_sha": COMMIT_SHA,
+                "pipeline": "ci",
+                "definition_source": "main_ci_inline_and_native_amd",
+            },
             "padding": "x" * 1_000,
         },
     )
@@ -101,9 +115,7 @@ def test_ownership_parity_overflow_preserves_lkg(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="exceeds its byte budget"):
         collect_ownership_parity.collect_ownership_parity(input_dir, output_dir)
 
-    assert json.loads(output_path.read_text()) == {
-        "generation": "last-known-good"
-    }
+    assert json.loads(output_path.read_text()) == {"generation": "last-known-good"}
 
 
 def _oversized_parity_report() -> dict:
@@ -135,7 +147,11 @@ def _oversized_parity_report() -> dict:
 def test_execution_catalog_is_bounded_and_accounts_for_omitted_physical_rows():
     report = _oversized_parity_report()
     report["amd_execution_definitions"] = [
-        {"definition_id": f".buildkite/test-amd.yaml#{index}", "label": "Long name " * 40, "execution_sha256": f"{index:064x}"}
+        {
+            "definition_id": f".buildkite/test-amd.yaml#{index}",
+            "label": "Long name " * 40,
+            "execution_sha256": f"{index:064x}",
+        }
         for index in range(300)
     ]
     bounded = collect_ownership_parity.bounded_config_parity_payload(report, max_bytes=8_000)
@@ -212,8 +228,7 @@ def test_each_parity_writer_half_cap_composes_within_pair_budget():
         max_bytes=half_cap,
     )
     sizes = [
-        len((json.dumps(payload, indent=2) + "\n").encode())
-        for payload in (primary, ownership)
+        len((json.dumps(payload, indent=2) + "\n").encode()) for payload in (primary, ownership)
     ]
 
     assert all(size <= half_cap for size in sizes)
@@ -226,10 +241,7 @@ def test_each_parity_writer_half_cap_composes_within_pair_budget():
         None,
         "main",
         "https://example.invalid/vllm/main/.buildkite/test-amd.yaml",
-        (
-            "https://example.invalid/vllm-project/vllm/"
-            f"{COMMIT_SHA}/.buildkite/test-amd.yaml"
-        ),
+        (f"https://example.invalid/vllm-project/vllm/{COMMIT_SHA}/.buildkite/test-amd.yaml"),
         f"https://example.invalid/{COMMIT_SHA[:-1]}/test-amd.yaml",
         f"https://example.invalid/{COMMIT_SHA}0/test-amd.yaml",
         f"https://example.invalid/{COMMIT_SHA}/{COMMIT_SHA}/test-amd.yaml",
@@ -282,29 +294,60 @@ def test_main_fails_when_collector_reports_a_different_commit(
     assert not (output_dir / "ownership_config_parity.json").exists()
 
 
-def test_raw_public_yaml_fetch_does_not_receive_github_token(monkeypatch):
-    captured = {}
+def test_pinned_loader_uses_runtime_commit_even_with_a_newer_main_env(monkeypatch):
+    from vllm.main_ci_definitions import MainCISnapshot
 
-    class Response:
-        text = "group: kernels\nsteps: []\n"
+    main_sha = "a" * 40
+    monkeypatch.setenv("VLLM_CONFIG_SHA", main_sha)
+    observed = []
+    files = {
+        ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+        ".buildkite/test_areas/kernels.yaml": {"steps": []},
+    }
 
-        @staticmethod
-        def raise_for_status():
-            return None
+    def load_runtime(commit):
+        observed.append(commit)
+        return MainCISnapshot(commit, files, "2026-10-08T20:00:00Z")
 
-    def fake_get(url, **kwargs):
-        captured["url"] = url
-        captured["headers"] = kwargs["headers"]
-        return Response()
+    monkeypatch.setattr(collect_ownership_parity, "load_snapshot", load_runtime)
+    snapshot = collect_ownership_parity.load_pinned_snapshot(COMMIT_SHA)
+    assert observed == [COMMIT_SHA]
+    assert snapshot.commit_sha == COMMIT_SHA
+    assert snapshot.files is files
+    assert ".buildkite/test-amd.yaml" not in snapshot.files
 
-    monkeypatch.setattr(collect_ownership_parity.requests, "get", fake_get)
 
-    path, payload = collect_ownership_parity._fetch_yaml(
-        ".buildkite/test_areas/kernels.yaml",
-        COMMIT_SHA,
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"pipeline": "amd-ci"},
+        {"definition_source": "legacy_amd"},
+        {"commit_sha": "a" * 40},
+        {"runtime_source_commit_sha": "a" * 40},
+        {"latest_build_number": True},
+        {"latest_build_number": None},
+        {"latest_build_url": "https://buildkite.com/vllm/amd-ci/builds/93523"},
+        {"latest_build_message": "Scheduled gating run"},
+        {
+            "yaml_url": f"https://raw.githubusercontent.com/vllm-project/vllm/{COMMIT_SHA}/.buildkite/test-amd.yaml"
+        },
+    ],
+)
+def test_matrix_pin_rejects_legacy_or_conflicting_runtime_sources(tmp_path, updates):
+    _write_matrix(tmp_path, _pinned_yaml_url())
+    matrix = json.loads((tmp_path / "amd_test_matrix.json").read_text())
+    matrix["source"].update(updates)
+    with pytest.raises(ValueError):
+        collect_ownership_parity.matrix_commit_sha(matrix)
+
+
+def test_pinned_loader_rejects_a_different_source_commit(monkeypatch):
+    from vllm.main_ci_definitions import MainCISnapshot
+
+    monkeypatch.setattr(
+        collect_ownership_parity,
+        "load_snapshot",
+        lambda commit: MainCISnapshot("a" * 40, {}, "2026-10-08T20:00:00Z"),
     )
-
-    assert path == ".buildkite/test_areas/kernels.yaml"
-    assert payload["group"] == "kernels"
-    assert "Authorization" not in captured["headers"]
-    assert f"/{COMMIT_SHA}/" in captured["url"]
+    with pytest.raises(ValueError, match="observed nightly commit"):
+        collect_ownership_parity.load_pinned_snapshot(COMMIT_SHA)

@@ -4,7 +4,7 @@
 (function (global) {
   'use strict';
 
-  const SOURCE_ASSET_URL = 'data/vllm/ci/capacity_monitor.json';
+  const SOURCE_ASSET_URL = 'data/vllm/ci/operations_v2/test_group_parity.json';
   const REQUIRED_HELPERS = [
     'badge', 'button', 'compareText', 'externalLink', 'hardwareDisplayLabel',
     'integer', 'linkButton', 'methodDisclosure', 'n', 'openDetailDrawer',
@@ -23,9 +23,12 @@
   }
 
   function amdMirrorInventoryRows(inventory, ui) {
-    return (Array.isArray((inventory || {}).groups) ? inventory.groups : [])
+    return (Array.isArray((inventory || {}).rows) ? inventory.rows : [])
       .filter(function (row) { return row && typeof row === 'object'; })
-      .slice()
+      .map(function (row) {
+        const sourceFile = String(row.source_file || '');
+        return Object.assign({}, row, {yaml_file: sourceFile, label: row.upstream_label || row.nvidia_label || row.amd_label, key: row.definition_id, area: row.area || sourceFile.split('/').pop().replace(/\.ya?ml$/i, '').replaceAll('_', ' ')});
+      })
       .sort(function (left, right) {
         return ui.compareText(left.area, right.area)
           || ui.compareText(left.yaml_file, right.yaml_file)
@@ -36,12 +39,15 @@
 
   function amdMirrorInventoryState(inventory, ui) {
     const summary = (inventory || {}).summary || {};
-    const rawTotal = summary.gated_group_count;
+    const source = (inventory || {}).source || {};
+    const commit = source.current_definition_commit_sha || source.main_commit || '';
+    const currentSource = source.pipeline === 'ci' && /^[0-9a-f]{40}$/.test(commit);
+    const rawTotal = currentSource ? summary.total : null;
     const parsedTotal = rawTotal === null || rawTotal === undefined || rawTotal === ''
       ? null
       : Number(rawTotal);
     const total = Number.isFinite(parsedTotal) && parsedTotal >= 0 ? Math.floor(parsedTotal) : null;
-    const rows = amdMirrorInventoryRows(inventory, ui);
+    const rows = currentSource ? amdMirrorInventoryRows(inventory, ui) : [];
     const retention = (inventory || {}).publication_retention || {};
     const groupIndex = retention.group_index || {};
     const aggregateComplete = retention.aggregate_summaries_complete !== false;
@@ -60,13 +66,26 @@
 
   function amdMirrorSourceUrl(inventory, row) {
     const source = (inventory || {}).source || {};
-    const repository = String(source.github_repo || 'vllm-project/vllm').trim();
-    const commit = String(source.commit_sha || '').trim().toLowerCase();
+    const repository = String(source.repository || 'vllm-project/vllm').trim();
+    const commit = String(source.current_definition_commit_sha || source.main_commit || '').trim().toLowerCase();
     const path = String((row || {}).yaml_file || '').replace(/^\/+/, '');
     if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(repository)
       || !/^[0-9a-f]{40}$/.test(commit) || !path) return '';
     return 'https://github.com/' + repository + '/blob/' + commit + '/'
       + path.split('/').map(encodeURIComponent).join('/');
+  }
+
+  function amdMirrorGateMode(row) {
+    if (row.gate_kind === 'soft_fail' || row.soft_fail === true) return 'soft fail';
+    if (row.gate_kind === 'optional' || row.optional === true) return 'optional';
+    return 'required';
+  }
+
+  function amdMirrorModes(rows) {
+    return (rows || []).reduce(function (counts, row) {
+      counts[amdMirrorGateMode(row)] += 1;
+      return counts;
+    }, {required: 0, optional: 0, 'soft fail': 0});
   }
 
   function amdMirrorAreaRows(inventory, groups, ui) {
@@ -79,19 +98,21 @@
           yaml_file: yamlFile,
           count: 0,
           optional: 0,
+          soft_fail: 0,
           devices: new Set(),
           queues: new Set(),
         });
       }
       const rollup = byFile.get(yamlFile);
       rollup.count += 1;
-      if (group.optional) rollup.optional += 1;
+      if (amdMirrorGateMode(group) === 'optional') rollup.optional += 1;
+      if (amdMirrorGateMode(group) === 'soft fail') rollup.soft_fail += 1;
       if (group.device) rollup.devices.add(String(group.device));
       if (group.queue) rollup.queues.add(String(group.queue));
     });
     return Array.from(byFile.values()).map(function (row) {
       return Object.assign({}, row, {
-        non_optional: row.count - row.optional,
+        required: row.count - row.optional - row.soft_fail,
         devices: Array.from(row.devices).sort(ui.compareText),
         queues: Array.from(row.queues).sort(ui.compareText),
         source_url: amdMirrorSourceUrl(inventory, row),
@@ -165,7 +186,7 @@
     const sourceUrl = amdMirrorSourceUrl(inventory, row);
     const sources = [
       sourceUrl ? {label: 'Open pinned test-area YAML', url: sourceUrl} : null,
-      source.commit_url ? {label: 'Open scanned vLLM commit', url: source.commit_url} : null,
+      source.current_definition_commit_sha || source.main_commit ? {label: 'Open current main CI commit', url: 'https://github.com/vllm-project/vllm/commit/' + (source.current_definition_commit_sha || source.main_commit)} : null,
       {label: 'Open published AMD mirror scan', url: SOURCE_ASSET_URL},
     ].filter(Boolean);
     const identity = [row.yaml_file, row.yaml_index, row.key].join('-')
@@ -177,14 +198,13 @@
       description: 'This source definition counts once in the configured AMD mirror total. Parallel execution changes potential job fan-out, not the declaration count.',
       fields: [
         {label: 'Source test group', value: row.label},
-        {label: 'Source step key', value: row.key},
+        {label: 'Source definition ID', value: row.key},
         {label: 'Test area', value: row.area},
         {label: 'YAML definition', value: row.yaml_file},
         {label: 'YAML step index', value: row.yaml_index === undefined ? null : ui.integer(Number(row.yaml_index) + 1)},
         {label: 'AMD device', value: row.device},
-        {label: 'Mapped queue', value: row.queue},
-        {label: 'Parallelism', value: ui.integer(row.parallelism || 1)},
-        {label: 'Optional', value: row.optional ? 'Yes' : 'No'},
+        {label: 'GPU width', value: row.num_devices === null || row.num_devices === undefined ? null : ui.integer(row.num_devices)},
+        {label: 'Configured route mode', value: amdMirrorGateMode(row)},
         {label: 'Timeout', value: row.timeout_in_minutes ? ui.integer(row.timeout_in_minutes) + ' minutes' : null},
         {label: 'Dependency files', value: row.dependency_file_count === undefined ? null : ui.integer(row.dependency_file_count)},
       ],
@@ -197,8 +217,9 @@
       {label: 'Test-area file', sticky: true, width: '310px', render: function (row) { return row.source_url ? ui.externalLink(row.yaml_file.split('/').pop() + ' ↗', row.source_url, 'ops-cell-primary') : ui.n('span', 'ops-cell-primary', row.yaml_file); }},
       {label: 'Test area', width: '230px', render: function (row) { return ui.value(row.area); }},
       {label: 'Mirror groups', numeric: true, width: '130px', render: function (row) { return ui.integer(row.count); }},
-      {label: 'Required', numeric: true, width: '110px', render: function (row) { return ui.integer(row.non_optional); }},
+      {label: 'Required', numeric: true, width: '110px', render: function (row) { return ui.integer(row.required); }},
       {label: 'Optional', numeric: true, width: '110px', render: function (row) { return ui.integer(row.optional); }},
+      {label: 'Soft fail', numeric: true, width: '110px', render: function (row) { return ui.integer(row.soft_fail); }},
       {label: 'AMD devices', width: '260px', render: function (row) { return row.devices.map(ui.hardwareDisplayLabel).join(', ') || '-'; }},
     ];
   }
@@ -223,9 +244,8 @@
       {label: 'Source test group', sticky: true, width: '390px', render: function (row) { return ui.linkButton(amdMirrorLabel(row, ui), function () { openAmdMirrorDetail(row, inventory, ui); }); }},
       {label: 'Test area', width: '210px', render: function (row) { return ui.value(row.area); }},
       {label: 'AMD device', width: '130px', render: function (row) { return ui.badge(ui.hardwareDisplayLabel(row.device), 'is-info'); }},
-      {label: 'Queue', width: '175px', render: function (row) { return ui.n('span', 'ops-mono', ui.value(row.queue)); }},
-      {label: 'Parallelism', numeric: true, width: '115px', render: function (row) { return ui.integer(row.parallelism || 1); }},
-      {label: 'Mode', width: '125px', render: function (row) { return ui.badge(row.optional ? 'optional' : 'required', row.optional ? 'is-warning' : 'is-neutral'); }},
+      {label: 'GPU width', numeric: true, width: '115px', render: function (row) { return row.num_devices === null || row.num_devices === undefined ? '—' : ui.integer(row.num_devices); }},
+      {label: 'Mode', width: '125px', render: function (row) { return ui.badge(amdMirrorGateMode(row), amdMirrorGateMode(row) === 'required' ? 'is-neutral' : 'is-warning'); }},
       {label: 'Source', width: '145px', render: function (row) { const url = amdMirrorSourceUrl(inventory, row); return url ? ui.externalLink('Pinned YAML ↗', url) : ui.n('span', 'ops-cell-muted', '-'); }},
     ];
   }
@@ -237,9 +257,9 @@
       subtitle: ui.integer(groups.length) + ' published mirror groups from vLLM main',
       rows: groups,
       columns: amdMirrorInventoryColumns(inventory, ui),
-      searchPlaceholder: 'Filter test group, area, YAML file, device, queue, or key',
+      searchPlaceholder: 'Filter test group, area, YAML file, device, mode, or key',
       searchText: function (row) {
-        return [row.amd_label, row.label, row.key, row.area, row.yaml_file, row.device, row.queue].join(' ');
+        return [row.amd_label, row.label, row.key, row.area, row.yaml_file, row.device, amdMirrorGateMode(row)].join(' ');
       },
       geometry: {name: 'amd-mirror-inventory', minWidth: '1285px'},
     });
@@ -268,7 +288,7 @@
     ring.append(ui.n('span', '', 'mirror groups'));
 
     const copy = ui.n('div', 'ops-mirror-hero-copy');
-    copy.append(ui.n('div', 'ops-eyebrow', 'AMD GATING CONFIGURATION ON MAIN'));
+    copy.append(ui.n('div', 'ops-eyebrow', 'AMD MIRROR CONFIGURATION ON MAIN'));
     copy.append(ui.n('h2', 'ops-mirror-hero-title', 'Configured AMD mirror groups'));
     copy.append(ui.n(
       'p',
@@ -294,9 +314,11 @@
     return card;
   }
 
-  function mirrorConfigurationCard(inventoryState, areas, optional, queueCount, ui) {
+  function mirrorConfigurationCard(inventoryState, areas, modes, ui) {
     const publishedTotal = inventoryState.rows.length;
-    const required = publishedTotal - optional;
+    const required = modes.required;
+    const optional = modes.optional;
+    const softFail = modes['soft fail'];
     const exact = inventoryState.detailComplete;
     const prefix = exact ? '' : '≥';
     const card = ui.n('section', 'ops-mirror-card ops-mirror-configuration-card');
@@ -306,26 +328,29 @@
       ui.n('strong', '', publishedTotal || inventoryState.total === 0 ? prefix + ui.integer(required) : '—'),
       ui.n('span', '', 'required'),
       ui.n('strong', '', publishedTotal || inventoryState.total === 0 ? prefix + ui.integer(optional) : '—'),
-      ui.n('span', '', 'optional')
+      ui.n('span', '', 'optional'),
+      ui.n('strong', '', publishedTotal || inventoryState.total === 0 ? prefix + ui.integer(softFail) : '—'),
+      ui.n('span', '', 'soft fail')
     );
     card.append(headline);
 
     const track = ui.n('div', 'ops-mirror-mode-track');
     track.setAttribute('role', 'img');
-    track.setAttribute('aria-label', ui.integer(required) + ' required and ' + ui.integer(optional) + ' optional published mirror groups');
+    track.setAttribute('aria-label', ui.integer(required) + ' required and ' + ui.integer(optional) + ' optional and ' + ui.integer(softFail) + ' soft-fail published mirror groups');
     if (publishedTotal) {
       const requiredBar = ui.n('span', 'is-required');
       requiredBar.style.width = required / publishedTotal * 100 + '%';
       const optionalBar = ui.n('span', 'is-optional');
       optionalBar.style.width = optional / publishedTotal * 100 + '%';
-      track.append(requiredBar, optionalBar);
+      const softFailBar = ui.n('span', 'is-soft-fail');
+      softFailBar.style.width = softFail / publishedTotal * 100 + '%';
+      track.append(requiredBar, optionalBar, softFailBar);
     }
     if (exact) card.append(track);
 
     const facts = ui.n('div', 'ops-mirror-facts');
     [
       {value: publishedTotal || inventoryState.total === 0 ? prefix + ui.integer(areas.length) : '—', label: 'source files'},
-      {value: Number.isFinite(queueCount) ? ui.integer(queueCount) : '—', label: 'queues used'},
       {value: publishedTotal || inventoryState.total === 0 ? prefix + ui.integer(amdMirrorHardwareRows(inventoryState.rows, ui).length) : '—', label: 'GPU families'},
     ].forEach(function (fact) {
       const item = ui.n('div', 'ops-mirror-fact');
@@ -344,7 +369,7 @@
     const maxCount = Math.max.apply(null, topAreas.map(function (row) { return Number(row.count || 0); }).concat([1]));
     const body = ui.n('div', 'ops-mirror-area-chart');
     const legend = ui.n('div', 'ops-mirror-area-legend');
-    legend.append(ui.n('span', 'is-required', 'Required'), ui.n('span', 'is-optional', 'Optional'));
+    legend.append(ui.n('span', 'is-required', 'Required'), ui.n('span', 'is-optional', 'Optional'), ui.n('span', 'is-soft-fail', 'Soft fail'));
     body.append(legend);
     const bars = ui.n('div', 'ops-mirror-area-bars');
     topAreas.forEach(function (row) {
@@ -354,22 +379,24 @@
         control.target = '_blank';
         control.rel = 'noopener';
       }
-      control.setAttribute('aria-label', row.area + ': ' + ui.integer(row.count) + ' mirror groups, ' + ui.integer(row.non_optional) + ' required and ' + ui.integer(row.optional) + ' optional' + (row.source_url ? '. Opens pinned YAML in a new tab.' : ''));
+      control.setAttribute('aria-label', row.area + ': ' + ui.integer(row.count) + ' mirror groups, ' + ui.integer(row.required) + ' required and ' + ui.integer(row.optional) + ' optional and ' + ui.integer(row.soft_fail) + ' soft fail' + (row.source_url ? '. Opens pinned YAML in a new tab.' : ''));
       const label = ui.n('span', 'ops-mirror-area-label');
       label.append(ui.n('strong', '', row.area), ui.n('small', '', row.yaml_file.split('/').pop()));
       const track = ui.n('span', 'ops-mirror-area-track');
       const fill = ui.n('span', 'ops-mirror-area-fill');
       fill.style.width = Number(row.count || 0) / maxCount * 100 + '%';
       const requiredSegment = ui.n('span', 'is-required');
-      requiredSegment.style.width = Number(row.non_optional || 0) / Math.max(1, Number(row.count || 0)) * 100 + '%';
+      requiredSegment.style.width = Number(row.required || 0) / Math.max(1, Number(row.count || 0)) * 100 + '%';
       const optionalSegment = ui.n('span', 'is-optional');
       optionalSegment.style.width = Number(row.optional || 0) / Math.max(1, Number(row.count || 0)) * 100 + '%';
-      fill.append(requiredSegment, optionalSegment);
+      const softFailSegment = ui.n('span', 'is-soft-fail');
+      softFailSegment.style.width = Number(row.soft_fail || 0) / Math.max(1, Number(row.count || 0)) * 100 + '%';
+      fill.append(requiredSegment, optionalSegment, softFailSegment);
       track.append(fill);
       const breakdown = ui.n(
         'span',
         'ops-mirror-area-breakdown',
-        ui.integer(row.non_optional) + ' R · ' + ui.integer(row.optional) + ' O'
+        ui.integer(row.required) + ' R · ' + ui.integer(row.optional) + ' O · ' + ui.integer(row.soft_fail) + ' S'
       );
       breakdown.setAttribute('aria-hidden', 'true');
       control.append(label, track, breakdown, ui.n('strong', 'ops-mirror-area-count', ui.integer(row.count)));
@@ -398,7 +425,7 @@
       const control = ui.n('button', 'ops-mirror-preview-row');
       control.type = 'button';
       control.addEventListener('click', function () { openAmdMirrorDetail(row, inventory, ui); });
-      control.setAttribute('aria-label', 'Inspect ' + amdMirrorLabel(row, ui) + ', ' + ui.hardwareDisplayLabel(row.device) + ', ' + (row.optional ? 'optional' : 'required'));
+      control.setAttribute('aria-label', 'Inspect ' + amdMirrorLabel(row, ui) + ', ' + ui.hardwareDisplayLabel(row.device) + ', ' + amdMirrorGateMode(row));
       const identity = ui.n('span', 'ops-mirror-preview-copy');
       identity.append(
         ui.n('strong', '', amdMirrorLabel(row, ui)),
@@ -407,7 +434,7 @@
       control.append(
         ui.badge(ui.hardwareDisplayLabel(row.device), 'is-info'),
         identity,
-        ui.badge(row.optional ? 'optional' : 'required', row.optional ? 'is-warning' : 'is-neutral'),
+        ui.badge(amdMirrorGateMode(row), amdMirrorGateMode(row) === 'required' ? 'is-neutral' : 'is-warning'),
         ui.n('span', 'ops-mirror-preview-arrow', '→')
       );
       list.append(control);
@@ -440,14 +467,12 @@
     const ui = validatedHelpers(helpers);
     const payload = inventory || {};
     const inventoryState = amdMirrorInventoryState(payload, ui);
-    const summary = payload.summary || {};
     const rows = inventoryState.rows;
-    const optional = rows.filter(function (row) { return Boolean((row || {}).optional); }).length;
-    const required = rows.length - optional;
+    const modes = amdMirrorModes(rows);
+    const optional = modes.optional;
+    const required = modes.required;
+    const softFail = modes['soft fail'];
     const files = new Set(rows.map(function (row) { return (row || {}).yaml_file; }).filter(Boolean)).size;
-    const queueRaw = summary.queues_with_gated_work;
-    const queueParsed = queueRaw === null || queueRaw === undefined || queueRaw === '' ? null : Number(queueRaw);
-    const queues = Number.isFinite(queueParsed) && queueParsed >= 0 ? Math.floor(queueParsed) : null;
     const countLabel = inventoryState.total === null
       ? '—'
       : (inventoryState.aggregateComplete ? '' : '≥') + ui.integer(inventoryState.total);
@@ -475,7 +500,7 @@
       ui.n('span', '', 'configured AMD mirror groups')
     );
     copy.append(
-      ui.n('span', 'ops-eyebrow', 'AMD GATING CONFIGURATION ON MAIN'),
+      ui.n('span', 'ops-eyebrow', 'AMD MIRROR CONFIGURATION ON MAIN'),
       title,
       ui.n(
         'span',
@@ -494,7 +519,9 @@
       requiredSegment.style.width = required / rows.length * 100 + '%';
       const optionalSegment = ui.n('span', 'is-optional');
       optionalSegment.style.width = optional / rows.length * 100 + '%';
-      track.append(requiredSegment, optionalSegment);
+      const softFailSegment = ui.n('span', 'is-soft-fail');
+      softFailSegment.style.width = softFail / rows.length * 100 + '%';
+      track.append(requiredSegment, optionalSegment, softFailSegment);
       shape.append(track);
     }
     const facts = [];
@@ -502,10 +529,10 @@
       facts.push(
         detailPrefix + ui.integer(required) + ' required',
         detailPrefix + ui.integer(optional) + ' optional',
+        detailPrefix + ui.integer(softFail) + ' soft fail',
         detailPrefix + ui.integer(files) + ' files'
       );
     }
-    if (queues !== null) facts.push(ui.integer(queues) + ' queues');
     shape.append(ui.n('span', 'ops-health-mirror-facts', facts.length ? facts.join(' · ') : 'Open the inventory for configuration details'));
 
     root.append(mark, copy, shape, ui.n('span', 'ops-health-mirror-action', 'Open AMD mirrors →'));
@@ -515,23 +542,15 @@
   function renderAmdMirrorInventory(host, inventory, helpers) {
     const ui = validatedHelpers(helpers);
     const inventoryState = amdMirrorInventoryState(inventory, ui);
-    const summary = (inventory || {}).summary || {};
     const source = (inventory || {}).source || {};
     const groups = inventoryState.rows;
     const areas = amdMirrorAreaRows(inventory, groups, ui);
     const hardwareRows = amdMirrorHardwareRows(groups, ui);
-    const optional = groups.filter(function (row) { return Boolean(row.optional); }).length;
-    const rawQueueCount = summary.queues_with_gated_work;
-    const parsedQueueCount = rawQueueCount === null || rawQueueCount === undefined || rawQueueCount === ''
-      ? null
-      : Number(rawQueueCount);
-    const queueCount = Number.isFinite(parsedQueueCount) && parsedQueueCount >= 0
-      ? Math.floor(parsedQueueCount)
-      : null;
+    const modes = amdMirrorModes(groups);
     const hero = ui.n('div', 'ops-mirror-hero');
     hero.append(
       mirrorCountHero(inventoryState, hardwareRows, ui),
-      mirrorConfigurationCard(inventoryState, areas, optional, queueCount, ui)
+      mirrorConfigurationCard(inventoryState, areas, modes, ui)
     );
     host.append(hero);
 
@@ -544,7 +563,7 @@
         'ops-evidence-note is-warning',
         coverageLead + 'the published detail index contains '
           + ui.integer(groups.length) + ' of ' + ui.integer(inventoryState.total)
-          + ' AMD mirror declarations. File and optionality breakdowns are lower bounds.'
+          + ' AMD mirror declarations. File and configured-mode breakdowns are lower bounds.'
       ));
     }
 
@@ -553,9 +572,9 @@
 
     host.append(ui.methodDisclosure('How this live count is built', [
       ui.n('span', '', 'The dashboard pins vLLM main to one commit and scans every .buildkite/test_areas/*.yaml file.'),
-      ui.n('span', '', 'One top-level YAML step with a non-empty mirror.amd mapping counts once. Optional mirrors are included; parallelism and shard templates do not multiply the total.'),
-      ui.n('span', '', 'This physical configuration count is separate from runtime logical groups and the reviewed parity target plan.'),
-      source.commit_url ? ui.externalLink('Open scanned commit ' + String(source.commit_sha || '').slice(0, 12) + ' ↗', source.commit_url) : null,
+      ui.n('span', '', 'One top-level YAML step with a non-empty mirror.amd mapping counts once. Optional and soft-fail mirrors are included; parallelism and shard templates do not multiply the total.'),
+      ui.n('span', '', 'This physical configuration count is separate from runtime logical groups and current upstream logical route coverage.'),
+      source.current_definition_commit_sha || source.main_commit ? ui.externalLink('Open scanned commit ' + String(source.current_definition_commit_sha || source.main_commit || '').slice(0, 12) + ' ↗', 'https://github.com/vllm-project/vllm/commit/' + (source.current_definition_commit_sha || source.main_commit)) : null,
     ]));
   }
 

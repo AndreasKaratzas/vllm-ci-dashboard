@@ -57,6 +57,21 @@ def test_standardized_platform_labels_normalize_and_preserve_queue_family():
     ) == "nvidia_h200_mig_18gb"
 
 
+def test_current_ci_roster_keeps_latest_nightly_when_parsed_results_lag():
+    fresh = [{"number": 100, "message": "Full CI run - nightly", "state": "failed", "jobs": [
+        {"job_id": "current", "raw_name": ":amd: (MI300) Current group", "state": "failed", "dur": 20},
+    ]}, {"number": 99, "state": "passed", "jobs": []}]
+    parsed = [{"number": 100, "state": "passed", "jobs": [
+        {"job_id": "superseded", "state": "passed", "tests": 999},
+        {"job_id": "current", "state": "passed", "tests": 5, "test_duration_mins": 3},
+    ]}, {"number": 98, "jobs": []}]
+    selected = ca.choose_analytics_builds(fresh, parsed, pipeline_slug="ci")
+    assert [build["number"] for build in selected] == [100, 99]
+    assert selected[0]["state"] == "failed"
+    assert selected[0]["jobs"] == [{**fresh[0]["jobs"][0], "tests": 5, "test_duration_mins": 3}]
+    assert "tests" not in fresh[0]["jobs"][0]
+
+
 def test_analytics_writer_uses_compact_json(tmp_path):
     output = tmp_path / "analytics.json"
     diagnostics = ca.write_analytics(output, {"pipeline": {"builds": [1, 2]}})
@@ -811,7 +826,6 @@ class TestWindowedAnalytics:
         )
         expected_build_url = "https://buildkite.com/vllm/ci/builds/42"
         assert builds[0]["web_url"] == expected_build_url
-        assert ca.gating_build_summary(builds[0])["web_url"] == expected_build_url
         assert builds[0]["jobs"][0]["q"] == "gpu_1_queue"
         reliability = ca.build_all_main_reliability(
             ca._reliability_builds_with_cache_aliases([cached], "ci"),
@@ -1429,13 +1443,13 @@ class TestIncrementalAnalyticsCache:
         ca.main()
 
         assert MovingDatetime.calls == 1
-        assert result_times == [NOW, NOW]
+        assert result_times == [NOW]
         created_filters = [
             params["created_from"]
             for params in fetch_params
             if "created_from" in params
         ]
-        assert created_filters == [(NOW - timedelta(days=30)).isoformat()] * 2
+        assert created_filters == [(NOW - timedelta(days=30)).isoformat()]
         payload = json.loads((tmp_path / "analytics.json").read_text())
         assert {block["generated_at"] for block in payload.values()} == {
             "2026-04-20T12:00:00Z"
@@ -1485,7 +1499,7 @@ def _iso_or_datetime(value) -> datetime | None:
 
 
 class TestWindowedAnalyticsMain:
-    def test_targeted_pipeline_refresh_preserves_other_pipeline_block(
+    def test_current_ci_refresh_discards_legacy_amd_pipeline_block(
         self, monkeypatch, tmp_path
     ):
         preserved_amd = {
@@ -1531,44 +1545,12 @@ class TestWindowedAnalyticsMain:
         ca.main()
 
         payload = json.loads((tmp_path / "analytics.json").read_text())
-        assert payload["amd-ci"] == preserved_amd
+        assert "amd-ci" not in payload
         assert payload["ci"]["pipeline"] == "ci"
         assert payload["ci"]["builds"][0]["number"] == 88
 
-    def test_gating_nightlies_publish_before_private_analytics_budget_failure(
-        self, monkeypatch, tmp_path
-    ):
-        build = _build(88, 0.5, [_job("Fresh gating job", 10)])
-        monkeypatch.delenv("BUILDKITE_TOKEN", raising=False)
-        monkeypatch.setattr(
-            ca,
-            "load_test_result_builds",
-            lambda *args, **kwargs: [build],
-        )
 
-        def fail_private_analytics(*args, **kwargs):
-            raise ca.IncompleteAnalyticsCollection("injected payload budget failure")
-
-        monkeypatch.setattr(ca, "write_analytics", fail_private_analytics)
-        monkeypatch.setattr(ca.sys, "argv", [
-            "collect_analytics.py",
-            "--days", "30",
-            "--pipeline", "ci",
-            "--output", str(tmp_path),
-        ])
-
-        with pytest.raises(
-            ca.IncompleteAnalyticsCollection,
-            match="injected payload budget failure",
-        ):
-            ca.main()
-
-        gating = json.loads((tmp_path / "gating_nightlies.json").read_text())
-        assert gating["ci"]["builds"][0]["number"] == 88
-        assert gating["ci"]["builds"][0]["jobs"][0]["name"] == "Fresh gating job"
-        assert not (tmp_path / "analytics.json").exists()
-
-    def test_main_emits_all_main_reliability_for_both_and_retries_only_upstream(self, monkeypatch, tmp_path):
+    def test_deprecated_both_mode_collects_current_ci_reliability_and_retries(self, monkeypatch, tmp_path):
         messages = {
             "amd-ci": "AMD Full CI Run - nightly",
             "ci": "Full CI run - nightly",
@@ -1634,19 +1616,7 @@ class TestWindowedAnalyticsMain:
         ca.main()
 
         payload = json.loads((tmp_path / "analytics.json").read_text())
-        amd_block = payload["amd-ci"]
-        assert amd_block["pass_rate_contract_version"] == 1
-        assert amd_block["transition_policy_id"] == "confirmed-incidents-v1"
-        assert (
-            amd_block["nightly_change_history"][0]["policy_id"]
-            == "confirmed-incidents-v1"
-        )
-        assert amd_block["all_main_reliability"]["cohort"]["id"] == "amd-ci-main-completed-pass-fail"
-        assert (
-            amd_block["all_main_reliability"]["provenance"]["observation_limit_per_group"]
-            == ca.AMD_MAIN_OBSERVATION_LIMIT
-        )
-        assert "main_retry_analysis" not in amd_block
+        assert set(payload) == {"ci"}
         block = payload["ci"]
         assert block["pass_rate_contract_version"] == 1
         assert block["transition_policy_id"] == "confirmed-incidents-v1"
@@ -1822,132 +1792,6 @@ class TestWindowedAnalyticsMain:
         assert sorted(queues["Legacy MI325 bottleneck"]) == ["amd_mi325_1"]
         assert sorted(queues["Current MI300 bottleneck"]) == ["amd_mi300_1"]
 
-    def test_gating_nightlies_omit_heavy_job_fields(self, tmp_path):
-        builds = [
-            _build(1, 0.5, [{**_job("AMD: Samplers Test (mi325_1)", 40), "wait": 12, "extra": "drop"}]),
-        ]
-        all_data = {
-            "ci": {"display_name": "Upstream CI", "builds": builds},
-            "amd-ci": {"display_name": "AMD CI", "builds": builds},
-        }
-
-        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
-        payload = json.loads((tmp_path / "gating_nightlies.json").read_text())
-        job = payload["ci"]["builds"][0]["jobs"][0]
-
-        assert "name" in job
-        assert "state" in job
-        assert "dur" not in job
-        assert "wait" not in job
-        assert "extra" not in job
-
-    def test_gating_nightlies_keep_exact_job_link_fields(self, tmp_path):
-        builds = [
-            _build(1, 0.5, [{
-                **_job("AMD: Samplers Test (mi325_1)", 40),
-                "job_id": "019ed951-af8e-4dc8-9590-72a47f9fed96",
-                "step_id": "019ed951-ad41-4cc1-8942-051077910be7",
-                "url": "https://buildkite.com/vllm/ci/builds/1/steps/canvas?jid=019ed951-af8e-4dc8-9590-72a47f9fed96&tab=output",
-            }]),
-        ]
-        all_data = {
-            "ci": {"display_name": "Upstream CI", "builds": builds},
-            "amd-ci": {"display_name": "AMD CI", "builds": builds},
-        }
-
-        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
-        payload = json.loads((tmp_path / "gating_nightlies.json").read_text())
-        job = payload["ci"]["builds"][0]["jobs"][0]
-
-        assert job["job_id"] == "019ed951-af8e-4dc8-9590-72a47f9fed96"
-        assert job["step_id"] == "019ed951-ad41-4cc1-8942-051077910be7"
-        assert "url" not in job
-
-    def test_gating_nightlies_parse_exact_ids_from_existing_urls(self, tmp_path):
-        builds = [
-            _build(1, 0.5, [{
-                **_job("AMD: Samplers Test (mi325_1)", 40),
-                "url": "https://buildkite.com/vllm/ci/builds/1/steps/canvas?jid=019ed951-af8e-4dc8-9590-72a47f9fed96&tab=output",
-            }]),
-            _build(2, 0.5, [{
-                **_job("mi325_1: Samplers Test", 40),
-                "url": "https://buildkite.com/vllm/amd-ci/builds/2/steps/canvas?sid=019ed951-ad41-4cc1-8942-051077910be7&tab=output",
-            }]),
-        ]
-        all_data = {
-            "ci": {"display_name": "Upstream CI", "builds": [builds[0]]},
-            "amd-ci": {"display_name": "AMD CI", "builds": [builds[1]]},
-        }
-
-        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
-        payload = json.loads((tmp_path / "gating_nightlies.json").read_text())
-
-        assert payload["ci"]["builds"][0]["jobs"][0]["job_id"] == "019ed951-af8e-4dc8-9590-72a47f9fed96"
-        assert payload["amd-ci"]["builds"][0]["jobs"][0]["step_id"] == "019ed951-ad41-4cc1-8942-051077910be7"
-
-    def test_gating_nightlies_are_capped_and_compact(self, tmp_path):
-        builds = [
-            _build(i, i * 0.5, [_job(f"Job {i}", 40)])
-            for i in range(ca.GATING_NIGHTLY_LIMIT + 5)
-        ]
-        all_data = {
-            "ci": {"display_name": "Upstream CI", "builds": builds},
-            "amd-ci": {"display_name": "AMD CI", "builds": builds},
-        }
-
-        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
-        text = (tmp_path / "gating_nightlies.json").read_text()
-        payload = json.loads(text)
-
-        assert text.count("\n") == 1
-        assert len(payload["ci"]["builds"]) == ca.GATING_NIGHTLY_LIMIT
-        assert len(payload["amd-ci"]["builds"]) == ca.GATING_NIGHTLY_LIMIT
-        assert payload["ci"]["builds"][-1]["number"] == ca.GATING_NIGHTLY_LIMIT - 1
-
-    def test_gating_nightlies_drop_only_oldest_complete_builds_to_byte_cap(
-        self, tmp_path, monkeypatch
-    ):
-        builds = [
-            _build(i, i * 0.5, [_job(f"Job {i} " + "x" * 500, 40)])
-            for i in range(6)
-        ]
-        all_data = {
-            "ci": {"display_name": "Upstream CI", "builds": builds},
-            "amd-ci": {"display_name": "AMD CI", "builds": builds},
-        }
-        monkeypatch.setattr(ca, "GATING_NIGHTLIES_MAX_BYTES", 3500)
-
-        ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
-
-        raw = (tmp_path / "gating_nightlies.json").read_bytes()
-        payload = json.loads(raw)
-        assert len(raw) <= 3500
-        for slug in ("ci", "amd-ci"):
-            retained = payload[slug]["builds"]
-            retention = payload[slug]["retention"]
-            assert retained
-            assert retained[0]["number"] == 0
-            assert retention["retained_build_count"] == len(retained)
-            assert retention["omitted_by_byte_limit"] == 6 - len(retained)
-            assert retention["byte_limited"] is True
-
-    def test_gating_nightlies_impossible_candidate_preserves_lkg(
-        self, tmp_path, monkeypatch
-    ):
-        output = tmp_path / "gating_nightlies.json"
-        output.write_text('{"generation":"last-known-good"}\n')
-        before = output.read_bytes()
-        builds = [_build(1, 0.5, [_job("x" * 500, 40)])]
-        all_data = {
-            "ci": {"display_name": "Upstream CI", "builds": builds},
-            "amd-ci": {"display_name": "AMD CI", "builds": builds},
-        }
-        monkeypatch.setattr(ca, "GATING_NIGHTLIES_MAX_BYTES", 128)
-
-        with pytest.raises(ca.IncompleteAnalyticsCollection, match="cannot fit"):
-            ca.write_gating_nightlies(tmp_path, all_data, "2026-04-20T12:00:00Z")
-
-        assert output.read_bytes() == before
 
     def test_summary_counts_soft_failed_jobs_as_failures(self):
         builds = [

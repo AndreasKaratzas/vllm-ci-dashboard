@@ -433,7 +433,7 @@ def test_published_collector_failures_retry_at_thirty_minutes(repo, policy):
     gated = budget.observe(checkout, policy, now=BASE + timedelta(minutes=29, seconds=59), remote="origin")
     assert gated["request_mode"] == "retry_gated"
     assert gated["available_at"] == budget._iso(BASE + timedelta(minutes=30))
-    assert gated["retry_surfaces"] == "ci_gating,github_home"
+    assert gated["retry_surfaces"] == "github_home"
     assert gated["collection_retry_required"] == "true"
     due = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
     assert due["required"] == "true"
@@ -443,13 +443,13 @@ def test_published_collector_failures_retry_at_thirty_minutes(repo, policy):
     assert retried["request_mode"] == "reserved"
     assert retried["active_attempts"] == 3
     assert retried["rolling_reserved_request_starts"] == 1600
-    assert retried["retry_surfaces"] == "ci_gating,github_home"
+    assert retried["retry_surfaces"] == "github_home"
 
     # Failure before a durable publication must not lose the pending perf or
     # GitHub intent merely because the latest ledger row has no durable_ref.
     after_failed_retry = budget.observe(checkout, policy, now=BASE + timedelta(minutes=60), remote="origin")
     assert after_failed_retry["required"] == "true"
-    assert after_failed_retry["retry_surfaces"] == "ci_gating,github_home"
+    assert after_failed_retry["retry_surfaces"] == "github_home"
 
 
 @pytest.mark.parametrize("kwargs", [

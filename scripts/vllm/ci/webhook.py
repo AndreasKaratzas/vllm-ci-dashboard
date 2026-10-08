@@ -37,7 +37,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vllm.ci.utils import queue_from_rules  # noqa: E402
-from vllm.constants import TRACKED_QUEUES, is_excluded_queue  # noqa: E402
+from vllm.constants import AMD_PIPELINES, TRACKED_QUEUES, is_excluded_queue  # noqa: E402
 from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG, PIPELINES  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ PERF_EVAL_NIGHTLY_MESSAGE_RE = re.compile(
     r"commit\s+[0-9a-f]{7,40}(?:\s|$)",
     re.IGNORECASE,
 )
-QUEUE_WATCHED_PIPELINES = frozenset(WATCHED_PIPELINES | {PERF_EVAL_PIPELINE})
+QUEUE_WATCHED_PIPELINES = frozenset(WATCHED_PIPELINES | set(AMD_PIPELINES) | {PERF_EVAL_PIPELINE})
 QUEUE_EVENT_TYPES = {
     "job.scheduled",
     "job.started",
@@ -259,7 +259,9 @@ def queue_event_identity(event_type: str, event: dict, context: dict) -> str:
 
 
 def is_nightly_build(build: dict, pipeline_slug: str = "") -> bool:
-    """Check if this build is a nightly/daily build we care about."""
+    """Accept canonical current main-CI nightlies for guarded core refresh."""
+    if pipeline_slug not in WATCHED_PIPELINES or build.get("branch") != "main":
+        return False
     pattern = NIGHTLY_NAME_PATTERNS_BY_SLUG.get(pipeline_slug)
     if not pattern:
         return False

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import sys
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -57,6 +58,7 @@ from vllm.ci.dns_classification_cache import (
 )
 from vllm.ci.analyzer import (
     _EXCLUDE_PATTERNS,
+    _JOB_PREFIX_RE,
     apply_quarantine,
     compute_all_test_health,
     compute_build_summary,
@@ -81,7 +83,11 @@ from vllm.ci.models import (
     BuildSummary,
     TestResult,
 )
-from vllm.pipelines import PIPELINES as VLLM_PIPELINES, BK_ORG as VLLM_ORG, SKIP_JOB_PATTERNS
+from vllm.pipelines import (
+    PIPELINES as VLLM_PIPELINES, BK_ORG as VLLM_ORG, SKIP_JOB_PATTERNS,
+    _job_queue,
+    pipeline_job_matches_scope,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -313,6 +319,108 @@ def _should_verify_cache_coverage(
     jobs before its cached JSONL is trusted.
     """
     return build_num in {latest_build_num, latest_terminal_build_num}
+
+
+def _scope_nightly_build(build: dict, pipeline_key: str) -> dict:
+    """Keep the current hardware roster separate within the shared CI build."""
+    if isinstance(build.get("jobs"), list):
+        # Remember observed routing before the role filter removes CPU/other
+        # hardware jobs. Exact cached attempt IDs can then be rejected or
+        # reclassified using this same frozen roster rather than old labels.
+        routes = build.get("_ci_job_routes") or {}
+        for job in build["jobs"]:
+            identity = str(job.get("id") or "").strip()
+            if identity:
+                routes[identity] = {
+                    "queue": _job_queue(job),
+                    "amd": pipeline_job_matches_scope(job, "amd"),
+                    "upstream": pipeline_job_matches_scope(job, "upstream"),
+                }
+        if routes:
+            build["_ci_job_routes"] = routes
+        build["jobs"] = [job for job in build["jobs"] if pipeline_job_matches_scope(job, pipeline_key)]
+    build["job_scope"] = cfg.PIPELINES[pipeline_key].get("job_scope")
+    build["source_pipeline"] = cfg.PIPELINES[pipeline_key]["slug"]
+    return build
+
+
+def _current_scope_results(
+    results: list[TestResult], pipeline_key: str, build: dict | None = None,
+) -> list[TestResult]:
+    """Apply exact observed roster routing before accepting current CI rows.
+
+    Unknown attempt IDs still constrain the cache-coverage check, including
+    retry invalidation. Only an exact roster match can remove an out-of-scope
+    attempt or add a concrete physical pool outside its preserved raw label.
+    """
+    slug = cfg.PIPELINES[pipeline_key]["slug"]
+    routes = (build or {}).get("_ci_job_routes") or {}
+    scoped = []
+    for row in results:
+        if row.pipeline != slug:
+            continue
+        route = routes.get(row.job_id) if (
+            row.job_id and build is not None and row.build_number == build.get("number")
+        ) else None
+        if route is not None:
+            if not route.get(pipeline_key):
+                continue
+            queue = str(route.get("queue") or "").strip().casefold()
+            if pipeline_key == "amd" and re.fullmatch(
+                r"(?:amd_)?mi\d+b?(?:_[a-z0-9][a-z0-9_-]*)?", queue,
+            ):
+                prefix = queue + ": "
+                if not row.job_name.casefold().startswith(prefix):
+                    raw_label = row.job_name
+                    while _JOB_PREFIX_RE.match(raw_label):
+                        raw_label = _JOB_PREFIX_RE.sub("", raw_label, count=1)
+                    row = replace(row, job_name=prefix + raw_label)
+        if pipeline_job_matches_scope({"job_name": row.job_name}, pipeline_key):
+            scoped.append(row)
+    return scoped
+
+
+def _persist_scoped_cached_results(
+    cached: list[TestResult], scoped: list[TestResult], *, date: str,
+    pipeline_key: str, results_dir: Path, backfill_checkpoint_dir: Path | None,
+) -> bool:
+    """Normalize a reused mixed-hardware shard before publishing its role.
+
+    The normal atomic writer validates the previous retention proof, replaces
+    only the verified role rows and attests the new exact shard generation.
+    AMD collection runs first, so its verified rows can be copied from a shared
+    historical CI shard before upstream collection removes those rows.
+    """
+    if not scoped:
+        return False
+    if scoped == cached:
+        return True
+    result_path = write_test_results(scoped, date, pipeline_key, results_dir)
+    if result_path is None:
+        return False
+    if backfill_checkpoint_dir is not None:
+        record_complete_shard(backfill_checkpoint_dir, result_path)
+    log.info("  Persisted %s-only cached CI evidence for %s (%d/%d rows)",
+             pipeline_key, date, len(scoped), len(cached))
+    return True
+
+
+def _scoped_result_entries(entries: list[tuple[int, str, list[TestResult]]], pipeline_key: str) -> list[tuple[int, str, list[TestResult]]]:
+    """Merge current CI shards without counting shared historical rows twice."""
+    by_build: dict[int, tuple[str, list[TestResult]]] = {}
+    seen: dict[int, set[str]] = {}
+    for number, date, rows in entries:
+        scoped_rows = _current_scope_results(rows, pipeline_key)
+        if not scoped_rows:
+            continue
+        prior_keys = seen.setdefault(number, set())
+        keyed = [(json.dumps(row.to_dict(), sort_keys=True), row) for row in scoped_rows]
+        selected = [row for key, row in keyed if key not in prior_keys]
+        by_build.setdefault(number, (date, []))[1].extend(selected)
+        # Preserve repeated observations within a source shard, while removing
+        # the same source rows retained in both historical role-keyed files.
+        prior_keys.update(key for key, _row in keyed)
+    return [(number, date, rows) for number, (date, rows) in by_build.items()]
 
 
 def _nightly_test_jobs(build: dict) -> list[dict]:
@@ -648,6 +756,7 @@ def _cache_covers_all_jobs(
             # the same point-in-time job set used for this cache decision.
             build.clear()
             build.update(detail)
+            _scope_nightly_build(build, pipeline_key)
         except BuildkiteRequestGuardError:
             raise
         except Exception as e:
@@ -660,6 +769,11 @@ def _cache_covers_all_jobs(
             )
             return cached_result_parser_version(jsonl_path) == TEST_RESULT_PARSER_VERSION
 
+    _scope_nightly_build(build, pipeline_key)
+    cached_results = _load_cached_results(jsonl_path)
+    if any(row.build_number != build_num or row.pipeline != cfg.PIPELINES[pipeline_key]["slug"] for row in cached_results):
+        return False
+    scoped_cached_results = _current_scope_results(cached_results, pipeline_key, build)
     roster_jobs = _nightly_test_jobs(build)
     if not roster_jobs:
         return True
@@ -697,8 +811,8 @@ def _cache_covers_all_jobs(
         if not str(job.get("id") or "").strip()
         and str(job.get("name") or "").strip()
     }
-    cached_ids = _cached_job_ids(jsonl_path, build_num)
-    cached_names = _cached_job_names(jsonl_path, build_num)
+    cached_ids = {row.job_id for row in scoped_cached_results if row.job_id}
+    cached_names = {row.job_name for row in scoped_cached_results if row.job_name}
     stale_ids = cached_ids - current_roster_ids
     missing_ids = current_ids - cached_ids
     missing_names = current_names_without_ids - cached_names
@@ -802,6 +916,7 @@ def collect_pipeline(
     )
 
     for build in builds:
+        _scope_nightly_build(build, pipeline_key)
         build_num = build.get("number", 0)
         created = build.get("created_at", "")
         date = nightly_date(created)
@@ -832,6 +947,7 @@ def collect_pipeline(
                 detail = fetch_build_detail(pipeline_key, build_num)
                 build.clear()
                 build.update(detail)
+                _scope_nightly_build(build, pipeline_key)
                 detail_hydrated_from_api = True
                 state = build.get("state", state)
             except BuildkiteRequestGuardError:
@@ -844,6 +960,22 @@ def collect_pipeline(
                     exc,
                 )
 
+        # Existing CI shards historically contained all hardware. Reuse their
+        # exact active attempts when introducing the separate AMD/CUDA roles;
+        # verified source rows should not require fetching their logs twice.
+        alternate_key = "upstream" if pipeline_key == "amd" else "amd"
+        alternate_path = results_dir / f"{date}_{alternate_key}.jsonl"
+        current_path = results_dir / f"{date}_{pipeline_key}.jsonl"
+        current_rows = _current_scope_results(_load_cached_results(current_path), pipeline_key, build)
+        if state in cfg.TERMINAL_STATES and not current_rows and alternate_path.exists():
+            shared_rows = _current_scope_results(_load_cached_results(alternate_path), pipeline_key, build)
+            if shared_rows and _cache_covers_all_jobs(build, alternate_path, pipeline_key, build_num):
+                shared_rows = _current_scope_results(_load_cached_results(alternate_path), pipeline_key, build)
+                result_path = write_test_results(shared_rows, date, pipeline_key, results_dir)
+                if result_path is not None:
+                    existing_dates.add(date)
+                    log.info("  Build #%d: reused exact CI %s job evidence", build_num, pipeline_key)
+
         # Cache-skip eligibility: date is already on disk AND build is terminal.
         # But "build terminal" is not enough on its own — a soft-fail job can
         # finish HOURS after the build's overall state flips to ``passed``
@@ -853,15 +985,29 @@ def collect_pipeline(
         # omit the soft-fail result. Verify coverage before trusting cache.
         if date in existing_dates and state in cfg.TERMINAL_STATES:
             jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
-            if not verify_candidate:
+            cached = _load_cached_results(jsonl_path)
+            current_cache = [row for row in _current_scope_results(cached, pipeline_key, build)
+                             if row.build_number == build_num]
+            source_identity_matches = all(row.pipeline == slug and row.build_number == build_num for row in cached)
+            if not verify_candidate and current_cache and source_identity_matches:
+                if not _persist_scoped_cached_results(
+                    cached, current_cache, date=date, pipeline_key=pipeline_key,
+                    results_dir=results_dir, backfill_checkpoint_dir=backfill_checkpoint_dir,
+                ):
+                    continue
                 log.info("  Build #%d (%s): cached historical build, skipping", build_num, date)
-                loaded = _load_cached_results(jsonl_path)
+                loaded = current_cache
                 if loaded:
                     results_by_build[build_num] = loaded
                 continue
             if _cache_covers_all_jobs(build, jsonl_path, pipeline_key, build_num):
+                loaded = _current_scope_results(cached, pipeline_key, build)
+                if not _persist_scoped_cached_results(
+                    cached, loaded, date=date, pipeline_key=pipeline_key,
+                    results_dir=results_dir, backfill_checkpoint_dir=backfill_checkpoint_dir,
+                ):
+                    continue
                 log.info("  Build #%d (%s): cached, skipping", build_num, date)
-                loaded = _load_cached_results(jsonl_path)
                 if loaded:
                     results_by_build[build_num] = loaded
                 continue
@@ -931,6 +1077,7 @@ def collect_pipeline(
             # when there are no test-result rows for the build.
             build.clear()
             build.update(detail)
+            _scope_nightly_build(build, pipeline_key)
             detail_hydrated_from_api = True
 
         if not _is_complete_nightly_build(build):
@@ -1000,6 +1147,7 @@ def collect_pipeline(
             jobs_parsed, len(build_results),
         )
 
+        build_results = _current_scope_results(build_results, pipeline_key, build)
         if build_results:
             result_path = write_test_results(
                 build_results, date, pipeline_key, results_dir
@@ -1551,11 +1699,7 @@ def main():
     for pk in pipelines:
         existing = load_existing_results(results_dir)
         # Filter to this pipeline
-        pipeline_slug = cfg.PIPELINES[pk]["slug"]
-        pipeline_results = [
-            (bn, d, rs) for bn, d, rs in existing
-            if rs and rs[0].pipeline == pipeline_slug
-        ]
+        pipeline_results = _scoped_result_entries(existing, pk)
 
         # Merge with newly collected (avoid duplicates by build_number)
         existing_build_nums = {bn for bn, _, _ in pipeline_results}
@@ -1611,6 +1755,7 @@ def main():
                 detail = fetch_build_detail("amd", amd_build_num)
                 amd_snapshot_build.clear()
                 amd_snapshot_build.update(detail)
+                _scope_nightly_build(amd_snapshot_build, "amd")
             except BuildkiteRequestGuardError:
                 raise
             except Exception as exc:

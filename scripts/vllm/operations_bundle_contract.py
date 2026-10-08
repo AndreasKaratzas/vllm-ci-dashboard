@@ -33,7 +33,7 @@ OPERATIONS_V3_SECTION_NAMES = tuple(
     for name in OPERATIONS_V2_SECTION_NAMES
     if name not in {"gating", "trajectory", "comparison_retry_evidence"}
 )
-OPERATIONS_SECTION_NAMES = OPERATIONS_V2_SECTION_NAMES
+OPERATIONS_SECTION_NAMES = OPERATIONS_V3_SECTION_NAMES
 
 # Reliability is a separately bounded 64 MiB drill-down payload. The synthetic
 # monitor streams it through SHA-256 verification without retaining the body in
@@ -42,14 +42,14 @@ OPERATIONS_STREAMED_LARGE_SECTIONS = ("reliability",)
 # Compatibility spelling used by health/audit tests and downstream consumers.
 OPERATIONS_UNFETCHED_LARGE_SECTIONS = frozenset(OPERATIONS_STREAMED_LARGE_SECTIONS)
 OPERATIONS_STREAMED_FILE_MAX_BYTES = 64 * 1024 * 1024
-OPERATIONS_BUNDLE_VERSION = 2
+OPERATIONS_BUNDLE_VERSION = 3
 OPERATIONS_LEGACY_BUNDLE_VERSION = 1
 # Producer activation is intentionally separate from reader support. Bundle
 # upgrades ship in two phases: readers first, then this single writer selector
 # after every prior-version health/watchdog run has drained.
 OPERATIONS_PRODUCER_BUNDLE_VERSION = OPERATIONS_BUNDLE_VERSION
 OPERATIONS_SUPPORTED_BUNDLE_VERSIONS = frozenset(
-    (OPERATIONS_LEGACY_BUNDLE_VERSION, OPERATIONS_BUNDLE_VERSION, 3)
+    (OPERATIONS_LEGACY_BUNDLE_VERSION, 2, OPERATIONS_BUNDLE_VERSION)
 )
 OPERATIONS_CANARY_SECTIONS = tuple(
     name
@@ -63,9 +63,9 @@ OPERATIONS_MANIFEST_MAX_BYTES = writer_max_bytes("operations_manifest")
 # every other eagerly parsed canary. Its public projection therefore owns only
 # one quarter of the shared bundle ceiling.
 # These allocations are exhaustive and additive. Together with the 2 MiB
-# manifest allowance they equal the 32 MiB canary envelope, so independently
+# manifest allowance they fit the 32 MiB canary envelope, so independently
 # legal route files can never form an illegal synthetic-monitor response set.
-OPERATIONS_CANARY_SECTION_MAX_BYTES = {
+OPERATIONS_V2_CANARY_SECTION_MAX_BYTES = {
     "nightly": 2 * 1024 * 1024,
     "amd_test_health": 8 * 1024 * 1024,
     "amd_agent_health": 8 * 1024 * 1024,
@@ -80,6 +80,14 @@ OPERATIONS_CANARY_SECTION_MAX_BYTES = {
     "omni": 1 * 1024 * 1024,
     "diagnostics": 256 * 1024,
 }
+
+OPERATIONS_CANARY_SECTION_MAX_BYTES = {
+    name: size for name, size in OPERATIONS_V2_CANARY_SECTION_MAX_BYTES.items()
+    if name in OPERATIONS_CANARY_SECTIONS
+}
+# Exact five-nightly evidence replaces the smaller historical aggregate table.
+# Retired routes free this allowance while the total stays below 32 MiB.
+OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] = 7 * 1024 * 1024
 
 # Version 1 predates the exact additive per-section allocations above. Its
 # immutable manifests remain safe to probe when every eager section fits the
@@ -187,8 +195,8 @@ def validate_operations_canary_budget_for_bundle_version(
     for name in canary_names:
         size = section_bytes.get(name)
         section_limit = (
-            OPERATIONS_CANARY_SECTION_MAX_BYTES[name]
-            if bundle_version == 3
+            OPERATIONS_V2_CANARY_SECTION_MAX_BYTES[name]
+            if bundle_version == 2
             else OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES
         )
         if type(size) is not int or not 0 < size <= section_limit:

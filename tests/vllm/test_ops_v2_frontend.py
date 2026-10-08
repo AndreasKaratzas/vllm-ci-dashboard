@@ -175,14 +175,6 @@ assert.equal(helpers.observedCountLabel(12, 'lower_bound'), '≥12');
     assert result.returncode == 0, result.stderr
 
 
-def test_queue_ui_distinguishes_current_metrics_from_retained_job_details():
-    assert "jobs.details_status || snapshot.details_status" in OPS_JS
-    assert "retained_due_to_page_cap" in OPS_JS
-    assert "retained_due_to_error" in OPS_JS
-    assert "jobs.details_observed_at || jobs.ts" in OPS_JS
-    assert "they are not relabeled as current" in OPS_JS
-    assert "Active-job detail is storage-bounded" in OPS_JS
-    assert "job tables and workload counts are retained-row lower bounds" in OPS_JS
 
 
 def test_v2_assets_and_mobile_shell_are_loaded():
@@ -288,7 +280,6 @@ def test_data_fetches_retry_and_do_not_cache_transient_failures():
     assert "fetch(requestPath, {cache: 'no-store'})" in OPS_JS
     assert "if (cache.get(key) === request) cache.delete(key)" in OPS_JS
     assert "if (operationsManifestPromise === request) operationsManifestPromise = null" in OPS_JS
-    assert "contains invalid JSONL at line" in OPS_JS
 
 
 @pytest.mark.live_data
@@ -346,8 +337,6 @@ def test_v2_owns_all_operational_views():
         "ci-health",
         "ci-analytics",
         "ci-perf-eval",
-        "ci-queue",
-        "ci-hotness",
         "ci-omni",
     ):
         assert f"'{tab}'" in OPS_JS
@@ -387,7 +376,7 @@ def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
     assert "availability.fresh === true" in OPS_JS
     assert (
         "['healthView', 'health_view', "
-        "['overview', 'parity', 'targets', 'coverage', 'mirrors']]"
+        "['overview', 'parity', 'coverage', 'mirrors']]"
     ) in OPS_JS
     assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
     assert "if (state.healthView === 'ownership')" not in OPS_JS
@@ -497,46 +486,20 @@ def test_current_group_history_has_main_and_nightly_evidence(ops_data):
     )
 
 
-def test_amd_health_and_platform_comparison_are_distinct_first_visit_surfaces():
-    for contract in (
-        "function renderAmdHealth",
-        "function openAmdLogicalCatalog",
-        "function openAmdLogicalGroupDetail",
-        "function openAmdCatalog",
-        "function openAmdGroupDetail",
-        "AMD health by nightly",
-        "Latest health by hardware variant",
-        "Retained AMD job-variant catalog",
-        "AMD nightly test health",
-        "AMD-first, upstream-only incident evidence",
-        "function platformComparison",
-        "function openPlatformComparisonDetail",
-        "function renderPlatformFlakes",
-        "ACTIVE AMD VARIANTS",
-        "AMD incident comparison",
-    ):
+def test_main_ci_health_and_recent_latency_are_distinct_surfaces():
+    for contract in ("function renderAmdHealth", "function openAmdLogicalCatalog", "function openAmdLogicalGroupDetail", "function openAmdCatalog", "function openAmdGroupDetail", "function latencyComparison", "function openLatencyEvidence", "function renderLatencyComparison", "Latest five completed main CI nightlies", "median", "sample_count"):
         assert contract in OPS_JS
-    for contract in (
-        ".ops-page .ops-history-explorer",
-        ".ops-page .ops-cluster-section",
-        ".ops-page .ops-cluster-grid",
-        ".ops-page .ops-cluster-tile",
-        ".ops-page .ops-amd-cluster-grid",
-    ):
-        assert contract in OPS_CSS
-    assert "name: 'flake-comparison'" in OPS_JS
-    assert "comparisonFlakeColumns" in OPS_JS
-    assert "const seenGroupSets = new Set()" in OPS_JS
-    assert "if (seenGroupSets.has(identity)) return" in OPS_JS
-    assert "renderGroupOverviewCharts(host, catalog" not in OPS_JS
+    for retired in ("function platformComparison", "function renderPlatformFlakes", "function renderPlatformRetries", "comparisonRetryEvidence", "analyticsWindow"):
+        assert retired not in OPS_JS
 
 
 @pytest.mark.live_data
-def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
+def test_current_main_ci_amd_health_and_recent_latency_reconcile(ops_data):
     health = ops_data["amd_test_health"]
     summary = health["summary"]
     latest = summary["latest_state_counts"]
-    assert health["source_pipeline"] == "amd-ci"
+    assert health["source_pipeline"] == "ci"
+    assert health["job_scope"] == "amd_gpu"
     assert summary["build_count"] == len(health["builds"])
     assert summary["build_count"] > 0
     assert summary["latest_group_count"] > 0
@@ -557,38 +520,23 @@ def test_current_amd_health_and_platform_comparison_reconcile(ops_data):
     assert summary["latest_incident_group_count"] == latest["soft"] + latest["hard"]
     assert len({row["id"] for row in health["group_catalog"]}) == summary["group_count"]
     assert all(
-        observation["url"].startswith("https://buildkite.com/vllm/amd-ci/builds/")
+        observation["url"].startswith("https://buildkite.com/vllm/ci/builds/")
         for row in health["group_catalog"]
         for observation in row["observations"]
     )
 
-    comparison = ops_data["reliability"]["platform_comparison"]
-    assert comparison["available"] is True
-    assert comparison["source_pipeline"] == "ci"
-    comparison_keys = {row["comparison_key"] for row in comparison["rows"]}
-    eligible = [row for row in comparison["rows"] if row["comparison_eligible"]]
-    assert eligible
-    matched_keys = {row["comparison_key"] for row in eligible}
-    assert comparison["summary"]["amd_base_group_count"] == len(comparison_keys)
-    assert comparison["summary"].get(
-        "amd_comparison_row_count", len(comparison["rows"])
-    ) == len(comparison["rows"])
-    assert comparison["summary"]["matched_base_group_count"] == len(matched_keys)
-    assert comparison["summary"].get(
-        "comparable_variant_pair_count", len(eligible)
-    ) == len(eligible)
-    assert comparison["summary"]["comparable_base_group_count"] + comparison["summary"]["review_required_base_group_count"] == comparison["summary"]["amd_base_group_count"]
-    assert all(row["amd"]["variant_count"] > 0 for row in comparison["rows"])
-    assert all(isinstance(row["match_issues"], list) for row in comparison["rows"])
-    assert all(row["comparison_eligible"] == (row["match_status"] == "exact_cuda_pair") for row in comparison["rows"])
-    for row in eligible:
-        for side in ("amd", "cuda"):
-            signatures = {
-                (variant["hardware"], tuple(variant["queues"]))
-                for variant in row[side]["variants"]
-            }
-            assert len(signatures) == 1
-    assert comparison["summary"]["amd"]["child_retry_attempts"] <= comparison["summary"]["amd"]["retry_involved_attempts"]
+    latency = ops_data["latency"]
+    assert latency["source_pipeline"] == "ci"
+    assert latency["branch"] == "main"
+    assert latency["build_limit"] == 5
+    assert latency["statistic"] == "median_of_per_nightly_group_wall_minutes"
+    cohort_numbers = {build["number"] for build in latency["cohort"]["nightlies"]}
+    assert len(cohort_numbers) <= 5
+    for row in latency["rows"]:
+        for side in (row.get("amd"), row.get("upstream")):
+            if side:
+                assert side["sample_count"] == len(side["samples"]) <= 5
+                assert {sample["build_number"] for sample in side["samples"]} <= cohort_numbers
 
 
 def test_amd_health_separates_same_build_test_groups_and_job_variants():
@@ -608,7 +556,7 @@ def test_amd_health_separates_same_build_test_groups_and_job_variants():
         "label: 'LATEST AMD TEST GROUPS'",
         "same-build logical test-group counts unavailable",
         "logicalTestGroupPresentation(latestTestGroups)",
-        "latestTestGroups.count_basis || 'Unique source-aligned test-group identities observed in this AMD nightly; topology-distinct routes remain separate and configured shards count once.'",
+        "latestTestGroups.count_basis || 'Unique source-aligned AMD test-group identities observed in this main CI nightly; topology-distinct routes remain separate and configured shards count once.'",
         "summary.retained_job_variant_count || summary.retained_group_count",
         "label: 'LATEST JOB VARIANTS'",
         "value: integer(latestVariantCount)",
@@ -675,66 +623,10 @@ def test_current_amd_health_keeps_latest_and_retained_counts_distinct(ops_data):
     assert summary["latest_group_count"] < retained
 
 
-@pytest.mark.live_data
-def test_target_health_runtime_inventory_is_not_the_reviewed_plan(ops_data):
-    health = ops_data["amd_test_health"]
-    counts = health["summary"]["latest_test_group_counts"]
-    inventory = health["latest_logical_test_groups"]
-    reviewed_plan = ops_data["gating"]["target_groups"]
-
-    assert inventory["available"] is True
-    assert inventory["route_map_aligned"] is True
-    assert inventory["reconciliation"][
-        "matches_latest_test_group_counts"
-    ] is True
-    assert len(inventory["rows"]) == counts["total"]
-    assert sum(
-        row["state"] in {"passing_all", "partial"}
-        for row in inventory["rows"]
-    ) == counts["passing"]
-    assert counts["total"] != len(reviewed_plan)
 
 
-def test_flake_visualizations_compare_amd_and_exact_cuda_equivalents():
-    for contract in (
-        "AMD incident frequency - ",
-        "Complete 30-day comparison",
-        "AMD INCIDENT FREQUENCY",
-        "PAIRED AMD / CUDA",
-        "AMD incidents / attempts",
-        "CUDA incidents / attempts",
-        "AMD attempts / 100 builds",
-        "Inspect exact AMD and CUDA variants",
-    ):
-        assert contract in OPS_JS
-    assert "row.amd.incident_rate_pct" in OPS_JS
-    assert "row.cuda.incident_rate_pct" in OPS_JS
-    assert "openPlatformComparisonDetail" in OPS_JS
-    assert "if (raw === null || raw === undefined || raw === '') return '-'" in OPS_JS
-    assert "percentileValue(p90Values, 0.5)" in OPS_JS
 
 
-def test_flake_and_retry_comparison_is_fixed_to_the_complete_30_day_cohort():
-    for contract in (
-        "const ANALYTICS_WINDOW_HOURS = {'1h': 1, '3h': 3, '6h': 6, '24h': 24, '7d': 168, '30d': 720}",
-        "function analyticsWindowBounds",
-        "function platformComparisonForWindow",
-        "function observationInRange",
-        "analytics_window",
-        "Complete 30-day comparison",
-        "evidence_deferred",
-        "Load exact retry attempts",
-        "comparison_eligible_row_ids",
-        "comparison_row_ids",
-        "item.comparison_platform",
-        "AMD child retry share",
-        "AMD recovered share",
-    ):
-        assert contract in OPS_JS
-    assert "observed_at" in OPS_JS
-    assert "function comparisonNameKey" not in OPS_JS
-    assert "comparisonRetryIndex" not in OPS_JS
-    assert ".ops-page .ops-analytics-window-toolbar" in OPS_CSS
 
 
 def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
@@ -750,7 +642,6 @@ def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
         "MEDIAN RETAINED-RUN PASS RATE",
         "Outcome timeline",
         "--ops-history-track-width",
-        "renderGroupHistoryExplorer(host, reliabilityCatalog(reliability), ops, reliability)",
     ):
         assert contract in OPS_JS
     for contract in (
@@ -840,7 +731,6 @@ def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
         "active.control.focus({preventScroll: true})",
         "{id: 'coverage', label: 'AMD hardware'}",
         "{id: 'mirrors', label: 'AMD mirrors'}",
-        "{id: 'targets', label: 'Target health'}",
         "openHealthDataFreshness(ops)",
         "setQueryValue(queryKey || key, next, {history: 'push'})",
         "window.history.pushState(null, '', nextUrl.pathname",
@@ -870,23 +760,23 @@ def test_ci_health_overview_surfaces_the_physical_amd_mirror_count():
     ]
     render_health = OPS_JS[
         OPS_JS.index("async function renderHealth")
-        : OPS_JS.index("function reliabilityIncidentRate")
+        : OPS_JS.index("function amdHealthGroups")
     ]
     mirror_summary = AMD_MIRROR_INVENTORY_JS[
         AMD_MIRROR_INVENTORY_JS.index("function renderAmdMirrorSummary")
         : AMD_MIRROR_INVENTORY_JS.index("function renderAmdMirrorInventory")
     ]
 
-    # The overview count comes from the canonical capacity-monitor payload,
-    # not from the runtime logical-group or reviewed parity populations.
+    # The overview physical count comes from the current main CI source scan,
+    # independently of the runtime logical-group and configured parity counts.
     assert "state.healthView === 'overview'" in load_operations
-    assert "fetchJSON(SOURCE_ASSETS.upstreamGatingCapacity)" in load_operations
+    assert "loadOperationSections({}, ['test_group_parity'])" in load_operations
     assert "loadAmdMirrorInventoryModule().catch(function () { return null; })" in load_operations
-    assert "summary.gated_group_count" in AMD_MIRROR_INVENTORY_JS
+    assert "summary.total" in AMD_MIRROR_INVENTORY_JS
     for contract in (
         "inventoryState.total",
         "ops-health-mirror-summary",
-        "AMD GATING CONFIGURATION ON MAIN",
+        "AMD MIRROR CONFIGURATION ON MAIN",
         "configured AMD mirror groups",
         "runtime group count unavailable",
         "ui.n('button', 'ops-health-mirror-summary",
@@ -905,14 +795,14 @@ def test_ci_health_overview_surfaces_the_physical_amd_mirror_count():
 def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
     for contract in (
         "state.healthView === 'mirrors'",
-        "SOURCE_ASSETS.upstreamGatingCapacity",
+        "(ops.test_group_parity || {}).mirror_inventory",
         "AMD_MIRROR_INVENTORY_MODULE_URL",
         "function loadGlobalScript(url, globalName, label, validate)",
         "const cacheKey = 'script:' + url",
         "cache.delete(cacheKey)",
         "loadAmdMirrorInventoryModule()",
         "const renderer = window.AmdMirrorInventory",
-        "renderer.render(host, ops.mirror_inventory || {}, amdMirrorUiHelpers())",
+        "renderer.render(host, (ops.test_group_parity || {}).mirror_inventory || {}, amdMirrorUiHelpers())",
         "openTableBrowser,",
     ):
         assert contract in OPS_JS
@@ -920,13 +810,12 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
     for contract in (
         "global.AmdMirrorInventory = Object.freeze({",
         "render: renderAmdMirrorInventory",
-        "const SOURCE_ASSET_URL = 'data/vllm/ci/capacity_monitor.json'",
-        "summary.gated_group_count",
+        "const SOURCE_ASSET_URL = 'data/vllm/ci/operations_v2/test_group_parity.json'",
+        "summary.total",
         "retention.group_index",
         "groupIndex.complete_relative_to_source",
-        "rawQueueCount === null || rawQueueCount === undefined || rawQueueCount === ''",
         "The published aggregate is marked incomplete, and",
-        "{label: 'Source step key', value: row.key}",
+        "{label: 'Source definition ID', value: row.key}",
         "ops-mirror-hero",
         "ops-mirror-area-bars",
         "ops-mirror-preview-list",
@@ -957,14 +846,11 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
 def test_ci_health_metrics_do_not_double_as_unlabeled_navigation():
     render_health = OPS_JS[
         OPS_JS.index("async function renderHealth")
-        : OPS_JS.index("function reliabilityIncidentRate")
+        : OPS_JS.index("function amdHealthGroups")
     ]
-    assert "static: true" in render_health
     assert "LATEST UNIQUE TEST GROUPS" not in render_health
     assert "health-upstream-scheduled-gating" not in render_health
-    assert "Open test-group analytics →" in render_health
-    assert "Open retry analysis →" in render_health
-    assert "These explicit actions switch dashboard sections" in render_health
+    assert "Inspect all logical test groups →" in render_health
     assert "onOpen: function () { navigateTo('ci-analytics'" not in render_health.split(
         "Related investigation views"
     )[0]
@@ -973,14 +859,13 @@ def test_ci_health_metrics_do_not_double_as_unlabeled_navigation():
 def test_ci_health_previews_remove_repeated_counts_and_redundant_columns():
     render_health = OPS_JS[
         OPS_JS.index("async function renderHealth")
-        : OPS_JS.index("function reliabilityIncidentRate")
+        : OPS_JS.index("function amdHealthGroups")
     ]
-    for helper in ("function openParityRows", "function openTargetRows"):
+    for helper in ("function openParityRows", "function openAmdLogicalCatalog"):
         assert helper in OPS_JS
     for contract in (
         "ops-health-hero-grid",
         "Potential open gaps by test area",
-        "ops-health-attention-list",
         "Tables open in a searchable popup",
         "Data freshness",
     ):
@@ -989,64 +874,6 @@ def test_ci_health_previews_remove_repeated_counts_and_redundant_columns():
     assert "integer(definitions.length) + ' standalone comparison rows" not in render_health
 
 
-def test_definition_parity_is_source_scoped_and_not_presented_as_runtime_health():
-    for removed_label in (
-        "Current target",
-        "Readiness",
-        "Target origin",
-        "REVIEWED TARGETS",
-        "LINKED AMD RESULTS",
-    ):
-        assert removed_label not in OPS_JS
-    for visible_label in (
-        "Data quality",
-        "Source mapping",
-        "Upstream-only source definitions are shown first",
-        "Use the relationship filter to inspect linked",
-        "This matcher inventory is not runtime health or upstream logical test-group parity.",
-        "Source-mapping methodology",
-        "Source-definition comparison",
-        "Direct command twin",
-        "Mirror-linked standalone variants",
-        "Additional AMD variant",
-        "AMD-only standalone",
-        "Inline mirror inventory",
-        "Open pinned vLLM commit",
-    ):
-        assert visible_label in OPS_JS
-    assert "ops.definition_parity || {}" in OPS_JS
-    assert "row.match_method === 'command_twin'" in OPS_JS
-    assert "summary.amd_only_identity_families" in OPS_JS
-    assert "identity_family_coverage_rate_pct" not in OPS_JS
-    assert "summary.covered" in OPS_JS
-    assert "summary.direct_matches" in OPS_JS
-    assert "summary.inline_mirror_variants" in OPS_JS
-    assert "summary.additional_variants" in OPS_JS
-    assert "collision-safe source nodes" in OPS_JS
-    assert (
-        "matcher inventory is not runtime health or upstream logical test-group parity"
-        in OPS_JS
-    )
-    assert (
-        "label: 'AMD DEFINITIONS', value: "
-        "integer(summary.total_amd_steps)"
-    ) not in OPS_JS
-    assert (
-        "label: 'AMD DEFINITIONS', value: integer(summary.total_amd_steps)"
-    ) not in OPS_JS
-    assert (
-        "label: 'AMD DEFINITION COVERAGE', value: "
-        "integer(summary.covered) + ' / ' + integer(summary.total_amd_steps)"
-    ) not in OPS_JS
-    assert "parity.inline_mirror_variants" in OPS_JS
-    assert "parity.additional_variants" in OPS_JS
-    assert "row.amd_route_similarity" in OPS_JS
-    assert "row.inline_mirror_command_similarity" in OPS_JS
-    assert "row.amd_source_url" in OPS_JS
-    assert "row.nvidia_source_url" in OPS_JS
-    assert "Search 127 reviewed groups" not in OPS_JS
-    assert "matrixData.rows || []" in OPS_JS
-    assert "matrixData.rows || []).slice" not in OPS_JS
 
 
 def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
@@ -1057,7 +884,7 @@ def test_reviewed_upstream_test_group_parity_is_first_class_and_action_first():
         "Applicable test groups covered",
         "Potential open gaps by test area",
         "Browse all ' + integer(actionTotal) + ' potential open gaps",
-        "Complete reviewed upstream inventory",
+        "Complete current upstream inventory",
         "logical AMD test groups",
         "function openTestGroupParityDetail",
         "function openParityRows",
@@ -1097,132 +924,14 @@ def test_runtime_test_group_card_names_numerator_and_denominator():
         assert contract in OPS_JS
 
 
-@pytest.mark.live_data
-def test_published_definition_parity_reconciles_coverage_and_mirror_evidence(ops_data):
-    parity = ops_data["definition_parity"]
-    summary = parity["summary"]
-
-    assert len(parity["matches"]) == summary["direct_matches"]
-    assert (
-        len(parity["inline_mirror_variants"])
-        == summary["inline_mirror_variants"]
-    )
-    assert len(parity["additional_variants"]) == summary["additional_variants"]
-    assert len(parity["amd_only"]) == summary["amd_only"]
-    assert len(parity["nvidia_only"]) == summary["nvidia_only"]
-    assert len(parity["mirrors"]) == summary["mirrors"]
-    assert summary["covered"] == (
-        summary["direct_matches"]
-        + summary["inline_mirror_variants"]
-        + summary["additional_variants"]
-    )
-    assert summary["covered"] + summary["amd_only"] == summary["total_amd_steps"]
-    covered_rows = [
-        *parity["matches"],
-        *parity["inline_mirror_variants"],
-        *parity["additional_variants"],
-    ]
-    covered_family_keys = {
-        row["amd_identity_family_key"]
-        for row in covered_rows
-    }
-    amd_only_member_family_keys = {
-        row["amd_identity_family_key"]
-        for row in parity["amd_only"]
-    }
-    all_family_keys = covered_family_keys | amd_only_member_family_keys
-    assert len(all_family_keys) == summary["amd_identity_families"]
-    assert len(covered_family_keys) == summary["covered_identity_families"]
-    assert (
-        len(amd_only_member_family_keys - covered_family_keys)
-        == summary["amd_only_identity_families"]
-    )
-    assert (
-        len(covered_family_keys & amd_only_member_family_keys)
-        == summary["partially_covered_identity_families"]
-    )
-    assert (
-        summary["total_amd_steps"] - len(all_family_keys)
-        == summary["identity_family_replica_rows"]
-    )
-    assert summary["match_rate_pct"] == summary["direct_match_rate_pct"]
-    assert (
-        summary["avg_command_similarity_pct"]
-        == summary["direct_avg_command_similarity_pct"]
-    )
-    assert "covered_avg_command_similarity_pct" in summary
-
-    amd_only_definition_ids = {
-        row["definition_id"] for row in parity["amd_only"]
-    }
-    for variant in parity["inline_mirror_variants"]:
-        assert variant["match_method"] == "inline_mirror_variant"
-        assert variant["amd_definition_id"] not in amd_only_definition_ids
-        assert variant["amd_definition_id"]
-        assert variant["nvidia_definition_id"]
-        assert variant["amd_source_url"]
-        assert variant["nvidia_source_url"]
-        for field in (
-            "command_similarity",
-            "amd_route_similarity",
-            "inline_mirror_command_similarity",
-        ):
-            assert field in variant
-
-    for mirror in parity["mirrors"]:
-        assert mirror["nvidia_definition_id"]
-        assert mirror["source_url"]
-        assert isinstance(mirror["commands_overridden"], bool)
-        assert isinstance(mirror["amd_commands"], list)
-        assert isinstance(mirror["nvidia_commands"], list)
 
 
-def test_runtime_target_health_uses_logical_amd_groups_and_separates_plan():
-    for contract in (
-        "{id: 'targets', label: 'Target health'}",
-        "if (state.healthView === 'targets') return ['amd_test_health', 'gating']",
-        "amdLogicalInventory(amdHealth)",
-        "const passingAllTargets",
-        "const partialTargets",
-        "const nonPassingTargets",
-        "filters[state.healthResult]",
-        "AMD RUNTIME TEST GROUPS",
-        "AMD test groups not fully passing",
-        "openAmdLogicalGroupDetail(row, logicalInventory, amdHealth)",
-        "Reviewed coverage plan",
-        "const denominatorCopy = allTargets.length",
-        "coverage planning and mapping review",
-    ):
-        assert contract in OPS_JS
-    render_health = OPS_JS.index("async function renderHealth")
-    target_start = OPS_JS.index(
-        "if (state.healthView === 'targets')",
-        render_health,
-    )
-    target_branch = OPS_JS[
-        target_start:OPS_JS.index("if (state.healthView === 'quality')", target_start)
-    ]
-    assert "current: passingTargets.length" in target_branch
-    assert "total: allTargets.length" in target_branch
-    assert "current: passedTargets.length" not in target_branch
-    assert target_branch.index("function appendReviewedPlan") < target_branch.index(
-        "if (!logicalInventory.available || !allTargets.length)"
-    )
-    unavailable_branch = target_branch[
-        target_branch.index("if (!logicalInventory.available || !allTargets.length)"):
-        target_branch.index("function openTargetRows")
-    ]
-    assert "appendReviewedPlan();" in unavailable_branch
-    assert (
-        "healthView: 'gating', healthResult: 'incident'"
-        not in OPS_JS
-    )
 
 
 def test_amd_logical_inventory_accepts_reconciled_unaligned_identity_fallback():
     inventory_start = OPS_JS.index("function amdLogicalInventory")
     inventory_end = OPS_JS.index("function amdLogicalStateLabel", inventory_start)
-    inventory_helper = OPS_JS[inventory_start:inventory_end]
+    inventory_helper = OPS_JS[OPS_JS.index("function currentAmdHealth"):OPS_JS.index("function amdHealthGroups")] + OPS_JS[inventory_start:inventory_end]
 
     assert "inventory.route_map_aligned !== true" not in inventory_helper
     for contract in (
@@ -1238,6 +947,7 @@ def test_amd_logical_inventory_accepts_reconciled_unaligned_identity_fallback():
 const assert = require('assert');
 {inventory_helper}
 const reconciled = {{
+  source_pipeline: 'ci', job_scope: 'amd_gpu',
   summary: {{latest_test_group_counts: {{available: true, build_number: 123, total: 1}}}},
   latest_logical_test_groups: {{
     available: true,
@@ -1265,35 +975,11 @@ assert.equal(amdLogicalInventory(mismatchedBuilds).available, false);
     assert result.returncode == 0, result.stderr
 
 
-def test_runtime_target_resolution_is_explained_and_drillable():
-    for contract in (
-        "function targetResolutionPresentation",
-        "function targetAssessmentText",
-        "function targetNoSignalBreakdown",
-        "No one-to-one AMD definition",
-        "Target mapping needs review",
-        "Ambiguous AMD mapping",
-        "Not observed in latest AMD build",
-        "runtime_resolution",
-        "source_commits",
-        "source_alignment",
-        "source_urls",
-        "AMD matrix commit",
-        "Source-mapping commit",
-        "Resolution method",
-        "AMD definitions",
-        "Plan note",
-    ):
-        assert contract in OPS_JS
-    assert "targetAssessmentText(row)" in OPS_JS
-    assert "resolution.amdDefinitionLabels.join(' ')" in OPS_JS
 
 
-def test_diagnostics_do_not_link_private_collector_state():
-    assert "row.record.published === false ? ''" in OPS_JS
-    assert 'sources[internal_source]["published"] = False' in (
-        ROOT / "scripts" / "vllm" / "build_operations_snapshot.py"
-    ).read_text()
+def test_retired_diagnostics_do_not_link_private_collector_state():
+    assert "state.healthView === 'diagnostics'" not in OPS_JS
+    assert "upstreamScheduledGating" not in OPS_JS
 
 
 def test_blocked_nightly_is_separate_from_the_latest_test_signal():
@@ -1556,24 +1242,9 @@ def test_current_architecture_signal_rows_sort_nonpassing_before_passes():
     assert all(rank == 3 for rank in ranks[first_passing:])
 
 
-def test_runtime_target_sort_uses_one_shared_in_scope_text_comparator():
-    shared_definition = "\n  function compareText(left, right) {"
-    assert OPS_JS.count(shared_definition) == 1
-    assert OPS_JS.index(shared_definition) < OPS_JS.index("async function renderHealth")
-    render_health = OPS_JS.index("async function renderHealth")
-    targets_start = OPS_JS.index(
-        "if (state.healthView === 'targets')",
-        render_health,
-    )
-    targets_branch = OPS_JS[
-        targets_start
-        :OPS_JS.index("if (state.healthView === 'quality')", targets_start)
-    ]
-    assert "const targetRows = sortTargetRows(filters[state.healthResult] || attentionTargets)" in targets_branch
-    assert "rows: sortRuntimeTargetRows(rows)" in targets_branch
 
 
-def test_runtime_target_and_omni_helpers_execute_in_javascript():
+def test_omni_helpers_execute_in_javascript():
     if not shutil.which("node"):
         import pytest
 
@@ -1593,59 +1264,6 @@ vm.createContext(sandbox);
 vm.runInContext(source, sandbox, {filename: process.argv[1]});
 const helpers = sandbox.window.OpsV2Test;
 assert.ok(helpers);
-
-const ordered = helpers.sortRuntimeTargetRows([
-  {id: 'pass-zulu', label: 'Zulu Passing', area: 'Other', latest_amd_result: {state: 'passed'}},
-  {id: 'unknown', label: 'Unknown Signal', area: 'Other', latest_amd_result: {state: 'unobserved'}},
-  {id: 'soft', label: 'Soft Incident', area: 'Other', latest_amd_result: {state: 'soft_failed'}},
-  {id: 'pass-alpha', label: 'Alpha Passing', area: 'Models', latest_amd_result: {state: 'passed'}},
-  {id: 'hard', label: 'Hard Incident', area: 'Other', latest_amd_result: {state: 'failed'}},
-]).map(function (row) { return row.id; });
-assert.equal(JSON.stringify(ordered), JSON.stringify([
-  'hard', 'soft', 'unknown', 'pass-alpha', 'pass-zulu',
-]));
-
-const staleResolution = helpers.targetResolutionPresentation({
-  latest_amd_result: {state: 'unknown'},
-    runtime_resolution: {
-    status: 'stale_target_alias',
-    method: 'definition_parity',
-    reason: 'Reviewed label no longer identifies the current 2-GPU definition.',
-    target_identity_key: 'gpqa eval',
-    amd_definition_labels: ['GPQA Eval (2xH100-2xMI300)'],
-    candidate_count: 2,
-    source_commits: {amd_matrix: 'abcdef1234567890', definition_parity: '123456abcdef7890'},
-    source_alignment: 'different_commits',
-    source_urls: {amd_matrix: 'https://example.com/amd', definition_parity: 'https://example.com/parity'},
-    mapping_quality: 'partial_commands',
-    command_similarity_pct: 61.9,
-  },
-});
-assert.equal(staleResolution.label, 'Target mapping needs review');
-assert.equal(staleResolution.methodLabel, 'Source-definition identity');
-assert.equal(staleResolution.sourceAlignment, 'different_commits');
-assert.equal(staleResolution.sourceAlignmentLabel, 'AMD matrix and source mapping use different commits');
-assert.equal(staleResolution.sourceCommits.amdMatrix, 'abcdef1234567890');
-assert.equal(staleResolution.amdDefinitionLabels.length, 1);
-assert.equal(staleResolution.candidateCount, 2);
-assert.equal(staleResolution.mappingQuality, 'partial commands');
-assert.equal(staleResolution.commandSimilarityPct, 61.9);
-assert.ok(helpers.targetAssessmentText({
-  latest_amd_result: {state: 'unknown'},
-  runtime_resolution: {
-    status: 'no_amd_definition',
-    reason: 'No matching test-amd.yaml definition.',
-  },
-}).includes('No one-to-one AMD definition'));
-assert.deepEqual(
-  helpers.targetNoSignalBreakdown([
-    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'no_amd_definition'}},
-    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'stale_target_alias'}},
-    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'ambiguous'}},
-    {latest_amd_result: {state: 'unknown'}, runtime_resolution: {status: 'not_observed'}},
-  ]),
-  {noDefinition: 1, needsReview: 2, notObserved: 1},
-);
 
 [
   [59.9, 'lt1h'], [60, '1to3h'], [180, '3to6h'], [360, '6to12h'],
@@ -1866,120 +1484,6 @@ assert.equal(completeAggregate[0].complete, true);
     assert result.returncode == 0, result.stderr
 
 
-def test_definition_parity_helpers_keep_relationship_categories_exclusive():
-    if not shutil.which("node"):
-        import pytest
-
-        pytest.skip("node is not available")
-    script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const sandbox = {
-  window: {__OPS_V2_TEST__: true},
-  document: {addEventListener: function () {}},
-  console: console,
-  URL: URL,
-};
-vm.createContext(sandbox);
-vm.runInContext(source, sandbox, {filename: process.argv[1]});
-const helpers = sandbox.window.OpsV2Test;
-const parity = {
-  matches: [
-    {_id: 'direct', match_method: 'identity', command_similarity: 1},
-    {_id: 'twin', match_method: 'command_twin', command_similarity: 1},
-  ],
-  inline_mirror_variants: [{
-    _id: 'inline',
-    match_method: 'inline_mirror_variant',
-    mirror_relationship: 'same_hardware_command_variant',
-    command_similarity: 0.637,
-    amd_route_similarity: 1,
-    inline_mirror_command_similarity: 0.053,
-  }],
-  additional_variants: [{
-    _id: 'additional',
-    match_method: 'additional_variant',
-    command_similarity: 0.8,
-  }],
-  amd_only: [{_id: 'amd-gap'}],
-  nvidia_only: [{_id: 'upstream-gap'}],
-  mirrors: [{
-    _id: 'mirror',
-    nvidia_label: 'Mirrored upstream',
-    commands_overridden: true,
-    command_similarity: 0.7,
-    source_url: 'https://example.com/upstream',
-  }],
-};
-const comparisons = helpers.definitionParityComparisonRows(parity);
-const mirrors = helpers.definitionParityMirrorRows(parity);
-const rows = comparisons.concat(mirrors);
-function ids(plan) {
-  return helpers.definitionParityFilter(rows, plan).map(function (row) {
-    return row._id;
-  }).sort().join(',');
-}
-assert.equal(comparisons.length, 6);
-assert.equal(mirrors.length, 1);
-assert.equal(ids('all'), 'additional,amd-gap,direct,inline,twin,upstream-gap');
-assert.equal(ids('amd'), 'additional,amd-gap,direct,inline,twin');
-assert.equal(ids('covered'), 'additional,direct,inline,twin');
-assert.equal(ids('direct'), 'direct,twin');
-assert.equal(ids('inline_variant'), 'inline');
-assert.equal(ids('additional_variant'), 'additional');
-assert.equal(ids('twins'), 'twin');
-assert.equal(ids('changed'), 'additional,inline');
-assert.equal(ids('unlinked'), 'amd-gap,upstream-gap');
-assert.equal(ids('mirror_inventory'), 'mirror');
-assert.equal(
-  helpers.definitionParityPresentation(
-    comparisons.find(function (row) { return row._id === 'inline'; })
-  ).label,
-  'Inline mirror command variant'
-);
-assert.equal(
-  helpers.definitionParityPresentation(
-    comparisons.find(function (row) { return row._id === 'inline'; })
-  ).primarySimilarity,
-  0.053
-);
-assert.equal(
-  helpers.definitionParityPresentation(
-    comparisons.find(function (row) { return row._id === 'inline'; })
-  ).evidenceLabel,
-  'inline AMD ↔ upstream'
-);
-assert.equal(
-  helpers.definitionParityPresentation(
-    comparisons.find(function (row) { return row._id === 'additional'; })
-  ).label,
-  'Additional AMD variant'
-);
-assert.equal(
-  helpers.definitionParityPresentation(mirrors[0]).primarySimilarity,
-  0.7
-);
-assert.equal(
-  helpers.definitionParityPresentation(mirrors[0]).evidenceLabel,
-  'inline AMD ↔ upstream'
-);
-assert.equal(mirrors[0].inline_mirror_command_similarity, 0.7);
-assert.equal(helpers.definitionParityEvidence(mirrors[0]).changed, true);
-"""
-    result = subprocess.run(
-        [
-            "node",
-            "-e",
-            script,
-            str(ROOT / "docs" / "assets" / "js" / "ops-v2.js"),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_authoritative_group_catalog_preserves_id_and_variant_identity():
@@ -1989,143 +1493,19 @@ def test_authoritative_group_catalog_preserves_id_and_variant_identity():
     assert "reliabilityCatalogIndexCache" in OPS_JS
     assert "'id:' + String(row.id || row.evidence_ref)" in OPS_JS
     assert "groupReliabilityByRef" in OPS_JS
-    assert "groupVariantMeta" in OPS_JS
     assert "row.queues" in OPS_JS
     assert "row.shard" in OPS_JS
     assert "byName: new Map()" in OPS_JS
 
 
-def test_gating_drilldown_combines_every_strict_group_id_and_observation():
-    assert "function combinedGatingReliability" in OPS_JS
-    assert "main.group_ids" in OPS_JS
-    assert "groupReliabilityRowsByIds" in OPS_JS
-    assert "variant_id: variant.id" in OPS_JS
-    assert "observations.push" in OPS_JS
-    assert "Inspect all variants and observations" in OPS_JS
-    assert "Strict reliability variants" in OPS_JS
 
 
-@pytest.mark.live_data
-def test_current_gating_has_a_multi_variant_target(ops_data):
-    multi_variant = [
-        row
-        for row in ops_data["gating"]["active_target_groups"]
-        if len(row.get("main_reliability", {}).get("group_ids", [])) > 1
-    ]
-    assert multi_variant
 
 
-def test_queue_modes_ranges_provenance_and_missing_values_are_explicit():
-    for label in ("Current", "Lifecycle", "History", "Jobs", "24h", "7d", "30d", "Include idle"):
-        assert label in OPS_JS
-    assert "function officialWaitValue" in OPS_JS
-    assert "function sampleWaitValue" in OPS_JS
-    assert "metric === 'p99' && (row || {}).p99_wait_source !== 'sample_wait'" in OPS_JS
-    assert "No queue in scope reported a current p95" in OPS_JS
-    assert "agentMeasurements" in OPS_JS
-    assert "function hasAgentMeasurement" in OPS_JS
-    assert "connected_agents_available" in OPS_JS
-    assert "'active_jobs', 'webhook', 'job_scan'" in OPS_JS
-    assert "countProvenance" in OPS_JS
-    assert "count source: ' + countProvenance" in OPS_JS
-    assert "(queueRowsIncomplete ? 'PUBLISHED ' : 'BUILDKITE ') + 'P95 LEADER'" in OPS_JS
-    assert "RECONSTRUCTED P95" in OPS_JS
-    assert "p95 Buildkite" in OPS_JS
-    assert "p95 reconstructed" in OPS_JS
-    assert "p99 scheduled sample" in OPS_JS
-    assert "waitSampleCount" in OPS_JS
-    assert "Scheduled sample coverage" in OPS_JS
-    assert "non-zombie waiting jobs" in OPS_JS
-    assert "4h+ waiting jobs excluded from sample" in OPS_JS
-    assert "waitSourceDetail" in OPS_JS
-    assert "minutes === null || minutes === undefined" in OPS_JS
-    assert "Array.isArray(queueBlock.history)" in OPS_JS
-    assert "queueBlock.history_summary" in OPS_JS
-    assert "archive_sample_wait_peaks" in OPS_JS
-    assert "history_observation_only" in OPS_JS
-    assert "Queue projection is storage-bounded" in OPS_JS
-    assert "pressure findings cover only published rows" in OPS_JS
-    assert "Omitted detail is not treated as idle or healthy" in OPS_JS
-    assert "(queueRowsIncomplete ? 'PUBLISHED ' : 'BUILDKITE ')" in OPS_JS
 
 
-def test_queue_history_refreshes_and_exposes_collection_gaps_and_timezone():
-    assert "QUEUE_AUTO_REFRESH_MS = 5 * 60 * 1000" in OPS_JS
-    assert "/queue-data/data/vllm/ci/" in OPS_JS
-    assert "queueSection: QUEUE_LIVE_BASE + 'operations_v2/queue.json'" in OPS_JS
-    assert "queueChartHistory: QUEUE_LIVE_BASE + 'queue_history_chart.json'" in OPS_JS
-    assert "queueChartHistoryFallback: 'data/vllm/ci/queue_history_chart.json'" in OPS_JS
-    assert "queueHistory: QUEUE_LIVE_BASE + 'queue_timeseries.jsonl'" in OPS_JS
-    assert "queueHistoryFallback: 'data/vllm/ci/queue_timeseries.jsonl'" in OPS_JS
-    assert "queueTimestamp(a.generated_at) - queueTimestamp(b.generated_at)" in OPS_JS
-    assert "entry.name === 'queue'" in OPS_JS
-    assert (
-        "candidates.sort(function (a, b) { return queueSectionTimestamp(b) - "
-        "queueSectionTimestamp(a); })[0]"
-    ) in OPS_JS
-    assert "async function refreshQueueData" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueSection)" in OPS_JS
-    assert "cache.delete(resolveOperationSectionPath(descriptor.path))" in OPS_JS
-    assert "refreshQueue: refreshQueueData" in OPS_JS
-    assert "Collection coverage warning:" in OPS_JS
-    assert "Chart lines are broken across missing high-resolution intervals" in OPS_JS
-    assert "hourly archive spacing older than 48 hours is intentional" in OPS_JS
-    assert "queueChartPointsWithBreaks" in OPS_JS
-    assert "spanGaps: false" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueChartHistory)" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueChartHistoryFallback)" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueLifecycle)" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueLifecycleFallback)" in OPS_JS
-    assert "Intl.DateTimeFormat().resolvedOptions().timeZone" in OPS_JS
-    assert "const rangeEndMs = Date.now()" in OPS_JS
 
 
-def test_queue_lifecycle_view_matches_the_published_rolling_contract():
-    for contract in (
-        "queueLifecycle: QUEUE_LIFECYCLE_LIVE_BASE + 'queue_lifecycle.json'",
-        "/queue-lifecycle-data/data/vllm/ci/",
-        "queueLifecycleFallback: 'data/vllm/ci/queue_lifecycle.json'",
-        "async function loadQueueLifecycle",
-        "function queueLifecyclePayloadValid",
-        "function queueLifecycleCandidateQuality",
-        "function compareQueueLifecycleCandidates",
-        "const sources = [SOURCE_ASSETS.queueLifecycle, SOURCE_ASSETS.queueLifecycleFallback]",
-        "queueTimestamp(right.payload.generated_at)",
-        "candidates.sort(compareQueueLifecycleCandidates)",
-        "Exact observed direct events - rolling 2h",
-        "Lifecycle coverage warning",
-        "Per-queue observed direct lifecycle events",
-        "Hourly observed direct lifecycle flow",
-        "Hourly lifecycle latency",
-        "Lifecycle provenance",
-        "other_outcomes",
-        "retry_attempts_completed",
-        "retried_jobs_completed",
-        "row.metrics.canceled",
-        "row.metrics.timed_out",
-        "row.metrics.expired",
-        "row.metrics.broken",
-        "row.metrics.skipped",
-        "queue_wait_seconds",
-        "runtime_seconds",
-        "end_exclusive",
-        "row.totals || {}",
-        "Open Pages lifecycle fallback",
-        "metric_exhaustiveness",
-        "the population is not presented as exhaustive",
-        "queueLifecycleRows(payload, 'canonical')",
-        "Canonical AMD lifecycle scope",
-        "zero-valued seed placeholders are not observations",
-        "queueLifecycleDisplayCount(payload",
-    ):
-        assert contract in OPS_JS
-    assert "queueScope: 'amd'" in OPS_JS
-    assert "queue_scope: 'amd'" in OPS_JS
-    assert "['canonical', 'amd', 'all']" in OPS_JS
-    assert "['current', 'lifecycle', 'history', 'jobs']" in OPS_JS
-    assert "seconds / 60" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueLifecycle)" in OPS_JS
-    assert "cache.delete(SOURCE_ASSETS.queueLifecycleFallback)" in OPS_JS
 
 
 def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
@@ -2147,8 +1527,8 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
         "analytics_dns_scope: 'amd'",
         "{id: 'nightlies', label: 'AMD nightlies'}, {id: 'dns', label: 'DNS health'}",
         "ops_queue_dns_window",
-        "function migrateLegacyQueueDnsRoute",
-        "url.hash = 'ci-analytics'",
+        "function supportedRoute",
+        "target = 'ci-analytics'",
         "DNS observation window",
         "JOBS WITH DNS OBSERVATIONS",
         "DNS observations by queue and physical node",
@@ -2195,7 +1575,7 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
         "retired MI355B queues are excluded",
         "scopeControl.setAttribute('aria-describedby', scopeHelp.id)",
     ):
-        assert contract in OPS_JS
+        assert contract in OPS_JS or contract in DASHBOARD_NAV_JS
 
     for label in (
         "Last hour",
@@ -2231,7 +1611,7 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
         assert contract in OPS_CSS
 
     render_body = OPS_JS[
-        OPS_JS.index("async function render(tabId") : OPS_JS.index("async function invalidateQueueData")
+        OPS_JS.index("async function render(tabId") : OPS_JS.index("window.OpsV2 =")
     ]
     load_dns_body = OPS_JS[
         OPS_JS.index("async function loadQueueDns") : OPS_JS.index("function queueDnsWindow")
@@ -2733,262 +2113,21 @@ assert.equal(helpers.queueDnsEvidenceWindowRow(malformedLongJob, '1h', livePaylo
     assert result.returncode == 0, result.stderr
 
 
-def test_queue_lifecycle_scope_metrics_and_freshest_source_execute_in_javascript():
-    if not shutil.which("node"):
-        import pytest
-
-        pytest.skip("node is not available")
-    script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const livePayload = {
-  schema_version: 1,
-  generated_at: '2026-08-11T10:00:00Z',
-  window: {start: '2026-08-11T08:00:00Z', end_exclusive: '2026-08-11T10:00:00Z', hours: 2},
-  coverage: {api_collection_performed: true, api_complete: true, complete: true, status: 'complete'},
-  totals: {incoming: 99},
-  queues: {
-    amd_mi250_1: {incoming: 2, served: 1, completed: 1, passed: 1, failed: 0, soft_failed: 0, canceled: 0, timed_out: 0, expired: 0, broken: 0, skipped: 0, other_outcomes: 0, retry_attempts_completed: 0, retried_jobs_completed: 0,
-      queue_wait_seconds: {count: 1, avg: 90, p50: 90, p95: 90, max: 90},
-      runtime_seconds: {count: 1, avg: 600, p50: 600, p95: 600, max: 600}},
-    amd_mi300_8: {incoming: 3, served: 2, completed: 2, passed: 1, failed: 1, soft_failed: 0, canceled: 0, timed_out: 0, expired: 0, broken: 0, skipped: 0, other_outcomes: 0, retry_attempts_completed: 1, retried_jobs_completed: 1},
-    amd_mi325_1: {incoming: 100, served: 100, completed: 100, passed: 100, failed: 0, soft_failed: 0, other_outcomes: 0},
-    gpu_queue: {incoming: 200, served: 200, completed: 200, passed: 200, failed: 0, soft_failed: 0, other_outcomes: 0},
-  },
-  hourly: [
-    {start: '2026-08-11T09:00:00Z', end_exclusive: '2026-08-11T10:00:00Z', totals: {incoming: 3}},
-    {start: '2026-08-11T08:00:00Z', end_exclusive: '2026-08-11T09:00:00Z', totals: {incoming: 2}},
-  ],
-};
-const pagesPayload = Object.assign({}, livePayload, {
-  generated_at: '2026-08-11T11:00:00Z',
-  coverage: {api_collection_performed: false, api_complete: false, complete: false},
-});
-const sandbox = {
-  window: {__OPS_V2_TEST__: true},
-  document: {addEventListener: function () {}},
-  console: console,
-  URL: URL,
-  fetch: function (url) {
-    const payload = String(url).includes('raw.githubusercontent.com') ? livePayload : pagesPayload;
-    return Promise.resolve({ok: true, json: function () { return Promise.resolve(payload); }});
-  },
-};
-vm.createContext(sandbox);
-vm.runInContext(source, sandbox, {filename: process.argv[1]});
-const helpers = sandbox.window.OpsV2Test;
-
-['250', '300', '355'].forEach(function (family) {
-  ['1', '2', '4', '8'].forEach(function (width) {
-    assert.equal(helpers.isCanonicalAmdQueue('amd_mi' + family + '_' + width), true);
-  });
-});
-['amd_mi325_1', 'amd_mi300_16', 'amd_mi355b_1', 'amd-cpu', 'gpu_queue'].forEach(function (queue) {
-  assert.equal(helpers.isCanonicalAmdQueue(queue), false);
-});
-assert.equal(helpers.queueMatchesScope('amd_mi300_8', 'canonical'), true);
-assert.equal(helpers.queueMatchesScope('amd_mi325_1', 'canonical'), false);
-assert.equal(helpers.queueMatchesScope('amd-cpu', 'amd'), true);
-assert.equal(helpers.queueMatchesScope('gpu_queue', 'all'), true);
-assert.equal(helpers.queueMatchesScope('amd_mi355b_1', 'all'), false);
-
-const rows = helpers.queueLifecycleRows(livePayload, 'canonical');
-assert.equal(helpers.queueLifecyclePayloadValid(livePayload), true);
-assert.equal(helpers.queueLifecyclePayloadValid({schema_version: 1}), false);
-assert.equal(helpers.queueLifecycleCandidateQuality(livePayload), 2);
-assert.equal(helpers.queueLifecycleCandidateQuality(pagesPayload), 0);
-assert.equal(JSON.stringify(rows.map(function (row) { return row.name; })), JSON.stringify(['amd_mi300_8', 'amd_mi250_1']));
-const totals = helpers.queueLifecycleTotals(livePayload, rows);
-assert.equal(totals.incoming, 5);
-assert.equal(totals.completed, 3);
-assert.equal(totals.passed, 2);
-assert.equal(totals.failed, 1);
-assert.equal(totals.other_outcomes, 0);
-assert.equal(totals.retry_attempts_completed, 1);
-assert.equal(totals.retried_jobs_completed, 1);
-assert.equal(helpers.queueLifecycleMinutes(rows[1].metrics, 'queue_wait_seconds', 'avg'), 1.5);
-const hourly = helpers.queueLifecycleHourlyRows(livePayload);
-assert.equal(hourly[0].ts, '2026-08-11T08:00:00Z');
-assert.equal(hourly[0].end_exclusive, '2026-08-11T09:00:00Z');
-assert.equal(hourly[0].incoming, 2);
-assert.equal(helpers.queueLifecycleCoverage(livePayload).complete, true);
-assert.equal(helpers.queueLifecycleCoverage(Object.assign({}, livePayload, {
-  window: {start: '2026-08-11T09:00:00Z', end_exclusive: '2026-08-11T10:00:00Z', hours: 1},
-})).complete, false);
-const limitedCoverage = helpers.queueLifecycleCoverage(Object.assign({}, livePayload, {
-  coverage: {complete: true, metric_exhaustiveness: {
-    incoming: {complete: false, limitation: 'runnableAt cannot be time-filtered'},
-    completed: {complete: true},
-  }},
-}));
-assert.equal(limitedCoverage.complete, false);
-assert.ok(limitedCoverage.problems.some(function (problem) { return problem.includes('incoming exhaustiveness is limited'); }));
-const bootstrapPayload = Object.assign({}, livePayload, {
-  coverage: {api_collection_performed: false, complete: false},
-});
-assert.equal(helpers.queueLifecycleObservationsAvailable(bootstrapPayload), false);
-assert.equal(helpers.queueLifecycleDisplayCount(bootstrapPayload, 0), '-');
-assert.equal(helpers.queueLifecycleDisplayCount(livePayload, 0), '0');
-
-(async function () {
-  const selected = await helpers.loadQueueLifecycle();
-  assert.equal(selected.generated_at, livePayload.generated_at);
-  assert.ok(selected.__sourceAsset.includes('raw.githubusercontent.com'));
-  const newerCollected = Object.assign({}, livePayload, {generated_at: '2026-08-11T12:00:00Z'});
-  const ranked = [
-    {payload: livePayload, priority: 0},
-    {payload: newerCollected, priority: 1},
-  ].sort(helpers.compareQueueLifecycleCandidates);
-  assert.equal(ranked[0].payload.generated_at, newerCollected.generated_at);
-  const tied = [
-    {payload: livePayload, priority: 1},
-    {payload: livePayload, priority: 0},
-  ].sort(helpers.compareQueueLifecycleCandidates);
-  assert.equal(tied[0].priority, 0);
-})().catch(function (error) {
-  console.error(error);
-  process.exitCode = 1;
-});
-"""
-    result = subprocess.run(
-        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
-def test_queue_detail_exposes_direct_native_metrics_without_zero_filling_missing_values():
-    detail = OPS_JS[
-        OPS_JS.index("function openQueueDetail") : OPS_JS.index("function openPerfHistory")
-    ]
-    for contract in (
-        "Min wait - latest Buildkite metrics bucket",
-        "Max wait - latest Buildkite metrics bucket",
-        "Jobs passed - latest Buildkite metrics bucket",
-        "Jobs failed - latest Buildkite metrics bucket",
-        "Latest metrics bucket observed",
-        "Native metrics provenance",
-        "officialWaitValue(row, 'min')",
-        "officialWaitValue(row, 'max')",
-        "integer(row.jobs_passed)",
-        "integer(row.jobs_failed)",
-        "row.official_wait_source",
-        "row.jobs_passed_source",
-        "row.jobs_failed_source",
-        "row.metrics_ts",
-    ):
-        assert contract in detail
-    assert "Latest passed / failed" in OPS_JS
-    assert "Number(row.jobs_passed || 0)" not in detail
-    assert "Number(row.jobs_failed || 0)" not in detail
-    assert "row.jobs_passed === null || row.jobs_passed === undefined ? '-'" in detail
-    assert "row.jobs_failed === null || row.jobs_failed === undefined ? '-'" in detail
 
 
-def test_queue_history_has_selectable_wait_and_pressure_visualizations():
-    for contract in (
-        "queueHistoryQueue: 'fleet'",
-        "queue_history_queue",
-        "function queueWaitHistoryPoint",
-        "function queuePressureRows",
-        "Select queue for historical activity and wait time",
-        "const selectedHistory = state.queueHistoryQueue === 'fleet'",
-        "queueScopeLabel(state.queueScope",
-        "Worst individual queue wait at each snapshot",
-        "Combined scope has two different reducers",
-        "p95Queues",
-        "sampleP95Queues",
-        "p99Queues",
-        "p50 reconstructed",
-        "p95 reconstructed",
-        "Worst sampled p99 queue",
-        "Queue pressure against retained baseline",
-        "Historical p95",
-        "p99 scheduled sample",
-    ):
-        assert contract in OPS_JS
-    assert "they are not fleet percentiles" in OPS_JS
-    assert "missing waits are not rendered as zero" in OPS_JS
-    assert ".ops-page .ops-wait-leader-grid" in OPS_CSS
-    assert ".ops-page .ops-wait-leader" in OPS_CSS
 
 
-@pytest.mark.live_data
-def test_current_queue_history_has_wait_observations(ops_data):
-    history = ops_data["queue"]["history"]
-    assert len(history) >= 2
-    assert any(
-        row.get("p50_wait_source") or row.get("p95_wait_source")
-        for snapshot in history
-        for row in snapshot.get("queues", {}).values()
-    )
 
 
-def test_workload_anomaly_views_compare_recent_and_baseline_evidence():
-    for contract in (
-        "function trajectoryAnomaliesFromReliability",
-        "function openTrajectoryAnomalyHistory",
-        "Execution-frequency changes",
-        "Completion-time regressions",
-        "Abnormal test-group activity",
-        "Latest builds / day",
-        "Prior builds / day",
-        "Median change",
-        "Abnormal activity method",
-    ):
-        assert contract in OPS_JS
-    assert "recentCount >= 2" in OPS_JS
-    assert "cadenceRecentCount >= 4" in OPS_JS
-    assert "cadenceBaselineCount >= 4" in OPS_JS
-    assert "function executionCadencePerDay" in OPS_JS
-    assert "function trajectoryAnomalyObservations" in OPS_JS
-    assert "Number(row.frequencyChangePct) >= 25" in OPS_JS
-    assert "Number(row.durationChangePct) >= 15" in OPS_JS
-    assert "queueHistoryQueue: queueName" in OPS_JS
-    assert "Open exact cadence, baseline, and recent Buildkite history" in OPS_JS
 
 
-def test_workload_frequency_signal_handles_missing_baseline_in_javascript():
-    if not shutil.which("node"):
-        import pytest
-
-        pytest.skip("node is not available")
-    script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const sandbox = {
-  window: {__OPS_V2_TEST__: true},
-  document: {addEventListener: function () {}},
-  console: console,
-  URL: URL,
-};
-vm.createContext(sandbox);
-vm.runInContext(source, sandbox, {filename: process.argv[1]});
-const signal = sandbox.window.OpsV2Test.trajectoryFrequencySignal;
-assert.equal(signal(null).text, 'baseline limited');
-assert.equal(signal(undefined).text, 'baseline limited');
-assert.equal(signal(null).tone, 'is-info');
-assert.equal(signal(25.4).text, '+25%');
-assert.equal(signal(125).tone, 'is-warning');
-"""
-    result = subprocess.run(
-        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_ops_render_marks_boot_state_and_records_handled_errors():
     render_body = OPS_JS[
-        OPS_JS.index("async function render(tabId") : OPS_JS.index("async function invalidateQueueData")
+        OPS_JS.index("async function render(tabId") : OPS_JS.index("window.OpsV2 =")
     ]
     assert "host.dataset.renderState = 'loading'" in render_body
     assert "host.dataset.renderState = 'ready'" in render_body
@@ -3023,8 +2162,6 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "Open latest AMD build",
         "This hardware-sensitive obligation uses its exact MI355 route",
         "This generic family passes when at least one configured AMD route passes",
-        "AMD-only families are classifications, not runtime failures",
-        "Upstream-only source definitions are shown first",
         "matrixHealthOverview(",
         "if (state.healthView === 'coverage')",
     ):
@@ -3037,9 +2174,9 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=16' in INDEX
-    assert 'assets/js/ops-v2.js?v=31' in INDEX
-    assert "assets/js/amd-mirror-inventory.js?v=2" in OPS_JS
+    assert 'assets/css/ops-v2.css?v=17' in INDEX
+    assert 'assets/js/ops-v2.js?v=32' in INDEX
+    assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (
@@ -3065,124 +2202,41 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         assert selector in OPS_CSS
 
 
-def test_upstream_scheduled_gating_surfaces_groups_queues_and_waits():
-    for contract in (
-        "function upstreamScheduledGating",
-        "((ops || {}).gating || {}).upstream_scheduled || {}",
-        "function scheduledGatingPresentation",
-        "function openUpstreamScheduledGatingDetail",
-        "SELECTED MIRROR GROUPS",
-        "integer(summary.gated) + ' / ' + integer(summary.total)",
-        "integer(summary.passing) + ' / ' + integer(summary.gated)",
-        "USED / CONFIGURED QUEUES",
-        "summary.configured_queue_count",
-        "Number(row.gated || 0) > 0",
-        "used of",
-        "Selected mirror groups by Buildkite queue",
-        "scheduledGatingWait(row).p50",
-        "scheduledGatingWait(row).p95",
-        "QUEUE WAIT P50 / P95",
-        "Retained nightly and daily runs",
-        "Only main-branch Full CI run - nightly and Full CI run - daily builds are included.",
-        "data/vllm/ci/operations_v2/gating.json",
-        "data/vllm/ci/capacity_monitor.json",
-        "Open scheduled-cohort JSON",
-        "Open configured-group JSON",
-    ):
-        assert contract in OPS_JS
-
-    render_health = OPS_JS[
-        OPS_JS.index("async function renderHealth")
-        : OPS_JS.index("function reliabilityIncidentRate")
-    ]
-    assert "Scheduled upstream mirror cohort" not in render_health
-    assert "Inspect scheduled cohort" not in render_health
-
-    assert (
-        "https://buildkite.com/vllm/ci/builds?query=full+ci+run+-+"
-        in OPS_JS
-    )
-    assert "Open nightly + daily Buildkite filter" in OPS_JS
-    assert "full+ci+run+-+nightly" not in OPS_JS
-    assert "full+ci+run+-+daily" not in OPS_JS
-
-    presentation = OPS_JS.split(
-        "function scheduledGatingPresentation", 1
-    )[1].split("function openUpstreamScheduledGatingDetail", 1)[0]
-    assert (
-        "meta: scheduledGatingKind(run) + "
-        "(buildNumber ? ' #' + buildNumber : '')"
-        in presentation
-    )
-    assert "summary.passing" not in presentation
-    assert "names.join" not in presentation
 
 
 def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
     assert "function isRetiredQueue" in OPS_JS
     assert "name === 'amd_mi250_8'" not in OPS_JS
     assert "/^amd_mi355b(?:_|$)/i" in OPS_JS
-    assert "&& !isRetiredQueue(name)" in OPS_JS
-    assert "if (isRetiredQueue(queue)) return false" in OPS_JS
-    assert "queueMatchesScope(entry[0])" in OPS_JS
-    assert "queueMatchesScope(job.queue)" in OPS_JS
     assert "isRetiredQueue(name)" in OPS_JS
 
 
-def test_amd_cpu_is_included_in_general_amd_scope_but_omni_uses_exact_allowlist():
-    assert "function isAmdQueue" in OPS_JS
-    assert "name === 'amd-cpu' || name.startsWith('amd_')" in OPS_JS
-    assert "return isAmdQueue(queue)" in OPS_JS
-    assert "queueMatchesScope(job.queue)" in OPS_JS
-    assert "queueMatchesScope(name)" in OPS_JS
+def test_omni_mapping_controls_remain_scoped_after_queue_page_removal():
     assert "const mapping = omni.mapping_history || {}" in OPS_JS
     assert "Object.keys(omniByQueue).concat(Object.keys(mainByQueue))" in OPS_JS
     assert "INCOMING OMNI JOBS" in OPS_JS
     assert "OBSERVED OMNI MAPPINGS" in OPS_JS
-    assert OPS_JS.count("startsWith('amd_')") == 1
+    assert "state.queueScope" not in OPS_JS
 
 
-def test_all_main_and_nightly_analytics_are_distinct_surfaces():
-    assert "All-main reliability" in OPS_JS
-    assert "AMD nightlies" in OPS_JS
-    assert "All main" in OPS_JS
-    assert "AMD/CUDA comparison unavailable" in OPS_JS
-    assert "will not substitute unmatched hardware or a different pipeline" in OPS_JS
-    assert "reliabilityCatalog" in OPS_JS
-    assert "evidence_ref" in OPS_JS
-    assert "canonical_nightly_build_count" in OPS_JS
-    assert "non_nightly_main_build_count" in OPS_JS
-    assert "canonicalReliability(ops)" in OPS_JS
-    assert "return reliabilityForPipeline(ops, 'ci')" in OPS_JS
-    assert "AMD health is primary" in OPS_JS
-    assert "exact CUDA-name equivalents" in OPS_JS
-    assert "{id: 'groups', label: 'AMD test health'}" in OPS_JS
-    assert "{id: 'flakes', label: 'Flake comparison'}" in OPS_JS
-    assert "{id: 'retries', label: 'Retry comparison'}" in OPS_JS
-    assert "{id: 'latency', label: 'Latency comparison'}" in OPS_JS
+def test_main_ci_analytics_preserves_health_nightlies_and_recent_latency():
+    for contract in ("canonicalReliability(ops)", "return reliabilityForPipeline(ops, 'ci')", "{id: 'groups', label: 'AMD test health'}", "{id: 'latency', label: 'Latency comparison'}", "Current main CI AMD health", "will not substitute unmatched hardware or a different pipeline"):
+        assert contract in OPS_JS
+    assert "{id: 'flakes'" not in OPS_JS
+    assert "{id: 'retries'" not in OPS_JS
 
 
-def test_nightly_pipeline_selector_defaults_amd_and_is_route_backed():
-    assert "analyticsPipeline: 'amd-ci'" in OPS_JS
-    assert "['analyticsPipeline', 'analytics_pipeline', ['ci', 'amd-ci']]" in OPS_JS
-    assert "nightlyForPipeline(ops, state.analyticsPipeline)" in OPS_JS
-    assert "{id: 'ci', label: 'Upstream CI'}" in OPS_JS
-    assert "{id: 'amd-ci', label: 'AMD'}" in OPS_JS
-    assert "'Nightly pipeline'" in OPS_JS
-    assert "AMD is the default operational signal" in OPS_JS
-    assert "This alternate upstream CI view" in OPS_JS
+def test_nightly_main_ci_hardware_selector_defaults_amd_and_is_route_backed():
+    for contract in ("analyticsPipeline: 'ci-amd'", "['analyticsPipeline', 'analytics_pipeline', ['ci-amd', 'ci-cuda']]", "nightlyForCohort(ops, state.analyticsPipeline)", "{id: 'ci-amd', label: 'AMD gating jobs'}", "{id: 'ci-cuda', label: 'CUDA gating jobs'}", "Main CI nightly hardware cohort", "nightly.upstream_parity", "nightly.canonical_history"):
+        assert contract in OPS_JS
 
 
-def test_retry_attempts_recoveries_and_latency_use_exact_evidence():
-    assert "function renderPlatformRetries" in OPS_JS
-    assert "function renderPlatformLatency" in OPS_JS
-    assert "selected(retry && retry.retry_attempts)" in OPS_JS
-    assert "Retry-involved attempts" in OPS_JS
-    assert "Confirmed retry recoveries" in OPS_JS
-    assert "Open failed log" in OPS_JS
-    assert "Open passing log" in OPS_JS
-    assert "comparisonGroupById(reliability, variant.group_id)" in OPS_JS
-    assert "exactPipelineEvidenceUrl(attempt, 'ci')" in OPS_JS
+def test_recent_latency_uses_exact_main_ci_evidence():
+    assert "exactPipelineEvidenceUrl({url: job.url, build_number: item.build.number}, 'ci')" in OPS_JS
+    assert "pipelineUrlMatches(url, 'ci', false, item.build.number)" in OPS_JS
+    assert "source_pipeline !== 'ci'" in OPS_JS
+    assert "build_limit !== 5" in OPS_JS
+    assert "median_of_per_nightly_group_wall_minutes" in OPS_JS
 
 
 def test_nightly_failure_drilldowns_only_show_the_selected_current_outcomes():
@@ -3205,7 +2259,7 @@ const evidence = sandbox.window.OpsV2Test.nightlyBuildEvidence;
 const hard = {group_id: 'hard', state: 'failed', build_number: 20};
 const recurring = {group_id: 'recurring', state: 'failed', build_number: 20};
 const soft = {group_id: 'soft', state: 'soft_failed', build_number: 20};
-const fixed = {group_id: 'fixed', state: 'failed', current_state: 'passed', build_number: 19, current_url: 'https://buildkite.com/vllm/amd-ci/builds/20#fixed'};
+const fixed = {group_id: 'fixed', state: 'failed', current_state: 'passed', build_number: 19, current_url: 'https://buildkite.com/vllm/ci/builds/20#fixed'};
 const unknown = {group_id: 'unknown', state: 'unknown'};
 const missing = {group_id: 'missing'};
 const stale = {group_id: 'stale', state: 'failed', build_number: 19};
@@ -3259,52 +2313,6 @@ assert.equal(evidence({number: 20}, 'hard').available, false);
     assert result.returncode == 0, result.stderr
 
 
-def test_bounded_retry_evidence_disclosure_only_after_exact_load():
-    assert "function comparisonRetryRetentionMessage" in OPS_JS
-    assert "Bounded exact retry evidence." in OPS_JS
-    assert "Aggregate retry rates remain source-complete" in OPS_JS
-
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node is not available")
-    script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const sandbox = {
-  window: {__OPS_V2_TEST__: true},
-  document: {addEventListener: function () {}},
-  console: console,
-  URL: URL,
-};
-vm.createContext(sandbox);
-vm.runInContext(source, sandbox, {filename: process.argv[1]});
-const disclosure = sandbox.window.OpsV2Test.comparisonRetryRetentionMessage;
-const retention = {
-  complete_relative_to_source: false,
-  retry_attempts: {published: 7, source: 10},
-  recoveries: {published: 2, source: 4},
-  comparison_groups: {published: 3, source: 5},
-};
-
-assert.equal(disclosure({evidence_deferred: true, publication_retention: retention}), '');
-assert.equal(disclosure({publication_retention: {complete_relative_to_source: true}}), '');
-assert.equal(disclosure({}), '');
-const message = disclosure({publication_retention: retention});
-assert.ok(message.includes('7 of 10 retry-involved attempts'));
-assert.ok(message.includes('2 of 4 recoveries'));
-assert.ok(message.includes('3 of 5 comparison groups retain exact rows'));
-assert.ok(message.includes('Aggregate retry rates remain source-complete'));
-assert.ok(message.includes('only the retained exact rows and links are bounded'));
-"""
-    result = subprocess.run(
-        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_bounded_reliability_consumers_fail_closed_or_disclose_coverage():
@@ -3379,43 +2387,6 @@ assert.equal(helpers.groupPublicationHistoryComplete({
   retained_observation_count: 3,
 }), true);
 
-const comparisonState = helpers.platformComparisonPublicationState({
-  publication_retention: {
-    complete_relative_to_source: false,
-    rows: {source: 10, published: 3, omitted: 7},
-  },
-});
-assert.equal(comparisonState.complete, false);
-assert.ok(comparisonState.message.includes('3 of 10 rows'));
-assert.ok(comparisonState.message.includes('preserved summary aggregates remain source-complete'));
-
-const compactedComparison = helpers.platformComparison({platform_comparison: {
-  available: true,
-  rows: [],
-  summary: {},
-  publication_fixed_metadata_compacted: true,
-  publication_retention: {complete_relative_to_source: false, rows: {source: 0, published: 0, omitted: 0}},
-}});
-assert.equal(compactedComparison.available, false);
-assert.ok(compactedComparison.publication_incomplete_reason.includes('summary metadata was compacted'));
-
-const combined = helpers.combinedGatingReliability({
-  id: 'target',
-  label: 'Target',
-  main_reliability: {group_ids: ['kept', 'omitted']},
-}, reliability);
-assert.deepEqual(Array.from(combined.missing_group_ids), ['omitted']);
-assert.equal(combined.publication_history_complete, false);
-
-const anomaly = helpers.trajectoryAnomaliesFromReliability(
-  reliability,
-  '24h',
-  '2026-09-01T12:00:00Z'
-).rows[0];
-assert.equal(anomaly.publicationHistoryComplete, false);
-assert.equal(anomaly.frequencyChangePct, null);
-assert.equal(anomaly.durationChangePct, null);
-assert.equal(anomaly.incidentRatePct, null);
 """
     result = subprocess.run(
         [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
@@ -3425,12 +2396,11 @@ assert.equal(anomaly.incidentRatePct, null);
     )
     assert result.returncode == 0, result.stderr
 
-    assert "Source-complete 30-day aggregates · bounded row coverage" in OPS_JS
     assert "Published test-group history" in OPS_JS
     assert "Complete test-group history" in OPS_JS
 
 
-def test_bounded_group_history_and_trajectory_dom_fail_closed():
+def test_bounded_group_history_dom_fails_closed():
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not available")
@@ -3557,27 +2527,6 @@ helpers.renderGroupHistoryExplorer(emptyNightlyHost, [partialGroup], {}, reliabi
 assert.ok(emptyNightlyHost.textContent.includes('bounded published history'));
 assert.equal(emptyNightlyHost.textContent.includes('complete retained history'), false);
 
-const completeTimed = {
-  id: 'complete', name: 'Complete group', hardware: 'mi300',
-  p90_min: 12, publication_history_complete: true, incident_rate_pct: 0,
-};
-const partialUntimed = {
-  id: 'partial', name: 'Partial group', hardware: 'mi300',
-  p90_min: null, publication_history_complete: false, incident_rate_pct: null,
-};
-const mixedSummary = helpers.trajectorySummaryStrip(
-  [partialUntimed, completeTimed], {complete: false}, 2, 2,
-  {observedTo: '2026-09-01T12:00:00Z'}
-).textContent;
-assert.ok(/SLOWEST P90.*12m.*Complete group/.test(mixedSummary));
-assert.equal(mixedSummary.includes('Partial group'), false);
-
-const partialOnlySummary = helpers.trajectorySummaryStrip(
-  [partialUntimed], {complete: false}, 1, 1,
-  {observedTo: '2026-09-01T12:00:00Z'}
-).textContent;
-assert.ok(/SLOWEST P90.*-.*No duration data/.test(partialOnlySummary));
-assert.equal(partialOnlySummary.includes('Partial group'), false);
 """
     result = subprocess.run(
         [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
@@ -3588,530 +2537,18 @@ assert.equal(partialOnlySummary.includes('Partial group'), false);
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.live_data
-def test_current_retry_evidence_reconciles_with_catalog(ops_data):
-    retry = ops_data["reliability"]["retry_analysis"]
-    assert len(retry["retry_attempts"]) == retry["summary"]["retry_attempt_count"]
-    assert len(retry["failed_then_passed_recoveries"]) == retry["summary"][
-        "failed_then_passed_recovery_count"
-    ]
-    assert all(row.get("job_url") for row in retry["retry_attempts"])
-    assert all(
-        row.get("failed_url") and row.get("passed_url")
-        for row in retry["failed_then_passed_recoveries"]
-    )
-
-    comparison = ops_data["reliability"]["platform_comparison"]
-    catalog_ids = {row["id"] for row in ops_data["reliability"]["group_catalog"]}
-    assert all(
-        group_id in catalog_ids
-        for row in comparison["rows"]
-        for side in (row["amd"], row["cuda"])
-        for group_id in side["group_ids"]
-    )
 
 
 def test_history_surfaces_have_exact_or_published_source_assets():
     assert "SOURCE_ASSETS" in OPS_JS
     assert "historyPointSources" in OPS_JS
     assert "Open published source data" in OPS_JS
-    assert "evidenceAsset: SOURCE_ASSETS.queueHistory" in OPS_JS
-    assert "Open published all-main history" in OPS_JS
-    assert "Inspect published queue history" in OPS_JS
 
 
-def test_trajectory_uses_current_all_main_observations_not_stale_hotness():
-    assert "trajectoryRowsFromReliability" in OPS_JS
-    assert 'const windowHours = {"24h": 24, "72h": 72, "7d": 168, "30d": 720}' in OPS_JS
-    assert "reliabilityCatalog(reliability)" in OPS_JS
-    assert "strict catalog ID" in OPS_JS
-    assert "Open exact Buildkite evidence for catalog ID" in OPS_JS
-    assert "fetchJSON('data/vllm/ci/hotness.json')" not in OPS_JS
-    assert "Recent AMD build trajectory" not in OPS_JS
-    assert "trajectoryAmd" not in OPS_JS
-    assert "appendHardwareOptions(hwSelect, hardware, state.trajectoryHardware)" in OPS_JS
-    assert "{label: 'AMD', matches:" in OPS_JS
-    assert "including AMD MI mirror queues" in OPS_JS
 
 
-def test_trajectory_has_exact_capacity_projection_subview():
-    assert "trajectoryView: 'workload'" in OPS_JS
-    assert "{id: 'capacity', label: 'Capacity projection'}" in OPS_JS
-    assert "function renderCapacityProjection" in OPS_JS
-    assert "function capacityScenario" in OPS_JS
-    assert "function capacityBurstWait" in OPS_JS
-    assert "function capacityServiceSourceLabel" in OPS_JS
-    assert "target-runtime command-job median average" in OPS_JS
-    assert "completed mapping proxy fallback (potentially downward biased)" in OPS_JS
-    assert "function capacityLargestRemainder" in OPS_JS
-    assert "Target groups · auto mix" in OPS_JS
-    assert "Total jobs · auto mix" in OPS_JS
-    assert "Specific queue / test" in OPS_JS
-    assert "'-group queue topology to the exact ' + integer(targetTopology.groups)" in OPS_JS
-    assert "observed 53-group queue topology" not in OPS_JS
-    assert "exact 160-group target" not in OPS_JS
-    assert "ONE-TIME P95 START WAIT" in OPS_JS
-    assert "STEADY-STATE P95 WAIT" in OPS_JS
-    assert "5-day joint p95" in OPS_JS
-    assert "Observed stress" in OPS_JS
-    assert "function capacityErlangC" in OPS_JS
-    assert "Sustained load adds only the expansion delta" in OPS_JS
-    assert "capacityProfileForPlacement" in OPS_JS
-    assert "mi355_preferred" in OPS_JS
-    assert "Configured quota does not reconcile with observed capacity signals." in OPS_JS
-    assert "Queue-native connected agents versus planning quota" in OPS_JS
-    assert "Configured planning quota:" in OPS_JS
-    assert "Live connected-agent capacity is reported separately below." in OPS_JS
-    assert "amd-cpu is Docker-build-only" in OPS_JS
-    assert "perf_eval and retiring MI325 queues are excluded" in OPS_JS
-    assert "{label: 'Provider', value: (row.sourceQueue || {}).provider || 'Not specified'}" in OPS_JS
-    assert "Suite-alone simultaneous-start queue-shape gap" in OPS_JS
-    assert "Background + suite zero-wait fixed-family gap" in OPS_JS
-    assert "START-AT-ONCE GAP" in OPS_JS
-    assert "MI325 workload is unplaced—and excluded from this answer." in OPS_JS
-    assert "Inspect and model manually" in OPS_JS
-    assert "unplaced_retiring_workload" in OPS_JS
-    assert "MI325 mapping counts are UUID-deduplicated observations inside the " in OPS_JS
-    assert "MI325 mapping population exhaustiveness is not published" in OPS_JS
-    assert "unplacedWindow.source_limitation || unplacedWindow.limitation" in OPS_JS
-    assert "Observed mapped jobs" in OPS_JS
-    assert "Planning model, not an SLA." in OPS_JS
-    assert "No compatibility or cross-family migration is inferred." in OPS_JS
-    assert "ops_capacity_groups" in OPS_JS
-    assert "ops_capacity_queue" in OPS_JS
-    assert "ops_capacity_suites" in OPS_JS
-    assert ".ops-page .ops-capacity-planner" in OPS_CSS
-    assert ".ops-page .ops-capacity-verdict" in OPS_CSS
-    assert ".ops-page .ops-capacity-fields" in OPS_CSS
-    assert ".ops-page .ops-capacity-unplaced" in OPS_CSS
 
 
-def test_capacity_planning_helpers_execute_in_javascript():
-    if not shutil.which("node"):
-        import pytest
-
-        pytest.skip("node is not available")
-    script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const sandbox = {
-  window: {__OPS_V2_TEST__: true},
-  document: {addEventListener: function () {}},
-  console: console,
-  URL: URL,
-};
-vm.createContext(sandbox);
-vm.runInContext(source, sandbox, {filename: process.argv[1]});
-const helpers = sandbox.window.OpsV2Test;
-assert.ok(helpers);
-
-assert.equal(
-  JSON.stringify(helpers.capacityLargestRemainder([1, 1, 1], 5)),
-  JSON.stringify([2, 2, 1])
-);
-assert.equal(
-  helpers.capacityLargestRemainder([0, 0], 7).reduce(function (sum, value) { return sum + value; }, 0),
-  7
-);
-
-const baseline = function (running, waiting) {
-  return {
-    current: {available: true, running: running, waiting: waiting},
-    typical: {available: true, running: running, waiting: waiting},
-    peak: {available: true, running: running, waiting: waiting},
-    sample_count: 30,
-  };
-};
-const profile = {
-  available: true,
-  topology: {
-    current: {groups: 2, jobs: 3, gpu_slots: 10},
-    target: {groups: 4, jobs: 6, gpu_slots: 20},
-  },
-  queues: [{
-    id: 'amd_mi300_1',
-    label: 'mi300_1',
-    family: 'MI300',
-    gpus_per_job: 1,
-    capacity_jobs: 12,
-    history: baseline(1, 0),
-    workload: {service_minutes: 10, service_minutes_source: 'observed'},
-    demand: {
-      current: {groups: 1, jobs: 2, gpu_slots: 2},
-      target: {groups: 2, jobs: 4, gpu_slots: 4},
-    },
-  }, {
-    id: 'amd_mi300_8',
-    label: 'mi300_8',
-    family: 'MI300',
-    gpus_per_job: 8,
-    capacity_jobs: 1,
-    history: baseline(0, 0),
-    workload: {service_minutes: 20, service_minutes_source: 'runtime_fallback'},
-    demand: {
-      current: {groups: 1, jobs: 1, gpu_slots: 8},
-      target: {groups: 2, jobs: 2, gpu_slots: 16},
-    },
-  }],
-};
-
-const midpoint = helpers.capacityTopologyForGroups(profile, 3, null);
-assert.equal(midpoint.groups, 3);
-assert.equal(midpoint.jobs, 5);
-assert.equal(midpoint.rows.reduce(function (sum, row) { return sum + row.groups; }, 0), 3);
-assert.equal(midpoint.rows.reduce(function (sum, row) { return sum + row.jobs; }, 0), 5);
-assert.equal(
-  JSON.stringify(midpoint.rows.map(function (row) { return row.jobs; })),
-  JSON.stringify([3, 2])
-);
-const forcedJobs = helpers.capacityTopologyForGroups(profile, 4, 7);
-assert.equal(forcedJobs.rows.reduce(function (sum, row) { return sum + row.jobs; }, 0), 7);
-assert.equal(helpers.capacityGroupsForJobs(profile, 6), 4);
-
-const productionGroups = [10, 8, 5, 5, 8, 6, 6, 5, 0];
-const productionJobs = [12, 10, 6, 6, 10, 8, 7, 6, 0];
-const targetGroups = [28, 24, 18, 12, 24, 20, 18, 16, 0];
-const targetJobs = [34, 29, 21, 15, 29, 24, 23, 21, 0];
-const productionProfile = {
-  available: true,
-  topology: {
-    current: {groups: 53, jobs: 65, gpu_slots: 100},
-    target: {groups: 160, jobs: 196, gpu_slots: 312},
-  },
-  queues: productionGroups.map(function (groups, index) {
-    return {
-      id: 'amd_queue_' + index,
-      label: 'queue_' + index,
-      family: index < 4 ? 'MI250' : 'MI300',
-      gpus_per_job: index % 4 === 3 ? 8 : 1,
-      capacity_jobs: 500,
-      history: baseline(0, 0),
-      workload: {service_minutes: 10, service_minutes_source: 'observed'},
-      demand: {
-        current: {groups: groups, jobs: productionJobs[index]},
-        target: {groups: targetGroups[index], jobs: targetJobs[index]},
-      },
-    };
-  }),
-};
-function assertPairedTopology(topology, expectedGroups, expectedJobs) {
-  assert.equal(topology.allocationValid, true);
-  assert.equal(topology.rows.reduce(function (sum, row) { return sum + row.groups; }, 0), expectedGroups);
-  assert.equal(topology.rows.reduce(function (sum, row) { return sum + row.jobs; }, 0), expectedJobs);
-  topology.rows.forEach(function (row) {
-    assert.equal(row.groups > 0, row.jobs > 0, row.id + ' must pair group and job allocation');
-  });
-}
-[0, 1, 17, 53, 54, 80, 159, 160, 161, 240].forEach(function (groups) {
-  const topology = helpers.capacityTopologyForGroups(productionProfile, groups, null);
-  assertPairedTopology(topology, groups, topology.jobs);
-});
-[0, 1, 65, 66, 195, 196, 197, 294].forEach(function (jobs) {
-  const groups = helpers.capacityGroupsForJobs(productionProfile, jobs);
-  const topology = helpers.capacityTopologyForGroups(productionProfile, groups, jobs);
-  assertPairedTopology(topology, groups, jobs);
-});
-
-const publishedTargetRows = [
-  ['amd_mi250_1', 6, 6, 20, 25, 78, 1],
-  ['amd_mi250_2', 0, 0, 0, 0, 24, 2],
-  ['amd_mi250_4', 0, 0, 1, 1, 16, 4],
-  ['amd_mi250_8', 0, 0, 0, 0, 4, 8],
-  ['amd_mi300_1', 37, 49, 60, 84, 296, 1],
-  ['amd_mi300_2', 5, 5, 17, 17, 18, 2],
-  ['amd_mi300_4', 4, 4, 21, 21, 19, 4],
-  ['amd_mi300_8', 1, 1, 3, 3, 2, 8],
-  ['amd_mi355_1', 0, 0, 28, 35, 240, 1],
-  ['amd_mi355_2', 0, 0, 9, 9, 20, 2],
-  ['amd_mi355_4', 0, 0, 1, 1, 16, 4],
-  ['amd_mi355_8', 0, 0, 0, 0, 1, 8],
-];
-const publishedTargetProfile = {
-  available: true,
-  topology: {
-    current: {groups: 53, jobs: 65, gpu_slots: 89},
-    target: {groups: 160, jobs: 196, gpu_slots: 312},
-  },
-  queues: publishedTargetRows.map(function (row) {
-    return {
-      id: row[0],
-      label: row[0].replace('amd_', ''),
-      family: row[0].includes('mi250') ? 'MI250' : row[0].includes('mi300') ? 'MI300' : 'MI355',
-      gpus_per_job: row[6],
-      capacity_jobs: row[5],
-      history: baseline(0, 0),
-      workload: {service_minutes: 10, service_minutes_source: 'observed'},
-      demand: {
-        current: {groups: row[1], jobs: row[2]},
-        target: {groups: row[3], jobs: row[4]},
-      },
-    };
-  }),
-};
-const publishedTarget = helpers.capacityTopologyForGroups(publishedTargetProfile, 160, null);
-assert.equal(publishedTarget.allocationValid, true);
-assert.equal(publishedTarget.allocationExact, true);
-assert.equal(publishedTarget.groups, 160);
-assert.equal(publishedTarget.jobs, 196);
-publishedTarget.rows.forEach(function (row, index) {
-  assert.equal(row.groups, publishedTargetRows[index][3], row.id + ' target groups must remain exact');
-  assert.equal(row.jobs, publishedTargetRows[index][4], row.id + ' target jobs must remain exact');
-});
-const publishedTargetScenario = helpers.capacityScenario(publishedTargetProfile, {
-  mode: 'groups',
-  groups: 160,
-  baseline: 'peak',
-  suites: 1,
-});
-assert.equal(publishedTargetScenario.shapeGapGpus, 16);
-assert.equal(
-  publishedTargetScenario.rows.find(function (row) { return row.id === 'amd_mi300_4'; }).shapeGapGpus,
-  8
-);
-assert.equal(
-  publishedTargetScenario.rows.find(function (row) { return row.id === 'amd_mi300_8'; }).shapeGapGpus,
-  8
-);
-
-const queueShape = helpers.capacityTopologyForQueue(profile, 'amd_mi300_8', 2, 3, 45);
-assert.equal(queueShape.groups, 2);
-assert.equal(queueShape.jobs, 6);
-assert.equal(queueShape.totalGateGroups, 4);
-assert.equal(queueShape.totalGateJobs, 9);
-assert.equal(queueShape.rows[0].jobs, 0);
-assert.equal(queueShape.rows[1].jobs, 6);
-assert.equal(queueShape.rows[1].serviceMinutes, 45);
-assert.equal(queueShape.rows[1].serviceSource, 'user_input_for_specific_test_shape');
-
-const finiteWait = helpers.capacityBurstWait(
-  4,
-  3,
-  {available: true, running: 1, waiting: 1},
-  10
-);
-assert.equal(finiteWait.status, 'finite');
-assert.equal(finiteWait.p50, 10);
-assert.equal(finiteWait.p95, 10);
-assert.equal(finiteWait.max, 10);
-assert.equal(finiteWait.allStartedBy, 10);
-assert.equal(finiteWait.allCompletedBy, 20);
-assert.equal(
-  helpers.capacityBurstWait(2, 1, {available: true, running: 1, waiting: 0}, 20).status,
-  'finite'
-);
-const excessRunningWait = helpers.capacityBurstWait(
-  2,
-  2,
-  {available: true, running: 5, waiting: 1},
-  10
-);
-assert.equal(excessRunningWait.status, 'finite');
-assert.equal(excessRunningWait.backlogJobs, 4);
-assert.equal(excessRunningWait.p95, 30);
-assert.equal(excessRunningWait.max, 30);
-assert.equal(
-  helpers.capacityBurstWait(2, 1, {available: false}, 20).status,
-  'unavailable'
-);
-assert.equal(
-  helpers.capacityBurstWait(2, 1, {available: true, running: 0, waiting: 0}, null).status,
-  'unavailable'
-);
-assert.equal(
-  helpers.capacityBurstWait(50001, 1, {available: true, running: 0, waiting: 0}, 10).status,
-  'unavailable'
-);
-
-const scenario = helpers.capacityScenario(profile, {
-  mode: 'groups',
-  groups: 4,
-  baseline: 'peak',
-  suites: 1,
-});
-assert.equal(scenario.groups, 4);
-assert.equal(scenario.jobs, 6);
-assert.equal(scenario.gpuSlots, 20);
-assert.equal(scenario.waitStatus, 'finite');
-assert.equal(scenario.p50Wait, 0);
-assert.equal(scenario.p95Wait, 20);
-assert.equal(scenario.maxWait, 20);
-assert.equal(scenario.shapeGapGpus, 8);
-assert.equal(scenario.familyGapGpus, 0);
-assert.equal(scenario.zeroWaitShapeGapGpus, 8);
-assert.equal(scenario.zeroWaitFamilyGapGpus, 1);
-assert.equal(scenario.baselineQueuedGpus, 1);
-assert.ok(helpers.capacityVerdict(scenario).includes('reallocate 8 GPUs'));
-const unplacedProfile = JSON.parse(JSON.stringify(profile));
-unplacedProfile.unplaced_retiring_workload = {
-  available: true,
-  excluded_from_wait_and_headroom: true,
-  status: 'unplaced',
-  compatibility: 'unknown',
-};
-const unplacedScenario = helpers.capacityScenario(unplacedProfile, {
-  mode: 'groups',
-  groups: 4,
-  baseline: 'peak',
-  suites: 1,
-});
-assert.ok(helpers.capacityVerdict(unplacedScenario).includes('MI325 workload is unplaced'));
-assert.ok(helpers.capacityVerdict(unplacedScenario).includes('excluded from every wait and headroom figure'));
-
-const overlap = helpers.capacityScenario(profile, {
-  mode: 'groups',
-  groups: 4,
-  baseline: 'peak',
-  suites: 2,
-});
-assert.equal(overlap.familyGapGpus, 20);
-assert.equal(overlap.zeroWaitFamilyGapGpus, 21);
-assert.ok(helpers.capacityVerdict(overlap).includes('short 20 GPU slots'));
-
-const waitingProfile = JSON.parse(JSON.stringify(profile));
-waitingProfile.queues[0].history.peak.waiting = 2;
-const waitingScenario = helpers.capacityScenario(waitingProfile, {
-  mode: 'groups',
-  groups: 4,
-  baseline: 'peak',
-  suites: 1,
-});
-assert.equal(waitingScenario.rows[0].combinedJobs, 7);
-assert.equal(waitingScenario.baselineQueuedGpus, 3);
-assert.equal(waitingScenario.zeroWaitFamilyGapGpus, 3);
-assert.ok(Math.abs(waitingScenario.aggregatePressurePct - 115) < 0.001);
-
-const saturatedProfile = JSON.parse(JSON.stringify(profile));
-saturatedProfile.queues[1].history.peak.running = 1;
-const saturated = helpers.capacityScenario(saturatedProfile, {
-  mode: 'groups',
-  groups: 4,
-  baseline: 'peak',
-  suites: 1,
-});
-assert.equal(saturated.waitStatus, 'finite');
-assert.equal(saturated.p95Wait, 40);
-assert.equal(saturated.maxWait, 40);
-assert.ok(helpers.capacityVerdict(saturated).includes('conservative full-service residual'));
-
-const curve = helpers.capacityGrowthCurve(profile, {baseline: 'peak', suites: 1}, 4);
-assert.equal(curve.length, 9);
-assert.ok(curve.every(function (point) { return point.status === 'finite'; }));
-assert.ok(curve.some(function (point) { return point.selected && point.x === 4; }));
-const defaultGroupCurve = helpers.capacityGrowthCurve(productionProfile, {
-  mode: 'groups', groups: 160, baseline: 'peak', suites: 1,
-});
-assert.ok(defaultGroupCurve.some(function (point) { return point.selected && point.x === 160; }));
-assert.ok(defaultGroupCurve.every(function (point) { return point.mode === 'groups'; }));
-const jobsCurve = helpers.capacityGrowthCurve(productionProfile, {
-  mode: 'jobs', jobs: 196, baseline: 'peak', suites: 1,
-});
-assert.ok(jobsCurve.some(function (point) { return point.selected && point.x === 196; }));
-assert.ok(jobsCurve.every(function (point) { return point.mode === 'jobs'; }));
-const queueCurve = helpers.capacityGrowthCurve(productionProfile, {
-  mode: 'queue',
-  queue: 'amd_queue_3',
-  queueGroups: 3,
-  parallel: 2,
-  duration: 30,
-  baseline: 'peak',
-  suites: 1,
-});
-assert.ok(queueCurve.some(function (point) { return point.selected && point.x === 3; }));
-assert.ok(queueCurve.every(function (point) { return point.mode === 'queue'; }));
-
-const stableQueue = helpers.capacityErlangC(6, 2, 10);
-assert.equal(stableQueue.status, 'finite');
-assert.ok(Math.abs(stableQueue.rho - 0.5) < 0.0001);
-assert.ok(stableQueue.p95 > 0);
-assert.equal(helpers.capacityErlangC(12, 2, 10).status, 'unstable');
-assert.equal(helpers.capacityErlangC(null, 2, 10).status, 'unavailable');
-
-const sustainedProfile = JSON.parse(JSON.stringify(profile));
-sustainedProfile.queues[0].workload.weekday_started_cohort_rate_jobs_per_hour = 2;
-sustainedProfile.queues[1].workload.weekday_started_cohort_rate_jobs_per_hour = 0;
-sustainedProfile.queues[0].history.peak.running = 999;
-const sustained = helpers.capacityScenario(sustainedProfile, {
-  mode: 'groups',
-  groups: 4,
-  trafficMode: 'sustained',
-  suitesPerHour: 1,
-  suites: 20,
-});
-assert.equal(sustained.waitStatus, 'finite');
-assert.equal(sustained.jobs, 6);
-assert.ok(Math.abs(sustained.rows[0].arrivalRate - 4) < 0.0001);
-assert.ok(Math.abs(sustained.rows[0].wait.rho - (4 * 10 / 60 / 12)) < 0.0001);
-assert.equal(sustained.rows[0].baselineRunning, 999);
-assert.ok(helpers.capacityVerdict(sustained).includes('stable at every used queue'));
-
-const unstableProfile = JSON.parse(JSON.stringify(sustainedProfile));
-unstableProfile.queues[1].workload.weekday_started_cohort_rate_jobs_per_hour = 3;
-const unstable = helpers.capacityScenario(unstableProfile, {
-  mode: 'groups',
-  groups: 4,
-  trafficMode: 'sustained',
-  suitesPerHour: 1,
-});
-assert.equal(unstable.waitStatus, 'unstable');
-assert.equal(unstable.rows[1].wait.status, 'unstable');
-assert.ok(unstable.stabilityGapGpus > 0);
-
-const placementProfile = JSON.parse(JSON.stringify(profile));
-placementProfile.placement_profiles = {
-  default_strategy_id: 'mi355_preferred',
-  strategies: [{
-    id: 'mi355_preferred',
-    label: 'Prefer MI355 where defined',
-    topology: {groups: 4, jobs: 6, gpu_slots: 20},
-    queues: [
-      {id: 'amd_mi300_1', groups: 1, jobs: 2, gpu_slots: 2, service_minutes: 12, service_minutes_source: 'placement_strategy_target_command_job_median_average'},
-      {id: 'amd_mi300_8', groups: 3, jobs: 4, gpu_slots: 32, service_minutes: 22, service_minutes_source: 'placement_strategy_target_command_job_median_average'},
-    ],
-  }, {
-    id: 'current_definition_precedence',
-    label: 'Current definition precedence',
-    topology: {groups: 4, jobs: 6, gpu_slots: 20},
-    queues: [
-      {id: 'amd_mi300_1', groups: 2, jobs: 4, gpu_slots: 4},
-      {id: 'amd_mi300_8', groups: 2, jobs: 2, gpu_slots: 16},
-    ],
-  }],
-};
-const placed = helpers.capacityProfileForPlacement(placementProfile, 'mi355_preferred');
-assert.equal(placed.selected_placement_strategy.id, 'mi355_preferred');
-assert.equal(placed.queues[0].demand.target.groups, 1);
-assert.equal(placed.queues[1].demand.target.groups, 3);
-assert.equal(placed.queues[0].workload.service_minutes, 12);
-const explicitQueue = helpers.capacityScenario(placed, {
-  mode: 'queue',
-  queue: 'amd_mi300_1',
-  queueGroups: 1,
-  parallel: 1,
-  duration: 10,
-  trafficMode: 'burst',
-});
-assert.equal(explicitQueue.placementStrategy, null);
-const oversizedBurst = helpers.capacityScenario(profile, {
-  mode: 'queue',
-  queue: 'amd_mi300_1',
-  queueGroups: 5000,
-  parallel: 256,
-  duration: 10,
-  trafficMode: 'burst',
-  suites: 20,
-});
-assert.equal(oversizedBurst.burstLimitExceeded, true);
-assert.equal(oversizedBurst.waitStatus, 'unavailable');
-"""
-    result = subprocess.run(
-        ["node", "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 def test_pipeline_evidence_links_fail_closed_in_the_renderer():
@@ -4122,8 +2559,7 @@ def test_pipeline_evidence_links_fail_closed_in_the_renderer():
     assert "parsed.protocol !== 'https:'" in OPS_JS
     assert "suffix[0] !== 'steps'" in OPS_JS
     assert "exactPipelineEvidenceUrl(row, sourcePipeline)" in OPS_JS
-    assert "exactPipelineEvidenceUrl(row, 'amd-ci')" in OPS_JS
-    assert "exactPipelineEvidenceUrl(row, 'ci')" in OPS_JS
+    assert "exactPipelineEvidenceUrl(observation, 'ci')" in OPS_JS
     assert "row.build_url || buildUrl(pipeline, row.build_number)" not in OPS_JS
     assert "(ops || {}).amd_reliability" not in OPS_JS
 
@@ -4262,22 +2698,11 @@ def test_release_layout_scroll_accessibility_and_home_reconciliation():
     assert "function resetRouteScroll" in DASHBOARD_NAV_JS
     assert "window.scrollTo(0, 0)" in DASHBOARD_NAV_JS
     assert "main.scrollTop = 0" in DASHBOARD_NAV_JS
-    assert "Filter workload trajectory by workload" in OPS_JS
-    assert "Search workload trajectory test groups" in OPS_JS
-    assert "ALL-FLEET QUEUE ACTIVITY" in OPS_JS
-    assert "queueScope: 'all'" in OPS_JS
     assert "Configured AMD test groups" in OPS_JS
     assert "matrixHealthOverview(" in OPS_JS
     assert "if (state.healthView === 'coverage')" in OPS_JS
 
 
-def test_hotness_rates_accept_fraction_or_explicit_percent():
-    assert "function hotnessRatePercent" in OPS_JS
-    assert "row.fail_rate_percent" in OPS_JS
-    assert "row.incident_rate_pct" in OPS_JS
-    assert "unit === 'percent' || unit === 'pct'" in OPS_JS
-    assert "unit === 'fraction' || unit === 'ratio'" in OPS_JS
-    assert "raw >= 0 && raw <= 1 ? raw * 100 : raw" in OPS_JS
 
 
 def test_operations_components_are_scoped_and_responsive():
@@ -4306,15 +2731,11 @@ def test_dense_tables_use_explicit_colgroups_and_scroll_geometry():
     assert "column.sticky ? '280px' : column.numeric ? '110px' : '160px'" in OPS_JS
     assert "--ops-table-min-width" in OPS_JS
     for geometry in (
-        "definition-parity",
         "amd-health-browser",
         "amd-current-incidents",
-        "comparison-retries",
-        "comparison-recoveries",
-        "latency",
-        "reliability-browser",
+        "latency-comparison",
+        "latency-evidence",
         "nightly",
-        "trajectory-anomalies",
     ):
         assert f"name: '{geometry}'" in OPS_JS
     assert "table.has-column-geometry" in OPS_CSS
@@ -4331,3 +2752,135 @@ def test_table_headers_and_cells_share_explicit_alignment_contract():
     assert '#main-content .ops-page .ops-table [data-align="numeric"]' in OPS_CSS
     assert "td.is-numeric > .ops-link-button" in OPS_CSS
     assert "margin-left: auto" in OPS_CSS
+
+
+def test_recent_latency_rejects_legacy_sources_and_older_group_backfill():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const sandbox = {window: {__OPS_V2_TEST__: true}, document: {addEventListener() {}}, URL, console};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), sandbox);
+const helpers = sandbox.window.OpsV2Test;
+const nightlies = [105,104,103,102,101].map(number => ({number,created_at:'2026-10-08T00:00:00Z'}));
+const metric = (number, mins) => ({build_number:number,duration_mins:mins});
+const side = (samples, median) => ({samples,sample_count:samples.length,median_duration_mins:median});
+const base = {schema_version:1,source_pipeline:'ci',branch:'main',build_limit:5,available:true,
+ statistic:'median_of_per_nightly_group_wall_minutes',cohort:{nightlies},
+ rows:[{id:'group',label:'Current group',match_status:'matched',amd:side([metric(105,20),metric(103,30)],25),upstream:side([metric(105,10)],10)}]};
+let result = helpers.latencyComparison({latency:base});
+assert.equal(result.available,true);
+assert.equal(result.rows[0].amd.sample_count,2);
+assert.equal(result.rows[0].ratio,2.5);
+assert.equal(result.rows[0].delta_mins,15);
+const legacy = JSON.parse(JSON.stringify(base)); legacy.source_pipeline='amd-ci';
+assert.equal(helpers.latencyComparison({latency:legacy}).available,false);
+assert.equal(helpers.latencyComparison({reliability:{platform_comparison:base}}).available,false);
+const backfill = JSON.parse(JSON.stringify(base)); backfill.rows[0].amd=side([metric(100,999)],999);
+result=helpers.latencyComparison({latency:backfill});
+assert.equal(result.available,true); assert.equal(result.rows[0].amd,null); assert.equal(result.rows[0].ratio,null);
+const duplicate = JSON.parse(JSON.stringify(base)); duplicate.rows[0].amd=side([metric(105,20),metric(105,30)],25);
+assert.equal(helpers.latencyComparison({latency:duplicate}).rows[0].amd,null);
+const missing = JSON.parse(JSON.stringify(base)); missing.rows[0].upstream=null;
+assert.equal(helpers.latencyComparison({latency:missing}).rows[0].delta_mins,null);
+const untimed = JSON.parse(JSON.stringify(base)); untimed.rows[0].amd.median_duration_mins=null;
+assert.equal(helpers.latencyComparison({latency:untimed}).rows[0].amd,null);
+assert.equal(helpers.latencyMetric(null),null); assert.equal(helpers.latencyMetric(''),null);
+assert.equal(helpers.latencyMetric(-1),null); assert.equal(helpers.latencyMetric(0),0);
+const columns=['job_id','step_id','url','queue','hardware','raw_name','started_at','finished_at','duration_mins'];
+const packed=JSON.parse(JSON.stringify(base)); packed.job_columns=columns;
+for(const source of [packed.rows[0].amd,packed.rows[0].upstream]) {
+ for(const sample of source.samples) {
+  sample.jobs=[['job-'+sample.build_number,'step','https://buildkite.com/vllm/ci/builds/'+sample.build_number+'/steps/job-'+sample.build_number,'amd_mi300_1','mi300','Current group','2026-10-08T00:00:00Z','2026-10-08T00:20:00Z',sample.duration_mins]];
+ }
+}
+result=helpers.latencyComparison({latency:packed});
+assert.equal(result.rows[0].amd.samples[0].jobs[0].job_id,'job-105');
+assert.equal(result.rows[0].amd.samples[0].jobs[0].duration_mins,20);
+assert.equal(result.rows[0].ratio,2.5);
+assert.equal(Array.isArray(packed.rows[0].amd.samples[0].jobs[0]),true);
+const dictionaries=JSON.parse(JSON.stringify(packed)); delete dictionaries.job_columns;
+for(const source of [dictionaries.rows[0].amd,dictionaries.rows[0].upstream]) {
+ for(const sample of source.samples) sample.jobs=sample.jobs.map(values=>Object.fromEntries(columns.map((column,index)=>[column,values[index]])));
+}
+result=helpers.latencyComparison({latency:dictionaries});
+assert.equal(result.rows[0].amd.samples[0].jobs[0].job_id,'job-105');
+const unknown=JSON.parse(JSON.stringify(packed)); unknown.job_columns[0]='unknown';
+assert.equal(helpers.latencyComparison({latency:unknown}).available,false);
+const reordered=JSON.parse(JSON.stringify(packed)); reordered.job_columns.reverse();
+assert.equal(helpers.latencyComparison({latency:reordered}).available,false);
+const undeclared=JSON.parse(JSON.stringify(packed)); delete undeclared.job_columns;
+assert.equal(helpers.latencyComparison({latency:undeclared}).rows[0].amd,null);
+const short=JSON.parse(JSON.stringify(packed)); short.rows[0].amd.samples[0].jobs[0].pop();
+assert.equal(helpers.latencyComparison({latency:short}).rows[0].amd,null);
+for(const bad of [null,true,'20',-1,Infinity,NaN]) {
+ const invalid=JSON.parse(JSON.stringify(packed)); invalid.rows[0].amd.samples[0].jobs[0][8]=bad;
+ assert.equal(helpers.latencyComparison({latency:invalid}).rows[0].amd,null);
+}
+const invalidTime=JSON.parse(JSON.stringify(packed)); invalidTime.rows[0].amd.samples[0].jobs[0][6]='not-a-time';
+assert.equal(helpers.latencyComparison({latency:invalidTime}).rows[0].amd,null);
+const invalidString=JSON.parse(JSON.stringify(packed)); invalidString.rows[0].amd.samples[0].jobs[0][3]=null;
+assert.equal(helpers.latencyComparison({latency:invalidString}).rows[0].amd,null);
+"""
+    result = subprocess.run([node, "-e", script, str(OPS_JS_PATH)], text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_retired_features_have_only_useful_navigation_compatibility():
+    for feature in ("ci-queue", "ci-hotness"):
+        assert f"id: '{feature}'" not in UTILS_JS
+        assert f"'{feature}'" not in OPS_JS
+        assert feature in DASHBOARD_NAV_JS
+    for retired in ("renderQueue", "renderTrajectory", "renderCapacityProjection", "renderPlatformFlakes", "renderPlatformRetries", "openTargetRows", "loadQueueLifecycle", "fetchJSONL"):
+        assert f"function {retired}(" not in OPS_JS
+    assert "target = 'ci-omni'" in DASHBOARD_NAV_JS
+    assert "target = 'ci-health'" in DASHBOARD_NAV_JS
+    assert "['flakes', 'retries']" in DASHBOARD_NAV_JS
+
+
+def test_compact_nightly_cohorts_require_pipeline_hardware_and_unique_identity():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const context={window:{__OPS_V2_TEST__:true},document:{addEventListener(){}},URL,console};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const select=context.window.OpsV2Test.nightlyForCohort;
+const amd={source_pipeline:'ci',cohort_id:'ci-amd',job_scope:'amd_gpu',builds:[{number:30005}]};
+const cuda={source_pipeline:'ci',cohort_id:'ci-cuda',job_scope:'cuda_gpu',builds:[{number:30004}]};
+assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-amd').builds[0].number,30005);
+assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-cuda').builds[0].number,30004);
+assert.equal(select({nightly:{canonical_history:amd}},'ci-amd').builds[0].number,30005);
+assert.equal(select({nightly:{upstream_parity:cuda}},'ci-cuda').builds[0].number,30004);
+assert.equal(select({nightly:{pipelines:[amd,{...amd}],canonical_history:amd}},'ci-amd').builds.length,0);
+assert.equal(select({nightly:{canonical_history:{...amd,source_pipeline:'amd-ci'}}},'ci-amd').builds.length,0);
+assert.equal(select({nightly:{canonical_history:{...amd,job_scope:'cuda_gpu'}}},'ci-amd').builds.length,0);
+assert.equal(select({nightly:{pipelines:[{...amd,cohort_id:undefined},{...cuda,cohort_id:undefined}]}},'ci-amd').builds.length,0);
+"""
+    result = subprocess.run([node, "-e", script, str(OPS_JS_PATH)], text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_parity_counts_reject_the_legacy_reviewed_source_snapshot():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const context={window:{__OPS_V2_TEST__:true},document:{addEventListener(){}},URL,console};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const select=context.window.OpsV2Test.currentTestGroupParity;
+const old={source:{main_commit:'a'.repeat(40)},summary:{main_complete_groups:139,applicable_groups:163},groups:[{state:'existing'}]};
+assert.equal(select(old).available,false);assert.equal(select(old).summary.main_complete_groups,undefined);
+const current={source:{pipeline:'ci',current_definition_commit_sha:'b'.repeat(40)},summary:{main_complete_groups:205,applicable_groups:212},groups:[]};
+assert.equal(select(current).summary.main_complete_groups,205);
+const incomplete={...current,source:{pipeline:'ci',current_definition_commit_sha:'short'}};
+assert.equal(select(incomplete).available,false);
+"""
+    result=subprocess.run([node,"-e",script,str(OPS_JS_PATH)],text=True,capture_output=True,check=False)
+    assert result.returncode == 0, result.stderr

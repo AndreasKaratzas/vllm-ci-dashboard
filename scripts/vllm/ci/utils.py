@@ -2,7 +2,7 @@
 
 The helpers here are the small primitives that used to live as private
 ``_foo`` functions inside each collector (``collect_queue_snapshot``,
-``collect_hotness``, ``collect_analytics``, ``queue_issue_watcher``).
+``collect_analytics``, ``queue_issue_watcher``).
 Centralizing them means one place to fix bugs — and one place to cover
 with tests.
 

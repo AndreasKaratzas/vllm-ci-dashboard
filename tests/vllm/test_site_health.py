@@ -57,7 +57,9 @@ def _response(body=b"", *, status=200, oversize=False, final_url=None):
 
 
 class Fetcher:
-    def __init__(self, publication=None, *, site=None, resources=None):
+    def __init__(self, publication=None, *, site=None, resources=None, bundle_version=None):
+        bundle_version = bundle_contract.OPERATIONS_BUNDLE_VERSION if bundle_version is None else bundle_version
+        section_names = bundle_contract.operations_section_names_for_bundle_version(bundle_version)
         default_site = (
             b"<!doctype html><title>vLLM AMD CI Operations</title>"
             b'<link rel="stylesheet" href="assets/css/dashboard.css?v=test">'
@@ -88,15 +90,15 @@ class Fetcher:
         organization_body = b'{"schema_version":1}\n'
         section_paths = {
             name: f"data/vllm/ci/operations_v2/{name}.json"
-            for name in bundle_contract.OPERATIONS_SECTION_NAMES
+            for name in section_names
         }
         section_bodies = {
             name: json.dumps({name: {"status": "healthy"}}).encode() + b"\n"
-            for name in bundle_contract.OPERATIONS_SECTION_NAMES
+            for name in section_names
         }
         operations_payload = {
             "schema_version": 2,
-            "bundle_version": bundle_contract.OPERATIONS_BUNDLE_VERSION,
+            "bundle_version": bundle_version,
             "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
             "monolith": None,
             "shell": {},
@@ -110,7 +112,7 @@ class Fetcher:
                     "path": f"operations_v2/{name}.json",
                     "bytes": len(section_bodies[name]),
                 }
-                for name in bundle_contract.OPERATIONS_SECTION_NAMES
+                for name in section_names
             },
         }
         operations_body = json.dumps(operations_payload).encode()
@@ -122,7 +124,7 @@ class Fetcher:
             organization_path: organization_body,
             **{
                 section_paths[name]: section_bodies[name]
-                for name in bundle_contract.OPERATIONS_SECTION_NAMES
+                for name in section_names
             },
         }
         descriptors = {
@@ -189,7 +191,7 @@ class Fetcher:
             health.OPERATIONS_MANIFEST_PATH: _response(operations_body),
             **{
                 section_paths[name]: _response(section_bodies[name])
-                for name in bundle_contract.OPERATIONS_SECTION_NAMES
+                for name in section_names
             },
         }
         self.responses.update(resources or {})
@@ -347,12 +349,12 @@ def test_checker_contract_tracks_the_public_status_projector():
         ).read_text()
     )
     assert tuple(operations_manifest["sections"]) == (
-        bundle_contract.OPERATIONS_SECTION_NAMES
+        bundle_contract.operations_section_names_for_bundle_version(operations_manifest["bundle_version"])
     )
     assert health.PUBLICATION_MODES == build_site.PUBLICATION_MODES
-    assert health.PUBLICATION_SURFACE_LABELS == frozenset(
+    assert frozenset(
         build_site.PUBLICATION_SURFACE_LABELS.values()
-    )
+    ) <= health.PUBLICATION_SURFACE_LABELS
     states = {
         "current": {},
         "degraded": {
@@ -364,8 +366,8 @@ def test_checker_contract_tracks_the_public_status_projector():
             "fallback_surfaces": ["ci_core"],
         },
         "mixed": {
-            "degraded_surfaces": ["ci_core", "ci_gating"],
-            "fresh_degraded_surfaces": ["ci_gating"],
+            "degraded_surfaces": ["ci_core", "ci_analytics"],
+            "fresh_degraded_surfaces": ["ci_analytics"],
             "fallback_surfaces": ["ci_core"],
         },
         "blocked": {},
@@ -1610,7 +1612,7 @@ def test_operations_manifest_rejects_an_unbounded_canary_bundle():
 
 
 def test_operations_manifest_uses_declared_legacy_budget_during_rollout():
-    fetcher = Fetcher()
+    fetcher = Fetcher(bundle_version=2)
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
     projection = json.loads(
         fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"]
@@ -1618,7 +1620,7 @@ def test_operations_manifest_uses_declared_legacy_budget_during_rollout():
     section_name = "comparison_retry_evidence"
     descriptor = operations["sections"][section_name]
     legacy_size = (
-        bundle_contract.OPERATIONS_CANARY_SECTION_MAX_BYTES[section_name] + 1
+        bundle_contract.OPERATIONS_V2_CANARY_SECTION_MAX_BYTES[section_name] + 1
     )
     assert legacy_size <= bundle_contract.OPERATIONS_LEGACY_CANARY_FILE_MAX_BYTES
     descriptor["bytes"] = legacy_size
@@ -1627,7 +1629,7 @@ def test_operations_manifest_uses_declared_legacy_budget_during_rollout():
     operations["bundle_version"] = bundle_contract.OPERATIONS_LEGACY_BUNDLE_VERSION
     health._normalize_operations_manifest(operations, projection)
 
-    operations["bundle_version"] = bundle_contract.OPERATIONS_BUNDLE_VERSION
+    operations["bundle_version"] = 2
     with pytest.raises(health._ProjectionFailure, match="canary bundle section") as exc:
         health._normalize_operations_manifest(operations, projection)
     assert exc.value.code == "operations-canary-budget"
@@ -1638,9 +1640,6 @@ def test_operations_manifest_accepts_v3_retired_section_inventory():
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
     projection = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
     operations["bundle_version"] = 3
-    for name in ("gating", "trajectory", "comparison_retry_evidence"):
-        descriptor = operations["sections"].pop(name)
-        projection["files"].pop(f"data/vllm/ci/{descriptor['path']}")
     files, canaries, _sizes, streamed, _streamed_sizes = (
         health._normalize_operations_manifest(operations, projection)
     )
@@ -1656,12 +1655,7 @@ def test_checker_verifies_hash_bound_v3_without_requesting_retired_sections():
     projection = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
     retired_paths = set()
     operations["bundle_version"] = 3
-    for name in ("gating", "trajectory", "comparison_retry_evidence"):
-        descriptor = operations["sections"].pop(name)
-        path = f"data/vllm/ci/{descriptor['path']}"
-        projection["files"].pop(path)
-        fetcher.responses.pop(path)
-        retired_paths.add(path)
+    retired_paths = {f"data/vllm/ci/operations_v2/{name}.json" for name in ("gating", "trajectory", "comparison_retry_evidence")}
     body = json.dumps(operations).encode()
     fetcher.responses[health.OPERATIONS_MANIFEST_PATH] = _response(body)
     projection["files"][health.OPERATIONS_MANIFEST_PATH].update(
@@ -2263,3 +2257,12 @@ def test_checked_in_bootstrap_policy_is_locked_and_deadline_remains_canonical():
     assert not health.bootstrap_policy_active(
         now=datetime(2026, 9, 2, tzinfo=timezone.utc)
     )
+
+
+@pytest.mark.parametrize("version", (1, 2))
+def test_current_health_reader_verifies_complete_prior_version_publication(version):
+    fetcher = Fetcher(bundle_version=version)
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+    assert report["healthy"] is True
+    assert report["projection"]["application_section_count"] == 14
+    assert len(fetcher.calls) <= health.MAX_CONFIRMATION_REQUESTS

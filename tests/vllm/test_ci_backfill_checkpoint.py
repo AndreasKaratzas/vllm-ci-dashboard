@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ def write_shard(
     parser_version: int | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    slug = "amd-ci" if pipeline == "amd" else "ci"
+    slug = "ci"
     version = {"parser_version": parser_version} if parser_version is not None else {}
     payload = "".join(
         json.dumps(
@@ -121,11 +122,33 @@ def test_partial_or_wrong_pipeline_shard_is_never_checkpointed(tmp_path: Path) -
     partial = tmp_path / "results" / "2026-09-01_amd.jsonl"
     partial.parent.mkdir(parents=True)
     partial.write_text(
-        json.dumps({"pipeline": "ci", "build_number": 1}) + "\n",
+        json.dumps({"pipeline": "amd-ci", "build_number": 1}) + "\n",
         encoding="utf-8",
     )
     with pytest.raises(checkpoint.BackfillCheckpointError, match="wrong pipeline"):
         checkpoint.record_complete_shard(root, partial)
+    assert checkpoint.validate(root) == {"shards": 0, "bytes": 0}
+
+
+def test_integrity_valid_legacy_amd_checkpoint_cannot_replace_current_ci_results(tmp_path: Path) -> None:
+    root = tmp_path / "checkpoint"
+    source = tmp_path / "parsed" / "2026-09-01_amd.jsonl"
+    write_shard(source, build_number=101, parser_version=1)
+    checkpoint.record_complete_shard(root, source)
+    stored = root / checkpoint.SHARD_DIR / source.name
+    rows = [json.loads(line) for line in stored.read_text().splitlines()]
+    stored.write_text("".join(json.dumps({**row, "pipeline": "amd-ci"}) + "\n" for row in rows))
+    manifest_path = root / checkpoint.MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["shards"][source.name].update(bytes=stored.stat().st_size,
+                                         sha256=hashlib.sha256(stored.read_bytes()).hexdigest())
+    manifest_path.write_bytes(checkpoint._canonical(manifest))
+    public = tmp_path / "current-results"
+    destination = public / source.name
+    write_shard(destination, build_number=93523, parser_version=1)
+    current_bytes = destination.read_bytes()
+    assert checkpoint.restore_complete_shards(root, public) == 0
+    assert destination.read_bytes() == current_bytes
     assert checkpoint.validate(root) == {"shards": 0, "bytes": 0}
 
 

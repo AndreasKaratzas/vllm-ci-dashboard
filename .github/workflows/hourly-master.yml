@@ -252,7 +252,7 @@ jobs:
             local diagnostic_file="${4:-}"
             local collector="${5:-workflow-step}"
             case "$surface" in
-              ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_capacity|queue_workload|queue_omni|queue_lifecycle|agent_health|dns_health|github_home|perf_eval) ;;
+              ci_core|ci_analytics|queue|queue_capacity|queue_workload|queue_omni|queue_lifecycle|agent_health|dns_health|github_home|perf_eval) ;;
               *) echo "::error::Unknown publication surface: $surface"; return 2 ;;
             esac
             printf '%s\n' "$surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
@@ -390,56 +390,6 @@ jobs:
               handle.write(json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n")
           PY
             echo "::warning title=$label unavailable::Collector exited $status; $surface will use its validated baseline."
-          }
-
-          mirror_surface_failure() {
-            local source_surface="$1"
-            local target_surface="$2"
-            local label="$3"
-            case "$target_surface" in
-              ci_core|ci_analytics|ci_gating|ci_changes|ci_hotness|queue|queue_capacity|queue_workload|queue_omni|queue_lifecycle|agent_health|dns_health|github_home|perf_eval) ;;
-              *) echo "::error::Unknown publication surface: $target_surface"; return 2 ;;
-            esac
-            printf '%s\n' "$target_surface" >> "$PUBLICATION_FAILED_SURFACES_FILE"
-            sort -u -o "$PUBLICATION_FAILED_SURFACES_FILE" "$PUBLICATION_FAILED_SURFACES_FILE"
-            python3 - \
-              "$source_surface" "$target_surface" "$label" \
-              "$PUBLICATION_COLLECTOR_FAILURES_FILE" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          source_surface, target_surface, step, path_string = sys.argv[1:]
-          path = Path(path_string)
-          records = []
-          for raw in path.read_text(encoding="utf-8").splitlines():
-              try:
-                  record = json.loads(raw)
-              except json.JSONDecodeError:
-                  continue
-              if isinstance(record, dict):
-                  records.append(record)
-          source = next(
-              (record for record in reversed(records)
-               if record.get("surface") == source_surface),
-              {
-                  "schema_version": 1,
-                  "collector": "workflow-step",
-                  "reason_class": "command-error",
-                  "exit_code": 1,
-                  "details": {},
-              },
-          )
-          mirrored = dict(source)
-          mirrored["surface"] = target_surface
-          mirrored["step"] = " ".join(step.split())[:200]
-          details = dict(mirrored.get("details") or {})
-          details["upstream_surface"] = source_surface
-          mirrored["details"] = details
-          with path.open("a", encoding="utf-8") as handle:
-              handle.write(json.dumps(mirrored, separators=(",", ":"), sort_keys=True) + "\n")
-          PY
-            echo "::warning title=$label unavailable::The producing collector failed before refreshing this surface; validated baseline will be used."
           }
 
           surface_is_current() {
@@ -1383,14 +1333,7 @@ jobs:
               --output data/vllm/ci/ --ref "$VLLM_CONFIG_SHA"
           fi
 
-      # ── Phase 2: CI data collection (Buildkite, ~3min) ──
-      - name: Collect AMD gating target list
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_gating "AMD gating target list" \
-            python scripts/vllm/collect_gating_targets.py --output data/vllm/ci/
-
+      # ── Phase 2: guarded current-main CI data collection ──
       - name: Reserve guarded Data Collection attempt
         id: request-attempt
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
@@ -1437,17 +1380,6 @@ jobs:
           echo "Data collection made zero Buildkite requests:
           ${{ steps.request-attempt.outputs.request_mode }} until
           ${{ steps.request-attempt.outputs.available_at }}."
-
-      - name: Collect AMD hotness (3d window)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved'
-        env:
-          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_hotness "AMD hotness" \
-            python scripts/vllm/collect_hotness.py
 
       - name: Collect vLLM/Omni AMD workload mappings
         if: >-
@@ -1680,26 +1612,12 @@ jobs:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          gating_nightlies_digest() {
-            if [ -f data/vllm/ci/gating_nightlies.json ]; then
-              sha256sum data/vllm/ci/gating_nightlies.json | awk '{print $1}'
-            else
-              echo missing
-            fi
-          }
-          GATING_NIGHTLIES_BEFORE=$(gating_nightlies_digest)
           run_surface_collector ci_analytics "CI analytics" \
             python scripts/vllm/collect_analytics.py \
+              --pipeline ci \
               --days 30 \
               --output data/vllm/ci/ \
               --github-output "$GITHUB_OUTPUT"
-          GATING_NIGHTLIES_AFTER=$(gating_nightlies_digest)
-          if ! surface_is_current ci_analytics && \
-             surface_is_current ci_gating && \
-             [ "$GATING_NIGHTLIES_BEFORE" = "$GATING_NIGHTLIES_AFTER" ]; then
-            mirror_surface_failure \
-              ci_analytics ci_gating "CI gating nightly evidence"
-          fi
           if surface_is_current ci_analytics; then
             echo "cache_save=true" >> "$GITHUB_OUTPUT"
           else
@@ -1782,15 +1700,6 @@ jobs:
             python scripts/vllm/collect_agent_health.py \
             --days 3 --pipeline both --output data/vllm/ci/
 
-      - name: Collect test group changes
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_changes "test group changes" \
-            python scripts/vllm/collect_group_changes.py --days 30 --output data/vllm/ci/
-
       - name: Collect AMD test matrix
         # The matrix is derived from the exact roster frozen by collect-ci in
         # this same reserved request attempt. A zero-request cooldown run has
@@ -1807,6 +1716,14 @@ jobs:
             python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/ \
             --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
 
+      - name: Refresh current main CI parity
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci_core "Current main CI parity" \
+            python scripts/vllm/build_test_group_parity.py \
+            --source-commit "$VLLM_CONFIG_SHA" --output data/vllm/ci/
+
       - name: Collect build-pinned CI ownership parity
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
@@ -1817,31 +1734,6 @@ jobs:
             python scripts/vllm/collect_ownership_parity.py \
             --input-dir data/vllm/ci --output data/vllm/ci
 
-      - name: Collect AMD gating proposals
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_gating "AMD gating proposals" \
-            python scripts/vllm/collect_gating_proposals.py --output data/vllm/ci/
-
-      - name: Collect AMD gating target candidate audit
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_gating "AMD gating target candidate audit" \
-            python scripts/vllm/collect_gating_target_candidates.py --output data/vllm/ci/
-
-      # ── Perf Eval (AMD nightly perf + accuracy) ──
-      # Perf-eval nightlies run once a day, so this data does NOT need the
-      # canonical cadence. Every run strictly validates and bounds the private
-      # event store from the immutable main checkout, then rebuilds the derived
-      # JSON locally so compacted history cannot regress generated_at. The
-      # artifact regeneration itself is gated to a few times a day (every 8h)
-      # or on demand when a perf-eval build finishes. Skipped on a one-time
-      # reset so the old (seed) log is NOT pulled back in — the backfill step
-      # below rebuilds it from scratch.
       - name: Validate private perf-eval event store
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
@@ -2036,6 +1928,22 @@ jobs:
             --candidate-code-ref "$PUBLICATION_CODE_SHA" \
             --collector-failures-file "$PUBLICATION_COLLECTOR_FAILURES_FILE" \
             "${SELECTOR_ARGS[@]}"
+
+      - name: Purge retired view artifacts after validated selection
+        if: >-
+          (inputs.dns_generation != '' || inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.publication-selector.outcome == 'success'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES
+          for surface in sorted(RETIRED_SURFACES):
+              for relative in PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths:
+                  Path(relative).unlink(missing_ok=True)
+          for name in ("gating", "trajectory", "comparison_retry_evidence"):
+              Path(f"data/vllm/ci/operations_v2/{name}.json").unlink(missing_ok=True)
+          PY
 
       # Side-effecting watchers run only after selection and only when their
       # authoritative surface is current. They never mutate issues from a

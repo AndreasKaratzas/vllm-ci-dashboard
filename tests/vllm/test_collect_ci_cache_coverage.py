@@ -57,6 +57,9 @@ from collect_ci import (  # noqa: E402
     _shard_catalog_evidence,
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
+    _current_scope_results,
+    _scope_nightly_build,
+    _scoped_result_entries,
     collect_pipeline,
     load_existing_results,
     write_amd_nightly_snapshot,
@@ -64,6 +67,7 @@ from collect_ci import (  # noqa: E402
 from vllm.ci.models import TEST_RESULT_PARSER_VERSION, TestResult  # noqa: E402
 from vllm.ci import reporter as reporter_module  # noqa: E402
 from vllm.ci.reporter import prune_old_results  # noqa: E402
+from vllm.ci.analyzer import compute_build_summary  # noqa: E402
 
 
 def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
@@ -94,10 +98,238 @@ def _record(job_name: str, build_num: int = 7791, job_id: str = "") -> dict:
         "job_id": job_id,
         "step_id": "",
         "build_number": build_num,
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "date": "2026-04-18",
         "parser_version": TEST_RESULT_PARSER_VERSION,
     }
+
+
+def test_same_ci_cache_is_scoped_before_coverage_and_denominators(tmp_path):
+    amd_name, cuda_name = ":amd: (MI300) Current group", ":nvidia: (H100) Current group"
+    records = [_record(amd_name, job_id="amd-job"), _record(cuda_name, job_id="cuda-job")]
+    path = tmp_path / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, records)
+    build = {"number": 7791, "state": "passed", "jobs": [
+        {**_job(amd_name), "id": "amd-job"},
+        {**_job(cuda_name), "id": "cuda-job"},
+    ]}
+    assert _cache_covers_all_jobs(build, path, "amd", 7791) is True
+    rows = _current_scope_results(_load_cached_results(path), "amd")
+    assert [row.job_id for row in rows] == ["amd-job"]
+    summary = compute_build_summary(build, _load_cached_results(path), "amd")
+    assert summary.job_count == summary.unique_test_groups == summary.passed == 1
+    assert set(summary.by_hardware) == {"mi300"}
+
+
+def test_legacy_amd_ci_cache_cannot_satisfy_current_ci_roster(tmp_path):
+    name = "mi300_1: Current group"
+    record = {**_record(name, job_id="same-job"), "pipeline": "amd-ci"}
+    path = tmp_path / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, [record])
+    build = {"number": 7791, "state": "passed", "jobs": [{**_job(name), "id": "same-job"}]}
+    assert _cache_covers_all_jobs(build, path, "amd", 7791) is False
+    assert _current_scope_results(_load_cached_results(path), "amd") == []
+
+
+def test_shared_historical_ci_rows_are_not_double_counted_across_role_shards():
+    row = TestResult(**_record(":amd: (MI300) Current group", job_id="amd-job"))
+    cuda = TestResult(**_record(":nvidia: (H100) Current group", job_id="cuda-job"))
+    entries = [(7791, "2026-04-18", [row]), (7791, "2026-04-18", [row, cuda])]
+    assert _scoped_result_entries(entries, "amd") == [(7791, "2026-04-18", [row])]
+    assert _scoped_result_entries(entries, "upstream") == [(7791, "2026-04-18", [cuda])]
+
+
+def test_new_amd_role_reuses_verified_ci_shard_without_refetching_logs(tmp_path):
+    amd_name, cuda_name = ":amd: (MI300) Current group", ":nvidia: (H100) Current group"
+    results_dir = tmp_path / "test_results"
+    _write_jsonl(results_dir / "2026-04-18_upstream.jsonl", [
+        _record(amd_name, job_id="amd-job"), _record(cuda_name, job_id="cuda-job"),
+    ])
+    # The date-keyed old AMD source is ineligible even if its number collides.
+    _write_jsonl(results_dir / "2026-04-18_amd.jsonl", [
+        {**_record(amd_name, job_id="legacy-job"), "pipeline": "amd-ci"},
+    ])
+    build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z", "jobs": [
+        {**_job(amd_name), "id": "amd-job"}, {**_job(cuda_name), "id": "cuda-job"},
+    ]}
+    source_build = json.loads(json.dumps(build))
+    with patch("collect_ci.fetch_nightly_builds", return_value=[build]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))), patch("collect_ci.parse_job_results") as parser:
+        _, results = collect_pipeline("amd", 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    parser.assert_not_called()
+    assert [row.job_id for row in results[7791]] == ["amd-job"]
+    assert [row.pipeline for row in _load_cached_results(results_dir / "2026-04-18_amd.jsonl")] == ["ci"]
+    # Main collection migrates AMD first, retaining the shared source until its
+    # exact AMD attempts have been copied; CUDA then cleans its physical shard.
+    upstream = results_dir / "2026-04-18_upstream.jsonl"
+    assert {row.job_id for row in _load_cached_results(upstream)} == {"amd-job", "cuda-job"}
+    with patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(source_build))]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(source_build))), patch("collect_ci.parse_job_results") as parser:
+        _, results = collect_pipeline("upstream", 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    parser.assert_not_called()
+    assert [row.job_id for row in results[7791]] == ["cuda-job"]
+    assert [row.job_id for row in _load_cached_results(upstream)] == ["cuda-job"]
+    assert [row.job_id for row in _load_cached_results(results_dir / "2026-04-18_amd.jsonl")] == ["amd-job"]
+
+
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("side,expected_job", [("amd", "amd-job"), ("upstream", "cuda-job")])
+def test_warm_mixed_ci_cache_is_persisted_as_exact_role_without_log_refetch(
+    tmp_path, historical, side, expected_job,
+):
+    names = {"amd-job": ":amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group",
+             "cpu-job": ":computer: (CPU) CPU tests"}
+    records = [_record(name, job_id=job_id) for job_id, name in names.items()]
+    # Repeated test observations in one exact attempt must survive projection.
+    repeated = {**next(row for row in records if row["job_id"] == expected_job), "name": "case[param]", "test_id": "case[param]"}
+    records.extend([repeated, dict(repeated)])
+    expected = [TestResult(**row).to_dict() for row in records if row["job_id"] == expected_job]
+    results_dir = tmp_path / "test_results"
+    path = results_dir / f"2026-04-18_{side}.jsonl"
+    _write_jsonl(path, records)
+    build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z",
+             "jobs": [{**_job(name), "id": job_id} for job_id, name in names.items()]}
+    builds = [build]
+    if historical:
+        newer = {**build, "number": 7792, "created_at": "2026-04-19T06:00:00Z"}
+        builds.append(newer)
+        _write_jsonl(results_dir / f"2026-04-19_{side}.jsonl", [
+            {**_record(names[expected_job], build_num=7792, job_id=expected_job), "date": "2026-04-19"},
+        ])
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    prune_old_results(results_dir, max_days=90, now=clock)
+    old_retention = (results_dir / "retention.json").read_bytes()
+    def detail(_side, number):
+        return json.loads(json.dumps(next(row for row in builds if row["number"] == number)))
+    with patch("collect_ci.fetch_nightly_builds", return_value=builds), patch("collect_ci.fetch_build_detail", side_effect=detail), patch("collect_ci.parse_job_results") as parser:
+        _, results = collect_pipeline(side, 8, tmp_path, now=clock,
+                                      backfill_checkpoint_dir=tmp_path / "checkpoint")
+    parser.assert_not_called()
+    assert [row.to_dict() for row in results[7791]] == expected
+    assert [json.loads(line) for line in path.read_text().splitlines()] == expected
+    assert (results_dir / "retention.json").read_bytes() != old_retention
+    reporter_module.validate_result_retention(results_dir)
+    checkpoint = tmp_path / "checkpoint" / "test_results" / path.name
+    assert checkpoint.read_bytes() == path.read_bytes()
+
+
+@pytest.mark.parametrize("side,expected_job", [("amd", "amd-job"), ("upstream", "cuda-job")])
+def test_shared_ci_build_logs_are_collected_for_one_hardware_side(tmp_path, side, expected_job):
+    names = {"amd-job": ":amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group", "cpu-job": ":computer: (CPU) CPU tests"}
+    build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z",
+             "jobs": [{**_job(name), "id": job_id, "raw_log_url": "https://example.invalid/log"} for job_id, name in names.items()]}
+    def parse(job, number, pipeline, date):
+        record = _record(job["name"], build_num=number, job_id=job["id"])
+        record.update(pipeline=pipeline, date=date)
+        return [TestResult(**record)]
+    with patch("collect_ci.fetch_nightly_builds", return_value=[build]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))), patch("collect_ci.parse_job_results", side_effect=parse) as parser:
+        builds, results = collect_pipeline(side, 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    assert parser.call_count == 1
+    assert [row.job_id for row in results[7791]] == [expected_job]
+    assert [job["id"] for job in builds[0]["jobs"]] == [expected_job]
+    assert all(row.pipeline == "ci" for row in results[7791])
+
+
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("decorated,observed", [("MI250", "mi300_1"), ("MI300", "mi250_1")])
+def test_exact_observed_queue_controls_cold_and_warm_runtime_hardware(
+    tmp_path, warm, decorated, observed,
+):
+    # The first pair reproduces the conflicting Torch ABI display decorator
+    # from current nightly 93523; routing comes only from this exact roster.
+    name = f":amd: ({decorated}) Torch Stable ABI Audit"
+    record = _record(name, job_id="01a11a1e-c3f9-442e-ab12-5c2cb2104127")
+    result = TestResult(**record)
+    queue = f"amd_{observed}"
+    job = {**_job(name), "id": result.job_id, "raw_log_url": "https://example.invalid/log",
+           "agent": {"meta_data": [f"queue={queue}"]},
+           "agent_query_rules": [f"queue=amd_{decorated.lower()}_1"]}
+    build = {"number": 7791, "state": "passed", "branch": "main",
+             "created_at": "2026-04-18T06:00:00Z", "jobs": [job]}
+    results_dir = tmp_path / "test_results"
+    path = results_dir / "2026-04-18_amd.jsonl"
+    clock = datetime(2026, 4, 19, tzinfo=timezone.utc)
+    if warm:
+        _write_jsonl(path, [record])
+        prune_old_results(results_dir, max_days=90, now=clock)
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[build]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))) as detail,
+        patch("collect_ci.parse_job_results", return_value=[result]) as parser,
+    ):
+        builds, rows = collect_pipeline("amd", 8, tmp_path, now=clock,
+                                       backfill_checkpoint_dir=tmp_path / "checkpoint")
+    assert detail.call_count == 1
+    assert parser.call_count == (0 if warm else 1)
+    expected = {**result.to_dict(), "job_name": f"{queue}: {name}"}
+    assert [row.to_dict() for row in rows[7791]] == [expected]
+    assert [row.to_dict() for row in _load_cached_results(path)] == [expected]
+    reporter_module.validate_result_retention(results_dir)
+    assert (tmp_path / "checkpoint" / "test_results" / path.name).read_bytes() == path.read_bytes()
+    summary = compute_build_summary(builds[0], rows[7791], "amd")
+    assert summary.unique_test_groups == summary.test_groups_passing_or == 1
+    assert summary.pass_rate == 1
+    assert set(summary.by_hardware) == {observed.split("_", 1)[0]}
+    assert summary.by_hardware[observed.split("_", 1)[0]]["groups"] == 1
+
+
+def test_verified_cpu_attempt_is_removed_from_warm_amd_cache_without_log_refetch(tmp_path):
+    gpu_name = ":amd: (MI300) GPU group"
+    stale_cpu_label = ":amd: (MI250) Torch Stable ABI Audit"
+    path = tmp_path / "test_results" / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, [_record(gpu_name, job_id="gpu"), _record(stale_cpu_label, job_id="cpu")])
+    build = {"number": 7791, "state": "passed", "branch": "main",
+             "created_at": "2026-04-18T06:00:00Z", "jobs": [
+                 {**_job(gpu_name), "id": "gpu", "agent_query_rules": ["queue=amd_mi300_1"]},
+                 {**_job(stale_cpu_label), "id": "cpu", "agent_query_rules": ["queue=amd-cpu"]},
+             ]}
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[build]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))) as detail,
+        patch("collect_ci.parse_job_results") as parser,
+    ):
+        builds, results = collect_pipeline("amd", 8, tmp_path,
+                                          now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    assert detail.call_count == 1
+    parser.assert_not_called()
+    assert [row.job_id for row in results[7791]] == ["gpu"]
+    assert [row.job_id for row in _load_cached_results(path)] == ["gpu"]
+    summary = compute_build_summary(builds[0], results[7791], "amd")
+    assert summary.unique_test_groups == summary.passed == 1
+    assert set(summary.by_hardware) == {"mi300"}
+
+
+def test_unrecognized_observed_queue_cannot_invent_a_runtime_hardware_prefix(tmp_path):
+    name = ":amd: (MI250) Current group"
+    record = _record(name, job_id="job")
+    path = tmp_path / "test_results" / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, [record])
+    build = {"number": 7791, "state": "passed", "branch": "main",
+             "created_at": "2026-04-18T06:00:00Z", "jobs": [
+                 {**_job(name), "id": "job", "agent_query_rules": ["queue=future-unrecognized-pool"]},
+             ]}
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[build]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))),
+        patch("collect_ci.parse_job_results") as parser,
+    ):
+        _, results = collect_pipeline("amd", 8, tmp_path,
+                                     now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    parser.assert_not_called()
+    assert [row.job_name for row in results[7791]] == [name]
+
+
+def test_observed_route_change_replaces_old_prefix_and_is_idempotent():
+    name = "mi250_1: AMD: :amd: (MI250) Native group (mi250_1)"
+    original = TestResult(**_record(name, job_id="job"))
+    build = {"number": 7791, "jobs": [
+        {**_job(name), "id": "job", "agent_query_rules": ["queue=amd_mi300_1"]},
+    ]}
+    _scope_nightly_build(build, "amd")
+    once = _current_scope_results([original], "amd", build)
+    assert once[0].job_name == "amd_mi300_1: AMD: :amd: (MI250) Native group (mi250_1)"
+    assert original.job_name == name
+    assert _current_scope_results(once, "amd", build) == once
+    assert once[0].test_id == original.test_id
+    assert once[0].classname == original.classname
 
 
 def test_parity_side_hardware_extends_even_when_merged_hardware_already_exists():
@@ -525,7 +757,7 @@ class TestCacheCoversAllJobs:
                 summary_only_build, jsonl, "amd", 7791
             ) is False
             m.assert_called_once_with("amd", 7791)
-        assert summary_only_build == full_detail
+        assert summary_only_build == {**full_detail, "job_scope": "amd_gpu", "source_pipeline": "ci"}
 
     def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
         # If Buildkite is flaky we must not make collection fail outright
@@ -1031,8 +1263,8 @@ class TestFrozenAmdNightlySnapshot:
             "branch": "main",
             "commit": "a" * 40,
             "created_at": "2026-04-18T09:00:00Z",
-            "message": "AMD Full CI Run - nightly",
-            "web_url": "https://buildkite.com/vllm/amd-ci/builds/7791",
+            "message": "Full CI run - nightly",
+            "web_url": "https://buildkite.com/vllm/ci/builds/7791",
             "creator": {"name": "Private User", "email": "private@example.com"},
             "jobs": [
                 {
@@ -1061,6 +1293,7 @@ class TestFrozenAmdNightlySnapshot:
                 "name": "mi300_1: Engine",
                 "state": "running",
                 "soft_failed": False,
+                "agent_queue": "amd_mi300_1",
                 "agent_query_rules": ["queue=amd_mi300_1"],
                 "step": {"id": "engine"},
             }
@@ -1073,8 +1306,8 @@ class TestFrozenAmdNightlySnapshot:
         path = write_amd_nightly_snapshot(build, tmp_path)
         assert path == tmp_path / ".cache" / "amd_nightly_snapshot.json"
         payload = json.loads(path.read_text())
-        assert payload["schema_version"] == 2
-        assert payload["pipeline"] == "amd-ci"
+        assert payload["schema_version"] == 3
+        assert payload["pipeline"] == "ci"
         assert payload["build"] == compact
         assert payload["publication_retention"]["job_rows"] == {
             "source": 1,

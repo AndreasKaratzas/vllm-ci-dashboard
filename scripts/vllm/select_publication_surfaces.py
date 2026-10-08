@@ -35,6 +35,9 @@ from vllm.publication_surfaces import (  # noqa: E402
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
     PRE_QUEUE_SPLIT_SURFACE_SPEC,
+    PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
+    PRE_VIEW_RETIREMENT_SURFACE_SPECS,
+    RETIRED_SURFACES,
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -160,13 +163,15 @@ def _safe_collector_details(value: object) -> dict[str, Any]:
     return safe(value, 0) or {}
 
 
-def _normalize_collector_failure(value: object) -> dict[str, Any]:
+def _normalize_collector_failure(
+    value: object, *, allowed_surfaces: frozenset[str] | None = None,
+) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise ValueError("collector failure records must be JSON objects")
     if value.get("schema_version") != COLLECTOR_FAILURE_SCHEMA_VERSION:
         raise ValueError("collector failure record has an unsupported schema_version")
     surface = _bounded_text(value.get("surface"), limit=64)
-    if surface not in SURFACE_SPECS:
+    if surface not in (allowed_surfaces if allowed_surfaces is not None else SURFACE_SPECS):
         raise ValueError(f"collector failure references unknown surface {surface!r}")
     collector = _bounded_text(value.get("collector"), limit=160)
     step = _bounded_text(value.get("step"), limit=200)
@@ -767,7 +772,8 @@ def _closed_fallback_surfaces(surfaces: Iterable[str]) -> set[str]:
     requested = set(surfaces)
     if not _uses_declared_surface_domain():
         return requested
-    return set(fallback_dependency_closure(requested))
+    retired = requested & RETIRED_SURFACES
+    return set(fallback_dependency_closure(requested - retired)) | retired
 
 
 def _surface_expansions(
@@ -778,7 +784,7 @@ def _surface_expansions(
     expanded: set[str] = set()
     for surface in surfaces:
         targets = aliases.get(surface, frozenset({surface}))
-        if not targets or not set(targets) <= set(SURFACE_SPECS):
+        if not targets or not set(targets) <= set(_historical_surface_specs()):
             raise RuntimeError(
                 f"validated baseline publication surface {surface!r} cannot be migrated"
             )
@@ -879,7 +885,7 @@ def _partition_baseline_manifest(
             owners = [
                 target
                 for target in targets
-                if _spec_owns_path(SURFACE_SPECS[target], relative)
+                if _spec_owns_path(_historical_surface_specs()[target], relative)
             ]
             if len(owners) != 1:
                 raise RuntimeError(
@@ -888,7 +894,7 @@ def _partition_baseline_manifest(
                 )
             child_entries[owners[0]][relative] = descriptor
         for target, target_entries in child_entries.items():
-            expected = _baseline_expected_paths(root, ref, SURFACE_SPECS[target])
+            expected = _baseline_expected_paths(root, ref, _historical_surface_specs()[target])
             if set(target_entries) != expected:
                 raise RuntimeError(
                     f"legacy fallback manifest partition for {target} is inconsistent"
@@ -903,16 +909,23 @@ def _pre_analytics_expansion(surface: str) -> frozenset[str]:
     return frozenset({surface})
 
 
+def _historical_surface_specs() -> dict[str, SurfaceSpec]:
+    return (
+        PRE_VIEW_RETIREMENT_SURFACE_SPECS
+        if _uses_declared_surface_domain() else SURFACE_SPECS
+    )
+
+
 def _pre_queue_split_surface_names() -> set[str]:
     """Return the exact active surface domain used by contract v4."""
-    return set(SURFACE_SPECS) - set(QUEUE_COMPANION_SURFACES)
+    return set(_historical_surface_specs()) - set(QUEUE_COMPANION_SURFACES)
 
 
 def _pre_queue_split_spec(surface: str) -> SurfaceSpec:
     """Resolve one v4 surface without trusting the narrower v5 queue spec."""
     if surface == QUEUE_LIVE_SURFACE:
         return PRE_QUEUE_SPLIT_SURFACE_SPEC
-    return SURFACE_SPECS[surface]
+    return _historical_surface_specs()[surface]
 
 
 def _queue_split_expansion(surface: str) -> frozenset[str]:
@@ -1222,7 +1235,7 @@ def _migrate_pre_queue_split_v2_state(
     expanded_fresh = set(expanded_degraded_clock) - expanded_fallback
     return {
         **payload,
-        "surface_contract_version": SURFACE_CONTRACT_VERSION,
+        "surface_contract_version": PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
         "mode": _publication_mode(expanded_fresh, expanded_fallback),
         "degraded_surfaces": sorted(expanded_degraded_clock),
         "fresh_degraded_surfaces": sorted(expanded_fresh),
@@ -1246,6 +1259,151 @@ def _expand_clock(
         for surface, targets in expansions.items()
         for target in targets
     }
+
+
+def _migrate_retired_view_state(root: Path, ref: str, payload: dict) -> dict:
+    """Validate the full v5 proof before dropping retired producer domains."""
+    allowed = set(_historical_surface_specs())
+    lanes: dict[str, set[str]] = {}
+    for field in ("degraded_surfaces", "fresh_degraded_surfaces", "fallback_surfaces"):
+        raw = payload.get(field)
+        if (
+            not isinstance(raw, list)
+            or any(not isinstance(value, str) or value not in allowed for value in raw)
+            or len(raw) != len(set(raw))
+        ):
+            raise RuntimeError("validated baseline publication state is inconsistent")
+        lanes[field] = set(raw)
+    fresh = lanes["fresh_degraded_surfaces"]
+    fallback = lanes["fallback_surfaces"]
+    degraded = lanes["degraded_surfaces"]
+    clocks = payload.get("degraded_since")
+    fallback_clocks = payload.get("fallback_since")
+    if (
+        fresh & fallback
+        or fresh | fallback != degraded
+        or payload.get("mode") != _publication_mode(fresh, fallback)
+        or not isinstance(clocks, dict)
+        or set(clocks) != degraded
+        or any(_parse_utc(value) is None for value in clocks.values())
+        or not isinstance(fallback_clocks, dict)
+        or set(fallback_clocks) != fallback
+        or any(_parse_utc(value) is None for value in fallback_clocks.values())
+    ):
+        raise RuntimeError("validated baseline publication state is inconsistent")
+    manifest = payload.get("restored_manifest")
+    paths = payload.get("restored_paths")
+    validated: dict[str, dict] = {}
+    if fallback:
+        if not isinstance(manifest, dict) or set(manifest) != fallback:
+            raise RuntimeError("fallback baseline state has an incomplete restore manifest")
+        if paths is not None and (not isinstance(paths, dict) or set(paths) != fallback):
+            raise RuntimeError("fallback baseline state has incomplete restored paths")
+        for surface in sorted(fallback):
+            entries = _validate_baseline_manifest(
+                root, ref, surface, _historical_surface_specs()[surface],
+                manifest[surface],
+            )
+            validated[surface] = entries
+            if paths is not None and _migrated_restored_paths(
+                surface, paths[surface]
+            ) != sorted(entries):
+                raise RuntimeError("fallback baseline restored paths are inconsistent")
+    elif manifest not in (None, {}) or paths not in (None, {}):
+        raise RuntimeError("non-fallback baseline state declares restored content")
+    records = payload.get("collector_failures", [])
+    if not isinstance(records, list):
+        raise RuntimeError("validated baseline collector failure evidence is inconsistent")
+    try:
+        failures = [
+            _normalize_collector_failure(row, allowed_surfaces=frozenset(allowed))
+            for row in records
+        ]
+    except ValueError as exc:
+        raise RuntimeError("validated baseline collector failure evidence is inconsistent") from exc
+    if any(row["surface"] not in fallback for row in failures):
+        raise RuntimeError("validated baseline collector failure evidence is inconsistent")
+    fresh -= RETIRED_SURFACES
+    fallback -= RETIRED_SURFACES
+    degraded = fresh | fallback
+    retained_failures = [row for row in failures if row["surface"] in fallback]
+    old_streaks = payload.get("collector_failure_streaks") or {}
+    if not isinstance(old_streaks, dict):
+        raise RuntimeError("validated baseline collector streak evidence is inconsistent")
+    # Migration does not represent another collection attempt. Recompute the
+    # incident from surviving evidence without incrementing its persistence.
+    prior_counts = {}
+    for row in retained_failures:
+        identity = _collector_failure_persistence_identity(row)
+        count = old_streaks.get(identity, 1)
+        if type(count) is not int or count <= 0:
+            raise RuntimeError("validated baseline collector streak evidence is inconsistent")
+        prior_counts[identity] = count - 1
+    collector_policy, streaks = _collector_incident_policy(
+        retained_failures, {"collector_failure_streaks": prior_counts},
+        has_untyped_forced_surface=bool(fallback - {row["surface"] for row in retained_failures}),
+    )
+    diagnostics = {}
+    for key in ("candidate_errors", "candidate_degradations", "final_errors", "final_degradations"):
+        rows = payload.get(key) or []
+        if not isinstance(rows, list):
+            raise RuntimeError("validated baseline diagnostic evidence is inconsistent")
+        retained = []
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("surfaces"), list):
+                raise RuntimeError("validated baseline diagnostic evidence is inconsistent")
+            raw_surfaces = row["surfaces"]
+            if any(not isinstance(name, str) or name not in allowed for name in raw_surfaces):
+                raise RuntimeError("validated baseline diagnostic evidence is inconsistent")
+            active = set(raw_surfaces) & degraded
+            if active:
+                retained.append({**row, "surfaces": sorted(active)})
+        diagnostics[key] = retained
+    # Recompose escalation from surviving evidence. A retired deterministic
+    # failure must not escalate an unrelated first transient collector failure.
+    incident_policy = collector_policy
+    if fresh or any(row.get("code") != "publication-collector-failed" for rows in diagnostics.values() for row in rows):
+        incident_policy = _compose_incident_policy(collector_policy, {
+            "alert": True, "reason": "surviving-publication-diagnostic",
+        })
+    result = {
+        **payload,
+        **diagnostics,
+        "surface_contract_version": SURFACE_CONTRACT_VERSION,
+        "mode": _publication_mode(fresh, fallback),
+        "degraded_surfaces": sorted(degraded),
+        "fresh_degraded_surfaces": sorted(fresh),
+        "fallback_surfaces": sorted(fallback),
+        "degraded_since": {surface: clocks[surface] for surface in sorted(degraded)},
+        "fallback_since": {surface: fallback_clocks[surface] for surface in sorted(fallback)},
+        "restored_manifest": {surface: validated[surface] for surface in sorted(fallback)},
+        "restored_paths": {surface: sorted(validated[surface]) for surface in sorted(fallback)},
+        "collector_failures": retained_failures,
+        "collector_failure_streaks": streaks,
+        "collector_incident_policy": collector_policy,
+        "incident_policy": incident_policy,
+    }
+    observations = [row for row in (payload.get("upstream_retry_observations") or [])
+                    if isinstance(row, dict) and row.get("surface") in fallback]
+    old_retry_streaks = payload.get("upstream_retry_streaks") or {}
+    retry_prior = {}
+    for row in observations:
+        identity = _upstream_retry_identity(row)
+        count = old_retry_streaks.get(identity, row.get("persistence_runs", 1)) if isinstance(old_retry_streaks, dict) else 1
+        if type(count) is not int or count <= 0:
+            raise RuntimeError("validated baseline retry evidence is inconsistent")
+        retry_prior[identity] = count - 1
+    retry_policy, retry_streaks = _upstream_retry_incident_policy(
+        observations, {"upstream_retry_streaks": retry_prior},
+    )
+    result["upstream_retry_observations"] = observations
+    result["upstream_retry_streaks"] = retry_streaks
+    _apply_upstream_retry_reporting_policy(result, observations, retry_policy,
+                                          forced={row["surface"] for row in retained_failures})
+    # Diagnostic row counts changed; the next bounded writer supplies a new
+    # omission ledger if one is needed for this migrated publication.
+    result.pop("publication_retention", None)
+    return result
 
 
 def _baseline_publication_state(
@@ -1278,7 +1436,7 @@ def _baseline_publication_state(
     degraded = payload.get("degraded_surfaces")
     degraded_since = payload.get("degraded_since")
     aliases = _legacy_aliases() if schema_version == 1 else {}
-    allowed = set(SURFACE_SPECS) | set(aliases)
+    allowed = set(_historical_surface_specs()) | set(aliases)
     if (
         not isinstance(degraded, list)
         or any(
@@ -1332,6 +1490,13 @@ def _baseline_publication_state(
         and surface_contract_version == PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
     ):
         payload = _migrate_pre_queue_split_v2_state(root, ref, payload)
+        surface_contract_version = payload.get("surface_contract_version")
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
+        and surface_contract_version == PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION
+    ):
+        payload = _migrate_retired_view_state(root, ref, payload)
         surface_contract_version = payload.get("surface_contract_version")
     if (
         schema_version == 2
@@ -1391,7 +1556,7 @@ def _baseline_publication_state(
             spec = (
                 LEGACY_CI_SURFACE_SPEC
                 if surface == LEGACY_CI_SURFACE and surface in aliases
-                else SURFACE_SPECS[surface]
+                else _historical_surface_specs()[surface]
             )
             entries = _validate_baseline_manifest(
                 root, ref, surface, spec, manifest[surface]
@@ -1417,10 +1582,10 @@ def _baseline_publication_state(
                 "validated baseline fallback omits a required dependent surface"
             )
         expanded_since = _expand_clock(degraded_since, expansions)
-        return {
+        return _migrate_retired_view_state(root, ref, {
             **payload,
             "schema_version": 2,
-            "surface_contract_version": SURFACE_CONTRACT_VERSION,
+            "surface_contract_version": PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
             "mode": "fallback",
             "degraded_surfaces": sorted(fallback),
             "fresh_degraded_surfaces": [],
@@ -1432,7 +1597,7 @@ def _baseline_publication_state(
                 for surface, entries in partitioned.items()
             },
             "restored_manifest": partitioned,
-        }
+        })
 
     fresh_degraded = payload.get("fresh_degraded_surfaces")
     fallback = payload.get("fallback_surfaces")

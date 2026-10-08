@@ -18,18 +18,6 @@
         "data/vllm/ci/dashboard_state.json"
       ]
     },
-    "gating_nightlies": {
-      "max_bytes": 6291456,
-      "patterns": [
-        "data/vllm/ci/gating_nightlies.json"
-      ]
-    },
-    "hotness": {
-      "max_bytes": 4194304,
-      "patterns": [
-        "data/vllm/ci/hotness.json"
-      ]
-    },
     "ci_derived": {
       "max_bytes": 7340032,
       "patterns": [
@@ -94,14 +82,6 @@
         "data/vllm/ci/queue_lifecycle.json"
       ]
     },
-    "ci_gating_control": {
-      "max_bytes": 6291456,
-      "patterns": [
-        "data/vllm/ci/gating_proposals.json",
-        "data/vllm/ci/gating_target_candidates.json",
-        "data/vllm/ci/gating_targets.json"
-      ]
-    },
     "operations_control": {
       "max_bytes": 5242880,
       "patterns": [
@@ -134,12 +114,6 @@
         "data/vllm/ci/project_items.json"
       ]
     },
-    "ci_changes": {
-      "max_bytes": 1048576,
-      "patterns": [
-        "data/vllm/ci/group_changes.json"
-      ]
-    },
     "operational_misc": {
       "max_bytes": 262144,
       "patterns": [
@@ -167,14 +141,6 @@
     "dashboard_state_manifest": {
       "group": "analytics",
       "max_bytes": 8388608
-    },
-    "gating_nightlies": {
-      "group": "gating_nightlies",
-      "max_bytes": 6291456
-    },
-    "hotness": {
-      "group": "hotness",
-      "max_bytes": 4194304
     },
     "ci_health": {
       "group": "ci_derived",
@@ -247,22 +213,6 @@
     "queue_lifecycle_summary": {
       "group": "queue_lifecycle_summary",
       "max_bytes": 5242880
-    },
-    "group_changes": {
-      "group": "ci_changes",
-      "max_bytes": 1048576
-    },
-    "gating_proposals": {
-      "group": "ci_gating_control",
-      "max_bytes": 3145728
-    },
-    "gating_target_candidates": {
-      "group": "ci_gating_control",
-      "max_bytes": 2097152
-    },
-    "gating_targets": {
-      "group": "ci_gating_control",
-      "max_bytes": 1048576
     },
     "operations_manifest": {
       "group": "operations_control",

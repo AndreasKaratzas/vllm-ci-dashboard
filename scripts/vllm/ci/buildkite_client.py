@@ -19,6 +19,7 @@ import requests
 from . import config as cfg
 from ..buildkite_request_guard import BuildkiteRequestGuardError
 from ..private_ci_cache_budget import PRIVATE_CI_CACHE_BUDGET
+from ..pipelines import _job_queue
 
 log = logging.getLogger(__name__)
 
@@ -45,12 +46,14 @@ _ROSTER_JOB_FIELDS = frozenset(
         "soft_failed",
         "step_key",
         "retried_in_job_id",
+        "agent_queue",
     }
 )
 _ROSTER_MAX_TIMESTAMP_CHARS = 64
 _ROSTER_MAX_JOB_ID_CHARS = 256
 _ROSTER_MAX_JOB_NAME_CHARS = 2048
 _ROSTER_MAX_JOB_STATE_CHARS = 64
+_ROSTER_MAX_JOB_QUEUE_CHARS = 256
 PAGINATION_SAFETY_CAP = 100
 
 
@@ -233,16 +236,21 @@ def _project_nightly_roster_job(job: object) -> dict | None:
             projected[key] = value
     if isinstance(job.get("soft_failed"), bool):
         projected["soft_failed"] = job["soft_failed"]
+    queue = _bounded_roster_text(
+        _job_queue(job), max_chars=_ROSTER_MAX_JOB_QUEUE_CHARS,
+    )
+    if queue is not None:
+        projected["agent_queue"] = queue
     return projected
 
 
 def _project_nightly_roster_build(build: object) -> dict | None:
     """Return the only build/job fields permitted in persistent roster data.
 
-    Buildkite responses can contain environment variables, creator metadata,
-    agent metadata, commands, signed URLs, and future fields we have not
-    reviewed.  An allowlist projection is intentionally used instead of a
-    denylist scrub so none of those values can reach disk by default.
+    The reviewed routing queue is retained as bounded ``agent_queue`` so
+    restored rosters keep their observed hardware scope. Environment values,
+    creator data, other agent metadata, commands, signed URLs and unreviewed
+    fields remain outside the allowlist and cannot reach disk by default.
     """
     if not isinstance(build, dict):
         return None

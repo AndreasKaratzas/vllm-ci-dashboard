@@ -55,7 +55,7 @@ _HW_PATTERN = re.compile(
 )
 
 # Hardware prefixes include numeric and named pools such as "mi355_dpx: ".
-_AMD_POOL = r'mi\d+(?:_[a-z0-9][a-z0-9_-]*)?'
+_AMD_POOL = r'mi\d+b?(?:_[a-z0-9][a-z0-9_-]*)?'
 _JOB_PREFIX_RE = re.compile(
     rf'^({_AMD_POOL}|gpu_\d+|amd_\w+):\s*',
     re.IGNORECASE,
@@ -72,6 +72,10 @@ _STANDARD_JOB_DECORATOR_RE = re.compile(
     r'(?: +[a-z0-9][a-z0-9._-]*)*)\s*\)\s*',
     re.IGNORECASE,
 )
+_NATIVE_AMD_WRAPPER_RE = re.compile(r'^amd:\s*(?=:amd:\s*\()', re.IGNORECASE)
+_AMD_RUNTIME_POOL_SUFFIX_RE = re.compile(
+    r'\s+\((?P<pool>mi\d+b?_[a-z0-9][a-z0-9_-]*)\)\s*$', re.IGNORECASE,
+)
 
 
 def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
@@ -80,15 +84,24 @@ def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
     Parsed result rows can retain the physical Buildkite queue outside the
     standardized label, for example ``gpu_1: :nvidia: (H200) Foo``. Remove
     that outer queue before looking for the decorator so all runtime consumers
-    interpret the same label shape.
+    interpret the same label shape. Native AMD main-CI jobs additionally wrap
+    the decorator in ``AMD:`` and append a concrete execution pool in parens.
+    Strip those execution annotations while preserving suite/GPU-count tags.
     """
-    label = _JOB_PREFIX_RE.sub('', str(name or ''), count=1)
+    label = str(name or '')
+    while _JOB_PREFIX_RE.match(label):
+        label = _JOB_PREFIX_RE.sub('', label, count=1)
+    label = _NATIVE_AMD_WRAPPER_RE.sub('', label, count=1)
     match = _STANDARD_JOB_DECORATOR_RE.match(label)
     if not match:
         return label, '', ''
+    platform = match.group('platform').lower()
+    logical_label = label[match.end():]
+    if platform == 'amd':
+        logical_label = _AMD_RUNTIME_POOL_SUFFIX_RE.sub('', logical_label)
     return (
-        label[match.end():],
-        match.group('platform').lower(),
+        logical_label,
+        platform,
         ' '.join(match.group('hardware').lower().split()),
     )
 
@@ -223,6 +236,13 @@ def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
         return normalized
     route_match = _JOB_PREFIX_RE.match(str(job_name or ""))
     agent_pool = route_match.group(1).casefold() if route_match else ""
+    if agent_pool.startswith("amd_"):
+        agent_pool = agent_pool.removeprefix("amd_")
+    if not agent_pool:
+        native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(str(job_name or ""))
+        _, platform, _ = _parse_job_execution_label(job_name)
+        if platform == "amd" and native_pool:
+            agent_pool = native_pool.group("pool").casefold()
     return _AMD_RUNTIME_GROUP_KEYS.get((normalized, agent_pool), normalized)
 
 
@@ -1181,7 +1201,7 @@ def apply_quarantine(
 # ---------------------------------------------------------------------------
 
 _HW_FAMILY_RE = re.compile(
-    r'^(mi\d+)(?:_[a-z0-9][a-z0-9_-]*)?:', re.IGNORECASE,
+    r'^(?:amd_)?(mi\d+)b?(?:_[a-z0-9][a-z0-9_-]*)?:', re.IGNORECASE,
 )
 # Upstream GPU tags in parens: (H100), (B200), (2xH100), (4xA100), (H100-MI250), etc.
 _UPSTREAM_HW_RE = re.compile(
@@ -1260,6 +1280,12 @@ def compute_build_summary(
     Uses actual test counts extracted from summary entries (e.g.,
     '__passed__ (136)' counts as 136, not 1).
     """
+    # The two current dashboard sides share a CI build but have independent
+    # AMD/CUDA GPU rosters. Preserve that scope in every denominator.
+    if build.get("job_scope"):
+        from vllm.pipelines import pipeline_job_matches_scope
+        test_results = [row for row in test_results if row.pipeline == "ci"
+                        and pipeline_job_matches_scope({"job_name": row.job_name}, pipeline_key)]
     # Count actual tests, not entries
     passed = 0
     failed = 0
@@ -1277,9 +1303,12 @@ def compute_build_summary(
     # Build set of soft-failed job names — failures in these are expected
     # and should not count toward groups_failed
     soft_failed_jobs = set()
+    soft_failed_job_ids = set()
     for j in build.get("jobs", []):
         if j.get("soft_failed"):
             soft_failed_jobs.add(j.get("name", ""))
+            if j.get("id"):
+                soft_failed_job_ids.add(str(j["id"]))
 
     # Per-hardware breakdown
     hw_counts: dict[str, dict] = {}
@@ -1318,7 +1347,8 @@ def compute_build_summary(
         # but exclude soft-failed jobs (failures are expected/accepted)
         norm = logical_group_key(r.job_name)
         hw_seen_groups[hw].add(norm)
-        if r.status in ("failed", "error") and r.job_name not in soft_failed_jobs:
+        if (r.status in ("failed", "error") and r.job_name not in soft_failed_jobs
+                and r.job_id not in soft_failed_job_ids):
             hw_failed_groups[hw].add(norm)
 
     # Add group counts to hw_counts
@@ -1392,6 +1422,8 @@ def compute_build_summary(
     # Job-level stats (count ALL script jobs, including running/waiting)
     jobs = build.get("jobs", [])
     script_jobs = [j for j in jobs if j.get("type") == "script"]
+    if build.get("job_scope"):
+        script_jobs = [job for job in script_jobs if pipeline_job_matches_scope(job, pipeline_key)]
 
     # Attest an active retry only from Buildkite's explicit predecessor ->
     # successor linkage.  A merely running build or job is not retry evidence.

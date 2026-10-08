@@ -80,7 +80,10 @@ def _validate_shard(path: Path, name: str) -> dict[str, Any]:
         raise BackfillCheckpointError(f"checkpoint shard {name} exceeds its byte bound")
     digest = hashlib.sha256()
     build_numbers: set[int] = set()
-    expected_slug = "amd-ci" if match.group(1) == "amd" else "ci"
+    # Both hardware roles belong to the current main CI pipeline. Optional
+    # restored AMD side-pipeline checkpoints are rejected and reset rather
+    # than being promoted under the same date/role filename.
+    expected_slug = "ci"
     rows = 0
     with path.open("rb") as handle:
         for raw_line in handle:

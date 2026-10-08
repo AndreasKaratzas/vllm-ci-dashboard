@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Open one state-owned issue for unresolved AMD test-group failures on main.
 
-The source is amd-ci.all_main_reliability from analytics.json: an exhaustive
+The source is ci.all_main_reliability from analytics.json: an exhaustive
 Buildkite branch=main cohort of completed passed/failed builds with exact
 terminal job evidence. A strict group is identified by label, step key,
 hardware, and queue. Within one build the latest attempt wins, so a successful
@@ -50,7 +50,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 ANALYTICS = ROOT / "data" / "vllm" / "ci" / "analytics.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_amd_main_failure_issues.json"
 
-PIPELINE = "amd-ci"
+PIPELINE = "ci"
 MAX_DATA_AGE = timedelta(hours=3)
 MAX_ISSUE_ROWS = 50
 MAX_BISECT_COMMANDS = 12
@@ -81,6 +81,7 @@ class WatcherConfig:
     script_name: str
     track_commit_range: bool = False
     initialize_from_history: bool = False
+    job_scope: str = ""
 
 
 AMD_CONFIG = WatcherConfig(
@@ -93,6 +94,7 @@ AMD_CONFIG = WatcherConfig(
     heading="AMD origin/main test-group alert",
     scope_name="AMD",
     script_name="amd_main_failure_watcher.py",
+    job_scope="amd_gpu",
 )
 
 
@@ -934,9 +936,20 @@ def run_watcher(config: WatcherConfig) -> int:
         log.warning("GITHUB_TOKEN not set; leaving issue state untouched")
         return 0
 
+    if config.job_scope == "amd_gpu":
+        from vllm.pipelines import is_amd_ci_job
+        reliability = {**reliability, "groups": [
+            group for group in reliability.get("groups") or [] if is_amd_ci_job(group)
+        ]}
+
+    restored_state = _read_state(config.state)
+    if config.job_scope == "amd_gpu":
+        for key in ("active", "pending_soft"):
+            restored_state[key] = {group_id: row for group_id, row in (restored_state.get(key) or {}).items()
+                                   if is_amd_ci_job(row) and "/vllm/ci/builds/" in str(row.get("job_url") or row.get("build_url") or row.get("latest_job_url") or row.get("latest_build_url") or "")}
     state = advance_incidents(
         reliability,
-        _read_state(config.state),
+        restored_state,
         track_commit_range=config.track_commit_range,
         initialize_from_history=config.initialize_from_history,
     )
@@ -972,9 +985,7 @@ def run_watcher(config: WatcherConfig) -> int:
         reconciled,
         config.state,
         state_filename=(
-            "open_ci_main_failure_issues.json"
-            if config.pipeline == "ci"
-            else "open_amd_main_failure_issues.json"
+            config.state.name
         ),
     )
     log.info(

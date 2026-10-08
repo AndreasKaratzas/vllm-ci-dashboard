@@ -37,10 +37,11 @@ def _payload() -> dict:
             },
         },
         "amd_test_health": {
+            "source_pipeline": "ci",
             "summary": {
                 "latest_build_number": 12275,
                 "latest_build_url": (
-                    "https://buildkite.com/vllm/amd-ci/builds/12275"
+                    "https://buildkite.com/vllm/ci/builds/12275"
                 ),
                 "latest_job_variant_count": 236,
                 "latest_job_variant_state_counts": {
@@ -247,7 +248,7 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     summary = ops.build_org_summary(_payload(), _lifecycle())
 
     assert summary["schema_id"] == "oss-project-ci-summary"
-    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 6
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 7
     assert summary["project"]["id"] == "vllm"
 
     logical = summary["test_groups"]["observed_latest_amd"]
@@ -272,63 +273,13 @@ def test_org_summary_projects_distinct_counts_and_latest_nightly() -> None:
     assert "configured_amd_definitions" not in summary["test_groups"]
 
     best = summary["health_checks"]["best_hardware"]
-    assert (best["total"], best["green"], best["non_green"]) == (166, 163, 3)
-    nightly = summary["scheduled_cohorts"]["upstream_nightly"]
-    assert nightly["build_number"] == 84753
-    assert (nightly["configured"], nightly["observed"], nightly["green"]) == (
-        73,
-        73,
-        73,
-    )
-    assert summary["parity_targets"]["reviewed"]["total"] == 125
-    assert "gating" not in summary
-    assert {
-        "health_check",
-        "scheduled_mirror_group",
-        "parity_target",
-    } <= set(summary["definitions"])
-    assert {
-        "runtime_gate",
-        "scheduled_gating_group",
-        "gating_target",
-    }.isdisjoint(summary["definitions"])
+    assert (best["total"], best["green"], best["non_green"]) == (150, 148, 2)
+    assert best["pipeline"] == "ci"
+    assert best["job_scope"] == "amd_gpu"
+    assert {"gating", "scheduled_cohorts", "parity_targets"}.isdisjoint(summary)
+    assert {"scheduled_mirror_group", "parity_target"}.isdisjoint(summary["definitions"])
 
 
-def test_org_summary_exposes_missing_nightly_as_available_false(tmp_path) -> None:
-    payload = _payload()
-    payload["gating"]["upstream_scheduled"]["latest_by_kind"]["nightly"] = None
-
-    scheduled = ops.build_org_summary(payload, _lifecycle())[
-        "scheduled_cohorts"
-    ]["upstream_nightly"]
-
-    assert scheduled["available"] is False
-    assert all(
-        scheduled[key] is None
-        for key in (
-            "build_number",
-            "configured",
-            "observed",
-            "green",
-            "non_green",
-            "failing",
-            "soft_failing",
-            "pending",
-            "missing",
-            "queues_configured",
-            "queues_with_observed_work",
-        )
-    )
-
-    data_dir = tmp_path / "data" / "vllm" / "ci"
-    data_dir.mkdir(parents=True)
-    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
-    ops.write_snapshot_bundle(data_dir / "operations_v2.json", payload, log=False)
-    checked = DashboardAudit(tmp_path)
-    checked.audit_operations_bundle()
-    assert "operations-bundle-org-summary-scheduled-denominators" not in {
-        finding.code for finding in checked.report.findings
-    }
 
 
 def test_org_summary_projects_daily_wait_vectors_and_rolling_counts() -> None:
@@ -648,8 +599,8 @@ def test_snapshot_bundle_writes_bounded_discoverable_org_summary(tmp_path) -> No
     assert summary["generated_at"] == GENERATED_AT
     assert path.stat().st_size == descriptor["bytes"]
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
-    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 6
-    assert "groups" not in summary["scheduled_cohorts"]["upstream_nightly"]
+    assert descriptor["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 7
+    assert "scheduled_cohorts" not in summary
 
 
 def test_snapshot_bundle_references_oversized_exact_wait_vectors_without_duplication(
@@ -755,7 +706,7 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
 
     path = data_dir / ops.ORG_SUMMARY_NAME
     summary = json.loads(path.read_text())
-    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 6
+    assert summary["schema_version"] == ops.ORG_SUMMARY_SCHEMA_VERSION == 7
     summary["test_groups"]["observed_latest_amd"]["total"] = 236
     path.write_text(json.dumps(summary, indent=2) + "\n")
 
@@ -766,25 +717,6 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
     }
 
 
-def test_dashboard_audit_rejects_invalid_available_nightly_denominators(
-    tmp_path,
-) -> None:
-    data_dir = tmp_path / "data" / "vllm" / "ci"
-    data_dir.mkdir(parents=True)
-    output = data_dir / "operations_v2.json"
-    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(_lifecycle()))
-    payload = _payload()
-    payload["gating"]["upstream_scheduled"]["latest_by_kind"]["nightly"][
-        "summary"
-    ]["gated"] = None
-    ops.write_snapshot_bundle(output, payload, log=False)
-
-    invalid = DashboardAudit(tmp_path)
-    invalid.audit_operations_bundle()
-
-    assert "operations-bundle-org-summary-scheduled-denominators" in {
-        finding.code for finding in invalid.report.findings
-    }
 
 
 @pytest.mark.parametrize("case", ("path", "key", "sample_count", "day_bounds"))
@@ -837,38 +769,6 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     assert best["build_number"] == logical["build_number"]
     assert best["non_green"] == best["total"] - best["green"]
 
-    scheduled = summary["scheduled_cohorts"]["upstream_nightly"]
-    scheduled_count_fields = (
-        "configured",
-        "observed",
-        "green",
-        "non_green",
-        "failing",
-        "soft_failing",
-        "pending",
-        "missing",
-        "queues_configured",
-        "queues_with_observed_work",
-    )
-    if scheduled["available"] is False:
-        assert all(scheduled[key] is None for key in scheduled_count_fields)
-    else:
-        assert scheduled["available"] is True
-        assert all(
-            type(scheduled[key]) is int and scheduled[key] >= 0
-            for key in scheduled_count_fields
-        )
-        assert scheduled["configured"] == (
-            scheduled["observed"] + scheduled["missing"]
-        )
-        assert scheduled["observed"] == sum(
-            scheduled[key]
-            for key in ("green", "failing", "soft_failing", "pending")
-        )
-        assert scheduled["non_green"] == (
-            scheduled["observed"] - scheduled["green"]
-        )
-
     current = summary["queues"]["current"]
     queue_rows = summary["queues"]["by_queue"]
     assert current["available"] is True
@@ -907,3 +807,12 @@ def test_published_org_summary_has_consistent_denominators() -> None:
             assert day["sample_count"] == len(values)
     assert wait["sample_count"] == sum(day["sample_count"] for day in wait["days"])
     assert path.stat().st_size < ops.ORG_SUMMARY_MAX_BYTES
+
+
+@pytest.mark.parametrize("source", ("amd-ci", None))
+def test_org_summary_does_not_count_legacy_runtime_health(source):
+    payload = _payload()
+    payload["amd_test_health"]["source_pipeline"] = source
+    summary = ops.build_org_summary(payload)
+    assert summary["test_groups"]["observed_latest_amd"]["available"] is False
+    assert summary["health_checks"]["best_hardware"]["total"] is None

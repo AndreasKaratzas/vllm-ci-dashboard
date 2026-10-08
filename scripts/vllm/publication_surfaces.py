@@ -14,7 +14,9 @@ from typing import Any, Iterable
 
 
 PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION = 4
-SURFACE_CONTRACT_VERSION = 5
+PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION = 5
+SURFACE_CONTRACT_VERSION = 6
+RETIRED_SURFACES = frozenset({"ci_gating", "ci_changes", "ci_hotness"})
 
 
 @dataclass(frozen=True)
@@ -183,6 +185,10 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
         ),
     ),
 }
+PRE_VIEW_RETIREMENT_SURFACE_SPECS = dict(SURFACE_SPECS)
+SURFACE_SPECS = {
+    name: spec for name, spec in SURFACE_SPECS.items() if name not in RETIRED_SURFACES
+}
 
 
 # Schema-v1 publication state used one monolithic ``ci`` transaction.  Keep
@@ -232,10 +238,9 @@ def ignored_watcher_state_paths(surface: str) -> frozenset[str]:
 
 
 # These are invalidation edges, not ordinary data-flow dependencies: if a
-# source surface falls back, each listed dependent must fall back too. Gating's
-# nightly evidence now belongs to the same ci_gating transaction as its targets,
-# and private analytics can therefore fall back without invalidating CI health,
-# matrix, ownership, parity, or gating publication.
+# source surface falls back, each listed dependent must fall back too.
+# Private analytics and core health can recover independently. Retired producer
+# domains exist only in the historical restore-proof inventory.
 FALLBACK_DEPENDENCIES: dict[str, frozenset[str]] = {}
 
 
@@ -287,14 +292,11 @@ SOURCE_SURFACES = {
     "ci_health": "ci_core",
     "config_parity": "ci_core",
     "test_group_parity": "ci_core",
-    "gating_targets": "ci_gating",
-    "gating_target_candidates": "ci_gating",
     "amd_test_matrix": "ci_core",
     "capacity_monitor": "queue_capacity",
     "queue_timeseries": "queue",
     "queue_jobs": "queue",
     "workload_mapping": "queue_workload",
-    "group_changes": "ci_changes",
     "omni_heuristic": "queue_omni",
     "omni_issue_state": "queue_omni",
     "project_items": "github_home",
@@ -308,9 +310,7 @@ SOURCE_SURFACES = {
 _OPS_GLOBAL = frozenset()
 _OPS_ANALYTICS = frozenset({"ci_analytics"})
 _OPS_CORE = frozenset({"ci_core"})
-_OPS_GATING = frozenset({"ci_gating"})
 _OPS_QUEUE = frozenset({"queue"})
-_OPS_QUEUE_CAPACITY = frozenset({"queue_capacity"})
 _OPS_QUEUE_CHILDREN = frozenset({
     "queue",
     "queue_capacity",
@@ -322,15 +322,9 @@ _OPS_ANALYTICS_CORE = frozenset({"ci_analytics", "ci_core"})
 _OPS_ANALYTICS_CORE_QUEUE = frozenset({"ci_analytics", "ci_core"}) | (
     _OPS_QUEUE_CHILDREN
 )
-_OPS_GATING_QUEUE = _OPS_GATING | _OPS_QUEUE_CAPACITY
-_OPS_CORE_GATING_QUEUE = _OPS_CORE | _OPS_GATING | _OPS_QUEUE_CAPACITY
-_OPS_ANALYTICS_GATING_QUEUE = (
-    _OPS_ANALYTICS | _OPS_GATING | _OPS_QUEUE_CAPACITY
-)
 _OPS_ORG_SUMMARY_PRODUCERS = frozenset({
     "ci_analytics",
     "ci_core",
-    "ci_gating",
     "queue",
     "queue_capacity",
     "queue_lifecycle",
@@ -338,9 +332,7 @@ _OPS_ORG_SUMMARY_PRODUCERS = frozenset({
 _OPS_RETIRED_QUEUE_PRODUCERS = frozenset({
     "agent_health",
     "ci_analytics",
-    "ci_changes",
     "ci_core",
-    "ci_gating",
 }) | _OPS_QUEUE_CHILDREN
 
 CONTEXTUAL_OPERATIONS_FINDING_CODES = frozenset({
@@ -390,21 +382,12 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-amd-retained-job-variant-alias": _OPS_CORE,
     # Gating combines reviewed configuration, queue capacity, and selected
     # core/analytics evidence depending on the exact projection.
-    "operations-active-target-count": _OPS_GATING_QUEUE,
-    "operations-active-target-summary": _OPS_GATING_QUEUE,
-    "operations-canonical-target-count": _OPS_GATING,
-    "operations-gating-history-source-pipeline": _OPS_ANALYTICS_GATING_QUEUE,
-    "operations-gating-latest-source-pipeline": _OPS_CORE_GATING_QUEUE,
-    "operations-gating-latest-source-url": _OPS_CORE_GATING_QUEUE,
-    "operations-gating-missing-links": _OPS_CORE_GATING_QUEUE,
-    "operations-gating-runtime-resolution": _OPS_CORE_GATING_QUEUE,
-    "operations-gating-runtime-resolution-count": _OPS_CORE_GATING_QUEUE,
     # Private analytics and normalized reliability projections.
     "operations-flaky-candidate-source": _OPS_ANALYTICS,
-    "operations-latency-max-duration": _OPS_ANALYTICS,
-    "operations-latency-source": _OPS_ANALYTICS,
-    "operations-platform-comparison-counts": _OPS_ANALYTICS,
-    "operations-platform-comparison-eligibility": _OPS_ANALYTICS,
+    "operations-current-latency-projection": _OPS_ANALYTICS,
+    "operations-current-parity-projection": _OPS_CORE,
+    "operations-bundle-retired-sections": _OPS_GLOBAL,
+    "operations-retired-view": _OPS_GLOBAL,
     "operations-reliability-cohort": _OPS_ANALYTICS,
     "operations-reliability-cohort-build-numbers": _OPS_ANALYTICS,
     "operations-reliability-cohort-composition": _OPS_ANALYTICS,
@@ -427,8 +410,6 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-retry-recovery-count": _OPS_ANALYTICS,
     "operations-retry-source": _OPS_ANALYTICS,
     "operations-comparison-payload-budget": _OPS_ANALYTICS,
-    "operations-comparison-retry-evidence-payload-budget": _OPS_ANALYTICS,
-    "operations-trajectory-scope": _OPS_ANALYTICS,
     # Nightly history combines analytics history with current core health.
     "operations-latest-nightly": _OPS_ANALYTICS_CORE,
     "operations-latest-nightly-ahead": _OPS_CORE,
@@ -448,7 +429,6 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-bundle-org-summary-descriptor": _OPS_GLOBAL,
     "operations-bundle-org-summary-missing": _OPS_GLOBAL,
     "operations-bundle-org-summary-projection": _OPS_GLOBAL,
-    "operations-bundle-org-summary-scheduled-denominators": _OPS_ANALYTICS,
     "operations-bundle-org-summary-size": _OPS_GLOBAL,
     "operations-bundle-org-summary-source": frozenset({"queue_lifecycle"}),
     "operations-bundle-path": _OPS_GLOBAL,
@@ -457,7 +437,6 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-bundle-shape": _OPS_GLOBAL,
     "operations-bundle-size": _OPS_GLOBAL,
     "operations-schema": _OPS_GLOBAL,
-    "operations-unsupported-owners": _OPS_GLOBAL,
     "operations-upstream-parity-scope": _OPS_GLOBAL,
 }
 
@@ -523,7 +502,8 @@ def finding_surfaces(finding: Any) -> frozenset[str]:
             "ci_core",
         ),
         (("analytics-",), "ci_analytics"),
-        (("gating-target-",), "ci_gating"),
+        (("current-parity-", "current-mirror-", "current-runtime-", "root-test-results-current-"), "ci_core"),
+        (("latency-",), "ci_analytics"),
         (("queue-lifecycle-",), "queue_lifecycle"),
         (("dns-health-",), "dns_health"),
         (("queue-",), "queue"),
