@@ -194,3 +194,19 @@ def test_small_latency_keeps_readable_job_evidence_and_oversized_fails_closed():
     with pytest.raises(RuntimeError, match="preserving the last-known-good generation"):
         project_public_nightly_latency(private, max_bytes=100)
     assert private == retained
+
+
+def test_native_amd_execution_wrapper_matches_current_cuda_latency_group():
+    native = _job(1000, "amd", 20)
+    raw_name = "AMD: :amd: (MI355 DPX) FP8 MoE Kernels (mi355_dpx)"
+    native.update(name=raw_name, agent_query_rules=["queue=amd_mi355_dpx"])
+    result = _comparison([_build(1000, [native, _job(1000, "cuda", 10, group="FP8 MoE Kernels")])])
+    row = result["rows"][0]
+    assert row["id"] == "fp8 moe kernels"
+    assert row["match_status"] == "matched"
+    assert row["amd"]["sample_count"] == row["upstream"]["sample_count"] == 1
+    assert row["ratio"] == 2
+    job = row["amd"]["samples"][0]["jobs"][0]
+    assert job["raw_name"] == raw_name
+    assert job["queue"] == "amd_mi355_dpx"
+    assert job["hardware"] == "mi355"

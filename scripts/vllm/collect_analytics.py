@@ -46,7 +46,9 @@ from vllm.ci.analytics_cache import (  # noqa: E402
     sanitize_builds,
     write_build_cache,
 )
-from vllm.ci.analyzer import _parse_job_execution_label  # noqa: E402
+from vllm.ci.analyzer import (  # noqa: E402
+    _parse_job_execution_label, _AMD_RUNTIME_POOL_SUFFIX_RE,
+)
 from vllm.ci.incident_transitions import INCIDENT_TRANSITION_POLICY_ID  # noqa: E402
 from vllm.ci.models import PASS_RATE_CONTRACT_VERSION  # noqa: E402
 from vllm.ci.utils import (  # noqa: E402
@@ -378,6 +380,9 @@ def queue_from_result_job_name(name):
         return match.group(1).lower()
 
     _, platform, hardware = _parse_job_execution_label(name)
+    native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(name or "")
+    if platform == "amd" and native_pool:
+        return "amd_" + native_pool.group("pool").lower()
     hardware_slug = hardware.replace(" ", "_")
     if platform == "amd" and hardware:
         return "amd_" + hardware_slug

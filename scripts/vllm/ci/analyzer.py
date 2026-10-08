@@ -72,6 +72,10 @@ _STANDARD_JOB_DECORATOR_RE = re.compile(
     r'(?: +[a-z0-9][a-z0-9._-]*)*)\s*\)\s*',
     re.IGNORECASE,
 )
+_NATIVE_AMD_WRAPPER_RE = re.compile(r'^amd:\s*(?=:amd:\s*\()', re.IGNORECASE)
+_AMD_RUNTIME_POOL_SUFFIX_RE = re.compile(
+    r'\s+\((?P<pool>mi\d+b?_[a-z0-9][a-z0-9_-]*)\)\s*$', re.IGNORECASE,
+)
 
 
 def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
@@ -80,15 +84,22 @@ def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
     Parsed result rows can retain the physical Buildkite queue outside the
     standardized label, for example ``gpu_1: :nvidia: (H200) Foo``. Remove
     that outer queue before looking for the decorator so all runtime consumers
-    interpret the same label shape.
+    interpret the same label shape. Native AMD main-CI jobs additionally wrap
+    the decorator in ``AMD:`` and append a concrete execution pool in parens.
+    Strip those execution annotations while preserving suite/GPU-count tags.
     """
     label = _JOB_PREFIX_RE.sub('', str(name or ''), count=1)
+    label = _NATIVE_AMD_WRAPPER_RE.sub('', label, count=1)
     match = _STANDARD_JOB_DECORATOR_RE.match(label)
     if not match:
         return label, '', ''
+    platform = match.group('platform').lower()
+    logical_label = label[match.end():]
+    if platform == 'amd':
+        logical_label = _AMD_RUNTIME_POOL_SUFFIX_RE.sub('', logical_label)
     return (
-        label[match.end():],
-        match.group('platform').lower(),
+        logical_label,
+        platform,
         ' '.join(match.group('hardware').lower().split()),
     )
 
@@ -223,6 +234,11 @@ def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
         return normalized
     route_match = _JOB_PREFIX_RE.match(str(job_name or ""))
     agent_pool = route_match.group(1).casefold() if route_match else ""
+    if not agent_pool:
+        native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(str(job_name or ""))
+        _, platform, _ = _parse_job_execution_label(job_name)
+        if platform == "amd" and native_pool:
+            agent_pool = native_pool.group("pool").casefold()
     return _AMD_RUNTIME_GROUP_KEYS.get((normalized, agent_pool), normalized)
 
 

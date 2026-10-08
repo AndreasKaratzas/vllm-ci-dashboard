@@ -69,25 +69,31 @@ def _oversized_matrix_payload() -> dict:
     for index, status in enumerate(("passing", "failed", "waiting", "unknown")):
         row_id = f"row-{index}"
         health_id = f"health-{index}"
-        rows.append({
-            "id": row_id,
-            "title": f"Group {index}",
-            "yaml_order": index,
-            "cells": {"mi355": {"exists": True, "latest_state": status}},
-            "commands": ["pytest " + ("x" * 2_500)],
-        })
-        health_groups.append({
-            "id": health_id,
-            "title": f"Group {index}",
-            "status": status,
-            "member_row_ids": [row_id],
-            "members": [{"row_id": row_id, "detail": "x" * 1_000}],
-        })
-        classifications.append({
-            "row_id": row_id,
-            "health_group_id": health_id,
-            "classification": "separate_gate",
-        })
+        rows.append(
+            {
+                "id": row_id,
+                "title": f"Group {index}",
+                "yaml_order": index,
+                "cells": {"mi355": {"exists": True, "latest_state": status}},
+                "commands": ["pytest " + ("x" * 2_500)],
+            }
+        )
+        health_groups.append(
+            {
+                "id": health_id,
+                "title": f"Group {index}",
+                "status": status,
+                "member_row_ids": [row_id],
+                "members": [{"row_id": row_id, "detail": "x" * 1_000}],
+            }
+        )
+        classifications.append(
+            {
+                "row_id": row_id,
+                "health_group_id": health_id,
+                "classification": "separate_gate",
+            }
+        )
     best_hardware = {
         "included_groups": 4,
         "health_group_count": 4,
@@ -122,39 +128,103 @@ def test_default_yaml_url_is_pinned_to_the_observed_build_commit():
     commit = "7f599d78546819948c32f2b23d913507bbb38875"
 
     assert yaml_url_for_build({"commit": commit}) == (
-        "https://raw.githubusercontent.com/vllm-project/vllm/"
-        f"{commit}/.buildkite/ci_config.yaml"
+        f"https://raw.githubusercontent.com/vllm-project/vllm/{commit}/.buildkite/ci_config.yaml"
     )
-    assert yaml_url_for_build(
-        {"commit": commit}, "https://example.invalid/override.yml"
-    ) == "https://example.invalid/override.yml"
+    assert (
+        yaml_url_for_build({"commit": commit}, "https://example.invalid/override.yml")
+        == "https://example.invalid/override.yml"
+    )
 
 
 def test_current_matrix_ignores_legacy_side_pipeline_and_cuda_jobs():
-    analytics = {"ci": {"builds": [{"number": 300, "jobs": [
-        {"name": "AMD current", "q": "amd_mi355_dpx", "state": "passed"},
-        {"name": "CUDA current", "q": "gpu_1", "state": "passed"},
-        {"name": "CPU current", "q": "cpu", "state": "passed"},
-    ]}]}, "amd-ci": {"builds": [{"number": 999, "jobs": [
-        {"name": "Legacy only", "q": "amd_mi300_1", "state": "passed"}]}]}}
+    analytics = {
+        "ci": {
+            "builds": [
+                {
+                    "number": 300,
+                    "jobs": [
+                        {"name": "AMD current", "q": "amd_mi355_dpx", "state": "passed"},
+                        {"name": "CUDA current", "q": "gpu_1", "state": "passed"},
+                        {"name": "CPU current", "q": "cpu", "state": "passed"},
+                    ],
+                }
+            ]
+        },
+        "amd-ci": {
+            "builds": [
+                {
+                    "number": 999,
+                    "jobs": [{"name": "Legacy only", "q": "amd_mi300_1", "state": "passed"}],
+                }
+            ]
+        },
+    }
     index, latest = build_latest_job_index(analytics, [])
     assert latest["number"] == 300
     assert set(index) == {"mi355"}
     assert set(index["mi355"]) == {"amd current"}
 
 
+def test_native_main_ci_matrix_infers_exact_pool_without_queue_metadata():
+    from vllm.collect_amd_test_matrix import (
+        _agent_pool_from_job_name,
+        build_buildkite_job_index,
+    )
+
+    name = "AMD: :amd: (MI355 DPX) FP8 MoE Kernels (mi355_dpx)"
+    assert _agent_pool_from_job_name(name) == "mi355_dpx"
+    index = build_buildkite_job_index(
+        {
+            "number": 93523,
+            "jobs": [
+                {"type": "script", "id": "native-job", "name": name, "state": "passed"},
+            ],
+        },
+        [],
+    )
+    assert list(index) == ["mi355"]
+    assert list(index["mi355"]) == ["fp8 moe kernels"]
+    assert index["mi355"]["fp8 moe kernels"][0]["q"] == "amd_mi355_dpx"
+    assert _agent_pool_from_job_name("CPU: Suite (mi355_dpx)") == "cpu"
+
+
 def test_current_matrix_expands_main_mirrors_and_native_routes_with_exact_source_links():
     from vllm.collect_amd_test_matrix import parse_main_ci_steps
     from vllm.main_ci_definitions import MainCISnapshot
+
     sha = "c" * 40
     path = ".buildkite/test_areas/example.yaml"
-    snapshot = MainCISnapshot(sha, {".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
-        path: {"group": "Example", "steps": [
-            {"key": "cuda", "label": ":nvidia: (H100) Mirrored workload", "device": "h100",
-             "commands": ["pytest tests/main.py"], "mirror": {"amd": {
-                 "label": ":amd: (MI355 DPX) Mirrored workload", "device": "mi355_dpx", "soft_fail": True}}},
-            {"key": "amd", "label": ":amd: (MI300) Native workload", "device": "mi300", "commands": ["pytest tests/native.py"]},
-        ]}}, "2026-10-08T20:00:00Z")
+    snapshot = MainCISnapshot(
+        sha,
+        {
+            ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+            path: {
+                "group": "Example",
+                "steps": [
+                    {
+                        "key": "cuda",
+                        "label": ":nvidia: (H100) Mirrored workload",
+                        "device": "h100",
+                        "commands": ["pytest tests/main.py"],
+                        "mirror": {
+                            "amd": {
+                                "label": ":amd: (MI355 DPX) Mirrored workload",
+                                "device": "mi355_dpx",
+                                "soft_fail": True,
+                            }
+                        },
+                    },
+                    {
+                        "key": "amd",
+                        "label": ":amd: (MI300) Native workload",
+                        "device": "mi300",
+                        "commands": ["pytest tests/native.py"],
+                    },
+                ],
+            },
+        },
+        "2026-10-08T20:00:00Z",
+    )
     steps, arches = parse_main_ci_steps(snapshot)
     assert arches == ["mi300", "mi355"]
     assert len(steps) == 2
@@ -165,7 +235,11 @@ def test_current_matrix_expands_main_mirrors_and_native_routes_with_exact_source
     assert steps[0]["source_url"] == f"https://github.com/vllm-project/vllm/blob/{sha}/{path}"
     assert steps[1]["source_kind"] == "native_amd"
     matrix = build_matrix(steps, arches, {}, None, {}, {}, [], yaml_url_for_build({"commit": sha}))
-    assert all(member["source_url"] == steps[0]["source_url"] for group in matrix["health_groups"] for member in group["members"])
+    assert all(
+        member["source_url"] == steps[0]["source_url"]
+        for group in matrix["health_groups"]
+        for member in group["members"]
+    )
 
 
 def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
@@ -194,14 +268,16 @@ def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
     )
     analytics = {
         "ci": {
-            "builds": [{
-                "number": 10972,
-                "jobs": [
-                    {"name": "Passed Group", "state": "passed", "q": "amd_mi300_1"},
-                    {"name": "Running Group", "state": "passed", "q": "amd_mi300_1"},
-                    {"name": "Finished Later", "state": "passed", "q": "amd_mi300_1"},
-                ],
-            }]
+            "builds": [
+                {
+                    "number": 10972,
+                    "jobs": [
+                        {"name": "Passed Group", "state": "passed", "q": "amd_mi300_1"},
+                        {"name": "Running Group", "state": "passed", "q": "amd_mi300_1"},
+                        {"name": "Finished Later", "state": "passed", "q": "amd_mi300_1"},
+                    ],
+                }
+            ]
         }
     }
     analytics_index, _ = build_latest_job_index(analytics, [])
@@ -215,9 +291,7 @@ def test_frozen_snapshot_is_authoritative_over_later_analytics_roster(tmp_path):
 
 
 def test_frozen_snapshot_rejects_wrong_build(tmp_path):
-    snapshot_path = write_amd_nightly_snapshot(
-        {"number": 10971, "jobs": []}, tmp_path
-    )
+    snapshot_path = write_amd_nightly_snapshot({"number": 10971, "jobs": []}, tmp_path)
 
     with pytest.raises(ValueError, match=r"expected #10972, found #10971"):
         load_frozen_build_snapshot(snapshot_path, 10972)
@@ -271,9 +345,7 @@ def test_canonical_title_strips_device_prefix_and_hardware_suffix():
     assert canonical_title(":amd: (MI355 DPX) Attention Kernels Shard %N") == (
         "Attention Kernels Shard"
     )
-    assert canonical_title(":computer: (CPU) Basic Models Other") == (
-        "Basic Models Other"
-    )
+    assert canonical_title(":computer: (CPU) Basic Models Other") == ("Basic Models Other")
     assert canonical_title("Kernels (B200-MI355)") == "Kernels"
     assert canonical_title("LM Eval Small Models (2xB200-2xMI355)") == (
         "LM Eval Small Models (2xB200-2xMI)"
@@ -303,21 +375,29 @@ def test_strip_shard_index_unifies_template_and_numeric_runtime_labels():
 def test_strip_shard_index_unifies_nested_runtime_prefix_and_decorated_template():
     shard_bases = ["attention kernels shard"]
 
-    assert strip_shard_index(
-        ":amd: (MI300) Attention Kernels Shard %N", shard_bases
-    ) == "attention kernels shard"
-    assert strip_shard_index(
-        "mi300_1: :amd: (MI300) Attention Kernels Shard 2", shard_bases
-    ) == "attention kernels shard"
+    assert (
+        strip_shard_index(":amd: (MI300) Attention Kernels Shard %N", shard_bases)
+        == "attention kernels shard"
+    )
+    assert (
+        strip_shard_index("mi300_1: :amd: (MI300) Attention Kernels Shard 2", shard_bases)
+        == "attention kernels shard"
+    )
 
 
-@pytest.mark.parametrize(("architecture", "agent_pool", "decorator", "suffix"), [
-    ("mi300", "mi300_1", "MI300", ""),
-    ("mi355", "mi355_dpx", "MI355 DPX", ""),
-    ("mi355", "mi355_dpx", "MI355 DPX", " (MI355 suite)"),
-])
+@pytest.mark.parametrize(
+    ("architecture", "agent_pool", "decorator", "suffix"),
+    [
+        ("mi300", "mi300_1", "MI300", ""),
+        ("mi355", "mi355_dpx", "MI355 DPX", ""),
+        ("mi355", "mi355_dpx", "MI355 DPX", " (MI355 suite)"),
+    ],
+)
 def test_matrix_matches_nested_runtime_prefix_for_decorated_shards(
-    architecture, agent_pool, decorator, suffix,
+    architecture,
+    agent_pool,
+    decorator,
+    suffix,
 ):
     steps, architectures = parse_steps(f"""
 steps:
@@ -333,8 +413,7 @@ steps:
                 "id": f"{architecture}-attention-{shard}",
                 "type": "script",
                 "name": (
-                    f"{agent_pool}: :amd: ({decorator}) "
-                    f"Attention Kernels Shard {shard}{suffix}"
+                    f"{agent_pool}: :amd: ({decorator}) Attention Kernels Shard {shard}{suffix}"
                 ),
                 "state": "passed",
                 "agent_query_rules": [f"queue=amd_{agent_pool}"],
@@ -620,8 +699,7 @@ steps:
     assert cell["latest_state"] == "passed"
     assert cell["variants"][0]["latest_match_count"] == 1
     assert cell["latest_url"] == (
-        "https://buildkite.com/vllm/ci/builds/10972/steps/canvas"
-        "?jid=current-job&tab=output"
+        "https://buildkite.com/vllm/ci/builds/10972/steps/canvas?jid=current-job&tab=output"
     )
 
 
@@ -644,10 +722,7 @@ steps:
             ]
         }
     }
-    hotness_url = (
-        "https://buildkite.com/vllm/ci/builds/10972"
-        "#019f6f4e-00eb-43b1-8087-433d6a711d28"
-    )
+    hotness_url = "https://buildkite.com/vllm/ci/builds/10972#019f6f4e-00eb-43b1-8087-433d6a711d28"
     exact_url = (
         "https://buildkite.com/vllm/ci/builds/10972/steps/canvas"
         "?jid=019f6f4e-00eb-43b1-8087-433d6a711d28&tab=output"
@@ -721,10 +796,22 @@ def test_build_matrix_collapses_titles_and_matches_latest_nightly():
                     "jobs": [
                         {"name": "Kernels", "state": "passed", "q": "amd_mi250_1"},
                         {"name": "Kernels (B200-MI355)", "state": "failed", "q": "amd_mi355_1"},
-                        {"name": "Distributed Tests (2 GPUs)", "state": "passed", "q": "amd_mi250_2"},
-                        {"name": "Distributed Tests (2 GPUs)", "state": "passed", "q": "amd_mi355_2"},
+                        {
+                            "name": "Distributed Tests (2 GPUs)",
+                            "state": "passed",
+                            "q": "amd_mi250_2",
+                        },
+                        {
+                            "name": "Distributed Tests (2 GPUs)",
+                            "state": "passed",
+                            "q": "amd_mi355_2",
+                        },
                         {"name": "LM Eval Small Models", "state": "soft_fail", "q": "amd_mi300_1"},
-                        {"name": "LM Eval Small Models (MI300)", "state": "failed", "q": "amd_mi300_1"},
+                        {
+                            "name": "LM Eval Small Models (MI300)",
+                            "state": "failed",
+                            "q": "amd_mi300_1",
+                        },
                         {"name": "Kernels MoE Test 1", "state": "passed", "q": "amd_mi355_1"},
                         {"name": "Kernels MoE Test 2", "state": "passed", "q": "amd_mi355_1"},
                     ],
@@ -829,9 +916,7 @@ def test_build_matrix_collapses_titles_and_matches_latest_nightly():
         "Distributed Tests (2xH100-2xMI250)",
         "Distributed Tests (2xH100-2xMI300)",
     }
-    assert {
-        entry["latest_url"] for entry in mi300_entries
-    } == {
+    assert {entry["latest_url"] for entry in mi300_entries} == {
         "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi300-mi250&tab=output",
         "https://buildkite.com/vllm/ci/builds/7824/steps/canvas?sid=dist-mi300-mi300&tab=output",
     }
@@ -854,7 +939,9 @@ def test_build_matrix_collapses_titles_and_matches_latest_nightly():
     assert lm_eval_mi300["cells"]["mi300"]["raw_variant_count"] == 1
     assert lm_eval_mi300["cells"]["mi300"]["primary_label"] == "LM Eval Small Models (MI300)"
     assert lm_eval_mi300["cells"]["mi300"]["latest_state"] == "failed"
-    assert lm_eval_mi300["cells"]["mi300"]["latest_url"].endswith("sid=lm-eval-mi300-rocm&tab=output")
+    assert lm_eval_mi300["cells"]["mi300"]["latest_url"].endswith(
+        "sid=lm-eval-mi300-rocm&tab=output"
+    )
 
     moe = rows["Kernels MoE Test"]
     assert moe["coverage_count"] == 1
@@ -1019,21 +1106,37 @@ steps:
 """)
     analytics = {
         "ci": {
-            "builds": [{
-                "number": 11994,
-                "jobs": [
-                    {"name": ":amd: (MI300) Attention Kernels Shard", "state": "passed", "q": "amd_mi300_1"},
-                    {"name": ":amd: (MI355) Attention Kernels Shard", "state": "failed", "q": "amd_mi355_1"},
-                    {"name": "Generic Test", "state": "failed", "q": "amd_mi300_1"},
-                    {"name": "Generic Test", "state": "passed", "q": "amd_mi355_1"},
-                ],
-            }]
+            "builds": [
+                {
+                    "number": 11994,
+                    "jobs": [
+                        {
+                            "name": ":amd: (MI300) Attention Kernels Shard",
+                            "state": "passed",
+                            "q": "amd_mi300_1",
+                        },
+                        {
+                            "name": ":amd: (MI355) Attention Kernels Shard",
+                            "state": "failed",
+                            "q": "amd_mi355_1",
+                        },
+                        {"name": "Generic Test", "state": "failed", "q": "amd_mi300_1"},
+                        {"name": "Generic Test", "state": "passed", "q": "amd_mi355_1"},
+                    ],
+                }
+            ]
         }
     }
     index, latest = build_latest_job_index(analytics, [])
     matrix = build_matrix(
-        steps, architectures, index, latest, {}, {},
-        [], "https://example.invalid/test-amd.yaml",
+        steps,
+        architectures,
+        index,
+        latest,
+        {},
+        {},
+        [],
+        "https://example.invalid/test-amd.yaml",
     )
 
     groups = matrix["health_groups"]
@@ -1047,7 +1150,8 @@ steps:
     assert sensitive["status"] == "failed"
     assert sensitive["architectures"] == ["mi355"]
     generic_attention = next(
-        group for group in groups
+        group
+        for group in groups
         if group["title"] == "Attention Kernels Shard"
         and group["gate_kind"] == "generic_best_hardware"
     )
@@ -1088,7 +1192,13 @@ steps:
     commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@new, pytest models/language/generation]
 """)
     matrix = build_matrix(
-        steps, architectures, {}, None, {}, {}, [],
+        steps,
+        architectures,
+        {},
+        None,
+        {},
+        {},
+        [],
         "https://example.invalid/test-amd.yaml",
     )
 
@@ -1100,7 +1210,9 @@ steps:
     classification = matrix["best_hardware_policy"]["mi355_classification"]
     assert len(classification) == 2
     assert {item["classification"] for item in classification} == {"generic_replica"}
-    assert all(member["commands"] for group in matrix["health_groups"] for member in group["members"])
+    assert all(
+        member["commands"] for group in matrix["health_groups"] for member in group["members"]
+    )
     assert all(
         member["source_url"] == "https://example.invalid/test-amd.yaml"
         for group in matrix["health_groups"]
@@ -1110,19 +1222,34 @@ steps:
 
 def _execution_matrix(definitions):
     steps, architectures = parse_steps(json.dumps({"steps": definitions}))
-    return build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
+    return build_matrix(
+        steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml"
+    )
 
 
-@pytest.mark.parametrize("title", [
-    "Entrypoints Integration (API Server OpenAI - Part 1)",
-    "Entrypoints Integration (OpenAI API completion)",
-    "An entirely new workload label",
-])
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Entrypoints Integration (API Server OpenAI - Part 1)",
+        "Entrypoints Integration (OpenAI API completion)",
+        "An entirely new workload label",
+    ],
+)
 def test_execution_aliases_follow_commands_after_renames(title):
-    matrix = _execution_matrix([
-        {"label": f":amd: (MI300) {title}", "agent_pool": "mi300_1", "commands": ["pytest -v -s entrypoints/openai/"]},
-        {"label": ":amd: (MI355) Independently renamed replica", "agent_pool": "mi355_1", "commands": ["pytest -v -s entrypoints/openai"]},
-    ])
+    matrix = _execution_matrix(
+        [
+            {
+                "label": f":amd: (MI300) {title}",
+                "agent_pool": "mi300_1",
+                "commands": ["pytest -v -s entrypoints/openai/"],
+            },
+            {
+                "label": ":amd: (MI355) Independently renamed replica",
+                "agent_pool": "mi355_1",
+                "commands": ["pytest -v -s entrypoints/openai"],
+            },
+        ]
+    )
     assert len(matrix["health_groups"]) == 1
     assert matrix["health_groups"][0]["architectures"] == ["mi300", "mi355"]
     rules = matrix["best_hardware_policy"]["generic_alias_rules"]
@@ -1132,69 +1259,114 @@ def test_execution_aliases_follow_commands_after_renames(title):
     assert rules[0]["execution_fingerprint"].startswith("execution-")
 
 
-@pytest.mark.parametrize("changed", [
-    {"commands": ["pytest -v -s other_tests/"]},
-    {"commands": ["pytest -v -s tests/api/ -m smoke"]},
-    {"commands": ["MODE=experimental pytest -v -s tests/api/"]},
-    {"commands": ["uv pip install some-new-dependency", "pytest -v -s tests/api/"]},
-    {"working_dir": "/different/workspace"},
-    {"agent_pool": "mi355_4"},
-    {"parallelism": 4},
-])
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"commands": ["pytest -v -s other_tests/"]},
+        {"commands": ["pytest -v -s tests/api/ -m smoke"]},
+        {"commands": ["MODE=experimental pytest -v -s tests/api/"]},
+        {"commands": ["uv pip install some-new-dependency", "pytest -v -s tests/api/"]},
+        {"working_dir": "/different/workspace"},
+        {"agent_pool": "mi355_4"},
+        {"parallelism": 4},
+    ],
+)
 def test_execution_aliases_do_not_merge_distinct_workloads_with_same_title(changed):
-    baseline = {"label": ":amd: (MI300) Renamed API", "agent_pool": "mi300_1", "commands": ["pytest -v -s tests/api/"]}
-    replica = {**baseline, "label": ":amd: (MI355) Renamed API", "agent_pool": "mi355_1", "commands": ["pytest -v -s tests/api"], **changed}
+    baseline = {
+        "label": ":amd: (MI300) Renamed API",
+        "agent_pool": "mi300_1",
+        "commands": ["pytest -v -s tests/api/"],
+    }
+    replica = {
+        **baseline,
+        "label": ":amd: (MI355) Renamed API",
+        "agent_pool": "mi355_1",
+        "commands": ["pytest -v -s tests/api"],
+        **changed,
+    }
     matrix = _execution_matrix([baseline, replica])
     assert len(matrix["health_groups"]) == 2
     assert matrix["best_hardware_policy"]["generic_alias_rules"] == []
 
 
-@pytest.mark.parametrize("left,right", [
-    ("pytest tests/api/ -k '$MODE'", 'pytest tests/api -k "$MODE"'),
-    ("pytest tests/api/\nother_command", "pytest tests/api other_command"),
-    ("pytest tests/api/ && echo done", "pytest tests/api && echo done"),
-    ('MODE="a  b" pytest tests/api/', 'MODE="a b" pytest tests/api'),
-    (r"pytest tests/api\ path/", r"pytest tests/api\  path"),
-    ("pytest tests/test_api.py/", "pytest tests/test_api.py"),
-    ("uv pip install git+https://github.com/other/project@old", "uv pip install git+https://github.com/other/project@new"),
-])
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        ("pytest tests/api/ -k '$MODE'", 'pytest tests/api -k "$MODE"'),
+        ("pytest tests/api/\nother_command", "pytest tests/api other_command"),
+        ("pytest tests/api/ && echo done", "pytest tests/api && echo done"),
+        ('MODE="a  b" pytest tests/api/', 'MODE="a b" pytest tests/api'),
+        (r"pytest tests/api\ path/", r"pytest tests/api\  path"),
+        ("pytest tests/test_api.py/", "pytest tests/test_api.py"),
+        (
+            "uv pip install git+https://github.com/other/project@old",
+            "uv pip install git+https://github.com/other/project@new",
+        ),
+    ],
+)
 def test_execution_aliases_preserve_shell_and_unreviewed_dependency_differences(left, right):
-    matrix = _execution_matrix([
-        {"label": ":amd: (MI300) First", "agent_pool": "mi300_1", "commands": [left]},
-        {"label": ":amd: (MI355) Second", "agent_pool": "mi355_1", "commands": [right]},
-    ])
+    matrix = _execution_matrix(
+        [
+            {"label": ":amd: (MI300) First", "agent_pool": "mi300_1", "commands": [left]},
+            {"label": ":amd: (MI355) Second", "agent_pool": "mi355_1", "commands": [right]},
+        ]
+    )
     assert len(matrix["health_groups"]) == 2
     assert matrix["best_hardware_policy"]["generic_alias_rules"] == []
 
 
 def test_removed_policy_titles_are_not_published_as_required_rules():
-    matrix = _execution_matrix([
-        {"label": ":amd: (MI300) New Test", "agent_pool": "mi300_1", "commands": ["pytest tests/new.py"]},
-    ])
+    matrix = _execution_matrix(
+        [
+            {
+                "label": ":amd: (MI300) New Test",
+                "agent_pool": "mi300_1",
+                "commands": ["pytest tests/new.py"],
+            },
+        ]
+    )
     assert matrix["best_hardware_policy"]["generic_alias_rules"] == []
     assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == []
 
 
 def test_sensitive_gate_survives_label_rename_with_reviewed_execution():
-    matrix = _execution_matrix([
-        {"label": f":amd: ({architecture}) Renamed Quantization Suite", "agent_pool": f"{architecture.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
-        for architecture in ["MI300", "MI355"]
-    ])
+    matrix = _execution_matrix(
+        [
+            {
+                "label": f":amd: ({architecture}) Renamed Quantization Suite",
+                "agent_pool": f"{architecture.lower()}_1",
+                "working_dir": "/vllm-workspace/tests",
+                "commands": ["pytest -v -s kernels/quantization"],
+            }
+            for architecture in ["MI300", "MI355"]
+        ]
+    )
     assert len(matrix["health_groups"]) == 2
-    sensitive = next(group for group in matrix["health_groups"] if group["gate_kind"] == "mi355_sensitive")
+    sensitive = next(
+        group for group in matrix["health_groups"] if group["gate_kind"] == "mi355_sensitive"
+    )
     assert sensitive["architectures"] == ["mi355"]
-    assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == [{
-        "title": "Renamed Quantization Suite",
-        "reason": "architecture-sensitive quantization-kernel coverage",
-    }]
+    assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == [
+        {
+            "title": "Renamed Quantization Suite",
+            "reason": "architecture-sensitive quantization-kernel coverage",
+        }
+    ]
 
 
 def test_sensitive_execution_proof_does_not_ignore_model_or_topology_changes():
     from vllm.collect_amd_test_matrix import _mi355_sensitive_reason
 
-    matrix = _execution_matrix([
-        {"label": ":amd: (MI355) Newly Named Quantization", "agent_pool": "mi355_4", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization --model different"]},
-    ])
+    matrix = _execution_matrix(
+        [
+            {
+                "label": ":amd: (MI355) Newly Named Quantization",
+                "agent_pool": "mi355_4",
+                "working_dir": "/vllm-workspace/tests",
+                "commands": ["pytest -v -s kernels/quantization --model different"],
+            },
+        ]
+    )
     assert _mi355_sensitive_reason(matrix["rows"][0]) is None
 
 
@@ -1222,15 +1394,17 @@ def test_execution_route_hash_retains_same_label_topology_variants():
     expected = set()
     for index, raw in enumerate(definitions):
         config = _parse_step(raw, ".buildkite/test-amd.yaml", "AMD", index)
-        signature = execution_sha256({
-            "commands": config.commands,
-            "working_dir": config.working_dir,
-            "agent_pool": config.agent_pool,
-            "num_gpus": config.num_gpus,
-            "parallelism": config.parallelism,
-            "source_file": config.source_file,
-            "definition_fingerprint": config.definition_fingerprint,
-        })
+        signature = execution_sha256(
+            {
+                "commands": config.commands,
+                "working_dir": config.working_dir,
+                "agent_pool": config.agent_pool,
+                "num_gpus": config.num_gpus,
+                "parallelism": config.parallelism,
+                "source_file": config.source_file,
+                "definition_fingerprint": config.definition_fingerprint,
+            }
+        )
         assert parsed[index]["execution_sha256"] == signature
         expected.add(signature)
     assert len(expected) == 2
@@ -1240,18 +1414,27 @@ def test_execution_route_hash_retains_same_label_topology_variants():
     assert "execution_sha256" not in variant
     assert {entry["execution_sha256"] for entry in variant["entries"]} == expected
     assert {entry["agent_pool"] for entry in variant["entries"]} == {"mi300_2", "mi300_4"}
-    assert {entry["execution_sha256"] for entry in matrix["health_groups"][0]["members"][0]["variants"]} == expected
+    assert {
+        entry["execution_sha256"] for entry in matrix["health_groups"][0]["members"][0]["variants"]
+    } == expected
 
 
 def test_execution_route_hash_is_stable_across_label_changes_and_unique_aliases():
     definitions = [
-        {"label": label, "agent_pool": "mi300_1", "commands": ["pytest tests/api"], "parallelism": 2}
+        {
+            "label": label,
+            "agent_pool": "mi300_1",
+            "commands": ["pytest tests/api"],
+            "parallelism": 2,
+        }
         for label in ["API", ":amd: (MI300) API"]
     ]
     matrix = _execution_matrix(definitions)
     variant = matrix["rows"][0]["cells"]["mi300"]["variants"][0]
     assert len(variant["entries"]) == 2
-    assert {entry["execution_sha256"] for entry in variant["entries"]} == {variant["execution_sha256"]}
+    assert {entry["execution_sha256"] for entry in variant["entries"]} == {
+        variant["execution_sha256"]
+    }
 
 
 def test_best_hardware_policy_declares_exactly_fifteen_mi355_sensitive_rules():
@@ -1300,29 +1483,39 @@ def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
     lines = ["steps:"]
     for index, title in enumerate(sensitive_titles):
         for architecture in ("MI300", "MI355"):
-            lines.extend((
-                f"  - label: {json.dumps(f':amd: ({architecture}) {title}')}",
-                f"    agent_pool: {architecture.lower()}_1",
-                f"    commands: [pytest tests/current_sensitive_gate_{index}_{architecture.lower()}.py]",
-            ))
-    lines.extend((
-        '  - label: ":amd: (MI300) Entrypoints Integration (API Server OpenAI - Part 1)"',
-        "    agent_pool: mi300_1",
-        "    commands: [pytest entrypoints/openai/]",
-        '  - label: ":amd: (MI355) Entrypoints Integration (API Server OpenAI - Part 1)"',
-        "    agent_pool: mi355_1",
-        "    commands: [pytest entrypoints/openai]",
-        '  - label: ":amd: (MI300) Language Models (Extended Generation)"',
-        "    agent_pool: mi300_1",
-        "    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@old, pytest models/language/generation]",
-        '  - label: ":amd: (MI355) Language Models (Extended Generation)"',
-        "    agent_pool: mi355_1",
-        "    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@new, pytest models/language/generation]",
-    ))
+            lines.extend(
+                (
+                    f"  - label: {json.dumps(f':amd: ({architecture}) {title}')}",
+                    f"    agent_pool: {architecture.lower()}_1",
+                    f"    commands: [pytest tests/current_sensitive_gate_{index}_{architecture.lower()}.py]",
+                )
+            )
+    lines.extend(
+        (
+            '  - label: ":amd: (MI300) Entrypoints Integration (API Server OpenAI - Part 1)"',
+            "    agent_pool: mi300_1",
+            "    commands: [pytest entrypoints/openai/]",
+            '  - label: ":amd: (MI355) Entrypoints Integration (API Server OpenAI - Part 1)"',
+            "    agent_pool: mi355_1",
+            "    commands: [pytest entrypoints/openai]",
+            '  - label: ":amd: (MI300) Language Models (Extended Generation)"',
+            "    agent_pool: mi300_1",
+            "    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@old, pytest models/language/generation]",
+            '  - label: ":amd: (MI355) Language Models (Extended Generation)"',
+            "    agent_pool: mi355_1",
+            "    commands: [uv pip install git+https://github.com/AndreasKaratzas/mamba@new, pytest models/language/generation]",
+        )
+    )
 
     steps, architectures = parse_steps("\n".join(lines))
     matrix = build_matrix(
-        steps, architectures, {}, None, {}, {}, [],
+        steps,
+        architectures,
+        {},
+        None,
+        {},
+        {},
+        [],
         "https://example.invalid/current-test-amd.yaml",
     )
     classification = matrix["best_hardware_policy"]["mi355_classification"]
@@ -1333,19 +1526,13 @@ def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
         if item["classification"] == "separate_gate"
     }
     assert separate == set(sensitive_titles)
-    assert all(
-        item["label"].startswith(":amd: (MI355) ")
-        for item in classification
-    )
+    assert all(item["label"].startswith(":amd: (MI355) ") for item in classification)
 
     aliases = {
         "Entrypoints Integration (API Server OpenAI - Part 1)",
         "Language Models (Extended Generation)",
     }
-    alias_groups = [
-        group for group in matrix["health_groups"]
-        if group["title"] in aliases
-    ]
+    alias_groups = [group for group in matrix["health_groups"] if group["title"] in aliases]
     assert {group["title"] for group in alias_groups} == aliases
     assert all(group["architectures"] == ["mi300", "mi355"] for group in alias_groups)
     assert all(group["gate_kind"] == "generic_best_hardware" for group in alias_groups)
@@ -1363,22 +1550,16 @@ def test_bounded_matrix_retains_incident_cohorts_and_exact_source_counts():
     assert retention["complete_relative_to_source"] is False
     assert retention["aggregate_source_counts_complete"] is True
     assert retention["policy"] == "incident_first_connected_logical_cohorts_v2"
-    assert retention["detail_contract"] == (
-        "source_aggregates_with_connected_published_detail_v1"
-    )
+    assert retention["detail_contract"] == ("source_aggregates_with_connected_published_detail_v1")
     assert retention["matrix_rows"]["source"] == 4
     assert retention["matrix_rows"]["published"] == len(bounded["rows"])
     assert retention["matrix_rows"]["omitted"] == 4 - len(bounded["rows"])
     assert "failed" in statuses
     assert "passing" not in statuses
     assert bounded["summary"]["source_health_group_count"] == 4
-    assert bounded["summary"]["health_group_count"] == len(
-        bounded["health_groups"]
-    )
+    assert bounded["summary"]["health_group_count"] == len(bounded["health_groups"])
     assert (
-        bounded["summary"]["health_policies"]["best_hardware"][
-            "health_group_details_complete"
-        ]
+        bounded["summary"]["health_policies"]["best_hardware"]["health_group_details_complete"]
         is False
     )
 
@@ -1391,10 +1572,7 @@ def test_bounded_matrix_derives_summary_ids_from_exact_published_order():
     # summary must preserve that exact sequence instead of independently
     # sorting an unordered set of IDs.
     assert published_ids != sorted(published_ids)
-    assert (
-        bounded["summary"]["health_policies"]["best_hardware"]["group_ids"]
-        == published_ids
-    )
+    assert bounded["summary"]["health_policies"]["best_hardware"]["group_ids"] == published_ids
 
 
 def test_bounded_matrix_is_permutation_invariant():

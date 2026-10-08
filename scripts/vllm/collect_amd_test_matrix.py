@@ -45,6 +45,7 @@ from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.main_ci_definitions import amd_source_steps, load_snapshot  # noqa: E402
 from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
 from vllm.ci.analyzer import (  # noqa: E402
+    _AMD_RUNTIME_POOL_SUFFIX_RE,
     _parse_job_execution_label,
     _strip_known_shard_index,
 )
@@ -59,21 +60,15 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
 RAW_YAML_URL = (
-    "https://raw.githubusercontent.com/vllm-project/vllm/"
-    "refs/heads/main/.buildkite/ci_config.yaml"
+    "https://raw.githubusercontent.com/vllm-project/vllm/refs/heads/main/.buildkite/ci_config.yaml"
 )
 RAW_YAML_URL_TEMPLATE = (
-    "https://raw.githubusercontent.com/vllm-project/vllm/"
-    "{commit}/.buildkite/ci_config.yaml"
+    "https://raw.githubusercontent.com/vllm-project/vllm/{commit}/.buildkite/ci_config.yaml"
 )
 DEFAULT_BUILD_SNAPSHOT = Path(".cache") / "amd_nightly_snapshot.json"
 AMD_TEST_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
-AMD_TEST_MATRIX_RETENTION_POLICY = (
-    "incident_first_connected_logical_cohorts_v2"
-)
-AMD_TEST_MATRIX_DETAIL_CONTRACT = (
-    "source_aggregates_with_connected_published_detail_v1"
-)
+AMD_TEST_MATRIX_RETENTION_POLICY = "incident_first_connected_logical_cohorts_v2"
+AMD_TEST_MATRIX_DETAIL_CONTRACT = "source_aggregates_with_connected_published_detail_v1"
 
 AREA_PATTERNS = [
     ("Kernels", re.compile(r"^kernels?|attention test|quantization test", re.I)),
@@ -100,9 +95,7 @@ TRAILING_PARENS_RE = re.compile(r"\s*\(([^)]*)\)\s*$")
 SIMPLE_HARDWARE_PAYLOAD_RE = re.compile(r"[a-z0-9-]+", re.I)
 AMD_VARIANT_TOKEN_RE = re.compile(r"mi(?:250|300|325|355)\b", re.I)
 CORE_AMD_ARCHITECTURES = frozenset({"mi250", "mi300", "mi325"})
-INCIDENT_STATES = frozenset({
-    "failed", "timed_out", "broken", "soft_fail", "soft_failed"
-})
+INCIDENT_STATES = frozenset({"failed", "timed_out", "broken", "soft_fail", "soft_failed"})
 WAITING_STATES = frozenset({"running", "scheduled", "assigned"})
 
 # These are deliberately policy, not a fuzzy inference.  Each rule identifies
@@ -207,10 +200,10 @@ def canonical_title(label: str) -> str:
         is_hardware = re.search(r"(mi\d+|h\d{3}|b\d{3}|gfx\d+|hw-tag)", payload, re.I)
         has_counts = re.search(r"\b\d+x", payload, re.I)
         if is_hardware and not has_counts and SIMPLE_HARDWARE_PAYLOAD_RE.fullmatch(payload):
-            text = text[:match.start()].strip()
+            text = text[: match.start()].strip()
         elif is_hardware and has_counts:
             normalized_payload = AMD_VARIANT_TOKEN_RE.sub("MI", payload)
-            text = f"{text[:match.start()].strip()} ({normalized_payload})"
+            text = f"{text[: match.start()].strip()} ({normalized_payload})"
     return MULTISPACE_RE.sub(" ", text).strip()
 
 
@@ -280,7 +273,7 @@ def longest_shared_title_substring(left: str, right: str) -> str:
                 best_length = current[j]
                 best_end = i
         previous = current
-    return a[best_end - best_length:best_end]
+    return a[best_end - best_length : best_end]
 
 
 def annotate_duplicate_groups(
@@ -313,7 +306,7 @@ def annotate_duplicate_groups(
     pair_matches: list[dict[str, Any]] = []
     for indexes in by_commands.values():
         for offset, left_index in enumerate(indexes):
-            for right_index in indexes[offset + 1:]:
+            for right_index in indexes[offset + 1 :]:
                 shared = longest_shared_title_substring(
                     rows[left_index]["title"], rows[right_index]["title"]
                 )
@@ -362,11 +355,7 @@ def annotate_duplicate_groups(
                 "member_ids": member_ids,
                 "member_titles": [row["title"] for row in members],
                 "architectures": sorted(
-                    {
-                        arch
-                        for row in members
-                        for arch in row.get("architectures_present", [])
-                    },
+                    {arch for row in members for arch in row.get("architectures_present", [])},
                     key=_arch_sort_key,
                 ),
                 "pair_matches": matches,
@@ -418,15 +407,9 @@ def matrix_health_policy(
         components[row["duplicate_group_id"]].append(row)
 
     if reduce_duplicates:
-        candidates = [
-            (group_id, members, members)
-            for group_id, members in components.items()
-        ]
+        candidates = [(group_id, members, members) for group_id, members in components.items()]
     else:
-        candidates = [
-            (row["id"], [row], components[row["duplicate_group_id"]])
-            for row in rows
-        ]
+        candidates = [(row["id"], [row], components[row["duplicate_group_id"]]) for row in rows]
 
     counts = {
         "passing_groups": 0,
@@ -458,21 +441,19 @@ def matrix_health_policy(
         count_key = "failed_only_groups" if status == "failed" else status + "_groups"
         counts[count_key] += 1
 
-    counts["failing_groups"] = (
-        counts["failed_only_groups"] + counts["mixed_groups"]
-    )
-    counts["resolved_groups"] = (
-        counts["passing_groups"] + counts["failing_groups"]
-    )
+    counts["failing_groups"] = counts["failed_only_groups"] + counts["mixed_groups"]
+    counts["resolved_groups"] = counts["passing_groups"] + counts["failing_groups"]
     counts["included_groups"] = (
-        counts["resolved_groups"]
-        + counts["waiting_groups"]
-        + counts["unknown_groups"]
+        counts["resolved_groups"] + counts["waiting_groups"] + counts["unknown_groups"]
     )
-    counts["pass_percentage"] = round(
-        counts["passing_groups"] / counts["resolved_groups"] * 100,
-        1,
-    ) if counts["resolved_groups"] else None
+    counts["pass_percentage"] = (
+        round(
+            counts["passing_groups"] / counts["resolved_groups"] * 100,
+            1,
+        )
+        if counts["resolved_groups"]
+        else None
+    )
     counts["reduce_duplicates"] = reduce_duplicates
     counts["ignore_mi355_only"] = ignore_mi355_only
     return counts
@@ -527,7 +508,16 @@ def _normalized_execution_command(command: str) -> list[str]:
         pytest_start = executable + 3
     if pytest_start is not None:
         takes_value = False
-        no_value_flags = {"-v", "-vv", "-vvv", "-s", "-q", "-x", "--collect-only", "--disable-warnings"}
+        no_value_flags = {
+            "-v",
+            "-vv",
+            "-vvv",
+            "-s",
+            "-q",
+            "-x",
+            "--collect-only",
+            "--disable-warnings",
+        }
         for index in range(pytest_start, len(tokens)):
             token = tokens[index]
             if takes_value:
@@ -536,7 +526,9 @@ def _normalized_execution_command(command: str) -> list[str]:
             if token.startswith("-"):
                 takes_value = "=" not in token and token not in no_value_flags
                 continue
-            quote = token[0] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else ""
+            quote = (
+                token[0] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else ""
+            )
             path = token[1:-1] if quote else token
             # A slash on a file-like target can make it invalid; normalize only
             # ordinary directory names, never .py targets or pytest node IDs.
@@ -545,16 +537,16 @@ def _normalized_execution_command(command: str) -> list[str]:
     if invocation[:3] == ["uv", "pip", "install"] or invocation[:2] == ["pip", "install"]:
         for index in range(executable, len(tokens)):
             token = tokens[index]
-            quote = token[0] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else ""
+            quote = (
+                token[0] if len(token) > 1 and token[0] == token[-1] and token[0] in "\"'" else ""
+            )
             package = token[1:-1] if quote else token
             if REVIEWED_DEPENDENCY_REVISION_RE.fullmatch(package):
                 tokens[index] = quote + package.split("@", 1)[0] + "@reviewed-revision" + quote
     return tokens
 
 
-def execution_fingerprint(
-    row: dict[str, Any], arch: str, *, normalize: bool = True
-) -> str | None:
+def execution_fingerprint(row: dict[str, Any], arch: str, *, normalize: bool = True) -> str | None:
     """Identify concrete commands, working directory and hardware shape.
 
     Missing evidence cannot authorize a new merge. Existing duplicate-group
@@ -631,32 +623,30 @@ def _health_group_ids(groups: list[dict[str, Any]]) -> list[str]:
     return group_ids
 
 
-def _health_member(
-    row: dict[str, Any], arch: str, source_url: str
-) -> dict[str, Any]:
+def _health_member(row: dict[str, Any], arch: str, source_url: str) -> dict[str, Any]:
     cell = row["cells"][arch]
     variants = []
     for variant in cell.get("variants", []):
         entries = variant.get("entries") or [variant]
         for entry in entries:
-            variants.append({
-                "label": entry.get("label"),
-                "agent_pool": entry.get("agent_pool"),
-                "optional": bool(entry.get("optional")),
-                "soft_fail": bool(entry.get("soft_fail")),
-                "source_url": entry.get("source_url"),
-                "definition_id": entry.get("definition_id"),
-                "parallelism": entry.get("parallelism", 1),
-                "state": entry.get("latest_state"),
-                "url": entry.get("latest_url"),
-            })
+            variants.append(
+                {
+                    "label": entry.get("label"),
+                    "agent_pool": entry.get("agent_pool"),
+                    "optional": bool(entry.get("optional")),
+                    "soft_fail": bool(entry.get("soft_fail")),
+                    "source_url": entry.get("source_url"),
+                    "definition_id": entry.get("definition_id"),
+                    "parallelism": entry.get("parallelism", 1),
+                    "state": entry.get("latest_state"),
+                    "url": entry.get("latest_url"),
+                }
+            )
             if entry.get("execution_sha256"):
                 variants[-1]["execution_sha256"] = entry["execution_sha256"]
-    agent_pools = sorted({
-        str(variant.get("agent_pool"))
-        for variant in variants
-        if variant.get("agent_pool")
-    })
+    agent_pools = sorted(
+        {str(variant.get("agent_pool")) for variant in variants if variant.get("agent_pool")}
+    )
     return {
         "row_id": row["id"],
         "title": row["title"],
@@ -668,8 +658,12 @@ def _health_member(
         "agent_pools": agent_pools,
         "command_fingerprint": row["command_fingerprint"],
         "commands": list(row.get("commands") or []),
-        "source_url": next((variant["source_url"] for variant in variants if variant.get("source_url")), source_url),
-        "source_urls": sorted({variant["source_url"] for variant in variants if variant.get("source_url")}),
+        "source_url": next(
+            (variant["source_url"] for variant in variants if variant.get("source_url")), source_url
+        ),
+        "source_urls": sorted(
+            {variant["source_url"] for variant in variants if variant.get("source_url")}
+        ),
         "url": cell.get("latest_url"),
         "latest_url": cell.get("latest_url"),
         "latest_matched": bool(cell.get("latest_matched")),
@@ -713,14 +707,12 @@ def build_best_hardware_health_groups(
     for signature, group_ids in by_execution.items():
         if len(group_ids) < 2:
             continue
-        architectures = {
-            arch for group_id in group_ids for _, arch in generic_components[group_id]
-        }
+        architectures = {arch for group_id in group_ids for _, arch in generic_components[group_id]}
         if "mi355" not in architectures or not architectures & CORE_AMD_ARCHITECTURES:
             continue
-        group_ids.sort(key=lambda group_id: min(
-            row["yaml_order"] for row, _ in generic_components[group_id]
-        ))
+        group_ids.sort(
+            key=lambda group_id: min(row["yaml_order"] for row, _ in generic_components[group_id])
+        )
         target = group_ids[0]
         for other in group_ids[1:]:
             generic_components[target].extend(generic_components.pop(other))
@@ -731,48 +723,47 @@ def build_best_hardware_health_groups(
         owned.sort(key=lambda item: (item[0]["yaml_order"], _arch_sort_key(item[1])))
         members = [_health_member(row, arch, source_url) for row, arch in owned]
         alias_reason = GENERIC_EXECUTION_ALIAS_REASON if group_id in alias_signatures else None
-        status = _best_hardware_status([
-            row["cells"][arch] for row, arch in owned
-        ])
+        status = _best_hardware_status([row["cells"][arch] for row, arch in owned])
         title = owned[0][0]["canonical_title"]
-        health_groups.append({
-            "id": _stable_id("health-group", "generic", group_id),
-            "title": title,
-            "status": status,
-            "is_passing": status == "passing",
-            "gate_kind": "generic_best_hardware",
-            "classification_reason": alias_reason or (
-                "generic logical family; passes when any represented AMD architecture passes"
-            ),
-            "architectures": sorted({arch for _, arch in owned}, key=_arch_sort_key),
-            "member_row_ids": sorted({row["id"] for row, _ in owned}),
-            "members": members,
-        })
+        health_groups.append(
+            {
+                "id": _stable_id("health-group", "generic", group_id),
+                "title": title,
+                "status": status,
+                "is_passing": status == "passing",
+                "gate_kind": "generic_best_hardware",
+                "classification_reason": alias_reason
+                or ("generic logical family; passes when any represented AMD architecture passes"),
+                "architectures": sorted({arch for _, arch in owned}, key=_arch_sort_key),
+                "member_row_ids": sorted({row["id"] for row, _ in owned}),
+                "members": members,
+            }
+        )
 
     for row, arch, reason in sensitive_cells:
         member = _health_member(row, arch, source_url)
         status = _best_hardware_status([row["cells"][arch]])
-        health_groups.append({
-            "id": _stable_id("health-group", "mi355-sensitive", row["id"]),
-            "title": member["label"] or f"{row['canonical_title']} — MI355",
-            "status": status,
-            "is_passing": status == "passing",
-            "gate_kind": "mi355_sensitive",
-            "classification_reason": reason,
-            "architectures": [arch],
-            "member_row_ids": [row["id"]],
-            "members": [member],
-        })
+        health_groups.append(
+            {
+                "id": _stable_id("health-group", "mi355-sensitive", row["id"]),
+                "title": member["label"] or f"{row['canonical_title']} — MI355",
+                "status": status,
+                "is_passing": status == "passing",
+                "gate_kind": "mi355_sensitive",
+                "classification_reason": reason,
+                "architectures": [arch],
+                "member_row_ids": [row["id"]],
+                "members": [member],
+            }
+        )
 
-    health_groups.sort(key=lambda group: (
-        min(
-            row["yaml_order"]
-            for row in rows
-            if row["id"] in group["member_row_ids"]
-        ),
-        group["gate_kind"] == "mi355_sensitive",
-        group["title"].casefold(),
-    ))
+    health_groups.sort(
+        key=lambda group: (
+            min(row["yaml_order"] for row in rows if row["id"] in group["member_row_ids"]),
+            group["gate_kind"] == "mi355_sensitive",
+            group["title"].casefold(),
+        )
+    )
     for group in health_groups:
         for member in group["members"]:
             row = next(row for row in rows if row["id"] == member["row_id"])
@@ -789,39 +780,45 @@ def build_best_hardware_health_groups(
     counts["resolved_groups"] = counts["passing_groups"] + counts["failing_groups"]
     counts["included_groups"] = len(health_groups)
     counts["health_group_count"] = len(health_groups)
-    counts["pass_percentage"] = round(
-        counts["passing_groups"] / counts["included_groups"] * 100, 1
-    ) if counts["included_groups"] else None
+    counts["pass_percentage"] = (
+        round(counts["passing_groups"] / counts["included_groups"] * 100, 1)
+        if counts["included_groups"]
+        else None
+    )
     generic_count = sum(group["gate_kind"] == "generic_best_hardware" for group in health_groups)
     sensitive_count = len(health_groups) - generic_count
-    counts.update({
-        "generic_groups": generic_count,
-        "generic_group_count": generic_count,
-        "mi355_sensitive_groups": sensitive_count,
-        "mi355_sensitive_group_count": sensitive_count,
-        "status_rule": "pass when any owned hardware cell passes",
-        "denominator_rule": "all expected health groups, including waiting and unknown",
-        "group_ids": _health_group_ids(health_groups),
-    })
+    counts.update(
+        {
+            "generic_groups": generic_count,
+            "generic_group_count": generic_count,
+            "mi355_sensitive_groups": sensitive_count,
+            "mi355_sensitive_group_count": sensitive_count,
+            "status_rule": "pass when any owned hardware cell passes",
+            "denominator_rule": "all expected health groups, including waiting and unknown",
+            "group_ids": _health_group_ids(health_groups),
+        }
+    )
 
     mi355_classification = []
     for group in health_groups:
         for member in group["members"]:
             if member["architecture"] != "mi355":
                 continue
-            mi355_classification.append({
-                "row_id": member["row_id"],
-                "title": member["title"],
-                "label": member["label"],
-                "classification": (
-                    "separate_gate" if group["gate_kind"] == "mi355_sensitive" else "generic_replica"
-                ),
-                "reason": group["classification_reason"],
-                "health_group_id": group["id"],
-            })
-    sensitive_rules = {
-        row["canonical_title"]: reason for row, _, reason in sensitive_cells
-    }
+            mi355_classification.append(
+                {
+                    "row_id": member["row_id"],
+                    "title": member["title"],
+                    "label": member["label"],
+                    "classification": (
+                        "separate_gate"
+                        if group["gate_kind"] == "mi355_sensitive"
+                        else "generic_replica"
+                    ),
+                    "reason": group["classification_reason"],
+                    "health_group_id": group["id"],
+                }
+            )
+    sensitive_rules = {row["canonical_title"]: reason for row, _, reason in sensitive_cells}
     alias_rules = [
         {
             "title": group["title"],
@@ -845,8 +842,7 @@ def build_best_hardware_health_groups(
         "waiting_states": sorted(WAITING_STATES),
         "no_signal_states": ["canceled", "expired", "skipped", "unknown", "missing"],
         "mi355_sensitive_rules": [
-            {"title": title, "reason": reason}
-            for title, reason in sorted(sensitive_rules.items())
+            {"title": title, "reason": reason} for title, reason in sorted(sensitive_rules.items())
         ],
         "generic_alias_match_policy": GENERIC_EXECUTION_ALIAS_POLICY,
         "generic_alias_rules": alias_rules,
@@ -866,6 +862,10 @@ def _variant_preference(label: str, arch: str, row_title: str) -> tuple[int, str
 
 
 def _agent_pool_from_job_name(job_name: str) -> str:
+    _, platform, _ = _parse_job_execution_label(job_name)
+    native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(str(job_name or ""))
+    if platform == "amd" and native_pool:
+        return native_pool.group("pool").lower()
     text = clean_label(job_name)
     if ":" not in text:
         return ""
@@ -932,15 +932,11 @@ def _parity_state_for_arch(
         return "passed"
     amd_hw_failures = row.get("amd_hw_failures")
     hw_failures = (
-        amd_hw_failures
-        if isinstance(amd_hw_failures, dict)
-        else (row.get("hw_failures") or {})
+        amd_hw_failures if isinstance(amd_hw_failures, dict) else (row.get("hw_failures") or {})
     )
     amd_hw_canceled = row.get("amd_hw_canceled")
     hw_canceled = (
-        amd_hw_canceled
-        if isinstance(amd_hw_canceled, dict)
-        else (row.get("hw_canceled") or {})
+        amd_hw_canceled if isinstance(amd_hw_canceled, dict) else (row.get("hw_canceled") or {})
     )
     if hw_failures.get(arch, 0) > 0:
         return "soft_fail" if analytics_state == "soft_fail" else "failed"
@@ -964,7 +960,7 @@ def build_parity_amd_index(
     exact: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     normalized: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
 
-    for row in (parity.get("job_groups") or []):
+    for row in parity.get("job_groups") or []:
         if not isinstance(row, dict) or not row.get("amd"):
             continue
 
@@ -1050,18 +1046,20 @@ def merge_cell_variant(
         if field in candidate:
             candidate_entry[field] = candidate[field]
     if not entries:
-        entries.append({
-            "label": existing["label"],
-            "agent_pool": existing["agent_pool"],
-            "optional": existing["optional"],
-            "parallelism": existing["parallelism"],
-            "latest_matched": existing["latest_matched"],
-            "latest_match_count": existing["latest_match_count"],
-            "latest_state": existing["latest_state"],
-            "latest_url": existing.get("latest_url"),
-            "aliases": [existing["label"]],
-            "raw_variant_count": 1,
-        })
+        entries.append(
+            {
+                "label": existing["label"],
+                "agent_pool": existing["agent_pool"],
+                "optional": existing["optional"],
+                "parallelism": existing["parallelism"],
+                "latest_matched": existing["latest_matched"],
+                "latest_match_count": existing["latest_match_count"],
+                "latest_state": existing["latest_state"],
+                "latest_url": existing.get("latest_url"),
+                "aliases": [existing["label"]],
+                "raw_variant_count": 1,
+            }
+        )
         if existing.get("execution_sha256"):
             entries[0]["execution_sha256"] = existing["execution_sha256"]
     entries.append(candidate_entry)
@@ -1125,10 +1123,7 @@ def strip_shard_index(name: str, shard_bases: list[str]) -> str:
     # detail API can also return the literal template marker. Normalize both
     # representations through the same path used for YAML labels.
     lower = _without_shard_template(_normalize_job_name(name)).casefold()
-    bases = [
-        _without_shard_template(_normalize_job_name(base)).casefold()
-        for base in shard_bases
-    ]
+    bases = [_without_shard_template(_normalize_job_name(base)).casefold() for base in shard_bases]
     return _strip_known_shard_index(lower, bases)
 
 
@@ -1201,17 +1196,19 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
                     "working_dir": str(step.get("working_dir") or "").strip(),
                     "commands": [str(command).strip() for command in step.get("commands") or []],
                 },
-                "execution_sha256": execution_sha256({
-                    "commands": flatten_execution_commands(
-                        [step["command"]] if "command" in step else step.get("commands", [])
-                    ),
-                    "working_dir": str(step.get("working_dir") or ""),
-                    "agent_pool": str(step.get("agent_pool") or ""),
-                    "num_gpus": step.get("num_devices") or step.get("num_gpus"),
-                    "parallelism": step.get("parallelism"),
-                    "source_file": step.get("source_file") or ".buildkite/test-amd.yaml",
-                    "definition_fingerprint": definition_fingerprint(step),
-                }),
+                "execution_sha256": execution_sha256(
+                    {
+                        "commands": flatten_execution_commands(
+                            [step["command"]] if "command" in step else step.get("commands", [])
+                        ),
+                        "working_dir": str(step.get("working_dir") or ""),
+                        "agent_pool": str(step.get("agent_pool") or ""),
+                        "num_gpus": step.get("num_devices") or step.get("num_gpus"),
+                        "parallelism": step.get("parallelism"),
+                        "source_file": step.get("source_file") or ".buildkite/test-amd.yaml",
+                        "definition_fingerprint": definition_fingerprint(step),
+                    }
+                ),
                 "area": step.get("area") or classify_area(canonical_title(label)),
                 "source_file": step.get("source_file"),
                 "definition_id": step.get("definition_id"),
@@ -1234,9 +1231,12 @@ def parse_main_ci_steps(snapshot) -> tuple[list[dict[str, Any]], list[str]]:
     """Expand build-pinned main-CI AMD routes with exact file attribution."""
     routes = amd_source_steps(snapshot)
     for route in routes:
-        route["source_url"] = f"https://github.com/vllm-project/vllm/blob/{snapshot.commit_sha}/{route['source_file']}"
+        route["source_url"] = (
+            f"https://github.com/vllm-project/vllm/blob/{snapshot.commit_sha}/{route['source_file']}"
+        )
         route["commands"] = flatten_execution_commands(
-            [route["command"]] if "command" in route else route.get("commands", []))
+            [route["command"]] if "command" in route else route.get("commands", [])
+        )
         route.pop("command", None)
     return parse_steps(yaml.safe_dump({"steps": routes}))
 
@@ -1277,9 +1277,7 @@ def build_buildkite_job_index(
     shard_bases: list[str],
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
     """Index the authoritative, non-superseded script roster for one build."""
-    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
+    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     build_number = build.get("number")
     for job in build.get("jobs", []) or []:
         if not is_amd_ci_job(job) or job.get("retried_in_job_id"):
@@ -1292,9 +1290,7 @@ def build_buildkite_job_index(
             continue
 
         state = (
-            "soft_fail"
-            if job.get("soft_failed")
-            else clean_label(job.get("state", "")).casefold()
+            "soft_fail" if job.get("soft_failed") else clean_label(job.get("state", "")).casefold()
         )
         job_id = clean_label(job.get("id", ""))
         step_id = clean_label((job.get("step") or {}).get("id", ""))
@@ -1307,16 +1303,18 @@ def build_buildkite_job_index(
             job_url = clean_label(job.get("web_url", "")) or base_url
 
         key = strip_shard_index(full_name, shard_bases)
-        index[arch][key].append({
-            "name": full_name,
-            "raw_name": full_name,
-            "state": state,
-            "q": queue or (f"amd_{agent_pool}" if agent_pool else ""),
-            "url": job_url,
-            "job_id": job_id,
-            "step_id": step_id,
-            "matrix_source": "buildkite_build_detail",
-        })
+        index[arch][key].append(
+            {
+                "name": full_name,
+                "raw_name": full_name,
+                "state": state,
+                "q": queue or (f"amd_{agent_pool}" if agent_pool else ""),
+                "url": job_url,
+                "job_id": job_id,
+                "step_id": step_id,
+                "matrix_source": "buildkite_build_detail",
+            }
+        )
     return index
 
 
@@ -1343,9 +1341,7 @@ def build_hotness_job_index(
     is eligible so a newer PR build or an older nightly cannot leak into the
     latest-nightly signal.
     """
-    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
+    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     if latest_build_number in (None, ""):
         return index
 
@@ -1363,21 +1359,14 @@ def build_hotness_job_index(
 
         full_name = clean_label(evidence.get("job_name", ""))
         agent_pool = _agent_pool_from_job_name(full_name)
-        arch = (
-            arch_from_agent_pool(agent_pool)
-            or arch_from_queue(row.get("hw", ""))
-        )
+        arch = arch_from_agent_pool(agent_pool) or arch_from_queue(row.get("hw", ""))
         if not full_name or not arch:
             continue
 
         state = clean_label(evidence.get("state", "")).casefold()
         if state == "soft_failed":
             state = "soft_fail"
-        queue = (
-            f"amd_{agent_pool}"
-            if agent_pool
-            else clean_label(row.get("hw", ""))
-        )
+        queue = f"amd_{agent_pool}" if agent_pool else clean_label(row.get("hw", ""))
         job_id = clean_label(evidence.get("job_id", ""))
         job_url = clean_label(evidence.get("job_url", ""))
         if job_id:
@@ -1420,13 +1409,17 @@ def latest_build_metadata(
     if isinstance(analytics_build, dict) and analytics_build.get("number"):
         return analytics_build
 
-    amd_latest = ((ci_health.get("amd") or {}).get("latest_build") or {})
+    amd_latest = (ci_health.get("amd") or {}).get("latest_build") or {}
     number = amd_latest.get("build_number") or amd_latest.get("number") or parity.get("amd_build")
     if not number:
         return None
 
     created_at = clean_label(amd_latest.get("created_at", ""))
-    date = amd_latest.get("date") or (created_at[:10] if created_at else None) or parity.get("amd_date")
+    date = (
+        amd_latest.get("date")
+        or (created_at[:10] if created_at else None)
+        or parity.get("amd_date")
+    )
     build_url = (
         amd_latest.get("build_url")
         or amd_latest.get("web_url")
@@ -1475,12 +1468,8 @@ def build_matrix(
                 "id": _stable_id("matrix-row", row_key),
                 "title": row_title,
                 "canonical_title": step["title"],
-                "definition_fingerprint": _stable_id(
-                    "definition", step["definition_key"]
-                ),
-                "command_fingerprint": _stable_id(
-                    "commands", step["command_key"]
-                ),
+                "definition_fingerprint": _stable_id("definition", step["definition_key"]),
+                "command_fingerprint": _stable_id("commands", step["command_key"]),
                 "commands": step["commands"],
                 "execution_identity": step.get("execution_identity"),
                 "_command_key": step["command_key"],
@@ -1511,14 +1500,15 @@ def build_matrix(
         variant_key = strip_shard_index(step["link_label"], shard_bases)
         matches = latest_job_index.get(step["arch"], {}).get(variant_key, [])
         filtered_matches = [
-            match for match in matches
+            match
+            for match in matches
             if _queue_matches_agent_pool(match.get("q", ""), step["agent_pool"])
         ]
         if filtered_matches:
             matches = filtered_matches
-        analytics_state = aggregate_state([
-            state for m in matches if isinstance((state := m.get("state")), str)
-        ])
+        analytics_state = aggregate_state(
+            [state for m in matches if isinstance((state := m.get("state")), str)]
+        )
         full_job_name = f"{step['agent_pool']}: {step['link_label']}"
         parity_row = select_parity_row(
             parity_exact_index,
@@ -1527,7 +1517,9 @@ def build_matrix(
             full_job_name,
             variant_key,
         )
-        parity_matched = bool(parity_row) and not _parity_row_backfilled_for_arch(parity_row, step["arch"])
+        parity_matched = bool(parity_row) and not _parity_row_backfilled_for_arch(
+            parity_row, step["arch"]
+        )
         latest_matched = bool(matches) or parity_matched
         latest_state = (
             _parity_state_for_arch(parity_row, step["arch"], analytics_state)
@@ -1543,11 +1535,9 @@ def build_matrix(
             None,
         )
         latest_url = (
-            _parity_link_for_arch(parity_row, step["arch"], full_job_name)
-            if parity_row
-            else None
-        ) or matched_url or (
-            latest_build.get("web_url") if latest_matched and latest_build else None
+            (_parity_link_for_arch(parity_row, step["arch"], full_job_name) if parity_row else None)
+            or matched_url
+            or (latest_build.get("web_url") if latest_matched and latest_build else None)
         )
         variant = {
             "label": step["link_label"],
@@ -1571,18 +1561,20 @@ def build_matrix(
         if cell["variants"]:
             merge_cell_variant(cell["variants"][0], variant, step["arch"], row["title"])
         else:
-            variant["entries"] = [{
-                "label": variant["label"],
-                "agent_pool": variant["agent_pool"],
-                "optional": variant["optional"],
-                "parallelism": variant["parallelism"],
-                "latest_matched": variant["latest_matched"],
-                "latest_match_count": variant["latest_match_count"],
-                "latest_state": variant["latest_state"],
-                "latest_url": variant.get("latest_url"),
-                "aliases": [variant["label"]],
-                "raw_variant_count": 1,
-            }]
+            variant["entries"] = [
+                {
+                    "label": variant["label"],
+                    "agent_pool": variant["agent_pool"],
+                    "optional": variant["optional"],
+                    "parallelism": variant["parallelism"],
+                    "latest_matched": variant["latest_matched"],
+                    "latest_match_count": variant["latest_match_count"],
+                    "latest_state": variant["latest_state"],
+                    "latest_url": variant.get("latest_url"),
+                    "aliases": [variant["label"]],
+                    "raw_variant_count": 1,
+                }
+            ]
             if variant.get("execution_sha256"):
                 variant["entries"][0]["execution_sha256"] = variant["execution_sha256"]
             for field in ("soft_fail", "source_url", "definition_id", "source_kind"):
@@ -1623,8 +1615,8 @@ def build_matrix(
     rows.sort(key=lambda row: (row["yaml_order"], row["title"].lower()))
     duplicate_groups = annotate_duplicate_groups(rows)
     health_policies = matrix_health_policies(rows)
-    health_groups, best_hardware, best_hardware_policy = (
-        build_best_hardware_health_groups(rows, yaml_url)
+    health_groups, best_hardware, best_hardware_policy = build_best_hardware_health_groups(
+        rows, yaml_url
     )
     health_policies["best_hardware"] = best_hardware
 
@@ -1634,7 +1626,8 @@ def build_matrix(
         1
         for row in rows
         for arch in architectures
-        if row["cells"][arch].get("raw_variant_count", row["cells"][arch].get("variant_count", 0)) > 1
+        if row["cells"][arch].get("raw_variant_count", row["cells"][arch].get("variant_count", 0))
+        > 1
     )
     configured_definition_cases = len(rows)
     deduplicated_configured_cases = configured_definition_cases - sum(
@@ -1763,9 +1756,7 @@ def bounded_matrix_payload(
         )
 
     def source_objects(name: str, value: Any) -> list[dict[str, Any]]:
-        if not isinstance(value, list) or any(
-            not isinstance(item, dict) for item in value
-        ):
+        if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
             raise ValueError(f"AMD test matrix {name} must be an array of objects")
         return [dict(item) for item in value]
 
@@ -1801,13 +1792,7 @@ def bounded_matrix_payload(
         return row_id
 
     def union(references: Any) -> None:
-        members = sorted(
-            {
-                str(row_id)
-                for row_id in references or []
-                if str(row_id) in row_id_set
-            }
-        )
+        members = sorted({str(row_id) for row_id in references or [] if str(row_id) in row_id_set})
         if not members:
             return
         root = find(members[0])
@@ -1830,10 +1815,7 @@ def bounded_matrix_payload(
         for row_id in group.get("member_row_ids") or []:
             if str(row_id) in row_id_set:
                 status_by_row[str(row_id)].add(status)
-    row_order = {
-        str(row.get("id")): int(row.get("yaml_order") or 0)
-        for row in source_rows
-    }
+    row_order = {str(row.get("id")): int(row.get("yaml_order") or 0) for row in source_rows}
     status_rank = {
         "failed": 0,
         "failing": 0,
@@ -1852,9 +1834,7 @@ def bounded_matrix_payload(
 
     def component_key(component: set[str]) -> tuple[int, int, tuple[str, ...]]:
         statuses = {
-            status
-            for row_id in component
-            for status in status_by_row.get(row_id, {"unknown"})
+            status for row_id in component for status in status_by_row.get(row_id, {"unknown"})
         }
         return (
             min(status_rank.get(status, 2) for status in statuses),
@@ -1887,19 +1867,13 @@ def bounded_matrix_payload(
 
     def candidate(component_count: int) -> dict[str, Any]:
         selected_ids = {
-            row_id
-            for component in ordered_components[:component_count]
-            for row_id in component
+            row_id for component in ordered_components[:component_count] for row_id in component
         }
-        published_rows = [
-            row for row in source_rows if str(row.get("id")) in selected_ids
-        ]
+        published_rows = [row for row in source_rows if str(row.get("id")) in selected_ids]
         published_health = [
             group
             for group in source_health
-            if (members := {
-                str(row_id) for row_id in group.get("member_row_ids") or []
-            })
+            if (members := {str(row_id) for row_id in group.get("member_row_ids") or []})
             and members <= selected_ids
         ]
         published_group_ids = _health_group_ids(published_health)
@@ -1920,9 +1894,7 @@ def bounded_matrix_payload(
             )
         ]
         policy = {
-            key: value
-            for key, value in source_policy.items()
-            if key != "mi355_classification"
+            key: value for key, value in source_policy.items() if key != "mi355_classification"
         }
         policy["mi355_classification"] = published_classifications
         summary = dict(matrix.get("summary") or {})
@@ -1933,9 +1905,7 @@ def bounded_matrix_payload(
         # summary fail the downstream reconciliation audit.
         best_hardware["group_ids"] = published_group_ids
         best_hardware["published_health_group_count"] = len(published_health)
-        best_hardware["health_group_details_complete"] = (
-            len(published_health) == len(source_health)
-        )
+        best_hardware["health_group_details_complete"] = len(published_health) == len(source_health)
         health_policies["best_hardware"] = best_hardware
         summary["health_policies"] = health_policies
         summary["source_health_group_count"] = len(source_health)
@@ -1951,7 +1921,8 @@ def bounded_matrix_payload(
         result = {
             key: value
             for key, value in matrix.items()
-            if key not in {
+            if key
+            not in {
                 "summary",
                 "best_hardware_policy",
                 "health_groups",
@@ -1960,35 +1931,31 @@ def bounded_matrix_payload(
                 "publication_retention",
             }
         }
-        result.update({
-            "summary": summary,
-            "best_hardware_policy": policy,
-            "health_groups": published_health,
-            "duplicate_groups": published_duplicates,
-            "rows": published_rows,
-            "publication_retention": {
-                "policy": AMD_TEST_MATRIX_RETENTION_POLICY,
-                "detail_contract": AMD_TEST_MATRIX_DETAIL_CONTRACT,
-                "max_bytes": max_bytes,
-                "complete_relative_to_source": complete,
-                "aggregate_source_counts_complete": True,
-                "logical_cohorts": count_entry(
-                    len(ordered_components), component_count
-                ),
-                "matrix_rows": count_entry(
-                    len(source_rows), len(published_rows)
-                ),
-                "health_groups": count_entry(
-                    len(source_health), len(published_health)
-                ),
-                "duplicate_groups": count_entry(
-                    len(source_duplicates), len(published_duplicates)
-                ),
-                "mi355_classifications": count_entry(
-                    len(source_classifications), len(published_classifications)
-                ),
-            },
-        })
+        result.update(
+            {
+                "summary": summary,
+                "best_hardware_policy": policy,
+                "health_groups": published_health,
+                "duplicate_groups": published_duplicates,
+                "rows": published_rows,
+                "publication_retention": {
+                    "policy": AMD_TEST_MATRIX_RETENTION_POLICY,
+                    "detail_contract": AMD_TEST_MATRIX_DETAIL_CONTRACT,
+                    "max_bytes": max_bytes,
+                    "complete_relative_to_source": complete,
+                    "aggregate_source_counts_complete": True,
+                    "logical_cohorts": count_entry(len(ordered_components), component_count),
+                    "matrix_rows": count_entry(len(source_rows), len(published_rows)),
+                    "health_groups": count_entry(len(source_health), len(published_health)),
+                    "duplicate_groups": count_entry(
+                        len(source_duplicates), len(published_duplicates)
+                    ),
+                    "mi355_classifications": count_entry(
+                        len(source_classifications), len(published_classifications)
+                    ),
+                },
+            }
+        )
         return result
 
     low, high = 0, len(ordered_components)
@@ -2062,14 +2029,10 @@ def main() -> None:
     parity = _load_json(output / "parity_report.json", {})
     shard_bases = _load_json(output / "shard_bases.json", [])
 
-    analytics_job_index, analytics_latest_build = build_latest_job_index(
-        analytics, shard_bases
-    )
+    analytics_job_index, analytics_latest_build = build_latest_job_index(analytics, shard_bases)
     latest_build = latest_build_metadata(analytics_latest_build, ci_health, parity)
     snapshot_path = (
-        Path(args.build_snapshot)
-        if args.build_snapshot
-        else output / DEFAULT_BUILD_SNAPSHOT
+        Path(args.build_snapshot) if args.build_snapshot else output / DEFAULT_BUILD_SNAPSHOT
     )
     frozen_build = load_frozen_build_snapshot(
         snapshot_path,
@@ -2122,9 +2085,14 @@ def main() -> None:
         shard_bases=shard_bases,
         yaml_url=yaml_url,
     )
-    matrix["source"].update({"pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd",
-        "runtime_source_commit_sha": (latest_build or {}).get("commit"),
-        "commit_sha": source_snapshot.commit_sha if source_snapshot is not None else None})
+    matrix["source"].update(
+        {
+            "pipeline": "ci",
+            "definition_source": "main_ci_inline_and_native_amd",
+            "runtime_source_commit_sha": (latest_build or {}).get("commit"),
+            "commit_sha": source_snapshot.commit_sha if source_snapshot is not None else None,
+        }
+    )
 
     out_path = output / "amd_test_matrix.json"
     matrix = publish_matrix(
