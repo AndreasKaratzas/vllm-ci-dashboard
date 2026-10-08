@@ -30,6 +30,9 @@ RETRY_SURFACES = frozenset({
     "ci_core", "ci_analytics",
     "agent_health", "github_home", "perf_eval",
 })
+HISTORICAL_RETRY_SURFACES = RETRY_SURFACES | frozenset({
+    "ci_gating", "ci_changes", "ci_hotness",
+})
 REASON_CLASSES = frozenset({
     "payload-budget", "rate-limit", "timeout", "schema-drift",
     "transient-http", "network", "dependency-unavailable", "command-error",
@@ -121,7 +124,9 @@ def retry_surfaces_from_state(payload: object) -> list[str]:
     return sorted(selected)
 
 
-def normalize_collection_evidence(value: object, *, durable_ref: str) -> dict[str, Any]:
+def _normalize_collection_evidence(
+    value: object, *, durable_ref: str, allowed_surfaces: frozenset[str],
+) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != {
         "schema_version", "durable_ref", "publication_state_oid", "retry_surfaces",
     }:
@@ -133,11 +138,25 @@ def normalize_collection_evidence(value: object, *, durable_ref: str) -> dict[st
         or not isinstance(value.get("publication_state_oid"), str)
         or not SHA_RE.fullmatch(value["publication_state_oid"])
         or not isinstance(surfaces, list)
-        or any(not isinstance(surface, str) or surface not in RETRY_SURFACES for surface in surfaces)
+        or any(not isinstance(surface, str) or surface not in allowed_surfaces for surface in surfaces)
         or surfaces != sorted(set(surfaces))
     ):
         raise CollectionEvidenceError("invalid collection evidence values")
     return dict(value)
+
+
+def normalize_collection_evidence(value: object, *, durable_ref: str) -> dict[str, Any]:
+    """Validate newly written proof against the current retry contract."""
+    return _normalize_collection_evidence(
+        value, durable_ref=durable_ref, allowed_surfaces=RETRY_SURFACES,
+    )
+
+
+def normalize_historical_collection_evidence(value: object, *, durable_ref: str) -> dict[str, Any]:
+    """Preserve exact reviewed older proof so its immutable ledger still validates."""
+    return _normalize_collection_evidence(
+        value, durable_ref=durable_ref, allowed_surfaces=HISTORICAL_RETRY_SURFACES,
+    )
 
 
 def _git(root: Path, *args: str) -> bytes:
