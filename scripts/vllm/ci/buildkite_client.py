@@ -247,10 +247,10 @@ def _project_nightly_roster_job(job: object) -> dict | None:
 def _project_nightly_roster_build(build: object) -> dict | None:
     """Return the only build/job fields permitted in persistent roster data.
 
-    Buildkite responses can contain environment variables, creator metadata,
-    agent metadata, commands, signed URLs, and future fields we have not
-    reviewed.  An allowlist projection is intentionally used instead of a
-    denylist scrub so none of those values can reach disk by default.
+    The reviewed routing queue is retained as bounded ``agent_queue`` so
+    restored rosters keep their observed hardware scope. Environment values,
+    creator data, other agent metadata, commands, signed URLs and unreviewed
+    fields remain outside the allowlist and cannot reach disk by default.
     """
     if not isinstance(build, dict):
         return None
