@@ -9793,6 +9793,13 @@ class DashboardAudit:
     def audit_workflows(self) -> None:
         workflows = sorted((self.root / ".github/workflows").glob("*.yml"))
         gh_pages_workflows: list[str] = []
+        retired_producers = (
+            "collect_gating_targets",
+            "collect_gating_target_candidates",
+            "collect_gating_proposals",
+            "collect_group_changes",
+            "collect_hotness",
+        )
         cache_busting_build_commands = (
             "python scripts/build_site.py --cache-bust-index",
             # Deploy-only recovery executes the assembler with the exact
@@ -9807,6 +9814,17 @@ class DashboardAudit:
         )
         for path in workflows:
             text = path.read_text(errors="ignore")
+            commands = "\n".join(
+                line for line in text.splitlines()
+                if not line.lstrip().startswith("#")
+            )
+            for producer in retired_producers:
+                if re.search(r"\b" + re.escape(producer) + r"\b", commands):
+                    self.error(
+                        "workflow-retired-producer",
+                        f"{path.name} still references retired producer {producer}",
+                        self.rel(path),
+                    )
             if "peaceiris/actions-gh-pages" not in text:
                 continue
             gh_pages_workflows.append(path.name)
@@ -9850,15 +9868,14 @@ class DashboardAudit:
 
         ordered_tokens = [
             "name: Restore validated dashboard state",
-            "name: Collect AMD gating target list",
             "name: Collect CI data",
             "name: Prepare private analytics cache key",
             "name: Restore private analytics build cache",
             "name: Collect CI analytics",
             "name: Save private analytics build cache",
-            "name: Collect test group changes",
             "name: Collect AMD test matrix",
-            "name: Collect AMD gating proposals",
+            "name: Refresh current main CI parity",
+            "name: Collect build-pinned CI ownership parity",
             "name: Live publication audit",
             "name: Run test suite",
             "name: Enforce publication validation results",

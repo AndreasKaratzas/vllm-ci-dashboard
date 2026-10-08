@@ -116,7 +116,7 @@ def remote_sha(root: Path, policy: budget.AttemptPolicy) -> str | None:
 
 
 def published_state(root: Path, *, failures=(), fallback=(), fresh=(), generated_at=None,
-                    corrupt_manifest=False, parent=None) -> str:
+                    corrupt_manifest=False, parent=None, surface_contract_version=None) -> str:
     """A real parentless commit with manifest-bound recovery evidence."""
     fallback = sorted(set(fallback) | set(failures))
     payload = {
@@ -134,6 +134,8 @@ def published_state(root: Path, *, failures=(), fallback=(), fresh=(), generated
             for surface in failures
         ],
     }
+    if surface_contract_version is not None:
+        payload["surface_contract_version"] = surface_contract_version
     state = root / recovery.STATE_PATH
     state.parent.mkdir(parents=True, exist_ok=True)
     raw = (json.dumps(payload) + "\n").encode()
@@ -585,3 +587,92 @@ def test_retry_intent_survives_expiry_of_original_published_attempt(repo, policy
     rows = budget.validate_ledger_ref(checkout, next_retry["budget_sha"], policy).ledger["attempts"]
     assert all(row["id"] not in {"data-2000-1", "data-2001-1"} for row in rows)
     assert rows[-1]["pending_collection_evidence"]["durable_ref"] == failed_sha
+
+
+def _persist_raw_historical_ledger(root, policy, ledger):
+    """Model exact pre-retirement bytes without invoking the current writer."""
+    encoded = json.dumps(ledger, indent=2, sort_keys=True) + "\n"
+    blob = git(root, "hash-object", "-w", "--stdin", input_text=encoded)
+    tree = git(root, "mktree", input_text=f"100644 blob {blob}\t{policy.ledger_path}\n")
+    commit = git(root, "commit-tree", tree, input_text="Pre-retirement budget history\n")
+    git(root, "push", "--force", "origin", f"{commit}:refs/heads/{policy.branch}")
+    return commit
+
+
+@pytest.mark.parametrize("old_surfaces", [
+    ["ci_gating"], ["ci_changes"], ["ci_hotness"],
+    ["agent_health", "ci_analytics", "ci_core", "ci_gating"],
+])
+def test_exact_historical_retired_proof_survives_new_guarded_reservation_and_success(
+    repo, policy, old_surfaces,
+):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    old_state = published_state(checkout, failures=old_surfaces, surface_contract_version=5)
+    record_publication(checkout, policy, state_sha=old_state)
+    current = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy)
+    ledger = json.loads(json.dumps(current.ledger))
+    historical_row = next(row for row in ledger["attempts"] if row["id"] == "data-2000-1")
+    historical_row["collection_evidence"]["retry_surfaces"] = old_surfaces
+    old_row = json.loads(json.dumps(historical_row))
+    old_sha = _persist_raw_historical_ledger(checkout, policy, ledger)
+    validated = budget.validate_ledger_ref(checkout, old_sha, policy)
+    assert validated.ledger == ledger
+    assert remote_sha(checkout, policy) == old_sha
+
+    active = sorted(set(old_surfaces) & recovery.RETRY_SURFACES)
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=31), remote="origin")
+    assert observed["retry_surfaces"] == ",".join(active)
+    assert observed["collection_retry_required"] == str(bool(active)).lower()
+    assert observed["request_mode"] == ("reserved" if active else "success_gated")
+    assert remote_sha(checkout, policy) == old_sha
+    start = BASE + timedelta(minutes=31 if active else 121)
+    reserved = reserve(checkout, policy, 2001, start)
+    assert reserved["request_mode"] == "reserved"
+    assert reserved["retry_surfaces"] == ",".join(active)
+    assert reserved["rolling_reserved_request_starts"] == 1600
+    rows = budget.validate_ledger_ref(checkout, reserved["budget_sha"], policy).ledger["attempts"]
+    assert next(row for row in rows if row["id"] == old_row["id"]) == old_row
+    if active:
+        assert rows[-1]["pending_collection_evidence"]["retry_surfaces"] == active
+    else:
+        assert "pending_collection_evidence" not in rows[-1]
+
+    healthy = published_state(checkout, generated_at=budget._iso(start + timedelta(minutes=5)),
+                              surface_contract_version=6)
+    budget.mark_success(checkout, policy, attempt_id=reserved["attempt_id"], durable_ref=healthy,
+                        actual_request_starts=77, now=start + timedelta(minutes=10),
+                        remote="origin", require_collection_evidence=True)
+    latest = budget.observe(checkout, policy, now=start + timedelta(minutes=30), remote="origin")
+    assert latest["retry_surfaces"] == ""
+    assert latest["request_mode"] == "success_gated"
+    rows = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy).ledger["attempts"]
+    assert next(row for row in rows if row["id"] == old_row["id"]) == old_row
+
+
+def test_unknown_historical_surface_rejects_ledger_before_new_reservation(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    state = published_state(checkout)
+    record_publication(checkout, policy, state_sha=state)
+    current = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy)
+    ledger = json.loads(json.dumps(current.ledger))
+    ledger["attempts"][-1]["collection_evidence"]["retry_surfaces"] = ["unknown_collector"]
+    invalid_sha = _persist_raw_historical_ledger(checkout, policy, ledger)
+    with pytest.raises(budget.AttemptBudgetError, match="collection evidence values"):
+        reserve(checkout, policy, 2001, BASE + timedelta(minutes=121))
+    assert remote_sha(checkout, policy) == invalid_sha
+
+
+@pytest.mark.parametrize("surface", ["ci_gating", "ci_changes", "ci_hotness"])
+def test_new_current_surface_proof_cannot_write_retired_retry_names(repo, policy, surface):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    started = reserve(checkout, policy, 2000, BASE)
+    before = remote_sha(checkout, policy)
+    invalid = published_state(checkout, failures=[surface], surface_contract_version=6)
+    with pytest.raises(budget.AttemptBudgetError, match="durable collection evidence.*surface lanes"):
+        budget.mark_success(checkout, policy, attempt_id=started["attempt_id"], durable_ref=invalid,
+                            actual_request_starts=77, now=BASE + timedelta(minutes=10),
+                            remote="origin", require_collection_evidence=True)
+    assert remote_sha(checkout, policy) == before

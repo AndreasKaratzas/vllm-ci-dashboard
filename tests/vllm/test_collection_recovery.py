@@ -134,3 +134,20 @@ def test_retired_collector_is_never_retried_and_current_contract_rejects_it(surf
     payload["surface_contract_version"] = 6
     with pytest.raises(recovery.CollectionEvidenceError, match="surface lanes"):
         recovery.retry_surfaces_from_state(payload)
+
+
+@pytest.mark.parametrize("surface", ("ci_gating", "ci_changes", "ci_hotness"))
+def test_historical_proof_preserves_retired_names_but_new_proof_rejects_them(surface):
+    proof = {"schema_version": 1, "durable_ref": "a" * 40,
+             "publication_state_oid": "b" * 40,
+             "retry_surfaces": sorted([surface, "ci_core"])}
+    assert recovery.normalize_historical_collection_evidence(proof, durable_ref="a" * 40) == proof
+    with pytest.raises(recovery.CollectionEvidenceError, match="evidence values"):
+        recovery.normalize_collection_evidence(proof, durable_ref="a" * 40)
+
+
+def test_historical_proof_never_accepts_unreviewed_retry_surface_names():
+    proof = {"schema_version": 1, "durable_ref": "a" * 40,
+             "publication_state_oid": "b" * 40, "retry_surfaces": ["unknown_collector"]}
+    with pytest.raises(recovery.CollectionEvidenceError, match="evidence values"):
+        recovery.normalize_historical_collection_evidence(proof, durable_ref="a" * 40)

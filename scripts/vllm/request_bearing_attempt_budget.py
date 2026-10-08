@@ -26,7 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vllm.collection_recovery import (  # noqa: E402
     CollectionEvidenceError,
+    RETRY_SURFACES,
     normalize_collection_evidence,
+    normalize_historical_collection_evidence,
     read_collection_evidence,
 )
 
@@ -371,7 +373,7 @@ def _normalize_attempt(
         if policy.producer != "data_collection" or source != "runtime" or succeeded_at is None:
             raise AttemptBudgetError("collection evidence requires a published Data Collection attempt")
         try:
-            normalized["collection_evidence"] = normalize_collection_evidence(
+            normalized["collection_evidence"] = normalize_historical_collection_evidence(
                 raw["collection_evidence"], durable_ref=durable_ref,
             )
         except CollectionEvidenceError as exc:
@@ -384,7 +386,7 @@ def _normalize_attempt(
             if not isinstance(pending, dict):
                 raise CollectionEvidenceError("pending collection evidence must be an object")
             pending_ref = _full_sha(pending.get("durable_ref"), label="pending durable ref")
-            normalized["pending_collection_evidence"] = normalize_collection_evidence(
+            normalized["pending_collection_evidence"] = normalize_historical_collection_evidence(
                 pending, durable_ref=pending_ref,
             )
             if not pending["retry_surfaces"] or "collection_evidence" in raw:
@@ -727,7 +729,9 @@ def _request_mode(
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
         collection_failed = bool(
             policy.producer == "data_collection"
-            and (latest.get("collection_evidence") or latest.get("pending_collection_evidence") or {}).get("retry_surfaces")
+            and any(surface in RETRY_SURFACES for surface in (
+                latest.get("collection_evidence") or latest.get("pending_collection_evidence") or {}
+            ).get("retry_surfaces", []))
         )
         complete = latest["succeeded_at"] is not None and not collection_failed
         interval = policy.success_interval_minutes if complete else policy.failed_retry_interval_minutes
@@ -794,29 +798,30 @@ def _collection_context(
     # expiry of old charged rows. A newly proven publication removes this field.
     if "pending_collection_evidence" in latest:
         evidence = latest["pending_collection_evidence"]
+        surfaces = [surface for surface in evidence["retry_surfaces"] if surface in RETRY_SURFACES]
         outputs.update({
-            "retry_surfaces": ",".join(evidence["retry_surfaces"]),
-            "collection_retry_required": "true",
-            "collection_evidence_status": "incomplete",
+            "retry_surfaces": ",".join(surfaces),
+            "collection_retry_required": "true" if surfaces else "false",
+            "collection_evidence_status": "incomplete" if surfaces else "complete",
         })
-        return outputs, evidence
+        return outputs, {**evidence, "retry_surfaces": surfaces}
     if "collection_evidence" not in latest:
         try:
-            latest["collection_evidence"] = read_collection_evidence(
+            latest["collection_evidence"] = normalize_collection_evidence(read_collection_evidence(
                 root, durable_ref=latest["durable_ref"],
                 reserved_at=latest["reserved_at"], succeeded_at=latest["succeeded_at"],
                 remote=_safe_remote(remote),
-            )
+            ), durable_ref=latest["durable_ref"])
         except CollectionEvidenceError:
             outputs["collection_evidence_status"] = "unavailable"
             return outputs, None
-    surfaces = latest["collection_evidence"]["retry_surfaces"]
+    surfaces = [surface for surface in latest["collection_evidence"]["retry_surfaces"] if surface in RETRY_SURFACES]
     outputs.update({
         "retry_surfaces": ",".join(surfaces),
         "collection_retry_required": "true" if surfaces else "false",
         "collection_evidence_status": "incomplete" if surfaces else "complete",
     })
-    return outputs, latest["collection_evidence"]
+    return outputs, {**latest["collection_evidence"], "retry_surfaces": surfaces}
 
 
 def initialize(
@@ -1067,10 +1072,10 @@ def mark_success(
             evidence = row["collection_evidence"]
         else:
             try:
-                evidence = read_collection_evidence(
+                evidence = normalize_collection_evidence(read_collection_evidence(
                     root, durable_ref=durable_ref, reserved_at=row["reserved_at"],
                     succeeded_at=row["succeeded_at"] or _iso(now), remote=_safe_remote(remote),
-                )
+                ), durable_ref=durable_ref)
             except CollectionEvidenceError as exc:
                 if require_collection_evidence:
                     raise AttemptBudgetError(f"durable collection evidence is invalid: {exc}") from exc

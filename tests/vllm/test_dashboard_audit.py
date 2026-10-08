@@ -3955,15 +3955,14 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     workflows.mkdir(parents=True)
     ordered_steps = [
         "name: Restore validated dashboard state",
-        "name: Collect AMD gating target list",
         "name: Collect CI data",
         "name: Prepare private analytics cache key",
         "name: Restore private analytics build cache",
         "name: Collect CI analytics",
         "name: Save private analytics build cache",
-        "name: Collect test group changes",
         "name: Collect AMD test matrix",
-        "name: Collect AMD gating proposals",
+        "name: Refresh current main CI parity",
+        "name: Collect build-pinned CI ownership parity",
         "name: Live publication audit",
         "name: Run test suite",
         "name: Enforce publication validation results",
@@ -3996,6 +3995,42 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     assert "workflow-hourly-step-order" in {
         finding.code for finding in invalid.report.errors
     }
+
+
+def test_actual_workflow_audit_accepts_current_producers_without_retired_expectations():
+    audit = DashboardAudit(ROOT)
+    audit.audit_workflows()
+    assert not audit.report.errors
+
+
+@pytest.mark.parametrize("step", [
+    "Refresh current main CI parity", "Collect build-pinned CI ownership parity",
+])
+def test_actual_workflow_audit_requires_current_source_stages(tmp_path, step):
+    hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly.parent.mkdir(parents=True)
+    hourly.write_text((ROOT / ".github/workflows/hourly-master.yml").read_text().replace(
+        "name: " + step, "name: Removed source stage", 1,
+    ))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_workflows()
+    assert any(finding.code == "workflow-hourly-step-missing" and step in finding.message
+               for finding in audit.report.errors)
+
+
+@pytest.mark.parametrize("producer", [
+    "collect_gating_targets", "collect_gating_target_candidates",
+    "collect_gating_proposals", "collect_group_changes", "collect_hotness",
+])
+def test_workflow_audit_rejects_reintroduced_retired_producers(tmp_path, producer):
+    hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly.parent.mkdir(parents=True)
+    hourly.write_text((ROOT / ".github/workflows/hourly-master.yml").read_text()
+                      + f"\n      - run: python scripts/vllm/{producer}.py\n")
+    audit = DashboardAudit(tmp_path)
+    audit.audit_workflows()
+    assert any(finding.code == "workflow-retired-producer" and producer in finding.message
+               for finding in audit.report.errors)
 
 
 def test_workflow_audit_accepts_state_pinned_cache_busting_interpreter(tmp_path):

@@ -43,6 +43,11 @@ by the schema-v3 current-CI handoff. Request guards, durable attempt budgets,
 resumable caches, exact source pins, atomic bounded writes, live audits, browser
 checks, publication verification, and synthetic site probes remain enforced.
 
+Historical attempt-ledger evidence retains its exact known retired surface names
+so immutable request accounting remains readable. New evidence and retry requests
+accept only active collectors. Workflow audits enforce the retained producer steps
+and reject references to deleted collectors.
+
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,
 current source coverage, retired navigation, malformed legacy restore proofs,
