@@ -7,6 +7,7 @@ from __future__ import annotations
 import gzip
 import json
 import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -2777,3 +2778,82 @@ def test_partial_discovery_budget_cannot_hide_concurrent_source_failure(
     assert len(slice_calls) == collector.MAX_CONCURRENT_ACTIVE_SLICES
     assert state_path.read_bytes() == before_state
     assert output_path.read_text() == "durable-public-output\n"
+
+
+@pytest.mark.parametrize("mode", ["same-day", "recent-budget", "full-sweep-budget"])
+def test_partial_collector_public_projection_passes_real_dns_audit(tmp_path: Path, monkeypatch, mode):
+    from vllm import audit_dashboard_data as audit_module
+
+    collection_clock = datetime.now(timezone.utc).replace(microsecond=0)
+    prior_end = collection_clock - timedelta(seconds=1)
+    state_path = tmp_path / "scan_state.json.gz"
+    output_path = tmp_path / "dns_failures.json"
+    dns.write_state(
+        state_path, dns.empty_state(prior_end, collection_clock - timedelta(days=10)),
+    )
+    monkeypatch.setattr(
+        collector, "_needs_full_active_reconciliation",
+        lambda _prior_states, *, clock: mode == "full-sweep-budget",
+    )
+    metadata = _metadata(1) | {
+        "started_at": dns.iso_timestamp(collection_clock - timedelta(minutes=30)),
+        "finished_at": dns.iso_timestamp(collection_clock - timedelta(minutes=15)),
+    }
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+
+        def discover_incremental_job_metadata(self, **kwargs):
+            if mode == "recent-budget":
+                assert self._discovery_progress is not None
+                self._discovery_progress([metadata])
+                raise collector.RequestBudgetExhausted()
+            return [metadata]
+
+        def discover_builds(self, *args, **kwargs):
+            assert mode == "full-sweep-budget"
+            raise collector.BudgetExhausted()
+
+        def fetch_job_log(self, *args, **kwargs):
+            log_text = "socket.gaierror: Temporary failure in name resolution"
+            return log_text, len(log_text)
+
+    collector.collect(
+        client=Client(), state_path=state_path, output_path=output_path,
+        now=collection_clock,
+    )
+    state = dns.load_state(state_path)
+    assert state is not None and state["discovery"]["complete"] is False
+    assert state["discovery"]["start"] < dns.iso_timestamp(collection_clock - timedelta(hours=1))
+    written = json.loads(output_path.read_text())
+    assert written["coverage"]["discovery_start"] == dns.iso_timestamp(
+        collection_clock - timedelta(seconds=1),
+    )
+    assert written["coverage"]["positive_jobs"] == 1
+    assert all(
+        window["coverage"]["discovery_complete"] is False
+        and window["coverage"]["complete"] is False
+        for window in written["windows"].values()
+    )
+    audit = audit_module.DashboardAudit(tmp_path)
+    audit.audit_dns_failures(output_path)
+    assert audit.report.errors == []
+    assert audit.report.degradations == []
+    assert {finding.code for finding in audit.report.warnings} == {"dns-health-partial"}
+
+    completed = subprocess.run(
+        [sys.executable, "-S", str(Path(audit_module.__file__).resolve()),
+         "--dns-only", "--dns-path", str(output_path)],
+        check=False, capture_output=True, text=True,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "Errors: 0" in completed.stdout
+
+    written["evidence"]["items"][0]["signature_ids"] = ["unrecognized-signature"]
+    output_path.write_text(json.dumps(written))
+    invalid_audit = audit_module.DashboardAudit(tmp_path)
+    invalid_audit.audit_dns_failures(output_path)
+    assert "dns-health-evidence-enum" in {
+        finding.code for finding in invalid_audit.report.errors
+    }
