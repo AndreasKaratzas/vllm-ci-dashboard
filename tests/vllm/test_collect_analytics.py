@@ -864,6 +864,197 @@ class TestWindowedAnalytics:
 
 
 class TestIncrementalAnalyticsCache:
+    def test_current_full_fetch_removes_retired_cache_without_extra_requests(
+        self, monkeypatch, tmp_path
+    ):
+        from vllm.ci import analytics_cache as cache
+
+        legacy = [_raw_api_build(number) for number in range(100, 112)]
+        for build in legacy:
+            build["jobs"][0]["name"] += "x" * 900
+        cache_dir = _write_test_build_cache(
+            tmp_path, builds=legacy, pipeline="amd-ci",
+        )
+        legacy_bytes = sum(path.stat().st_size for path in cache_dir.rglob("*") if path.is_file())
+        monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", legacy_bytes + 100)
+        current = _raw_api_build(22)
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            return [current]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        builds, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW,
+        )
+
+        assert builds == [current]
+        assert len(calls) == 1
+        assert provenance["cache"]["cache_written"] is True
+        assert provenance["cache"]["storage"]["retired_bytes_removed"] == legacy_bytes
+        assert not (cache_dir / "amd-ci.json").exists()
+        assert ca.load_build_cache(
+            cache_dir, "ci", cutoff=NOW - timedelta(days=30), window_days=30, ref_now=NOW,
+        ).builds == ca.sanitize_builds([current], "ci")
+
+    def test_bounded_recent_cache_reuses_evidence_and_fetches_exact_missing_history(
+        self, monkeypatch, tmp_path
+    ):
+        from vllm.ci import analytics_cache as cache
+
+        monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 8_000)
+        all_builds = [
+            _raw_api_build(number, created_at=NOW - timedelta(hours=number))
+            for number in range(1, 11)
+        ]
+        for build in all_builds:
+            build["jobs"][0]["name"] += "x" * 900
+        cache_dir = tmp_path / ca.CACHE_DIR_NAME
+        monkeypatch.setattr(ca, "bk_get", lambda *args, **kwargs: all_builds)
+        first, first_provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW,
+        )
+        storage = first_provenance["cache"]["storage"]
+        assert first == all_builds
+        assert first_provenance["cache"]["cache_written"] is True
+        assert 0 < storage["retained_builds"] < len(all_builds)
+        retained_from = datetime.fromisoformat(storage["complete_from"])
+        older = [
+            build for build in all_builds
+            if datetime.fromisoformat(build["created_at"]) < retained_from
+        ]
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            if "created_to" in params:
+                assert params["created_to"] == retained_from.isoformat()
+                return older
+            return []
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        monkeypatch.setattr(ca, "ANALYTICS_CACHE_SUSPICIOUS_GROWTH_MIN_BYTES", 1)
+        monkeypatch.setattr(ca, "ANALYTICS_CACHE_SUSPICIOUS_GROWTH_RATIO", 1.01)
+        later = NOW + timedelta(hours=1)
+        second, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=later,
+        )
+
+        assert ca.sanitize_builds(second, "ci") == ca.sanitize_builds(all_builds, "ci")
+        assert provenance["exhaustive"] is True
+        assert provenance["fetch_mode"] == "incremental"
+        assert provenance["created_from"] == (later - timedelta(days=30)).isoformat()
+        assert provenance["legs"]["uncached_older"]["exhaustive"] is True
+        assert provenance["cache"]["cache_written"] is True
+        assert len(calls) == 3
+        assert calls[-1]["created_from"] == (later - timedelta(days=30)).isoformat()
+        assert provenance["cache"]["storage"]["aggregate_bytes"] <= cache._MAX_CACHE_TOTAL_BYTES
+
+    def test_bounded_cache_overlap_prefers_later_history_then_direct_refresh(
+        self, monkeypatch, tmp_path
+    ):
+        from vllm.ci import analytics_cache as cache
+
+        monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 8_000)
+        builds = [
+            _raw_api_build(number, created_at=NOW - timedelta(hours=number))
+            for number in range(1, 11)
+        ]
+        builds[0]["state"] = "running"
+        builds[0]["jobs"][0]["state"] = "running"
+        for build in builds:
+            build["jobs"][0]["name"] += "x" * 900
+        cache_dir = tmp_path / ca.CACHE_DIR_NAME
+        storage = {}
+        ca.write_build_cache(
+            cache_dir, "ci", builds=builds, watermark=NOW, window_days=30,
+            last_full_at=NOW, updated_at=NOW, current_only=True, diagnostics=storage,
+        )
+        retained_from = datetime.fromisoformat(storage["complete_from"])
+        older = [copy.deepcopy(build) for build in builds
+                 if datetime.fromisoformat(build["created_at"]) < retained_from]
+        assert older and older[-1]["number"] == 10
+        failed_old = copy.deepcopy(builds[-1])
+        failed_old["state"] = "failed"
+        failed_old["jobs"][0]["state"] = "failed"
+        retried_old = older[-1]
+        retried_old["jobs"] = [copy.deepcopy(failed_old["jobs"][0]), copy.deepcopy(retried_old["jobs"][0])]
+        retried_old["jobs"][0].update(retried=True, retried_in_job_id="job-10-retry")
+        retried_old["jobs"][1]["id"] = "job-10-retry"
+        failed_recent = copy.deepcopy(builds[0])
+        failed_recent["state"] = "failed"
+        direct_recent = copy.deepcopy(builds[0])
+        direct_recent["state"] = "passed"
+        direct_recent["jobs"][0]["state"] = "passed"
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append((path, dict(params or {})))
+            if path.endswith("/builds/1"):
+                return direct_recent
+            if "created_to" in params:
+                return older
+            if "finished_from" in params:
+                return [failed_old, failed_recent]
+            return [builds[0]]
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        fetched, provenance = ca.fetch_pipeline_builds(
+            "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW,
+        )
+        by_number = {build["number"]: build for build in fetched}
+
+        assert by_number[10] == retried_old
+        assert by_number[10]["state"] == "passed"
+        assert by_number[10]["jobs"][-1]["id"] == "job-10-retry"
+        assert by_number[1] == direct_recent
+        assert provenance["exhaustive"] is True
+        assert provenance["fetch_mode"] == "incremental"
+        assert len(calls) == 4
+        assert "created_to" in calls[2][1]
+        assert calls[3][0].endswith("/builds/1")
+
+    @pytest.mark.parametrize("guard_denied", [False, True])
+    def test_incomplete_missing_history_cannot_refresh_bounded_cache_or_claim_coverage(
+        self, monkeypatch, tmp_path, guard_denied
+    ):
+        from vllm.ci import analytics_cache as cache
+
+        monkeypatch.setattr(cache, "_MAX_CACHE_TOTAL_BYTES", 8_000)
+        all_builds = [
+            _raw_api_build(number, created_at=NOW - timedelta(hours=number))
+            for number in range(1, 11)
+        ]
+        for build in all_builds:
+            build["jobs"][0]["name"] += "x" * 900
+        cache_dir = tmp_path / ca.CACHE_DIR_NAME
+        ca.write_build_cache(
+            cache_dir, "ci", builds=all_builds, watermark=NOW, window_days=30,
+            last_full_at=NOW, updated_at=NOW, current_only=True,
+        )
+        before = {path.relative_to(cache_dir): path.read_bytes() for path in cache_dir.rglob("*") if path.is_file()}
+        monkeypatch.setattr(ca, "BUILD_FETCH_PAGE_SIZE", 2)
+        calls = []
+
+        def fake_get(path, token, params=None):
+            calls.append(dict(params or {}))
+            if "created_to" in params and guard_denied:
+                raise ca.BuildkiteRequestGuardError("request allowance exhausted")
+            if "created_to" in params or params.get("created_from") == (NOW - timedelta(days=30)).isoformat():
+                return all_builds[-2:]
+            return []
+
+        monkeypatch.setattr(ca, "bk_get", fake_get)
+        expected_error = ca.BuildkiteRequestGuardError if guard_denied else ca.IncompleteAnalyticsCollection
+        with pytest.raises(expected_error):
+            ca.fetch_pipeline_builds(
+                "ci", "fake-token", 30, max_pages=1, cache_dir=cache_dir, ref_now=NOW,
+            )
+
+        assert len(calls) == (3 if guard_denied else 4)
+        assert {path.relative_to(cache_dir): path.read_bytes() for path in cache_dir.rglob("*") if path.is_file()} == before
+
     def test_incremental_cache_restores_exact_previous_popup_title(
         self, monkeypatch, tmp_path
     ):

@@ -9,8 +9,10 @@ These tests ensure:
 """
 
 import ast
+import base64
 import json
 import re
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path, PurePosixPath
@@ -227,7 +229,7 @@ class TestWorkflowYAML:
                         f"{workflow.name}:{job_name}: uploaded artifacts need an "
                         "explicit 1-30 day retention"
                     )
-        assert observed == 3
+        assert observed == 5
 
     def test_health_and_lifecycle_have_external_scheduler_wakeups(self):
         """An external tick can recover a delayed or dropped GitHub cron."""
@@ -2287,6 +2289,175 @@ class TestHourlyMasterWorkflow:
             "Enforce publication validation results"
         )
 
+    def test_selector_diagnostics_upload_after_success_or_failure_without_raw_data(self):
+        data = _load_workflow("hourly-master.yml")
+        steps = next(iter(data["jobs"].values())).get("steps", [])
+        names = [step.get("name") for step in steps]
+        selector = steps[names.index("Select validated publication surfaces")]
+        assert '--diagnostics-output "$RUNNER_TEMP/publication-selection-diagnostics.json"' in selector["run"]
+        artifact = steps[names.index("Upload publication selection diagnostics")]
+        assert "always()" in artifact["if"]
+        assert "steps.publication-selector.outcome == 'failure'" in artifact["if"]
+        assert "steps.publication-selector.outcome == 'success'" in artifact["if"]
+        assert artifact.get("continue-on-error") is True
+        assert artifact["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
+        assert artifact["with"]["path"] == "${{ runner.temp }}/publication-selection-diagnostics.json"
+        assert names.index("Select validated publication surfaces") < names.index("Upload publication selection diagnostics") < names.index("Purge retired view artifacts after validated selection")
+        text = _load_workflow_text("hourly-master.yml")
+        assert "steps.publication-selector.outputs.diagnostic_findings_b64" in text
+        assert "const diagnosticFindings = selectorOutcome === 'failure'" in text
+        assert "process.env.HOURLY_SELECTOR_DIAGNOSTICS" in text
+
+    def test_current_ci_core_validation_uploads_only_sanitized_report_before_analytics(self):
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        names = [step.get("name") for step in steps]
+        validation = steps[names.index("Validate current CI core before analytics")]
+        assert validation["id"] == "ci-core-validation"
+        for guard in (
+            "inputs.dns_generation == ''", "inputs.queue_generation == ''",
+            "steps.request-attempt.outputs.request_mode == 'reserved'",
+            "steps.collect-ci.outputs.cache_save == 'true'",
+        ):
+            assert guard in validation["if"]
+        script = validation["run"]
+        assert "if ! surface_is_current ci_core; then" in script
+        assert script.index("surface_is_current ci_core") < script.index('echo "audited=true"')
+        assert '"--ci-core-only", "--format", "json"' in script
+        assert "capture_output=True" in script
+        assert "write_ci_core_diagnostics(" in script
+        assert "exit_code = ci_core_report_exit_code(report, result.returncode)" in script
+        assert "raise SystemExit(exit_code)" in script
+        assert "result.stderr" not in script
+        assert "result.stdout)" in script
+        assert "write_text(result.stdout" not in script
+        artifact = steps[names.index("Upload current CI core validation diagnostics")]
+        assert "always()" in artifact["if"]
+        assert "steps.ci-core-validation.outputs.audited == 'true'" in artifact["if"]
+        assert artifact["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
+        assert artifact["with"]["path"] == "${{ runner.temp }}/ci-core-validation.json"
+        assert artifact["with"]["retention-days"] == 7
+        assert names.index("Collect build-pinned CI ownership parity") < names.index("Validate current CI core before analytics") < names.index("Upload current CI core validation diagnostics") < names.index("Prepare private analytics cache key")
+
+    @pytest.mark.parametrize("exit_code", [0, 1])
+    def test_current_ci_core_workflow_writes_safe_artifact_and_preserves_actual_exit(self, tmp_path, monkeypatch, exit_code):
+        from vllm import select_publication_surfaces as selector
+
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        validation = next(step for step in steps if step.get("id") == "ci-core-validation")
+        inline = validation["run"].split("python - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+        report = {"errors": [{"severity": "error", "code": "matrix-health-build",
+                               "message": "Fresh CI build mismatch",
+                               "context": {"matrix_build": 93523, "health_build": 93524,
+                                           "agent_id": "private-agent", "raw_log": "private-log"}}] if exit_code else [],
+                  "degradations": [], "warnings": [], "metrics": {"agent": "private-agent", "raw_log": "private-log"}}
+        calls = []
+        def run_audit(command, **kwargs):
+            calls.append(command)
+            assert kwargs == {"capture_output": True, "text": True, "check": False}
+            return subprocess.CompletedProcess(command, exit_code, json.dumps(report), "private-raw-stderr token=private-token")
+        monkeypatch.setattr(subprocess, "run", run_audit)
+        with pytest.raises(SystemExit) as exited:
+            exec(compile(inline, "hourly-ci-core-validation", "exec"), {})
+        assert exited.value.code == exit_code
+        assert calls[0][1:] == ["scripts/vllm/audit_dashboard_data.py", "--ci-core-only", "--format", "json"]
+        artifact = tmp_path / "ci-core-validation.json"
+        decoded = json.loads(artifact.read_text())
+        assert decoded["mode"] == ("blocked" if exit_code else "current")
+        if exit_code:
+            assert decoded["candidate_errors"][0]["context"] == {"matrix_build": 93523, "health_build": 93524}
+        for private in ("private-agent", "private-log", "private-raw-stderr", "private-token"):
+            assert private not in artifact.read_text()
+        assert len(artifact.read_bytes()) <= selector.SELECTION_DIAGNOSTICS_MAX_BYTES
+
+    def test_current_ci_core_workflow_keeps_audit_failure_when_diagnostic_write_fails(self, tmp_path, monkeypatch, capsys):
+        from vllm import select_publication_surfaces as selector
+
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        validation = next(step for step in steps if step.get("id") == "ci-core-validation")
+        inline = validation["run"].split("python - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "invalid json", "private-stderr"))
+        def cannot_write(*args, **kwargs):
+            raise OSError("private-storage-details")
+        monkeypatch.setattr(selector, "write_ci_core_diagnostics", cannot_write)
+        with pytest.raises(SystemExit) as exited:
+            exec(compile(inline, "hourly-ci-core-validation", "exec"), {})
+        assert exited.value.code == 1
+        captured = capsys.readouterr()
+        assert "OSError" in captured.err
+        assert "private-storage-details" not in captured.err
+        assert "private-stderr" not in captured.err
+
+    @pytest.mark.parametrize("raw_report", ["invalid json", "null", "[]", "{}", '{"errors": []}'])
+    def test_current_ci_core_workflow_rejects_missing_or_malformed_report_even_with_zero_exit(self, tmp_path, monkeypatch, raw_report):
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        validation = next(step for step in steps if step.get("id") == "ci-core-validation")
+        inline = validation["run"].split("python - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, raw_report, "private-stderr"))
+        with pytest.raises(SystemExit) as exited:
+            exec(compile(inline, "hourly-ci-core-validation", "exec"), {})
+        assert exited.value.code == 1
+        artifact = json.loads((tmp_path / "ci-core-validation.json").read_text())
+        assert artifact["mode"] == "blocked"
+        assert artifact["candidate_errors"][0]["code"] == "ci-core-audit-report-unavailable"
+
+    @pytest.mark.parametrize("selector_outcome", ["failure", "skipped"])
+    def test_incident_prioritizes_initial_current_ci_findings_even_when_selector_skips(self, tmp_path, selector_outcome):
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        incident = next(step for step in steps if step.get("name") == "Create hourly validation incident")
+        script = incident["with"]["script"]
+        prefix = script[:script.index("const contentFingerprint")]
+        initial = {"severity": "error", "code": "fresh-ci-first-cause", "message": "Current CI routing is inconsistent",
+                   "context": {"build_number": 93523, "expected": 225, "actual": 215}}
+        final = [{"severity": "error", "code": f"post-fallback-{index}", "message": "Historical snapshot mismatch"} for index in range(12)]
+        diagnostics = {"mode": "blocked", "candidate_errors": [initial], "candidate_degradations": [],
+                       "final_errors": final, "final_degradations": []}
+        encoded = base64.b64encode(json.dumps(diagnostics).encode()).decode()
+        data = tmp_path / "data/vllm/ci"
+        data.mkdir(parents=True)
+        (data / "publication_state.json").write_text(json.dumps({
+            "mode": "current", "final_errors": [{"code": "stale-file-only-error", "message": "Old state"}],
+        }))
+        environment = {
+            "GITHUB_WORKSPACE": str(REPO_ROOT), "HOURLY_JOB_STATUS": "failure",
+            "HOURLY_SELECTOR_OUTCOME": selector_outcome,
+            "HOURLY_CI_CORE_OUTCOME": "failure" if selector_outcome == "skipped" else "success",
+            "HOURLY_SELECTOR_DIAGNOSTICS" if selector_outcome == "failure" else "HOURLY_CI_CORE_DIAGNOSTICS": encoded,
+        }
+        executable = (
+            "const context = {serverUrl: 'https://github.com', repo: {owner: 'fixture', repo: 'dashboard'}, runId: 123};\n"
+            "const core = {warning: () => {}};\n" + prefix +
+            "\nconsole.log(JSON.stringify({report, summary, incidentKind, fingerprintSource, mode: publicationState.mode}));\n"
+        )
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node is unavailable locally; CI runners execute this behavior test")
+        result = subprocess.run([node], input=executable, text=True, capture_output=True,
+                                cwd=tmp_path, env=environment, timeout=20, check=True)
+        rendered = json.loads(result.stdout)
+        assert rendered["mode"] == "blocked"
+        assert "stale-file-only-error" not in rendered["report"]
+        assert "publication-finding:fresh-ci-first-cause" in rendered["fingerprintSource"]
+        report = rendered["report"]
+        assert report.index("Initial candidate findings") < report.index("fresh-ci-first-cause") < report.index("Final validation findings")
+        for title, limit in (("Initial candidate findings", 6000), ("Final validation findings", 2000)):
+            text = re.search(rf"<summary>{title}</summary>\n\n```json\n(.*?)\n```", report, re.DOTALL).group(1)
+            decoded = json.loads(text)
+            assert len(text) <= limit
+            assert isinstance(decoded["omitted"], int)
+        if selector_outcome == "skipped":
+            assert rendered["incidentKind"] == "Current CI Core Validation Failure"
+            assert "before analytics" in rendered["summary"]
+            assert "unclassified" not in rendered["fingerprintSource"]
+
     def test_failed_validation_blocks_publication(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
@@ -2441,7 +2612,8 @@ class TestHourlyMasterWorkflow:
         assert "publicationState.candidate_degradations" in script
         assert "publicationState.final_errors" in script
         assert "publicationState.final_degradations" in script
-        assert "Publication findings" in script
+        assert "Initial candidate findings" in script
+        assert "Final validation findings" in script
         assert "Live Publication Audit Failure" in script
         assert "workflow:unclassified-step-failure" in script
         assert "priorJobStatus === 'failure'" in script
@@ -2530,7 +2702,9 @@ class TestHourlyMasterWorkflow:
             script.index("const report = ["):
             script.index("const contentFingerprint")
         ]
-        assert "JSON.stringify(publicationFindings, null, 2)" in report
+        assert "boundedFindingJSON(candidatePublicationFindings, 6000)" in report
+        assert "boundedFindingJSON(finalPublicationFindings, candidatePublicationFindings.length ? 2000 : 8000)" in report
+        assert report.index("Initial candidate findings") < report.index("Final validation findings")
 
     def test_hourly_issue_storm_is_migrated_to_one_owned_current_slot(self):
         data = _load_workflow("hourly-master.yml")

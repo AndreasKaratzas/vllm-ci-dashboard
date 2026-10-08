@@ -10,9 +10,11 @@ restored result is rebuilt and subjected to the complete audit again.
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -99,6 +101,11 @@ QUEUE_SPLIT_SURFACES = frozenset({
     QUEUE_LIVE_SURFACE,
     *QUEUE_COMPANION_SURFACES,
 })
+SELECTION_DIAGNOSTICS_MAX_BYTES = 256 * 1024
+SELECTION_FINDINGS_OUTPUT_MAX_BYTES = 32 * 1024
+DIAGNOSTIC_FINDING_FIELDS = (
+    "candidate_errors", "candidate_degradations", "final_errors", "final_degradations",
+)
 
 
 class FallbackExpiredError(RuntimeError):
@@ -128,6 +135,259 @@ def _safe_detail_text(value: object) -> str:
         text,
     )
     return text
+
+
+def _diagnostic_text(value: object, *, limit: int = 1000) -> str:
+    text = _safe_detail_text(value)
+    text = re.sub(r"(?i)\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", "<id>", text)
+    text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<address>", text)
+    text = re.sub(
+        r"(?i)\b(?:agent|node|host|hostname|machine)(?:[_ -]?(?:id|name))?\s*(?:[:=]\s*|\s+)\S+",
+        "<redacted-identity>", text,
+    )
+    return text[:limit]
+
+
+def _diagnostic_context(value: object, depth: int = 0, remaining: list[int] | None = None) -> dict:
+    """Keep invariant counts/source identities, never arbitrary logs or identities."""
+    if not isinstance(value, Mapping) or depth > 2:
+        return {}
+    remaining = [128] if remaining is None else remaining
+    result: dict[str, Any] = {}
+    for key, raw in list(value.items())[:32]:
+        if remaining[0] <= 0:
+            break
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", key):
+            continue
+        if re.search(r"(?i)agent|node|host|machine|token|secret|password|authorization|cache|log|detail|output|command", key):
+            continue
+        remaining[0] -= 1
+        if raw is None or isinstance(raw, bool):
+            result[key] = raw
+        elif isinstance(raw, int) and abs(raw) <= 2 ** 63 or isinstance(raw, float) and math.isfinite(raw):
+            result[key] = raw
+        elif isinstance(raw, Mapping):
+            result[key] = _diagnostic_context(raw, depth + 1, remaining)
+        elif isinstance(raw, str) and key in {
+            "source", "phase", "pipeline", "source_pipeline", "surface", "field",
+            "branch", "job_scope", "definition_source", "reason_class", "exception_type",
+            "commit_sha", "definition_commit", "runtime_source_commit_sha",
+        }:
+            result[key] = _diagnostic_text(raw, limit=160)
+    return result
+
+
+def _diagnostic_finding(value: object) -> dict:
+    row = value if isinstance(value, Mapping) else {}
+    return {
+        "severity": row.get("severity") if isinstance(row.get("severity"), str) and row.get("severity") in {"error", "degradation", "warning"} else "error",
+        "code": _diagnostic_text(row.get("code"), limit=120),
+        "message": _diagnostic_text(row.get("message")),
+        "path": _diagnostic_text(row.get("path"), limit=240),
+        "surfaces": [surface for surface in row.get("surfaces") or [] if isinstance(surface, str) and surface in SURFACE_SPECS],
+        "context": _diagnostic_context(row.get("context"), remaining=[32]),
+    }
+
+
+def _candidate_ci_evidence(root: Path) -> dict:
+    """Read only explicit generated sources and retain small typed summaries."""
+    evidence = {}
+    for filename in ("ci_health.json", "amd_test_matrix.json", "config_parity.json", "test_group_parity.json", "analytics.json"):
+        path = root / "data/vllm/ci" / filename
+        item: dict[str, Any] = {"readable": False}
+        evidence[filename] = item
+        try:
+            resolved = path.resolve()
+            if path.is_symlink() or not resolved.is_relative_to(root.resolve()) or any(part.startswith(".cache") for part in resolved.parts):
+                continue
+            if path.stat().st_size > 64 * 1024 * 1024:
+                item["reason"] = "source-too-large-for-diagnostics"
+                continue
+            raw = path.read_bytes()
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                continue
+        except (OSError, ValueError):
+            continue
+        item.update(readable=True, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+        if _parse_utc(payload.get("generated_at")):
+            item["generated_at"] = payload["generated_at"]
+        source = payload.get("source") or {}
+        item["source"] = {
+            key: value for key, value in source.items()
+            if key in {"pipeline", "definition_source"} and isinstance(value, str) and value in {"ci", "amd-ci", "main_ci_inline_and_native_amd"}
+            or key in {"commit_sha", "current_definition_commit_sha", "runtime_source_commit_sha", "main_commit"}
+            and isinstance(value, str) and FULL_SHA_RE.fullmatch(value)
+        } if isinstance(source, dict) else {}
+        item["summary"] = _diagnostic_context(payload.get("summary"))
+
+        def build_summary(build: object) -> dict:
+            if not isinstance(build, dict):
+                return {}
+            summary = _diagnostic_context(build)
+            for key in ("created_at", "finished_at"):
+                if _parse_utc(build.get(key)):
+                    summary[key] = build[key]
+            if isinstance(build.get("state"), str) and build["state"] in {"passed", "failed", "canceled", "cancelled", "running", "scheduled", "blocked", "skipped"}:
+                summary["state"] = build["state"]
+            commit = build.get("commit")
+            if isinstance(commit, str) and FULL_SHA_RE.fullmatch(commit):
+                summary["commit"] = commit
+            build_url = build.get("build_url") or build.get("web_url")
+            match = re.fullmatch(r"https://buildkite\.com/vllm/(ci|amd-ci)/builds/([1-9][0-9]*)", build_url) if isinstance(build_url, str) else None
+            if match:
+                summary["pipeline_from_build_url"] = match[1]
+                summary["number_from_build_url"] = int(match[2])
+            return summary
+
+        if filename == "ci_health.json":
+            item["cohorts"] = {
+                side: {key: build_summary((payload.get(side) or {}).get(key))
+                       for key in ("latest_pipeline_build", "latest_test_signal_build", "latest_build")}
+                for side in ("amd", "upstream") if isinstance(payload.get(side), dict)
+            }
+        elif filename == "analytics.json":
+            ci = payload.get("ci") or {}
+            if isinstance(ci, dict):
+                builds = ci.get("builds") or []
+                item["ci_build_count"] = len(builds) if isinstance(builds, list) else None
+                item["latest_ci_builds"] = [build_summary(build) for build in builds[:5]] if isinstance(builds, list) else []
+        elif filename == "amd_test_matrix.json":
+            item["latest_build_number"] = _positive_int(source.get("latest_build_number")) if isinstance(source, dict) else None
+            rows = payload.get("rows") or []
+            item["definition_row_count"] = len(rows) if isinstance(rows, list) else None
+            routes = []
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                cells = row.get("cells") or {}
+                for arch, cell in cells.items() if isinstance(cells, dict) else []:
+                    if arch not in {"mi250", "mi300", "mi325", "mi355"} or not isinstance(cell, dict):
+                        continue
+                    variants = cell.get("variants") or []
+                    for variant in variants if isinstance(variants, list) else []:
+                        if not isinstance(variant, dict):
+                            continue
+                        definition = variant.get("definition_id")
+                        if not isinstance(definition, str) or not re.fullmatch(r"\.buildkite/test_areas/[A-Za-z0-9_./-]+\.ya?ml#[A-Za-z0-9_.:-]+", definition):
+                            continue
+                        if _diagnostic_text(definition, limit=320) != definition:
+                            continue
+                        routes.append({"definition_id": definition, "architecture": arch,
+                                       "optional": variant.get("optional") is True,
+                                       "soft_fail": variant.get("soft_fail") is True,
+                                       "latest_matched": variant.get("latest_matched") is True})
+                        if len(routes) == 16:
+                            break
+                    if len(routes) == 16:
+                        break
+                if len(routes) == 16:
+                    break
+            item["route_sample"] = routes
+    return evidence
+
+
+def _bounded_selection_diagnostics(diagnostics: dict, *, max_bytes: int) -> dict:
+    state = diagnostics.get("_selection_state") or {}
+    findings = {field: [_diagnostic_finding(row) for row in state.get(field) or []]
+                for field in DIAGNOSTIC_FINDING_FIELDS}
+    # Round-robin retention prevents a large post-fallback lane from erasing
+    # every initial candidate finding, or the reverse.
+    priority = [(field, index) for index in range(max((len(rows) for rows in findings.values()), default=0))
+                for field in DIAGNOSTIC_FINDING_FIELDS if index < len(findings[field])]
+    def candidate(count: int) -> dict:
+        selected = set(priority[:count])
+        kept = {field: [row for index, row in enumerate(rows) if (field, index) in selected]
+                for field, rows in findings.items()}
+        return {
+            "schema_version": 1, "generated_at": diagnostics["generated_at"],
+            "phase": diagnostics.get("phase", "publication-selection"),
+            "mode": state.get("mode", "blocked"),
+            "exception_type": diagnostics.get("exception_type"),
+            "candidate_evidence": diagnostics.get("candidate_evidence", {}),
+            **kept,
+            "retention": {field: {"source": len(findings[field]), "published": len(kept[field]),
+                                  "omitted": len(findings[field]) - len(kept[field])}
+                          for field in DIAGNOSTIC_FINDING_FIELDS},
+        }
+    low, high, best = 0, len(priority), None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best, low = attempt, keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError("sanitized selection diagnostic metadata exceeded its bound")
+    return best
+
+
+def _emit_diagnostic_findings(diagnostics: dict) -> None:
+    output_source = {**diagnostics, "candidate_evidence": {}}
+    output = _bounded_selection_diagnostics(output_source, max_bytes=SELECTION_FINDINGS_OUTPUT_MAX_BYTES)
+    encoded = base64.b64encode(json.dumps(output, separators=(",", ":")).encode()).decode()
+    output_path = os.getenv("GITHUB_OUTPUT", "").strip()
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as handle:
+            handle.write(f"diagnostic_findings_b64={encoded}\n")
+
+
+def _write_selection_diagnostics(path: Path, diagnostics: dict) -> None:
+    artifact = _bounded_selection_diagnostics(diagnostics, max_bytes=SELECTION_DIAGNOSTICS_MAX_BYTES)
+    _atomic_write(path, pretty_json_bytes(artifact))
+    _emit_diagnostic_findings(diagnostics)
+    counts = ", ".join(f"{field}={record['source']}" for field, record in artifact["retention"].items())
+    print(f"Publication selection diagnostics: {counts}")
+
+
+def _validate_diagnostics_path(root: Path, path: Path, state_path: Path | None = None) -> None:
+    resolved = path.resolve()
+    if state_path is not None and resolved == state_path.resolve() or any(
+        resolved.is_relative_to(root / directory)
+        for directory in ("data", "docs", "dashboards", "_site")
+    ):
+        raise ValueError("Diagnostic artifacts must remain outside publication data and assets")
+
+
+def ci_core_report_exit_code(report: object, exit_code: int) -> int:
+    """A successful subprocess also needs a usable standard JSON audit report."""
+    if not isinstance(report, Mapping) or not isinstance(report.get("metrics"), Mapping):
+        return exit_code or 1
+    for lane, severity in (("errors", "error"), ("degradations", "degradation"), ("warnings", "warning")):
+        findings = report.get(lane)
+        if not isinstance(findings, list) or any(
+            not isinstance(row, Mapping) or row.get("severity") != severity
+            or not isinstance(row.get("code"), str) or not isinstance(row.get("message"), str)
+            for row in findings
+        ):
+            return exit_code or 1
+    return exit_code or (1 if report["errors"] else 0)
+
+
+def write_ci_core_diagnostics(root: Path, path: Path, report: object, exit_code: int) -> None:
+    """Persist only bounded source facts and findings from the early raw audit."""
+    _validate_diagnostics_path(root.resolve(), path)
+    payload = report if isinstance(report, Mapping) else {}
+    errors = payload.get("errors") if isinstance(payload.get("errors"), list) else []
+    degradations = payload.get("degradations") if isinstance(payload.get("degradations"), list) else []
+    if exit_code and not errors:
+        errors = [{"severity": "error", "code": "ci-core-audit-report-unavailable",
+                   "message": "Current CI core validation failed without a usable JSON error report",
+                   "context": {"exit_code": exit_code}}]
+    diagnostics = {
+        "generated_at": _utc_now(), "phase": "ci-core-pre-analytics",
+        "candidate_evidence": _candidate_ci_evidence(root),
+        "_selection_state": {
+            "mode": "blocked" if exit_code else "current",
+            "candidate_errors": errors, "candidate_degradations": degradations,
+            "final_errors": errors, "final_degradations": degradations,
+        },
+    }
+    artifact = _bounded_selection_diagnostics(diagnostics, max_bytes=SELECTION_DIAGNOSTICS_MAX_BYTES)
+    _atomic_write(path, pretty_json_bytes(artifact))
+    _emit_diagnostic_findings(diagnostics)
+    print(f"Current CI core validation: exit={exit_code}, errors={len(errors)}, degradations={len(degradations)}")
 
 
 def _safe_collector_details(value: object) -> dict[str, Any]:
@@ -2064,6 +2324,7 @@ def select_publication(
     collector_failures: Iterable[Mapping[str, Any]] = (),
     refresh_only_surface: str | None = None,
     candidate_code_ref: str | None = None,
+    diagnostics: dict | None = None,
 ) -> dict:
     baseline_ref = baseline_ref.strip().lower()
     if not FULL_SHA_RE.fullmatch(baseline_ref):
@@ -2262,6 +2523,10 @@ def select_publication(
         "restored_paths": {},
         "restored_manifest": {},
     }
+    if diagnostics is not None:
+        # This reference preserves the complete live finding lanes even if the
+        # independently bounded recovery-state file omits diagnostic rows.
+        diagnostics["_selection_state"] = state
 
     def restore_active_fallback() -> None:
         """Atomically restore and attest every not-yet-restored fallback lane."""
@@ -2681,6 +2946,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--root", default=str(ROOT))
     parser.add_argument("--state-output", default=str(DEFAULT_STATE))
     parser.add_argument(
+        "--diagnostics-output", default="",
+        help="Write bounded sanitized candidate/final findings and pre-fallback CI evidence to a runner artifact",
+    )
+    parser.add_argument(
         "--force-degraded-surface",
         action="append",
         default=[],
@@ -2717,7 +2986,22 @@ def main(argv: list[str] | None = None) -> int:
     state_path = Path(args.state_output)
     if not state_path.is_absolute():
         state_path = root / state_path
+    diagnostics_path = Path(args.diagnostics_output) if args.diagnostics_output else None
+    if diagnostics_path is not None and not diagnostics_path.is_absolute():
+        diagnostics_path = root / diagnostics_path
+    diagnostics = {"generated_at": _utc_now(), "candidate_evidence": {}}
+    exit_code = 0
     try:
+        if diagnostics_path is not None:
+            try:
+                _validate_diagnostics_path(root, diagnostics_path, state_path)
+            except ValueError:
+                diagnostics_path = None
+                raise
+            try:
+                diagnostics["candidate_evidence"] = _candidate_ci_evidence(root)
+            except Exception as exc:
+                diagnostics["candidate_evidence"] = {"capture_exception_type": type(exc).__name__}
         forced = [*args.force_degraded_surface]
         forced.extend(
             surface.strip()
@@ -2738,11 +3022,27 @@ def main(argv: list[str] | None = None) -> int:
             collector_failures=collector_failures,
             refresh_only_surface=args.refresh_only_surface,
             candidate_code_ref=args.candidate_code_ref,
+            diagnostics=diagnostics if diagnostics_path is not None else None,
         )
     except Exception as exc:
-        print(f"Publication selection failed: {exc}", file=sys.stderr)
-        return 1
-    return 0
+        diagnostics["exception_type"] = type(exc).__name__
+        if "_selection_state" not in diagnostics:
+            diagnostics["_selection_state"] = {"mode": "blocked", "final_errors": [{
+                "severity": "error", "code": "publication-selection-failed-before-audit",
+                "message": "Selection failed before an auditable candidate state was created",
+                "context": {"exception_type": type(exc).__name__},
+            }]}
+        print(f"Publication selection failed: {_diagnostic_text(exc)}", file=sys.stderr)
+        exit_code = 1
+    finally:
+        if diagnostics_path is not None:
+            try:
+                _write_selection_diagnostics(diagnostics_path, diagnostics)
+            except Exception as exc:
+                # Observability never authorizes fallback or changes selection's
+                # result. Keep the original hard-stop exit when selection fails.
+                print(f"Publication diagnostics could not be written ({type(exc).__name__})", file=sys.stderr)
+    return exit_code
 
 
 if __name__ == "__main__":

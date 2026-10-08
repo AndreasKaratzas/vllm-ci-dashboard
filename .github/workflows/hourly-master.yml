@@ -1570,6 +1570,94 @@ jobs:
           path: data/vllm/ci/.cache/ci-backfill-v1
           key: ${{ steps.ci-backfill-cache-key.outputs.key }}
 
+      - name: Collect AMD test matrix
+        # The matrix is derived from the exact roster frozen by collect-ci in
+        # this same reserved request attempt. A zero-request cooldown run has
+        # no private handoff by design and must retain the validated matrix
+        # from dashboard-state instead of rebuilding from partial analytics.
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci_core "AMD test matrix" \
+            python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/ \
+            --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
+
+      - name: Refresh current main CI parity
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci_core "Current main CI parity" \
+            python scripts/vllm/build_test_group_parity.py \
+            --source-commit "$VLLM_CONFIG_SHA" --output data/vllm/ci/
+
+      - name: Collect build-pinned CI ownership parity
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          run_surface_collector ci_core "CI ownership parity" \
+            python scripts/vllm/collect_ownership_parity.py \
+            --input-dir data/vllm/ci --output data/vllm/ci
+
+      - name: Validate current CI core before analytics
+        id: ci-core-validation
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.collect-ci.outputs.cache_save == 'true'
+        run: |
+          set -euo pipefail
+          source "$PUBLICATION_COLLECTOR_HELPERS"
+          if ! surface_is_current ci_core; then
+            echo "Current CI core has a recorded collector failure; final selector will apply strict fallback proofs."
+            exit 0
+          fi
+          echo "audited=true" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from vllm.select_publication_surfaces import ci_core_report_exit_code, write_ci_core_diagnostics
+
+          result = subprocess.run(
+              [sys.executable, "scripts/vllm/audit_dashboard_data.py", "--ci-core-only", "--format", "json"],
+              capture_output=True, text=True, check=False,
+          )
+          try:
+              report = json.loads(result.stdout)
+          except (TypeError, ValueError):
+              report = None
+          exit_code = ci_core_report_exit_code(report, result.returncode)
+          try:
+              write_ci_core_diagnostics(
+                  Path.cwd(), Path(os.environ["RUNNER_TEMP"]) / "ci-core-validation.json",
+                  report, exit_code,
+              )
+          except Exception as exc:
+              print(f"Current CI core diagnostics could not be written ({type(exc).__name__})", file=sys.stderr)
+          raise SystemExit(exit_code)
+          PY
+
+      - name: Upload current CI core validation diagnostics
+        if: >-
+          always() && inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.ci-core-validation.outputs.audited == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: current-ci-core-validation-diagnostics
+          path: ${{ runner.temp }}/ci-core-validation.json
+          if-no-files-found: warn
+          retention-days: 7
+
       # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
       # GitHub Actions cache storage. It is never seeded from gh-pages, staged
       # in git, or included in the public site manifest. Every successful run
@@ -1699,40 +1787,6 @@ jobs:
           run_surface_collector agent_health "AMD agent health" \
             python scripts/vllm/collect_agent_health.py \
             --days 3 --pipeline both --output data/vllm/ci/
-
-      - name: Collect AMD test matrix
-        # The matrix is derived from the exact roster frozen by collect-ci in
-        # this same reserved request attempt. A zero-request cooldown run has
-        # no private handoff by design and must retain the validated matrix
-        # from dashboard-state instead of rebuilding from partial analytics.
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_core "AMD test matrix" \
-            python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/ \
-            --build-snapshot data/vllm/ci/.cache/amd_nightly_snapshot.json
-
-      - name: Refresh current main CI parity
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_core "Current main CI parity" \
-            python scripts/vllm/build_test_group_parity.py \
-            --source-commit "$VLLM_CONFIG_SHA" --output data/vllm/ci/
-
-      - name: Collect build-pinned CI ownership parity
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_core "CI ownership parity" \
-            python scripts/vllm/collect_ownership_parity.py \
-            --input-dir data/vllm/ci --output data/vllm/ci
 
       - name: Validate private perf-eval event store
         if: >-
@@ -1927,7 +1981,21 @@ jobs:
             --baseline-ref "$PUBLICATION_BASELINE_REF" \
             --candidate-code-ref "$PUBLICATION_CODE_SHA" \
             --collector-failures-file "$PUBLICATION_COLLECTOR_FAILURES_FILE" \
+            --diagnostics-output "$RUNNER_TEMP/publication-selection-diagnostics.json" \
             "${SELECTOR_ARGS[@]}"
+
+      - name: Upload publication selection diagnostics
+        if: >-
+          always() &&
+          (steps.publication-selector.outcome == 'success' ||
+           steps.publication-selector.outcome == 'failure')
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: publication-selection-diagnostics
+          path: ${{ runner.temp }}/publication-selection-diagnostics.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Purge retired view artifacts after validated selection
         if: >-
@@ -3191,6 +3259,9 @@ jobs:
           HOURLY_TEST_FAILURES: ${{ steps.run-tests.outputs.failures }}
           HOURLY_TEST_OUTPUT: ${{ steps.run-tests.outputs.output }}
           HOURLY_SELECTOR_OUTCOME: ${{ steps.publication-selector.outcome }}
+          HOURLY_SELECTOR_DIAGNOSTICS: ${{ steps.publication-selector.outputs.diagnostic_findings_b64 }}
+          HOURLY_CI_CORE_OUTCOME: ${{ steps.ci-core-validation.outcome }}
+          HOURLY_CI_CORE_DIAGNOSTICS: ${{ steps.ci-core-validation.outputs.diagnostic_findings_b64 }}
           HOURLY_SELECTOR_DEGRADED: ${{ steps.publication-selector.outputs.degraded }}
           HOURLY_SELECTOR_ALERTABLE: ${{ steps.publication-selector.outputs.alertable_degradation }}
           HOURLY_TRANSIENT_SUPPRESSED: ${{ steps.publication-selector.outputs.transient_alert_suppressed }}
@@ -3227,6 +3298,7 @@ jobs:
               'No output captured',
             );
             const selectorOutcome = process.env.HOURLY_SELECTOR_OUTCOME || 'unknown';
+            const hasCiCoreFailure = process.env.HOURLY_CI_CORE_OUTCOME === 'failure';
             const selectorDegraded = (process.env.HOURLY_SELECTOR_DEGRADED || '') === 'true';
             const selectorAlertable =
               (process.env.HOURLY_SELECTOR_ALERTABLE || '') === 'true';
@@ -3253,7 +3325,7 @@ jobs:
             const hasDeploymentFailure = deploymentFailures.length > 0;
             const hasUnclassifiedWorkflowFailure = priorJobStatus === 'failure' &&
               !hasTestFailure && selectorOutcome !== 'failure' &&
-              !hasLiveAuditFailure && !hasDeploymentFailure;
+              !hasCiCoreFailure && !hasLiveAuditFailure && !hasDeploymentFailure;
             let liveAuditFindings = [];
             try {
               const parsedFindings = JSON.parse(
@@ -3284,6 +3356,24 @@ jobs:
                   message: String(error.message || error),
                 }],
               };
+            }
+            const earlyCiCoreBlocked = hasCiCoreFailure &&
+              selectorOutcome !== 'success' && selectorOutcome !== 'failure';
+            const diagnosticFindings = selectorOutcome === 'failure'
+              ? process.env.HOURLY_SELECTOR_DIAGNOSTICS
+              : earlyCiCoreBlocked ? process.env.HOURLY_CI_CORE_DIAGNOSTICS : '';
+            if (diagnosticFindings) {
+              try {
+                const diagnostics = JSON.parse(Buffer.from(
+                  diagnosticFindings, 'base64',
+                ).toString('utf8'));
+                for (const field of ['candidate_errors', 'candidate_degradations', 'final_errors', 'final_degradations']) {
+                  if (Array.isArray(diagnostics[field])) publicationState[field] = diagnostics[field];
+                }
+                if (earlyCiCoreBlocked || diagnostics.mode === 'blocked') publicationState.mode = 'blocked';
+              } catch (error) {
+                core.warning('Sanitized validation diagnostics could not be decoded; retaining recovery-state findings.');
+              }
             }
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const date = new Date().toISOString().slice(0, 10);
@@ -3337,12 +3427,15 @@ jobs:
               ...(Array.isArray(publicationState.candidate_degradations)
                 ? publicationState.candidate_degradations : []),
             ];
-            const rawPublicationFindings = [
-              ...candidatePublicationFindings,
+            const finalPublicationFindings = [
               ...(Array.isArray(publicationState.final_errors)
                 ? publicationState.final_errors : []),
               ...(Array.isArray(publicationState.final_degradations)
                 ? publicationState.final_degradations : []),
+            ];
+            const rawPublicationFindings = [
+              ...candidatePublicationFindings,
+              ...finalPublicationFindings,
             ];
             // Candidate and post-restore audits can report the same exact
             // condition. Preserve distinct evidence while rendering and
@@ -3412,7 +3505,7 @@ jobs:
             const signalEvidence = [...new Set([
               ...(hasTestFailure
                 ? normalizedFailureNodes.map(node => `deterministic:${node}`) : []),
-              ...((selectorOutcome === 'failure' || selectorAlertable)
+              ...((selectorOutcome === 'failure' || earlyCiCoreBlocked || selectorAlertable)
                 ? (publicationConditionSignals.length
                   ? publicationConditionSignals.map(
                     signal => `publication-finding:${signal}`,
@@ -3433,6 +3526,9 @@ jobs:
                 : []),
             ])].sort();
             const summaryParts = [];
+            if (earlyCiCoreBlocked) {
+              summaryParts.push('current CI core validation blocked before analytics');
+            }
             if (selectorOutcome === 'failure' || selectorDegraded) {
               summaryParts.push(`publication ${publicationState.mode || selectorOutcome}`);
             }
@@ -3459,7 +3555,9 @@ jobs:
             const fingerprintMarker = `<!-- hourly-ci-fingerprint:${fingerprint} -->`;
             const fingerprintVersionMarker = '<!-- hourly-ci-fingerprint-version:4 -->';
             const title = `Hourly validation failure [${fingerprint.slice(0, 8)}] — ${date}`;
-            const incidentKind = selectorOutcome === 'failure'
+            const incidentKind = earlyCiCoreBlocked
+              ? 'Current CI Core Validation Failure'
+              : selectorOutcome === 'failure'
               ? 'Publication Selection Failure'
               : hasDeploymentFailure
                 ? 'Dashboard Deployment Failure'
@@ -3484,6 +3582,15 @@ jobs:
               !hasDeploymentFailure && !hasUnclassifiedWorkflowFailure &&
               selectedPublicationSurfaces.length === 1 &&
               selectedPublicationSurfaces[0] === 'queue';
+            const boundedFindingJSON = (findings, budget) => {
+              const kept = [];
+              for (const finding of findings) {
+                const next = {findings: [...kept, finding], omitted: findings.length - kept.length - 1};
+                if (JSON.stringify(next, null, 2).length > budget) break;
+                kept.push(finding);
+              }
+              return JSON.stringify({findings: kept, omitted: findings.length - kept.length}, null, 2);
+            };
             const report = [
               `## ${incidentKind} — ${date}`,
               '',
@@ -3491,6 +3598,7 @@ jobs:
               `**Run:** ${runUrl}`,
               '',
               `**Publication selector:** outcome=\`${selectorOutcome}\`, mode=\`${publicationState.mode || 'unknown'}\``,
+              `**Early current CI core validation:** outcome=\`${process.env.HOURLY_CI_CORE_OUTCOME || 'unavailable'}\``,
               `**Degraded surfaces:** ${degradedSurfaces || 'none'}`,
               `**Workflow status before incident handling:** \`${priorJobStatus}\``,
               `**Deployment:** ${Object.entries(deploymentOutcomes).map(([stage, outcome]) => `${stage}=\`${outcome}\``).join(', ')}`,
@@ -3526,12 +3634,21 @@ jobs:
                 '```',
                 '</details>',
               ] : []),
-              ...(publicationFindings.length ? [
+              ...(candidatePublicationFindings.length ? [
                 '',
-                '<details><summary>Publication findings</summary>',
+                '<details><summary>Initial candidate findings</summary>',
                 '',
                 '```json',
-                JSON.stringify(publicationFindings, null, 2).slice(0, 8000),
+                boundedFindingJSON(candidatePublicationFindings, 6000),
+                '```',
+                '</details>',
+              ] : []),
+              ...(finalPublicationFindings.length ? [
+                '',
+                '<details><summary>Final validation findings</summary>',
+                '',
+                '```json',
+                boundedFindingJSON(finalPublicationFindings, candidatePublicationFindings.length ? 2000 : 8000),
                 '```',
                 '</details>',
               ] : []),

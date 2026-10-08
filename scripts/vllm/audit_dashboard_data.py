@@ -4887,6 +4887,68 @@ class DashboardAudit:
             }
         self.report.metrics["ci_health"] = metrics
 
+    def audit_ci_core(self) -> None:
+        """Validate fresh raw CI evidence before analytics or Operations exist."""
+        paths = (
+            "data/vllm/ci/ci_health.json",
+            "data/vllm/ci/amd_test_matrix.json",
+            "data/vllm/ci/test_group_parity.json",
+            "data/vllm/ci/parity_report.json",
+        )
+        payloads = {}
+        for path in paths:
+            payload = self.load_json(path)
+            if not isinstance(payload, dict):
+                self.error(
+                    "ci-core-object",
+                    "Current CI core evidence must be a JSON object",
+                    path,
+                )
+            payloads[path] = payload
+        if any(not isinstance(payload, dict) for payload in payloads.values()):
+            return
+        health = payloads[paths[0]]
+        matrix = payloads[paths[1]]
+        runtime_commit = str(_mapping(matrix.get("source")).get("runtime_source_commit_sha") or "").casefold()
+        for suffix in ("amd", "upstream"):
+            latest = _mapping(_mapping(health.get(suffix)).get("latest_build"))
+            health_commit = str(latest.get("commit") or "").casefold()
+            if FULL_COMMIT_SHA_RE.fullmatch(runtime_commit) and health_commit not in (runtime_commit, runtime_commit[:12]):
+                self.error(
+                    "ci-core-runtime-commit",
+                    f"{suffix} latest health commit does not match the pinned matrix runtime commit",
+                    paths[0],
+                )
+            result_path = self.latest_result_file(suffix)
+            if result_path is None:
+                self.error(
+                    "ci-core-result-missing",
+                    f"Current CI core lacks the {suffix} result shard",
+                    "data/vllm/ci/test_results",
+                )
+                continue
+            results = self.load_jsonl(self.rel(result_path))
+            valid_statuses = {"passed", "failed", "skipped", "error", "xfailed", "xpassed", "canceled"}
+            if not results or any(
+                not all(isinstance(row.get(key), str) and row[key].strip() for key in ("test_id", "job_id", "job_name"))
+                or not isinstance(row.get("status"), str)
+                or row["status"] not in valid_statuses
+                or type(row.get("build_number")) is not int
+                or row["build_number"] <= 0
+                for row in results
+            ) or not any(row.get("build_number") == latest.get("build_number") for row in results):
+                self.error(
+                    "ci-core-result-evidence",
+                    f"Current CI core requires nonempty valid {suffix} result evidence for its latest build",
+                    self.rel(result_path),
+                )
+        self.audit_ci_health()
+        self.audit_amd_matrix(validate_analytics=False)
+        parity_path = paths[2]
+        parity = payloads[parity_path]
+        if isinstance(parity, dict):
+            self.audit_current_source_parity(parity, parity_path)
+
     def audit_root_test_results(self) -> None:
         path = "data/vllm/test_results.json"
         payload = self.load_json(path, {})
@@ -6735,7 +6797,7 @@ class DashboardAudit:
             "pass_percentage": expected_percentage,
         }
 
-    def audit_amd_matrix(self) -> None:
+    def audit_amd_matrix(self, *, validate_analytics: bool = True) -> None:
         matrix = self.load_json("data/vllm/ci/amd_test_matrix.json", {})
         if not isinstance(matrix, dict):
             return
@@ -6872,7 +6934,10 @@ class DashboardAudit:
         runtime_commit = str(source.get("runtime_source_commit_sha") or "")
         if source.get("pipeline") != "ci" or source.get("definition_source") != "main_ci_inline_and_native_amd" or not FULL_COMMIT_SHA_RE.fullmatch(commit) or (source_build and runtime_commit != commit):
             self.error("matrix-current-source", "AMD matrix must expand main ci definitions at the exact observed nightly commit", "data/vllm/ci/amd_test_matrix.json")
-        analytics = self.load_json("data/vllm/ci/analytics.json", {})
+        analytics = (
+            self.load_json("data/vllm/ci/analytics.json", {})
+            if validate_analytics else {}
+        )
         health = self.load_json("data/vllm/ci/ci_health.json", {})
         analytics_build = (((analytics.get("ci") or {}).get("builds") or [{}])[0]).get("number")
         health_build = ((health.get("amd") or {}).get("latest_build") or {}).get("build_number")
@@ -9869,13 +9934,17 @@ class DashboardAudit:
         ordered_tokens = [
             "name: Restore validated dashboard state",
             "name: Collect CI data",
+            "name: Save private CI roster cache",
+            "name: Save private DNS classification cache",
+            "name: Save resumable CI backfill checkpoint",
+            "name: Collect AMD test matrix",
+            "name: Refresh current main CI parity",
+            "name: Collect build-pinned CI ownership parity",
+            "name: Validate current CI core before analytics",
             "name: Prepare private analytics cache key",
             "name: Restore private analytics build cache",
             "name: Collect CI analytics",
             "name: Save private analytics build cache",
-            "name: Collect AMD test matrix",
-            "name: Refresh current main CI parity",
-            "name: Collect build-pinned CI ownership parity",
             "name: Live publication audit",
             "name: Run test suite",
             "name: Enforce publication validation results",
@@ -10390,6 +10459,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Validate only the live queue history and job evidence",
     )
+    focused.add_argument(
+        "--ci-core-only",
+        action="store_true",
+        help="Validate raw current CI health, AMD matrix, and source parity before analytics",
+    )
     parser.add_argument(
         "--dns-path",
         type=Path,
@@ -10428,6 +10502,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.queue_only:
         audit = DashboardAudit(ROOT)
         audit.audit_queue_data(validate_derived=True)
+        report = audit.report
+    elif args.ci_core_only:
+        audit = DashboardAudit(ROOT, allow_publication_fallback=False)
+        audit.audit_ci_core()
         report = audit.report
     else:
         report = run_audit(ROOT)

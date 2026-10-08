@@ -3956,13 +3956,17 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     ordered_steps = [
         "name: Restore validated dashboard state",
         "name: Collect CI data",
+        "name: Save private CI roster cache",
+        "name: Save private DNS classification cache",
+        "name: Save resumable CI backfill checkpoint",
+        "name: Collect AMD test matrix",
+        "name: Refresh current main CI parity",
+        "name: Collect build-pinned CI ownership parity",
+        "name: Validate current CI core before analytics",
         "name: Prepare private analytics cache key",
         "name: Restore private analytics build cache",
         "name: Collect CI analytics",
         "name: Save private analytics build cache",
-        "name: Collect AMD test matrix",
-        "name: Refresh current main CI parity",
-        "name: Collect build-pinned CI ownership parity",
         "name: Live publication audit",
         "name: Run test suite",
         "name: Enforce publication validation results",
@@ -4005,6 +4009,7 @@ def test_actual_workflow_audit_accepts_current_producers_without_retired_expecta
 
 @pytest.mark.parametrize("step", [
     "Refresh current main CI parity", "Collect build-pinned CI ownership parity",
+    "Validate current CI core before analytics",
 ])
 def test_actual_workflow_audit_requires_current_source_stages(tmp_path, step):
     hourly = tmp_path / ".github/workflows/hourly-master.yml"
@@ -4016,6 +4021,26 @@ def test_actual_workflow_audit_requires_current_source_stages(tmp_path, step):
     audit.audit_workflows()
     assert any(finding.code == "workflow-hourly-step-missing" and step in finding.message
                for finding in audit.report.errors)
+
+
+@pytest.mark.parametrize("step", [
+    "Save resumable CI backfill checkpoint",
+    "Collect AMD test matrix",
+    "Refresh current main CI parity",
+    "Collect build-pinned CI ownership parity",
+    "Validate current CI core before analytics",
+])
+def test_actual_workflow_audit_rejects_core_validation_moved_after_analytics(tmp_path, step):
+    hourly = tmp_path / ".github/workflows/hourly-master.yml"
+    hourly.parent.mkdir(parents=True)
+    text = (ROOT / ".github/workflows/hourly-master.yml").read_text()
+    text = text.replace("name: " + step, "name: Temporary ordering marker", 1)
+    text = text.replace("name: Collect CI analytics", "name: " + step, 1)
+    text = text.replace("name: Temporary ordering marker", "name: Collect CI analytics", 1)
+    hourly.write_text(text)
+    audit = DashboardAudit(tmp_path)
+    audit.audit_workflows()
+    assert "workflow-hourly-step-order" in {finding.code for finding in audit.report.errors}
 
 
 @pytest.mark.parametrize("producer", [
@@ -4672,6 +4697,11 @@ def _current_main_matrix_replay_fixture(tmp_path):
     health = compute_build_summary(scoped_build, routed_results, "amd").to_dict()
     (output / "ci_health.json").write_text(json.dumps({"amd": {"latest_build": health}}))
     (output / "parity_report.json").write_text(json.dumps(compute_parity(routed_results, [])))
+    results_dir = output / "test_results"
+    results_dir.mkdir()
+    (results_dir / "2026-10-08_amd.jsonl").write_text(
+        "".join(json.dumps(result.to_dict()) + "\n" for result in routed_results)
+    )
     return matrix, output
 
 
@@ -4718,3 +4748,152 @@ def test_current_matrix_audit_rejects_forged_source_pins_and_job_structure(tmp_p
     audit = DashboardAudit(tmp_path)
     audit.audit_amd_matrix()
     assert expected in {finding.code for finding in audit.report.errors}
+
+
+def _current_ci_core_fixture(tmp_path):
+    from collect_ci import _scope_nightly_build
+    from vllm.ci.analyzer import compute_build_summary
+    from vllm.ci.models import TestResult
+
+    matrix, output = _current_main_matrix_replay_fixture(tmp_path)
+    (output / "amd_test_matrix.json").write_text(json.dumps(matrix))
+    (output / "test_group_parity.json").write_text(json.dumps(_current_parity_fixture()))
+    build = {
+        "number": 93523,
+        "commit": "a" * 40,
+        "branch": "main",
+        "state": "passed",
+        "web_url": "https://buildkite.com/vllm/ci/builds/93523",
+        "created_at": "2026-10-08T06:00:00Z",
+        "jobs": [{
+            "type": "script", "id": "cuda-job", "state": "passed",
+            "name": ":nvidia: (H100) Shared workload", "agent_queue": "gpu_1",
+        }],
+    }
+    result = TestResult(
+        test_id="__job_level__", name="__job_level__", classname="",
+        status="passed", duration_secs=0.0, failure_message="",
+        job_name=build["jobs"][0]["name"], job_id="cuda-job", step_id="",
+        build_number=93523, pipeline="ci", date="2026-10-08",
+    )
+    health_path = output / "ci_health.json"
+    health = json.loads(health_path.read_text())
+    health["upstream"] = {"latest_build": compute_build_summary(
+        _scope_nightly_build(build, "upstream"), [result], "upstream",
+    ).to_dict()}
+    health_path.write_text(json.dumps(health))
+    (output / "test_results/2026-10-08_upstream.jsonl").write_text(
+        json.dumps(result.to_dict()) + "\n"
+    )
+    (output / "analytics.json").write_text("old analytics must not be read")
+    (output / "operations_v2.json").write_text("old Operations must not be read")
+    return output
+
+
+def test_ci_core_only_runs_existing_strict_raw_methods_without_old_analytics_or_operations(
+    tmp_path, monkeypatch, capsys,
+):
+    output = _current_ci_core_fixture(tmp_path)
+    before = {path.relative_to(tmp_path): path.read_bytes()
+              for path in tmp_path.rglob("*") if path.is_file()}
+    calls = []
+    for name in ("audit_ci_health", "audit_amd_matrix", "audit_current_source_parity"):
+        original = getattr(DashboardAudit, name)
+
+        def record(self, *args, _original=original, _name=name, **kwargs):
+            assert self.allow_publication_fallback is False
+            calls.append((_name, args, kwargs))
+            return _original(self, *args, **kwargs)
+
+        monkeypatch.setattr(DashboardAudit, name, record)
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+
+    assert audit_module.main(["--ci-core-only", "--format", "json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["errors"] == []
+    assert [call[0] for call in calls] == [
+        "audit_ci_health", "audit_amd_matrix", "audit_current_source_parity",
+    ]
+    assert calls[1][2] == {"validate_analytics": False}
+    assert calls[2][1][1] == "data/vllm/ci/test_group_parity.json"
+    assert set(report["metrics"]) == {"ci_health", "amd_matrix", "parity_hardware"}
+    assert {path.relative_to(tmp_path): path.read_bytes()
+            for path in tmp_path.rglob("*") if path.is_file()} == before
+
+    # The mandatory full auditor still compares the independently collected
+    # analytics build; only the explicit early mode skips this dependency.
+    (output / "analytics.json").write_text(json.dumps({"ci": {"builds": [{"number": 93524}]}}))
+    complete = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    complete.audit_amd_matrix()
+    assert "matrix-analytics-build" in {finding.code for finding in complete.report.errors}
+
+
+@pytest.mark.parametrize("tamper,expected", [
+    ("routing", "current-runtime-result-scope"),
+    ("matrix_source", "matrix-current-source"),
+    ("hardware_count", "matrix-health-hardware-count"),
+    ("source_parity", "current-parity-source"),
+    ("missing_results", "ci-core-result-missing"),
+    ("empty_amd_results", "ci-core-result-evidence"),
+    ("empty_upstream_results", "ci-core-result-evidence"),
+    ("invalid_result", "ci-core-result-evidence"),
+    ("runtime_commit", "ci-core-runtime-commit"),
+    ("malformed_health", "ci-core-object"),
+])
+def test_ci_core_only_fails_fatal_raw_routing_matrix_and_current_source_errors(
+    tmp_path, monkeypatch, capsys, tamper, expected,
+):
+    output = _current_ci_core_fixture(tmp_path)
+    if tamper == "routing":
+        path = output / "test_results/2026-10-08_amd.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows[0]["job_name"] = ":nvidia: (H100) Shared workload"
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    elif tamper == "matrix_source":
+        path = output / "amd_test_matrix.json"
+        payload = json.loads(path.read_text())
+        payload["source"]["runtime_source_commit_sha"] = "b" * 40
+        path.write_text(json.dumps(payload))
+    elif tamper == "hardware_count":
+        path = output / "ci_health.json"
+        payload = json.loads(path.read_text())
+        payload["amd"]["latest_build"]["by_hardware"]["mi300"]["groups"] = 9
+        path.write_text(json.dumps(payload))
+    elif tamper == "source_parity":
+        path = output / "test_group_parity.json"
+        payload = json.loads(path.read_text())
+        payload["source"]["pipeline"] = "amd-ci"
+        path.write_text(json.dumps(payload))
+    elif tamper == "missing_results":
+        (output / "test_results/2026-10-08_upstream.jsonl").unlink()
+    elif tamper.startswith("empty_"):
+        suffix = "amd" if tamper == "empty_amd_results" else "upstream"
+        (output / f"test_results/2026-10-08_{suffix}.jsonl").write_text("\n")
+    elif tamper == "invalid_result":
+        (output / "test_results/2026-10-08_upstream.jsonl").write_text("{}\n")
+    elif tamper == "runtime_commit":
+        path = output / "ci_health.json"
+        payload = json.loads(path.read_text())
+        payload["amd"]["latest_build"]["commit"] = "b" * 12
+        path.write_text(json.dumps(payload))
+    else:
+        (output / "ci_health.json").write_text("[]")
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+
+    assert audit_module.main(["--ci-core-only", "--format", "json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert expected in {finding["code"] for finding in report["errors"]}
+    assert not report["degradations"]
+
+
+@pytest.mark.parametrize("commit", ["a" * 12, "a" * 40])
+def test_ci_core_accepts_exact_full_or_public_runtime_commit(tmp_path, commit):
+    output = _current_ci_core_fixture(tmp_path)
+    path = output / "ci_health.json"
+    health = json.loads(path.read_text())
+    for side in ("amd", "upstream"):
+        health[side]["latest_build"]["commit"] = commit
+    path.write_text(json.dumps(health))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    audit.audit_ci_core()
+    assert audit.report.errors == []

@@ -59,6 +59,8 @@ from collect_ci import (  # noqa: E402
     _should_verify_cache_coverage,
     _current_scope_results,
     _scope_nightly_build,
+    _fetch_build_detail_with_routing_diagnostics,
+    _log_ci_routing_conflicts,
     _scoped_result_entries,
     collect_pipeline,
     load_existing_results,
@@ -1319,3 +1321,177 @@ class TestFrozenAmdNightlySnapshot:
             payload["publication_retention"]["complete_relative_to_source"]
             is True
         )
+
+
+def _warm_old_queue_roster(tmp_path):
+    from vllm.ci import buildkite_client as bk
+
+    name = ":amd: (MI250) Torch Stable ABI Audit"
+    old = {
+        "number": 7791, "state": "passed", "branch": "main",
+        "message": "Full CI run - nightly",
+        "created_at": "2026-04-18T06:00:00Z",
+        "jobs": [{**_job(name), "id": "torch-job"}],
+    }
+    latest = {
+        "number": 7792, "state": "passed", "branch": "main",
+        "message": "Full CI run - nightly",
+        "created_at": "2026-04-19T06:00:00Z",
+        "jobs": [{**_job(":amd: (MI300) Latest group"), "id": "latest-job",
+                  "agent_queue": "amd_mi300_1"}],
+    }
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    cache_dir = tmp_path / ".cache"
+    bk.write_nightly_build_cache("amd", [old, latest], cache_dir, now=clock)
+    cached = bk._load_nightly_build_cache("amd", cache_dir, now=clock)
+    assert "agent_queue" not in cached[7791]["jobs"][0]
+    results_dir = tmp_path / "test_results"
+    _write_jsonl(results_dir / "2026-04-18_amd.jsonl", [_record(name, job_id="torch-job")])
+    _write_jsonl(results_dir / "2026-04-19_amd.jsonl", [
+        {**_record(latest["jobs"][0]["name"], build_num=7792, job_id="latest-job"),
+         "date": "2026-04-19"},
+    ])
+    prune_old_results(results_dir, max_days=90, now=clock)
+    return bk, old, latest, clock
+
+
+def test_old_queue_incomplete_historical_roster_refreshes_once_without_log_refetch(tmp_path):
+    bk, old, latest, clock = _warm_old_queue_roster(tmp_path)
+    summaries = [{key: value for key, value in build.items() if key != "jobs"}
+                 for build in (latest, old)]
+    refreshed = json.loads(json.dumps(old))
+    refreshed["jobs"][0].update(
+        agent={"meta_data": ["queue=amd_mi300_1"]},
+        agent_query_rules=["queue=amd_mi250_1"],
+    )
+
+    def detail(_side, number):
+        return json.loads(json.dumps(refreshed if number == 7791 else latest))
+
+    with (
+        patch.object(bk, "_paginate", side_effect=lambda *_args: json.loads(json.dumps(summaries))),
+        patch("collect_ci.fetch_build_detail", side_effect=detail) as hydrate,
+        patch("collect_ci.parse_job_results") as parser,
+    ):
+        builds, rows = collect_pipeline("amd", 8, tmp_path, now=clock,
+                                       backfill_checkpoint_dir=tmp_path / "checkpoint")
+        assert [call.args[1] for call in hydrate.call_args_list] == [7792, 7791]
+        hydrate.reset_mock()
+        _, repeated = collect_pipeline("amd", 8, tmp_path, now=clock)
+        assert [call.args[1] for call in hydrate.call_args_list] == [7792]
+    parser.assert_not_called()
+    assert rows[7791] == repeated[7791]
+    assert rows[7791][0].job_name == "amd_mi300_1: :amd: (MI250) Torch Stable ABI Audit"
+    summary = compute_build_summary(next(build for build in builds if build["number"] == 7791),
+                                    rows[7791], "amd")
+    assert set(summary.by_hardware) == {"mi300"}
+    assert summary.by_hardware["mi300"]["groups"] == 1
+    cached = bk._load_nightly_build_cache("amd", tmp_path / ".cache", now=clock)
+    assert cached[7791]["jobs"][0]["agent_queue"] == "amd_mi300_1"
+    assert "agent" not in cached[7791]["jobs"][0]
+    reporter_module.validate_result_retention(tmp_path / "test_results")
+    shard = tmp_path / "test_results" / "2026-04-18_amd.jsonl"
+    assert (tmp_path / "checkpoint" / "test_results" / shard.name).read_bytes() == shard.read_bytes()
+
+
+def test_old_queue_incomplete_roster_refresh_failure_preserves_warm_evidence(tmp_path):
+    bk, old, latest, clock = _warm_old_queue_roster(tmp_path)
+    summaries = [{key: value for key, value in build.items() if key != "jobs"}
+                 for build in (latest, old)]
+    shard = tmp_path / "test_results" / "2026-04-18_amd.jsonl"
+    previous = shard.read_bytes()
+
+    def detail(_side, number):
+        if number == 7791:
+            raise RuntimeError("metadata unavailable")
+        return json.loads(json.dumps(latest))
+
+    with (
+        patch.object(bk, "_paginate", side_effect=lambda *_args: json.loads(json.dumps(summaries))),
+        patch("collect_ci.fetch_build_detail", side_effect=detail) as hydrate,
+        patch("collect_ci.parse_job_results") as parser,
+        pytest.raises(RuntimeError, match="queue-incomplete current CI roster.*7791"),
+    ):
+        collect_pipeline("amd", 8, tmp_path, now=clock)
+    assert [call.args[1] for call in hydrate.call_args_list] == [7792, 7791]
+    parser.assert_not_called()
+    assert shard.read_bytes() == previous
+
+
+@pytest.mark.parametrize("metadata,explicit,expected_source,expected_queue", [
+    ({"queue": "AMD_MI300_1"}, {}, "agent.meta_data.mapping", "amd_mi300_1"),
+    (["queue=amd_mi300_1"], {}, "agent.meta_data.tags", "amd_mi300_1"),
+    (["queue=amd_mi300_1"], {"agent_queue": "amd_mi355_1"}, "agent_queue", "amd_mi355_1"),
+    (["queue=private-routing-secret"], {}, "agent.meta_data.tags", "unrecognized"),
+])
+def test_fresh_routing_conflict_diagnostic_is_safe_and_preserves_precedence(
+    metadata, explicit, expected_source, expected_queue, caplog,
+):
+    identity = "01a11a1e-c3f9-442e-ab12-5c2cb2104127"
+    build = {"number": 93523, "jobs": [{
+        "type": "script", "id": identity, "name": "private-label-secret",
+        "agent": {"name": "private-agent-secret", "meta_data": metadata},
+        "agent_query_rules": ["queue=amd_mi250_1", "hostname=private-host-secret"],
+        "env": {"TOKEN": "private-env-secret"}, "raw_log_url": "private-log-secret",
+        **explicit,
+    }]}
+    previous = json.loads(json.dumps(build))
+    with patch("collect_ci.fetch_build_detail", return_value=build) as detail:
+        returned = _fetch_build_detail_with_routing_diagnostics("amd", 93523)
+    detail.assert_called_once_with("amd", 93523)
+    assert returned is build and build == previous
+    records = [record.message for record in caplog.records
+               if record.message.startswith("CI routing ambiguity: ")]
+    assert len(records) == 1
+    diagnostic = json.loads(records[0].split(": ", 1)[1])
+    assert diagnostic["build_number"] == 93523
+    assert diagnostic["job_id"] == identity
+    assert diagnostic["selected_queue"] == expected_queue
+    assert diagnostic["selected_queue_source"] == expected_source
+    assert diagnostic["requested_queue"] == "amd_mi250_1"
+    assert diagnostic["assigned_requested_conflict"] is True
+    assert "private-" not in caplog.text
+
+
+def test_routing_diagnostic_bounds_multiple_assigned_tags_and_job_records(caplog):
+    from collect_ci import _ROUTING_DIAGNOSTIC_LIMIT, _ROUTING_QUEUE_LIST_LIMIT
+
+    queues = [f"amd_mi{family}_{width}" for family in (250, 300, 325, 355) for width in (1, 2, 4, 8)]
+    tags = [f"queue={queue}" for queue in queues] + [
+        "queue=private-routing-secret", "hostname=private-host-secret",
+    ]
+    build = {"number": 93523, "jobs": [{
+        "type": "script", "id": f"00000000-0000-4000-8000-{index:012x}",
+        "agent": {"meta_data": tags}, "agent_query_rules": ["queue=amd_mi250_1"],
+    } for index in range(_ROUTING_DIAGNOSTIC_LIMIT + 3)]}
+    _log_ci_routing_conflicts(build, "amd")
+    records = [record.message for record in caplog.records
+               if record.message.startswith("CI routing ambiguity: ")]
+    assert len(records) == _ROUTING_DIAGNOSTIC_LIMIT
+    for message in records:
+        assert len(message) < 1024
+        diagnostic = json.loads(message.split(": ", 1)[1])
+        assert diagnostic["assigned_queue_tag_count"] == len(queues) + 1
+        assert diagnostic["assigned_queues"] == queues[:_ROUTING_QUEUE_LIST_LIMIT]
+        assert diagnostic["assigned_queue_list_truncated"] is True
+        assert diagnostic["assigned_requested_conflict"] is False
+        assert diagnostic["selected_queue"] == "amd_mi250_1"
+    assert "private-" not in caplog.text
+
+
+@pytest.mark.parametrize("number,identity,metadata,requested", [
+    (True, "01a11a1e-c3f9-442e-ab12-5c2cb2104127", ["queue=amd_mi300_1"], "amd_mi250_1"),
+    (-1, "01a11a1e-c3f9-442e-ab12-5c2cb2104127", ["queue=amd_mi300_1"], "amd_mi250_1"),
+    (10**12, "01a11a1e-c3f9-442e-ab12-5c2cb2104127", ["queue=amd_mi300_1"], "amd_mi250_1"),
+    (93523, "private-job-secret", ["queue=amd_mi300_1"], "amd_mi250_1"),
+    (93523, "01a11a1e-c3f9-442e-ab12-5c2cb2104127", ["queue=amd_mi300_1"], "amd_mi300_1"),
+    (93523, "01a11a1e-c3f9-442e-ab12-5c2cb2104127", None, "amd_mi300_1"),
+])
+def test_routing_diagnostic_ignores_invalid_ids_and_unambiguous_or_cache_only_jobs(
+    number, identity, metadata, requested, caplog,
+):
+    _log_ci_routing_conflicts({"number": number, "jobs": [{
+        "type": "script", "id": identity, "agent": {"meta_data": metadata},
+        "agent_queue": "amd_mi300_1", "agent_query_rules": [f"queue={requested}"],
+    }]}, "amd")
+    assert "CI routing ambiguity" not in caplog.text
