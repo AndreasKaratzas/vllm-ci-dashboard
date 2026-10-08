@@ -73,3 +73,24 @@ def test_native_pool_resolves_only_the_exact_build_pinned_runtime_family(monkeyp
     raw = "AMD: :amd: (MI355 DPX) FP8 MoE Kernels (mi355_dpx)"
     assert analyzer._amd_runtime_group_key(raw, commit) == "fp8 moe kernels (8 gpus)"
     assert analyzer._amd_runtime_group_key(raw, "b" * 40) == "fp8 moe kernels"
+
+
+@pytest.mark.parametrize("prefix,family", [("amd_mi300_1", "mi300"), ("mi250_1", "mi250"), ("amd_mi355b_2", "mi355")])
+def test_observed_physical_prefix_precedes_conflicting_decorators_and_cached_prefixes(prefix, family):
+    raw = f"{prefix}: mi325_1: :amd: (MI250) Torch Stable ABI Audit"
+    assert analyzer._extract_hardware(raw) == family
+    assert analyzer._normalize_job_name(raw) == "torch stable abi audit"
+    assert collect_analytics.normalize_job(raw) == "Torch Stable ABI Audit"
+    assert is_amd_ci_job({"job_name": raw}) is True
+
+
+def test_route_prefix_keeps_exact_job_identity_soft_fail_behavior():
+    raw = ":amd: (MI250) Torch Stable ABI Audit"
+    row = _result(f"amd_mi300_1: {raw}", "job")
+    row.status = "failed"
+    summary = analyzer.compute_build_summary({
+        "number": 93523, "state": "passed", "branch": "main", "job_scope": "amd_gpu",
+        "jobs": [{"type": "script", "name": raw, "id": "job", "state": "failed", "soft_failed": True}],
+    }, [row], "amd")
+    assert summary.by_hardware["mi300"]["groups_failed"] == 0
+    assert summary.failed == 1

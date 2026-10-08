@@ -19,6 +19,7 @@ from vllm.private_ci_cache_budget import (
     PrivateCiCacheBudgetError,
     load_private_ci_cache_budget,
 )
+from vllm.pipelines import _job_queue, is_amd_ci_job
 
 
 def _build(*, padding: int = 0) -> dict:
@@ -80,12 +81,52 @@ def test_handoff_is_exhaustive_privacy_projected_and_bounded(tmp_path: Path) -> 
     assert payload["build"]["jobs"][0]["agent_query_rules"] == [
         "queue=amd_mi300_1"
     ]
+    assert payload["build"]["jobs"][0]["agent_queue"] == "amd_mi300_1"
     serialized = raw.decode()
     assert "private-host" not in serialized
     assert "private command" not in serialized
     assert load_frozen_build_snapshot(
         path, 1234, max_bytes=4_096
     ) == payload["build"]
+
+
+def test_observed_queue_survives_handoff_without_agent_metadata_or_rule_rewriting(tmp_path):
+    build = _build()
+    job = build["jobs"][0]
+    job["name"] = ":amd: (MI250) Torch Stable ABI Audit"
+    job["agent_query_rules"] = ["queue=amd_mi250_1", "agent-name=private-host"]
+    job["agent"] = {"meta_data": ["queue=amd_mi300_1", "hostname=private-host"],
+                    "hostname": "private-host", "access_token": "private-token"}
+    path = write_amd_nightly_snapshot(build, tmp_path, max_bytes=4_096)
+    frozen = load_frozen_build_snapshot(path, 1234, max_bytes=4_096)
+    assert frozen is not None
+    observed = frozen["jobs"][0]
+    assert observed["agent_queue"] == _job_queue(job) == "amd_mi300_1"
+    assert observed["agent_query_rules"] == ["queue=amd_mi250_1"]
+    assert _job_queue(observed) == "amd_mi300_1"
+    assert is_amd_ci_job(observed)
+    serialized = path.read_text()
+    assert "private-host" not in serialized
+    assert "private-token" not in serialized
+    assert "agent\"" not in serialized
+
+
+def test_schema_three_reader_accepts_optional_observed_queue_absence(tmp_path):
+    path = write_amd_nightly_snapshot(_build(), tmp_path, max_bytes=4_096)
+    payload = json.loads(path.read_text())
+    del payload["build"]["jobs"][0]["agent_queue"]
+    path.write_text(json.dumps(payload))
+    assert load_frozen_build_snapshot(path, 1234, max_bytes=4_096) == payload["build"]
+
+
+@pytest.mark.parametrize("invalid", [None, False, 1, [], {}, "", " amd_mi300_1 "])
+def test_reader_rejects_malformed_observed_queue_fields(tmp_path, invalid):
+    path = write_amd_nightly_snapshot(_build(), tmp_path, max_bytes=4_096)
+    payload = json.loads(path.read_text())
+    payload["build"]["jobs"][0]["agent_queue"] = invalid
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="agent_queue|allowlisted projection"):
+        load_frozen_build_snapshot(path, 1234, max_bytes=4_096)
 
 
 @pytest.mark.parametrize("schema_version,pipeline", [(2, "amd-ci"), (3, "amd-ci")])

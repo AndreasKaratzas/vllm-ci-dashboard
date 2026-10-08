@@ -55,7 +55,7 @@ _HW_PATTERN = re.compile(
 )
 
 # Hardware prefixes include numeric and named pools such as "mi355_dpx: ".
-_AMD_POOL = r'mi\d+(?:_[a-z0-9][a-z0-9_-]*)?'
+_AMD_POOL = r'mi\d+b?(?:_[a-z0-9][a-z0-9_-]*)?'
 _JOB_PREFIX_RE = re.compile(
     rf'^({_AMD_POOL}|gpu_\d+|amd_\w+):\s*',
     re.IGNORECASE,
@@ -88,7 +88,9 @@ def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
     the decorator in ``AMD:`` and append a concrete execution pool in parens.
     Strip those execution annotations while preserving suite/GPU-count tags.
     """
-    label = _JOB_PREFIX_RE.sub('', str(name or ''), count=1)
+    label = str(name or '')
+    while _JOB_PREFIX_RE.match(label):
+        label = _JOB_PREFIX_RE.sub('', label, count=1)
     label = _NATIVE_AMD_WRAPPER_RE.sub('', label, count=1)
     match = _STANDARD_JOB_DECORATOR_RE.match(label)
     if not match:
@@ -234,6 +236,8 @@ def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
         return normalized
     route_match = _JOB_PREFIX_RE.match(str(job_name or ""))
     agent_pool = route_match.group(1).casefold() if route_match else ""
+    if agent_pool.startswith("amd_"):
+        agent_pool = agent_pool.removeprefix("amd_")
     if not agent_pool:
         native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(str(job_name or ""))
         _, platform, _ = _parse_job_execution_label(job_name)
@@ -1197,7 +1201,7 @@ def apply_quarantine(
 # ---------------------------------------------------------------------------
 
 _HW_FAMILY_RE = re.compile(
-    r'^(mi\d+)(?:_[a-z0-9][a-z0-9_-]*)?:', re.IGNORECASE,
+    r'^(?:amd_)?(mi\d+)b?(?:_[a-z0-9][a-z0-9_-]*)?:', re.IGNORECASE,
 )
 # Upstream GPU tags in parens: (H100), (B200), (2xH100), (4xA100), (H100-MI250), etc.
 _UPSTREAM_HW_RE = re.compile(
@@ -1299,9 +1303,12 @@ def compute_build_summary(
     # Build set of soft-failed job names — failures in these are expected
     # and should not count toward groups_failed
     soft_failed_jobs = set()
+    soft_failed_job_ids = set()
     for j in build.get("jobs", []):
         if j.get("soft_failed"):
             soft_failed_jobs.add(j.get("name", ""))
+            if j.get("id"):
+                soft_failed_job_ids.add(str(j["id"]))
 
     # Per-hardware breakdown
     hw_counts: dict[str, dict] = {}
@@ -1340,7 +1347,8 @@ def compute_build_summary(
         # but exclude soft-failed jobs (failures are expected/accepted)
         norm = logical_group_key(r.job_name)
         hw_seen_groups[hw].add(norm)
-        if r.status in ("failed", "error") and r.job_name not in soft_failed_jobs:
+        if (r.status in ("failed", "error") and r.job_name not in soft_failed_jobs
+                and r.job_id not in soft_failed_job_ids):
             hw_failed_groups[hw].add(norm)
 
     # Add group counts to hw_counts

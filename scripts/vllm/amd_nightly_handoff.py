@@ -13,6 +13,7 @@ from typing import Any
 
 from vllm.bounded_json import atomic_write_bytes
 from vllm.private_ci_cache_budget import PRIVATE_CI_CACHE_BUDGET
+from vllm.pipelines import _job_queue
 
 
 AMD_NIGHTLY_HANDOFF_SCHEMA_VERSION = 3
@@ -42,6 +43,7 @@ _JOB_FIELDS = frozenset(
         "retried_in_job_id",
         "web_url",
         "agent_query_rules",
+        "agent_queue",
         "step",
     }
 )
@@ -58,7 +60,9 @@ def _validate_text_field(value: object, *, label: str) -> None:
         raise AmdNightlyHandoffError(f"{label} must be a string")
 
 
-def compact_amd_build_snapshot(build: dict[str, Any]) -> dict[str, Any]:
+def compact_amd_build_snapshot(
+    build: dict[str, Any], *, resolve_agent_queue: bool = True,
+) -> dict[str, Any]:
     """Return only the PII-free build/job fields required by the matrix."""
     if not isinstance(build, dict):
         raise AmdNightlyHandoffError("AMD frozen-nightly build must be an object")
@@ -93,7 +97,17 @@ def compact_amd_build_snapshot(build: dict[str, Any]) -> dict[str, Any]:
             _validate_text_field(
                 raw_job[key], label=f"AMD frozen-nightly jobs[{index}].{key}"
             )
+            if key == "agent_queue" and (
+                not raw_job[key] or raw_job[key] != raw_job[key].strip()
+            ):
+                raise AmdNightlyHandoffError(
+                    "AMD frozen-nightly agent_queue must be a non-empty normalized string"
+                )
             job[key] = raw_job[key]
+        if resolve_agent_queue:
+            queue = _job_queue(raw_job)
+            if queue:
+                job["agent_queue"] = queue
         if "soft_failed" in raw_job and raw_job["soft_failed"] is not None:
             if not isinstance(raw_job["soft_failed"], bool):
                 raise AmdNightlyHandoffError(
@@ -287,7 +301,9 @@ def load_frozen_build_snapshot(
         raise AmdNightlyHandoffError(
             f"Frozen AMD build snapshot {path} has an invalid build object"
         )
-    if compact_amd_build_snapshot(build) != build:
+    # Existing schema-3 handoffs can omit this optional observed queue field.
+    # Validate their recorded fields without deriving new facts from rules.
+    if compact_amd_build_snapshot(build, resolve_agent_queue=False) != build:
         raise AmdNightlyHandoffError(
             f"Frozen AMD build snapshot {path} is not an allowlisted projection"
         )

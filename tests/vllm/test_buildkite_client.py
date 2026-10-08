@@ -21,7 +21,7 @@ import requests
 
 from vllm.ci import buildkite_client as bk
 from vllm.ci import config as cfg
-from vllm.pipelines import AMD_NIGHTLY_NAME_PATTERN
+from vllm.pipelines import AMD_NIGHTLY_NAME_PATTERN, _job_queue, is_amd_ci_job
 
 
 @pytest.fixture(autouse=True)
@@ -541,6 +541,61 @@ class TestFetchNightlyBuilds:
         )
 
         assert restored["jobs"] == cached["jobs"]
+
+    def test_observed_queue_is_restored_without_private_agent_fields_or_extra_requests(
+        self, monkeypatch, fake_cfg, tmp_path,
+    ):
+        cached = {
+            "number": 42, "message": "nightly", "state": "passed",
+            "created_at": "2026-04-18T00:00:00Z",
+            "_ci_job_routes": {"private": "private-route-map"},
+            "jobs": [{
+                "type": "script", "id": "job-42", "state": "passed",
+                "name": ":amd: (MI250) Torch Stable ABI Audit",
+                "agent_query_rules": ["queue=amd_mi250_1", "agent-name=private-host"],
+                "agent": {"meta_data": {"queue": "amd_mi300_1", "hostname": "private-host"},
+                          "access_token": "private-token"},
+            }],
+        }
+        now = datetime(2026, 4, 18, 12, tzinfo=timezone.utc)
+        shard_dir = bk.write_nightly_build_cache("amd", [cached], tmp_path, now=now)
+        path = shard_dir / "2026-04-18_42.json"
+        serialized = path.read_text()
+        assert "private-host" not in serialized
+        assert "private-token" not in serialized
+        assert "private-route-map" not in serialized
+        assert "agent_query_rules" not in serialized
+        summary = {key: cached[key] for key in ("number", "message", "state", "created_at")}
+        calls = []
+        def fetch_list(url, params=None):
+            calls.append(url)
+            return [summary]
+        monkeypatch.setattr(bk, "_paginate", fetch_list)
+        [restored] = bk.fetch_nightly_builds("amd", cache_dir=tmp_path, now=now)
+        assert len(calls) == 1
+        assert _job_queue(restored["jobs"][0]) == "amd_mi300_1"
+        assert is_amd_ci_job(restored["jobs"][0])
+        assert bk.validate_nightly_roster_cache(tmp_path, now=now)["shards"] == 1
+
+    @pytest.mark.parametrize("queue", [None, False, 1, [], {}, "", " amd_mi300_1 ", "x" * 257])
+    def test_private_roster_rejects_noncanonical_or_unbounded_optional_queue(self, queue):
+        payload = {"schema_version": 2, "build": {
+            "number": 42, "created_at": "2026-04-18T00:00:00Z",
+            "jobs": [{"type": "script", "id": "job", "state": "passed",
+                      "agent_queue": queue}],
+        }}
+        assert bk._decode_nightly_roster_payload(payload) is None
+
+    def test_private_roster_optional_queue_bound_and_old_schema_two_compatibility(self):
+        job = {"type": "script", "id": "job", "state": "passed"}
+        payload = {"schema_version": 2, "build": {
+            "number": 42, "created_at": "2026-04-18T00:00:00Z", "jobs": [job],
+        }}
+        assert bk._decode_nightly_roster_payload(payload) == payload["build"]
+        job["agent_queue"] = "x" * bk._ROSTER_MAX_JOB_QUEUE_CHARS
+        assert bk._decode_nightly_roster_payload(payload) == payload["build"]
+        oversized_source = {**job, "agent_queue": "x" * (bk._ROSTER_MAX_JOB_QUEUE_CHARS + 1)}
+        assert "agent_queue" not in bk._project_nightly_roster_job(oversized_source)
 
     def test_sharded_cache_prunes_builds_older_than_retention(self, tmp_path):
         old = {

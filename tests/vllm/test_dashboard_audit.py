@@ -55,13 +55,11 @@ def _best_hardware_audit_fixture():
             "latest_url": None,
             "latest_build_number": 123,
             "primary_label": label,
-            "variants": [
-                {
-                    "label": label,
-                    "agent_pool": f"{arch}_1",
-                    "entries": [],
-                }
-            ],
+            "variants": [{
+                "label": label,
+                "agent_pool": f"{arch}_1",
+                "entries": [],
+            }],
         }
 
     generic_row = {
@@ -114,16 +112,14 @@ def _best_hardware_audit_fixture():
             "latest_url": source["latest_url"],
             "latest_matched": True,
             "build_number": 123,
-            "variants": [
-                {
-                    "label": source["primary_label"],
-                    "agent_pool": f"{arch}_1",
-                    "optional": False,
-                    "parallelism": 1,
-                    "state": source["latest_state"],
-                    "url": source["latest_url"],
-                }
-            ],
+            "variants": [{
+                "label": source["primary_label"],
+                "agent_pool": f"{arch}_1",
+                "optional": False,
+                "parallelism": 1,
+                "state": source["latest_state"],
+                "url": source["latest_url"],
+            }],
         }
 
     health_groups = [
@@ -189,12 +185,10 @@ def _best_hardware_audit_fixture():
         },
         "health_groups": health_groups,
         "best_hardware_policy": {
-            "mi355_sensitive_rules": [
-                {
-                    "title": "Kernels Attention Test",
-                    "reason": "architecture-sensitive kernel gate",
-                }
-            ],
+            "mi355_sensitive_rules": [{
+                "title": "Kernels Attention Test",
+                "reason": "architecture-sensitive kernel gate",
+            }],
             "generic_alias_rules": [],
             "mi355_classification": [
                 {
@@ -296,21 +290,11 @@ def _execution_alias_audit_fixture():
     from vllm.collect_amd_test_matrix import build_matrix, parse_steps
 
     definitions = [
-        {
-            "label": ":amd: (MI300) New API name",
-            "agent_pool": "mi300_1",
-            "commands": ["pytest -v -s tests/api/"],
-        },
-        {
-            "label": ":amd: (MI355) Another API name",
-            "agent_pool": "mi355_1",
-            "commands": ["pytest -v -s tests/api"],
-        },
+        {"label": ":amd: (MI300) New API name", "agent_pool": "mi300_1", "commands": ["pytest -v -s tests/api/"]},
+        {"label": ":amd: (MI355) Another API name", "agent_pool": "mi355_1", "commands": ["pytest -v -s tests/api"]},
     ]
     steps, architectures = parse_steps(json.dumps({"steps": definitions}))
-    return build_matrix(
-        steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml"
-    )
+    return build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
 
 
 def test_execution_alias_audit_accepts_changed_titles_and_absent_old_rules(tmp_path):
@@ -324,22 +308,13 @@ def test_execution_alias_audit_uses_group_ids_for_repeated_titles_and_bounded_de
     from vllm.collect_amd_test_matrix import build_matrix, parse_steps
 
     definitions = [
-        {
-            "label": f":amd: ({arch}) Shared title",
-            "agent_pool": f"{arch.lower()}_1",
-            "commands": [f"pytest -v -s tests/{target}" + ("/" if arch == "MI300" else "")],
-        }
-        for target in ["api", "models"]
-        for arch in ["MI300", "MI355"]
+        {"label": f":amd: ({arch}) Shared title", "agent_pool": f"{arch.lower()}_1", "commands": [f"pytest -v -s tests/{target}" + ("/" if arch == "MI300" else "")]}
+        for target in ["api", "models"] for arch in ["MI300", "MI355"]
     ]
     steps, architectures = parse_steps(json.dumps({"steps": definitions}))
-    matrix = build_matrix(
-        steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml"
-    )
+    matrix = build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
     assert len(matrix["best_hardware_policy"]["generic_alias_rules"]) == 2
-    assert {rule["title"] for rule in matrix["best_hardware_policy"]["generic_alias_rules"]} == {
-        "Shared title"
-    }
+    assert {rule["title"] for rule in matrix["best_hardware_policy"]["generic_alias_rules"]} == {"Shared title"}
     audit = DashboardAudit(tmp_path)
     audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
     assert not audit.report.errors
@@ -356,18 +331,7 @@ def test_execution_alias_audit_uses_group_ids_for_repeated_titles_and_bounded_de
     assert not audit.report.errors
 
 
-@pytest.mark.parametrize(
-    "tamper",
-    [
-        "commands",
-        "working_dir",
-        "topology",
-        "fingerprint",
-        "missing_rule",
-        "duplicate_rule",
-        "unknown_policy",
-    ],
-)
+@pytest.mark.parametrize("tamper", ["commands", "working_dir", "topology", "fingerprint", "missing_rule", "duplicate_rule", "unknown_policy"])
 def test_execution_alias_audit_requires_matching_complete_evidence(tmp_path, tamper):
     matrix = _execution_alias_audit_fixture()
     policy = matrix["best_hardware_policy"]
@@ -394,24 +358,11 @@ def test_execution_alias_audit_requires_matching_complete_evidence(tmp_path, tam
 def test_execution_alias_audit_preserves_sensitive_gate_after_rename(tmp_path):
     from vllm.collect_amd_test_matrix import build_matrix, parse_steps
 
-    steps, architectures = parse_steps(
-        json.dumps(
-            {
-                "steps": [
-                    {
-                        "label": f":amd: ({arch}) Renamed Quantization",
-                        "agent_pool": f"{arch.lower()}_1",
-                        "working_dir": "/vllm-workspace/tests",
-                        "commands": ["pytest -v -s kernels/quantization"],
-                    }
-                    for arch in ["MI300", "MI355"]
-                ]
-            }
-        )
-    )
-    matrix = build_matrix(
-        steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml"
-    )
+    steps, architectures = parse_steps(json.dumps({"steps": [
+        {"label": f":amd: ({arch}) Renamed Quantization", "agent_pool": f"{arch.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
+        for arch in ["MI300", "MI355"]
+    ]}))
+    matrix = build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
     audit = DashboardAudit(tmp_path)
     audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
     assert not audit.report.errors
@@ -440,17 +391,9 @@ def _production_shaped_compacted_matrix(*, max_bytes=AMD_TEST_MATRIX_MAX_BYTES):
         for arch in ("mi300", "mi355")
     ]
     steps, arches = parse_steps(json.dumps({"steps": definitions}))
-    source = build_matrix(
-        steps, arches, {}, None, {}, {}, [], "https://example.invalid/main-ci.yaml"
-    )
-    source["source"].update(
-        {
-            "pipeline": "ci",
-            "definition_source": "main_ci_inline_and_native_amd",
-            "commit_sha": "a" * 40,
-            "runtime_source_commit_sha": None,
-        }
-    )
+    source = build_matrix(steps, arches, {}, None, {}, {}, [], "https://example.invalid/main-ci.yaml")
+    source["source"].update({"pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd",
+                             "commit_sha": "a" * 40, "runtime_source_commit_sha": None})
     for row in source["rows"]:
         row["_retention_regression_padding"] = "x" * 30_000
     return source, bounded_matrix_payload(source, max_bytes=max_bytes)
@@ -458,18 +401,12 @@ def _production_shaped_compacted_matrix(*, max_bytes=AMD_TEST_MATRIX_MAX_BYTES):
 
 def _audit_substituted_matrix(payload):
     audit = DashboardAudit(ROOT)
-
     def load_json(relpath, default):
-        if relpath == "data/vllm/ci/amd_test_matrix.json":
-            return payload
-        if relpath == "data/vllm/ci/analytics.json":
-            return {"ci": {"builds": []}}
-        if relpath == "data/vllm/ci/ci_health.json":
-            return {}
-        if relpath == "data/vllm/ci/parity_report.json":
-            return {"job_groups": []}
+        if relpath == "data/vllm/ci/amd_test_matrix.json": return payload
+        if relpath == "data/vllm/ci/analytics.json": return {"ci": {"builds": []}}
+        if relpath == "data/vllm/ci/ci_health.json": return {}
+        if relpath == "data/vllm/ci/parity_report.json": return {"job_groups": []}
         return default
-
     audit.load_json = load_json
     audit.audit_amd_matrix()
     return audit.report
@@ -508,24 +445,16 @@ def test_matrix_audit_accepts_zero_retained_rows_only_with_valid_source_ledger()
     "tamper",
     (
         lambda payload: payload["publication_retention"]["matrix_rows"].__setitem__("published", 0),
-        lambda payload: payload["summary"].__setitem__(
-            "passing_cells", payload["summary"]["passing_cells"] + 1
-        ),
-        lambda payload: payload["summary"]["health_policies"]["best_hardware"].__setitem__(
-            "passing_groups",
-            payload["summary"]["health_policies"]["best_hardware"]["passing_groups"] + 1,
-        ),
+        lambda payload: payload["summary"].__setitem__("passing_cells", payload["summary"]["passing_cells"] + 1),
+        lambda payload: payload["summary"]["health_policies"]["best_hardware"].__setitem__("passing_groups", payload["summary"]["health_policies"]["best_hardware"]["passing_groups"] + 1),
         lambda payload: payload["rows"].reverse(),
-        lambda payload: payload["publication_retention"]["logical_cohorts"].update(
-            {
-                "source": payload["publication_retention"]["matrix_rows"]["source"] + 1,
-                "omitted": (
-                    payload["publication_retention"]["matrix_rows"]["source"]
-                    + 1
-                    - payload["publication_retention"]["logical_cohorts"]["published"]
-                ),
-            }
-        ),
+        lambda payload: payload["publication_retention"]["logical_cohorts"].update({
+            "source": payload["publication_retention"]["matrix_rows"]["source"] + 1,
+            "omitted": (
+                payload["publication_retention"]["matrix_rows"]["source"] + 1
+                - payload["publication_retention"]["logical_cohorts"]["published"]
+            ),
+        }),
         lambda payload: payload["rows"][0]["cells"].__setitem__("unexpected", {}),
         lambda payload: payload["architectures"][1].__setitem__(
             "id", payload["architectures"][0]["id"]
@@ -608,7 +537,9 @@ def test_queue_lifecycle_staleness_matches_bounded_recovery_window(
     audit = DashboardAudit(tmp_path)
     audit.audit_queue_lifecycle()
 
-    stale = "queue-lifecycle-stale" in {finding.code for finding in audit.report.warnings}
+    stale = "queue-lifecycle-stale" in {
+        finding.code for finding in audit.report.warnings
+    }
     assert stale is expected_stale
 
 
@@ -777,7 +708,9 @@ def test_queue_lifecycle_legacy_v1_is_bounded_fallback_not_producer_output(tmp_p
         if key not in {"scope", "duration_samples_in_retention"}
     }
     payload["coverage"]["timestamp_fields"] = legacy_fields
-    payload["provenance"]["collection"]["timestamp_coverage"] = copy.deepcopy(legacy_fields)
+    payload["provenance"]["collection"]["timestamp_coverage"] = copy.deepcopy(
+        legacy_fields
+    )
     output = tmp_path / "data" / "vllm" / "ci" / "queue_lifecycle.json"
     output.parent.mkdir(parents=True)
     output.write_text(json.dumps(payload))
@@ -836,7 +769,9 @@ def test_queue_only_entrypoint_runs_targeted_semantic_audit(tmp_path, monkeypatc
     for minutes_ago in (10, 0):
         rows.append(
             {
-                "ts": (now - timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z"),
+                "ts": (now - timedelta(minutes=minutes_ago))
+                .isoformat()
+                .replace("+00:00", "Z"),
                 "queues": {"amd_mi300_1": {"waiting": 1, "running": 0}},
                 "total_waiting": 1,
                 "total_running": 0,
@@ -883,7 +818,9 @@ def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
     valid = DashboardAudit(tmp_path)
     valid.audit_queue_data(validate_derived=True)
     assert not valid.report.errors
-    assert {finding.code for finding in valid.report.warnings} == {"queue-history-bootstrap"}
+    assert {finding.code for finding in valid.report.warnings} == {
+        "queue-history-bootstrap"
+    }
 
     chart_path = queue_dir / "queue_history_chart.json"
     original_chart = chart_path.read_text()
@@ -898,7 +835,9 @@ def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
     (queue_dir / "operations_v2" / "queue.json").write_text('{"queue":{}}\n')
     corrupt_section = DashboardAudit(tmp_path)
     corrupt_section.audit_queue_data(validate_derived=True)
-    assert "queue-section-projection" in {finding.code for finding in corrupt_section.report.errors}
+    assert "queue-section-projection" in {
+        finding.code for finding in corrupt_section.report.errors
+    }
 
     (queue_dir / "operations_v2" / "queue.json").write_text(
         json.dumps(queue_section_module.build_queue_section(queue_dir)) + "\n"
@@ -932,13 +871,16 @@ def test_queue_only_audit_enforces_exact_operations_section_cap(tmp_path):
     queue_section_module.main(["--input-dir", str(queue_dir)])
     section_path = queue_dir / "operations_v2" / "queue.json"
     section_path.write_bytes(
-        section_path.read_bytes().rstrip() + b" " * queue_section_module.QUEUE_SECTION_MAX_BYTES
+        section_path.read_bytes().rstrip()
+        + b" " * queue_section_module.QUEUE_SECTION_MAX_BYTES
     )
 
     audit = DashboardAudit(tmp_path)
     audit.audit_queue_data(validate_derived=True)
 
-    assert "operations-queue-payload-budget" in {finding.code for finding in audit.report.errors}
+    assert "operations-queue-payload-budget" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_current_queue_reprojection_migrates_legacy_targeted_state(tmp_path):
@@ -964,7 +906,9 @@ def test_current_queue_reprojection_migrates_legacy_targeted_state(tmp_path):
     (operations_dir / "queue.json").write_text(
         json.dumps({"queue": {"snapshot": snapshot, "queue_jobs": jobs}}) + "\n"
     )
-    (queue_dir / "queue_history_chart.json").write_text('{"schema_version":1,"points":[]}\n')
+    (queue_dir / "queue_history_chart.json").write_text(
+        '{"schema_version":1,"points":[]}\n'
+    )
 
     legacy = DashboardAudit(tmp_path)
     legacy.audit_queue_data(validate_derived=True)
@@ -1033,7 +977,9 @@ def test_queue_audit_accepts_current_metrics_with_an_explicit_retained_overlay(t
 
 
 def _dns_iso(value: datetime) -> str:
-    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
 
 
 def _dns_audit_payload(now: datetime | None = None) -> dict:
@@ -1148,7 +1094,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "truncated": False,
             "items": [
                 {
-                    "id": hashlib.sha256(f"dns-evidence-v1\0amd-ci\0{job_id}".encode()).hexdigest(),
+                    "id": hashlib.sha256(
+                        f"dns-evidence-v1\0amd-ci\0{job_id}".encode()
+                    ).hexdigest(),
                     "first_at": _dns_iso(first_at),
                     "last_at": _dns_iso(first_at),
                     "time_basis": "log_timestamp",
@@ -1286,7 +1234,9 @@ def test_dns_audit_rejects_unreconciled_outcome_breakdown(tmp_path):
 
     audit.audit_dns_failures()
 
-    assert "dns-health-outcome-reconciliation" in {finding.code for finding in audit.report.errors}
+    assert "dns-health-outcome-reconciliation" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dns_audit_keeps_honest_partial_coverage_as_a_local_warning(tmp_path):
@@ -1319,7 +1269,9 @@ def test_dns_audit_keeps_honest_partial_coverage_as_a_local_warning(tmp_path):
 
     assert audit.report.errors == []
     assert audit.report.degradations == []
-    assert [finding.code for finding in audit.report.warnings] == ["dns-health-partial"]
+    assert [finding.code for finding in audit.report.warnings] == [
+        "dns-health-partial"
+    ]
     assert audit.report.metrics["dns_health"]["coverage_status"] == "partial"
 
 
@@ -1348,7 +1300,9 @@ def test_dns_audit_rejects_selected_window_evidence_metric_drift(tmp_path):
 
     audit.audit_dns_failures()
 
-    assert "dns-health-evidence-reconciliation" in {finding.code for finding in audit.report.errors}
+    assert "dns-health-evidence-reconciliation" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dns_audit_rejects_out_of_order_window_metrics(tmp_path):
@@ -1360,7 +1314,9 @@ def test_dns_audit_rejects_out_of_order_window_metrics(tmp_path):
 
     audit.audit_dns_failures()
 
-    assert "dns-health-evidence-window" in {finding.code for finding in audit.report.errors}
+    assert "dns-health-evidence-window" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dns_audit_accepts_the_backend_public_projection(tmp_path):
@@ -1456,7 +1412,9 @@ def test_dns_audit_accepts_legacy_writer_bound_only_when_file_fits_current_budge
     path = tmp_path / "data/vllm/ci/dns_failures.json"
     dns_backend.write_public_output(path, _dns_audit_payload())
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["publication_retention"]["max_bytes"] = dns_backend.LEGACY_PUBLIC_OUTPUT_MAX_BYTES
+    payload["publication_retention"]["max_bytes"] = (
+        dns_backend.LEGACY_PUBLIC_OUTPUT_MAX_BYTES
+    )
     path.write_text(json.dumps(payload), encoding="utf-8")
     assert path.stat().st_size <= dns_backend.PUBLIC_OUTPUT_MAX_BYTES
 
@@ -1478,7 +1436,9 @@ def test_dns_audit_rejects_mismatched_publication_retention(tmp_path):
     audit = DashboardAudit(tmp_path)
     audit.audit_dns_failures()
 
-    assert "dns-health-publication-retention" in {finding.code for finding in audit.report.errors}
+    assert "dns-health-publication-retention" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dns_audit_rejects_impossible_retained_source_row_count(tmp_path):
@@ -1580,14 +1540,18 @@ def test_dns_audit_accepts_the_structural_seed_as_fresh_degradation(tmp_path):
     audit.audit_dns_failures()
 
     assert audit.report.errors == []
-    assert {finding.code for finding in audit.report.degradations} == {"dns-health-not-collected"}
+    assert {finding.code for finding in audit.report.degradations} == {
+        "dns-health-not-collected"
+    }
 
 
 def test_dns_audit_rejects_sensitive_unknown_and_unreconciled_data(tmp_path):
     payload = _dns_audit_payload()
     payload["unexpected"] = "private"
     payload["evidence"]["items"][0]["job_name"] = "xoxb-" + "1" * 32
-    payload["evidence"]["items"][0]["job_id"] = "00000000-0000-4000-8000-00000000000A"
+    payload["evidence"]["items"][0]["job_id"] = (
+        "00000000-0000-4000-8000-00000000000A"
+    )
     payload["windows"]["1h"]["totals"]["episodes"] = 2
     _write_dns_audit_payload(tmp_path, payload)
     audit = DashboardAudit(tmp_path)
@@ -1611,7 +1575,9 @@ def test_dns_audit_tolerates_scheduler_delay_inside_twelve_hour_window(tmp_path)
     audit.audit_dns_failures()
 
     assert audit_module.DNS_MAX_FRESH_AGE_HOURS == 12
-    assert "dns-health-stale" not in {finding.code for finding in audit.report.degradations}
+    assert "dns-health-stale" not in {
+        finding.code for finding in audit.report.degradations
+    }
 
 
 def test_dns_audit_rejects_false_complete_and_degrades_stale_partial_data(tmp_path):
@@ -1629,16 +1595,24 @@ def test_dns_audit_rejects_false_complete_and_degrades_stale_partial_data(tmp_pa
     _write_dns_audit_payload(tmp_path, stale)
     stale_audit = DashboardAudit(tmp_path)
     stale_audit.audit_dns_failures()
-    assert "dns-health-stale" in {finding.code for finding in stale_audit.report.degradations}
-    assert "dns-health-stale" not in {finding.code for finding in stale_audit.report.errors}
-    assert "dns-health-partial" in {finding.code for finding in stale_audit.report.warnings}
+    assert "dns-health-stale" in {
+        finding.code for finding in stale_audit.report.degradations
+    }
+    assert "dns-health-stale" not in {
+        finding.code for finding in stale_audit.report.errors
+    }
+    assert "dns-health-partial" in {
+        finding.code for finding in stale_audit.report.warnings
+    }
 
     invalid = _dns_audit_payload()
     invalid["coverage"].update(eligible_jobs=2, pending_jobs=1)
     _write_dns_audit_payload(tmp_path, invalid)
     invalid_audit = DashboardAudit(tmp_path)
     invalid_audit.audit_dns_failures()
-    assert "dns-health-false-complete" in {finding.code for finding in invalid_audit.report.errors}
+    assert "dns-health-false-complete" in {
+        finding.code for finding in invalid_audit.report.errors
+    }
 
 
 def test_dns_audit_rejects_boundary_identity_and_membership_drift(tmp_path):
@@ -1668,7 +1642,9 @@ def test_dns_audit_enforces_the_public_payload_budget(tmp_path, monkeypatch):
 
     audit.audit_dns_failures()
 
-    assert "dns-health-payload-budget" in {finding.code for finding in audit.report.errors}
+    assert "dns-health-payload-budget" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def _ci_health_rate_build(*, passed=8, failed=2, skipped=3):
@@ -1762,7 +1738,11 @@ def test_dashboard_audit_accepts_explicit_pass_rate_contracts(tmp_path):
     audit.audit_analytics()
     audit.audit_root_test_results()
 
-    assert not [finding for finding in audit.report.errors if "pass-rate" in finding.code]
+    assert not [
+        finding
+        for finding in audit.report.errors
+        if "pass-rate" in finding.code
+    ]
 
 
 def test_dashboard_audit_rejects_pass_rate_contract_drift(tmp_path):
@@ -1843,7 +1823,9 @@ def test_dashboard_audit_warns_but_accepts_unversioned_pass_rate_payloads(
     audit.audit_analytics()
     audit.audit_root_test_results()
 
-    assert not [finding for finding in audit.report.errors if "pass-rate" in finding.code]
+    assert not [
+        finding for finding in audit.report.errors if "pass-rate" in finding.code
+    ]
     warning_codes = [finding.code for finding in audit.report.warnings]
     assert warning_codes.count("ci-health-pass-rate-contract-legacy") == 1
     assert warning_codes.count("analytics-pass-rate-contract-legacy") == 1
@@ -1875,7 +1857,10 @@ def test_dashboard_audit_rejects_unknown_pass_rate_contract_versions(tmp_path):
 
 
 def test_dashboard_audit_requires_workload_mapping_v2_ranges():
-    spec = next(item for item in DATA_SPECS if item.relpath == "data/vllm/ci/workload_mapping.json")
+    spec = next(
+        item for item in DATA_SPECS
+        if item.relpath == "data/vllm/ci/workload_mapping.json"
+    )
     assert {
         "schema_version",
         "generated_at",
@@ -1897,10 +1882,7 @@ def test_dashboard_audit_validates_current_source_and_runtime_evidence():
     parity = json.loads((ROOT / "data/vllm/ci/test_group_parity.json").read_text())
     assert parity["source"]["pipeline"] == "ci"
     assert len(parity["source"]["current_definition_commit_sha"]) == 40
-    assert (
-        parity["summary"]["main_complete_groups"] + parity["summary"]["main_missing_groups"]
-        == parity["summary"]["applicable_groups"]
-    )
+    assert parity["summary"]["main_complete_groups"] + parity["summary"]["main_missing_groups"] == parity["summary"]["applicable_groups"]
     assert "active_targets" not in metrics
     assert metrics["reliability_observations"] == metrics["linked_reliability_observations"]
 
@@ -1949,7 +1931,9 @@ def test_complete_same_commit_unused_shard_base_is_a_degradation(tmp_path):
     results = ci / "test_results"
     results.mkdir(parents=True)
     result_name = "2026-08-12_amd.jsonl"
-    (results / result_name).write_text(json.dumps({"job_name": "mi300_1: Observed Group"}) + "\n")
+    (results / result_name).write_text(
+        json.dumps({"job_name": "mi300_1: Observed Group"}) + "\n"
+    )
     (ci / "shard_bases.json").write_text(json.dumps(["required sharded group"]))
     (ci / "shard_base_catalog.json").write_text(
         json.dumps(
@@ -1982,7 +1966,9 @@ def test_complete_same_commit_unused_shard_base_is_a_degradation(tmp_path):
     audit.audit_shard_bases()
 
     assert audit.report.errors == []
-    assert [finding.code for finding in audit.report.degradations] == ["shard-bases-unused"]
+    assert [finding.code for finding in audit.report.degradations] == [
+        "shard-bases-unused"
+    ]
 
 
 def test_nested_decorated_runtime_shard_satisfies_shard_base_audit(tmp_path):
@@ -1990,9 +1976,15 @@ def test_nested_decorated_runtime_shard_satisfies_shard_base_audit(tmp_path):
     results = ci / "test_results"
     results.mkdir(parents=True)
     result_name = "2026-08-20_amd.jsonl"
-    runtime_name = "mi300_1: :amd: (MI300) Attention Kernels Shard 1"
-    (results / result_name).write_text(json.dumps({"job_name": runtime_name}) + "\n")
-    (ci / "shard_bases.json").write_text(json.dumps(["attention kernels shard"]))
+    runtime_name = (
+        "mi300_1: :amd: (MI300) Attention Kernels Shard 1"
+    )
+    (results / result_name).write_text(
+        json.dumps({"job_name": runtime_name}) + "\n"
+    )
+    (ci / "shard_bases.json").write_text(
+        json.dumps(["attention kernels shard"])
+    )
     (ci / "shard_base_catalog.json").write_text(
         json.dumps(
             {
@@ -2026,7 +2018,9 @@ def test_nested_decorated_runtime_shard_satisfies_shard_base_audit(tmp_path):
     audit = DashboardAudit(tmp_path)
     audit.audit_shard_bases()
 
-    assert "shard-bases-unused" not in {finding.code for finding in audit.report.findings}
+    assert "shard-bases-unused" not in {
+        finding.code for finding in audit.report.findings
+    }
 
 
 def _manifest_descriptor(path: Path) -> dict[str, object]:
@@ -2067,7 +2061,10 @@ def _write_pre_queue_split_fallback_state(
     ):
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"selection": "v4-queue-fallback", "path": relative}) + "\n")
+        path.write_text(
+            json.dumps({"selection": "v4-queue-fallback", "path": relative})
+            + "\n"
+        )
         paths[relative] = path
         entries[relative] = _manifest_descriptor(path)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -2076,7 +2073,9 @@ def _write_pre_queue_split_fallback_state(
         root,
         {
             "schema_version": 2,
-            "surface_contract_version": (PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION),
+            "surface_contract_version": (
+                PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+            ),
             "generated_at": now,
             "baseline_ref": "0" * 40,
             "mode": "fallback",
@@ -2099,13 +2098,19 @@ def _write_attested_split_fallback_state(
     specs: dict[str, SurfaceSpec],
 ) -> Path:
     fallback_surfaces = (
-        (fallback_surface,) if isinstance(fallback_surface, str) else fallback_surface
+        (fallback_surface,)
+        if isinstance(fallback_surface, str)
+        else fallback_surface
     )
     manifests = {}
     for surface in fallback_surfaces:
         spec = specs[surface]
         paths = set(spec.required_paths)
-        paths.update(relative for relative in spec.optional_paths if (root / relative).is_file())
+        paths.update(
+            relative
+            for relative in spec.optional_paths
+            if (root / relative).is_file()
+        )
         paths.update(
             candidate.relative_to(root).as_posix()
             for pattern in spec.globs
@@ -2113,7 +2118,8 @@ def _write_attested_split_fallback_state(
             if candidate.is_file()
         )
         manifests[surface] = {
-            relative: _manifest_descriptor(root / relative) for relative in sorted(paths)
+            relative: _manifest_descriptor(root / relative)
+            for relative in sorted(paths)
         }
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return _write_publication_state(
@@ -2127,11 +2133,18 @@ def _write_attested_split_fallback_state(
             "degraded_surfaces": list(fallback_surfaces),
             "fresh_degraded_surfaces": [],
             "fallback_surfaces": list(fallback_surfaces),
-            "degraded_since": {surface: now for surface in fallback_surfaces},
-            "fallback_since": {surface: now for surface in fallback_surfaces},
+            "degraded_since": {
+                surface: now for surface in fallback_surfaces
+            },
+            "fallback_since": {
+                surface: now for surface in fallback_surfaces
+            },
             "fallback_max_age_hours": 36,
             "restored_manifest": manifests,
-            "restored_paths": {surface: sorted(entries) for surface, entries in manifests.items()},
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in manifests.items()
+            },
         },
     )
 
@@ -2161,91 +2174,81 @@ def _write_split_build_alignment_fixtures(
         }
 
     builds = [analytics_row(analytics_build), analytics_row(analytics_build - 1)]
-    windows = {name: {"builds": builds} for name in ("1d", "3d", "7d", "14d", "30d")}
+    windows = {
+        name: {"builds": builds}
+        for name in ("1d", "3d", "7d", "14d", "30d")
+    }
     (ci / "analytics.json").write_text(
-        json.dumps(
-            {
-                slug: {
-                    "builds": builds,
-                    "default_window": "1d",
-                    "windows": windows,
-                }
-                for slug in ("amd-ci", "ci")
+        json.dumps({
+            slug: {
+                "builds": builds,
+                "default_window": "1d",
+                "windows": windows,
             }
-        )
+            for slug in ("amd-ci", "ci")
+        })
     )
     for suffix in ("amd", "upstream"):
         (results / f"2026-08-21_{suffix}.jsonl").write_text(
-            json.dumps({"build_number": core_build, "job_name": "smoke"}) + "\n"
+            json.dumps({"build_number": core_build, "job_name": "smoke"})
+            + "\n"
         )
 
     (ci / "ci_health.json").write_text(
-        json.dumps(
-            {
-                "amd": {
-                    "latest_build": {
-                        "build_number": core_build,
-                        "by_hardware": {"mi300": {"groups": 1}},
-                    }
+        json.dumps({
+            "amd": {
+                "latest_build": {
+                    "build_number": core_build,
+                    "by_hardware": {"mi300": {"groups": 1}},
                 }
             }
-        )
+        })
     )
     (ci / "parity_report.json").write_text(
-        json.dumps(
-            {
-                "job_groups": [
-                    {
-                        "name": "smoke",
-                        "hardware": ["mi300"],
-                        "amd": {"total": 1},
-                        "hw_failures": {},
-                    }
-                ]
-            }
-        )
+        json.dumps({
+            "job_groups": [{
+                "name": "smoke",
+                "hardware": ["mi300"],
+                "amd": {"total": 1},
+                "hw_failures": {},
+            }]
+        })
     )
     (ci / "amd_test_matrix.json").write_text(
-        json.dumps(
-            {
-                "source": {"latest_build_number": core_build},
-                "summary": {
-                    "unique_groups": 1,
-                    "architecture_count": 1,
-                    "hardware_cells": 1,
-                    "latest_matched_cells": 1,
-                    "passing_cells": 1,
-                    "failing_cells": 0,
-                    "waiting_cells": 0,
-                    "unknown_cells": 0,
-                    "fully_shared_groups": 1,
-                    "single_arch_groups": 1,
-                    "multi_variant_cells": 0,
+        json.dumps({
+            "source": {"latest_build_number": core_build},
+            "summary": {
+                "unique_groups": 1,
+                "architecture_count": 1,
+                "hardware_cells": 1,
+                "latest_matched_cells": 1,
+                "passing_cells": 1,
+                "failing_cells": 0,
+                "waiting_cells": 0,
+                "unknown_cells": 0,
+                "fully_shared_groups": 1,
+                "single_arch_groups": 1,
+                "multi_variant_cells": 0,
+            },
+            "architectures": [{
+                "id": "mi300",
+                "label": "MI300",
+                "group_count": 1,
+                "nightly_match_count": 1,
+            }],
+            "rows": [{
+                "title": "smoke",
+                "coverage_count": 1,
+                "nightly_coverage_count": 1,
+                "cells": {
+                    "mi300": {
+                        "exists": True,
+                        "latest_matched": True,
+                        "latest_state": "passed",
+                    }
                 },
-                "architectures": [
-                    {
-                        "id": "mi300",
-                        "label": "MI300",
-                        "group_count": 1,
-                        "nightly_match_count": 1,
-                    }
-                ],
-                "rows": [
-                    {
-                        "title": "smoke",
-                        "coverage_count": 1,
-                        "nightly_coverage_count": 1,
-                        "cells": {
-                            "mi300": {
-                                "exists": True,
-                                "latest_matched": True,
-                                "latest_state": "passed",
-                            }
-                        },
-                    }
-                ],
-            }
-        )
+            }],
+        })
     )
 
     return {
@@ -2296,14 +2299,15 @@ def test_attested_split_fallback_allows_directional_build_skew(
     target_errors = {
         finding.code
         for finding in audit.report.errors
-        if finding.code
-        in {
+        if finding.code in {
             "analytics-jsonl-build-mismatch",
             "matrix-analytics-build",
         }
     }
     skew_warnings = [
-        finding for finding in audit.report.warnings if finding.code.endswith("-fallback-skew")
+        finding
+        for finding in audit.report.warnings
+        if finding.code.endswith("-fallback-skew")
     ]
     assert target_errors == set()
     assert [finding.code for finding in skew_warnings].count(
@@ -2312,7 +2316,9 @@ def test_attested_split_fallback_allows_directional_build_skew(
     assert [finding.code for finding in skew_warnings].count(
         "matrix-analytics-build-fallback-skew"
     ) == 1
-    assert {finding.context["fallback_surface"] for finding in skew_warnings} == {fallback_surface}
+    assert {
+        finding.context["fallback_surface"] for finding in skew_warnings
+    } == {fallback_surface}
     assert {finding.context["pipeline"] for finding in skew_warnings} == {
         "amd",
         "upstream",
@@ -2357,8 +2363,7 @@ def test_split_build_mismatch_requires_valid_restore_attestation(
     assert {
         finding.context.get("pipeline")
         for finding in audit.report.errors
-        if finding.code
-        in {
+        if finding.code in {
             "analytics-jsonl-build-mismatch",
             "matrix-analytics-build",
         }
@@ -2422,7 +2427,9 @@ def _write_pre_analytics_gating_only_repo(
     return state_path, nightly
 
 
-def test_schema_v2_mixed_state_expires_only_fallback_surfaces(tmp_path, monkeypatch):
+def test_schema_v2_mixed_state_expires_only_fallback_surfaces(
+    tmp_path, monkeypatch
+):
     fresh_path = tmp_path / "data/fresh.json"
     fallback_path = tmp_path / "data/fallback.json"
     fresh_path.parent.mkdir(parents=True)
@@ -2466,10 +2473,14 @@ def test_schema_v2_mixed_state_expires_only_fallback_surfaces(tmp_path, monkeypa
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset({"fallback"})
-    assert "publication-fallback-expired" not in {finding.code for finding in audit.report.errors}
+    assert "publication-fallback-expired" not in {
+        finding.code for finding in audit.report.errors
+    }
 
 
-def test_schema_v2_rejects_an_inconsistent_degraded_surface_union(tmp_path, monkeypatch):
+def test_schema_v2_rejects_an_inconsistent_degraded_surface_union(
+    tmp_path, monkeypatch
+):
     monkeypatch.setattr(
         audit_module,
         "SURFACE_SPECS",
@@ -2496,10 +2507,14 @@ def test_schema_v2_rejects_an_inconsistent_degraded_surface_union(tmp_path, monk
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset()
-    assert [finding.code for finding in audit.report.errors] == ["publication-state-invalid"]
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
 
 
-def test_schema_v2_stale_source_waiver_applies_only_to_fallback(tmp_path, monkeypatch):
+def test_schema_v2_stale_source_waiver_applies_only_to_fallback(
+    tmp_path, monkeypatch
+):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
     analytics = ci / "analytics.json"
@@ -2548,7 +2563,13 @@ def test_schema_v2_stale_source_waiver_applies_only_to_fallback(tmp_path, monkey
                 "fallback_since": {"ci": now} if is_fallback else {},
                 "fallback_max_age_hours": 36,
                 "restored_manifest": (
-                    {"ci": {"data/vllm/ci/analytics.json": _manifest_descriptor(analytics)}}
+                    {
+                        "ci": {
+                            "data/vllm/ci/analytics.json": _manifest_descriptor(
+                                analytics
+                            )
+                        }
+                    }
                     if is_fallback
                     else {}
                 ),
@@ -2561,11 +2582,15 @@ def test_schema_v2_stale_source_waiver_applies_only_to_fallback(tmp_path, monkey
     fresh = audit_with_selection("degraded")
     fallback = audit_with_selection("fallback")
 
-    assert "operations-stale-source" in {finding.code for finding in fresh.report.errors}
+    assert "operations-stale-source" in {
+        finding.code for finding in fresh.report.errors
+    }
     assert "operations-stale-source-fallback" not in {
         finding.code for finding in fresh.report.warnings
     }
-    assert "operations-stale-source" not in {finding.code for finding in fallback.report.errors}
+    assert "operations-stale-source" not in {
+        finding.code for finding in fallback.report.errors
+    }
     assert "operations-stale-source-fallback" in {
         finding.code for finding in fallback.report.warnings
     }
@@ -2590,7 +2615,9 @@ def test_schema_v1_legacy_ci_manifest_returns_split_child_fallbacks(tmp_path):
 
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
-    assert audit.fallback_surfaces() == frozenset({"ci_core", "ci_analytics"})
+    assert audit.fallback_surfaces() == frozenset(
+        {"ci_core", "ci_analytics"}
+    )
     assert audit.report.errors == []
 
 
@@ -2643,7 +2670,9 @@ def test_schema_v2_rejects_legacy_ci_alias(tmp_path):
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset()
-    assert [finding.code for finding in audit.report.errors] == ["publication-state-invalid"]
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
 
 
 def test_schema_v2_rejects_unknown_explicit_surface_contract(tmp_path):
@@ -2670,7 +2699,9 @@ def test_schema_v2_rejects_unknown_explicit_surface_contract(tmp_path):
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset()
-    assert [finding.code for finding in audit.report.errors] == ["publication-state-invalid"]
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
 
 
 @pytest.mark.parametrize("invalid_contract", [5.0, True, "5"])
@@ -2701,7 +2732,9 @@ def test_schema_v2_rejects_non_integer_surface_contract(
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset()
-    assert [finding.code for finding in audit.report.errors] == ["publication-state-invalid"]
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
     assert "invalid surface contract" in audit.report.errors[0].message
 
 
@@ -2712,14 +2745,12 @@ def test_pre_queue_split_schema_v2_manifest_is_verified_then_partitioned(
 
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
-    assert audit.fallback_surfaces() == frozenset(
-        {
-            "queue",
-            "queue_capacity",
-            "queue_omni",
-            "queue_workload",
-        }
-    )
+    assert audit.fallback_surfaces() == frozenset({
+        "queue",
+        "queue_capacity",
+        "queue_omni",
+        "queue_workload",
+    })
     assert audit.report.errors == []
 
 
@@ -2727,7 +2758,9 @@ def test_pre_queue_split_schema_v2_manifest_is_hash_verified_before_partition(
     tmp_path,
 ):
     state_path, paths = _write_pre_queue_split_fallback_state(tmp_path)
-    paths["data/vllm/ci/workload_mapping.json"].write_text('{"selection":"tampered"}\n')
+    paths["data/vllm/ci/workload_mapping.json"].write_text(
+        '{"selection":"tampered"}\n'
+    )
 
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
@@ -2740,7 +2773,9 @@ def test_pre_queue_split_schema_v2_manifest_is_hash_verified_before_partition(
 def test_pre_queue_split_schema_v2_inherits_fallback_clock_for_every_child(
     tmp_path,
 ):
-    expired = (datetime.now(timezone.utc) - timedelta(hours=37)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    expired = (datetime.now(timezone.utc) - timedelta(hours=37)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
     state_path, _paths = _write_pre_queue_split_fallback_state(
         tmp_path,
         fallback_since=expired,
@@ -2750,7 +2785,9 @@ def test_pre_queue_split_schema_v2_inherits_fallback_clock_for_every_child(
 
     assert audit.fallback_surfaces() == frozenset()
     expired_findings = [
-        finding for finding in audit.report.errors if finding.code == "publication-fallback-expired"
+        finding
+        for finding in audit.report.errors
+        if finding.code == "publication-fallback-expired"
     ]
     assert {finding.context["surface"] for finding in expired_findings} == {
         "queue",
@@ -2773,7 +2810,10 @@ def test_pre_analytics_and_pre_queue_split_fallbacks_migrate_sequentially(
         for relative in spec.required_paths:
             path = tmp_path / relative
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({"selection": "legacy-combined", "path": relative}) + "\n")
+            path.write_text(
+                json.dumps({"selection": "legacy-combined", "path": relative})
+                + "\n"
+            )
             entries[relative] = _manifest_descriptor(path)
         manifests[surface] = entries
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -2787,26 +2827,31 @@ def test_pre_analytics_and_pre_queue_split_fallbacks_migrate_sequentially(
             "degraded_surfaces": ["ci_core", "ci_gating", "queue"],
             "fresh_degraded_surfaces": [],
             "fallback_surfaces": ["ci_core", "ci_gating", "queue"],
-            "degraded_since": {surface: now for surface in manifests},
-            "fallback_since": {surface: now for surface in manifests},
+            "degraded_since": {
+                surface: now for surface in manifests
+            },
+            "fallback_since": {
+                surface: now for surface in manifests
+            },
             "fallback_max_age_hours": 36,
             "restored_manifest": manifests,
-            "restored_paths": {surface: sorted(entries) for surface, entries in manifests.items()},
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in manifests.items()
+            },
         },
     )
 
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
-    assert audit.fallback_surfaces() == frozenset(
-        {
-            "ci_analytics",
-            "ci_core",
-            "queue",
-            "queue_capacity",
-            "queue_omni",
-            "queue_workload",
-        }
-    )
+    assert audit.fallback_surfaces() == frozenset({
+        "ci_analytics",
+        "ci_core",
+        "queue",
+        "queue_capacity",
+        "queue_omni",
+        "queue_workload",
+    })
     assert audit.report.errors == []
 
 
@@ -2831,7 +2876,9 @@ def test_active_queue_split_schema_v2_fallback_is_not_re_expanded(tmp_path):
             "fallback_max_age_hours": 36,
             "restored_manifest": {
                 "queue_workload": {
-                    "data/vllm/ci/workload_mapping.json": (_manifest_descriptor(workload)),
+                    "data/vllm/ci/workload_mapping.json": (
+                        _manifest_descriptor(workload)
+                    ),
                 },
             },
             "restored_paths": {
@@ -2874,13 +2921,18 @@ def test_pre_analytics_schema_v2_manifest_is_verified_then_split(tmp_path):
             "fallback_since": {"ci_core": now, "ci_gating": now},
             "fallback_max_age_hours": 36,
             "restored_manifest": manifests,
-            "restored_paths": {surface: sorted(entries) for surface, entries in manifests.items()},
+            "restored_paths": {
+                surface: sorted(entries)
+                for surface, entries in manifests.items()
+            },
         },
     )
 
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
-    assert audit.fallback_surfaces() == frozenset({"ci_core", "ci_analytics"})
+    assert audit.fallback_surfaces() == frozenset(
+        {"ci_core", "ci_analytics"}
+    )
     assert audit.report.errors == []
 
 
@@ -2934,7 +2986,9 @@ def test_pre_analytics_schema_v2_rejects_unclosed_core_dependency(tmp_path):
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
 
     assert audit.fallback_surfaces() == frozenset()
-    assert [finding.code for finding in audit.report.errors] == ["publication-state-invalid"]
+    assert [finding.code for finding in audit.report.errors] == [
+        "publication-state-invalid"
+    ]
 
 
 def test_schema_v1_fallback_state_remains_supported(tmp_path, monkeypatch):
@@ -2957,7 +3011,9 @@ def test_schema_v1_fallback_state_remains_supported(tmp_path, monkeypatch):
             "degraded_surfaces": ["ci"],
             "degraded_since": {"ci": now},
             "fallback_max_age_hours": 36,
-            "restored_manifest": {"ci": {"data/source.json": _manifest_descriptor(source)}},
+            "restored_manifest": {
+                "ci": {"data/source.json": _manifest_descriptor(source)}
+            },
         },
     )
 
@@ -2971,15 +3027,11 @@ def test_publication_budget_rejects_an_oversized_file(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "data").mkdir()
     (tmp_path / "data/public.json").write_text("{}")
-    (tmp_path / "config/public_data_manifest.json").write_text(
-        json.dumps(
-            {
-                "required_files": ["public.json"],
-                "optional_files": [],
-                "optional_globs": [],
-            }
-        )
-    )
+    (tmp_path / "config/public_data_manifest.json").write_text(json.dumps({
+        "required_files": ["public.json"],
+        "optional_files": [],
+        "optional_globs": [],
+    }))
     monkeypatch.setattr(audit_module, "PUBLIC_FILE_WARN_BYTES", 1)
     monkeypatch.setattr(audit_module, "PUBLIC_FILE_HARD_BYTES", 1)
     monkeypatch.setattr(audit_module, "PUBLIC_SITE_WARN_BYTES", 100)
@@ -2987,7 +3039,9 @@ def test_publication_budget_rejects_an_oversized_file(tmp_path, monkeypatch):
     audit = DashboardAudit(tmp_path)
     audit.audit_publication_size()
 
-    assert {finding.code for finding in audit.report.errors} == {"public-file-budget"}
+    assert {finding.code for finding in audit.report.errors} == {
+        "public-file-budget"
+    }
 
 
 def test_publication_budget_counts_projection_ceiling_not_private_source(tmp_path):
@@ -3031,99 +3085,71 @@ def test_publication_budget_counts_projection_ceiling_not_private_source(tmp_pat
 def test_operations_audit_rejects_cross_pipeline_links_and_trajectory(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
-    (ci / "operations_v2.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "gating": {
-                    "active_target_summary": {"target_group_count": 1},
-                    "active_target_groups": [
-                        {
-                            "label": "Cross-pipeline evidence",
-                            "latest_amd_result": {
-                                "state": "passed",
-                                "source_pipeline": "amd-ci",
-                                "evidence": [
-                                    {
-                                        "source_pipeline": "amd-ci",
-                                        "url": "https://buildkite.com/vllm/ci/builds/10",
-                                    }
-                                ],
-                            },
-                            "main_reliability": {
-                                "source_pipeline": "ci",
-                                "latest_url": "https://buildkite.com/vllm/amd-ci/builds/20",
-                            },
-                            "evidence": [
-                                {
-                                    "source_pipeline": "ci",
-                                    "url": "https://buildkite.com/vllm/amd-ci/builds/20",
-                                }
-                            ],
-                        }
-                    ],
-                },
-                "reliability": {
-                    "available": True,
-                    "source_pipeline": "ci",
-                    "cohort": {
-                        "id": "main",
-                        "available": True,
-                        "build_count": 0,
-                        "canonical_nightly_build_count": 0,
-                        "non_nightly_main_build_count": 0,
-                        "provenance": {"cohort": {"pipeline": "ci"}},
-                    },
-                    "denominator": {
-                        "unit": "terminal ci branch=main job observations",
-                        "observations": 0,
-                    },
-                    "group_catalog": [],
-                    "flaky_candidates": [],
-                    "latency_rankings": {"by_p90_duration": []},
-                    "retry_analysis": {
-                        "summary": {
-                            "retry_attempt_count": 0,
-                            "failed_then_passed_recovery_count": 0,
-                        },
-                        "retry_attempts": [],
-                        "failed_then_passed_recoveries": [],
-                    },
-                },
-                "amd_reliability": {"source_pipeline": "amd-ci"},
-                "nightly": {
-                    "canonical_history": {
-                        "pipeline": "amd-ci",
-                        "builds_available": 0,
-                        "builds": [],
-                    },
-                    "upstream_parity": {"pipeline": "ci"},
-                },
-                "trajectory": {
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "gating": {
+            "active_target_summary": {"target_group_count": 1},
+            "active_target_groups": [{
+                "label": "Cross-pipeline evidence",
+                "latest_amd_result": {
+                    "state": "passed",
                     "source_pipeline": "amd-ci",
-                    "pipeline_order": ["amd-ci", "ci"],
-                    "pipelines": [{"pipeline": "amd-ci"}, {"pipeline": "ci"}],
-                    "provenance": {
-                        "source_paths": {
-                            "build_history": "ci_health.json",
-                            "group_changes": "group_changes.json",
-                        },
-                        "build_history": {
-                            "source_pipeline": "amd-ci",
-                            "source_key": "amd-ci.builds",
-                        },
-                    },
+                    "evidence": [{
+                        "source_pipeline": "amd-ci",
+                        "url": "https://buildkite.com/vllm/ci/builds/10",
+                    }],
                 },
-                "queue": {
-                    "history": [{"ts": "1"}, {"ts": "2"}],
-                    "provenance": {"source_paths": {"history": "queue_timeseries.jsonl"}},
+                "main_reliability": {
+                    "source_pipeline": "ci",
+                    "latest_url": "https://buildkite.com/vllm/amd-ci/builds/20",
                 },
-                "omni": {
-                    "provenance": {"source_paths": {"queue_aggregates": "queue_timeseries.jsonl"}}
-                },
-            }
-        )
-    )
+                "evidence": [{
+                    "source_pipeline": "ci",
+                    "url": "https://buildkite.com/vllm/amd-ci/builds/20",
+                }],
+            }],
+        },
+        "reliability": {
+            "available": True,
+            "source_pipeline": "ci",
+            "cohort": {
+                "id": "main",
+                "available": True,
+                "build_count": 0,
+                "canonical_nightly_build_count": 0,
+                "non_nightly_main_build_count": 0,
+                "provenance": {"cohort": {"pipeline": "ci"}},
+            },
+            "denominator": {"unit": "terminal ci branch=main job observations", "observations": 0},
+            "group_catalog": [],
+            "flaky_candidates": [],
+            "latency_rankings": {"by_p90_duration": []},
+            "retry_analysis": {
+                "summary": {"retry_attempt_count": 0, "failed_then_passed_recovery_count": 0},
+                "retry_attempts": [],
+                "failed_then_passed_recoveries": [],
+            },
+        },
+        "amd_reliability": {"source_pipeline": "amd-ci"},
+        "nightly": {
+            "canonical_history": {"pipeline": "amd-ci", "builds_available": 0, "builds": []},
+            "upstream_parity": {"pipeline": "ci"},
+        },
+        "trajectory": {
+            "source_pipeline": "amd-ci",
+            "pipeline_order": ["amd-ci", "ci"],
+            "pipelines": [{"pipeline": "amd-ci"}, {"pipeline": "ci"}],
+            "provenance": {
+                "source_paths": {"build_history": "ci_health.json", "group_changes": "group_changes.json"},
+                "build_history": {"source_pipeline": "amd-ci", "source_key": "amd-ci.builds"},
+            },
+        },
+        "queue": {
+            "history": [{"ts": "1"}, {"ts": "2"}],
+            "provenance": {"source_paths": {"history": "queue_timeseries.jsonl"}},
+        },
+        "omni": {"provenance": {"source_paths": {"queue_aggregates": "queue_timeseries.jsonl"}}},
+    }))
 
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
@@ -3154,29 +3180,25 @@ def test_buildkite_audit_links_require_the_exact_host_pipeline_build_and_job():
 def test_operations_audit_handles_malformed_nested_types_without_crashing(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
-    (ci / "operations_v2.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "gating": {
-                    "active_target_summary": "not-an-object",
-                    "active_target_groups": ["not-a-row"],
-                },
-                "reliability": {
-                    "available": True,
-                    "source_pipeline": "ci",
-                    "cohort": {"build_numbers": ["bad"]},
-                    "group_catalog": ["not-a-group"],
-                    "flaky_candidates": ["not-a-candidate"],
-                    "retry_analysis": {"summary": "bad", "retry_attempts": ["bad"]},
-                },
-                "nightly": "not-an-object",
-                "trajectory": "not-an-object",
-                "queue": "not-an-object",
-                "omni": "not-an-object",
-            }
-        )
-    )
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "gating": {
+            "active_target_summary": "not-an-object",
+            "active_target_groups": ["not-a-row"],
+        },
+        "reliability": {
+            "available": True,
+            "source_pipeline": "ci",
+            "cohort": {"build_numbers": ["bad"]},
+            "group_catalog": ["not-a-group"],
+            "flaky_candidates": ["not-a-candidate"],
+            "retry_analysis": {"summary": "bad", "retry_attempts": ["bad"]},
+        },
+        "nightly": "not-an-object",
+        "trajectory": "not-an-object",
+        "queue": "not-an-object",
+        "omni": "not-an-object",
+    }))
 
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
@@ -3187,47 +3209,41 @@ def test_operations_audit_handles_malformed_nested_types_without_crashing(tmp_pa
 def test_operations_audit_rejects_mixed_latest_and_retained_amd_counts(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
-    (ci / "operations_v2.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "amd_test_health": {
-                    "available": True,
-                    "summary": {
-                        "build_count": 1,
-                        "retained_group_count": 3,
-                        "group_count": 3,
-                        "union_group_count": 3,
-                        "latest_group_count": 3,
-                        "latest_build_number": 10,
-                        "latest_state_counts": {
-                            "passed": 1,
-                            "soft": 1,
-                            "hard": 0,
-                            "unknown": 0,
-                        },
-                    },
-                    "builds": [
-                        {
-                            "build_number": 10,
-                            "observed": 2,
-                            "state_counts": {
-                                "passed": 1,
-                                "soft": 1,
-                                "hard": 0,
-                                "unknown": 0,
-                            },
-                        }
-                    ],
-                    "group_catalog": [
-                        {"id": "current-pass", "latest_build_number": 10},
-                        {"id": "current-soft", "latest_build_number": 10},
-                        {"id": "historical-only", "latest_build_number": 9},
-                    ],
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "amd_test_health": {
+            "available": True,
+            "summary": {
+                "build_count": 1,
+                "retained_group_count": 3,
+                "group_count": 3,
+                "union_group_count": 3,
+                "latest_group_count": 3,
+                "latest_build_number": 10,
+                "latest_state_counts": {
+                    "passed": 1,
+                    "soft": 1,
+                    "hard": 0,
+                    "unknown": 0,
                 },
-            }
-        )
-    )
+            },
+            "builds": [{
+                "build_number": 10,
+                "observed": 2,
+                "state_counts": {
+                    "passed": 1,
+                    "soft": 1,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+            }],
+            "group_catalog": [
+                {"id": "current-pass", "latest_build_number": 10},
+                {"id": "current-soft", "latest_build_number": 10},
+                {"id": "historical-only", "latest_build_number": 9},
+            ],
+        },
+    }))
 
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
@@ -3240,75 +3256,69 @@ def test_operations_audit_rejects_mixed_latest_and_retained_amd_counts(tmp_path)
 def test_operations_audit_rejects_cross_build_logical_group_counts(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
-    (ci / "operations_v2.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "amd_test_health": {
-                    "available": True,
-                    "summary": {
-                        "build_count": 1,
-                        "retained_group_count": 2,
-                        "group_count": 2,
-                        "union_group_count": 2,
-                        "retained_job_variant_count": 2,
-                        "latest_group_count": 2,
-                        "latest_job_variant_count": 2,
-                        "latest_build_number": 10,
-                        "latest_state_counts": {
-                            "passed": 2,
-                            "soft": 0,
-                            "hard": 0,
-                            "unknown": 0,
-                        },
-                        "latest_job_variant_state_counts": {
-                            "passed": 2,
-                            "soft": 0,
-                            "hard": 0,
-                            "unknown": 0,
-                        },
-                        "latest_test_group_counts": {
-                            "available": True,
-                            "build_number": 9,
-                            "job_variant_build_number": 10,
-                            "test_signal_build_number": 9,
-                            "total": 3,
-                            "passing": 3,
-                            "non_passing": 1,
-                            "passing_all": 2,
-                            "partial": 1,
-                            "pass_percentage": 100.0,
-                            "source": "ci_health.amd.latest_test_signal_build",
-                            "reason": None,
-                        },
-                    },
-                    "builds": [
-                        {
-                            "build_number": 10,
-                            "observed": 2,
-                            "observed_job_variants": 2,
-                            "state_counts": {
-                                "passed": 2,
-                                "soft": 0,
-                                "hard": 0,
-                                "unknown": 0,
-                            },
-                            "job_variant_state_counts": {
-                                "passed": 2,
-                                "soft": 0,
-                                "hard": 0,
-                                "unknown": 0,
-                            },
-                        }
-                    ],
-                    "group_catalog": [
-                        {"id": "current-a", "latest_build_number": 10},
-                        {"id": "current-b", "latest_build_number": 10},
-                    ],
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "amd_test_health": {
+            "available": True,
+            "summary": {
+                "build_count": 1,
+                "retained_group_count": 2,
+                "group_count": 2,
+                "union_group_count": 2,
+                "retained_job_variant_count": 2,
+                "latest_group_count": 2,
+                "latest_job_variant_count": 2,
+                "latest_build_number": 10,
+                "latest_state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
                 },
-            }
-        )
-    )
+                "latest_job_variant_state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+                "latest_test_group_counts": {
+                    "available": True,
+                    "build_number": 9,
+                    "job_variant_build_number": 10,
+                    "test_signal_build_number": 9,
+                    "total": 3,
+                    "passing": 3,
+                    "non_passing": 1,
+                    "passing_all": 2,
+                    "partial": 1,
+                    "pass_percentage": 100.0,
+                    "source": "ci_health.amd.latest_test_signal_build",
+                    "reason": None,
+                },
+            },
+            "builds": [{
+                "build_number": 10,
+                "observed": 2,
+                "observed_job_variants": 2,
+                "state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+                "job_variant_state_counts": {
+                    "passed": 2,
+                    "soft": 0,
+                    "hard": 0,
+                    "unknown": 0,
+                },
+            }],
+            "group_catalog": [
+                {"id": "current-a", "latest_build_number": 10},
+                {"id": "current-b", "latest_build_number": 10},
+            ],
+        },
+    }))
 
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
@@ -3378,8 +3388,12 @@ def test_operations_audit_accepts_proven_analytics_head_ahead_of_core(tmp_path):
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
 
-    assert "operations-latest-nightly" not in {finding.code for finding in audit.report.errors}
-    assert "operations-latest-nightly-ahead" in {finding.code for finding in audit.report.warnings}
+    assert "operations-latest-nightly" not in {
+        finding.code for finding in audit.report.errors
+    }
+    assert "operations-latest-nightly-ahead" in {
+        finding.code for finding in audit.report.warnings
+    }
 
 
 def test_operations_audit_rejects_unproven_analytics_head_alignment(tmp_path):
@@ -3390,7 +3404,9 @@ def test_operations_audit_rejects_unproven_analytics_head_alignment(tmp_path):
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
 
-    assert "operations-latest-nightly" in {finding.code for finding in audit.report.errors}
+    assert "operations-latest-nightly" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_operations_audit_reconciles_identity_families_independently(
@@ -3479,24 +3495,22 @@ def test_operations_audit_reconciles_identity_families_independently(
     assert "definition-parity-amd-physical-conservation" not in codes
 
 
-def test_operations_audit_rejects_file_mtime_as_source_freshness(tmp_path, monkeypatch):
+def test_operations_audit_rejects_file_mtime_as_source_freshness(
+    tmp_path, monkeypatch
+):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
-    (ci / "operations_v2.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 2,
-                "generated_at": "2026-07-27T12:00:00Z",
-                "sources": {
-                    "analytics": {
-                        "path": "analytics.json",
-                        "timestamp": "2026-07-27T11:00:00Z",
-                        "timestamp_source": "file_mtime",
-                    }
-                },
+    (ci / "operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "generated_at": "2026-07-27T12:00:00Z",
+        "sources": {
+            "analytics": {
+                "path": "analytics.json",
+                "timestamp": "2026-07-27T11:00:00Z",
+                "timestamp_source": "file_mtime",
             }
-        )
-    )
+        },
+    }))
     monkeypatch.setattr(
         audit_module,
         "OPERATIONS_FRESH_SOURCE_KEYS",
@@ -3506,14 +3520,18 @@ def test_operations_audit_rejects_file_mtime_as_source_freshness(tmp_path, monke
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_v2()
 
-    assert "operations-source-provenance" in {finding.code for finding in audit.report.errors}
+    assert "operations-source-provenance" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
 
-    (ci / "analytics.json").write_text(json.dumps({"amd-ci": {"builds": [{"number": 123}]}}))
+    (ci / "analytics.json").write_text(
+        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
+    )
     (ci / "ci_health.json").write_text(
         json.dumps(
             {
@@ -3549,13 +3567,7 @@ def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {
-                    "latest_build_number": 123,
-                    "pipeline": "ci",
-                    "definition_source": "main_ci_inline_and_native_amd",
-                    "commit_sha": "a" * 40,
-                    "runtime_source_commit_sha": "a" * 40,
-                },
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 2,
                     "architecture_count": 1,
@@ -3577,25 +3589,13 @@ def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
                         "title": "passing",
                         "coverage_count": 1,
                         "nightly_coverage_count": 1,
-                        "cells": {
-                            "mi300": {
-                                "exists": True,
-                                "latest_matched": True,
-                                "latest_state": "passed",
-                            }
-                        },
+                        "cells": {"mi300": {"exists": True, "latest_matched": True, "latest_state": "passed"}},
                     },
                     {
                         "title": "waiting",
                         "coverage_count": 1,
                         "nightly_coverage_count": 1,
-                        "cells": {
-                            "mi300": {
-                                "exists": True,
-                                "latest_matched": True,
-                                "latest_state": "running",
-                            }
-                        },
+                        "cells": {"mi300": {"exists": True, "latest_matched": True, "latest_state": "running"}},
                     },
                 ],
             }
@@ -3615,7 +3615,9 @@ def test_dashboard_audit_allows_retry_recovery_final_state_drift(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
 
-    (ci / "analytics.json").write_text(json.dumps({"amd-ci": {"builds": [{"number": 123}]}}))
+    (ci / "analytics.json").write_text(
+        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
+    )
     (ci / "ci_health.json").write_text(
         json.dumps(
             {
@@ -3645,13 +3647,7 @@ def test_dashboard_audit_allows_retry_recovery_final_state_drift(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {
-                    "latest_build_number": 123,
-                    "pipeline": "ci",
-                    "definition_source": "main_ci_inline_and_native_amd",
-                    "commit_sha": "a" * 40,
-                    "runtime_source_commit_sha": "a" * 40,
-                },
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 1,
                     "architecture_count": 1,
@@ -3695,16 +3691,18 @@ def test_dashboard_audit_allows_retry_recovery_final_state_drift(tmp_path):
     audit.audit_amd_matrix()
 
     assert not audit.report.errors
-    assert {finding.code for finding in audit.report.warnings} == {
-        "parity-matrix-hardware-failing-final-state-drift"
-    }
+    assert {
+        finding.code for finding in audit.report.warnings
+    } == {"parity-matrix-hardware-failing-final-state-drift"}
 
 
 def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
 
-    (ci / "analytics.json").write_text(json.dumps({"amd-ci": {"builds": [{"number": 123}]}}))
+    (ci / "analytics.json").write_text(
+        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
+    )
     (ci / "ci_health.json").write_text(
         json.dumps(
             {
@@ -3740,13 +3738,7 @@ def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {
-                    "latest_build_number": 123,
-                    "pipeline": "ci",
-                    "definition_source": "main_ci_inline_and_native_amd",
-                    "commit_sha": "a" * 40,
-                    "runtime_source_commit_sha": "a" * 40,
-                },
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 1,
                     "architecture_count": 1,
@@ -3768,13 +3760,7 @@ def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
                         "title": "passing",
                         "coverage_count": 1,
                         "nightly_coverage_count": 1,
-                        "cells": {
-                            "mi300": {
-                                "exists": True,
-                                "latest_matched": True,
-                                "latest_state": "passed",
-                            }
-                        },
+                        "cells": {"mi300": {"exists": True, "latest_matched": True, "latest_state": "passed"}},
                     }
                 ],
             }
@@ -3864,7 +3850,9 @@ def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):
     ci = tmp_path / "data/vllm/ci"
     ci.mkdir(parents=True)
 
-    (ci / "analytics.json").write_text(json.dumps({"amd-ci": {"builds": [{"number": 123}]}}))
+    (ci / "analytics.json").write_text(
+        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
+    )
     (ci / "ci_health.json").write_text(
         json.dumps(
             {
@@ -3900,13 +3888,7 @@ def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {
-                    "latest_build_number": 123,
-                    "pipeline": "ci",
-                    "definition_source": "main_ci_inline_and_native_amd",
-                    "commit_sha": "a" * 40,
-                    "runtime_source_commit_sha": "a" * 40,
-                },
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 2,
                     "architecture_count": 1,
@@ -4011,7 +3993,9 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     invalid = DashboardAudit(tmp_path)
     invalid.audit_workflows()
 
-    assert "workflow-hourly-step-order" in {finding.code for finding in invalid.report.errors}
+    assert "workflow-hourly-step-order" in {
+        finding.code for finding in invalid.report.errors
+    }
 
 
 def test_workflow_audit_accepts_state_pinned_cache_busting_interpreter(tmp_path):
@@ -4032,7 +4016,9 @@ def test_workflow_audit_accepts_state_pinned_cache_busting_interpreter(tmp_path)
     audit = DashboardAudit(tmp_path)
     audit.audit_workflows()
 
-    assert "workflow-cache-bust" not in {finding.code for finding in audit.report.errors}
+    assert "workflow-cache-bust" not in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_workflow_audit_enforces_one_way_analytics_projection(tmp_path):
@@ -4054,7 +4040,9 @@ def test_workflow_audit_enforces_one_way_analytics_projection(tmp_path):
         "public-analytics-projection",
         "public-analytics-materialization",
     }
-    assert not projection_codes & {finding.code for finding in valid.report.errors}
+    assert not projection_codes & {
+        finding.code for finding in valid.report.errors
+    }
 
     hourly = tmp_path / ".github/workflows/hourly-master.yml"
     hourly_text = hourly.read_text()
@@ -4177,10 +4165,14 @@ def test_workflow_audit_enforces_private_analytics_cache_boundary(tmp_path):
     }
 
     gitignore = tmp_path / ".gitignore"
-    gitignore.write_text(gitignore.read_text().replace("data/vllm/ci/.cache/", "", 1))
+    gitignore.write_text(
+        gitignore.read_text().replace("data/vllm/ci/.cache/", "", 1)
+    )
     unignored = DashboardAudit(tmp_path)
     unignored.audit_workflows()
-    assert "private-analytics-cache-ignore" in {finding.code for finding in unignored.report.errors}
+    assert "private-analytics-cache-ignore" in {
+        finding.code for finding in unignored.report.errors
+    }
 
     manifest_path = tmp_path / "config/public_data_manifest.json"
     manifest = json.loads(manifest_path.read_text())
@@ -4223,27 +4215,25 @@ def test_bounded_publication_retention_audit_accepts_reconciled_metadata(
 ) -> None:
     path = tmp_path / "data/vllm/ci/config_parity.json"
     path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps(
-            {
-                "publication_retention": {
-                    "max_bytes": 10_000,
-                    "complete_relative_to_source": False,
-                    "changes": {
-                        "source": 3,
-                        "published": 2,
-                        "omitted": 1,
-                        "complete": False,
-                    },
-                },
-            }
-        )
-    )
+    path.write_text(json.dumps({
+        "publication_retention": {
+            "max_bytes": 10_000,
+            "complete_relative_to_source": False,
+            "changes": {
+                "source": 3,
+                "published": 2,
+                "omitted": 1,
+                "complete": False,
+            },
+        },
+    }))
 
     audit = DashboardAudit(tmp_path)
     audit.audit_bounded_publication_retention()
 
-    assert "storage-retention-invalid" not in {finding.code for finding in audit.report.errors}
+    assert "storage-retention-invalid" not in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def test_bounded_publication_retention_audit_rejects_false_completeness(
@@ -4251,27 +4241,25 @@ def test_bounded_publication_retention_audit_rejects_false_completeness(
 ) -> None:
     path = tmp_path / "data/vllm/ci/config_parity.json"
     path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps(
-            {
-                "publication_retention": {
-                    "max_bytes": 10_000,
-                    "complete_relative_to_source": True,
-                    "changes": {
-                        "source": 3,
-                        "published": 2,
-                        "omitted": 1,
-                        "complete": True,
-                    },
-                },
-            }
-        )
-    )
+    path.write_text(json.dumps({
+        "publication_retention": {
+            "max_bytes": 10_000,
+            "complete_relative_to_source": True,
+            "changes": {
+                "source": 3,
+                "published": 2,
+                "omitted": 1,
+                "complete": True,
+            },
+        },
+    }))
 
     audit = DashboardAudit(tmp_path)
     audit.audit_bounded_publication_retention()
 
-    assert "storage-retention-invalid" in {finding.code for finding in audit.report.errors}
+    assert "storage-retention-invalid" in {
+        finding.code for finding in audit.report.errors
+    }
 
 
 def _current_latency_fixture():
@@ -4548,6 +4536,9 @@ def test_current_latency_audit_rejects_malformed_columnar_job_evidence(tmp_path,
 
 
 def _current_main_matrix_replay_fixture(tmp_path):
+    from collect_ci import _current_scope_results, _scope_nightly_build
+    from vllm.ci.analyzer import compute_build_summary, compute_parity
+    from vllm.ci.models import TestResult
     from vllm.collect_amd_test_matrix import (
         RAW_YAML_URL_TEMPLATE,
         build_matrix,
@@ -4570,7 +4561,7 @@ def _current_main_matrix_replay_fixture(tmp_path):
                         "device": "h100",
                         "commands": ["pytest tests/shared.py"],
                         "mirror": {
-                            "amd": {"label": ":amd: (MI300) Shared workload", "device": "mi300_1"}
+                            "amd": {"label": ":amd: (MI250) Shared workload", "device": "mi300_1", "no_gpu": True}
                         },
                     },
                     {
@@ -4599,14 +4590,15 @@ def _current_main_matrix_replay_fixture(tmp_path):
                 "type": "script",
                 "id": "00000000-0000-4000-8000-000000000001",
                 "state": "passed",
-                "name": ":amd: (MI300) Shared workload",
-                "agent_query_rules": ["queue=amd_mi300_1"],
+                "name": ":amd: (MI250) Shared workload",
+                "agent": {"meta_data": ["queue=amd_mi300_1"]},
+                "agent_query_rules": ["queue=amd_mi250_1"],
             },
             {
                 "type": "script",
                 "id": "00000000-0000-4000-8000-000000000002",
                 "state": "passed",
-                "name": ":amd: (MI355) Native workload",
+                "name": "AMD: :amd: (MI355 DPX) Native workload (mi355_dpx)",
                 "agent_query_rules": ["queue=amd_mi355_dpx"],
             },
         ],
@@ -4631,40 +4623,20 @@ def _current_main_matrix_replay_fixture(tmp_path):
     output = tmp_path / "data/vllm/ci"
     output.mkdir(parents=True)
     (output / "analytics.json").write_text(json.dumps({"ci": {"builds": [build]}}))
-    (output / "ci_health.json").write_text(
-        json.dumps(
-            {
-                "amd": {
-                    "latest_build": {
-                        "build_number": 93523,
-                        "by_hardware": {"mi300": {"groups": 1}, "mi355": {"groups": 1}},
-                    }
-                }
-            }
-        )
-    )
-    (output / "parity_report.json").write_text(
-        json.dumps(
-            {
-                "job_groups": [
-                    {
-                        "name": "shared workload",
-                        "amd": {"total": 1},
-                        "amd_hardware": ["mi300"],
-                        "hardware": ["mi300"],
-                        "amd_hw_failures": {},
-                    },
-                    {
-                        "name": "native workload",
-                        "amd": {"total": 1},
-                        "amd_hardware": ["mi355"],
-                        "hardware": ["mi355"],
-                        "amd_hw_failures": {},
-                    },
-                ]
-            }
-        )
-    )
+    # Current nightly 93523 has this same stale MI250 decorator on a pinned
+    # MI300 route. Only the exact observed attempt can supply physical routing;
+    # requested routing and display labels cannot replace that evidence.
+    results = [TestResult(
+        test_id="__job_level__", name="__job_level__", classname="",
+        status="passed", duration_secs=0.0, failure_message="",
+        job_name=job["name"], job_id=job["id"], step_id="",
+        build_number=build["number"], pipeline="ci", date="2026-10-08",
+    ) for job in build["jobs"]]
+    scoped_build = _scope_nightly_build(json.loads(json.dumps(build)), "amd")
+    routed_results = _current_scope_results(results, "amd", scoped_build)
+    health = compute_build_summary(scoped_build, routed_results, "amd").to_dict()
+    (output / "ci_health.json").write_text(json.dumps({"amd": {"latest_build": health}}))
+    (output / "parity_report.json").write_text(json.dumps(compute_parity(routed_results, [])))
     return matrix, output
 
 
@@ -4675,6 +4647,9 @@ def test_current_matrix_audit_replays_per_file_main_sources_and_exact_ci_jobs(tm
     audit.audit_amd_matrix()
     assert not audit.report.errors
     assert matrix["summary"]["latest_matched_cells"] == 2
+    health = json.loads((output / "ci_health.json").read_text())["amd"]["latest_build"]
+    assert set(health["by_hardware"]) == {"mi300", "mi355"}
+    assert health["by_hardware"]["mi300"]["groups"] == 1
     assert all(
         member["source_url"].endswith("/.buildkite/test_areas/example.yaml")
         for group in matrix["health_groups"]

@@ -65,23 +65,21 @@ CI = VLLM / "ci"
 AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
 OPERATIONS_SOURCE_MAX_AGE_HOURS = 6
-OPERATIONS_FRESH_SOURCE_KEYS = frozenset(
-    {
-        "analytics",
-        "agent_health",
-        "amd_test_signal",
-        "ci_health",
-        "config_parity",
-        "test_group_parity",
-        "amd_test_matrix",
-        "capacity_monitor",
-        "queue_timeseries",
-        "queue_jobs",
-        "workload_mapping",
-        "omni_heuristic",
-        "project_items",
-    }
-)
+OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
+    "analytics",
+    "agent_health",
+    "amd_test_signal",
+    "ci_health",
+    "config_parity",
+    "test_group_parity",
+    "amd_test_matrix",
+    "capacity_monitor",
+    "queue_timeseries",
+    "queue_jobs",
+    "workload_mapping",
+    "omni_heuristic",
+    "project_items",
+})
 OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
     # AMD nightlies run daily; this is source observation age, not collector age.
     "amd_test_signal": 36,
@@ -95,41 +93,33 @@ PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
 # cadence lead and two hours of scheduler/runner headroom, then round up.
 QUEUE_LIFECYCLE_MAX_AGE_HOURS = 18
 QUEUE_LIVE_SURFACE = "queue"
-QUEUE_COMPANION_SURFACES = frozenset(
-    {
-        "queue_capacity",
-        "queue_omni",
-        "queue_workload",
-    }
-)
-QUEUE_SPLIT_SURFACES = frozenset(
-    {
-        QUEUE_LIVE_SURFACE,
-        *QUEUE_COMPANION_SURFACES,
-    }
-)
+QUEUE_COMPANION_SURFACES = frozenset({
+    "queue_capacity",
+    "queue_omni",
+    "queue_workload",
+})
+QUEUE_SPLIT_SURFACES = frozenset({
+    QUEUE_LIVE_SURFACE,
+    *QUEUE_COMPANION_SURFACES,
+})
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
-SHARD_EVIDENCE_REQUIRED_KEYS = frozenset(
-    {
-        "pipeline",
-        "build_number",
-        "build_commit",
-        "build_state",
-        "roster_complete",
-        "result_file",
-        "job_names",
-    }
-)
-SHARD_TERMINAL_BUILD_STATES = frozenset(
-    {
-        "passed",
-        "failed",
-        "timed_out",
-        "canceled",
-        "broken",
-        "blocked",
-    }
-)
+SHARD_EVIDENCE_REQUIRED_KEYS = frozenset({
+    "pipeline",
+    "build_number",
+    "build_commit",
+    "build_state",
+    "roster_complete",
+    "result_file",
+    "job_names",
+})
+SHARD_TERMINAL_BUILD_STATES = frozenset({
+    "passed",
+    "failed",
+    "timed_out",
+    "canceled",
+    "broken",
+    "blocked",
+})
 SHARD_RESULT_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}_amd\.jsonl")
 PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
@@ -163,20 +153,18 @@ DNS_TARGET_CATEGORIES = (
     "other_public",
     "unknown",
 )
-DNS_SIGNATURE_IDS = frozenset(
-    {
-        "temporary_name_resolution",
-        "name_or_service_unknown",
-        "urllib3_name_resolution",
-        "curl_could_not_resolve",
-        "getaddrinfo_eai_again",
-        "getaddrinfo_failed",
-        "no_such_host",
-        "nodename_not_known",
-        "temporary_failure_resolving",
-        "dns_resolution_failed",
-    }
-)
+DNS_SIGNATURE_IDS = frozenset({
+    "temporary_name_resolution",
+    "name_or_service_unknown",
+    "urllib3_name_resolution",
+    "curl_could_not_resolve",
+    "getaddrinfo_eai_again",
+    "getaddrinfo_failed",
+    "no_such_host",
+    "nodename_not_known",
+    "temporary_failure_resolving",
+    "dns_resolution_failed",
+})
 DNS_COVERAGE_STATUSES = frozenset({"not_collected", "partial", "complete"})
 DNS_TIME_BASES = frozenset({"log_timestamp", "job_finished_at"})
 DNS_JOB_STATES = frozenset({"passed", "soft", "hard"})
@@ -223,9 +211,15 @@ PRIVATE_ANALYTICS_PATH = "vllm/ci/analytics.json"
 PRIVATE_ANALYTICS_DATA_PATH = f"data/{PRIVATE_ANALYTICS_PATH}"
 PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
 PRIVATE_ANALYTICS_CACHE_VERSION = "analytics-builds-v1"
-PRIVATE_ANALYTICS_CACHE_PATH = f"data/vllm/ci/.cache/{PRIVATE_ANALYTICS_CACHE_VERSION}"
-PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH = PRIVATE_ANALYTICS_CACHE_PATH.removeprefix("data/")
-PRIVATE_ANALYTICS_CACHE_SAMPLE = f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/ci.json"
+PRIVATE_ANALYTICS_CACHE_PATH = (
+    f"data/vllm/ci/.cache/{PRIVATE_ANALYTICS_CACHE_VERSION}"
+)
+PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH = PRIVATE_ANALYTICS_CACHE_PATH.removeprefix(
+    "data/"
+)
+PRIVATE_ANALYTICS_CACHE_SAMPLE = (
+    f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/ci.json"
+)
 PRIVATE_ANALYTICS_CACHE_BOUNDARY_MARKER = "PRIVATE-ANALYTICS-CACHE-BOUNDARY"
 PUBLICATION_STATE_RELATIVE = Path("data/vllm/ci/publication_state.json")
 DECLARED_PUBLICATION_SURFACE_NAMES = frozenset(SURFACE_SPECS)
@@ -274,9 +268,7 @@ def _publication_legacy_aliases() -> dict[str, frozenset[str]]:
 
 
 def _historical_publication_specs() -> dict[str, SurfaceSpec]:
-    return (
-        PRE_VIEW_RETIREMENT_SURFACE_SPECS if _uses_declared_publication_domain() else SURFACE_SPECS
-    )
+    return PRE_VIEW_RETIREMENT_SURFACE_SPECS if _uses_declared_publication_domain() else SURFACE_SPECS
 
 
 def _publication_fallback_closure(surfaces: set[str]) -> set[str]:
@@ -306,7 +298,11 @@ def _publication_spec_owns_path(spec: SurfaceSpec, relative: str) -> bool:
 
 def _publication_expected_paths(root: Path, spec: SurfaceSpec) -> set[str]:
     expected = set(spec.required_paths)
-    expected.update(relative for relative in spec.optional_paths if (root / relative).is_file())
+    expected.update(
+        relative
+        for relative in spec.optional_paths
+        if (root / relative).is_file()
+    )
     expected.update(
         candidate.relative_to(root).as_posix()
         for pattern in spec.globs
@@ -347,7 +343,9 @@ def _migrated_publication_manifest_entries(
         return entries
     ignored = ignored_watcher_state_paths(surface)
     return {
-        relative: descriptor for relative, descriptor in entries.items() if relative not in ignored
+        relative: descriptor
+        for relative, descriptor in entries.items()
+        if relative not in ignored
     }
 
 
@@ -385,7 +383,9 @@ def _partition_publication_manifest(
 ) -> dict[str, dict]:
     partitioned: dict[str, dict] = {}
     for surface, targets in expansions.items():
-        entries = _migrated_publication_manifest_entries(surface, manifest[surface])
+        entries = _migrated_publication_manifest_entries(
+            surface, manifest[surface]
+        )
         if not isinstance(entries, dict):
             raise ValueError("publication fallback manifest entries must be objects")
         if targets == frozenset({surface}):
@@ -399,13 +399,17 @@ def _partition_publication_manifest(
                 if _publication_spec_owns_path(_historical_publication_specs()[target], relative)
             ]
             if len(owners) != 1:
-                raise ValueError("legacy fallback manifest path lacks one active owner")
+                raise ValueError(
+                    "legacy fallback manifest path lacks one active owner"
+                )
             child_entries[owners[0]][relative] = descriptor
         for target, entries_for_target in child_entries.items():
             if set(entries_for_target) != _publication_expected_paths(
                 root, _historical_publication_specs()[target]
             ):
-                raise ValueError(f"legacy fallback manifest partition for {target} is incomplete")
+                raise ValueError(
+                    f"legacy fallback manifest partition for {target} is incomplete"
+                )
             partitioned[target] = entries_for_target
     return partitioned
 
@@ -463,7 +467,10 @@ def _parse_timestamp(value: Any) -> datetime | None:
 def _strict_positive_int_set(value: Any) -> set[int] | None:
     if not isinstance(value, list):
         return None
-    if any(not isinstance(item, int) or isinstance(item, bool) or item <= 0 for item in value):
+    if any(
+        not isinstance(item, int) or isinstance(item, bool) or item <= 0
+        for item in value
+    ):
         return None
     return set(value)
 
@@ -690,12 +697,8 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("scripts/vllm/build_operations_snapshot.py",),
         ("docs/assets/js/ops-v2.js",),
         (
-            "schema_version",
-            "generated_at",
-            "nightly",
-            "reliability",
-            "queue",
-            "amd_agent_health",
+            "schema_version", "generated_at", "nightly", "reliability",
+            "queue", "amd_agent_health",
         ),
         "Versioned AMD current-signal and upstream reliability read model",
     ),
@@ -940,7 +943,11 @@ class DashboardAudit:
                 )
                 continue
             max_bytes = block.get("max_bytes")
-            if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes <= 0:
+            if (
+                isinstance(max_bytes, bool)
+                or not isinstance(max_bytes, int)
+                or max_bytes <= 0
+            ):
                 self.error(
                     "storage-retention-invalid",
                     "publication retention max_bytes must be a positive integer",
@@ -966,7 +973,9 @@ class DashboardAudit:
                 published = row.get("published")
                 omitted = row.get("omitted")
                 valid_counts = all(
-                    isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                    isinstance(value, int)
+                    and not isinstance(value, bool)
+                    and value >= 0
                     for value in (source, published, omitted)
                 )
                 complete = row.get("complete")
@@ -1032,7 +1041,9 @@ class DashboardAudit:
         *,
         context: dict[str, Any] | None = None,
     ) -> None:
-        self.report.findings.append(Finding(severity, code, message, str(path), context or {}))
+        self.report.findings.append(
+            Finding(severity, code, message, str(path), context or {})
+        )
 
     def error(
         self,
@@ -1174,9 +1185,10 @@ class DashboardAudit:
             entries: object,
         ) -> bool:
             entries = _migrated_publication_manifest_entries(surface, entries)
-            expected_paths = _publication_expected_paths(
-                self.root, spec
-            ) - ignored_watcher_state_paths(surface)
+            expected_paths = (
+                _publication_expected_paths(self.root, spec)
+                - ignored_watcher_state_paths(surface)
+            )
             if not isinstance(entries, dict) or set(entries) != expected_paths:
                 self.error(
                     "publication-fallback-manifest-mismatch",
@@ -1188,8 +1200,14 @@ class DashboardAudit:
             valid = True
             for relative, descriptor in entries.items():
                 target = self.root / relative
-                expected_size = descriptor.get("bytes") if isinstance(descriptor, dict) else None
-                expected_sha = descriptor.get("sha256") if isinstance(descriptor, dict) else None
+                expected_size = (
+                    descriptor.get("bytes") if isinstance(descriptor, dict) else None
+                )
+                expected_sha = (
+                    descriptor.get("sha256")
+                    if isinstance(descriptor, dict)
+                    else None
+                )
                 if (
                     not target.is_file()
                     or not isinstance(expected_size, int)
@@ -1232,7 +1250,9 @@ class DashboardAudit:
             or _parse_timestamp(state.get("generated_at")) is None
             or state.get("fallback_max_age_hours") != PUBLICATION_FALLBACK_MAX_AGE_HOURS
         ):
-            return reject("publication state has an invalid schema or common metadata")
+            return reject(
+                "publication state has an invalid schema or common metadata"
+            )
 
         degraded_raw = state.get("degraded_surfaces")
         degraded_since = state.get("degraded_since")
@@ -1242,8 +1262,9 @@ class DashboardAudit:
         if schema_version == 1:
             aliases = _publication_legacy_aliases()
             allowed_v1 = set(_historical_publication_specs()) | set(aliases)
-            if mode not in {"current", "fallback", "blocked"} or not valid_surface_list(
-                degraded_raw, allowed_v1
+            if (
+                mode not in {"current", "fallback", "blocked"}
+                or not valid_surface_list(degraded_raw, allowed_v1)
             ):
                 return reject(
                     "schema-v1 publication state has an invalid mode or surface list",
@@ -1261,7 +1282,8 @@ class DashboardAudit:
                     or restored_paths not in ({}, None)
                 ):
                     return reject(
-                        "current publication state cannot declare degraded or restored surfaces"
+                        "current publication state cannot declare degraded or "
+                        "restored surfaces"
                     )
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
@@ -1269,7 +1291,10 @@ class DashboardAudit:
                 not degraded_raw
                 or not isinstance(degraded_since, dict)
                 or set(degraded_since) != set(degraded_raw)
-                or any(_parse_timestamp(value) is None for value in degraded_since.values())
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in degraded_since.values()
+                )
                 or not isinstance(manifest, dict)
                 or set(manifest) != set(degraded_raw)
                 or (
@@ -1281,7 +1306,8 @@ class DashboardAudit:
                 )
             ):
                 return reject(
-                    "publication state lacks complete degradation or fallback attestations"
+                    "publication state lacks complete degradation or fallback "
+                    "attestations"
                 )
 
             # Verify the committed schema-v1 transaction as one monolith
@@ -1296,16 +1322,15 @@ class DashboardAudit:
                 migrated_entries = _migrated_publication_manifest_entries(
                     surface, manifest[surface]
                 )
-                raw_valid = verify_manifest(surface, spec, manifest[surface]) and raw_valid
+                raw_valid = verify_manifest(
+                    surface, spec, manifest[surface]
+                ) and raw_valid
                 if restored_paths is not None:
-                    raw_valid = (
-                        verify_restored_paths(
-                            surface,
-                            migrated_entries,
-                            restored_paths.get(surface),
-                        )
-                        and raw_valid
-                    )
+                    raw_valid = verify_restored_paths(
+                        surface,
+                        migrated_entries,
+                        restored_paths.get(surface),
+                    ) and raw_valid
             if not raw_valid:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
@@ -1316,9 +1341,13 @@ class DashboardAudit:
                 )
             except ValueError as exc:
                 return reject(str(exc))
-            fallback_surfaces = {target for targets in expansions.values() for target in targets}
+            fallback_surfaces = {
+                target for targets in expansions.values() for target in targets
+            }
             if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
-                return reject("schema-v1 fallback omits a required dependent surface")
+                return reject(
+                    "schema-v1 fallback omits a required dependent surface"
+                )
             fallback_since = {
                 target: degraded_since[surface]
                 for surface, targets in expansions.items()
@@ -1335,21 +1364,32 @@ class DashboardAudit:
                 and surface_contract_version is not None
                 and type(surface_contract_version) is not int
             ):
-                return reject("schema-v2 publication state uses an invalid surface contract")
-            if _uses_declared_publication_domain() and surface_contract_version not in (
-                None,
-                PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
-                PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
-                SURFACE_CONTRACT_VERSION,
+                return reject(
+                    "schema-v2 publication state uses an invalid surface contract"
+                )
+            if (
+                _uses_declared_publication_domain()
+                and surface_contract_version
+                not in (
+                    None,
+                    PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
+                    PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
+                    SURFACE_CONTRACT_VERSION,
+                )
             ):
-                return reject("schema-v2 publication state uses an unsupported surface contract")
+                return reject(
+                    "schema-v2 publication state uses an unsupported surface "
+                    "contract"
+                )
             pre_queue_split_contract = (
                 _uses_declared_publication_domain()
-                and surface_contract_version == PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
+                and surface_contract_version
+                == PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION
             )
             historical_surface_contract = (
                 _uses_declared_publication_domain()
-                and surface_contract_version in (None, PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION)
+                and surface_contract_version
+                in (None, PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION)
             )
             allowed_v2 = (
                 _pre_queue_split_surface_names()
@@ -1394,23 +1434,33 @@ class DashboardAudit:
                     "publication selector state is blocked",
                     code="publication-state-blocked",
                 )
-            if mode == "current" and (
-                degraded_set
-                or degraded_since not in ({}, None)
-                or fallback_since not in ({}, None)
-                or manifest not in ({}, None)
-                or restored_paths not in ({}, None)
+            if (
+                mode == "current"
+                and (
+                    degraded_set
+                    or degraded_since not in ({}, None)
+                    or fallback_since not in ({}, None)
+                    or manifest not in ({}, None)
+                    or restored_paths not in ({}, None)
+                )
             ):
                 return reject(
-                    "current publication state cannot declare degraded or restored surfaces"
+                    "current publication state cannot declare degraded or restored "
+                    "surfaces"
                 )
             if (
                 not isinstance(degraded_since, dict)
                 or set(degraded_since) != degraded_set
-                or any(_parse_timestamp(value) is None for value in degraded_since.values())
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in degraded_since.values()
+                )
                 or not isinstance(fallback_since, dict)
                 or set(fallback_since) != fallback_set
-                or any(_parse_timestamp(value) is None for value in fallback_since.values())
+                or any(
+                    _parse_timestamp(value) is None
+                    for value in fallback_since.values()
+                )
                 or (
                     fallback_set
                     and (not isinstance(manifest, dict) or set(manifest) != fallback_set)
@@ -1420,13 +1470,15 @@ class DashboardAudit:
                     fallback_set
                     and restored_paths is not None
                     and (
-                        not isinstance(restored_paths, dict) or set(restored_paths) != fallback_set
+                        not isinstance(restored_paths, dict)
+                        or set(restored_paths) != fallback_set
                     )
                 )
                 or (not fallback_set and restored_paths not in ({}, None))
             ):
                 return reject(
-                    "publication state lacks complete degradation or fallback attestations"
+                    "publication state lacks complete degradation or fallback "
+                    "attestations"
                 )
             pre_analytics_contract = (
                 _uses_declared_publication_domain()
@@ -1450,17 +1502,18 @@ class DashboardAudit:
                         spec = PRE_ANALYTICS_CI_GATING_SURFACE_SPEC
                     else:
                         spec = _pre_queue_split_spec(surface)
-                    entries = _migrated_publication_manifest_entries(surface, manifest[surface])
-                    raw_valid = verify_manifest(surface, spec, manifest[surface]) and raw_valid
+                    entries = _migrated_publication_manifest_entries(
+                        surface, manifest[surface]
+                    )
+                    raw_valid = verify_manifest(
+                        surface, spec, manifest[surface]
+                    ) and raw_valid
                     if restored_paths is not None:
-                        raw_valid = (
-                            verify_restored_paths(
-                                surface,
-                                entries,
-                                restored_paths.get(surface),
-                            )
-                            and raw_valid
-                        )
+                        raw_valid = verify_restored_paths(
+                            surface,
+                            entries,
+                            restored_paths.get(surface),
+                        ) and raw_valid
                     if isinstance(entries, dict):
                         verified_entries[surface] = entries
                 if not raw_valid:
@@ -1478,32 +1531,45 @@ class DashboardAudit:
                     source_since = fallback_since[surface]
                     for target in targets:
                         existing_since = expanded_since.get(target)
-                        if existing_since is None or _parse_timestamp(
-                            source_since
-                        ) < _parse_timestamp(existing_since):
+                        if (
+                            existing_since is None
+                            or _parse_timestamp(source_since)
+                            < _parse_timestamp(existing_since)
+                        ):
                             expanded_since[target] = source_since
                     for relative, descriptor in entries.items():
                         owners = [
                             target
                             for target in targets
-                            if _publication_spec_owns_path(_pre_queue_split_spec(target), relative)
+                            if _publication_spec_owns_path(
+                                _pre_queue_split_spec(target), relative
+                            )
                         ]
                         if len(owners) != 1:
-                            return reject("pre-analytics fallback path lacks one active owner")
+                            return reject(
+                                "pre-analytics fallback path lacks one active owner"
+                            )
                         owner = owners[0]
                         target_entries = partitioned.setdefault(owner, {})
                         if relative in target_entries:
-                            return reject("pre-analytics fallback path is duplicated")
+                            return reject(
+                                "pre-analytics fallback path is duplicated"
+                            )
                         target_entries[relative] = descriptor
 
                 expanded_fallback = set(expanded_since)
                 for surface in sorted(expanded_fallback):
                     entries = partitioned.get(surface, {})
-                    expected = _publication_expected_paths(
-                        self.root, _pre_queue_split_spec(surface)
-                    ) - ignored_watcher_state_paths(surface)
+                    expected = (
+                        _publication_expected_paths(
+                            self.root, _pre_queue_split_spec(surface)
+                        )
+                        - ignored_watcher_state_paths(surface)
+                    )
                     missing = expected - set(entries)
-                    if surface == "ci_gating" and missing == {"data/vllm/ci/gating_nightlies.json"}:
+                    if surface == "ci_gating" and missing == {
+                        "data/vllm/ci/gating_nightlies.json"
+                    }:
                         # Early schema-v2 gating-only states predate nightly's
                         # move into this surface. Add that one proof only when
                         # the deployed bytes still match immutable HEAD.
@@ -1512,7 +1578,9 @@ class DashboardAudit:
                             "data/vllm/ci/gating_nightlies.json",
                         )
                         if descriptor is not None:
-                            entries["data/vllm/ci/gating_nightlies.json"] = descriptor
+                            entries["data/vllm/ci/gating_nightlies.json"] = (
+                                descriptor
+                            )
                     if set(entries) != expected:
                         return reject(
                             f"pre-analytics fallback partition for {surface} is incomplete",
@@ -1522,14 +1590,16 @@ class DashboardAudit:
                 fallback_since = expanded_since
                 manifest = partitioned
                 restored_paths = {
-                    surface: sorted(entries) for surface, entries in partitioned.items()
+                    surface: sorted(entries)
+                    for surface, entries in partitioned.items()
                 }
             else:
                 fallback_surfaces = fallback_set
 
             queue_split_contract = (
                 _uses_declared_publication_domain()
-                and surface_contract_version in (None, PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION)
+                and surface_contract_version
+                in (None, PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION)
             )
             if queue_split_contract and QUEUE_LIVE_SURFACE in fallback_surfaces:
                 # Contract v4 restored live observations and three independent
@@ -1546,17 +1616,18 @@ class DashboardAudit:
                         if surface == QUEUE_LIVE_SURFACE
                         else _historical_publication_specs()[surface]
                     )
-                    entries = _migrated_publication_manifest_entries(surface, manifest[surface])
-                    raw_valid = verify_manifest(surface, spec, manifest[surface]) and raw_valid
+                    entries = _migrated_publication_manifest_entries(
+                        surface, manifest[surface]
+                    )
+                    raw_valid = verify_manifest(
+                        surface, spec, manifest[surface]
+                    ) and raw_valid
                     if restored_paths is not None:
-                        raw_valid = (
-                            verify_restored_paths(
-                                surface,
-                                entries,
-                                restored_paths.get(surface),
-                            )
-                            and raw_valid
-                        )
+                        raw_valid = verify_restored_paths(
+                            surface,
+                            entries,
+                            restored_paths.get(surface),
+                        ) and raw_valid
                     if isinstance(entries, dict):
                         verified_entries[surface] = entries
                 if not raw_valid:
@@ -1583,32 +1654,43 @@ class DashboardAudit:
                             )
                         ]
                         if len(owners) != 1:
-                            return reject("pre-queue-split fallback path lacks one active owner")
+                            return reject(
+                                "pre-queue-split fallback path lacks one active owner"
+                            )
                         owner = owners[0]
                         target_entries = partitioned.setdefault(owner, {})
                         if relative in target_entries:
-                            return reject("pre-queue-split fallback path is duplicated")
+                            return reject(
+                                "pre-queue-split fallback path is duplicated"
+                            )
                         target_entries[relative] = descriptor
 
                 expanded_fallback = set(expanded_since)
                 for surface in sorted(expanded_fallback):
                     entries = partitioned.get(surface, {})
-                    expected = _publication_expected_paths(
-                        self.root, _historical_publication_specs()[surface]
-                    ) - ignored_watcher_state_paths(surface)
+                    expected = (
+                        _publication_expected_paths(
+                            self.root, _historical_publication_specs()[surface]
+                        )
+                        - ignored_watcher_state_paths(surface)
+                    )
                     if set(entries) != expected:
                         return reject(
-                            f"pre-queue-split fallback partition for {surface} is incomplete",
+                            f"pre-queue-split fallback partition for {surface} "
+                            "is incomplete",
                             code="publication-fallback-manifest-mismatch",
                         )
                 fallback_surfaces = expanded_fallback
                 fallback_since = expanded_since
                 manifest = partitioned
                 restored_paths = {
-                    surface: sorted(entries) for surface, entries in partitioned.items()
+                    surface: sorted(entries)
+                    for surface, entries in partitioned.items()
                 }
             if _publication_fallback_closure(fallback_surfaces) != fallback_surfaces:
-                return reject("schema-v2 fallback omits a required dependent surface")
+                return reject(
+                    "schema-v2 fallback omits a required dependent surface"
+                )
             if not fallback_surfaces:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
@@ -1617,21 +1699,15 @@ class DashboardAudit:
                 migrated_entries = _migrated_publication_manifest_entries(
                     surface, manifest[surface]
                 )
-                valid = (
-                    verify_manifest(
-                        surface, _historical_publication_specs()[surface], manifest[surface]
-                    )
-                    and valid
-                )
+                valid = verify_manifest(
+                    surface, _historical_publication_specs()[surface], manifest[surface]
+                ) and valid
                 if restored_paths is not None:
-                    valid = (
-                        verify_restored_paths(
-                            surface,
-                            migrated_entries,
-                            restored_paths.get(surface),
-                        )
-                        and valid
-                    )
+                    valid = verify_restored_paths(
+                        surface,
+                        migrated_entries,
+                        restored_paths.get(surface),
+                    ) and valid
             if not valid:
                 self._fallback_surfaces_cache = frozenset()
                 return self._fallback_surfaces_cache
@@ -1654,7 +1730,9 @@ class DashboardAudit:
                     context={"surface": surface},
                 )
                 valid = False
-        self._fallback_surfaces_cache = frozenset(fallback_surfaces) if valid else frozenset()
+        self._fallback_surfaces_cache = (
+            frozenset(fallback_surfaces) if valid else frozenset()
+        )
         return self._fallback_surfaces_cache
 
     def audit_publication_surface_files(self) -> None:
@@ -1692,7 +1770,10 @@ class DashboardAudit:
                     if relative == "data/vllm/ci/shard_bases.json" and (
                         not isinstance(payload, list)
                         or not payload
-                        or any(not isinstance(base, str) or not base.strip() for base in payload)
+                        or any(
+                            not isinstance(base, str) or not base.strip()
+                            for base in payload
+                        )
                     ):
                         self.error(
                             "publication-source-shape",
@@ -1745,7 +1826,11 @@ class DashboardAudit:
         job_names = evidence.get("job_names")
         if pipeline != "amd":
             return invalid("must identify the amd pipeline")
-        if isinstance(build_number, bool) or not isinstance(build_number, int) or build_number < 0:
+        if (
+            isinstance(build_number, bool)
+            or not isinstance(build_number, int)
+            or build_number < 0
+        ):
             return invalid("build_number must be a non-negative integer")
         if not isinstance(build_commit, str):
             return invalid("build_commit must be a string")
@@ -1770,7 +1855,9 @@ class DashboardAudit:
                 or result_file
                 or job_names
             ):
-                return invalid("build #0 must use the exact unavailable sentinel state")
+                return invalid(
+                    "build #0 must use the exact unavailable sentinel state"
+                )
             return evidence, "unavailable"
 
         if not FULL_COMMIT_SHA_RE.fullmatch(build_commit.casefold()):
@@ -1787,12 +1874,16 @@ class DashboardAudit:
             or Path(result_file).name != result_file
             or not SHARD_RESULT_FILE_RE.fullmatch(result_file)
         ):
-            return invalid("complete evidence result_file must be a canonical AMD JSONL basename")
+            return invalid(
+                "complete evidence result_file must be a canonical AMD JSONL basename"
+            )
         if not job_names:
             return invalid("complete evidence must include at least one job name")
 
         source = catalog.get("source")
-        source_commit = str(source.get("commit_sha") if isinstance(source, dict) else "").casefold()
+        source_commit = str(
+            source.get("commit_sha") if isinstance(source, dict) else ""
+        ).casefold()
         if (
             not FULL_COMMIT_SHA_RE.fullmatch(source_commit)
             or source_commit != build_commit.casefold()
@@ -1814,7 +1905,11 @@ class DashboardAudit:
         relpath = "data/vllm/ci/shard_bases.json"
         bases = self.load_json(relpath, [])
         catalog_path = "data/vllm/ci/shard_base_catalog.json"
-        catalog = self.load_json(catalog_path, {}) if (self.root / catalog_path).exists() else {}
+        catalog = (
+            self.load_json(catalog_path, {})
+            if (self.root / catalog_path).exists()
+            else {}
+        )
         if not isinstance(catalog, dict) or not catalog:
             self.warning(
                 "shard-base-catalog-missing",
@@ -1860,7 +1955,8 @@ class DashboardAudit:
             roster_names = evidence.get("job_names")
             if isinstance(roster_names, list):
                 normalized = {
-                    analyzer._normalize_job_name(str(name or "")) for name in roster_names
+                    analyzer._normalize_job_name(str(name or ""))
+                    for name in roster_names
                 }
             else:
                 normalized = {
@@ -2137,7 +2233,9 @@ class DashboardAudit:
         for pattern in manifest.get("optional_globs") or []:
             for path in data_root.glob(str(pattern)):
                 if path.is_file():
-                    published_sizes[path.relative_to(data_root).as_posix()] = path.stat().st_size
+                    published_sizes[path.relative_to(data_root).as_posix()] = (
+                        path.stat().st_size
+                    )
 
         projected_budgets: dict[str, int] = {}
         projected_files = manifest.get("projected_files") or []
@@ -2165,11 +2263,16 @@ class DashboardAudit:
                 and ".." not in PurePosixPath(relative).parts
             )
             if not safe_path or (
-                isinstance(maximum, bool) or not isinstance(maximum, int) or maximum <= 0
+                isinstance(maximum, bool)
+                or not isinstance(maximum, int)
+                or maximum <= 0
             ):
                 self.error(
                     "public-manifest-projection",
-                    (f"projected_files[{index}] needs a safe path and positive integer max_bytes"),
+                    (
+                        f"projected_files[{index}] needs a safe path and positive "
+                        "integer max_bytes"
+                    ),
                     "config/public_data_manifest.json",
                 )
                 continue
@@ -2179,7 +2282,9 @@ class DashboardAudit:
             published_sizes[relative] = maximum
             projected_budgets[relative] = maximum
 
-        operations_manifest_path = self.root / "data/vllm/ci/operations_v2_manifest.json"
+        operations_manifest_path = (
+            self.root / "data/vllm/ci/operations_v2_manifest.json"
+        )
         operations_manifest = (
             self.load_json("data/vllm/ci/operations_v2_manifest.json", {})
             if operations_manifest_path.exists()
@@ -2191,7 +2296,9 @@ class DashboardAudit:
                     continue
                 relative = f"vllm/ci/{descriptor['path']}"
                 published_sizes[relative] = _safe_int(descriptor.get("bytes"))
-            org_descriptor = _mapping(operations_manifest.get("organization_summary"))
+            org_descriptor = _mapping(
+                operations_manifest.get("organization_summary")
+            )
             if org_descriptor.get("path"):
                 relative = f"vllm/ci/{org_descriptor['path']}"
                 published_sizes[relative] = _safe_int(org_descriptor.get("bytes"))
@@ -2326,7 +2433,9 @@ class DashboardAudit:
 
         amd_test_health = _mapping(payload.get("amd_test_health"))
         amd_health_summary = _mapping(amd_test_health.get("summary"))
-        amd_latest_logical_counts = _mapping(amd_health_summary.get("latest_test_group_counts"))
+        amd_latest_logical_counts = _mapping(
+            amd_health_summary.get("latest_test_group_counts")
+        )
         amd_health_builds = _rows(amd_test_health.get("builds"))
         amd_health_catalog = _rows(amd_test_health.get("group_catalog"))
         if amd_test_health:
@@ -2340,7 +2449,9 @@ class DashboardAudit:
                     amd_health_summary.get("retained_group_count"), retained_count
                 ),
                 "group_count": _safe_int(amd_health_summary.get("group_count")),
-                "union_group_count": _safe_int(amd_health_summary.get("union_group_count")),
+                "union_group_count": _safe_int(
+                    amd_health_summary.get("union_group_count")
+                ),
             }
             for field_name, declared in declared_catalog_counts.items():
                 if declared != len(amd_health_catalog):
@@ -2354,8 +2465,9 @@ class DashboardAudit:
                     )
             if (
                 "retained_job_variant_count" in amd_health_summary
-                and _safe_int(amd_health_summary.get("retained_job_variant_count"))
-                != retained_count
+                and _safe_int(
+                    amd_health_summary.get("retained_job_variant_count")
+                ) != retained_count
             ):
                 self.error(
                     "operations-amd-retained-job-variant-alias",
@@ -2413,7 +2525,9 @@ class DashboardAudit:
                     relpath,
                 )
 
-            latest_build_number = _safe_int(amd_health_summary.get("latest_build_number"))
+            latest_build_number = _safe_int(
+                amd_health_summary.get("latest_build_number")
+            )
             logical_counts = amd_latest_logical_counts
             if logical_counts:
                 required_logical_fields = {
@@ -2434,16 +2548,23 @@ class DashboardAudit:
                 if missing_logical_fields:
                     self.error(
                         "operations-amd-logical-group-shape",
-                        (f"latest logical test-group counts omit {sorted(missing_logical_fields)}"),
+                        (
+                            "latest logical test-group counts omit "
+                            f"{sorted(missing_logical_fields)}"
+                        ),
                         relpath,
                     )
-                if logical_counts.get("source") != ("ci_health.amd.latest_test_signal_build"):
+                if logical_counts.get("source") != (
+                    "ci_health.amd.latest_test_signal_build"
+                ):
                     self.error(
                         "operations-amd-logical-group-source",
                         "latest logical test groups must come from the test-signal build",
                         relpath,
                     )
-                if _safe_int(logical_counts.get("job_variant_build_number")) != latest_build_number:
+                if _safe_int(
+                    logical_counts.get("job_variant_build_number")
+                ) != latest_build_number:
                     self.error(
                         "operations-amd-logical-group-job-build",
                         "logical group counts do not identify the latest job-variant build",
@@ -2451,8 +2572,14 @@ class DashboardAudit:
                     )
                 if logical_counts.get("available") is True:
                     logical_build = _safe_int(logical_counts.get("build_number"))
-                    signal_build = _safe_int(logical_counts.get("test_signal_build_number"))
-                    if not (logical_build == signal_build == latest_build_number):
+                    signal_build = _safe_int(
+                        logical_counts.get("test_signal_build_number")
+                    )
+                    if not (
+                        logical_build
+                        == signal_build
+                        == latest_build_number
+                    ):
                         self.error(
                             "operations-amd-logical-group-build-mismatch",
                             (
@@ -2463,9 +2590,15 @@ class DashboardAudit:
                         )
                     logical_total = _safe_int(logical_counts.get("total"), -1)
                     logical_passing = _safe_int(logical_counts.get("passing"), -1)
-                    logical_non_passing = _safe_int(logical_counts.get("non_passing"), -1)
-                    logical_passing_all = _safe_int(logical_counts.get("passing_all"), -1)
-                    logical_partial = _safe_int(logical_counts.get("partial"), -1)
+                    logical_non_passing = _safe_int(
+                        logical_counts.get("non_passing"), -1
+                    )
+                    logical_passing_all = _safe_int(
+                        logical_counts.get("passing_all"), -1
+                    )
+                    logical_partial = _safe_int(
+                        logical_counts.get("partial"), -1
+                    )
                     if not (
                         0 <= logical_passing_all <= logical_passing <= logical_total
                         and logical_non_passing == logical_total - logical_passing
@@ -2491,7 +2624,10 @@ class DashboardAudit:
                         else None
                     )
                     declared_percentage = logical_counts.get("pass_percentage")
-                    if (expected_percentage is None and declared_percentage is not None) or (
+                    if (
+                        expected_percentage is None
+                        and declared_percentage is not None
+                    ) or (
                         expected_percentage is not None
                         and not math.isclose(
                             _safe_float(declared_percentage, -1.0),
@@ -2511,7 +2647,8 @@ class DashboardAudit:
                         relpath,
                     )
             current_catalog_rows = sum(
-                _safe_int(_mapping(row).get("latest_build_number")) == latest_build_number
+                _safe_int(_mapping(row).get("latest_build_number"))
+                == latest_build_number
                 for row in amd_health_catalog
             )
             if latest_build_number and current_catalog_rows != latest_count:
@@ -2529,7 +2666,8 @@ class DashboardAudit:
                 (
                     _mapping(row)
                     for row in amd_health_builds
-                    if _safe_int(_mapping(row).get("build_number")) == latest_build_number
+                    if _safe_int(_mapping(row).get("build_number"))
+                    == latest_build_number
                 ),
                 {},
             )
@@ -2540,7 +2678,9 @@ class DashboardAudit:
                     _safe_int(state_counts.get(state))
                     for state in ("passed", "soft", "hard", "unknown")
                 )
-                observed = _safe_int(build.get("observed") or build.get("observed_groups"))
+                observed = _safe_int(
+                    build.get("observed") or build.get("observed_groups")
+                )
                 if (
                     "observed_job_variants" in build
                     and _safe_int(build.get("observed_job_variants")) != observed
@@ -2553,7 +2693,9 @@ class DashboardAudit:
                         ),
                         relpath,
                     )
-                job_variant_state_counts = _mapping(build.get("job_variant_state_counts"))
+                job_variant_state_counts = _mapping(
+                    build.get("job_variant_state_counts")
+                )
                 if job_variant_state_counts and any(
                     _safe_int(job_variant_state_counts.get(state))
                     != _safe_int(state_counts.get(state))
@@ -2580,7 +2722,8 @@ class DashboardAudit:
             if latest_build:
                 build_latest_counts = _mapping(latest_build.get("state_counts"))
                 if any(
-                    _safe_int(build_latest_counts.get(state)) != _safe_int(latest_counts.get(state))
+                    _safe_int(build_latest_counts.get(state))
+                    != _safe_int(latest_counts.get(state))
                     for state in ("passed", "soft", "hard", "unknown")
                 ):
                     self.error(
@@ -2593,16 +2736,24 @@ class DashboardAudit:
         if definition_parity:
             parity_summary = _mapping(definition_parity.get("summary"))
             parity_matches = _rows(definition_parity.get("matches"))
-            parity_inline_mirror_variants = _rows(definition_parity.get("inline_mirror_variants"))
-            parity_additional_variants = _rows(definition_parity.get("additional_variants"))
+            parity_inline_mirror_variants = _rows(
+                definition_parity.get("inline_mirror_variants")
+            )
+            parity_additional_variants = _rows(
+                definition_parity.get("additional_variants")
+            )
             parity_amd_only = _rows(definition_parity.get("amd_only"))
             parity_upstream_only = _rows(definition_parity.get("nvidia_only"))
             parity_mirrors = _rows(definition_parity.get("mirrors"))
             expected_counts = {
                 "matched": len(parity_matches),
                 "direct_matches": len(parity_matches),
-                "inline_mirror_variants": len(parity_inline_mirror_variants),
-                "additional_variants": len(parity_additional_variants),
+                "inline_mirror_variants": len(
+                    parity_inline_mirror_variants
+                ),
+                "additional_variants": len(
+                    parity_additional_variants
+                ),
                 "covered": (
                     len(parity_matches)
                     + len(parity_inline_mirror_variants)
@@ -2612,7 +2763,8 @@ class DashboardAudit:
                 "nvidia_only": len(parity_upstream_only),
                 "mirrors": len(parity_mirrors),
                 "command_twins": sum(
-                    _mapping(row).get("match_method") == "command_twin" for row in parity_matches
+                    _mapping(row).get("match_method") == "command_twin"
+                    for row in parity_matches
                 ),
             }
             for key, expected in expected_counts.items():
@@ -2649,14 +2801,19 @@ class DashboardAudit:
                     keys.add(value.strip())
                 return keys, invalid
 
-            covered_family_keys, invalid_covered_family_keys = published_family_keys(
-                covered_family_rows
+            covered_family_keys, invalid_covered_family_keys = (
+                published_family_keys(covered_family_rows)
             )
-            amd_only_member_family_keys, invalid_amd_only_family_keys = published_family_keys(
-                parity_amd_only
+            amd_only_member_family_keys, invalid_amd_only_family_keys = (
+                published_family_keys(parity_amd_only)
             )
-            all_family_keys = covered_family_keys | amd_only_member_family_keys
-            invalid_family_keys = invalid_covered_family_keys + invalid_amd_only_family_keys
+            all_family_keys = (
+                covered_family_keys | amd_only_member_family_keys
+            )
+            invalid_family_keys = (
+                invalid_covered_family_keys
+                + invalid_amd_only_family_keys
+            )
             if invalid_family_keys:
                 self.error(
                     "definition-parity-identity-family-key",
@@ -2667,14 +2824,24 @@ class DashboardAudit:
                     relpath,
                 )
 
-            partially_covered_family_keys = covered_family_keys & amd_only_member_family_keys
-            exclusively_amd_only_family_keys = amd_only_member_family_keys - covered_family_keys
+            partially_covered_family_keys = (
+                covered_family_keys & amd_only_member_family_keys
+            )
+            exclusively_amd_only_family_keys = (
+                amd_only_member_family_keys - covered_family_keys
+            )
             expected_family_counts = {
                 "amd_identity_families": len(all_family_keys),
                 "covered_identity_families": len(covered_family_keys),
-                "amd_only_identity_families": len(exclusively_amd_only_family_keys),
-                "partially_covered_identity_families": len(partially_covered_family_keys),
-                "identity_family_replica_rows": (len(all_family_rows) - len(all_family_keys)),
+                "amd_only_identity_families": len(
+                    exclusively_amd_only_family_keys
+                ),
+                "partially_covered_identity_families": len(
+                    partially_covered_family_keys
+                ),
+                "identity_family_replica_rows": (
+                    len(all_family_rows) - len(all_family_keys)
+                ),
             }
             missing_family_summary_fields = (
                 set(expected_family_counts) | {"identity_family_coverage_rate_pct"}
@@ -2728,11 +2895,20 @@ class DashboardAudit:
                     ),
                     relpath,
                 )
-            covered_plus_gaps = expected_counts["covered"] + expected_counts["amd_only"]
-            if _safe_int(parity_summary.get("total_amd_steps")) != covered_plus_gaps:
+            covered_plus_gaps = (
+                expected_counts["covered"]
+                + expected_counts["amd_only"]
+            )
+            if (
+                _safe_int(parity_summary.get("total_amd_steps"))
+                != covered_plus_gaps
+            ):
                 self.error(
                     "definition-parity-amd-total",
-                    ("definition_parity covered + AMD-only rows do not equal total_amd_steps"),
+                    (
+                        "definition_parity covered + AMD-only rows do not "
+                        "equal total_amd_steps"
+                    ),
                     relpath,
                 )
             mirror_relationships = (
@@ -2742,16 +2918,22 @@ class DashboardAudit:
             )
             expected_mirror_kinds = {
                 relationship: sum(
-                    _mapping(row).get("mirror_relationship") == relationship
+                    _mapping(row).get("mirror_relationship")
+                    == relationship
                     for row in parity_inline_mirror_variants
                 )
                 for relationship in mirror_relationships
             }
-            published_mirror_kinds = _mapping(parity_summary.get("inline_mirror_variant_kinds"))
+            published_mirror_kinds = _mapping(
+                parity_summary.get("inline_mirror_variant_kinds")
+            )
             if any(
-                _safe_int(published_mirror_kinds.get(relationship)) != expected
+                _safe_int(published_mirror_kinds.get(relationship))
+                != expected
                 for relationship, expected in expected_mirror_kinds.items()
-            ) or sum(expected_mirror_kinds.values()) != len(parity_inline_mirror_variants):
+            ) or sum(expected_mirror_kinds.values()) != len(
+                parity_inline_mirror_variants
+            ):
                 self.error(
                     "definition-parity-mirror-subtypes",
                     (
@@ -2761,15 +2943,25 @@ class DashboardAudit:
                     relpath,
                 )
             upstream_definition_ids = [
-                *(str(_mapping(row).get("nvidia_definition_id") or "") for row in parity_matches),
-                *(str(_mapping(row).get("nvidia_definition_id") or "") for row in parity_mirrors),
-                *(str(_mapping(row).get("definition_id") or "") for row in parity_upstream_only),
+                *(
+                    str(_mapping(row).get("nvidia_definition_id") or "")
+                    for row in parity_matches
+                ),
+                *(
+                    str(_mapping(row).get("nvidia_definition_id") or "")
+                    for row in parity_mirrors
+                ),
+                *(
+                    str(_mapping(row).get("definition_id") or "")
+                    for row in parity_upstream_only
+                ),
             ]
             if (
                 not all(upstream_definition_ids)
                 or len(upstream_definition_ids)
                 != _safe_int(parity_summary.get("total_nvidia_steps"))
-                or len(set(upstream_definition_ids)) != len(upstream_definition_ids)
+                or len(set(upstream_definition_ids))
+                != len(upstream_definition_ids)
             ):
                 self.error(
                     "definition-parity-upstream-conservation",
@@ -2789,23 +2981,33 @@ class DashboardAudit:
                     str(_mapping(row).get("amd_definition_id") or "")
                     for row in amd_relationship_rows
                 ),
-                *(str(_mapping(row).get("definition_id") or "") for row in parity_amd_only),
+                *(
+                    str(_mapping(row).get("definition_id") or "")
+                    for row in parity_amd_only
+                ),
             ]
             physical_amd_ids = [
                 *(
                     str(definition_id or "")
                     for row in amd_relationship_rows
-                    for definition_id in (_mapping(row).get("amd_member_definition_ids") or [])
+                    for definition_id in (
+                        _mapping(row).get("amd_member_definition_ids")
+                        or []
+                    )
                 ),
                 *(
                     str(definition_id or "")
                     for row in parity_amd_only
-                    for definition_id in (_mapping(row).get("member_definition_ids") or [])
+                    for definition_id in (
+                        _mapping(row).get("member_definition_ids")
+                        or []
+                    )
                 ),
             ]
             if (
                 not all(logical_amd_ids)
-                or len(logical_amd_ids) != _safe_int(parity_summary.get("total_amd_steps"))
+                or len(logical_amd_ids)
+                != _safe_int(parity_summary.get("total_amd_steps"))
                 or len(set(logical_amd_ids)) != len(logical_amd_ids)
             ):
                 self.error(
@@ -2818,7 +3020,8 @@ class DashboardAudit:
                 )
             if (
                 not all(physical_amd_ids)
-                or len(physical_amd_ids) != _safe_int(parity_summary.get("raw_amd_steps"))
+                or len(physical_amd_ids)
+                != _safe_int(parity_summary.get("raw_amd_steps"))
                 or len(set(physical_amd_ids)) != len(physical_amd_ids)
             ):
                 self.error(
@@ -2833,7 +3036,8 @@ class DashboardAudit:
                 _mapping(row).get("amd_label")
                 for row in parity_inline_mirror_variants
                 if (
-                    _mapping(row).get("match_method") != "inline_mirror_variant"
+                    _mapping(row).get("match_method")
+                    != "inline_mirror_variant"
                     or not _mapping(row).get("nvidia_label")
                     or not _mapping(row).get("nvidia_definition_id")
                 )
@@ -2851,7 +3055,8 @@ class DashboardAudit:
                 _mapping(row).get("amd_label")
                 for row in parity_additional_variants
                 if (
-                    _mapping(row).get("match_method") != "additional_variant"
+                    _mapping(row).get("match_method")
+                    != "additional_variant"
                     or not _mapping(row).get("nvidia_label")
                     or not _mapping(row).get("nvidia_definition_id")
                 )
@@ -2889,7 +3094,9 @@ class DashboardAudit:
                     relpath,
                 )
 
-        canonical_history = _mapping(_mapping(payload.get("nightly")).get("canonical_history"))
+        canonical_history = _mapping(
+            _mapping(payload.get("nightly")).get("canonical_history")
+        )
         nightly_builds = _rows(canonical_history.get("builds"))
         health_payload = self.load_json("data/vllm/ci/ci_health.json", {})
         health_amd = _mapping(_mapping(health_payload).get("amd"))
@@ -2903,28 +3110,43 @@ class DashboardAudit:
             )
             if operations_number != health_number:
                 alignment = _mapping(canonical_history.get("head_alignment"))
-                analytics_payload = self.load_json("data/vllm/ci/analytics.json", {})
+                analytics_payload = self.load_json(
+                    "data/vllm/ci/analytics.json", {}
+                )
                 analytics_build_numbers = {
                     _safe_int(
-                        _mapping(row).get("number") or _mapping(row).get("build_number"),
+                        _mapping(row).get("number")
+                        or _mapping(row).get("build_number"),
                         -1,
                     )
-                    for row in _rows(_mapping(_mapping(analytics_payload).get("ci")).get("builds"))
+                    for row in _rows(
+                        _mapping(_mapping(analytics_payload).get("ci")).get(
+                            "builds"
+                        )
+                    )
                 }
                 analytics_build_numbers.discard(-1)
                 expected_ahead = sorted(
-                    (number for number in analytics_build_numbers if number > health_number),
+                    (
+                        number
+                        for number in analytics_build_numbers
+                        if number > health_number
+                    ),
                     reverse=True,
                 )
                 nightly_numbers = {
-                    _safe_int(_mapping(row).get("number"), -1) for row in nightly_builds
+                    _safe_int(_mapping(row).get("number"), -1)
+                    for row in nightly_builds
                 }
                 proven_analytics_ahead = (
                     health_number > 0
-                    and alignment.get("status") == "analytics_ahead_of_ci_health"
-                    and alignment.get("canonical_build_number") == operations_number
+                    and alignment.get("status")
+                    == "analytics_ahead_of_ci_health"
+                    and alignment.get("canonical_build_number")
+                    == operations_number
                     and alignment.get("ci_health_build_number") == health_number
-                    and alignment.get("analytics_ahead_build_numbers") == expected_ahead
+                    and alignment.get("analytics_ahead_build_numbers")
+                    == expected_ahead
                     and bool(expected_ahead)
                     and operations_number == expected_ahead[0]
                     and health_number in nightly_numbers
@@ -2982,7 +3204,8 @@ class DashboardAudit:
         composition = _mapping(cohort.get("composition"))
         cohort_builds = _safe_int(composition.get("all_main_builds") or cohort.get("build_count"))
         cohort_nightlies = _safe_int(
-            composition.get("canonical_nightlies") or cohort.get("canonical_nightly_build_count")
+            composition.get("canonical_nightlies")
+            or cohort.get("canonical_nightly_build_count")
         )
         cohort_other_main = _safe_int(
             composition.get("other_main_builds")
@@ -3002,20 +3225,22 @@ class DashboardAudit:
         nightly = _mapping(payload.get("nightly"))
         canonical = _mapping(nightly.get("canonical_history")) or next(
             (
-                row
-                for row in _rows(nightly.get("pipelines"))
+                row for row in _rows(nightly.get("pipelines"))
                 if isinstance(row, dict) and row.get("pipeline") == "ci"
             ),
             {},
         )
         canonical_rows = _rows(canonical.get("builds"))
         if amd_latest_logical_counts.get("available") is True:
-            logical_build_number = _safe_int(amd_latest_logical_counts.get("build_number"))
+            logical_build_number = _safe_int(
+                amd_latest_logical_counts.get("build_number")
+            )
             logical_nightly = next(
                 (
                     _mapping(row)
                     for row in canonical_rows
-                    if _safe_int(_mapping(row).get("number")) == logical_build_number
+                    if _safe_int(_mapping(row).get("number"))
+                    == logical_build_number
                 ),
                 {},
             )
@@ -3037,8 +3262,11 @@ class DashboardAudit:
                 }
                 if any(
                     _safe_int(logical_nightly.get(nightly_field), -1)
-                    != _safe_int(amd_latest_logical_counts.get(logical_field), -1)
-                    for nightly_field, logical_field in logical_nightly_fields.items()
+                    != _safe_int(
+                        amd_latest_logical_counts.get(logical_field), -1
+                    )
+                    for nightly_field, logical_field
+                    in logical_nightly_fields.items()
                 ):
                     self.error(
                         "operations-amd-logical-group-nightly-counts",
@@ -3079,7 +3307,9 @@ class DashboardAudit:
 
         catalog = _rows(reliability.get("group_catalog"))
         catalog_by_id = {
-            row.get("id"): row for row in catalog if isinstance(row, dict) and row.get("id")
+            row.get("id"): row
+            for row in catalog
+            if isinstance(row, dict) and row.get("id")
         }
         candidates = _rows(reliability.get("flaky_candidates"))
         cohort_build_numbers = {
@@ -3109,12 +3339,13 @@ class DashboardAudit:
                     relpath,
                 )
             wrong_source_rows = [
-                row
-                for row in rows
+                row for row in rows
                 if not isinstance(row, dict)
                 or row.get("source_pipeline") != "ci"
                 or _safe_int(row.get("build_number"), -1) not in cohort_build_numbers
-                or not _buildkite_url_matches(row.get("build_url"), "ci", row.get("build_number"))
+                or not _buildkite_url_matches(
+                    row.get("build_url"), "ci", row.get("build_number")
+                )
                 or not _buildkite_url_matches(
                     row.get("job_url"), "ci", row.get("build_number"), require_job=True
                 )
@@ -3278,9 +3509,7 @@ class DashboardAudit:
         omni_provenance = _mapping(_mapping(payload.get("omni")).get("provenance"))
         expected_source_paths = {
             "queue history": _mapping(queue_provenance.get("source_paths")).get("history"),
-            "Omni aggregates": _mapping(omni_provenance.get("source_paths")).get(
-                "queue_aggregates"
-            ),
+            "Omni aggregates": _mapping(omni_provenance.get("source_paths")).get("queue_aggregates"),
         }
         required_source_paths = {
             "queue history": "queue_timeseries.jsonl",
@@ -3316,40 +3545,23 @@ class DashboardAudit:
 
         for retired in ("gating", "trajectory", "comparison_retry_evidence"):
             if retired in payload:
-                self.error(
-                    "operations-retired-view",
-                    f"Operations still publishes retired {retired} view data",
-                    relpath,
-                )
+                self.error("operations-retired-view", f"Operations still publishes retired {retired} view data", relpath)
         self.audit_current_source_parity(_mapping(payload.get("test_group_parity")), relpath)
         self.audit_current_nightly_latency(_mapping(payload.get("latency")), relpath)
         current_path = self.root / "data/vllm/ci/test_group_parity.json"
         if current_path.exists():
             current = _mapping(self.load_json(self.rel(current_path), {}))
             embedded = _mapping(payload.get("test_group_parity"))
-            if any(
-                embedded.get(key) != current.get(key)
-                for key in ("source", "summary", "rocm_inventory")
-            ):
-                self.error(
-                    "operations-current-parity-projection",
-                    "Operations coverage must use the exact current main source inventory and counts",
-                    relpath,
-                )
+            if any(embedded.get(key) != current.get(key) for key in ("source", "summary", "rocm_inventory")):
+                self.error("operations-current-parity-projection", "Operations coverage must use the exact current main source inventory and counts", relpath)
         analytics_path = self.root / "data/vllm/ci/analytics.json"
         if analytics_path.exists():
             analytics = _mapping(self.load_json(self.rel(analytics_path), {}))
             current_latency = _mapping(_mapping(analytics.get("ci")).get("current_nightly_latency"))
             normalized_current = self._normalize_current_latency_evidence(current_latency, relpath)
-            normalized_embedded = self._normalize_current_latency_evidence(
-                _mapping(payload.get("latency")), relpath
-            )
+            normalized_embedded = self._normalize_current_latency_evidence(_mapping(payload.get("latency")), relpath)
             if current_latency and normalized_current != normalized_embedded:
-                self.error(
-                    "operations-current-latency-projection",
-                    "Operations timing must use the exact current main nightly cohort",
-                    relpath,
-                )
+                self.error("operations-current-latency-projection", "Operations timing must use the exact current main nightly cohort", relpath)
 
         self.report.metrics["operations_v2"] = {
             "amd_latest_job_variants": _safe_int(
@@ -3358,7 +3570,9 @@ class DashboardAudit:
             ),
             "amd_retained_job_variants": len(amd_health_catalog),
             "amd_latest_test_groups": _safe_int(
-                _mapping(amd_health_summary.get("latest_test_group_counts")).get("total")
+                _mapping(
+                    amd_health_summary.get("latest_test_group_counts")
+                ).get("total")
             ),
             "mixed_outcome_candidates": len(candidates),
             "reliability_groups": len(catalog),
@@ -3878,11 +4092,7 @@ class DashboardAudit:
                 f"https://github.com/vllm-project/vllm/blob/{commit}/{row.get('source_file')}"
             )
             if row.get("required") is not required_flag or row.get("source_url") != expected_url:
-                self.error(
-                    "current-mirror-provenance",
-                    "AMD mirrors require exact pinned source links and independent optional/soft-fail flags",
-                    relpath,
-                )
+                self.error("current-mirror-provenance", "AMD mirrors require exact pinned source links and independent optional/soft-fail flags", relpath)
 
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
         """Cross-check the pre-aggregated AMD CI agent-health block.
@@ -3972,7 +4182,9 @@ class DashboardAudit:
             )
         # The signal toggle needs an infra-suspect flag (1/0) on every failing run.
         bad_flag = [
-            _mapping(run).get("i") for run in failing if _mapping(run).get("i") not in (0, 1)
+            _mapping(run).get("i")
+            for run in failing
+            if _mapping(run).get("i") not in (0, 1)
         ]
         if bad_flag:
             self.error(
@@ -4002,7 +4214,9 @@ class DashboardAudit:
                     continue
                 accounted += count
             source_count = _safe_int(agent_health.get("infra_failure_count"))
-            published_count = _safe_int(agent_health.get("published_failure_evidence_count"))
+            published_count = _safe_int(
+                agent_health.get("published_failure_evidence_count")
+            )
             retention = _mapping(agent_health.get("retention"))
             evidence_retention = _mapping(retention.get("failure_evidence"))
             accounting_retention = _mapping(retention.get("failure_accounting"))
@@ -4011,7 +4225,8 @@ class DashboardAudit:
                 or published_count != len(failing)
                 or _safe_int(evidence_retention.get("source")) != source_count
                 or _safe_int(evidence_retention.get("published")) != len(failing)
-                or _safe_int(evidence_retention.get("omitted")) != source_count - len(failing)
+                or _safe_int(evidence_retention.get("omitted"))
+                != source_count - len(failing)
                 or bool(evidence_retention.get("complete_relative_to_source"))
                 != (source_count == len(failing))
                 or _safe_int(accounting_retention.get("accounted")) != source_count
@@ -4103,7 +4318,9 @@ class DashboardAudit:
                 )
             summary_mapping = _mapping(summary)
             daily_waits = _mapping(
-                _mapping(summary_mapping.get("queues")).get("daily_served_job_waits")
+                _mapping(summary_mapping.get("queues")).get(
+                    "daily_served_job_waits"
+                )
             )
             wait_source = _mapping(daily_waits.get("source"))
             lifecycle_days = _rows(
@@ -4126,18 +4343,22 @@ class DashboardAudit:
                     if isinstance(day, dict)
                 ]
                 lifecycle_sample_count = sum(
-                    _safe_int(_mapping(day).get("sample_count")) for day in lifecycle_days
+                    _safe_int(_mapping(day).get("sample_count"))
+                    for day in lifecycle_days
                 )
                 if (
-                    summary_mapping.get("schema_version") != ORG_SUMMARY_SCHEMA_VERSION
+                    summary_mapping.get("schema_version")
+                    != ORG_SUMMARY_SCHEMA_VERSION
                     or wait_source.get("path") != QUEUE_LIFECYCLE_NAME
                     or wait_source.get("schema_version")
                     != _mapping(lifecycle).get("schema_version")
                     or wait_source.get("key") != "daily_wait_times.days"
-                    or wait_source.get("vector_key") != "served_job_wait_seconds"
+                    or wait_source.get("vector_key")
+                    != "served_job_wait_seconds"
                     or daily_waits.get("source_generated_at")
                     != _mapping(lifecycle).get("generated_at")
-                    or _safe_int(daily_waits.get("sample_count")) != lifecycle_sample_count
+                    or _safe_int(daily_waits.get("sample_count"))
+                    != lifecycle_sample_count
                     or indexed_days != expected_index
                 ):
                     self.error(
@@ -4171,26 +4392,14 @@ class DashboardAudit:
                 )
 
         expected = {
-            "nightly",
-            "amd_test_health",
-            "amd_agent_health",
-            "comparison",
-            "reliability",
-            "definition_parity",
-            "test_group_parity",
-            "ownership",
-            "queue",
-            "omni",
-            "diagnostics",
+            "nightly", "amd_test_health", "amd_agent_health", "comparison",
+            "reliability", "definition_parity", "test_group_parity", "ownership",
+            "queue", "omni", "diagnostics",
         }
         sections = _mapping(manifest.get("sections"))
         retired_sections = {"gating", "trajectory", "comparison_retry_evidence"} & set(sections)
         if retired_sections:
-            self.error(
-                "operations-bundle-retired-sections",
-                f"Operations manifest publishes retired sections: {sorted(retired_sections)}",
-                relpath,
-            )
+            self.error("operations-bundle-retired-sections", f"Operations manifest publishes retired sections: {sorted(retired_sections)}", relpath)
         missing = expected - set(sections)
         if missing:
             self.error(
@@ -4399,11 +4608,15 @@ class DashboardAudit:
                     "data/vllm/prs.json",
                 )
             ci_issue_numbers = pr.get("ci_issue_numbers") or []
-            relationships_complete = (prs_retention.get("relationship_refs") or {}).get(
-                "complete_relative_to_source"
-            ) is not False
-            if bool(pr.get("is_ci_pr")) != bool(ci_issue_numbers) and not (
-                pr.get("is_ci_pr") and not relationships_complete
+            relationships_complete = (
+                (prs_retention.get("relationship_refs") or {}).get(
+                    "complete_relative_to_source"
+                )
+                is not False
+            )
+            if (
+                bool(pr.get("is_ci_pr")) != bool(ci_issue_numbers)
+                and not (pr.get("is_ci_pr") and not relationships_complete)
             ):
                 self.error(
                     "ci-pr-tag",
@@ -4424,8 +4637,8 @@ class DashboardAudit:
                 self.error("rocm-custom-tag", f"PR #{number} is ROCm but missing custom ROCm tag")
 
         open_prs = [p for p in prs if (p.get("state") or "").lower() == "open"]
-        prs_source = (prs_retention.get("rows") or {}).get("source")
-        issues_source = (issues_retention.get("rows") or {}).get("source")
+        prs_source = ((prs_retention.get("rows") or {}).get("source"))
+        issues_source = ((issues_retention.get("rows") or {}).get("source"))
         self.report.metrics["home"] = {
             "prs": len(prs),
             "source_prs": prs_source if isinstance(prs_source, int) else len(prs),
@@ -4499,7 +4712,10 @@ class DashboardAudit:
 
         legacy = record.get("pass_rate")
         legacy_upper_bound = 1 if legacy_is_ratio else 100
-        legacy_valid = _is_finite_number(legacy) and 0 <= legacy <= legacy_upper_bound
+        legacy_valid = (
+            _is_finite_number(legacy)
+            and 0 <= legacy <= legacy_upper_bound
+        )
         if not legacy_valid:
             unit = "0 to 1 ratio" if legacy_is_ratio else "0 to 100 percentage"
             self.error(
@@ -4508,7 +4724,7 @@ class DashboardAudit:
                 path,
             )
 
-        tolerance = (10**-decimal_places) / 2 + 1e-12
+        tolerance = (10 ** -decimal_places) / 2 + 1e-12
         if (
             percentage_valid
             and expected_percentage is not None
@@ -4527,17 +4743,23 @@ class DashboardAudit:
 
         if legacy_valid:
             normalized_legacy = float(legacy) * (100 if legacy_is_ratio else 1)
-            disagrees_with_percentage = percentage_valid and not math.isclose(
-                float(percentage),
-                normalized_legacy,
-                rel_tol=0,
-                abs_tol=tolerance,
+            disagrees_with_percentage = (
+                percentage_valid
+                and not math.isclose(
+                    float(percentage),
+                    normalized_legacy,
+                    rel_tol=0,
+                    abs_tol=tolerance,
+                )
             )
-            disagrees_with_math = expected_percentage is not None and not math.isclose(
-                normalized_legacy,
-                expected_percentage,
-                rel_tol=0,
-                abs_tol=tolerance,
+            disagrees_with_math = (
+                expected_percentage is not None
+                and not math.isclose(
+                    normalized_legacy,
+                    expected_percentage,
+                    rel_tol=0,
+                    abs_tol=tolerance,
+                )
             )
             if disagrees_with_percentage or disagrees_with_math:
                 self.error(
@@ -4578,31 +4800,14 @@ class DashboardAudit:
 
     def _audit_current_runtime_build(self, row: dict, side: str, relpath: str) -> None:
         from vllm.pipelines import is_amd_ci_job, is_upstream_cuda_ci_job
-
         number = row.get("build_number") or row.get("number")
         url = row.get("build_url") or row.get("web_url")
-        if (
-            row.get("pipeline") not in {side, "ci"}
-            or row.get("branch") != "main"
-            or not _buildkite_url_matches(url, "ci", number)
-        ):
-            self.error(
-                "current-runtime-source",
-                f"{side} runtime must identify exact upstream ci main build metadata",
-                relpath,
-            )
+        if row.get("pipeline") not in {side, "ci"} or row.get("branch") != "main" or not _buildkite_url_matches(url, "ci", number):
+            self.error("current-runtime-source", f"{side} runtime must identify exact upstream ci main build metadata", relpath)
         predicate = is_amd_ci_job if side == "amd" else is_upstream_cuda_ci_job
-        wrong_hardware = [
-            hardware
-            for hardware in _mapping(row.get("by_hardware"))
-            if not predicate({"hardware": hardware})
-        ]
+        wrong_hardware = [hardware for hardware in _mapping(row.get("by_hardware")) if not predicate({"hardware": hardware})]
         if wrong_hardware:
-            self.error(
-                "current-runtime-hardware-scope",
-                f"{side} runtime includes hardware outside its GPU roster: {wrong_hardware}",
-                relpath,
-            )
+            self.error("current-runtime-hardware-scope", f"{side} runtime includes hardware outside its GPU roster: {wrong_hardware}", relpath)
 
     def audit_ci_health(self) -> None:
         health = self.load_json("data/vllm/ci/ci_health.json", {})
@@ -4618,7 +4823,7 @@ class DashboardAudit:
 
         metrics: dict[str, Any] = {}
         for side, suffix in (("amd", "amd"), ("upstream", "upstream")):
-            latest = (health.get(side) or {}).get("latest_build") or {}
+            latest = ((health.get(side) or {}).get("latest_build") or {})
             if not latest:
                 self.error("ci-health-latest", f"ci_health.json lacks {side}.latest_build")
                 continue
@@ -4629,16 +4834,9 @@ class DashboardAudit:
             path = self.latest_result_file(suffix)
             if path is not None:
                 from vllm.pipelines import pipeline_job_matches_scope
-
                 for result in self.load_jsonl(self.rel(path)):
-                    if result.get("pipeline") != "ci" or not pipeline_job_matches_scope(
-                        {"job_name": result.get("job_name")}, side
-                    ):
-                        self.error(
-                            "current-runtime-result-scope",
-                            f"{side} latest result shard includes a job from another hardware scope or legacy pipeline",
-                            self.rel(path),
-                        )
+                    if result.get("pipeline") != "ci" or not pipeline_job_matches_scope({"job_name": result.get("job_name")}, side):
+                        self.error("current-runtime-result-scope", f"{side} latest result shard includes a job from another hardware scope or legacy pipeline", self.rel(path))
             result_numbers = self.build_numbers_in_jsonl(path)
             build_number = latest.get("build_number") or latest.get("number")
             if result_numbers and build_number not in result_numbers:
@@ -4667,7 +4865,9 @@ class DashboardAudit:
                     if row and id(row) not in seen_rows:
                         seen_rows.add(id(row))
                         self._audit_ci_health_build_rate(row, f"{side}.{key}")
-                for index, raw_row in enumerate(_rows(_mapping(health.get(side)).get("builds"))):
+                for index, raw_row in enumerate(
+                    _rows(_mapping(health.get(side)).get("builds"))
+                ):
                     row = _mapping(raw_row)
                     if row and id(row) not in seen_rows:
                         seen_rows.add(id(row))
@@ -4714,19 +4914,15 @@ class DashboardAudit:
                 continue
             summary = _mapping(block.get("summary"))
             run_url = block.get("run_url")
-            if run_url and not re.fullmatch(
-                r"https://buildkite\.com/vllm/ci/builds/[1-9]\d*/?", str(run_url)
-            ):
-                self.error(
-                    "root-test-results-current-source",
-                    f"{platform} root results link to a legacy or non-ci build",
-                    path,
-                )
+            if run_url and not re.fullmatch(r"https://buildkite\.com/vllm/ci/builds/[1-9]\d*/?", str(run_url)):
+                self.error("root-test-results-current-source", f"{platform} root results link to a legacy or non-ci build", path)
             if not rate_contract_enabled:
                 continue
             assertions = _mapping(summary.get("test_assertions"))
             required_counts = ("total", "passed", "failed", "skipped")
-            counts_valid = all(_is_nonnegative_int(assertions.get(key)) for key in required_counts)
+            counts_valid = all(
+                _is_nonnegative_int(assertions.get(key)) for key in required_counts
+            )
             expected_percentage = None
             if not counts_valid:
                 self.error(
@@ -4738,7 +4934,11 @@ class DashboardAudit:
                     path,
                 )
             else:
-                counted = assertions["passed"] + assertions["failed"] + assertions["skipped"]
+                counted = (
+                    assertions["passed"]
+                    + assertions["failed"]
+                    + assertions["skipped"]
+                )
                 if assertions["total"] != counted:
                     self.error(
                         "root-test-results-test-pass-rate-counts",
@@ -4749,7 +4949,9 @@ class DashboardAudit:
                         path,
                     )
                 ran = assertions["passed"] + assertions["failed"]
-                expected_percentage = round(assertions["passed"] / ran * 100, 1) if ran else 0.0
+                expected_percentage = (
+                    round(assertions["passed"] / ran * 100, 1) if ran else 0.0
+                )
             self._audit_percentage_rate(
                 summary,
                 label=f"{platform}.summary",
@@ -4822,7 +5024,9 @@ class DashboardAudit:
             )
         else:
             expected_percentage = (
-                round(passed / terminal_builds * 100, 1) if terminal_builds else 0.0
+                round(passed / terminal_builds * 100, 1)
+                if terminal_builds
+                else 0.0
             )
         self._audit_percentage_rate(
             summary,
@@ -4885,7 +5089,9 @@ class DashboardAudit:
                     left_build=latest.get("number"),
                     right_surface="ci_core",
                     right_build=max(result_numbers),
-                    context={"pipeline": "upstream"},
+                    context={
+                        "pipeline": "upstream"
+                    },
                 )
             if result_numbers and latest.get("source") != "test_results":
                 self.warning(
@@ -4941,7 +5147,8 @@ class DashboardAudit:
                     )
                 state_counts = {
                     "passed": sum(
-                        1 for j in jobs if isinstance(j, dict) and j.get("state") == "passed"
+                        1 for j in jobs
+                        if isinstance(j, dict) and j.get("state") == "passed"
                     ),
                     "failed": sum(
                         1
@@ -4950,10 +5157,12 @@ class DashboardAudit:
                         and j.get("state") in {"failed", "timed_out", "broken"}
                     ),
                     "soft_failed": sum(
-                        1 for j in jobs if isinstance(j, dict) and j.get("state") == "soft_fail"
+                        1 for j in jobs
+                        if isinstance(j, dict) and j.get("state") == "soft_fail"
                     ),
                     "skipped": sum(
-                        1 for j in jobs if isinstance(j, dict) and j.get("state") == "skipped"
+                        1 for j in jobs
+                        if isinstance(j, dict) and j.get("state") == "skipped"
                     ),
                 }
                 for key, expected in state_counts.items():
@@ -5038,9 +5247,7 @@ class DashboardAudit:
                     or not row.get("finished_at")
                     or not _buildkite_url_matches(row.get("url"), slug, row.get("number"))
                 ]
-                if malformed_builds or len(cohort_builds_rows) != _safe_int(
-                    cohort.get("build_count")
-                ):
+                if malformed_builds or len(cohort_builds_rows) != _safe_int(cohort.get("build_count")):
                     self.error(
                         "analytics-all-main-build-provenance",
                         (
@@ -5061,7 +5268,9 @@ class DashboardAudit:
                         ),
                         "data/vllm/ci/analytics.json",
                     )
-                eligible = sum(_safe_int(_mapping(group).get("denominator")) for group in groups)
+                eligible = sum(
+                    _safe_int(_mapping(group).get("denominator")) for group in groups
+                )
                 expected_eligible = _safe_int(denominator.get("eligible_observations"))
                 if eligible != expected_eligible:
                     self.error(
@@ -5098,9 +5307,7 @@ class DashboardAudit:
                     for row in cohort_builds_rows
                     if _safe_int(_mapping(row).get("number"), -1) > 0
                 }
-                missing_links = sum(
-                    not observation.get("job_url") for observation in all_observations
-                )
+                missing_links = sum(not observation.get("job_url") for observation in all_observations)
                 wrong_pipeline_links = sum(
                     _safe_int(observation.get("build_number"), -1) not in cohort_build_numbers
                     or not _buildkite_url_matches(
@@ -5206,11 +5413,7 @@ class DashboardAudit:
             if all_main_metrics is not None:
                 metrics[slug]["all_main"] = all_main_metrics
         current_latency = _mapping(_mapping(analytics.get("ci")).get("current_nightly_latency"))
-        self.audit_current_nightly_latency(
-            current_latency,
-            "data/vllm/ci/analytics.json",
-            source_builds=_rows(_mapping(analytics.get("ci")).get("builds")),
-        )
+        self.audit_current_nightly_latency(current_latency, "data/vllm/ci/analytics.json", source_builds=_rows(_mapping(analytics.get("ci")).get("builds")))
         self.report.metrics["analytics"] = metrics
 
     def amd_matrix_audit_view(
@@ -5246,11 +5449,8 @@ class DashboardAudit:
             "mi355_classifications",
         )
         expected_keys = {
-            "policy",
-            "detail_contract",
-            "max_bytes",
-            "complete_relative_to_source",
-            "aggregate_source_counts_complete",
+            "policy", "detail_contract", "max_bytes",
+            "complete_relative_to_source", "aggregate_source_counts_complete",
             *ledger_names,
         }
         valid = True
@@ -5286,8 +5486,12 @@ class DashboardAudit:
             ):
                 reject(f"retention {name} ledger does not reconcile")
             ledgers[name] = row
-        if type(complete) is not bool or complete is not all(
-            row.get("complete_relative_to_source") is True for row in ledgers.values()
+        if (
+            type(complete) is not bool
+            or complete is not all(
+                row.get("complete_relative_to_source") is True
+                for row in ledgers.values()
+            )
         ):
             reject("top-level retention completeness does not reconcile")
 
@@ -5299,7 +5503,8 @@ class DashboardAudit:
             "mi355_classifications": policy_block.get("mi355_classification"),
         }
         if any(
-            not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows)
+            not isinstance(rows, list)
+            or any(not isinstance(row, dict) for row in rows)
             for rows in collections.values()
         ):
             reject("published detail collections must contain only objects")
@@ -5320,25 +5525,10 @@ class DashboardAudit:
             and len(set(row_ids)) == len(row_ids)
             and len(set(health_ids)) == len(health_ids)
             and len(set(duplicate_ids)) == len(duplicate_ids)
-            and rows
-            == sorted(
-                rows, key=lambda row: (_safe_int(row.get("yaml_order")), str(row.get("id") or ""))
-            )
-            and health_groups
-            == sorted(
-                health_groups,
-                key=lambda group: (str(group.get("status") or ""), str(group.get("id") or "")),
-            )
-            and duplicate_groups
-            == sorted(duplicate_groups, key=lambda group: str(group.get("id") or ""))
-            and classifications
-            == sorted(
-                classifications,
-                key=lambda row: (
-                    str(row.get("row_id") or ""),
-                    str(row.get("health_group_id") or ""),
-                ),
-            )
+            and rows == sorted(rows, key=lambda row: (_safe_int(row.get("yaml_order")), str(row.get("id") or "")))
+            and health_groups == sorted(health_groups, key=lambda group: (str(group.get("status") or ""), str(group.get("id") or "")))
+            and duplicate_groups == sorted(duplicate_groups, key=lambda group: str(group.get("id") or ""))
+            and classifications == sorted(classifications, key=lambda row: (str(row.get("row_id") or ""), str(row.get("health_group_id") or "")))
         )
         if not canonical:
             reject("published detail is not in canonical unique-ID order")
@@ -5394,39 +5584,25 @@ class DashboardAudit:
                 reject(f"summary.{name} does not match the source row ledger")
 
         lower_fields = (
-            "hardware_cells",
-            "latest_matched_cells",
-            "passing_cells",
-            "failing_cells",
-            "waiting_cells",
-            "unknown_cells",
-            "fully_shared_groups",
-            "single_arch_groups",
-            "multi_variant_cells",
+            "hardware_cells", "latest_matched_cells", "passing_cells", "failing_cells",
+            "waiting_cells", "unknown_cells", "fully_shared_groups",
+            "single_arch_groups", "multi_variant_cells",
         )
         if any(
             type(summary.get(name)) is not int or summary[name] < stats[name]
             for name in lower_fields
-        ) or sum(
-            summary.get(name, -1)
-            for name in ("passing_cells", "failing_cells", "waiting_cells", "unknown_cells")
-        ) != summary.get("hardware_cells"):
+        ) or sum(summary.get(name, -1) for name in (
+            "passing_cells", "failing_cells", "waiting_cells", "unknown_cells"
+        )) != summary.get("hardware_cells"):
             reject("source matrix cell aggregates are invalid or below retained detail")
 
         duplicate_rows = summary.get("duplicate_definition_rows")
         reduced = summary.get("reduced_unique_groups")
         deduplicated = summary.get("deduplicated_configured_cases")
-        retained_duplicate_rows = sum(
-            len(group.get("member_ids") or []) for group in duplicate_groups
-        )
-        retained_reduced = len(
-            {str(row.get("duplicate_group_id") or row.get("id")) for row in rows}
-        )
+        retained_duplicate_rows = sum(len(group.get("member_ids") or []) for group in duplicate_groups)
+        retained_reduced = len({str(row.get("duplicate_group_id") or row.get("id")) for row in rows})
         if (
-            any(
-                type(value) is not int or value < 0
-                for value in (source_duplicates, duplicate_rows, reduced, deduplicated)
-            )
+            any(type(value) is not int or value < 0 for value in (source_duplicates, duplicate_rows, reduced, deduplicated))
             or summary.get("duplicate_clusters") != source_duplicates
             or duplicate_rows < max(retained_duplicate_rows, source_duplicates * 2)
             or reduced != source_rows - (duplicate_rows - source_duplicates)
@@ -5445,10 +5621,15 @@ class DashboardAudit:
             not isinstance(raw_architectures, list)
             or len(architectures) != len(raw_architectures)
             or not architecture_ids_valid
-            or (architecture_ids_valid and len(set(architecture_ids)) != len(architecture_ids))
+            or (
+                architecture_ids_valid
+                and len(set(architecture_ids)) != len(architecture_ids)
+            )
         ):
             reject("source architectures must have unique non-empty string ids")
-        architecture_id_set = {arch for arch in architecture_ids if isinstance(arch, str) and arch}
+        architecture_id_set = {
+            arch for arch in architecture_ids if isinstance(arch, str) and arch
+        }
         for row in rows:
             cells = row.get("cells")
             if (
@@ -5466,20 +5647,15 @@ class DashboardAudit:
             matched = record.get("nightly_match_count")
             published = _mapping(stats["by_arch"].get(arch))
             if (
-                not arch
-                or type(total) is not int
-                or type(matched) is not int
+                not arch or type(total) is not int or type(matched) is not int
                 or total < int(published.get("total") or 0)
-                or matched < int(published.get("matched") or 0)
-                or matched > total
+                or matched < int(published.get("matched") or 0) or matched > total
             ):
                 reject(f"source architecture {arch or '<missing>'} aggregates are invalid")
                 continue
             arch_cells += total
             arch_matched += matched
-        if arch_cells != summary.get("hardware_cells") or arch_matched != summary.get(
-            "latest_matched_cells"
-        ):
+        if arch_cells != summary.get("hardware_cells") or arch_matched != summary.get("latest_matched_cells"):
             reject("source architecture aggregates do not match the summary")
 
         health_policies = _mapping(summary.get("health_policies"))
@@ -5495,9 +5671,7 @@ class DashboardAudit:
             or best.get("group_ids") != health_ids
         ):
             reject("source/published health-group counts do not reconcile")
-        mi355_total = next(
-            (row.get("group_count") for row in architectures if row.get("id") == "mi355"), 0
-        )
+        mi355_total = next((row.get("group_count") for row in architectures if row.get("id") == "mi355"), 0)
         if _mapping(ledgers.get("mi355_classifications")).get("source") != mi355_total:
             reject("source MI355 classification count does not reconcile")
 
@@ -5514,33 +5688,19 @@ class DashboardAudit:
             for name, flags in policy_specs.items()
         }
 
-        def valid_source_counts(
-            source: dict[str, Any], published: dict[str, Any], *, best_policy: bool = False
-        ) -> bool:
+        def valid_source_counts(source: dict[str, Any], published: dict[str, Any], *, best_policy: bool = False) -> bool:
             names = (
-                "passing_groups",
-                "failed_only_groups",
-                "mixed_groups",
-                "waiting_groups",
-                "unknown_groups",
-                "failing_groups",
-                "resolved_groups",
-                "included_groups",
+                "passing_groups", "failed_only_groups", "mixed_groups", "waiting_groups",
+                "unknown_groups", "failing_groups", "resolved_groups", "included_groups",
             ) + (() if best_policy else ("ignored_mi355_only_groups", "inherited_mi355_groups"))
-            if any(
-                type(source.get(name)) is not int or source[name] < int(published.get(name) or 0)
-                for name in names
-            ):
+            if any(type(source.get(name)) is not int or source[name] < int(published.get(name) or 0) for name in names):
                 return False
             denominator = source["included_groups"] if best_policy else source["resolved_groups"]
-            percentage = (
-                round(source["passing_groups"] / denominator * 100, 1) if denominator else None
-            )
+            percentage = round(source["passing_groups"] / denominator * 100, 1) if denominator else None
             return (
                 source["failing_groups"] == source["failed_only_groups"] + source["mixed_groups"]
                 and source["resolved_groups"] == source["passing_groups"] + source["failing_groups"]
-                and source["included_groups"]
-                == source["resolved_groups"] + source["waiting_groups"] + source["unknown_groups"]
+                and source["included_groups"] == source["resolved_groups"] + source["waiting_groups"] + source["unknown_groups"]
                 and source.get("pass_percentage") == percentage
             )
 
@@ -5559,9 +5719,7 @@ class DashboardAudit:
             "unknown_groups": sum(group.get("status") == "unknown" for group in health_groups),
         }
         observed_best["failing_groups"] = observed_best["failed_only_groups"]
-        observed_best["resolved_groups"] = (
-            observed_best["passing_groups"] + observed_best["failing_groups"]
-        )
+        observed_best["resolved_groups"] = observed_best["passing_groups"] + observed_best["failing_groups"]
         observed_best["included_groups"] = len(health_groups)
         if not valid_source_counts(best, observed_best, best_policy=True):
             reject("source best-hardware aggregates do not reconcile")
@@ -5569,10 +5727,8 @@ class DashboardAudit:
         source_sensitive = best.get("mi355_sensitive_groups")
         if (
             any(type(value) is not int for value in (source_generic, source_sensitive))
-            or source_generic
-            < sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups)
-            or source_sensitive
-            < sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups)
+            or source_generic < sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups)
+            or source_sensitive < sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups)
             or source_generic + source_sensitive != source_health
             or best.get("generic_group_count") != source_generic
             or best.get("mi355_sensitive_group_count") != source_sensitive
@@ -5584,17 +5740,13 @@ class DashboardAudit:
             titles = [str(rule.get("title") or "") for rule in rule_rows]
             identities = (
                 [str(rule.get("health_group_id") or "") for rule in rule_rows]
-                if rule_name == "generic_alias_rules"
-                and policy_block.get("generic_alias_match_policy")
+                if rule_name == "generic_alias_rules" and policy_block.get("generic_alias_match_policy")
                 else titles
             )
             if (
                 not isinstance(rules, list)
                 or len(rule_rows) != len(rules)
-                or any(
-                    not title or not str(rule.get("reason") or "")
-                    for title, rule in zip(titles, rule_rows)
-                )
+                or any(not title or not str(rule.get("reason") or "") for title, rule in zip(titles, rule_rows))
                 or any(not identity for identity in identities)
                 or len(set(identities)) != len(identities)
             ):
@@ -5603,90 +5755,53 @@ class DashboardAudit:
             return matrix, summary, False
 
         published_summary = dict(summary)
-        published_summary.update(
-            {
-                name: stats[name]
-                for name in (
-                    "unique_groups",
-                    "architecture_count",
-                    *lower_fields,
-                )
-            }
-        )
-        published_summary.update(
-            {
-                "definition_rows": len(rows),
-                "reduced_unique_groups": retained_reduced,
-                "duplicate_clusters": len(duplicate_groups),
-                "duplicate_definition_rows": retained_duplicate_rows,
-                "health_group_count": len(health_groups),
-            }
-        )
+        published_summary.update({name: stats[name] for name in (
+            "unique_groups", "architecture_count", *lower_fields,
+        )})
+        published_summary.update({
+            "definition_rows": len(rows),
+            "reduced_unique_groups": retained_reduced,
+            "duplicate_clusters": len(duplicate_groups),
+            "duplicate_definition_rows": retained_duplicate_rows,
+            "health_group_count": len(health_groups),
+        })
         published_best = dict(best)
         published_best.update(observed_best)
-        published_best.update(
-            {
-                "health_group_count": len(health_groups),
-                "generic_groups": sum(
-                    group.get("gate_kind") == "generic_best_hardware" for group in health_groups
-                ),
-                "generic_group_count": sum(
-                    group.get("gate_kind") == "generic_best_hardware" for group in health_groups
-                ),
-                "mi355_sensitive_groups": sum(
-                    group.get("gate_kind") == "mi355_sensitive" for group in health_groups
-                ),
-                "mi355_sensitive_group_count": sum(
-                    group.get("gate_kind") == "mi355_sensitive" for group in health_groups
-                ),
-                "pass_percentage": round(
-                    observed_best["passing_groups"] / len(health_groups) * 100, 1
-                )
-                if health_groups
-                else None,
-            }
-        )
-        published_summary["health_policies"] = {
-            **health_policies,
-            **published_policies,
-            "best_hardware": published_best,
-        }
+        published_best.update({
+            "health_group_count": len(health_groups),
+            "generic_groups": sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups),
+            "generic_group_count": sum(group.get("gate_kind") == "generic_best_hardware" for group in health_groups),
+            "mi355_sensitive_groups": sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups),
+            "mi355_sensitive_group_count": sum(group.get("gate_kind") == "mi355_sensitive" for group in health_groups),
+            "pass_percentage": round(observed_best["passing_groups"] / len(health_groups) * 100, 1) if health_groups else None,
+        })
+        published_summary["health_policies"] = {**health_policies, **published_policies, "best_hardware": published_best}
 
         rows_by_id = {str(row.get("id") or ""): row for row in rows}
         retained_sensitive_titles = {
-            str(
-                _mapping(rows_by_id.get(str(item.get("row_id") or ""))).get("canonical_title") or ""
-            )
+            str(_mapping(rows_by_id.get(str(item.get("row_id") or ""))).get("canonical_title") or "")
             for item in classifications
             if item.get("classification") == "separate_gate"
         }
         retained_alias_titles = {
-            str(
-                _mapping(rows_by_id.get(str(item.get("row_id") or ""))).get("canonical_title") or ""
-            )
+            str(_mapping(rows_by_id.get(str(item.get("row_id") or ""))).get("canonical_title") or "")
             for item in classifications
             if item.get("classification") == "generic_replica"
         }
         published_policy = dict(policy_block)
         published_policy["mi355_sensitive_rules"] = [
-            rule
-            for rule in policy_block.get("mi355_sensitive_rules") or []
+            rule for rule in policy_block.get("mi355_sensitive_rules") or []
             if str(_mapping(rule).get("title") or "") in retained_sensitive_titles
         ]
         published_policy["generic_alias_rules"] = [
-            rule
-            for rule in policy_block.get("generic_alias_rules") or []
+            rule for rule in policy_block.get("generic_alias_rules") or []
             if (
                 str(_mapping(rule).get("health_group_id") or "") in set(health_ids)
                 if policy_block.get("generic_alias_match_policy")
                 else str(_mapping(rule).get("title") or "") in retained_alias_titles
             )
         ]
-        published_matrix = {
-            **matrix,
-            "summary": published_summary,
-            "best_hardware_policy": published_policy,
-        }
+        published_matrix = {**matrix, "summary": published_summary, "best_hardware_policy": published_policy}
         return published_matrix, published_summary, True
 
     def matrix_cell_stats(self, matrix: dict[str, Any]) -> dict[str, Any]:
@@ -5706,14 +5821,7 @@ class DashboardAudit:
             "multi_variant_cells": 0,
             "attention_families": 0,
             "by_arch": {
-                arch: {
-                    "total": 0,
-                    "matched": 0,
-                    "passing": 0,
-                    "failing": 0,
-                    "waiting": 0,
-                    "unknown": 0,
-                }
+                arch: {"total": 0, "matched": 0, "passing": 0, "failing": 0, "waiting": 0, "unknown": 0}
                 for arch in architectures
             },
         }
@@ -5723,7 +5831,7 @@ class DashboardAudit:
             row_nightly = 0
             row_attention = False
             for arch in architectures:
-                cell = (row.get("cells") or {}).get(arch) or {}
+                cell = ((row.get("cells") or {}).get(arch) or {})
                 if not cell.get("exists"):
                     continue
                 row_coverage += 1
@@ -5786,19 +5894,25 @@ class DashboardAudit:
     ) -> dict[str, Any]:
         components: dict[str, list[dict[str, Any]]] = {}
         for index, row in enumerate(rows):
-            group_id = str(row.get("duplicate_group_id") or row.get("id") or f"legacy-row-{index}")
+            group_id = str(
+                row.get("duplicate_group_id")
+                or row.get("id")
+                or f"legacy-row-{index}"
+            )
             components.setdefault(group_id, []).append(row)
 
         if reduce_duplicates:
-            candidates = [(members, members) for members in components.values()]
+            candidates = [
+                (members, members)
+                for members in components.values()
+            ]
         else:
             candidates = [
-                (
-                    [row],
-                    components[
-                        str(row.get("duplicate_group_id") or row.get("id") or f"legacy-row-{index}")
-                    ],
-                )
+                ([row], components[str(
+                    row.get("duplicate_group_id")
+                    or row.get("id")
+                    or f"legacy-row-{index}"
+                )])
                 for index, row in enumerate(rows)
             ]
 
@@ -5840,7 +5954,10 @@ class DashboardAudit:
             else:
                 signal_cells = candidate_mi355
 
-            states = {str(cell.get("latest_state") or "").casefold() for cell in signal_cells}
+            states = {
+                str(cell.get("latest_state") or "").casefold()
+                for cell in signal_cells
+            }
             has_pass = "passed" in states
             has_incident = bool(states & AMD_FAILURE_STATES)
             if has_pass and has_incident:
@@ -5854,19 +5971,21 @@ class DashboardAudit:
             else:
                 counts["unknown_groups"] += 1
 
-        counts["failing_groups"] = counts["failed_only_groups"] + counts["mixed_groups"]
-        counts["resolved_groups"] = counts["passing_groups"] + counts["failing_groups"]
+        counts["failing_groups"] = (
+            counts["failed_only_groups"] + counts["mixed_groups"]
+        )
+        counts["resolved_groups"] = (
+            counts["passing_groups"] + counts["failing_groups"]
+        )
         counts["included_groups"] = (
-            counts["resolved_groups"] + counts["waiting_groups"] + counts["unknown_groups"]
+            counts["resolved_groups"]
+            + counts["waiting_groups"]
+            + counts["unknown_groups"]
         )
-        counts["pass_percentage"] = (
-            round(
-                counts["passing_groups"] / counts["resolved_groups"] * 100,
-                1,
-            )
-            if counts["resolved_groups"]
-            else None
-        )
+        counts["pass_percentage"] = round(
+            counts["passing_groups"] / counts["resolved_groups"] * 100,
+            1,
+        ) if counts["resolved_groups"] else None
         counts["reduce_duplicates"] = reduce_duplicates
         counts["ignore_mi355_only"] = ignore_mi355_only
         return counts
@@ -5899,7 +6018,8 @@ class DashboardAudit:
             return
         rows_by_id = {row.get("id"): row for row in rows}
         classifications = {
-            item.get("row_id"): item for item in _rows(policy.get("mi355_classification"))
+            item.get("row_id"): item
+            for item in _rows(policy.get("mi355_classification"))
         }
         for row in rows:
             evidence = row.get("execution_identity")
@@ -5949,8 +6069,7 @@ class DashboardAudit:
             ):
                 reject(f"generic alias group {group_id!r} lacks matching execution evidence")
         expected_groups = {
-            group_id
-            for group_id, group in groups.items()
+            group_id for group_id, group in groups.items()
             if group.get("classification_reason") == GENERIC_EXECUTION_ALIAS_REASON
         }
         if seen != expected_groups:
@@ -5968,7 +6087,9 @@ class DashboardAudit:
         raw_groups = matrix.get("health_groups")
         raw_policy = matrix.get("best_hardware_policy")
         raw_summary = health_policies.get("best_hardware")
-        contract_present = any(value is not None for value in (raw_groups, raw_policy, raw_summary))
+        contract_present = any(
+            value is not None for value in (raw_groups, raw_policy, raw_summary)
+        )
         if not contract_present:
             return {"available": False}
         if not isinstance(raw_groups, list):
@@ -6285,8 +6406,9 @@ class DashboardAudit:
                         "url",
                     }
                     for variant_index, variant in enumerate(variants):
-                        if not isinstance(variant, dict) or not required_variant_keys <= set(
-                            variant
+                        if (
+                            not isinstance(variant, dict)
+                            or not required_variant_keys <= set(variant)
                         ):
                             self.error(
                                 "matrix-best-hardware-member-shape",
@@ -6332,7 +6454,9 @@ class DashboardAudit:
 
         missing_cells = sorted(set(expected_cells) - set(ownership))
         extra_cells = sorted(set(ownership) - set(expected_cells))
-        duplicate_cells = sorted(key for key, owners in ownership.items() if len(owners) != 1)
+        duplicate_cells = sorted(
+            key for key, owners in ownership.items() if len(owners) != 1
+        )
         if missing_cells or extra_cells or duplicate_cells:
             self.error(
                 "matrix-best-hardware-cell-ownership",
@@ -6369,7 +6493,9 @@ class DashboardAudit:
             "failing_groups": observed_statuses["failed"],
             "waiting_groups": observed_statuses["waiting"],
             "unknown_groups": observed_statuses["unknown"],
-            "resolved_groups": (observed_statuses["passing"] + observed_statuses["failed"]),
+            "resolved_groups": (
+                observed_statuses["passing"] + observed_statuses["failed"]
+            ),
             "generic_groups": observed_kinds["generic_best_hardware"],
             "generic_group_count": observed_kinds["generic_best_hardware"],
             "mi355_sensitive_groups": observed_kinds["mi355_sensitive"],
@@ -6389,7 +6515,9 @@ class DashboardAudit:
                 relpath,
             )
         expected_percentage = (
-            round(observed_statuses["passing"] / len(group_by_id) * 100, 1) if group_by_id else None
+            round(observed_statuses["passing"] / len(group_by_id) * 100, 1)
+            if group_by_id
+            else None
         )
         if best_summary.get("pass_percentage") != expected_percentage:
             self.error(
@@ -6397,7 +6525,9 @@ class DashboardAudit:
                 f"best_hardware.pass_percentage={best_summary.get('pass_percentage')} but groups imply {expected_percentage}",
                 relpath,
             )
-        published_group_ids = [group.get("id") for group in groups if isinstance(group, dict)]
+        published_group_ids = [
+            group.get("id") for group in groups if isinstance(group, dict)
+        ]
         if best_summary.get("group_ids") != published_group_ids:
             self.error(
                 "matrix-best-hardware-summary",
@@ -6481,7 +6611,9 @@ class DashboardAudit:
                     relpath,
                 )
 
-        expected_mi355_cells = {key for key in expected_cells if key[1] == "mi355"}
+        expected_mi355_cells = {
+            key for key in expected_cells if key[1] == "mi355"
+        }
         if set(classification_by_cell) != expected_mi355_cells:
             self.error(
                 "matrix-best-hardware-classification",
@@ -6493,7 +6625,8 @@ class DashboardAudit:
                 relpath,
             )
         separate_count = sum(
-            row.get("classification") == "separate_gate" for row in classification_by_cell.values()
+            row.get("classification") == "separate_gate"
+            for row in classification_by_cell.values()
         )
         if separate_count != observed_kinds["mi355_sensitive"]:
             self.error(
@@ -6504,7 +6637,9 @@ class DashboardAudit:
 
         raw_sensitive_rules = policy.get("mi355_sensitive_rules")
         raw_alias_rules = policy.get("generic_alias_rules")
-        if not isinstance(raw_sensitive_rules, list) or not isinstance(raw_alias_rules, list):
+        if not isinstance(raw_sensitive_rules, list) or not isinstance(
+            raw_alias_rules, list
+        ):
             self.error(
                 "matrix-best-hardware-policy-rules",
                 "best-hardware policy must publish sensitive and generic-alias rule arrays",
@@ -6516,8 +6651,9 @@ class DashboardAudit:
                 for rule in raw_sensitive_rules
                 if isinstance(rule, dict)
             }
-            if len(sensitive_rules) != len(raw_sensitive_rules) or any(
-                not title or not reason for title, reason in sensitive_rules.items()
+            if (
+                len(sensitive_rules) != len(raw_sensitive_rules)
+                or any(not title or not reason for title, reason in sensitive_rules.items())
             ):
                 self.error(
                     "matrix-best-hardware-policy-rules",
@@ -6527,7 +6663,8 @@ class DashboardAudit:
             materialized_sensitive_titles = {
                 str(expected_cells[key][0].get("canonical_title") or "")
                 for key, classification in classification_by_cell.items()
-                if classification.get("classification") == "separate_gate" and key in expected_cells
+                if classification.get("classification") == "separate_gate"
+                and key in expected_cells
             }
             if set(sensitive_rules) != materialized_sensitive_titles:
                 self.error(
@@ -6550,8 +6687,9 @@ class DashboardAudit:
                 for rule in raw_alias_rules
                 if isinstance(rule, dict)
             }
-            if len(alias_rules) != len(raw_alias_rules) or any(
-                not title or not reason for title, reason in alias_rules.items()
+            if (
+                len(alias_rules) != len(raw_alias_rules)
+                or any(not title or not reason for title, reason in alias_rules.items())
             ):
                 self.error(
                     "matrix-best-hardware-policy-rules",
@@ -6602,7 +6740,9 @@ class DashboardAudit:
         if not isinstance(matrix, dict):
             return
         raw_rows = matrix.get("rows")
-        if not isinstance(raw_rows, list) or any(not isinstance(row, dict) for row in raw_rows):
+        if not isinstance(raw_rows, list) or any(
+            not isinstance(row, dict) for row in raw_rows
+        ):
             self.error(
                 "matrix-row-schema",
                 "amd_test_matrix.json rows must be an array of objects",
@@ -6643,7 +6783,9 @@ class DashboardAudit:
         if health_policies:
             row_by_id = {row.get("id"): row for row in rows}
             group_ids = {
-                row.get("duplicate_group_id") for row in rows if row.get("duplicate_group_id")
+                row.get("duplicate_group_id")
+                for row in rows
+                if row.get("duplicate_group_id")
             }
             duplicate_groups = matrix.get("duplicate_groups") or []
             duplicate_rows = 0
@@ -6658,7 +6800,11 @@ class DashboardAudit:
                         "data/vllm/ci/amd_test_matrix.json",
                     )
                     continue
-                fingerprints = {member.get("command_fingerprint") for member in members if member}
+                fingerprints = {
+                    member.get("command_fingerprint")
+                    for member in members
+                    if member
+                }
                 if len(fingerprints) != 1:
                     self.error(
                         "matrix-duplicate-commands",
@@ -6724,17 +6870,8 @@ class DashboardAudit:
         source_build = source.get("latest_build_number")
         commit = str(source.get("commit_sha") or "")
         runtime_commit = str(source.get("runtime_source_commit_sha") or "")
-        if (
-            source.get("pipeline") != "ci"
-            or source.get("definition_source") != "main_ci_inline_and_native_amd"
-            or not FULL_COMMIT_SHA_RE.fullmatch(commit)
-            or (source_build and runtime_commit != commit)
-        ):
-            self.error(
-                "matrix-current-source",
-                "AMD matrix must expand main ci definitions at the exact observed nightly commit",
-                "data/vllm/ci/amd_test_matrix.json",
-            )
+        if source.get("pipeline") != "ci" or source.get("definition_source") != "main_ci_inline_and_native_amd" or not FULL_COMMIT_SHA_RE.fullmatch(commit) or (source_build and runtime_commit != commit):
+            self.error("matrix-current-source", "AMD matrix must expand main ci definitions at the exact observed nightly commit", "data/vllm/ci/amd_test_matrix.json")
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
         health = self.load_json("data/vllm/ci/ci_health.json", {})
         analytics_build = (((analytics.get("ci") or {}).get("builds") or [{}])[0]).get("number")
@@ -6886,7 +7023,9 @@ class DashboardAudit:
                 continue
             amd_hardware = group.get("amd_hardware")
             hardware = (
-                amd_hardware if isinstance(amd_hardware, list) else (group.get("hardware") or [])
+                amd_hardware
+                if isinstance(amd_hardware, list)
+                else (group.get("hardware") or [])
             )
             amd_hw_failures = group.get("amd_hw_failures")
             hw_failures = (
@@ -6907,9 +7046,7 @@ class DashboardAudit:
                     hw,
                     {"passing": 0, "failing": 0, "pending": 0, "canceled": 0, "total": 0},
                 )
-                pending = bool(
-                    group.get("backfilled") or (group.get("hw_backfilled") or {}).get(hw)
-                )
+                pending = bool(group.get("backfilled") or (group.get("hw_backfilled") or {}).get(hw))
                 failed = hw_failures.get(hw, 0) > 0
                 canceled = hw_canceled.get(hw, 0) > 0 and not failed
                 if pending:
@@ -6923,7 +7060,8 @@ class DashboardAudit:
                 stats["total"] += 1
 
         architecture_sources = {
-            str(row.get("id") or ""): row for row in _rows(matrix.get("architectures"))
+            str(row.get("id") or ""): row
+            for row in _rows(matrix.get("architectures"))
         }
         for arch, mstats in matrix_stats["by_arch"].items():
             pstats = parity_stats.get(arch, {})
@@ -7052,7 +7190,11 @@ class DashboardAudit:
                     continue
                 for count_name in ("waiting", "running"):
                     count = queue_row.get(count_name)
-                    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+                    if (
+                        not isinstance(count, int)
+                        or isinstance(count, bool)
+                        or count < 0
+                    ):
                         self.error(
                             "queue-count-shape",
                             f"row {idx} {queue}.{count_name} must be a non-negative integer",
@@ -7122,18 +7264,13 @@ class DashboardAudit:
             row
             for row in rows
             if cutoff is None
-            or (
-                (parse_iso(row.get("ts")) or datetime.fromtimestamp(0, timezone.utc)).timestamp()
-                >= cutoff
-            )
+            or ((parse_iso(row.get("ts")) or datetime.fromtimestamp(0, timezone.utc)).timestamp() >= cutoff)
         ]
         amd_workload = 0
         for row in recent_rows:
             for queue, queue_row in (row.get("queues") or {}).items():
                 if is_amd_queue(queue) and not is_retired_queue(queue):
-                    amd_workload += (queue_row.get("waiting") or 0) + (
-                        queue_row.get("running") or 0
-                    )
+                    amd_workload += (queue_row.get("waiting") or 0) + (queue_row.get("running") or 0)
         # Zero is a legitimate observation (for example during a quiet fleet
         # window). Availability and source coverage are explicit in each row;
         # traffic volume must never be used as a proxy for collector success.
@@ -7186,8 +7323,9 @@ class DashboardAudit:
                 "latest queue metrics_observed_at must equal the aggregate snapshot ts",
                 "data/vllm/ci/queue_timeseries.jsonl",
             )
-        if not legacy_detail_contract and latest.get("details_observed_at") != jobs.get(
-            "details_observed_at"
+        if (
+            not legacy_detail_contract
+            and latest.get("details_observed_at") != jobs.get("details_observed_at")
         ):
             self.error(
                 "queue-detail-generation-mismatch",
@@ -7200,16 +7338,19 @@ class DashboardAudit:
                 "queue aggregate and queue_jobs.json must name the same detail refresh status",
                 "data/vllm/ci/queue_jobs.json",
             )
-        if not legacy_detail_contract and jobs.get("metrics_observed_at") != latest.get(
-            "metrics_observed_at"
+        if (
+            not legacy_detail_contract
+            and jobs.get("metrics_observed_at") != latest.get("metrics_observed_at")
         ):
             self.error(
                 "queue-jobs-metrics-timestamp",
                 "queue_jobs.json must name the metrics generation it was published beside",
                 "data/vllm/ci/queue_jobs.json",
             )
-        if not legacy_detail_contract and jobs.get("details_refresh_attempted_at") != latest.get(
-            "details_refresh_attempted_at"
+        if (
+            not legacy_detail_contract
+            and jobs.get("details_refresh_attempted_at")
+            != latest.get("details_refresh_attempted_at")
         ):
             self.error(
                 "queue-detail-attempt-mismatch",
@@ -7291,7 +7432,9 @@ class DashboardAudit:
                         "queue total request starts must equal metrics plus detail starts",
                         "data/vllm/ci/queue_timeseries.jsonl",
                     )
-                expected_detail_limit = 0 if details_status == "retained_not_refreshed" else 12
+                expected_detail_limit = (
+                    0 if details_status == "retained_not_refreshed" else 12
+                )
                 if telemetry.get("metrics_request_limit") != 2:
                     self.error(
                         "queue-metrics-request-limit",
@@ -7425,7 +7568,9 @@ class DashboardAudit:
             return
 
         expected_queues = [
-            f"amd_mi{family}_{width}" for family in (250, 300, 355) for width in (1, 2, 4, 8)
+            f"amd_mi{family}_{width}"
+            for family in (250, 300, 355)
+            for width in (1, 2, 4, 8)
         ]
         scope = _mapping(payload.get("scope"))
         if scope.get("queues") != expected_queues:
@@ -7532,7 +7677,10 @@ class DashboardAudit:
                 "events_in_retention",
                 "duration_samples_in_retention",
             }
-            if set(timestamp_fields) != expected_retained_keys and not legacy_timestamp_contract:
+            if (
+                set(timestamp_fields) != expected_retained_keys
+                and not legacy_timestamp_contract
+            ):
                 self.error(
                     "queue-lifecycle-timestamp-coverage",
                     "retained timestamp coverage has an invalid schema",
@@ -7552,11 +7700,17 @@ class DashboardAudit:
             if (
                 not nonnegative_int(retained_jobs)
                 or not nonnegative_int(observation_count)
-                or (not legacy_timestamp_contract and retained_jobs != observation_count)
+                or (
+                    not legacy_timestamp_contract
+                    and retained_jobs != observation_count
+                )
             ):
                 self.error(
                     "queue-lifecycle-timestamp-jobs",
-                    ("retained timestamp coverage jobs must equal coverage.job_observation_count"),
+                    (
+                        "retained timestamp coverage jobs must equal "
+                        "coverage.job_observation_count"
+                    ),
                     path,
                 )
             for field in ("with_runnable_at", "with_started_at", "with_finished_at"):
@@ -7571,16 +7725,11 @@ class DashboardAudit:
                     )
 
             events = timestamp_fields.get("events_in_retention")
-            if (
-                not isinstance(events, dict)
-                or set(events)
-                != {
-                    "incoming",
-                    "served",
-                    "completed",
-                }
-                or any(not nonnegative_int(value) for value in events.values())
-            ):
+            if not isinstance(events, dict) or set(events) != {
+                "incoming",
+                "served",
+                "completed",
+            } or any(not nonnegative_int(value) for value in events.values()):
                 self.error(
                     "queue-lifecycle-timestamp-events",
                     "retained timestamp event counts are malformed",
@@ -7605,15 +7754,10 @@ class DashboardAudit:
 
             if not legacy_timestamp_contract:
                 durations = timestamp_fields.get("duration_samples_in_retention")
-                if (
-                    not isinstance(durations, dict)
-                    or set(durations)
-                    != {
-                        "queue_wait",
-                        "runtime",
-                    }
-                    or any(not nonnegative_int(value) for value in durations.values())
-                ):
+                if not isinstance(durations, dict) or set(durations) != {
+                    "queue_wait",
+                    "runtime",
+                } or any(not nonnegative_int(value) for value in durations.values()):
                     self.error(
                         "queue-lifecycle-duration-samples",
                         "retained duration sample counts are malformed",
@@ -7700,11 +7844,7 @@ class DashboardAudit:
                     )
                     continue
                 sample_count = distribution.get("count")
-                if (
-                    not isinstance(sample_count, int)
-                    or isinstance(sample_count, bool)
-                    or sample_count < 0
-                ):
+                if not isinstance(sample_count, int) or isinstance(sample_count, bool) or sample_count < 0:
                     self.error(
                         "queue-lifecycle-distribution-count",
                         f"{label}.{field}.count must be a non-negative integer",
@@ -7791,250 +7931,257 @@ class DashboardAudit:
                 path,
             )
         else:
-            expected_metadata = {
-                "unit": "seconds",
-                "day_timezone": "UTC",
-                "attributed_by": "timestamps.started_at",
-            }
-            for field, expected in expected_metadata.items():
-                if daily_wait_times.get(field) != expected:
-                    self.error(
-                        "queue-lifecycle-daily-waits-metadata",
-                        f"daily_wait_times.{field} must be {expected!r}",
-                        path,
-                    )
-            day_rows = daily_wait_times.get("days")
-            if not isinstance(day_rows, list) or not day_rows:
-                self.error(
-                    "queue-lifecycle-daily-waits-days",
-                    "daily_wait_times.days must be a non-empty list",
-                    path,
-                )
-            elif retention_start and retention_end and retention_start < retention_end:
-                cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
-                expected_dates = []
-                while cursor < retention_end:
-                    expected_dates.append(cursor.date().isoformat())
-                    cursor += timedelta(days=1)
-                actual_dates = [
-                    row.get("date") if isinstance(row, dict) else None for row in day_rows
-                ]
-                if actual_dates != expected_dates:
-                    self.error(
-                        "queue-lifecycle-daily-waits-dates",
-                        "daily_wait_times.days must contain every intersecting UTC date in order",
-                        path,
-                    )
-
-                cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
-                total_wait_samples = 0
-                published_wait_samples = 0
-                compacted_dates: list[str] = []
-                for index, row in enumerate(day_rows):
-                    if not isinstance(row, dict):
+                expected_metadata = {
+                    "unit": "seconds",
+                    "day_timezone": "UTC",
+                    "attributed_by": "timestamps.started_at",
+                }
+                for field, expected in expected_metadata.items():
+                    if daily_wait_times.get(field) != expected:
                         self.error(
-                            "queue-lifecycle-daily-waits-row",
-                            f"daily_wait_times.days[{index}] is not an object",
+                            "queue-lifecycle-daily-waits-metadata",
+                            f"daily_wait_times.{field} must be {expected!r}",
                             path,
                         )
+                day_rows = daily_wait_times.get("days")
+                if not isinstance(day_rows, list) or not day_rows:
+                    self.error(
+                        "queue-lifecycle-daily-waits-days",
+                        "daily_wait_times.days must be a non-empty list",
+                        path,
+                    )
+                elif retention_start and retention_end and retention_start < retention_end:
+                    cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                    expected_dates = []
+                    while cursor < retention_end:
+                        expected_dates.append(cursor.date().isoformat())
                         cursor += timedelta(days=1)
-                        continue
-                    base_keys = {
-                        "date",
-                        "start",
-                        "end_exclusive",
-                        "partial",
-                        "sample_count",
-                        "served_job_wait_seconds",
-                    }
-                    compacted = row.get("vector_complete") is False
-                    expected_keys = (
-                        base_keys
-                        | {
-                            "vector_complete",
-                            "published_sample_count",
-                            "omitted_sample_count",
-                            "distribution",
-                        }
-                        if compacted
-                        else base_keys
-                    )
-                    if set(row) != expected_keys:
+                    actual_dates = [
+                        row.get("date") if isinstance(row, dict) else None for row in day_rows
+                    ]
+                    if actual_dates != expected_dates:
                         self.error(
-                            "queue-lifecycle-daily-waits-row",
-                            f"daily_wait_times.days[{index}] has an invalid schema",
+                            "queue-lifecycle-daily-waits-dates",
+                            "daily_wait_times.days must contain every intersecting UTC date in order",
                             path,
                         )
-                    calendar_end = cursor + timedelta(days=1)
-                    expected_start = max(cursor, retention_start)
-                    expected_end = min(calendar_end, retention_end)
-                    row_start = _parse_timestamp(row.get("start"))
-                    row_end = _parse_timestamp(row.get("end_exclusive"))
-                    if row_start != expected_start or row_end != expected_end:
-                        self.error(
-                            "queue-lifecycle-daily-waits-window",
-                            f"daily_wait_times.days[{index}] has incorrect observed bounds",
-                            path,
-                        )
-                    expected_partial = expected_start != cursor or expected_end != calendar_end
-                    if row.get("partial") is not expected_partial:
-                        self.error(
-                            "queue-lifecycle-daily-waits-partial",
-                            f"daily_wait_times.days[{index}].partial is incorrect",
-                            path,
-                        )
-                    waits = row.get("served_job_wait_seconds")
-                    valid_waits = isinstance(waits, list) and all(
-                        isinstance(value, (int, float))
-                        and not isinstance(value, bool)
-                        and math.isfinite(value)
-                        and value >= 0
-                        for value in (waits or [])
-                    )
-                    if not valid_waits:
-                        self.error(
-                            "queue-lifecycle-daily-waits-vector",
-                            f"daily_wait_times.days[{index}] has invalid wait values",
-                            path,
-                        )
-                    elif waits != sorted(waits):
-                        self.error(
-                            "queue-lifecycle-daily-waits-order",
-                            f"daily_wait_times.days[{index}] wait vector is not sorted",
-                            path,
-                        )
-                    sample_count = row.get("sample_count")
-                    if not nonnegative_int(sample_count) or not isinstance(waits, list):
-                        self.error(
-                            "queue-lifecycle-daily-waits-count",
-                            f"daily_wait_times.days[{index}].sample_count is invalid",
-                            path,
-                        )
-                    elif compacted:
-                        published_count = row.get("published_sample_count")
-                        omitted_count = row.get("omitted_sample_count")
-                        distribution = row.get("distribution")
-                        distribution_values = [
-                            _mapping(distribution).get(field)
-                            for field in ("min", "p50", "p95", "avg", "max")
-                        ]
-                        distribution_valid = bool(
-                            isinstance(distribution, dict)
-                            and set(distribution) == {"count", "min", "p50", "p95", "max", "avg"}
-                            and distribution.get("count") == sample_count
-                            and sample_count > 0
-                            and all(
-                                isinstance(value, (int, float))
-                                and not isinstance(value, bool)
-                                and math.isfinite(value)
-                                and value >= 0
-                                for value in distribution_values
-                            )
-                            and distribution["min"]
-                            <= distribution["p50"]
-                            <= distribution["p95"]
-                            <= distribution["max"]
-                            and distribution["min"] <= distribution["avg"] <= distribution["max"]
-                        )
-                        if (
-                            not nonnegative_int(published_count)
-                            or published_count != len(waits)
-                            or not nonnegative_int(omitted_count)
-                            or published_count + omitted_count != sample_count
-                            or omitted_count == 0
-                            or not valid_waits
-                            or not distribution_valid
-                        ):
+
+                    cursor = retention_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                    total_wait_samples = 0
+                    published_wait_samples = 0
+                    compacted_dates: list[str] = []
+                    for index, row in enumerate(day_rows):
+                        if not isinstance(row, dict):
                             self.error(
-                                "queue-lifecycle-daily-waits-compaction",
-                                f"daily_wait_times.days[{index}] has invalid bounded-vector metadata",
+                                "queue-lifecycle-daily-waits-row",
+                                f"daily_wait_times.days[{index}] is not an object",
                                 path,
                             )
-                        total_wait_samples += sample_count
-                        published_wait_samples += len(waits)
-                        compacted_dates.append(str(row.get("date") or ""))
-                    elif sample_count != len(waits):
-                        self.error(
-                            "queue-lifecycle-daily-waits-count",
-                            f"daily_wait_times.days[{index}].sample_count does not match its vector",
-                            path,
+                            cursor += timedelta(days=1)
+                            continue
+                        base_keys = {
+                            "date",
+                            "start",
+                            "end_exclusive",
+                            "partial",
+                            "sample_count",
+                            "served_job_wait_seconds",
+                        }
+                        compacted = row.get("vector_complete") is False
+                        expected_keys = (
+                            base_keys
+                            | {
+                                "vector_complete",
+                                "published_sample_count",
+                                "omitted_sample_count",
+                                "distribution",
+                            }
+                            if compacted
+                            else base_keys
                         )
-                    elif valid_waits:
-                        total_wait_samples += sample_count
-                        published_wait_samples += sample_count
-                    cursor = calendar_end
+                        if set(row) != expected_keys:
+                            self.error(
+                                "queue-lifecycle-daily-waits-row",
+                                f"daily_wait_times.days[{index}] has an invalid schema",
+                                path,
+                            )
+                        calendar_end = cursor + timedelta(days=1)
+                        expected_start = max(cursor, retention_start)
+                        expected_end = min(calendar_end, retention_end)
+                        row_start = _parse_timestamp(row.get("start"))
+                        row_end = _parse_timestamp(row.get("end_exclusive"))
+                        if row_start != expected_start or row_end != expected_end:
+                            self.error(
+                                "queue-lifecycle-daily-waits-window",
+                                f"daily_wait_times.days[{index}] has incorrect observed bounds",
+                                path,
+                            )
+                        expected_partial = (
+                            expected_start != cursor or expected_end != calendar_end
+                        )
+                        if row.get("partial") is not expected_partial:
+                            self.error(
+                                "queue-lifecycle-daily-waits-partial",
+                                f"daily_wait_times.days[{index}].partial is incorrect",
+                                path,
+                            )
+                        waits = row.get("served_job_wait_seconds")
+                        valid_waits = isinstance(waits, list) and all(
+                            isinstance(value, (int, float))
+                            and not isinstance(value, bool)
+                            and math.isfinite(value)
+                            and value >= 0
+                            for value in (waits or [])
+                        )
+                        if not valid_waits:
+                            self.error(
+                                "queue-lifecycle-daily-waits-vector",
+                                f"daily_wait_times.days[{index}] has invalid wait values",
+                                path,
+                            )
+                        elif waits != sorted(waits):
+                            self.error(
+                                "queue-lifecycle-daily-waits-order",
+                                f"daily_wait_times.days[{index}] wait vector is not sorted",
+                                path,
+                            )
+                        sample_count = row.get("sample_count")
+                        if not nonnegative_int(sample_count) or not isinstance(waits, list):
+                            self.error(
+                                "queue-lifecycle-daily-waits-count",
+                                f"daily_wait_times.days[{index}].sample_count is invalid",
+                                path,
+                            )
+                        elif compacted:
+                            published_count = row.get("published_sample_count")
+                            omitted_count = row.get("omitted_sample_count")
+                            distribution = row.get("distribution")
+                            distribution_values = [
+                                _mapping(distribution).get(field)
+                                for field in ("min", "p50", "p95", "avg", "max")
+                            ]
+                            distribution_valid = bool(
+                                isinstance(distribution, dict)
+                                and set(distribution)
+                                == {"count", "min", "p50", "p95", "max", "avg"}
+                                and distribution.get("count") == sample_count
+                                and sample_count > 0
+                                and all(
+                                    isinstance(value, (int, float))
+                                    and not isinstance(value, bool)
+                                    and math.isfinite(value)
+                                    and value >= 0
+                                    for value in distribution_values
+                                )
+                                and distribution["min"]
+                                <= distribution["p50"]
+                                <= distribution["p95"]
+                                <= distribution["max"]
+                                and distribution["min"]
+                                <= distribution["avg"]
+                                <= distribution["max"]
+                            )
+                            if (
+                                not nonnegative_int(published_count)
+                                or published_count != len(waits)
+                                or not nonnegative_int(omitted_count)
+                                or published_count + omitted_count != sample_count
+                                or omitted_count == 0
+                                or not valid_waits
+                                or not distribution_valid
+                            ):
+                                self.error(
+                                    "queue-lifecycle-daily-waits-compaction",
+                                    f"daily_wait_times.days[{index}] has invalid bounded-vector metadata",
+                                    path,
+                                )
+                            total_wait_samples += sample_count
+                            published_wait_samples += len(waits)
+                            compacted_dates.append(str(row.get("date") or ""))
+                        elif sample_count != len(waits):
+                            self.error(
+                                "queue-lifecycle-daily-waits-count",
+                                f"daily_wait_times.days[{index}].sample_count does not match its vector",
+                                path,
+                            )
+                        elif valid_waits:
+                            total_wait_samples += sample_count
+                            published_wait_samples += sample_count
+                        cursor = calendar_end
 
-                vector_coverage = daily_wait_times.get("vector_coverage")
-                if compacted_dates:
-                    expected_vector_coverage = {
-                        "complete": False,
-                        "observed_sample_count": total_wait_samples,
-                        "published_sample_count": published_wait_samples,
-                        "compacted_dates": compacted_dates,
-                        "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
-                    }
-                    if vector_coverage != expected_vector_coverage:
+                    vector_coverage = daily_wait_times.get("vector_coverage")
+                    if compacted_dates:
+                        expected_vector_coverage = {
+                            "complete": False,
+                            "observed_sample_count": total_wait_samples,
+                            "published_sample_count": published_wait_samples,
+                            "compacted_dates": compacted_dates,
+                            "method": "oldest_whole_day_vectors_replaced_by_exact_distribution_summary",
+                        }
+                        if vector_coverage != expected_vector_coverage:
+                            self.error(
+                                "queue-lifecycle-daily-waits-vector-coverage",
+                                "daily_wait_times.vector_coverage does not reconcile compacted days",
+                                path,
+                            )
+                    elif vector_coverage is not None:
                         self.error(
                             "queue-lifecycle-daily-waits-vector-coverage",
-                            "daily_wait_times.vector_coverage does not reconcile compacted days",
+                            "daily_wait_times.vector_coverage is present without compacted days",
                             path,
                         )
-                elif vector_coverage is not None:
-                    self.error(
-                        "queue-lifecycle-daily-waits-vector-coverage",
-                        "daily_wait_times.vector_coverage is present without compacted days",
-                        path,
-                    )
 
-                served_events = _mapping(
-                    _mapping(coverage.get("timestamp_fields")).get("events_in_retention")
-                ).get("served")
-                if (
-                    isinstance(served_events, int)
-                    and not isinstance(served_events, bool)
-                    and total_wait_samples > served_events
-                ):
-                    self.error(
-                        "queue-lifecycle-daily-waits-total",
-                        "daily wait samples exceed observed served events",
-                        path,
-                    )
-                retained_wait_samples = retained_durations.get("queue_wait")
-                if (
-                    nonnegative_int(retained_wait_samples)
-                    and total_wait_samples != retained_wait_samples
-                ):
-                    self.error(
-                        "queue-lifecycle-daily-waits-coverage-reconciliation",
-                        (
-                            f"daily wait vectors contain {total_wait_samples} samples, "
-                            "but retained-ledger timestamp coverage reports "
-                            f"{retained_wait_samples}"
-                        ),
-                        path,
-                    )
-                hourly_wait_samples = (
-                    sum(
-                        _safe_int(
-                            _mapping(
-                                _mapping(_mapping(bucket).get("totals")).get("queue_wait_seconds")
-                            ).get("count")
+                    served_events = _mapping(
+                        _mapping(coverage.get("timestamp_fields")).get("events_in_retention")
+                    ).get("served")
+                    if (
+                        isinstance(served_events, int)
+                        and not isinstance(served_events, bool)
+                        and total_wait_samples > served_events
+                    ):
+                        self.error(
+                            "queue-lifecycle-daily-waits-total",
+                            "daily wait samples exceed observed served events",
+                            path,
                         )
-                        for bucket in hourly
-                        if isinstance(bucket, dict)
+                    retained_wait_samples = retained_durations.get("queue_wait")
+                    if (
+                        nonnegative_int(retained_wait_samples)
+                        and total_wait_samples != retained_wait_samples
+                    ):
+                        self.error(
+                            "queue-lifecycle-daily-waits-coverage-reconciliation",
+                            (
+                                f"daily wait vectors contain {total_wait_samples} samples, "
+                                "but retained-ledger timestamp coverage reports "
+                                f"{retained_wait_samples}"
+                            ),
+                            path,
+                        )
+                    hourly_wait_samples = (
+                        sum(
+                            _safe_int(
+                                _mapping(
+                                    _mapping(_mapping(bucket).get("totals")).get(
+                                        "queue_wait_seconds"
+                                    )
+                                ).get("count")
+                            )
+                            for bucket in hourly
+                            if isinstance(bucket, dict)
+                        )
+                        if isinstance(hourly, list)
+                        else 0
                     )
-                    if isinstance(hourly, list)
-                    else 0
-                )
-                if total_wait_samples != hourly_wait_samples:
-                    self.error(
-                        "queue-lifecycle-daily-waits-hourly-reconciliation",
-                        (
-                            f"daily wait vectors contain {total_wait_samples} samples, "
-                            f"but UTC hourly buckets contain {hourly_wait_samples}"
-                        ),
-                        path,
-                    )
+                    if total_wait_samples != hourly_wait_samples:
+                        self.error(
+                            "queue-lifecycle-daily-waits-hourly-reconciliation",
+                            (
+                                f"daily wait vectors contain {total_wait_samples} samples, "
+                                f"but UTC hourly buckets contain {hourly_wait_samples}"
+                            ),
+                            path,
+                        )
         provenance = payload.get("provenance")
         if not isinstance(provenance, dict):
             self.error("queue-lifecycle-provenance", "provenance must be an object", path)
@@ -8059,7 +8206,9 @@ class DashboardAudit:
                 }
                 if legacy_timestamp_contract:
                     legacy_jobs = (
-                        query_fields.get("jobs") if isinstance(query_fields, dict) else None
+                        query_fields.get("jobs")
+                        if isinstance(query_fields, dict)
+                        else None
                     )
                     if (
                         not isinstance(query_fields, dict)
@@ -8077,7 +8226,10 @@ class DashboardAudit:
                             ),
                             path,
                         )
-                elif not isinstance(query_fields, dict) or set(query_fields) != expected_query_keys:
+                elif (
+                    not isinstance(query_fields, dict)
+                    or set(query_fields) != expected_query_keys
+                ):
                     self.error(
                         "queue-lifecycle-query-coverage",
                         "current-query timestamp coverage has an invalid schema",
@@ -8087,7 +8239,8 @@ class DashboardAudit:
                     query_jobs = query_fields.get("jobs")
                     unique_jobs = collection.get("unique_jobs")
                     if (
-                        query_fields.get("scope") != "current_api_query_before_ledger_merge"
+                        query_fields.get("scope")
+                        != "current_api_query_before_ledger_merge"
                         or not nonnegative_int(query_jobs)
                         or not nonnegative_int(unique_jobs)
                         or query_jobs != unique_jobs
@@ -8139,16 +8292,12 @@ class DashboardAudit:
                             "current-query duration coverage is malformed",
                             path,
                         )
-                    elif (
-                        isinstance(query_events, dict)
-                        and all(
-                            nonnegative_int(query_events.get(field))
-                            for field in ("served", "completed")
-                        )
-                        and (
-                            query_durations["queue_wait"] > query_events["served"]
-                            or query_durations["runtime"] > query_events["completed"]
-                        )
+                    elif isinstance(query_events, dict) and all(
+                        nonnegative_int(query_events.get(field))
+                        for field in ("served", "completed")
+                    ) and (
+                        query_durations["queue_wait"] > query_events["served"]
+                        or query_durations["runtime"] > query_events["completed"]
                     ):
                         self.error(
                             "queue-lifecycle-query-duration-scope",
@@ -8381,11 +8530,9 @@ class DashboardAudit:
                 *publication_window_rows.values(),
                 publication_evidence,
             ]
-            if (
-                not isinstance(complete, bool)
-                or complete != all(counts.get("omitted") == 0 for counts in detail_counts if counts)
-                or any(not counts for counts in detail_counts)
-            ):
+            if not isinstance(complete, bool) or complete != all(
+                counts.get("omitted") == 0 for counts in detail_counts if counts
+            ) or any(not counts for counts in detail_counts):
                 self.error(
                     "dns-health-publication-retention",
                     "DNS publication completeness disagrees with omitted detail rows",
@@ -8489,7 +8636,9 @@ class DashboardAudit:
             "retention",
         )
         retention_start = utc_timestamp(retention.get("start"), "retention.start")
-        retention_end = utc_timestamp(retention.get("end_exclusive"), "retention.end_exclusive")
+        retention_end = utc_timestamp(
+            retention.get("end_exclusive"), "retention.end_exclusive"
+        )
         if retention.get("hours") != 720:
             self.error(
                 "dns-health-retention",
@@ -8506,9 +8655,7 @@ class DashboardAudit:
                 "DNS health retention must be an exact half-open 720-hour interval",
                 path,
             )
-        if generated_at is not None and generated_at > datetime.now(timezone.utc) + timedelta(
-            minutes=10
-        ):
+        if generated_at is not None and generated_at > datetime.now(timezone.utc) + timedelta(minutes=10):
             self.error(
                 "dns-health-future",
                 "DNS health generated_at is more than ten minutes in the future",
@@ -8612,7 +8759,9 @@ class DashboardAudit:
                         path,
                     )
                 if status == "not_collected" and (
-                    complete is not False or discovery_complete is not False or any(counts.values())
+                    complete is not False
+                    or discovery_complete is not False
+                    or any(counts.values())
                 ):
                     self.error(
                         "dns-health-seed",
@@ -8736,7 +8885,9 @@ class DashboardAudit:
                 f"windows.{option_id}",
             )
             start = utc_timestamp(block.get("start"), f"windows.{option_id}.start")
-            end = utc_timestamp(block.get("end_exclusive"), f"windows.{option_id}.end_exclusive")
+            end = utc_timestamp(
+                block.get("end_exclusive"), f"windows.{option_id}.end_exclusive"
+            )
             if start is not None and end is not None and end - start != timedelta(hours=hours):
                 self.error(
                     "dns-health-window-boundary",
@@ -8752,10 +8903,7 @@ class DashboardAudit:
             window_coverage = validate_coverage(
                 block.get("coverage"), f"windows.{option_id}.coverage", top_level=False
             )
-            if (
-                coverage_status == "not_collected"
-                and window_coverage.get("status") != "not_collected"
-            ):
+            if coverage_status == "not_collected" and window_coverage.get("status") != "not_collected":
                 self.error(
                     "dns-health-seed",
                     f"windows.{option_id} must remain not_collected with the structural seed",
@@ -8778,9 +8926,13 @@ class DashboardAudit:
                 and coverage_discovery_end is not None
             ):
                 expected_discovery_complete = (
-                    coverage_discovery_start <= start and coverage_discovery_end >= end
+                    coverage_discovery_start <= start
+                    and coverage_discovery_end >= end
                 )
-                if window_coverage.get("discovery_complete") != expected_discovery_complete:
+                if (
+                    window_coverage.get("discovery_complete")
+                    != expected_discovery_complete
+                ):
                     self.error(
                         "dns-health-discovery-window",
                         f"windows.{option_id}.coverage.discovery_complete disagrees with discovery bounds",
@@ -8813,7 +8965,9 @@ class DashboardAudit:
                         path,
                     )
                 if has_outcome_contract:
-                    outcome_jobs = sum(numeric_totals[field] for field in DNS_OUTCOME_COUNT_FIELDS)
+                    outcome_jobs = sum(
+                        numeric_totals[field] for field in DNS_OUTCOME_COUNT_FIELDS
+                    )
                     if outcome_jobs != numeric_totals["affected_jobs"]:
                         self.error(
                             "dns-health-outcome-reconciliation",
@@ -8948,7 +9102,9 @@ class DashboardAudit:
                             path,
                         )
                     if has_outcome_contract:
-                        outcome_jobs = sum(row[field] for field in DNS_OUTCOME_COUNT_FIELDS)
+                        outcome_jobs = sum(
+                            row[field] for field in DNS_OUTCOME_COUNT_FIELDS
+                        )
                         if outcome_jobs != row["affected_jobs"]:
                             self.error(
                                 "dns-health-outcome-reconciliation",
@@ -9088,7 +9244,9 @@ class DashboardAudit:
                     "evidence shown/total/truncated fields are inconsistent",
                     path,
                 )
-            retained_total = window_blocks.get("720h", {}).get("totals", {}).get("evidence_total")
+            retained_total = (
+                window_blocks.get("720h", {}).get("totals", {}).get("evidence_total")
+            )
             if retained_total is not None and evidence_total != retained_total:
                 self.error(
                     "dns-health-evidence-reconciliation",
@@ -9394,7 +9552,9 @@ class DashboardAudit:
                     and metric_last is not None
                     and window_start is not None
                     and window_end is not None
-                    and not (window_start <= metric_first <= metric_last < window_end)
+                    and not (
+                        window_start <= metric_first <= metric_last < window_end
+                    )
                 ):
                     self.error(
                         "dns-health-evidence-window",
@@ -9583,7 +9743,9 @@ class DashboardAudit:
             "bytes": size,
             "generated_at": payload.get("generated_at"),
             "outcome_contract": payload.get("outcome_contract"),
-            "outcome_breakdown_complete": (payload.get("outcome_contract") == DNS_OUTCOME_CONTRACT),
+            "outcome_breakdown_complete": (
+                payload.get("outcome_contract") == DNS_OUTCOME_CONTRACT
+            ),
             "coverage_status": coverage_status,
             "coverage_complete": coverage.get("complete"),
             "retention_hours": retention.get("hours"),
@@ -9722,14 +9884,24 @@ class DashboardAudit:
 
         state_restore = workflow_step_block("Restore validated dashboard state")
         state_restore_commands = "\n".join(
-            line for line in state_restore.splitlines() if not line.lstrip().startswith("#")
+            line
+            for line in state_restore.splitlines()
+            if not line.lstrip().startswith("#")
         )
-        workflow_blocks = re.split(r"(?=^      - (?:name|uses):)", text, flags=re.MULTILINE)
-        gh_pages_seed_blocks = [block for block in workflow_blocks if "origin/gh-pages" in block]
+        workflow_blocks = re.split(
+            r"(?=^      - (?:name|uses):)", text, flags=re.MULTILINE
+        )
+        gh_pages_seed_blocks = [
+            block for block in workflow_blocks if "origin/gh-pages" in block
+        ]
         analytics_feedback_blocked = not any(
             re.search(
                 r"\banalytics\.json\b",
-                "\n".join(line for line in block.splitlines() if not line.lstrip().startswith("#")),
+                "\n".join(
+                    line
+                    for line in block.splitlines()
+                    if not line.lstrip().startswith("#")
+                ),
             )
             for block in gh_pages_seed_blocks
         )
@@ -9817,14 +9989,17 @@ class DashboardAudit:
             (
                 descriptor
                 for descriptor in projected_files
-                if isinstance(descriptor, dict) and descriptor.get("path") == PRIVATE_ANALYTICS_PATH
+                if isinstance(descriptor, dict)
+                and descriptor.get("path") == PRIVATE_ANALYTICS_PATH
             ),
             None,
         )
         direct_public_files = {
             relative
             for field in ("required_files", "optional_files")
-            for relative in (manifest.get(field) if isinstance(manifest.get(field), list) else [])
+            for relative in (
+                manifest.get(field) if isinstance(manifest.get(field), list) else []
+            )
             if isinstance(relative, str)
         }
         projection_declared = (
@@ -9832,7 +10007,8 @@ class DashboardAudit:
             and PRIVATE_ANALYTICS_PATH in build_inputs
             and PRIVATE_ANALYTICS_PATH not in direct_public_files
             and isinstance(analytics_projection, dict)
-            and analytics_projection.get("projector") == PUBLIC_ANALYTICS_PROJECTOR_ID
+            and analytics_projection.get("projector")
+            == PUBLIC_ANALYTICS_PROJECTOR_ID
             and isinstance(analytics_projection.get("max_bytes"), int)
             and not isinstance(analytics_projection.get("max_bytes"), bool)
             and analytics_projection["max_bytes"] > 0
@@ -9849,7 +10025,9 @@ class DashboardAudit:
 
         build_site_path = self.root / "scripts/build_site.py"
         build_site_text = (
-            build_site_path.read_text(errors="ignore") if build_site_path.exists() else ""
+            build_site_path.read_text(errors="ignore")
+            if build_site_path.exists()
+            else ""
         )
         materialization_ok = (
             re.search(
@@ -9880,9 +10058,9 @@ class DashboardAudit:
         analytics_collect = workflow_step_block("Collect CI analytics")
         cache_save = workflow_step_block("Save private analytics build cache")
         cache_steps = (cache_prepare, cache_restore, analytics_collect, cache_save)
-        cache_step_indexes = (
-            [text.index(block) for block in cache_steps] if all(cache_steps) else []
-        )
+        cache_step_indexes = [text.index(block) for block in cache_steps] if all(
+            cache_steps
+        ) else []
         cache_ordered = bool(cache_step_indexes) and cache_step_indexes == sorted(
             cache_step_indexes
         )
@@ -9919,14 +10097,11 @@ class DashboardAudit:
                 ".github/workflows/hourly-master.yml",
             )
 
-        cache_restore_action_ok = (
-            re.search(
-                r"uses:\s*actions/cache/restore@(?:v6|[0-9a-f]{40}\s+#\s*v6)\s*$",
-                cache_restore,
-                flags=re.MULTILINE,
-            )
-            is not None
-        )
+        cache_restore_action_ok = re.search(
+            r"uses:\s*actions/cache/restore@(?:v6|[0-9a-f]{40}\s+#\s*v6)\s*$",
+            cache_restore,
+            flags=re.MULTILINE,
+        ) is not None
         cache_restore_ok = cache_restore_action_ok and all(
             token in cache_restore
             for token in (
@@ -9957,25 +10132,18 @@ class DashboardAudit:
                 'echo "cache_save=false"',
             )
         )
-        cache_save_action_ok = (
-            re.search(
-                r"uses:\s*actions/cache/save@(?:v6|[0-9a-f]{40}\s+#\s*v6)\s*$",
-                cache_save,
-                flags=re.MULTILINE,
-            )
-            is not None
-        )
-        cache_save_ok = (
-            analytics_cache_signal_ok
-            and cache_save_action_ok
-            and all(
-                token in cache_save
-                for token in (
-                    "steps.collect-analytics.outputs.cache_save == 'true'",
-                    "continue-on-error: true",
-                    f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
-                    "key: ${{ steps.analytics-cache-key.outputs.key }}",
-                )
+        cache_save_action_ok = re.search(
+            r"uses:\s*actions/cache/save@(?:v6|[0-9a-f]{40}\s+#\s*v6)\s*$",
+            cache_save,
+            flags=re.MULTILINE,
+        ) is not None
+        cache_save_ok = analytics_cache_signal_ok and cache_save_action_ok and all(
+            token in cache_save
+            for token in (
+                "steps.collect-analytics.outputs.cache_save == 'true'",
+                "continue-on-error: true",
+                f"path: {PRIVATE_ANALYTICS_CACHE_PATH}",
+                "key: ${{ steps.analytics-cache-key.outputs.key }}",
             )
         )
         if not cache_save_ok:
@@ -10002,8 +10170,11 @@ class DashboardAudit:
             or "origin/dashboard-state" in block
         ]
         cache_feedback_blocked = not any(
-            token
-            in "\n".join(line for line in block.splitlines() if not line.lstrip().startswith("#"))
+            token in "\n".join(
+                line
+                for line in block.splitlines()
+                if not line.lstrip().startswith("#")
+            )
             for block in durable_seed_blocks
             for token in (
                 PRIVATE_ANALYTICS_CACHE_PATH,
@@ -10021,7 +10192,9 @@ class DashboardAudit:
             )
 
         workflow_commands = "\n".join(
-            line for line in text.splitlines() if not line.lstrip().startswith("#")
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith("#")
         )
         cache_staging_blocked = (
             re.search(
@@ -10030,12 +10203,14 @@ class DashboardAudit:
             )
             is None
             and re.search(
-                r"\bgit\s+add\b[^\n]*" + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
+                r"\bgit\s+add\b[^\n]*"
+                + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
                 workflow_commands,
             )
             is None
             and re.search(
-                r"\bgit\s+add\s+\\[\s\S]{0,2000}?" + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
+                r"\bgit\s+add\s+\\[\s\S]{0,2000}?"
+                + re.escape(PRIVATE_ANALYTICS_CACHE_PATH),
                 workflow_commands,
             )
             is None
@@ -10073,7 +10248,9 @@ class DashboardAudit:
                 "build_inputs",
                 "generated_files",
             )
-            for relative in (manifest.get(field) if isinstance(manifest.get(field), list) else [])
+            for relative in (
+                manifest.get(field) if isinstance(manifest.get(field), list) else []
+            )
             if isinstance(relative, str)
         }
         manifest_exact_paths.update(
@@ -10084,7 +10261,9 @@ class DashboardAudit:
         cache_manifest_exposed = any(
             relative == PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH
             or relative.startswith(f"{PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH}/")
-            or PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH.startswith(f"{relative.rstrip('/')}/")
+            or PRIVATE_ANALYTICS_CACHE_MANIFEST_PATH.startswith(
+                f"{relative.rstrip('/')}/"
+            )
             for relative in manifest_exact_paths
         ) or any(
             PurePosixPath(PRIVATE_ANALYTICS_CACHE_SAMPLE).match(pattern)
