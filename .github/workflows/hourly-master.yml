@@ -1987,6 +1987,8 @@ jobs:
       - name: Upload publication selection diagnostics
         if: >-
           always() &&
+          (inputs.dns_generation != '' || inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
           (steps.publication-selector.outcome == 'success' ||
            steps.publication-selector.outcome == 'failure')
         continue-on-error: true

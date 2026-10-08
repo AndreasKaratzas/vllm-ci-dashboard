@@ -2299,6 +2299,11 @@ class TestHourlyMasterWorkflow:
         assert "always()" in artifact["if"]
         assert "steps.publication-selector.outcome == 'failure'" in artifact["if"]
         assert "steps.publication-selector.outcome == 'success'" in artifact["if"]
+        for scope in (
+            "inputs.dns_generation != ''", "inputs.queue_generation != ''",
+            "steps.request-attempt.outputs.request_mode == 'reserved'",
+        ):
+            assert scope in artifact["if"]
         assert artifact.get("continue-on-error") is True
         assert artifact["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
         assert artifact["with"]["path"] == "${{ runner.temp }}/publication-selection-diagnostics.json"
