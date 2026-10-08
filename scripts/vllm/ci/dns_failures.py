@@ -1336,6 +1336,11 @@ def build_public_output(state: object) -> dict:
     end = parse_timestamp(payload["generated_at"], "generated_at")
     retention_start = end - timedelta(hours=RETENTION_HOURS)
     discovery_start = parse_timestamp(payload["discovery"]["start"], "discovery.start")
+    if not payload["discovery"]["complete"]:
+        # Public v1 derives window completeness from these bounds. Retain the
+        # attempted query bounds privately, but advertise no complete public
+        # window when discovery stopped before proving exhaustive coverage.
+        discovery_start = end - timedelta(seconds=1)
     jobs = payload["jobs"]
 
     windows: dict[str, dict] = {}
@@ -1467,7 +1472,7 @@ def build_public_output(state: object) -> dict:
         "status": top_coverage["status"],
         "complete": top_coverage["complete"],
         "discovery_complete": top_coverage["discovery_complete"],
-        "discovery_start": payload["discovery"]["start"],
+        "discovery_start": iso_timestamp(discovery_start),
         "discovery_end_exclusive": payload["discovery"]["end_exclusive"],
         **{key: value for key, value in top_coverage.items() if key.endswith("_jobs")},
     }
