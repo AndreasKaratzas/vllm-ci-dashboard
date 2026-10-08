@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import gzip
 import importlib.util
 import json
 import re
@@ -641,6 +642,59 @@ def test_missing_required_public_file_fails_closed(tmp_path: Path) -> None:
     manifest = _fixture_manifest()
     with pytest.raises(FileNotFoundError, match="Required public data files"):
         BUILD_SITE.copy_public_data(tmp_path / "data", tmp_path / "site", manifest)
+
+
+@pytest.mark.parametrize("legacy_present", [False, True])
+def test_trusted_base_assembly_accepts_optional_retired_static_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy_present: bool,
+) -> None:
+    """The trusted preview policy can consume a candidate that deletes old data."""
+    manifest = BUILD_SITE.load_public_data_manifest(MANIFEST_PATH)
+    optional = {
+        "vllm/ci/gating_nightlies.json", "vllm/ci/gating_target_candidates.json",
+        "vllm/ci/gating_targets.json", "vllm/ci/group_changes.json", "vllm/ci/hotness.json",
+    }
+    assert set(manifest["optional_files"]) == optional
+    assert not optional & set(manifest["required_files"])
+    docs, data, output = tmp_path / "docs", tmp_path / "data", tmp_path / "_site"
+    _write(docs / "index.html", "<html>static candidate</html>\n")
+    for relative in manifest["required_files"]:
+        _write(data / relative)
+    if legacy_present:
+        for relative in optional:
+            _write(data / relative, '{"legacy":true}\n')
+    _write(data / ANALYTICS_PATH, PRIVATE_ANALYTICS_TEXT)
+    operations = data / "vllm/ci/operations_v2.json.gz"
+    operations.write_bytes(gzip.compress(json.dumps({
+        "schema_version": 2, "generated_at": "2026-01-01T00:00:00Z",
+    }).encode()))
+    _write(data / PUBLICATION_STATE_INPUT, json.dumps({
+        "mode": "current", "generated_at": "2026-01-01T00:00:00Z",
+        "degraded_surfaces": [], "fresh_degraded_surfaces": [], "fallback_surfaces": [],
+    }))
+    monkeypatch.setattr(BUILD_SITE, "DOCS", docs)
+    monkeypatch.setattr(BUILD_SITE, "DATA", data)
+    BUILD_SITE.build_site(output, cache_bust=False)
+    assert (output / "index.html").read_text() == "<html>static candidate</html>\n"
+    for relative in manifest["required_files"]:
+        assert (output / "data" / relative).read_bytes() == (data / relative).read_bytes()
+    for relative in optional:
+        assert (output / "data" / relative).exists() is legacy_present
+        if legacy_present:
+            assert (output / "data" / relative).read_bytes() == (data / relative).read_bytes()
+
+
+@pytest.mark.parametrize("missing", ["vllm/ci/ci_health.json", "vllm/ci/dns_failures.json"])
+def test_retirement_preview_compatibility_keeps_current_sources_required(
+    tmp_path: Path, missing: str,
+) -> None:
+    manifest = BUILD_SITE.load_public_data_manifest(MANIFEST_PATH)
+    data = tmp_path / "data"
+    for relative in manifest["required_files"]:
+        if relative != missing:
+            _write(data / relative)
+    with pytest.raises(FileNotFoundError, match=re.escape(missing)):
+        BUILD_SITE.copy_public_data(data, tmp_path / "site", manifest)
 
 
 def _load_fixture_manifest(tmp_path: Path, payload: dict) -> dict:
