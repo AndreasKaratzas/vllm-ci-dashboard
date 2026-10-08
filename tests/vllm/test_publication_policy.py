@@ -639,6 +639,19 @@ def test_missing_required_public_file_fails_closed(tmp_path: Path) -> None:
         BUILD_SITE.copy_public_data(tmp_path / "data", tmp_path / "site", manifest)
 
 
+@pytest.mark.parametrize("missing", ["vllm/ci/ci_health.json", "vllm/ci/dns_failures.json"])
+def test_retirement_preview_compatibility_keeps_current_sources_required(
+    tmp_path: Path, missing: str,
+) -> None:
+    manifest = BUILD_SITE.load_public_data_manifest(MANIFEST_PATH)
+    data = tmp_path / "data"
+    for relative in manifest["required_files"]:
+        if relative != missing:
+            _write(data / relative)
+    with pytest.raises(FileNotFoundError, match=re.escape(missing)):
+        BUILD_SITE.copy_public_data(data, tmp_path / "site", manifest)
+
+
 def _load_fixture_manifest(tmp_path: Path, payload: dict) -> dict:
     path = tmp_path / "public_data_manifest.json"
     path.write_text(json.dumps(payload))
