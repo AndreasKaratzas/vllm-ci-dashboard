@@ -151,11 +151,63 @@ def test_new_amd_role_reuses_verified_ci_shard_without_refetching_logs(tmp_path)
     build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z", "jobs": [
         {**_job(amd_name), "id": "amd-job"}, {**_job(cuda_name), "id": "cuda-job"},
     ]}
+    source_build = json.loads(json.dumps(build))
     with patch("collect_ci.fetch_nightly_builds", return_value=[build]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))), patch("collect_ci.parse_job_results") as parser:
         _, results = collect_pipeline("amd", 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
     parser.assert_not_called()
     assert [row.job_id for row in results[7791]] == ["amd-job"]
     assert [row.pipeline for row in _load_cached_results(results_dir / "2026-04-18_amd.jsonl")] == ["ci"]
+    # Main collection migrates AMD first, retaining the shared source until its
+    # exact AMD attempts have been copied; CUDA then cleans its physical shard.
+    upstream = results_dir / "2026-04-18_upstream.jsonl"
+    assert {row.job_id for row in _load_cached_results(upstream)} == {"amd-job", "cuda-job"}
+    with patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(source_build))]), patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(source_build))), patch("collect_ci.parse_job_results") as parser:
+        _, results = collect_pipeline("upstream", 8, tmp_path, now=datetime(2026, 4, 19, tzinfo=timezone.utc))
+    parser.assert_not_called()
+    assert [row.job_id for row in results[7791]] == ["cuda-job"]
+    assert [row.job_id for row in _load_cached_results(upstream)] == ["cuda-job"]
+    assert [row.job_id for row in _load_cached_results(results_dir / "2026-04-18_amd.jsonl")] == ["amd-job"]
+
+
+@pytest.mark.parametrize("historical", [False, True])
+@pytest.mark.parametrize("side,expected_job", [("amd", "amd-job"), ("upstream", "cuda-job")])
+def test_warm_mixed_ci_cache_is_persisted_as_exact_role_without_log_refetch(
+    tmp_path, historical, side, expected_job,
+):
+    names = {"amd-job": ":amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group",
+             "cpu-job": ":computer: (CPU) CPU tests"}
+    records = [_record(name, job_id=job_id) for job_id, name in names.items()]
+    # Repeated test observations in one exact attempt must survive projection.
+    repeated = {**next(row for row in records if row["job_id"] == expected_job), "name": "case[param]", "test_id": "case[param]"}
+    records.extend([repeated, dict(repeated)])
+    expected = [TestResult(**row).to_dict() for row in records if row["job_id"] == expected_job]
+    results_dir = tmp_path / "test_results"
+    path = results_dir / f"2026-04-18_{side}.jsonl"
+    _write_jsonl(path, records)
+    build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z",
+             "jobs": [{**_job(name), "id": job_id} for job_id, name in names.items()]}
+    builds = [build]
+    if historical:
+        newer = {**build, "number": 7792, "created_at": "2026-04-19T06:00:00Z"}
+        builds.append(newer)
+        _write_jsonl(results_dir / f"2026-04-19_{side}.jsonl", [
+            {**_record(names[expected_job], build_num=7792, job_id=expected_job), "date": "2026-04-19"},
+        ])
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    prune_old_results(results_dir, max_days=90, now=clock)
+    old_retention = (results_dir / "retention.json").read_bytes()
+    def detail(_side, number):
+        return json.loads(json.dumps(next(row for row in builds if row["number"] == number)))
+    with patch("collect_ci.fetch_nightly_builds", return_value=builds), patch("collect_ci.fetch_build_detail", side_effect=detail), patch("collect_ci.parse_job_results") as parser:
+        _, results = collect_pipeline(side, 8, tmp_path, now=clock,
+                                      backfill_checkpoint_dir=tmp_path / "checkpoint")
+    parser.assert_not_called()
+    assert [row.to_dict() for row in results[7791]] == expected
+    assert [json.loads(line) for line in path.read_text().splitlines()] == expected
+    assert (results_dir / "retention.json").read_bytes() != old_retention
+    reporter_module.validate_result_retention(results_dir)
+    checkpoint = tmp_path / "checkpoint" / "test_results" / path.name
+    assert checkpoint.read_bytes() == path.read_bytes()
 
 
 @pytest.mark.parametrize("side,expected_job", [("amd", "amd-job"), ("upstream", "cuda-job")])

@@ -7,8 +7,6 @@ import argparse
 import json
 import re
 import sys
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -21,6 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm import config_parity
 from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg
 from vllm.dashboard_storage_budget import writer_max_bytes
+from vllm.main_ci_definitions import load_snapshot
+from vllm.pipelines import UPSTREAM_NIGHTLY_NAME_PATTERN
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -30,10 +30,6 @@ OUTPUT_FILENAME = "ownership_config_parity.json"
 COMMIT_SHA_RE = re.compile(r"[0-9a-fA-F]{40}")
 RAW_HOST = "raw.githubusercontent.com"
 REPOSITORY_PATH = ("vllm-project", "vllm")
-TEST_AREAS_API = (
-    "https://api.github.com/repos/vllm-project/vllm/"
-    "contents/.buildkite/test_areas"
-)
 OWNERSHIP_CONFIG_PARITY_MAX_BYTES = writer_max_bytes("config_parity_pair") // 2
 CONFIG_PARITY_ROW_COLLECTIONS = (
     "matches",
@@ -93,11 +89,7 @@ def bounded_config_parity_payload(
         raise ValueError("configuration parity byte budget must be positive")
     collections = {
         name: sorted(
-            (
-                dict(row)
-                for row in report.get(name) or []
-                if isinstance(row, dict)
-            ),
+            (dict(row) for row in report.get(name) or [] if isinstance(row, dict)),
             key=_canonical_row_key,
         )
         for name in CONFIG_PARITY_ROW_COLLECTIONS
@@ -120,29 +112,20 @@ def bounded_config_parity_payload(
     )
 
     def candidate(core_count: int, duplicate_count: int) -> dict[str, Any]:
-        selected_core = {
-            (name, index)
-            for name, index, _row in core_rows[:core_count]
-        }
+        selected_core = {(name, index) for name, index, _row in core_rows[:core_count]}
         selected_duplicate = {
-            (name, index)
-            for name, index, _row in duplicate_rows[:duplicate_count]
+            (name, index) for name, index, _row in duplicate_rows[:duplicate_count]
         }
         published: dict[str, list[dict[str, Any]]] = {}
         for name in CONFIG_PARITY_ROW_COLLECTIONS:
             selected = (
-                selected_duplicate
-                if name in CONFIG_PARITY_DUPLICATE_COLLECTIONS
-                else selected_core
+                selected_duplicate if name in CONFIG_PARITY_DUPLICATE_COLLECTIONS else selected_core
             )
             published[name] = [
-                row
-                for index, row in enumerate(collections[name])
-                if (name, index) in selected
+                row for index, row in enumerate(collections[name]) if (name, index) in selected
             ]
         complete = all(
-            len(published[name]) == len(collections[name])
-            for name in CONFIG_PARITY_ROW_COLLECTIONS
+            len(published[name]) == len(collections[name]) for name in CONFIG_PARITY_ROW_COLLECTIONS
         )
         result = {
             key: value
@@ -160,9 +143,7 @@ def bounded_config_parity_payload(
                     "source": len(collections[name]),
                     "published": len(published[name]),
                     "omitted": len(collections[name]) - len(published[name]),
-                    "complete_relative_to_source": (
-                        len(published[name]) == len(collections[name])
-                    ),
+                    "complete_relative_to_source": (len(published[name]) == len(collections[name])),
                 }
                 for name in CONFIG_PARITY_ROW_COLLECTIONS
             },
@@ -220,10 +201,30 @@ def bounded_config_parity_payload(
 
 
 def matrix_commit_sha(matrix: dict[str, Any]) -> str:
-    """Return the exact commit SHA encoded in ``source.yaml_url``."""
+    """Validate one observed main-ci nightly and return its immutable commit."""
     source = matrix.get("source")
     if not isinstance(source, dict):
         raise ValueError("AMD test matrix is missing source metadata")
+    if (
+        source.get("pipeline") != "ci"
+        or source.get("definition_source") != "main_ci_inline_and_native_amd"
+    ):
+        raise ValueError("AMD test matrix must identify current main CI AMD definitions")
+    commit_sha = source.get("commit_sha")
+    if not isinstance(commit_sha, str) or not COMMIT_SHA_RE.fullmatch(commit_sha):
+        raise ValueError("AMD test matrix must include one full source commit SHA")
+    commit_sha = commit_sha.lower()
+    if source.get("runtime_source_commit_sha") != commit_sha:
+        raise ValueError("AMD test matrix source commit must equal its observed nightly commit")
+    build_number = source.get("latest_build_number")
+    if type(build_number) is not int or build_number <= 0:
+        raise ValueError("AMD test matrix must identify an observed current CI nightly")
+    if source.get("latest_build_url") != f"https://buildkite.com/vllm/ci/builds/{build_number}":
+        raise ValueError("AMD test matrix must link to its exact upstream CI nightly build")
+    if not re.search(
+        UPSTREAM_NIGHTLY_NAME_PATTERN, str(source.get("latest_build_message") or ""), re.I
+    ):
+        raise ValueError("AMD test matrix runtime must identify a canonical CI nightly")
 
     yaml_url = source.get("yaml_url")
     if not isinstance(yaml_url, str) or not yaml_url:
@@ -241,57 +242,25 @@ def matrix_commit_sha(matrix: dict[str, Any]) -> str:
         or len(segments) != 5
         or segments[:2] != REPOSITORY_PATH
         or not COMMIT_SHA_RE.fullmatch(segments[2])
-        or segments[3:] != (".buildkite", "test-amd.yaml")
+        or segments[3:] != (".buildkite", "ci_config.yaml")
+        or segments[2].lower() != commit_sha
     ):
         raise ValueError(
             "AMD test matrix source.yaml_url must be the exact commit-pinned "
-            "vllm-project/vllm test-amd.yaml URL"
+            "vllm-project/vllm ci_config.yaml URL matching its observed nightly"
         )
-    return segments[2].lower()
-
-
-def _fetch_yaml(path: str, commit_sha: str) -> tuple[str, object]:
-    url = f"https://{RAW_HOST}/vllm-project/vllm/{commit_sha}/{path}"
-    response = requests.get(
-        url,
-        headers={"Accept": "text/plain"},
-        timeout=30,
-    )
-    response.raise_for_status()
-    return path, yaml.safe_load(response.text)
+    return commit_sha
 
 
 def load_pinned_snapshot(commit_sha: str) -> config_parity.ConfigSourceSnapshot:
-    """Fetch only CI definition YAML instead of downloading the full repository."""
-    response = requests.get(
-        TEST_AREAS_API,
-        headers=config_parity._github_headers(),
-        params={"ref": commit_sha},
-        timeout=30,
-    )
-    response.raise_for_status()
-    listing = response.json()
-    if not isinstance(listing, list):
-        raise ValueError("GitHub test_areas response was not a directory listing")
-    area_paths = sorted(
-        str(row.get("path") or "")
-        for row in listing
-        if isinstance(row, dict)
-        and row.get("type") == "file"
-        and str(row.get("path") or "").startswith(".buildkite/test_areas/")
-        and str(row.get("path") or "").endswith(".yaml")
-    )
-    if not area_paths:
-        raise ValueError("Pinned vLLM commit has no test-area YAML files")
-    paths = [".buildkite/test-amd.yaml", *area_paths]
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        files = dict(executor.map(lambda path: _fetch_yaml(path, commit_sha), paths))
-    if not isinstance(files.get(".buildkite/test-amd.yaml"), dict):
-        raise ValueError("Pinned vLLM commit has invalid test-amd.yaml")
+    """Use the shared main-CI parser at the exact completed runtime commit."""
+    snapshot = load_snapshot(commit_sha)
+    if snapshot.commit_sha != commit_sha:
+        raise ValueError("Pinned main CI snapshot does not match the observed nightly commit")
     return config_parity.ConfigSourceSnapshot(
-        commit_sha=commit_sha,
-        files=files,
-        fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        commit_sha=snapshot.commit_sha,
+        files=snapshot.files,
+        fetched_at=snapshot.fetched_at,
     )
 
 
@@ -321,6 +290,13 @@ def collect_ownership_parity(input_dir: Path, output_dir: Path) -> Path:
         raise ValueError(
             "config parity source commit mismatch: "
             f"expected {commit_sha}, received {reported_sha or '<missing>'}"
+        )
+    if (
+        source.get("pipeline") != "ci"
+        or source.get("definition_source") != "main_ci_inline_and_native_amd"
+    ):
+        raise ValueError(
+            "Ownership configuration parity must use main CI inline/native AMD definitions"
         )
 
     report = bounded_config_parity_payload(

@@ -2246,10 +2246,15 @@
 
   function nightlyForCohort(ops, cohort) {
     const nightly = (ops || {}).nightly || {};
-    const selected = cohort === 'ci-cuda' ? nightly.upstream_parity : nightly.canonical_history;
-    return selected && selected.source_pipeline === 'ci'
-      ? selected
-      : {pipeline: 'ci', source_pipeline: 'ci', cohort_id: cohort, builds: []};
+    const wantedScope = cohort === 'ci-cuda' ? 'cuda_gpu' : 'amd_gpu';
+    const valid = function (candidate) {
+      return candidate && candidate.source_pipeline === 'ci'
+        && candidate.cohort_id === cohort && candidate.job_scope === wantedScope;
+    };
+    const cohorts = (Array.isArray(nightly.pipelines) ? nightly.pipelines : []).filter(valid);
+    const alias = cohort === 'ci-cuda' ? nightly.upstream_parity : nightly.canonical_history;
+    const selected = cohorts.length === 1 ? cohorts[0] : cohorts.length === 0 && valid(alias) ? alias : null;
+    return selected || {pipeline: 'ci', source_pipeline: 'ci', job_scope: wantedScope, cohort_id: cohort, builds: []};
   }
 
   function ciHealthPublicationRetentionMessage(nightly) {
@@ -8224,6 +8229,7 @@
   if (window.__OPS_V2_TEST__) {
     window.OpsV2Test = {
       currentTestGroupParity: currentTestGroupParity,
+      nightlyForCohort: nightlyForCohort,
       latencyComparison: latencyComparison,
       latencyMetric: latencyMetric,
       matrixHealthPolicy: matrixHealthPolicy,

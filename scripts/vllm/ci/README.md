@@ -4,9 +4,9 @@ Collects nightly CI test data from Buildkite, analyzes test health, and produces
 
 ## What It Does
 
-1. **Fetches nightly builds** from two Buildkite pipelines:
-   - **AMD** (`amd-ci`): "AMD Full CI Run - nightly" builds (~09:00 UTC / 4 AM Central during daylight time)
-   - **Upstream** (`ci`): "Full CI run - nightly" builds (~06:00 UTC / 1 AM Central during daylight time)
+1. **Fetches nightly builds** from Buildkite `ci`, then separates AMD GPU and
+   CUDA GPU jobs by their observed agent routing. Both platform roles use the
+   same "Full CI run - nightly" cohort and exact build commit.
 
 2. **Parses pytest output** from job logs to extract test results (pass/fail/skip/error counts + individual failure names from the `short test summary info` section)
 
@@ -136,7 +136,7 @@ but does not require the new fields until a producer has emitted version 1.
 
 Each line in a `.jsonl` file is a JSON object:
 ```json
-{"test_id":"tests.test_llm::test_generate","name":"test_generate","classname":"tests.test_llm","status":"passed","duration_secs":12.5,"failure_message":"","job_name":"Basic Correctness","job_id":"abc123","build_number":5500,"pipeline":"amd-ci","date":"2026-03-22"}
+{"test_id":"tests.test_llm::test_generate","name":"test_generate","classname":"tests.test_llm","status":"passed","duration_secs":12.5,"failure_message":"","job_name":":amd: (MI300) Basic Correctness","job_id":"abc123","build_number":5500,"pipeline":"ci","date":"2026-03-22"}
 ```
 
 ## Test Health Labels
@@ -898,14 +898,14 @@ ciphertext has been replaced successfully.
 The unified two-hour Data Collection workflow also reconciles four bounded
 umbrella issues in this repository:
 
-- AMD main test-group failures use the exhaustive amd-ci branch=main reliability
-  cohort. The latest retry attempt in a build wins; a later pass resolves the
+- AMD main test-group failures use the AMD GPU jobs in the exhaustive `ci`
+  branch=main reliability cohort. The latest retry attempt in a build wins; a later pass resolves the
   same strict label + step + hardware + queue identity. Hard failures confirm
   immediately. Soft failures remain visible as pending observations and require
   two distinct eligible completed builds before becoming incidents. Missing or
   indeterminate observations neither advance nor resolve the signal.
-- Upstream CI main test-group failures use the exhaustive ci branch=main
-  reliability cohort and the same strict retry-aware identity. Each active
+- Upstream CI main test-group failures use the CUDA GPU jobs in the exhaustive
+  `ci` branch=main reliability cohort and the same strict retry-aware identity. Each active
   incident retains the last known passing commit and first failing commit as a
   candidate range for later ancestry validation and automated git bisection.
 - AMD main duration regressions compare the median wall completion time of the

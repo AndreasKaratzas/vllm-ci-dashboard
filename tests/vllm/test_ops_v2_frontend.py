@@ -2842,6 +2842,30 @@ def test_retired_features_have_only_useful_navigation_compatibility():
     assert "['flakes', 'retries']" in DASHBOARD_NAV_JS
 
 
+def test_compact_nightly_cohorts_require_pipeline_hardware_and_unique_identity():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const context={window:{__OPS_V2_TEST__:true},document:{addEventListener(){}},URL,console};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const select=context.window.OpsV2Test.nightlyForCohort;
+const amd={source_pipeline:'ci',cohort_id:'ci-amd',job_scope:'amd_gpu',builds:[{number:30005}]};
+const cuda={source_pipeline:'ci',cohort_id:'ci-cuda',job_scope:'cuda_gpu',builds:[{number:30004}]};
+assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-amd').builds[0].number,30005);
+assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-cuda').builds[0].number,30004);
+assert.equal(select({nightly:{canonical_history:amd}},'ci-amd').builds[0].number,30005);
+assert.equal(select({nightly:{upstream_parity:cuda}},'ci-cuda').builds[0].number,30004);
+assert.equal(select({nightly:{pipelines:[amd,{...amd}],canonical_history:amd}},'ci-amd').builds.length,0);
+assert.equal(select({nightly:{canonical_history:{...amd,source_pipeline:'amd-ci'}}},'ci-amd').builds.length,0);
+assert.equal(select({nightly:{canonical_history:{...amd,job_scope:'cuda_gpu'}}},'ci-amd').builds.length,0);
+assert.equal(select({nightly:{pipelines:[{...amd,cohort_id:undefined},{...cuda,cohort_id:undefined}]}},'ci-amd').builds.length,0);
+"""
+    result = subprocess.run([node, "-e", script, str(OPS_JS_PATH)], text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
 def test_parity_counts_reject_the_legacy_reviewed_source_snapshot():
     node = shutil.which("node")
     if not node:

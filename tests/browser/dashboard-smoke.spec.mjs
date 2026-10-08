@@ -679,11 +679,13 @@ test('nightly failure alerts exclude fixed groups while build movement retains t
     ];
     payload.shell.attention = attention;
     payload.shell.home.attention = attention;
-    payload.shell.nightly.canonical_history = {pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', cohort_id: 'ci-amd', builds: [build]};
+    const amdCohort = {pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', cohort_id: 'ci-amd', builds: [build]};
+    payload.shell.nightly.canonical_history = amdCohort;
+    payload.shell.nightly.pipelines = [amdCohort,...(payload.shell.nightly.pipelines || []).filter(row=>row.cohort_id!=='ci-amd')];
     await route.fulfill({ response, json: payload });
   });
   await page.route('**/operations_v2/nightly.json*', route => route.fulfill({
-    json: { nightly: {canonical_history: {pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', cohort_id: 'ci-amd', builds: [build]}}  },
+    json: { nightly: {pipelines: [{pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', cohort_id: 'ci-amd', builds: [build]}]}  },
   }));
   await page.goto('/#projects', { waitUntil: 'domcontentloaded' });
   const home = page.locator('#tab-projects');
@@ -1044,4 +1046,32 @@ test('current AMD mirror inventory separates required optional and soft-fail sou
   await browser.getByPlaceholder('Filter test group, area, YAML file, device, mode, or key').fill('soft fail');
   await expect(browser.locator('tbody tr')).toHaveCount(modes['soft fail']);
   await expect(browser.locator('tbody tr').first()).toContainText('soft fail');
+});
+
+test('offline fixture preserves exact current-CI source and five-nightly evidence contracts',async ({page,request})=>{
+  const health=(await (await request.get('/data/vllm/ci/operations_v2/amd_test_health.json')).json()).amd_test_health;
+  const parity=(await (await request.get('/data/vllm/ci/operations_v2/test_group_parity.json')).json()).test_group_parity;
+  const latency=(await (await request.get('/data/vllm/ci/operations_v2/comparison.json')).json()).latency;
+  const nightly=(await (await request.get('/data/vllm/ci/operations_v2/nightly.json')).json()).nightly;
+  expect(health.source_pipeline).toBe('ci');expect(health.job_scope).toBe('amd_gpu');
+  expect(health.latest_logical_test_groups.available).toBe(true);
+  expect(health.latest_logical_test_groups.summary.total).toBe(4);
+  expect(parity.source.pipeline).toBe('ci');expect(parity.source.current_definition_commit_sha).toBe('a'.repeat(40));
+  expect(parity.mirror_inventory.summary).toMatchObject({total:10,required:8,optional:1,soft_fail:1});
+  expect(latency.source_pipeline).toBe('ci');expect(latency.build_limit).toBe(5);
+  expect(latency.cohort.nightlies.map(row=>row.number)).toEqual([30005,30004,30003,30002,30001]);
+  expect(latency.cohort.nightlies.map(row=>row.created_at.slice(0,10))).toEqual(['2026-10-08','2026-10-07','2026-10-06','2026-10-05','2026-10-04']);
+  const basic=latency.rows.find(row=>row.id==='basic models (other)');
+  expect(basic.amd.median_duration_mins).toBe(22);expect(basic.upstream.median_duration_mins).toBe(12);
+  for(const source of [basic.amd,basic.upstream]) {
+    expect(source.sample_count).toBe(5);
+    for(const sample of source.samples) for(const job of sample.jobs) expect(job.url).toContain(`/vllm/ci/builds/${sample.build_number}/`);
+  }
+  expect(nightly.pipelines.map(row=>[row.cohort_id,row.source_pipeline,row.job_scope])).toEqual([['ci-amd','ci','amd_gpu'],['ci-cuda','ci','cuda_gpu']]);
+  await page.goto('/?ops_analytics_view=nightlies#ci-analytics',{waitUntil:'domcontentloaded'});
+  const panel=page.locator('#tab-ci-analytics');
+  await expect(panel).toContainText('#30005');
+  await panel.getByRole('button',{name:'CUDA gating jobs',exact:true}).click();
+  await expect(panel).toContainText('#30005');
+  await expect(page).toHaveURL(/ops_analytics_pipeline=ci-cuda/);
 });

@@ -334,6 +334,31 @@ def _current_scope_results(results: list[TestResult], pipeline_key: str) -> list
             and pipeline_job_matches_scope({"job_name": row.job_name}, pipeline_key)]
 
 
+def _persist_scoped_cached_results(
+    cached: list[TestResult], scoped: list[TestResult], *, date: str,
+    pipeline_key: str, results_dir: Path, backfill_checkpoint_dir: Path | None,
+) -> bool:
+    """Normalize a reused mixed-hardware shard before publishing its role.
+
+    The normal atomic writer validates the previous retention proof, replaces
+    only the verified role rows and attests the new exact shard generation.
+    AMD collection runs first, so its verified rows can be copied from a shared
+    historical CI shard before upstream collection removes those rows.
+    """
+    if not scoped:
+        return False
+    if len(scoped) == len(cached):
+        return True
+    result_path = write_test_results(scoped, date, pipeline_key, results_dir)
+    if result_path is None:
+        return False
+    if backfill_checkpoint_dir is not None:
+        record_complete_shard(backfill_checkpoint_dir, result_path)
+    log.info("  Persisted %s-only cached CI evidence for %s (%d/%d rows)",
+             pipeline_key, date, len(scoped), len(cached))
+    return True
+
+
 def _scoped_result_entries(entries: list[tuple[int, str, list[TestResult]]], pipeline_key: str) -> list[tuple[int, str, list[TestResult]]]:
     """Merge current CI shards without counting shared historical rows twice."""
     by_build: dict[int, tuple[str, list[TestResult]]] = {}
@@ -918,14 +943,24 @@ def collect_pipeline(
                              if row.build_number == build_num]
             source_identity_matches = all(row.pipeline == slug and row.build_number == build_num for row in cached)
             if not verify_candidate and current_cache and source_identity_matches:
+                if not _persist_scoped_cached_results(
+                    cached, current_cache, date=date, pipeline_key=pipeline_key,
+                    results_dir=results_dir, backfill_checkpoint_dir=backfill_checkpoint_dir,
+                ):
+                    continue
                 log.info("  Build #%d (%s): cached historical build, skipping", build_num, date)
                 loaded = current_cache
                 if loaded:
                     results_by_build[build_num] = loaded
                 continue
             if _cache_covers_all_jobs(build, jsonl_path, pipeline_key, build_num):
+                loaded = _current_scope_results(cached, pipeline_key)
+                if not _persist_scoped_cached_results(
+                    cached, loaded, date=date, pipeline_key=pipeline_key,
+                    results_dir=results_dir, backfill_checkpoint_dir=backfill_checkpoint_dir,
+                ):
+                    continue
                 log.info("  Build #%d (%s): cached, skipping", build_num, date)
-                loaded = _current_scope_results(_load_cached_results(jsonl_path), pipeline_key)
                 if loaded:
                     results_by_build[build_num] = loaded
                 continue

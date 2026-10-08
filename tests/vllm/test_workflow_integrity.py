@@ -693,10 +693,10 @@ class TestPrimaryCIWorkflow:
         assert '"@playwright/test": "1.62.1"' in package_text
         package_data = json.loads(package_text)
         pretest = package_data["scripts"]["pretest"]
-        assert "scripts/vllm/build_operations_snapshot.py" in pretest
-        assert pretest.index("build_operations_snapshot.py") < pretest.index(
-            "scripts/build_site.py"
-        )
+        assert pretest == "python3 build_fixture_site.py"
+        fixture_builder = (REPO_ROOT / "tests" / "browser" / "build_fixture_site.py").read_text()
+        assert fixture_builder.index("operations.build_snapshot(ci") < fixture_builder.index("operations.write_snapshot_bundle(ci")
+        assert fixture_builder.index("operations.write_snapshot_bundle(ci") < fixture_builder.index("build_site.build_site(ROOT /")
 
         smoke = (REPO_ROOT / "tests" / "browser" / "dashboard-smoke.spec.mjs").read_text()
         assert "Latest five completed main CI nightlies" in smoke
@@ -4142,14 +4142,19 @@ class TestFrameworkIsolation:
         assert "data/vllm/ci/operations_v2.json.gz" in command
         assert rebuild < assemble
 
-    def test_browser_smoke_rebuilds_untracked_operations_input(self):
+    def test_browser_smoke_rebuilds_isolated_current_ci_operations_input(self):
         package = json.loads(
             (REPO_ROOT / "tests" / "browser" / "package.json").read_text()
         )
         pretest = package["scripts"]["pretest"]
-        rebuild = pretest.index("scripts/vllm/build_operations_snapshot.py")
-        assemble = pretest.index("scripts/build_site.py")
-        assert rebuild < assemble
+        assert pretest == "python3 build_fixture_site.py"
+        fixture_builder = (REPO_ROOT / "tests" / "browser" / "build_fixture_site.py").read_text()
+        assert "tempfile.TemporaryDirectory" in fixture_builder
+        assert "shutil.copytree(ROOT / \"data\", data" in fixture_builder
+        assert "seed_current_ci(ci)" in fixture_builder
+        assert "build_current_nightly_latency(" in fixture_builder
+        assert "parity.build_payload(" in fixture_builder
+        assert fixture_builder.index("operations.write_snapshot_bundle(ci") < fixture_builder.index("build_site.build_site(ROOT /")
 
     def test_shard_bases_available_at_deploy(self):
         """The frozen bootstrap tree carries the initial shard-bases dataset."""
