@@ -10,11 +10,6 @@
     "vllm/ci/dns_failures.json",
     "vllm/ci/failure_trends.json",
     "vllm/ci/flaky_tests.json",
-    "vllm/ci/gating_nightlies.json",
-    "vllm/ci/gating_target_candidates.json",
-    "vllm/ci/gating_targets.json",
-    "vllm/ci/group_changes.json",
-    "vllm/ci/hotness.json",
     "vllm/ci/omni_surge_heuristic.json",
     "vllm/ci/parity_report.json",
     "vllm/ci/project_items.json",
@@ -31,7 +26,13 @@
     "vllm/releases.json",
     "vllm/test_results.json"
   ],
-  "optional_files": [],
+  "optional_files": [
+    "vllm/ci/gating_nightlies.json",
+    "vllm/ci/gating_target_candidates.json",
+    "vllm/ci/gating_targets.json",
+    "vllm/ci/group_changes.json",
+    "vllm/ci/hotness.json"
+  ],
   "build_inputs": [
     "vllm/ci/analytics.json",
     "vllm/ci/operations_v2.json.gz",
