@@ -212,14 +212,22 @@ class TestWorkflowYAML:
         upload_action = (
             "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
         )
-        observed = 0
+        required_locations = {
+            ("ci.yml", "e2e-smoke", "Upload browser traces on failure"),
+            ("health-check.yml", "check", "Upload bounded site health report"),
+            ("hourly-master.yml", "collect-and-deploy", "Upload current CI core validation diagnostics"),
+            ("hourly-master.yml", "collect-and-deploy", "Upload publication selection diagnostics"),
+            ("hourly-master.yml", "collect-and-deploy", "Upload live publication audit artifact"),
+            ("ci-cache-diagnostics.yml", "evidence", "Upload only the bounded single-build evidence"),
+        }
+        observed_locations = set()
         for workflow in WORKFLOWS.glob("*.yml"):
             parsed = _load_workflow(workflow.name)
             for job_name, job in (parsed.get("jobs") or {}).items():
                 for step in job.get("steps", []) or []:
                     if step.get("uses") != upload_action:
                         continue
-                    observed += 1
+                    observed_locations.add((workflow.name, job_name, step.get("name")))
                     retention = (step.get("with") or {}).get("retention-days")
                     assert (
                         isinstance(retention, int)
@@ -229,7 +237,7 @@ class TestWorkflowYAML:
                         f"{workflow.name}:{job_name}: uploaded artifacts need an "
                         "explicit 1-30 day retention"
                     )
-        assert observed == 5
+        assert required_locations <= observed_locations
 
     def test_health_and_lifecycle_have_external_scheduler_wakeups(self):
         """An external tick can recover a delayed or dropped GitHub cron."""
