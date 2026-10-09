@@ -16,11 +16,13 @@ from typing import Any, Iterable
 PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION = 4
 PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION = 5
 PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION = 6
-SURFACE_CONTRACT_VERSION = 7
+PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION = 7
+SURFACE_CONTRACT_VERSION = 8
 RETIRED_SURFACES = frozenset({"ci_gating", "ci_changes", "ci_hotness"})
 RETIRED_RUNTIME_PARITY_PATHS = frozenset({
     "data/vllm/ci/parity_report.json", "data/vllm/parity_report.json",
 })
+RETIRED_PARITY_OVERRIDE_PATHS = frozenset({"data/vllm/ci/parity_key_overrides.json"})
 
 
 @dataclass(frozen=True)
@@ -200,6 +202,16 @@ CI_CORE_SURFACE_SPEC = SurfaceSpec(
     required_paths=tuple(path for path in CI_CORE_SURFACE_SPEC.required_paths
                          if path not in RETIRED_RUNTIME_PARITY_PATHS),
     optional_paths=CI_CORE_SURFACE_SPEC.optional_paths,
+    globs=CI_CORE_SURFACE_SPEC.globs,
+)
+SURFACE_SPECS = {**SURFACE_SPECS, "ci_core": CI_CORE_SURFACE_SPEC}
+PRE_PARITY_OVERRIDES_SURFACE_SPECS = dict(SURFACE_SPECS)
+# Contract v7 still owned the optional runtime-parity override file. Validate
+# that historical proof in full before publishing a supported-files-only v8.
+CI_CORE_SURFACE_SPEC = SurfaceSpec(
+    required_paths=CI_CORE_SURFACE_SPEC.required_paths,
+    optional_paths=tuple(path for path in CI_CORE_SURFACE_SPEC.optional_paths
+                         if path not in RETIRED_PARITY_OVERRIDE_PATHS),
     globs=CI_CORE_SURFACE_SPEC.globs,
 )
 SURFACE_SPECS = {**SURFACE_SPECS, "ci_core": CI_CORE_SURFACE_SPEC}

@@ -2718,6 +2718,96 @@ def test_schema_v2_rejects_unknown_explicit_surface_contract(tmp_path):
     ]
 
 
+def _write_parity_override_fallback_fixture(root: Path, *, historical: bool):
+    specs = (audit_module.PRE_PARITY_OVERRIDES_SURFACE_SPECS
+             if historical else audit_module.SURFACE_SPECS)
+    for surface in ("ci_core", "ci_analytics"):
+        for relative in specs[surface].required_paths:
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"surface": surface, "path": relative}) + "\n")
+    override = root / "data/vllm/ci/parity_key_overrides.json"
+    if historical:
+        override.write_text('{"old runtime title":"old source identity"}\n')
+    state_path = _write_attested_split_fallback_state(
+        root, ("ci_core", "ci_analytics"), specs,
+    )
+    payload = json.loads(state_path.read_text())
+    payload["surface_contract_version"] = (
+        audit_module.PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION
+        if historical else audit_module.SURFACE_CONTRACT_VERSION
+    )
+    state_path.write_text(json.dumps(payload))
+    return state_path, override
+
+
+def test_v7_fallback_verifies_retired_parity_override_without_changing_clocks_or_bytes(tmp_path):
+    state_path, override = _write_parity_override_fallback_fixture(tmp_path, historical=True)
+    before_state = state_path.read_bytes()
+    before_override = override.read_bytes()
+    payload = json.loads(before_state)
+    assert payload["surface_contract_version"] == 7
+    assert "data/vllm/ci/parity_key_overrides.json" in payload["restored_manifest"]["ci_core"]
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset({"ci_core", "ci_analytics"})
+    assert audit.report.errors == []
+    assert state_path.read_bytes() == before_state
+    assert override.read_bytes() == before_override
+
+
+@pytest.mark.parametrize("mutation", ["tampered", "missing", "missing-proof", "missing-restored-path", "wrong-size", "expired"])
+def test_v7_fallback_rejects_invalid_retired_override_proof_before_retirement(tmp_path, mutation):
+    state_path, override = _write_parity_override_fallback_fixture(tmp_path, historical=True)
+    payload = json.loads(state_path.read_text())
+    relative = "data/vllm/ci/parity_key_overrides.json"
+    expected_code = "publication-fallback-manifest-mismatch"
+    if mutation == "tampered":
+        override.write_text('{"old runtime title":"tampered source identity"}\n')
+    elif mutation == "missing":
+        override.unlink()
+    elif mutation == "missing-proof":
+        del payload["restored_manifest"]["ci_core"][relative]
+    elif mutation == "missing-restored-path":
+        payload["restored_paths"]["ci_core"].remove(relative)
+    elif mutation == "wrong-size":
+        payload["restored_manifest"]["ci_core"][relative]["bytes"] += 1
+    else:
+        expired = (datetime.now(timezone.utc) - timedelta(hours=37)).isoformat()
+        payload["fallback_since"]["ci_core"] = expired
+        payload["degraded_since"]["ci_core"] = expired
+        expected_code = "publication-fallback-expired"
+    state_path.write_text(json.dumps(payload))
+    before = state_path.read_bytes()
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+
+    assert audit.fallback_surfaces() == frozenset()
+    assert expected_code in {finding.code for finding in audit.report.errors}
+    assert state_path.read_bytes() == before
+
+
+def test_v8_fallback_inventory_excludes_retired_parity_override(tmp_path):
+    state_path, override = _write_parity_override_fallback_fixture(tmp_path, historical=False)
+    payload = json.loads(state_path.read_text())
+    relative = override.relative_to(tmp_path).as_posix()
+    assert payload["surface_contract_version"] == 8
+    assert not override.exists()
+    assert relative not in payload["restored_manifest"]["ci_core"]
+    audit = DashboardAudit(tmp_path, publication_state_path=state_path)
+    assert audit.fallback_surfaces() == frozenset({"ci_core", "ci_analytics"})
+    assert audit.report.errors == []
+
+    # A v8 proof cannot re-admit a retired v7 artifact as current ownership.
+    override.write_text('{}\n')
+    payload["restored_manifest"]["ci_core"][relative] = _manifest_descriptor(override)
+    payload["restored_paths"]["ci_core"].append(relative)
+    payload["restored_paths"]["ci_core"].sort()
+    state_path.write_text(json.dumps(payload))
+    rejected = DashboardAudit(tmp_path, publication_state_path=state_path)
+    assert rejected.fallback_surfaces() == frozenset()
+    assert "publication-fallback-manifest-mismatch" in {finding.code for finding in rejected.report.errors}
+
+
 @pytest.mark.parametrize("invalid_contract", [5.0, True, "5"])
 def test_schema_v2_rejects_non_integer_surface_contract(
     tmp_path,

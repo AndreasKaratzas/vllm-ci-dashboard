@@ -105,12 +105,31 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
     assert surface_for_path("data/vllm/ci/gating_targets.json") is None
     assert surface_for_path("data/vllm/ci/group_changes.json") is None
     assert surface_for_path("data/vllm/ci/hotness.json") is None
+    assert surface_for_path("data/vllm/ci/parity_key_overrides.json") is None
     assert surface_for_path("data/vllm/ci/dns_failures.json") == "dns_health"
     assert (
         surface_for_path("data/vllm/ci/test_results/domain-contract.jsonl")
         == "ci_core"
     )
     assert surface_for_path("data/vllm/ci/test_results/retention.json") == "ci_core"
+
+
+def test_retired_parity_override_is_owned_only_by_exact_historical_contracts() -> None:
+    path = "data/vllm/ci/parity_key_overrides.json"
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 8
+    assert surfaces_module.PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION == 7
+    for specs in (surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS,
+                  surfaces_module.PRE_RUNTIME_PARITY_SURFACE_SPECS,
+                  surfaces_module.PRE_PARITY_OVERRIDES_SURFACE_SPECS):
+        assert path in specs["ci_core"].optional_paths
+    assert path in LEGACY_CI_SURFACE_SPEC.optional_paths
+    assert path not in SURFACE_SPECS["ci_core"].optional_paths
+    assert surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS == {path}
+    manifest = json.loads((ROOT / "config/public_data_manifest.json").read_text())
+    relative = path.removeprefix("data/")
+    assert relative in manifest["never_publish_patterns"]
+    assert all(relative not in manifest[field] for field in (
+        "required_files", "optional_files", "build_inputs", "generated_files"))
 
 
 def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:

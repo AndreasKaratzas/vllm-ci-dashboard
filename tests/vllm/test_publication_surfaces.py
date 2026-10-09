@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_surface_contract_version_has_one_owner() -> None:
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 7
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 8
     assert (
         selector_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
@@ -4305,7 +4305,7 @@ def test_runtime_parity_retirement_validates_v6_bytes_and_preserves_fallback_clo
     assert old_audit.fallback_surfaces() == frozenset({"ci_core"})
     assert not old_audit.report.errors
     migrated = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
-    assert migrated["surface_contract_version"] == 7
+    assert migrated["surface_contract_version"] == 8
     for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
         assert migrated[field] == original[field]
     old_entries = original["restored_manifest"]["ci_core"]
@@ -4313,7 +4313,7 @@ def test_runtime_parity_retirement_validates_v6_bytes_and_preserves_fallback_clo
     # A new proof owns only supported files even while old bytes await purge.
     state_path.write_text(json.dumps(migrated))
     _git(repo, "add", ".")
-    _git(repo, "commit", "-m", "exact v7 owned-file projection")
+    _git(repo, "commit", "-m", "exact v8 owned-file projection")
     current_audit = DashboardAudit(repo)
     assert current_audit.fallback_surfaces() == frozenset({"ci_core"})
     assert not current_audit.report.errors
@@ -4501,3 +4501,114 @@ def test_retry_publishes_only_strict_current_completed_cohort_or_recovers_atomic
             assert state["mode"] == "fallback"
             assert generations[-1] == 93523
             assert state["final_errors"] == []
+
+
+def _write_v7_parity_override_fallback(repo, *, include_override):
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    spec = surfaces_module.PRE_PARITY_OVERRIDES_SURFACE_SPECS["ci_core"]
+    paths = [*spec.required_paths, "data/vllm/ci/test_results/2026-10-08_amd.jsonl"]
+    if include_override:
+        paths.append("data/vllm/ci/parity_key_overrides.json")
+    entries = {}
+    for relative in paths:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"path": relative}) + "\n")
+        entries[relative] = _manifest_descriptor(path.read_bytes())
+    state = {"schema_version": 2, "surface_contract_version": 7,
+        "generated_at": since, "baseline_ref": "0" * 40, "mode": "fallback",
+        "degraded_surfaces": ["ci_core"], "fresh_degraded_surfaces": [],
+        "fallback_surfaces": ["ci_core"], "degraded_since": {"ci_core": since},
+        "fallback_since": {"ci_core": since}, "fallback_max_age_hours": 36,
+        "restored_manifest": {"ci_core": entries}, "restored_paths": {"ci_core": sorted(entries)}}
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "exact v7 optional parity override proof")
+    return state_path, state
+
+
+@pytest.mark.parametrize("include_override", [False, True])
+def test_parity_override_retirement_validates_exact_v7_optional_inventory_and_keeps_clocks(tmp_path, include_override):
+    repo = tmp_path / "repo"
+    state_path, original = _write_v7_parity_override_fallback(repo, include_override=include_override)
+    old_audit = DashboardAudit(repo)
+    assert old_audit.fallback_surfaces() == frozenset({"ci_core"})
+    assert not old_audit.report.errors
+    migrated = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+    assert migrated["surface_contract_version"] == 8
+    for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
+        assert migrated[field] == original[field]
+    assert migrated["restored_manifest"]["ci_core"] == {
+        path: descriptor for path, descriptor in original["restored_manifest"]["ci_core"].items()
+        if path not in surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS}
+    assert not surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS & set(migrated["restored_paths"]["ci_core"])
+    # Active v8 proof remains exact while obsolete bytes await the workflow's
+    # post-selection purge. They never acquire a current owner again.
+    state_path.write_text(json.dumps(migrated))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "exact supported v8 projection")
+    current_audit = DashboardAudit(repo)
+    assert current_audit.fallback_surfaces() == frozenset({"ci_core"})
+    assert not current_audit.report.errors
+
+
+@pytest.mark.parametrize("tamper", ["hash", "bytes", "missing", "extra", "paths"])
+def test_parity_override_retirement_cannot_hide_bad_v7_bytes_or_optional_path_proof(tmp_path, tamper):
+    repo = tmp_path / "repo"
+    state_path, state = _write_v7_parity_override_fallback(repo, include_override=True)
+    retired = "data/vllm/ci/parity_key_overrides.json"
+    entries = state["restored_manifest"]["ci_core"]
+    if tamper == "hash":
+        entries[retired]["sha256"] = "0" * 64
+    elif tamper == "bytes":
+        entries[retired]["bytes"] += 1
+    elif tamper == "missing":
+        entries.pop(retired)
+        state["restored_paths"]["ci_core"].remove(retired)
+    elif tamper == "extra":
+        entries["data/unowned.json"] = _manifest_descriptor(b"{}\n")
+        state["restored_paths"]["ci_core"].append("data/unowned.json")
+        state["restored_paths"]["ci_core"].sort()
+    else:
+        state["restored_paths"]["ci_core"].remove(retired)
+    state_path.write_text(json.dumps(state))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "corrupt v7 optional override proof")
+    with pytest.raises(RuntimeError, match="manifest|paths"):
+        selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+    audit = DashboardAudit(repo)
+    assert audit.fallback_surfaces() == frozenset()
+    assert audit.report.errors
+
+
+@pytest.mark.parametrize("corrupt_override", [False, True])
+def test_v6_runtime_parity_and_optional_override_retire_only_after_full_old_proof(tmp_path, corrupt_override):
+    repo = tmp_path / "repo"
+    state_path, original = _write_v6_runtime_parity_fallback(repo)
+    retired_override = "data/vllm/ci/parity_key_overrides.json"
+    path = repo / retired_override
+    path.write_text('{"old_group":"old_override"}\n')
+    entries = original["restored_manifest"]["ci_core"]
+    entries[retired_override] = _manifest_descriptor(path.read_bytes())
+    original["restored_paths"]["ci_core"] = sorted(entries)
+    if corrupt_override:
+        entries[retired_override]["sha256"] = "0" * 64
+    state_path.write_text(json.dumps(original))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "v6 optional override source bytes")
+    ref = _git(repo, "rev-parse", "HEAD")
+    if corrupt_override:
+        with pytest.raises(RuntimeError, match="manifest"):
+            selector_module._baseline_publication_state(repo, ref, state_path)
+        return
+    migrated = selector_module._baseline_publication_state(repo, ref, state_path)
+    assert migrated["surface_contract_version"] == 8
+    retired = surfaces_module.RETIRED_RUNTIME_PARITY_PATHS | surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS
+    assert migrated["restored_manifest"]["ci_core"] == {
+        relative: descriptor for relative, descriptor in entries.items() if relative not in retired}
+    for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
+        assert migrated[field] == original[field]

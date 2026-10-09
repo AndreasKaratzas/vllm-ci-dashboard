@@ -1135,54 +1135,42 @@ class TestNormalizationInvariants:
         assert _normalize_job_name("V1 e2e (4 GPUs)") == "v1 e2e (4 gpus)"
 
 
-class TestParityKeyHandling:
-    """Validate that parity key matching doesn't lose groups.
+class TestDefinitionFamilyNormalization:
+    """Static source coverage and AMD latency retain GPU-count identities."""
 
-    When multiple AMD norms share a parity key (e.g., different GPU count
-    variants all matching the same upstream test), ALL of them must appear
-    in the parity report — not just the last one.
-    """
-
-
-    def test_parity_key_cross_pipeline_matching(self):
-        """_parity_key must produce the same key for the SAME test across
-        AMD and upstream pipelines, regardless of hardware tags.
-
-        This is the critical function that enables cross-pipeline comparison.
-        Every pair below must produce the same parity key.
-        """
-        from vllm.ci.analyzer import _parity_key
+    def test_hardware_variants_keep_the_same_family_and_distinct_gpu_counts(self):
+        from vllm.ci.analyzer import _parity_key_base
 
         # (N GPUs) format — already normalized
-        assert _parity_key("mi325_2: V1 e2e (2 GPUs)") == \
-               _parity_key("V1 e2e (2 GPUs)")
+        assert _parity_key_base("mi325_2: V1 e2e (2 GPUs)") == \
+               _parity_key_base("V1 e2e (2 GPUs)")
 
         # (NxHW) → (N GPUs) via normalize, then parity strips nothing extra
-        assert _parity_key("V1 e2e (4xH100)") == \
-               _parity_key("mi325_4: V1 e2e (4 GPUs)")
+        assert _parity_key_base("V1 e2e (4xH100)") == \
+               _parity_key_base("mi325_4: V1 e2e (4 GPUs)")
 
         # Future: (NxHW-NxHW) → (N GPUs)
-        assert _parity_key("mi325_4: V1 e2e (4xH100-4xMI325)") == \
-               _parity_key("V1 e2e (4xH100)")
+        assert _parity_key_base("mi325_4: V1 e2e (4xH100-4xMI325)") == \
+               _parity_key_base("V1 e2e (4xH100)")
 
         # Multi-HW tag stripped for matching
-        assert _parity_key("mi325_2: Distributed Tests (2 GPUs)(H100-MI325)") == \
-               _parity_key("Distributed Tests (2 GPUs)")
+        assert _parity_key_base("mi325_2: Distributed Tests (2 GPUs)(H100-MI325)") == \
+               _parity_key_base("Distributed Tests (2 GPUs)")
 
         # Bare HW tags stripped for matching
-        assert _parity_key("LM Eval Large Models (H200)") == \
-               _parity_key("LM Eval Large Models (H100)") == \
-               _parity_key("LM Eval Large Models")
+        assert _parity_key_base("LM Eval Large Models (H200)") == \
+               _parity_key_base("LM Eval Large Models (H100)") == \
+               _parity_key_base("LM Eval Large Models")
 
-        assert _parity_key("Kernels (B200)") == \
-               _parity_key("Kernels")
+        assert _parity_key_base("Kernels (B200)") == \
+               _parity_key_base("Kernels")
 
         # Different GPU counts → DIFFERENT parity keys (different tests)
-        assert _parity_key("V1 e2e (2 GPUs)") != \
-               _parity_key("V1 e2e (4 GPUs)")
+        assert _parity_key_base("V1 e2e (2 GPUs)") != \
+               _parity_key_base("V1 e2e (4 GPUs)")
 
-        assert _parity_key("Distributed Tests (2 GPUs)") != \
-               _parity_key("Distributed Tests (4 GPUs)")
+        assert _parity_key_base("Distributed Tests (2 GPUs)") != \
+               _parity_key_base("Distributed Tests (4 GPUs)")
 
 
 @pytest.mark.live_data

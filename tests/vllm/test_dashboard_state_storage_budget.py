@@ -104,7 +104,6 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
     operational_misc_writers = (
         "project_test_results",
         "shard_base_catalog",
-        "parity_key_overrides",
         "publication_state",
         "shard_bases",
         "omni_surge_heuristic",
@@ -273,10 +272,6 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         collect_ci.SHARD_BASE_CATALOG_MAX_BYTES
         == writers["shard_base_catalog"].max_bytes
     )
-    assert (
-        collect_ci.PARITY_KEY_OVERRIDES_MAX_BYTES
-        == writers["parity_key_overrides"].max_bytes
-    )
     assert collect_ci.SHARD_BASES_MAX_BYTES == writers["shard_bases"].max_bytes
     assert (
         select_publication_surfaces.PUBLICATION_STATE_MAX_BYTES
@@ -314,6 +309,18 @@ def test_retired_runtime_parity_keeps_its_exact_historical_storage_envelope() ->
                                          object_id="a" * 40)], budget)
         assert violations(summary, budget) == expected
     assert budget.matching_groups("data/vllm/parity_report.json") == ("ci_derived",)
+
+
+def test_retired_parity_override_has_no_writer_but_keeps_bounded_historical_recognition() -> None:
+    budget = load_storage_budget()
+    assert "parity_key_overrides" not in budget.writer_limits
+    assert budget.matching_groups("data/vllm/ci/parity_key_overrides.json") == ("operational_misc",)
+    limit = budget.groups["operational_misc"].max_bytes
+    assert limit == 256 * 1024
+    for size, expected in ((limit, []), (limit + 1, [f"storage group operational_misc is {limit + 1} bytes (max {limit})"])):
+        summary = summarize([TrackedBlob(path="data/vllm/ci/parity_key_overrides.json",
+                                         size=size, object_id="a" * 40)], budget)
+        assert violations(summary, budget) == expected
 
 
 def test_group_and_unmanaged_overflow_are_reported_exactly() -> None:

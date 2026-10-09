@@ -10,8 +10,8 @@ so no local clone is needed.
 Uses command similarity (adapted from vllm_ci_parity.py) to measure how
 closely AMD test commands match their NVIDIA counterparts.
 
-This is a *static* analysis of the CI config files, complementing the
-*runtime* parity analysis in analyzer.py which compares actual test results.
+This is a *static* analysis of the CI config files. Runtime AMD MI health and
+nightly timings use their own exact source and execution evidence.
 """
 
 import io
@@ -1794,46 +1794,6 @@ def _match_config_steps(
         tuple(step.commands),
     ))
     return matches, amd_only, nvidia_only
-
-
-def extract_parity_key_overrides() -> dict[str, str]:
-    """Return normalized runtime-label -> YAML identity key overrides.
-
-    Only identities present on both AMD and upstream are exported. This avoids
-    remapping genuinely AMD-only or upstream-only labels while still fixing
-    cases where one side encodes GPU count in YAML metadata and the other side
-    encodes it in the label.
-    """
-    amd_steps, nvidia_steps, mirrors = _load_config_steps()
-    if amd_steps is None or nvidia_steps is None:
-        return {}
-
-    matches, unmatched_amd, _ = _match_config_steps(amd_steps, nvidia_steps, mirrors or [])
-    variants, _ = _classify_inline_mirror_variants(unmatched_amd, nvidia_steps, mirrors or [])
-    identities_by_label: dict[str, set[str]] = {}
-    canonical_by_label: dict[str, str] = {}
-    relationships = [(match, match.amd_step.identity_key) for match in matches]
-    relationships.extend((variant, variant.nvidia_step.identity_key) for variant in variants)
-    for match, canonical in relationships:
-        labels = {
-            *(match.amd_step.member_labels or (match.amd_step.label,)),
-            match.nvidia_step.label,
-        }
-        for label in labels:
-            normalized_label = _normalize_job_name(label)
-            identities_by_label.setdefault(normalized_label, set()).add(
-                canonical
-            )
-            canonical_by_label[normalized_label] = canonical
-
-    overrides: dict[str, str] = {}
-    for normalized_label, canonical in canonical_by_label.items():
-        if len(identities_by_label.get(normalized_label, set())) > 1:
-            continue
-        if _parity_key_base(normalized_label) == canonical:
-            continue
-        overrides[normalized_label] = canonical
-    return dict(sorted(overrides.items()))
 
 
 def _finalize_amd_runtime_group_key_map(

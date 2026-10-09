@@ -11,7 +11,7 @@ latency. Physical node and DNS history remain independent infrastructure evidenc
 | CI Workload Trajectory | `collect_hotness.py`, `collect_group_changes.py`, trajectory renderers and snapshot projections, unused matrix hotness fallback/index-merge helpers | `hotness.json`, `group_changes.json`, `operations_v2/trajectory.json` |
 | Target Health | `collect_gating_targets.py`, `collect_gating_target_candidates.py`, `collect_gating_proposals.py`, `write_gating_nightlies`, target renderers and joins | `vllm_amd_gating_targets.json`, `gating_targets.json`, `gating_target_candidates.json`, `gating_proposals.json`, `gating_nightlies.json`, `operations_v2/gating.json` |
 | Flake / Retry Comparison | comparison tables, historical comparison projections, retry-only comparison helpers | `operations_v2/comparison_retry_evidence.json` |
-| CUDA execution comparison | CUDA nightly cohort/selector, counterpart matching, ratios/deltas, comparison charts/drawers, the uncalled generic history browser, and legacy utils parity/link/overlay graph | Raw runtime `parity_report.json` and its mirrored root file are not public inputs |
+| CUDA execution comparison | CUDA nightly cohort/selector, counterpart matching, ratios/deltas, comparison charts/drawers, the uncalled generic history browser, legacy utils parity/link/overlay graph, unused parity-family/hardware helpers, runtime override producer/API, and empty upstream-summary plumbing | Raw runtime `parity_report.json`, its mirrored root file, and `parity_key_overrides.json` are retired inputs |
 | Duplicate AMD main alert | Duplicate scheduled reconciliation and state projection; shared retry and issue-state helpers remain in use by the canonical MI CI watcher | `open_amd_main_failure_issues.json` |
 | Queue Monitor page | queue page renderer, page-only helpers, navigation, controls, CSS, and the obsolete `test_dashboard_trends_data.py` chart contracts | No independent collector retirement: shared observations still serve Omni and infrastructure automation |
 
@@ -37,9 +37,9 @@ flake/retry comparison limits and their exclusive live-data checks are removed.
 
 Bundle v3 publishes exactly eleven lazy sections. Its health readers retain
 strict bounded support for immutable v1/v2 publications, deployed before writer
-activation. Publication surface contract v7 validates complete historical restore
-proofs, including v5/v6, before removing retired domains, runtime parity, and their
-clocks. Canonical Actions purge retired
+activation. Publication surface contract v8 validates complete historical restore
+proofs, including v5/v6/v7, before removing retired domains, runtime parity,
+runtime parity overrides, and their clocks. Canonical Actions purge retired
 artifacts only after validated selection; the public allowlist also forbids them.
 
 Current source parity refreshes without a Buildkite token. Runtime collection
@@ -47,6 +47,9 @@ fetches `ci` once and retains only MI GPU execution. Private roster caches are i
 by the schema-v3 current-CI handoff. Request guards, durable attempt budgets,
 resumable caches, exact source pins, atomic bounded writes, live audits, browser
 checks, publication verification, and synthetic site probes remain enforced.
+CI validates only retained output schemas; it no longer runs a schema check for
+the absent runtime parity report. Historical override files keep their original
+bounded restore envelope until their complete old proof is verified and trimmed.
 The canonical job allows seventy-five minutes for collection and publication;
 its cross-process request guard still stops Buildkite sends fifty minutes from
 before durable reservation. Slow ledger handoffs consume that request window.

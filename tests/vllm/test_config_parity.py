@@ -419,50 +419,6 @@ def test_unique_exact_command_twin_overrides_conflicting_gpu_metadata_identity()
     assert upstream_only == [topology_match]
 
 
-def test_command_twin_override_is_exported_for_every_coalesced_member(
-    monkeypatch,
-):
-    identity = "extract hidden states integration (2 gpus)"
-    amd_mi300 = _step(
-        "Extract Hidden States Integration (MI300)",
-        identity,
-        ["pytest tests/extract_hidden_states"],
-        ".buildkite/test-amd.yaml",
-        definition_id="amd#extract-mi300",
-        semantic_title="Extract Hidden States Integration",
-        fingerprint="extract",
-        num_gpus=2,
-    )
-    amd_mi355 = _step(
-        "Extract Hidden States Integration (MI355)",
-        identity,
-        ["pytest tests/extract_hidden_states"],
-        ".buildkite/test-amd.yaml",
-        definition_id="amd#extract-mi355",
-        semantic_title="Extract Hidden States Integration",
-        fingerprint="extract",
-        num_gpus=2,
-    )
-    upstream = _step(
-        "Extract Hidden States Integration",
-        identity,
-        ["pytest tests/extract_hidden_states"],
-        ".buildkite/test_areas/misc.yaml",
-        definition_id="upstream#extract",
-        num_gpus=2,
-    )
-    monkeypatch.setattr(
-        config_parity,
-        "_load_config_steps",
-        lambda: ([amd_mi355, amd_mi300], [upstream], []),
-    )
-
-    overrides = config_parity.extract_parity_key_overrides()
-
-    assert overrides[amd_mi300.normalized_label] == identity
-    assert overrides[amd_mi355.normalized_label] == identity
-
-
 def test_runtime_group_key_map_preserves_same_label_gpu_topologies(
     monkeypatch,
 ):

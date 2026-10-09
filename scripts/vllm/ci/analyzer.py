@@ -159,36 +159,13 @@ def _normalize_job_name(name: str) -> str:
     return _strip_known_shard_index(s, _SHARD_BASES).lower()
 
 
-_PARITY_KEY_OVERRIDES: dict[str, str] = {}
-
 # The latest AMD nightly is analyzed against the exact commit-pinned YAML that
 # produced it. A normalized display label alone is not always a complete test
 # group identity: two routes can share a label while declaring different GPU
 # counts (for example the 2-GPU and 4-GPU Qwen EPLB groups). Keep the
-# build-pinned, route-aware identity map separate from the looser parity-label
-# overrides so it can only affect the matching AMD build.
+# build-pinned, route-aware identity map scoped to the matching AMD build.
 _AMD_RUNTIME_GROUP_KEY_COMMIT = ""
 _AMD_RUNTIME_GROUP_KEYS: dict[tuple[str, str], str] = {}
-
-
-def set_parity_key_overrides(overrides: dict[str, str] | None):
-    """Set YAML-derived parity-key overrides for runtime job names.
-
-    Some upstream labels omit GPU counts that are present as YAML metadata
-    (``num_devices``), while AMD labels encode the same count in the label
-    itself, e.g. ``DeepSeek V2-Lite Accuracy`` vs
-    ``DeepSeek V2-Lite Accuracy (4xH100-4xMI300)``.  Runtime Buildkite job
-    names no longer carry the YAML fields, so collect_ci loads those fields
-    up front and installs normalized-label -> parity-key overrides here.
-    """
-    global _PARITY_KEY_OVERRIDES
-    _PARITY_KEY_OVERRIDES = {}
-    if not overrides:
-        return
-    for label, key in overrides.items():
-        if not label or not key:
-            continue
-        _PARITY_KEY_OVERRIDES[_normalize_job_name(str(label))] = str(key).lower()
 
 
 def set_amd_runtime_group_key_map(
@@ -277,29 +254,6 @@ def _parity_key_base(name: str) -> str:
     s = _HW_MULTI.sub('', s)
     # Lowercase for case-insensitive matching: "(4 GPUs)" == "(4 gpus)"
     return re.sub(r'\s+', ' ', s).strip().lower()
-
-
-def _parity_key(name: str) -> str:
-    """Normalize for cross-pipeline parity matching."""
-    normalized = _normalize_job_name(name)
-    return _PARITY_KEY_OVERRIDES.get(normalized) or _parity_key_base(normalized)
-
-
-def _parity_family_name(name: str) -> str:
-    """Return the canonical family label shared across parity variants.
-
-    This is intentionally hardware-agnostic. For example:
-    - ``Distributed Tests (2 GPUs)(H100)``
-    - ``Distributed Tests (2xH100-2xMI300)``
-    - ``Distributed Tests (2xH100-2xMI355)``
-
-    all map to the same family label: ``distributed tests (2 gpus)``.
-
-    Downstream views use this to collapse one upstream identity that fans out
-    across multiple AMD hardware variants without losing the per-variant raw
-    rows in ``parity_report.json``.
-    """
-    return _parity_key(name)
 
 
 # Shard bases — auto-populated from YAML %N parallelism steps.
