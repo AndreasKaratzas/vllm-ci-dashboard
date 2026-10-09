@@ -2062,3 +2062,87 @@ def test_agent_graphql_error_with_invalid_rest_proof_preserves_entire_generation
     assert {path: path.read_bytes() for path in paths} == before
     assert ah._SOURCE_SCOPE_INDEXES == {}
     assert "graphql" in fixture["calls"] and f"commits/{SOURCE_COMMIT}" in fixture["calls"]
+
+
+@pytest.mark.parametrize("state,start,finish", [
+    ("scheduled", None, None),
+    ("running", "2026-07-14T09:00:00Z", None),
+    ("canceled", None, None),
+    ("broken", None, None),
+    ("expired", None, None),
+    ("passed", "2026-07-14T09:00:00Z", "2026-07-14T12:01:00Z"),
+])
+def test_agent_uncounted_mi_job_does_not_require_unavailable_commit(
+    monkeypatch, state, start, finish,
+):
+    from vllm import main_ci_definitions as source
+
+    build = _window_build(1, "2026-07-14T08:00:00Z", start=start,
+                          finish=finish, job_state=state)
+    build["commit"] = "c4b5fff60db60ade83900eaebe75d2450599ab2a"
+    # Source is unavailable for this real failure pin; no excluded execution
+    # should acquire it, and exhaustive discovery must still finish normally.
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *_: pytest.fail("uncounted job acquired source"))
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", lambda *_args, **_kwargs: pytest.fail("uncounted job joined source"))
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], calls))
+    assert ah._fetch_pipeline_observations("ci", 1, query_time=NOW, day_basis="build-created") == []
+    assert len(calls) == 2  # Both complete UTC creation slices remain exhausted.
+
+
+def test_agent_older_execution_outside_started_window_does_not_acquire_source(monkeypatch):
+    from vllm import main_ci_definitions as source
+
+    build = _window_build(1, "2026-07-09T08:00:00Z", start="2026-07-10T09:00:00Z",
+                          finish="2026-07-10T09:05:00Z", build_finish="2026-07-14T10:00:00Z")
+    build["commit"] = "c4b5fff60db60ade83900eaebe75d2450599ab2a"
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *_: pytest.fail("old execution acquired source"))
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", lambda *_args, **_kwargs: pytest.fail("old execution joined source"))
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], calls))
+    assert ah._fetch_pipeline_observations("ci", 1, query_time=NOW) == []
+    assert any("finished_from" in params for params in calls)
+    assert {params["state"] for params in calls if "state" in params} == set(ah.ACTIVE_BUILD_STATES)
+
+
+@pytest.mark.parametrize("state", ["passed", "failed", "canceled"])
+def test_agent_executed_cpu_offload_still_requires_exact_source(
+    monkeypatch, tmp_path, state,
+):
+    from vllm import main_ci_definitions as source
+
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state)
+    build["commit"] = "c4b5fff60db60ade83900eaebe75d2450599ab2a"
+    build["jobs"][0]["name"] = "CPU Offload with CUDA model preset"
+    build["jobs"][0]["source_no_gpu"] = True  # An old annotation is not proof.
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+    acquired = []
+    def unavailable(pins):
+        acquired.extend(pins)
+        raise source.RuntimeSourceError(commit_sha=pins[0], phase="batch")
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", unavailable)
+    with pytest.raises(source.RuntimeSourceError):
+        _run_scoped_collection(
+            monkeypatch, tmp_path, pipeline="ci", days=1, day_basis="build-created",
+            fetch_fn=ah._fetch_pipeline_observations,
+        )
+    assert acquired == [build["commit"]]
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("field,value", [
+    ("started_at", None), ("started_at", "invalid"),
+    ("finished_at", None), ("finished_at", "invalid"),
+])
+def test_agent_source_gate_preserves_terminal_timestamp_validation(monkeypatch, field, value):
+    from vllm import main_ci_definitions as source
+
+    build = _window_build(1, "2026-07-14T08:00:00Z")
+    build["jobs"][0][field] = value
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *_: pytest.fail("invalid execution acquired source"))
+    with pytest.raises(RuntimeError, match="terminal job"):
+        ah._fetch_pipeline_observations("ci", 1, query_time=NOW, day_basis="build-created")

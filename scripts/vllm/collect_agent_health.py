@@ -380,6 +380,7 @@ def _paginate_observation_builds(
     *,
     phase: str,
     on_page: Callable[[int, list, bool], None] | None = None,
+    source_candidate: Callable[[dict], bool] | None = None,
 ) -> list[dict]:
     """Validate source filters and project each bounded raw page immediately."""
     created_from = _aware_timestamp(params.get("created_from"))
@@ -417,7 +418,8 @@ def _paginate_observation_builds(
         pins = set()
         for raw in raw_rows:
             build, prior = validate_build(raw, prior)
-            if url.endswith("/pipelines/ci/builds") and _has_mi_runtime_candidate(build):
+            candidate = source_candidate or _has_mi_runtime_candidate
+            if url.endswith("/pipelines/ci/builds") and candidate(build):
                 commit = str(build.get("commit") or "").casefold()
                 if not re.fullmatch(r"[0-9a-f]{40}", commit):
                     raise RuntimeError("agent-health MI execution requires an exact source commit")
@@ -458,6 +460,8 @@ def _fetch_older_active_builds(
     url: str,
     params: dict,
     project: Callable[[dict], dict],
+    *,
+    source_candidate: Callable[[dict], bool] | None = None,
 ) -> list[dict]:
     """Exhaust all six active states at every age without deep offset queries."""
     initial_upper = _aware_timestamp(params.get("created_to"))
@@ -495,6 +499,7 @@ def _fetch_older_active_builds(
                 _paginate_observation_builds(
                     url, {**params, "state": state, "created_to": upper.isoformat()},
                     project, phase=phase, on_page=page_batch,
+                    source_candidate=source_candidate,
                 )
             except _OlderActivePartition as continuation:
                 upper = continuation.cutoff
@@ -512,6 +517,7 @@ def _fetch_pipeline_builds(
     incremental_per_page: int = 100,
     project: Callable[[dict], dict] | None = None,
     bound_created_to: bool = False,
+    source_candidate: Callable[[dict], bool] | None = None,
 ) -> list[dict]:
     """Fetch one pipeline's build/job payloads with bounded incremental fan-out.
 
@@ -528,7 +534,9 @@ def _fetch_pipeline_builds(
     def fetch_slice(params: dict) -> list[dict]:
         if project is None:
             return _paginate(url, params)
-        return _paginate_observation_builds(url, params, project, phase="created")
+        return _paginate_observation_builds(
+            url, params, project, phase="created", source_candidate=source_candidate,
+        )
 
     if days > MAX_INCREMENTAL_SLICE_DAYS:
         return fetch_slice(
@@ -620,8 +628,23 @@ def _fetch_pipeline_observations(
     if pattern:
         nightly_re = re.compile(pattern, re.IGNORECASE)
 
+    def source_candidate(build: dict) -> bool:
+        # Prove source only for jobs that can enter this exact observation
+        # window. A scheduled or never-started canceled MI job did not execute
+        # a GPU test, and its inaccessible PR commit cannot block the cohort.
+        # Restored annotations cannot authorize skipping a real execution.
+        return any(
+            _observe_in_window(
+                slug, build,
+                {key: value for key, value in job.items()
+                 if key not in {"source_no_gpu", "source_scope_commit"}},
+                nightly_re, created_from, query_time,
+            ) is not None
+            for job in build["jobs"]
+        )
+
     def project(build: dict) -> dict:
-        if slug == "ci" and _has_mi_runtime_candidate(build):
+        if slug == "ci" and source_candidate(build):
             from vllm.main_ci_definitions import annotate_runtime_source_scope
             commit = str(build.get("commit") or "").casefold()
             if not re.fullmatch(r"[0-9a-f]{40}", commit):
@@ -667,6 +690,7 @@ def _fetch_pipeline_observations(
             UPSTREAM_INCREMENTAL_PER_PAGE if slug == "ci" else 100
         ),
         project=project,
+        source_candidate=source_candidate,
         **({"bound_created_to": True} if day_basis == "build-created" else {}),
     )
     if day_basis == "build-created":
@@ -686,9 +710,11 @@ def _fetch_pipeline_observations(
     }
     older_finished = _paginate_observation_builds(
         url, {**old_params, "finished_from": created_from.isoformat()},
-        project, phase="older_finished",
+        project, phase="older_finished", source_candidate=source_candidate,
     )
-    older_active = _fetch_older_active_builds(url, old_params, project)
+    older_active = _fetch_older_active_builds(
+        url, old_params, project, source_candidate=source_candidate,
+    )
     by_number: dict = {}
     for build in [*builds, *older_finished, *older_active]:
         by_number[build["number"]] = build

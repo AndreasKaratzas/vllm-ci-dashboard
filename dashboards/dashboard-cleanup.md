@@ -195,3 +195,12 @@ joining job rosters. A source-proof failure stops collection rather than
 launching another full 30-day Buildkite fetch. The workload collector retains
 the same parent-build lookback, but primes source only for potentially relevant
 job creation times; late-added jobs on older parents still require exact proof.
+
+Source verification follows contributing execution. Complete CI rosters with
+no MI candidates remain in the private exhaustive build catalog without an
+invented source index; manual source warmup follows the same rule. Agent health
+acquires source only for terminal MI executions eligible in its exact published
+window. Scheduled jobs, canceled jobs that never started, and executions outside
+that window cannot block collection on an unused commit. Executed GPU CPU-offload
+tests still require exact source, and malformed timestamps, incomplete rosters,
+or conflicting cached proofs still stop publication.
