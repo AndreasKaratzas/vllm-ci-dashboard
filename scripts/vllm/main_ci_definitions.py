@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import base64
 import hashlib
+import json
 import os
 import re
 import tarfile
@@ -17,7 +18,8 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
+from contextlib import contextmanager
+from functools import lru_cache, wraps
 from typing import Any
 
 import requests
@@ -190,15 +192,126 @@ RUNTIME_SOURCE_MAX_REQUESTS = 2400
 RUNTIME_SOURCE_MAX_SECONDS = 600
 RUNTIME_SOURCE_BATCH_SIZE = 50
 RUNTIME_SOURCE_MAX_PINS = 4096
-_RUNTIME_SOURCE_LOCK = threading.Lock()
+_RUNTIME_SOURCE_LOCK = threading.RLock()
 _RUNTIME_SOURCE_STARTS = 0
 _RUNTIME_SOURCE_STARTED_AT: float | None = None
+_RUNTIME_SOURCE_ACTIVE_SECONDS = 0.0
+_RUNTIME_SOURCE_ACTIVE_DEPTH = 0
+_RUNTIME_SOURCE_GRAPHQL_FALLBACKS = 0
 _RUNTIME_PRIMED_BUILDKITE_TREES: dict[str, str] = {}
 
 
-def runtime_source_request_stats() -> dict[str, int]:
+def _runtime_active_seconds() -> float:
+    return _RUNTIME_SOURCE_ACTIVE_SECONDS + (
+        max(0.0, time.monotonic() - _RUNTIME_SOURCE_STARTED_AT)
+        if _RUNTIME_SOURCE_STARTED_AT is not None else 0.0
+    )
+
+
+def runtime_source_request_stats() -> dict[str, int | float]:
     with _RUNTIME_SOURCE_LOCK:
-        return {"request_starts": _RUNTIME_SOURCE_STARTS, "max_request_starts": RUNTIME_SOURCE_MAX_REQUESTS}
+        return {
+            "request_starts": _RUNTIME_SOURCE_STARTS,
+            "max_request_starts": RUNTIME_SOURCE_MAX_REQUESTS,
+            "active_source_seconds": round(_runtime_active_seconds(), 3),
+            "max_active_source_seconds": RUNTIME_SOURCE_MAX_SECONDS,
+            "graphql_rest_fallbacks": _RUNTIME_SOURCE_GRAPHQL_FALLBACKS,
+        }
+
+
+class RuntimeSourceError(ValueError):
+    """Bounded source failure; response bodies and exception messages stay private."""
+
+    def __init__(
+        self, message: str = "Exact runtime source verification failed", *,
+        reason_class: str = "schema-drift", commit_sha: str | None = None,
+        phase: str = "scope", http_status: int | None = None,
+    ) -> None:
+        # The compatibility message argument deliberately never reaches logs.
+        self.reason_class = reason_class if isinstance(reason_class, str) and reason_class in {
+            "payload-budget", "rate-limit", "timeout", "schema-drift",
+            "transient-http", "network", "dependency-unavailable", "command-error",
+        } else "schema-drift"
+        self.phase = phase if isinstance(phase, str) and phase in {
+            "batch", "commit", "tree", "blob", "definitions", "scope", "metadata",
+        } else "scope"
+        self.commit_sha = commit_sha if isinstance(commit_sha, str) and FULL_SHA.fullmatch(commit_sha) else None
+        self.http_status = http_status if type(http_status) is int and 100 <= http_status <= 599 else None
+        self.diagnostics = {
+            "reason_class": self.reason_class, "phase": self.phase,
+            "commit_sha": self.commit_sha, "http_status": self.http_status,
+            **runtime_source_request_stats(),
+        }
+        explanation = (
+            "Authenticated immutable source evidence is unavailable."
+            if self.reason_class == "dependency-unavailable" else
+            "Immutable source evidence is incomplete or does not match its Git identity."
+            if self.reason_class == "schema-drift" else
+            "Exact runtime source acquisition failed within its unchanged bounds."
+        )
+        super().__init__(
+            f"RuntimeSourceError[reason_class={self.reason_class}, phase={self.phase}, "
+            f"commit={self.commit_sha or 'none'}] {explanation} "
+            + json.dumps(self.diagnostics, separators=(",", ":"), sort_keys=True)
+        )
+
+
+def _check_runtime_source_time() -> None:
+    with _RUNTIME_SOURCE_LOCK:
+        if _runtime_active_seconds() >= RUNTIME_SOURCE_MAX_SECONDS:
+            raise RuntimeSourceError(reason_class="timeout", phase="metadata")
+
+
+@contextmanager
+def _runtime_source_activity():
+    """Charge concurrent/nested source work once; unrelated collector idle is free."""
+    global _RUNTIME_SOURCE_STARTED_AT, _RUNTIME_SOURCE_ACTIVE_SECONDS, _RUNTIME_SOURCE_ACTIVE_DEPTH
+    with _RUNTIME_SOURCE_LOCK:
+        _check_runtime_source_time()
+        if _RUNTIME_SOURCE_ACTIVE_DEPTH == 0:
+            _RUNTIME_SOURCE_STARTED_AT = time.monotonic()
+        _RUNTIME_SOURCE_ACTIVE_DEPTH += 1
+    try:
+        yield
+    finally:
+        with _RUNTIME_SOURCE_LOCK:
+            _RUNTIME_SOURCE_ACTIVE_DEPTH -= 1
+            if _RUNTIME_SOURCE_ACTIVE_DEPTH == 0:
+                _RUNTIME_SOURCE_ACTIVE_SECONDS = _runtime_active_seconds()
+                _RUNTIME_SOURCE_STARTED_AT = None
+
+
+def _runtime_source_operation(phase: str, *, commit_argument: bool = False):
+    def decorate(function):
+        @wraps(function)
+        def operation(*args, **kwargs):
+            argument = args[0] if commit_argument and args else None
+            commit = argument if isinstance(argument, str) else (
+                argument.get("commit") if isinstance(argument, dict) else None
+            )
+            try:
+                with _runtime_source_activity():
+                    result = function(*args, **kwargs)
+                    _check_runtime_source_time()
+                    return result
+            except RuntimeSourceError as exc:
+                if commit and not exc.commit_sha:
+                    raise RuntimeSourceError(reason_class=exc.reason_class, commit_sha=commit, phase=phase, http_status=exc.http_status) from None
+                raise
+            except requests.Timeout:
+                raise RuntimeSourceError(reason_class="timeout", commit_sha=commit, phase=phase) from None
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                reason = "rate-limit" if status == 429 else "transient-http" if status in {500, 502, 503, 504} else "dependency-unavailable"
+                raise RuntimeSourceError(reason_class=reason, commit_sha=commit, phase=phase, http_status=status) from None
+            except requests.exceptions.JSONDecodeError:
+                raise RuntimeSourceError(commit_sha=commit, phase=phase) from None
+            except requests.RequestException:
+                raise RuntimeSourceError(reason_class="network", commit_sha=commit, phase=phase) from None
+            except (ValueError, TypeError, KeyError, UnicodeError, yaml.YAMLError):
+                raise RuntimeSourceError(commit_sha=commit, phase=phase) from None
+        return operation
+    return decorate
 
 
 def _verify_runtime_tree(tree_sha: str, rows: list[dict], *, recursive: bool) -> None:
@@ -231,28 +344,35 @@ def _verify_runtime_tree(tree_sha: str, rows: list[dict], *, recursive: bool) ->
 
 def _runtime_source_headers() -> dict[str, str]:
     """Reserve one authenticated HTTP start under the shared source bounds."""
-    global _RUNTIME_SOURCE_STARTS, _RUNTIME_SOURCE_STARTED_AT
+    global _RUNTIME_SOURCE_STARTS
     token = os.environ.get("GITHUB_TOKEN", "").strip()
     if not token:
-        raise ValueError("exact runtime source discovery requires GITHUB_TOKEN")
+        raise RuntimeSourceError(reason_class="dependency-unavailable", phase="metadata")
     with _RUNTIME_SOURCE_LOCK:
-        now = time.monotonic()
-        if _RUNTIME_SOURCE_STARTED_AT is None:
-            _RUNTIME_SOURCE_STARTED_AT = now
-        if _RUNTIME_SOURCE_STARTS >= RUNTIME_SOURCE_MAX_REQUESTS or now - _RUNTIME_SOURCE_STARTED_AT >= RUNTIME_SOURCE_MAX_SECONDS:
-            raise ValueError("exact runtime source discovery exhausted its request or time bound")
+        _check_runtime_source_time()
+        if _RUNTIME_SOURCE_STARTS >= RUNTIME_SOURCE_MAX_REQUESTS:
+            raise RuntimeSourceError(reason_class="rate-limit", phase="metadata")
         _RUNTIME_SOURCE_STARTS += 1
     headers = {"Accept": "application/vnd.github+json"}
     headers["Authorization"] = f"Bearer {token}"
     return headers
 
 
+def _runtime_source_timeout() -> float:
+    with _RUNTIME_SOURCE_LOCK:
+        remaining = RUNTIME_SOURCE_MAX_SECONDS - _runtime_active_seconds()
+        if remaining <= 0:
+            raise RuntimeSourceError(reason_class="timeout", phase="metadata")
+        return min(30.0, remaining)
+
+
+@_runtime_source_operation("metadata")
 def _runtime_source_json(path: str, *, params: dict[str, str] | None = None) -> dict:
     headers = _runtime_source_headers()
-    response = requests.get(f"{API_BASE}/git/{path}", headers=headers, params=params, timeout=30)
+    response = requests.get(f"{API_BASE}/git/{path}", headers=headers, params=params, timeout=_runtime_source_timeout())
     response.raise_for_status()
     if len(response.content) > RUNTIME_SOURCE_MAX_BYTES:
-        raise ValueError("runtime source metadata exceeds its byte bound")
+        raise RuntimeSourceError(reason_class="payload-budget", phase="metadata")
     value = response.json()
     if not isinstance(value, dict):
         raise ValueError("runtime source metadata must be an object")
@@ -268,34 +388,85 @@ def prewarm_runtime_snapshots(fullpins: list[str]) -> dict[str, str]:
     https://docs.github.com/en/graphql/reference/git
     """
     if not isinstance(fullpins, list) or any(not isinstance(pin, str) or not FULL_SHA.fullmatch(pin) for pin in fullpins):
-        raise ValueError("runtime source priming requires exact full commit SHAs")
+        raise RuntimeSourceError(phase="batch")
     pins = list(dict.fromkeys(fullpins))
     with _RUNTIME_SOURCE_LOCK:
         if len(set(pins) | set(_RUNTIME_PRIMED_BUILDKITE_TREES)) > RUNTIME_SOURCE_MAX_PINS:
-            raise ValueError("runtime source priming exceeds its immutable pin bound")
+            raise RuntimeSourceError(reason_class="payload-budget", phase="batch")
         pending = [pin for pin in pins if pin not in _RUNTIME_PRIMED_BUILDKITE_TREES]
     for offset in range(0, len(pending), RUNTIME_SOURCE_BATCH_SIZE):
         batch = pending[offset:offset + RUNTIME_SOURCE_BATCH_SIZE]
-        aliases = {f"c{index}": pin for index, pin in enumerate(batch)}
-        fields = " ".join(
-            f'{alias}: object(oid: "{pin}") {{ __typename ... on Commit {{ oid tree {{ oid entries {{ name mode type oid }} }} }} }}'
-            for alias, pin in aliases.items()
-        )
-        query = f'query {{ repository(owner: "vllm-project", name: "vllm") {{ nameWithOwner {fields} }} }}'
-        response = requests.post("https://api.github.com/graphql", headers=_runtime_source_headers(), json={"query": query}, timeout=30)
-        response.raise_for_status()
-        if len(response.content) > RUNTIME_SOURCE_MAX_BYTES:
-            raise ValueError("runtime source batch metadata exceeds its byte bound")
-        value = response.json()
-        if (not isinstance(value, dict) or ("errors" in value and value["errors"] != [])
-                or not isinstance(value.get("data"), dict)):
-            raise ValueError("runtime source batch returned incomplete GraphQL evidence")
-        repository = value["data"].get("repository")
-        if (set(value["data"]) != {"repository"} or not isinstance(repository, dict)
-                or set(repository) != {"nameWithOwner", *aliases} or repository.get("nameWithOwner") != REPOSITORY):
-            raise ValueError("runtime source batch repository or aliases do not match")
-        resolved = {}
-        for alias, pin in aliases.items():
+        resolved, fallback_diagnostic = _runtime_batch_roots(batch)
+        # Admit the whole batch only after every requested object is proved.
+        with _RUNTIME_SOURCE_LOCK:
+            if len(set(resolved) | set(_RUNTIME_PRIMED_BUILDKITE_TREES)) > RUNTIME_SOURCE_MAX_PINS:
+                raise RuntimeSourceError(reason_class="payload-budget", phase="batch")
+            if any(pin in _RUNTIME_PRIMED_BUILDKITE_TREES and _RUNTIME_PRIMED_BUILDKITE_TREES[pin] != tree for pin, tree in resolved.items()):
+                raise RuntimeSourceError(phase="batch")
+            _RUNTIME_PRIMED_BUILDKITE_TREES.update(resolved)
+        if fallback_diagnostic is not None:
+            print("Runtime source REST fallback verified " + json.dumps(
+                {**fallback_diagnostic, **runtime_source_request_stats()},
+                separators=(",", ":"), sort_keys=True,
+            ), flush=True)
+    with _RUNTIME_SOURCE_LOCK:
+        return {pin: _RUNTIME_PRIMED_BUILDKITE_TREES[pin] for pin in pins}
+
+
+@_runtime_source_operation("batch")
+def _runtime_batch_roots(batch: list[str]) -> tuple[dict[str, str], dict | None]:
+    """Resolve a whole batch before admitting any immutable associations."""
+    global _RUNTIME_SOURCE_GRAPHQL_FALLBACKS
+    aliases = {f"c{index}": pin for index, pin in enumerate(batch)}
+    fields = " ".join(
+        f'{alias}: object(oid: "{pin}") {{ __typename ... on Commit {{ oid tree {{ oid entries {{ name mode type oid }} }} }} }}'
+        for alias, pin in aliases.items()
+    )
+    query = f'query {{ repository(owner: "vllm-project", name: "vllm") {{ nameWithOwner {fields} }} }}'
+    response = requests.post("https://api.github.com/graphql", headers=_runtime_source_headers(), json={"query": query}, timeout=_runtime_source_timeout())
+    response.raise_for_status()
+    if len(response.content) > RUNTIME_SOURCE_MAX_BYTES:
+        raise RuntimeSourceError(reason_class="payload-budget", phase="batch")
+    value = response.json()
+    if not isinstance(value, dict):
+        raise ValueError("runtime source batch returned incomplete GraphQL evidence")
+    errors = value.get("errors", [])
+    if (not isinstance(errors, list) or len(errors) > 100
+            or any(not isinstance(error, dict) or not isinstance(error.get("message"), str)
+                   or not error["message"].strip() for error in errors)):
+        raise ValueError("runtime source batch returned malformed GraphQL errors")
+    if errors:
+        if getattr(response, "status_code", 200) != 200:
+            raise ValueError("runtime source fallback requires an HTTP200 GraphQL error")
+        # No errored GraphQL data enters the proof. Resolve every exact pin
+        # independently through REST and verify its root Git tree bytes.
+        with _RUNTIME_SOURCE_LOCK:
+            _RUNTIME_SOURCE_GRAPHQL_FALLBACKS += 1
+        resolved = {pin: _runtime_rest_root(pin) for pin in batch}
+        allowed_types = {"RATE_LIMITED", "NOT_FOUND", "FORBIDDEN", "INTERNAL",
+                         "UNPROCESSABLE", "SERVICE_UNAVAILABLE", "MAX_NODE_LIMIT_EXCEEDED",
+                         "GRAPHQL_VALIDATION_FAILED"}
+        codes = set()
+        failed_pins = set()
+        for error in errors:
+            extensions = error.get("extensions")
+            code = error.get("type") or (extensions.get("code") if isinstance(extensions, dict) else None)
+            codes.add(code if isinstance(code, str) and code in allowed_types else "other")
+            path = error.get("path")
+            if isinstance(path, list) and len(path) >= 2 and path[0] == "repository" and isinstance(path[1], str) and path[1] in aliases:
+                failed_pins.add(aliases[path[1]])
+        return resolved, {"event": "runtime-source-rest-fallback", "phase": "batch",
+                          "graphql_error_types": sorted(codes), "failed_commit_shas": sorted(failed_pins),
+                          "verified_pins": len(resolved)}
+    if not isinstance(value.get("data"), dict):
+        raise ValueError("runtime source batch returned incomplete GraphQL evidence")
+    repository = value["data"].get("repository")
+    if (set(value["data"]) != {"repository"} or not isinstance(repository, dict)
+            or set(repository) != {"nameWithOwner", *aliases} or repository.get("nameWithOwner") != REPOSITORY):
+        raise ValueError("runtime source batch repository or aliases do not match")
+    resolved = {}
+    for alias, pin in aliases.items():
+        try:
             commit = repository[alias]
             if (not isinstance(commit, dict) or set(commit) != {"__typename", "oid", "tree"}
                     or commit.get("__typename") != "Commit" or commit.get("oid") != pin):
@@ -325,25 +496,34 @@ def prewarm_runtime_snapshots(fullpins: list[str]) -> dict[str, str]:
             if not buildkite or buildkite["type"] != "tree":
                 raise ValueError("runtime source batch commit lacks main CI definitions")
             resolved[pin] = buildkite["sha"]
-        # Admit the whole batch only after every requested object is proved.
-        with _RUNTIME_SOURCE_LOCK:
-            if len(set(resolved) | set(_RUNTIME_PRIMED_BUILDKITE_TREES)) > RUNTIME_SOURCE_MAX_PINS:
-                raise ValueError("runtime source priming exceeds its immutable pin bound")
-            if any(pin in _RUNTIME_PRIMED_BUILDKITE_TREES and _RUNTIME_PRIMED_BUILDKITE_TREES[pin] != tree for pin, tree in resolved.items()):
-                raise ValueError("runtime source priming contradicts an existing immutable identity")
-            _RUNTIME_PRIMED_BUILDKITE_TREES.update(resolved)
-    with _RUNTIME_SOURCE_LOCK:
-        return {pin: _RUNTIME_PRIMED_BUILDKITE_TREES[pin] for pin in pins}
+        except RuntimeSourceError:
+            raise
+        except (ValueError, TypeError, KeyError):
+            raise RuntimeSourceError(commit_sha=pin, phase="batch") from None
+    return resolved, None
+
+
+@_runtime_source_operation("commit", commit_argument=True)
+def _runtime_rest_root(commit_sha: str) -> str:
+    root_tree = _runtime_commit_tree(commit_sha)
+    actual_tree, rows = _runtime_tree(root_tree)
+    if actual_tree != root_tree:
+        raise ValueError("runtime commit tree identity changed")
+    buildkite = next((row for row in rows if row["path"] == ".buildkite"), None)
+    if not buildkite or buildkite.get("type") != "tree":
+        raise ValueError("runtime commit lacks the main CI source tree")
+    return buildkite["sha"]
 
 
 @lru_cache(maxsize=256)
+@_runtime_source_operation("tree")
 def _runtime_tree(object_sha: str, recursive: bool = False) -> tuple[str, tuple[dict, ...]]:
     if not FULL_SHA.fullmatch(object_sha):
         raise ValueError("runtime source tree requires an exact full SHA")
     value = _runtime_source_json(f"trees/{object_sha}", params={"recursive": "1"} if recursive else None)
     tree_sha = str(value.get("sha") or "")
     rows = value.get("tree")
-    if not FULL_SHA.fullmatch(tree_sha) or value.get("truncated") is not False or not isinstance(rows, list) or len(rows) > 2048:
+    if tree_sha != object_sha or value.get("truncated") is not False or not isinstance(rows, list) or len(rows) > 2048:
         raise ValueError("runtime source tree is incomplete or malformed")
     seen = set()
     for row in rows:
@@ -358,6 +538,7 @@ def _runtime_tree(object_sha: str, recursive: bool = False) -> tuple[str, tuple[
 
 
 @lru_cache(maxsize=1024)
+@_runtime_source_operation("blob")
 def _runtime_blob(object_sha: str) -> bytes:
     value = _runtime_source_json(f"blobs/{object_sha}")
     if value.get("sha") != object_sha or value.get("encoding") != "base64" or type(value.get("size")) is not int:
@@ -367,8 +548,10 @@ def _runtime_blob(object_sha: str) -> bytes:
         payload = base64.b64decode(encoded, validate=True)
     except (ValueError, TypeError) as exc:
         raise ValueError("runtime source blob encoding is malformed") from exc
-    if len(payload) != value["size"] or len(payload) > RUNTIME_SOURCE_MAX_BYTES:
-        raise ValueError("runtime source blob exceeds its byte bound or declared size")
+    if len(payload) > RUNTIME_SOURCE_MAX_BYTES:
+        raise RuntimeSourceError(reason_class="payload-budget", phase="blob")
+    if len(payload) != value["size"]:
+        raise ValueError("runtime source blob does not match its declared size")
     digest = hashlib.sha1(f"blob {len(payload)}\0".encode() + payload).hexdigest()
     if digest != object_sha:
         raise ValueError("runtime source blob bytes do not match their immutable Git identity")
@@ -376,6 +559,7 @@ def _runtime_blob(object_sha: str) -> bytes:
 
 
 @lru_cache(maxsize=256)
+@_runtime_source_operation("definitions")
 def _runtime_definition_files(buildkite_tree_sha: str) -> dict[str, Any]:
     """Read shared CI blobs once, even when hundreds of builds share them."""
     actual_sha, rows = _runtime_tree(buildkite_tree_sha)
@@ -389,17 +573,20 @@ def _runtime_definition_files(buildkite_tree_sha: str) -> dict[str, Any]:
     if actual_areas != areas["sha"]:
         raise ValueError("runtime test-area tree identity changed")
     selected = [row for row in entries if row["path"].endswith(".yaml")]
-    if len(selected) > RUNTIME_SOURCE_MAX_FILES or any(row.get("type") != "blob" or row.get("mode") not in {"100644", "100755"} for row in selected):
-        raise ValueError("runtime source file inventory exceeds its bound or has invalid modes")
+    if len(selected) > RUNTIME_SOURCE_MAX_FILES:
+        raise RuntimeSourceError(reason_class="payload-budget", phase="definitions")
+    if any(row.get("type") != "blob" or row.get("mode") not in {"100644", "100755"} for row in selected):
+        raise ValueError("runtime source file inventory has invalid modes")
     blobs = {CI_CONFIG: _runtime_blob(config["sha"])}
     for row in selected:
         blobs[f"{TEST_AREAS}{row['path']}"] = _runtime_blob(row["sha"])
     if sum(len(payload) for payload in blobs.values()) > RUNTIME_SOURCE_MAX_BYTES:
-        raise ValueError("runtime source definitions exceed their aggregate byte bound")
+        raise RuntimeSourceError(reason_class="payload-budget", phase="definitions")
     return {path: yaml.safe_load(payload.decode("utf-8")) for path, payload in blobs.items()}
 
 
 @lru_cache(maxsize=4096)
+@_runtime_source_operation("commit", commit_argument=True)
 def _runtime_commit_tree(commit_sha: str) -> str:
     """Resolve the exact commit before validating its tree object bytes.
 
@@ -416,25 +603,20 @@ def _runtime_commit_tree(commit_sha: str) -> str:
 
 
 @lru_cache(maxsize=4096)
+@_runtime_source_operation("scope", commit_argument=True)
 def runtime_snapshot(commit_sha: str) -> MainCISnapshot:
     """Bind an exact commit to cached immutable CI trees, without repo archives."""
     if not FULL_SHA.fullmatch(commit_sha):
         raise ValueError("runtime execution scope requires an exact full commit SHA")
     tree_sha = _RUNTIME_PRIMED_BUILDKITE_TREES.get(commit_sha)
     if tree_sha is None:
-        root_tree = _runtime_commit_tree(commit_sha)
-        actual_tree, rows = _runtime_tree(root_tree)
-        if actual_tree != root_tree:
-            raise ValueError("runtime commit tree identity changed")
-        buildkite = next((row for row in rows if row["path"] == ".buildkite"), None)
-        if not buildkite or buildkite.get("type") != "tree":
-            raise ValueError("runtime commit lacks the main CI source tree")
-        tree_sha = buildkite["sha"]
+        tree_sha = _runtime_rest_root(commit_sha)
     snapshot = MainCISnapshot(commit_sha, _runtime_definition_files(tree_sha), datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), tree_sha)
     validate_snapshot(snapshot)
     return snapshot
 
 
+@_runtime_source_operation("scope", commit_argument=True)
 def annotate_runtime_source_scope(
     build: dict[str, Any], *, snapshot: MainCISnapshot | None = None,
     scope_index: dict[str, Any] | None = None,

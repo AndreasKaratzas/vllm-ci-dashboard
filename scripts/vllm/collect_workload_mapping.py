@@ -90,16 +90,30 @@ def _physical_mi_candidate(job: dict) -> bool:
     return bool(amd_gpu_hardware(_job_queue(raw))) and not is_cpu_only_job(raw)
 
 
-def _scope_ci_builds(builds: list[dict], pipeline: str = "") -> list[dict]:
+def _scope_ci_builds(
+    builds: list[dict], pipeline: str = "", *,
+    mapping_start: datetime | None = None, mapping_end: datetime | None = None,
+) -> list[dict]:
     """Attest prospective MI CI jobs against authenticated immutable source."""
     from vllm.main_ci_definitions import annotate_runtime_source_scope, prewarm_runtime_snapshots
+
+    def in_mapping_window(job: dict) -> bool:
+        # The lookback queries older parents for late-added jobs. Only an
+        # explicit valid job creation time can prove a job irrelevant; missing
+        # timestamps still need source proof before the mapping-time fallback.
+        created = parse_iso(job.get("created_at"))
+        return created is None or created.utcoffset() is None or (
+            (mapping_start is None or created >= mapping_start)
+            and (mapping_end is None or created < mapping_end)
+        )
 
     candidates = []
     for build in builds:
         if str((build.get("pipeline") or {}).get("slug") or pipeline) != "ci":
             continue
         if not any(isinstance(job, dict) and job.get("type") in {"script", "command"}
-                   and _physical_mi_candidate(job) for job in build.get("jobs") or []):
+                   and _physical_mi_candidate(job) and in_mapping_window(job)
+                   for job in build.get("jobs") or []):
             continue
         commit = str(build.get("commit") or "").strip().casefold()
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
@@ -405,6 +419,8 @@ def _fetch_pipeline_slice(
     *,
     max_pages: int,
     page_fetcher: Callable[[str, str, dict[str, Any]], list[dict]],
+    mapping_start: datetime | None = None,
+    mapping_end: datetime | None = None,
 ) -> tuple[list[dict], dict]:
     base_params: dict[str, Any] = {
         "created_from": _utc_iso(start),
@@ -447,7 +463,10 @@ def _fetch_pipeline_slice(
             break
         # Source acquisition failures are hard failures, outside the transport
         # lower-bound catch above; they cannot authorize fresh GPU aggregates.
-        builds.extend(_scope_ci_builds([row for row in rows if isinstance(row, dict)], pipeline))
+        builds.extend(_scope_ci_builds(
+            [row for row in rows if isinstance(row, dict)], pipeline,
+            mapping_start=mapping_start, mapping_end=mapping_end,
+        ))
         if len(rows) < PER_PAGE:
             complete = True
             break
@@ -470,6 +489,8 @@ def _iter_pipeline_build_slices(
     *,
     max_pages: int = DEFAULT_MAX_PAGES,
     page_fetcher: Callable[[str, str, dict[str, Any]], list[dict]] = _request_build_page,
+    mapping_start: datetime | None = None,
+    mapping_end: datetime | None = None,
 ) -> Iterable[tuple[list[dict], dict]]:
     """Fetch bounded slices concurrently and yield each as soon as it completes.
 
@@ -501,6 +522,8 @@ def _iter_pipeline_build_slices(
                 slice_end,
                 max_pages=max_pages,
                 page_fetcher=page_fetcher,
+                mapping_start=mapping_start,
+                mapping_end=mapping_end,
             )
             pending[future] = slice_index
             return True
@@ -598,7 +621,7 @@ def _events_from_builds(
     missing_job_ids = 0
     duplicate_job_ids = 0
     missing_mapped_at: list[datetime] = []
-    for build in _scope_ci_builds(builds, pipeline):
+    for build in _scope_ci_builds(builds, pipeline, mapping_start=start, mapping_end=end):
         build_pipeline = str((build.get("pipeline") or {}).get("slug") or pipeline)
         if build_pipeline != pipeline:
             continue
@@ -1196,6 +1219,8 @@ def collect_workload_mapping(
                 query_end,
                 max_pages=max_pages,
                 page_fetcher=page_fetcher,
+                mapping_start=query_start,
+                mapping_end=query_end,
             ):
                 pipeline_slices.append(slice_source)
                 extracted, event_meta = _events_from_builds(

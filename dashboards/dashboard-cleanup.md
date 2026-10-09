@@ -177,3 +177,18 @@ inside the shared full-collection request allowance. The CLI still supports
 explicit historical reconciliation; partial retained history stays visible as
 partial, and neither a dependency smoke check nor a source warmup supplies
 runtime coverage.
+
+Source verification retains its 2,400 HTTP-start limit and 600-second budget
+for active acquisition and verification. Failed calls consume both limits;
+concurrent or nested source work counts once, and time spent waiting for
+unrelated Buildkite metadata does not consume the source budget. Reported
+GraphQL errors can recover through independently verified REST commit and Git
+tree evidence. Malformed responses, mismatched identities and exhausted limits
+still refuse proof. Diagnostics record safe error classes, status codes, exact
+source pins and counters without response bodies or credentials.
+
+Analytics primes and checkpoints missing source pins in batches of 50 before
+joining job rosters. A source-proof failure stops collection rather than
+launching another full 30-day Buildkite fetch. The workload collector retains
+the same parent-build lookback, but primes source only for potentially relevant
+job creation times; late-added jobs on older parents still require exact proof.

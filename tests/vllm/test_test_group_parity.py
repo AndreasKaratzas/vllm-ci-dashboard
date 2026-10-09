@@ -7,8 +7,11 @@ import base64
 import hashlib
 import json
 import tarfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,6 +22,21 @@ SHA = "a" * 40
 RUNTIME_SHA = "b" * 40
 GENERATED_AT = "2026-10-08T20:00:00Z"
 FILE = ".buildkite/test_areas/kernels.yaml"
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_source(monkeypatch):
+    cached = [source.runtime_snapshot, source._runtime_commit_tree, source._runtime_tree,
+              source._runtime_blob, source._runtime_definition_files]
+    for function in cached:
+        function.cache_clear()
+    for name, value in (("_RUNTIME_SOURCE_STARTS", 0), ("_RUNTIME_SOURCE_STARTED_AT", None),
+                        ("_RUNTIME_SOURCE_ACTIVE_SECONDS", 0.0), ("_RUNTIME_SOURCE_ACTIVE_DEPTH", 0),
+                        ("_RUNTIME_SOURCE_GRAPHQL_FALLBACKS", 0), ("_RUNTIME_PRIMED_BUILDKITE_TREES", {})):
+        monkeypatch.setattr(source, name, value)
+    yield
+    for function in cached:
+        function.cache_clear()
 
 
 def snapshot() -> source.MainCISnapshot:
@@ -222,8 +240,9 @@ def test_runtime_cpu_annotation_requires_exact_commit_step_and_physical_route():
     assert [job["id"] for job in result["jobs"] if job.get("source_no_gpu")] == ["exact", "label-only"]
     assert result["jobs"][0]["source_scope_commit"] == SHA
     assert "source_no_gpu" not in jobs[0]
-    with pytest.raises(ValueError, match="do not match"):
+    with pytest.raises(source.RuntimeSourceError) as failure:
         source.annotate_runtime_source_scope({"commit": RUNTIME_SHA, "jobs": jobs}, snapshot=current)
+    assert failure.value.reason_class == "schema-drift"
 
 
 def test_runtime_annotation_never_trusts_a_retained_cpu_exclusion():
@@ -253,8 +272,10 @@ def test_authenticated_exact_pin_index_rejoins_new_attempts_without_source_reque
     assert result["jobs"][0]["id"] == "new-attempt"
     assert result["source_scope_commit"] == SHA
     assert result["source_definition_tree_sha"] == "c" * 40
-    with pytest.raises(ValueError, match="exact immutable"):
+    with pytest.raises(source.RuntimeSourceError) as failure:
         source.annotate_runtime_source_scope({"commit": RUNTIME_SHA, "jobs": []}, scope_index=index)
+    assert failure.value.reason_class == "schema-drift"
+    assert failure.value.commit_sha == RUNTIME_SHA
 
 
 @pytest.mark.parametrize("mutation", [
@@ -361,9 +382,10 @@ def test_runtime_source_acquisition_without_github_token_stops_before_request(mo
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(source.requests, "get", lambda *args, **kwargs: pytest.fail("missing authentication must not start HTTP"))
     before = source.runtime_source_request_stats()
-    with pytest.raises(ValueError, match="requires GITHUB_TOKEN"):
+    with pytest.raises(source.RuntimeSourceError) as failure:
         source._runtime_source_json(f"commits/{SHA}")
-    assert source.runtime_source_request_stats() == before
+    assert failure.value.reason_class == "dependency-unavailable"
+    assert source.runtime_source_request_stats()["request_starts"] == before["request_starts"]
 
 
 def _runtime_batch_response(pins):
@@ -407,15 +429,13 @@ def test_runtime_source_batches_exact_commits_and_never_reloads_their_root_metad
         source.runtime_snapshot.cache_clear()
 
 
-@pytest.mark.parametrize("tamper", ("errors", "missing", "extra", "commit", "kind", "tree", "mode", "duplicate", "repository"))
+@pytest.mark.parametrize("tamper", ("missing", "extra", "commit", "kind", "tree", "mode", "duplicate", "repository"))
 def test_runtime_source_batch_rejects_partial_or_contradictory_identity_before_admitting_any_pin(monkeypatch, tamper):
     monkeypatch.setenv("GITHUB_TOKEN", "test-runtime-source-token")
     monkeypatch.setattr(source, "_RUNTIME_PRIMED_BUILDKITE_TREES", {})
     value = _runtime_batch_response([SHA, RUNTIME_SHA])
     repo = value["data"]["repository"]
-    if tamper == "errors":
-        value["errors"] = [{"message": "partial result"}]
-    elif tamper == "missing":
+    if tamper == "missing":
         repo.pop("c1")
     elif tamper == "extra":
         repo["c2"] = deepcopy(repo["c0"])
@@ -433,6 +453,7 @@ def test_runtime_source_batch_rejects_partial_or_contradictory_identity_before_a
         repo["nameWithOwner"] = "another/repository"
     response = type("Response", (), {"content": json.dumps(value).encode(), "raise_for_status": lambda self: None, "json": lambda self: value})()
     monkeypatch.setattr(source.requests, "post", lambda *args, **kwargs: response)
+    monkeypatch.setattr(source.requests, "get", lambda *args, **kwargs: pytest.fail("invalid GraphQL proof must not fall back to REST"))
     with pytest.raises(ValueError):
         source.prewarm_runtime_snapshots([SHA, RUNTIME_SHA])
     assert source._RUNTIME_PRIMED_BUILDKITE_TREES == {}
@@ -499,3 +520,248 @@ def test_bounded_detail_keeps_action_rows_and_exact_aggregate_counts():
     assert bounded["publication_retention"]["aggregate_summary_complete"] is True
     assert all(row["state"] == "action" for row in bounded["groups"])
     assert bounded["mirror_inventory"] == payload["mirror_inventory"]
+
+
+def _source_response(value, *, status_code=200):
+    return SimpleNamespace(content=json.dumps(value).encode(), status_code=status_code,
+                           raise_for_status=lambda: None, json=lambda: value)
+
+
+def _fallback_root_responses(pins):
+    value = _runtime_batch_response(pins)
+    tree = value["data"]["repository"]["c0"]["tree"]
+    root = {"sha": tree["oid"], "truncated": False, "tree": [
+        {"path": row["name"], "mode": format(row["mode"], "06o"),
+         "type": row["type"], "sha": row["oid"]} for row in tree["entries"]
+    ]}
+    return {**{f"commits/{pin}": {"sha": pin, "tree": {"sha": tree["oid"]}} for pin in pins},
+            f"trees/{tree['oid']}": root}
+
+
+@pytest.mark.parametrize("partial_data", [False, True])
+def test_graphql_errors_require_independent_exact_rest_proof_for_the_whole_batch(monkeypatch, capsys, partial_data):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    pins = [SHA, RUNTIME_SHA]
+    errored = _runtime_batch_response(pins) if partial_data else {"data": None}
+    if partial_data:
+        errored["data"]["repository"]["c1"]["oid"] = "f" * 40
+    errored["errors"] = [{"message": "private response must never be logged", "type": "RATE_LIMITED", "path": ["repository", "c1"]}]
+    monkeypatch.setattr(source.requests, "post", lambda *args, **kwargs: _source_response(errored))
+    responses = _fallback_root_responses(pins)
+    calls = []
+
+    def get(url, **kwargs):
+        path = url.removeprefix(f"{source.API_BASE}/git/")
+        calls.append(path)
+        return _source_response(responses[path])
+
+    monkeypatch.setattr(source.requests, "get", get)
+    assert source.prewarm_runtime_snapshots(pins) == {pin: "b" * 40 for pin in pins}
+    assert calls == [f"commits/{SHA}", next(path for path in responses if path.startswith("trees/")),
+                     f"commits/{RUNTIME_SHA}"]
+    assert source.runtime_source_request_stats()["request_starts"] == 4
+    assert source.runtime_source_request_stats()["graphql_rest_fallbacks"] == 1
+    output = capsys.readouterr().out
+    diagnostic = json.loads(output[output.index("{"):])
+    assert diagnostic["graphql_error_types"] == ["RATE_LIMITED"]
+    assert diagnostic["failed_commit_shas"] == [RUNTIME_SHA]
+    assert diagnostic["verified_pins"] == 2
+    assert "private" not in output
+    assert source.prewarm_runtime_snapshots(pins) == {pin: "b" * 40 for pin in pins}
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize("errors", [None, {}, "error", [None], [{}], [{"message": []}],
+                                   [{"message": ""}], [{"message": "   "}]])
+def test_malformed_graphql_errors_cannot_trigger_rest_fallback(monkeypatch, errors):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    monkeypatch.setattr(source.requests, "post", lambda *args, **kwargs:
+                        _source_response({"data": None, "errors": errors}))
+    monkeypatch.setattr(source.requests, "get", lambda *args, **kwargs:
+                        pytest.fail("malformed GraphQL errors must remain fatal"))
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source.prewarm_runtime_snapshots([SHA])
+    assert failure.value.reason_class == "schema-drift"
+    assert source._RUNTIME_PRIMED_BUILDKITE_TREES == {}
+    assert source.runtime_source_request_stats()["graphql_rest_fallbacks"] == 0
+
+
+@pytest.mark.parametrize("failure_kind", ["wrong-commit", "wrong-root", "tampered-tree", "unavailable"])
+def test_rest_fallback_never_promotes_a_partial_batch_or_unavailable_pin(monkeypatch, failure_kind):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    pins = [SHA, RUNTIME_SHA]
+    monkeypatch.setattr(source.requests, "post", lambda *args, **kwargs:
+                        _source_response({"errors": [{"message": "private error"}]}))
+    responses = _fallback_root_responses(pins)
+    if failure_kind == "wrong-commit":
+        responses[f"commits/{RUNTIME_SHA}"]["sha"] = "f" * 40
+    elif failure_kind == "wrong-root":
+        responses[f"commits/{RUNTIME_SHA}"]["tree"]["sha"] = "f" * 40
+        responses["trees/" + "f" * 40] = deepcopy(next(value for path, value in responses.items() if path.startswith("trees/")))
+    elif failure_kind == "tampered-tree":
+        root = next(value for path, value in responses.items() if path.startswith("trees/"))
+        root["tree"][0]["sha"] = "f" * 40
+
+    def get(url, **kwargs):
+        path = url.removeprefix(f"{source.API_BASE}/git/")
+        if failure_kind == "unavailable" and path == f"commits/{RUNTIME_SHA}":
+            response = source.requests.Response()
+            response.status_code = 404
+            raise source.requests.HTTPError("private raw error", response=response)
+        return _source_response(responses[path])
+
+    monkeypatch.setattr(source.requests, "get", get)
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source.prewarm_runtime_snapshots(pins)
+    assert failure.value.reason_class == ("dependency-unavailable" if failure_kind == "unavailable" else "schema-drift")
+    assert failure.value.http_status == (404 if failure_kind == "unavailable" else None)
+    assert source._RUNTIME_PRIMED_BUILDKITE_TREES == {}
+    assert "private raw error" not in str(failure.value)
+    assert failure.value.commit_sha in pins
+
+
+def test_source_budget_excludes_unrelated_idle_and_charges_nested_verification(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    clock = [100.0]
+    monkeypatch.setattr(source, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def get(url, **kwargs):
+        clock[0] += 2.0
+        return _source_response({"sha": url.rsplit("/", 1)[-1], "tree": {"sha": "c" * 40}})
+
+    monkeypatch.setattr(source.requests, "get", get)
+    assert source._runtime_commit_tree(SHA) == "c" * 40
+    clock[0] += 1800.0  # Buildkite work between exact source acquisitions.
+    assert source._runtime_commit_tree(RUNTIME_SHA) == "c" * 40
+    assert source.runtime_source_request_stats()["active_source_seconds"] == 4.0
+    assert source.runtime_source_request_stats()["request_starts"] == 2
+    assert source._RUNTIME_SOURCE_ACTIVE_DEPTH == 0
+    assert source._RUNTIME_SOURCE_STARTED_AT is None
+
+
+def test_source_budget_rejects_proof_that_finishes_after_active_deadline_before_admission(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    clock = [100.0]
+    monkeypatch.setattr(source, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    value = _runtime_batch_response([SHA])
+    monkeypatch.setattr(source.requests, "post", lambda *args, **kwargs: _source_response(value))
+    original = source._verify_runtime_tree
+
+    def verify(*args, **kwargs):
+        original(*args, **kwargs)
+        clock[0] += 601.0
+
+    monkeypatch.setattr(source, "_verify_runtime_tree", verify)
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source.prewarm_runtime_snapshots([SHA])
+    assert failure.value.reason_class == "timeout"
+    assert source.runtime_source_request_stats()["active_source_seconds"] == 601.0
+    assert source._RUNTIME_PRIMED_BUILDKITE_TREES == {}
+    monkeypatch.setattr(source.requests, "get", lambda *args, **kwargs: pytest.fail("expired active budget must deny transport"))
+    with pytest.raises(source.RuntimeSourceError):
+        source._runtime_commit_tree(SHA)
+    assert source.runtime_source_request_stats()["request_starts"] == 1
+
+
+def test_failed_source_transport_is_charged_and_reports_only_safe_json_tail(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    clock = [100.0]
+    monkeypatch.setattr(source, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def get(*args, **kwargs):
+        clock[0] += 9.0
+        raise source.requests.ReadTimeout("private URL/token/node error")
+
+    monkeypatch.setattr(source.requests, "get", get)
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source.runtime_snapshot(SHA)
+    assert failure.value.reason_class == "timeout"
+    assert failure.value.commit_sha == SHA
+    assert source.runtime_source_request_stats()["active_source_seconds"] == 9.0
+    diagnostic = json.loads(str(failure.value)[str(failure.value).index("{"):])
+    assert diagnostic["reason_class"] == "timeout"
+    assert diagnostic["commit_sha"] == SHA
+    assert diagnostic["request_starts"] == 1
+    assert "private" not in str(failure.value)
+    assert "source-test-token" not in str(failure.value)
+    assert "private" not in str(source.RuntimeSourceError("private injected text", phase="private", commit_sha="private", reason_class="private"))
+
+
+def test_concurrent_source_acquisition_charges_union_time_once(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    clock = [0.0]
+    monkeypatch.setattr(source, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    entered = [threading.Event(), threading.Event()]
+    release = [threading.Event(), threading.Event()]
+
+    def get(url, **kwargs):
+        index = 0 if url.endswith(SHA) else 1
+        entered[index].set()
+        assert release[index].wait(2)
+        return _source_response({"sha": url.rsplit("/", 1)[-1], "tree": {"sha": "c" * 40}})
+
+    monkeypatch.setattr(source.requests, "get", get)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(source._runtime_commit_tree, SHA)
+        assert entered[0].wait(2)
+        clock[0] = 10.0
+        second = executor.submit(source._runtime_commit_tree, RUNTIME_SHA)
+        assert entered[1].wait(2)
+        clock[0] = 20.0
+        release[0].set()
+        assert first.result(timeout=2) == "c" * 40
+        clock[0] = 30.0
+        release[1].set()
+        assert second.result(timeout=2) == "c" * 40
+    assert source.runtime_source_request_stats()["active_source_seconds"] == 30.0
+    assert source.runtime_source_request_stats()["request_starts"] == 2
+    assert source._RUNTIME_SOURCE_ACTIVE_DEPTH == 0
+
+
+def test_source_request_cap_blocks_fallback_without_any_guard_reset(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    monkeypatch.setattr(source, "_RUNTIME_SOURCE_STARTS", source.RUNTIME_SOURCE_MAX_REQUESTS - 1)
+    monkeypatch.setattr(source.requests, "post", lambda *args, **kwargs:
+                        _source_response({"errors": [{"message": "recoverable GraphQL error"}]}))
+    monkeypatch.setattr(source.requests, "get", lambda *args, **kwargs:
+                        pytest.fail("fallback must respect the existing total request cap"))
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source.prewarm_runtime_snapshots([SHA])
+    assert failure.value.reason_class == "rate-limit"
+    assert source.runtime_source_request_stats()["request_starts"] == source.RUNTIME_SOURCE_MAX_REQUESTS
+    assert source._RUNTIME_PRIMED_BUILDKITE_TREES == {}
+
+
+def test_source_transport_uses_remaining_active_time_and_rejects_late_success(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+    monkeypatch.setattr(source, "_RUNTIME_SOURCE_ACTIVE_SECONDS", 599.0)
+    clock = [100.0]
+    monkeypatch.setattr(source, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def get(url, **kwargs):
+        assert kwargs["timeout"] == 1.0
+        clock[0] += 2.0
+        return _source_response({"sha": SHA, "tree": {"sha": "c" * 40}})
+
+    monkeypatch.setattr(source.requests, "get", get)
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source._runtime_commit_tree(SHA)
+    assert failure.value.reason_class == "timeout"
+    assert source.runtime_source_request_stats()["active_source_seconds"] == 601.0
+    assert source._runtime_commit_tree.cache_info().currsize == 0
+
+
+def test_malformed_source_json_is_schema_failure_without_private_response_text(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "source-test-token")
+
+    def decode():
+        raise source.requests.exceptions.JSONDecodeError("private response", "private token", 1)
+
+    monkeypatch.setattr(source.requests, "get", lambda *args, **kwargs:
+                        SimpleNamespace(content=b"{}", raise_for_status=lambda: None, json=decode))
+    with pytest.raises(source.RuntimeSourceError) as failure:
+        source._runtime_commit_tree(SHA)
+    assert failure.value.reason_class == "schema-drift"
+    assert failure.value.commit_sha == SHA
+    assert "private" not in str(failure.value)
+    assert source.runtime_source_request_stats()["request_starts"] == 1
