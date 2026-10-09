@@ -239,6 +239,29 @@ def test_early_ci_core_diagnostic_handles_a_missing_json_report_without_raw_erro
     assert result["candidate_errors"][0]["context"] == {"exit_code": 1}
 
 
+def test_early_ci_core_diagnostic_keeps_only_safe_current_core_collector_failures(tmp_path):
+    failure = {
+        "schema_version": 1, "surface": "ci_core", "collector": "collect_amd_test_matrix.py",
+        "step": "AMD test matrix", "reason_class": "command-error", "exit_code": 1,
+        "details": {"summary": "Frozen snapshot mismatch: expected #1000, found #1001 token=private-token agent_id=private-agent", "raw_log": "private-log"},
+    }
+    unrelated = {**failure, "surface": "agent_health", "step": "Unrelated collector"}
+    output = tmp_path / "early.json"
+    selector_module.write_ci_core_diagnostics(
+        tmp_path / "repo", output, None, 1, collector_failures=[failure, unrelated],
+    )
+    result = json.loads(output.read_text())
+    assert result["mode"] == "blocked"
+    for lane in ("candidate_errors", "final_errors"):
+        assert len(result[lane]) == 1
+        assert result[lane][0]["code"] == "ci-core-collector-unavailable"
+        assert result[lane][0]["surfaces"] == ["ci_core"]
+        assert "expected #1000, found #1001" in result[lane][0]["message"]
+        assert result[lane][0]["context"] == {"exit_code": 1, "reason_class": "command-error"}
+    for private in ("private-token", "private-agent", "private-log", "Unrelated collector"):
+        assert private not in output.read_text()
+
+
 def test_early_ci_core_report_with_errors_cannot_succeed_even_if_auditor_returns_zero():
     report = {"errors": [{"severity": "error", "code": "matrix-health-build", "message": "Current build mismatch"}],
               "degradations": [], "warnings": [], "metrics": {}}

@@ -2321,12 +2321,14 @@ class TestHourlyMasterWorkflow:
         for guard in (
             "inputs.dns_generation == ''", "inputs.queue_generation == ''",
             "steps.request-attempt.outputs.request_mode == 'reserved'",
-            "steps.collect-ci.outputs.cache_save == 'true'",
         ):
             assert guard in validation["if"]
+        assert "steps.collect-ci.outputs.cache_save" not in validation["if"]
         script = validation["run"]
         assert "if ! surface_is_current ci_core; then" in script
-        assert script.index("surface_is_current ci_core") < script.index('echo "audited=true"')
+        assert script.index("surface_is_current ci_core") < script.index('echo "diagnostics_ready=true"')
+        assert "export CI_CORE_COLLECTOR_FAILED=true" in script
+        assert "collector_failures=failures" in script
         assert '"--ci-core-only", "--format", "json"' in script
         assert "capture_output=True" in script
         assert "write_ci_core_diagnostics(" in script
@@ -2337,11 +2339,49 @@ class TestHourlyMasterWorkflow:
         assert "write_text(result.stdout" not in script
         artifact = steps[names.index("Upload current CI core validation diagnostics")]
         assert "always()" in artifact["if"]
-        assert "steps.ci-core-validation.outputs.audited == 'true'" in artifact["if"]
+        assert "steps.ci-core-validation.outputs.diagnostics_ready == 'true'" in artifact["if"]
         assert artifact["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
         assert artifact["with"]["path"] == "${{ runner.temp }}/ci-core-validation.json"
         assert artifact["with"]["retention-days"] == 7
         assert names.index("Collect build-pinned CI ownership parity") < names.index("Validate current CI core before analytics") < names.index("Upload current CI core validation diagnostics") < names.index("Prepare private analytics cache key")
+
+    def test_current_ci_core_workflow_records_collector_failure_without_running_audit(self, tmp_path, monkeypatch):
+        from vllm import select_publication_surfaces as selector
+
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        validation = next(step for step in steps if step.get("id") == "ci-core-validation")
+        inline = validation["run"].split("python - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+        monkeypatch.setenv("CI_CORE_COLLECTOR_FAILED", "true")
+        failures = tmp_path / "failures.jsonl"
+        failures.write_text(json.dumps({
+            "schema_version": 1, "surface": "ci_core", "collector": "collect_amd_test_matrix.py",
+            "step": "AMD test matrix", "reason_class": "command-error", "exit_code": 1,
+            "details": {"summary": "Frozen snapshot mismatch: expected #1000, found #1001 token=private-token agent_id=private-agent"},
+        }) + "\n")
+        monkeypatch.setenv("PUBLICATION_COLLECTOR_FAILURES_FILE", str(failures))
+
+        def unexpected_audit(*args, **kwargs):
+            pytest.fail("An unavailable core must not be audited as current")
+
+        monkeypatch.setattr(subprocess, "run", unexpected_audit)
+        with pytest.raises(SystemExit) as exited:
+            exec(compile(inline, "hourly-ci-core-collector-failure", "exec"), {})
+        assert exited.value.code == 0  # Final selection still enforces fallback proofs.
+        artifact = tmp_path / "ci-core-validation.json"
+        decoded = json.loads(artifact.read_text())
+        assert decoded["mode"] == "blocked"
+        error = decoded["candidate_errors"][0]
+        assert error["code"] == "ci-core-collector-unavailable"
+        assert "AMD test matrix" in error["message"]
+        assert "expected #1000, found #1001" in error["message"]
+        assert error["context"] == {"exit_code": 1, "reason_class": "command-error"}
+        assert "private-token" not in artifact.read_text()
+        assert "private-agent" not in artifact.read_text()
+        assert len(artifact.read_bytes()) <= selector.SELECTION_DIAGNOSTICS_MAX_BYTES
 
     @pytest.mark.parametrize("exit_code", [0, 1])
     def test_current_ci_core_workflow_writes_safe_artifact_and_preserves_actual_exit(self, tmp_path, monkeypatch, exit_code):

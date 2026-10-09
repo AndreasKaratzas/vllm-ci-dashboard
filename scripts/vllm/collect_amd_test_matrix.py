@@ -1339,99 +1339,29 @@ def frozen_or_analytics_job_index(
     return build_buildkite_job_index(frozen_build, shard_bases)
 
 
-def build_hotness_job_index(
-    hotness: dict[str, Any],
-    latest_build_number: int | str | None,
-    shard_bases: list[str],
-) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """Index exact Buildkite jobs omitted by parsed test-result analytics.
-
-    Hotness observes script jobs directly from Buildkite, including utility
-    steps that emit no pytest rows. Only evidence from the exact matrix build
-    is eligible so a newer PR build or an older nightly cannot leak into the
-    latest-nightly signal.
-    """
-    index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(
-        lambda: defaultdict(list)
-    )
-    if latest_build_number in (None, ""):
-        return index
-
-    expected_build = str(latest_build_number)
-    for row in hotness.get("test_groups", []) or []:
-        if not isinstance(row, dict):
-            continue
-        evidence = row.get("latest_evidence") or {}
-        if not isinstance(evidence, dict):
-            continue
-        if evidence.get("pipeline") != "ci":
-            continue
-        if str(evidence.get("build_number") or "") != expected_build:
-            continue
-
-        full_name = clean_label(evidence.get("job_name", ""))
-        agent_pool = _agent_pool_from_job_name(full_name)
-        arch = (
-            arch_from_agent_pool(agent_pool)
-            or arch_from_queue(row.get("hw", ""))
-        )
-        if not full_name or not arch:
-            continue
-
-        state = clean_label(evidence.get("state", "")).casefold()
-        if state == "soft_failed":
-            state = "soft_fail"
-        queue = (
-            f"amd_{agent_pool}"
-            if agent_pool
-            else clean_label(row.get("hw", ""))
-        )
-        job_id = clean_label(evidence.get("job_id", ""))
-        job_url = clean_label(evidence.get("job_url", ""))
-        if job_id:
-            job_url = (
-                f"https://buildkite.com/vllm/ci/builds/{expected_build}"
-                f"/steps/canvas?jid={job_id}&tab=output"
-            )
-        job = {
-            "name": full_name,
-            "raw_name": full_name,
-            "state": state,
-            "q": queue,
-            "url": job_url,
-            "job_id": job_id,
-            "matrix_source": "hotness_latest_build",
-        }
-        key = strip_shard_index(full_name, shard_bases)
-        index[arch][key].append(job)
-    return index
-
-
-def merge_latest_job_indexes(
-    primary: dict[str, dict[str, list[dict[str, Any]]]],
-    fallback: dict[str, dict[str, list[dict[str, Any]]]],
-) -> dict[str, dict[str, list[dict[str, Any]]]]:
-    """Fill missing matrix keys without overriding parsed analytics rows."""
-    for arch, groups in fallback.items():
-        primary_groups = primary.setdefault(arch, defaultdict(list))
-        for key, jobs in groups.items():
-            if not primary_groups.get(key):
-                primary_groups[key].extend(jobs)
-    return primary
-
-
 def latest_build_metadata(
     analytics_build: dict[str, Any] | None,
     ci_health: dict[str, Any],
     parity: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if isinstance(analytics_build, dict) and analytics_build.get("number"):
+    # Analytics still describes the previous publication when this collector
+    # runs before analytics. The fresh test-evidence build selects the exact
+    # frozen roster; old analytics must not choose its expected build number.
+    amd_health = ci_health.get("amd") or {}
+    amd_latest = {}
+    for key in ("latest_test_signal_build", "latest_build"):
+        candidate = amd_health.get(key)
+        candidate_number = (candidate.get("build_number") or candidate.get("number")) if isinstance(candidate, dict) else None
+        if type(candidate_number) is int and candidate_number > 0:
+            amd_latest = candidate
+            break
+    if not amd_latest and isinstance(analytics_build, dict) and analytics_build.get("number"):
         return analytics_build
-
-    amd_latest = ((ci_health.get("amd") or {}).get("latest_build") or {})
     number = amd_latest.get("build_number") or amd_latest.get("number") or parity.get("amd_build")
     if not number:
         return None
+
+    matching_analytics = analytics_build if isinstance(analytics_build, dict) and analytics_build.get("number") == number else {}
 
     created_at = clean_label(amd_latest.get("created_at", ""))
     date = amd_latest.get("date") or (created_at[:10] if created_at else None) or parity.get("amd_date")
@@ -1441,6 +1371,7 @@ def latest_build_metadata(
         or f"https://buildkite.com/vllm/ci/builds/{number}"
     )
     return {
+        **matching_analytics,
         "number": number,
         "created_at": created_at,
         "date": date,
