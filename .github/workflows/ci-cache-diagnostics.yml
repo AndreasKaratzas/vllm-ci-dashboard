@@ -16,6 +16,11 @@ on:
         description: Expected full immutable build commit
         required: true
         type: string
+      checkpoint_cache_key:
+        description: Optional exact parsed checkpoint key from the same collection attempt
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -45,6 +50,7 @@ jobs:
           CACHE_KEY: ${{ inputs.cache_key }}
           BUILD_NUMBER: ${{ inputs.build_number }}
           FULL_COMMIT: ${{ inputs.full_commit }}
+          CHECKPOINT_CACHE_KEY: ${{ inputs.checkpoint_cache_key }}
         run: python scripts/vllm/export_ci_cache_evidence.py --validate-inputs
 
       - name: Install validation dependencies
@@ -59,6 +65,15 @@ jobs:
           key: ${{ steps.request.outputs.cache_key }}
           fail-on-cache-miss: true
 
+      - name: Restore only the exact optional parsed checkpoint
+        id: checkpoint
+        if: steps.request.outputs.checkpoint_cache_key != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/ci-backfill-v1
+          key: ${{ steps.request.outputs.checkpoint_cache_key }}
+          fail-on-cache-miss: true
+
       - name: Export one validated AMD MI CI build
         id: export
         env:
@@ -68,6 +83,10 @@ jobs:
           CACHE_HIT: ${{ steps.restored.outputs.cache-hit }}
           CACHE_MATCHED_KEY: ${{ steps.restored.outputs.cache-matched-key }}
           CACHE_DIRECTORY: ${{ github.workspace }}/data/vllm/ci/.cache/analytics-builds-v1
+          CHECKPOINT_CACHE_KEY: ${{ steps.request.outputs.checkpoint_cache_key }}
+          CHECKPOINT_CACHE_HIT: ${{ steps.checkpoint.outputs.cache-hit }}
+          CHECKPOINT_CACHE_MATCHED_KEY: ${{ steps.checkpoint.outputs.cache-matched-key }}
+          CHECKPOINT_DIRECTORY: ${{ github.workspace }}/data/vllm/ci/.cache/ci-backfill-v1
           EVIDENCE_DIRECTORY: ${{ runner.temp }}/ci-cache-evidence
         run: python scripts/vllm/export_ci_cache_evidence.py
 
@@ -79,6 +98,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ci-cache-evidence/build.json
             ${{ runner.temp }}/ci-cache-evidence/receipt.json
+            ${{ runner.temp }}/ci-cache-evidence/parsed-results.jsonl
           if-no-files-found: error
           retention-days: 1
           compression-level: 9
