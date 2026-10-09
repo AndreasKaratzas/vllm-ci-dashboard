@@ -21,6 +21,11 @@ latency samples, shard durations, medians, retained public sections, and bounded
 publication proofs. Global/code defects stop publication; collector failures can
 restore a validated last-known-good source transaction within its explicit TTL.
 
+Physical AMD agent-health evidence also declares its current `ci` scope and
+exhaustive job-start interval. Older retained observations do not extend this
+proof. Date selections outside the current proved interval retain observed
+counts and links, with exact failure percentages unavailable.
+
 For release review, run deterministic pytest, lint/type checks, browser smoke
 checks, and a full assembled-bundle synthetic probe. After guarded canonical
 collection, verify the live source SHAs, latency sample dates, parity count,

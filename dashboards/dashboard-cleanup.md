@@ -65,6 +65,15 @@ AMD node-health percentages also use `ci` by default. Mixed legacy rollups are
 replaced by the freshly collected CI window when their pipeline scope cannot
 be separated; subsequent CI-only generations retain their scoped history.
 
+Physical node-health days follow job start time. Collection refreshes whole UTC
+days and discovers jobs through recently created builds, older builds finished
+within the refresh window, and older active builds. Every search must paginate
+completely before publication; a failed search preserves the previous generation.
+Exact failure percentages require a current started-job coverage proof for the
+selected days. Normal Actions refresh the default seven-day view in bounded
+daily slices. Retained observations from earlier refreshes remain available,
+but cannot establish an exhaustive sixty-day denominator on their own.
+
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,
 current source coverage, retired navigation, malformed legacy restore proofs,

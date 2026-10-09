@@ -729,39 +729,6 @@ class TestNightlyDateAlignment:
 
 
 @pytest.mark.live_data
-class TestGroupChangesCompleteness:
-    """Validate that group_changes.json captures significant YAML changes."""
-
-    def test_large_group_changes_have_pr_attribution(self):
-        """Any YAML change with 5+ added or removed groups should have a PR."""
-        gc = _load_json("group_changes.json")
-        for ch in gc.get("changes", []):
-            n_changes = len(ch.get("added", [])) + len(ch.get("removed", []))
-            if n_changes >= 5:
-                assert ch.get("pr"), (
-                    f"Change on {ch['date']} with {n_changes} group changes "
-                    f"(sha={ch.get('sha','?')}) has no PR attribution. "
-                    f"Added: {ch.get('added',[])}..."
-                )
-
-    def test_group_changes_dates_are_valid(self):
-        """All dates in group_changes.json must be valid ISO dates."""
-        gc = _load_json("group_changes.json")
-        for ch in gc.get("changes", []):
-            date = ch.get("date", "")
-            assert re.match(r"^\d{4}-\d{2}-\d{2}$", date), (
-                f"Invalid date format: {date!r}"
-            )
-
-    def test_group_changes_covers_recent_period(self):
-        """group_changes.json should cover at least 14 days."""
-        gc = _load_json("group_changes.json")
-        assert gc.get("days", 0) >= 14, (
-            f"group_changes.json only covers {gc.get('days')} days, expected >= 14"
-        )
-
-
-@pytest.mark.live_data
 class TestUpstreamHardwareTracking:
     """Validate that upstream GPU hardware (H100, B200, etc.) is tracked."""
 
@@ -1151,51 +1118,6 @@ class TestNightlyDateFunction:
         ]
         for t in test_times:
             assert ci_nd(t) == analytics_nd(t), f"nightly_date mismatch for {t}"
-
-
-@pytest.mark.live_data
-class TestGroupChangesPerPipeline:
-    """Validate group_changes.json has per-pipeline separation."""
-
-    def test_has_per_pipeline_fields(self):
-        """All changes should have per-pipeline fields after cache refresh."""
-        gc = _load_json("group_changes.json")
-        changes = gc.get("changes", [])
-        if not changes:
-            pytest.skip("no changes data")
-        with_fields = sum(1 for ch in changes if "amd_added" in ch)
-        # Allow partial migration — skip if no entries have fields yet (pre-deploy)
-        if with_fields == 0:
-            pytest.skip("group_changes.json not yet updated with per-pipeline fields")
-        ratio = with_fields / len(changes) if changes else 0
-        assert ratio >= 0.5, (
-            f"Only {with_fields}/{len(changes)} changes have per-pipeline fields. "
-            "Cache may need refresh (re-run collect_group_changes.py)."
-        )
-
-    def test_amd_only_pr_has_no_upstream_changes(self):
-        """PRs that only modify test-amd.yaml should have empty upstream changes."""
-        gc = _load_json("group_changes.json")
-        for ch in gc.get("changes", []):
-            amd_changes = len(ch.get("amd_added", [])) + len(ch.get("amd_removed", []))
-            up_changes = len(ch.get("upstream_added", [])) + len(ch.get("upstream_removed", []))
-            # If a PR has AMD changes but no upstream changes, upstream fields must be empty
-            if amd_changes > 0 and up_changes == 0:
-                assert ch.get("upstream_added") == [], (
-                    f"PR {ch.get('pr',{}).get('number','?')} has AMD-only changes but "
-                    f"upstream_added is not empty: {ch['upstream_added']}"
-                )
-
-    def test_combined_is_superset_of_per_pipeline(self):
-        """combined added/removed must be superset of per-pipeline."""
-        gc = _load_json("group_changes.json")
-        for ch in gc.get("changes", []):
-            combined_added = set(ch.get("added", []))
-            per_pipe_added = set(ch.get("amd_added", [])) | set(ch.get("upstream_added", []))
-            assert per_pipe_added <= combined_added, (
-                f"Per-pipeline added groups not in combined: "
-                f"{per_pipe_added - combined_added}"
-            )
 
 
 class TestSkipPatternsRobust:

@@ -338,8 +338,16 @@ test('CI health keeps configured health policy in AMD hardware', async ({ page }
   await expect(dialog).toContainText(`${total} configured AMD test groups`);
 });
 
-test('CI agent health discloses current pipeline scope and incomplete source history', async ({ page }) => {
-  const collectedFrom = '2026-10-05T20:00:00Z';
+const agentStartedScope = {
+  version: 1, basis: 'terminal_jobs_by_started_at', requested_days: 1,
+  collected_from: '2026-10-07T00:00:00Z', collected_to: '2026-10-08T20:00:00Z', exhaustive: true,
+  discovery_legs: {created: true, older_finished: true, older_active: true},
+  active_build_states: ['creating', 'scheduled', 'running', 'failing', 'blocked', 'canceling'],
+  attempt_policy: 'latest_attempt_per_step', terminal_time_policy: 'finished_at_or_terminal_build_bound_for_canceled',
+  complete_window: false,
+};
+
+async function routeAgentHistoryScope(page, scope) {
   await page.route('**/operations_v2/amd_agent_health.json*', async route => {
     const response = await route.fetch();
     const packet = await response.json();
@@ -350,8 +358,8 @@ test('CI agent health discloses current pipeline scope and incomplete source his
       failing_runs: [],
       failure_accounting: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', s: 'hard', i: 1, ng: 1, bc: 0, c: 1}],
       retention: {
-        byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3,
-        pipeline_scope: {collected_from: collectedFrom, complete_window: false},
+        configured_days: 60, byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 1, retained_day_count: 1,
+        pipeline_scope: scope,
       },
       operations_publication_retention: {
         node_days: {source: 1, published: 1, complete: true},
@@ -361,6 +369,10 @@ test('CI agent health discloses current pipeline scope and incomplete source his
     });
     await route.fulfill({json: packet});
   });
+}
+
+test('CI agent health discloses fresh started-job scope and keeps covered one-day rates', async ({ page }) => {
+  await routeAgentHistoryScope(page, agentStartedScope);
   await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
@@ -368,7 +380,9 @@ test('CI agent health discloses current pipeline scope and incomplete source his
   await expect(panel).not.toContainText('AMD nightly and upstream CI pipelines');
   const notice = panel.locator('.ops-evidence-note.is-warning');
   await expect(notice).toContainText('Agent-health pipeline history is incomplete');
-  await expect(notice).toContainText(collectedFrom);
+  await expect(notice).toContainText(agentStartedScope.collected_from);
+  await expect(notice).toContainText(agentStartedScope.collected_to);
+  await expect(notice).toContainText('Complete fresh UTC history');
   await expect(notice).toContainText('the full 60-day window is not yet complete');
   await expect(notice).not.toContainText('dropped 0 oldest UTC days');
   const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
@@ -384,6 +398,28 @@ test('CI agent health discloses current pipeline scope and incomplete source his
   await expect(row).toContainText('Unavailable');
   await expect(panel.locator('.ops-error')).toHaveCount(0);
 });
+
+for (const [name, scope] of [
+  ['legacy creation-only', {collected_from: '2026-08-01T00:00:00Z', complete_window: true}],
+  ['stale started-job', {...agentStartedScope, collected_to: '2026-10-08T19:00:00Z'}],
+  ['malformed started-job', {...agentStartedScope, discovery_legs: {...agentStartedScope.discovery_legs, older_active: false}}],
+]) {
+  test(`CI agent health keeps observed counts and hides rates for ${name} coverage`, async ({ page }) => {
+    await routeAgentHistoryScope(page, scope);
+    await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+    const panel = page.locator('#tab-ci-analytics');
+    await expect(panel.locator('.ops-loading')).toHaveCount(0);
+    await expect(panel.locator('.ops-evidence-note.is-warning')).toContainText('Complete agent-health history is unavailable');
+    await expect(panel).toContainText('Retained counts describe observed runs');
+    await panel.locator('.ops-agent-controls').getByRole('button', {name: '1d', exact: true}).click();
+    const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
+    await expect(row).toHaveCount(1);
+    await expect(row.locator('td').nth(2)).toHaveText('≥10');
+    await expect(row).toContainText('Unavailable');
+    await expect(row).not.toContainText('10.0%');
+    await expect(panel.locator('.ops-error')).toHaveCount(0);
+  });
+}
 
 test('CI health upstream parity exposes the main backlog and not-targeted set', async ({ page }) => {
   await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });

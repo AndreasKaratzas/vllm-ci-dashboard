@@ -625,12 +625,12 @@ class TestFrontendDataContract:
                     bad.append((g["name"], link.get("side"), link.get("hw")))
         assert not bad, f"Links without hw: {bad[:10]}"
 
-    def test_amd_links_point_to_amd_pipeline(self, parity):
-        """AMD links must point to amd-ci pipeline."""
+    def test_amd_links_point_to_ci_pipeline(self, parity):
+        """Current AMD runtime links must point to the shared ci pipeline."""
         bad = []
         for g in parity["job_groups"]:
             for link in g.get("job_links", []):
-                if link.get("side") == "amd" and "/amd-ci/" not in link.get("url", ""):
+                if link.get("side") == "amd" and "/ci/" not in link.get("url", ""):
                     bad.append((g["name"], link["url"]))
         assert not bad, f"AMD links with wrong pipeline: {bad[:5]}"
 

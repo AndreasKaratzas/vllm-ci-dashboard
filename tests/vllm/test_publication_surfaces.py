@@ -50,9 +50,10 @@ def test_surface_contract_version_has_one_owner() -> None:
     )
 
 
-def test_current_agent_health_scope_finding_routes_only_to_agent_health() -> None:
+@pytest.mark.parametrize("code", ["operations-agent-health-pipeline-scope", "operations-agent-health-started-coverage"])
+def test_current_agent_health_scope_finding_routes_only_to_agent_health(code) -> None:
     finding = Finding(
-        "error", "operations-agent-health-pipeline-scope",
+        "error", code,
         "Current agent health contains a legacy pipeline",
         "data/vllm/ci/operations_v2.json",
     )

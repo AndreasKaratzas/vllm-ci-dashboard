@@ -357,6 +357,7 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-agent-health-pipeline-scope": _OPS_AGENT_HEALTH,
     "operations-agent-health-queue-scope": _OPS_AGENT_HEALTH,
     "operations-agent-health-rollup-shape": _OPS_AGENT_HEALTH,
+    "operations-agent-health-started-coverage": _OPS_AGENT_HEALTH,
     # AMD test-health rows: membership comes from core test results; the
     # state-bearing variants also consume analytics job state.
     "operations-amd-build-count": _OPS_CORE,

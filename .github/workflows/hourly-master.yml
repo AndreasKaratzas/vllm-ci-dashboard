@@ -1778,15 +1778,15 @@ jobs:
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         # Walks every ci build on AMD GPU hardware (not just main nightlies) and
-        # merges the last few days into the 60-day node_days / infra_failures
-        # store, then reassembles agent_health.json.
+        # Refresh whole UTC job days across the default seven-day view. Older
+        # retained runs remain observed evidence within the 60-day store.
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector agent_health "AMD agent health" \
             python scripts/vllm/collect_agent_health.py \
-            --days 3 --pipeline ci --output data/vllm/ci/
+            --days 7 --pipeline ci --output data/vllm/ci/
 
       - name: Validate private perf-eval event store
         if: >-

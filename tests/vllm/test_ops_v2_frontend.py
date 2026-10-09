@@ -98,19 +98,67 @@ assert.equal(totals.hard, 10);
 assert.equal(totals.soft, 0);
 assert.equal(totals.signal, 10);
 const sourceComplete = sandbox.window.OpsV2Test.agentSourceHistoryComplete;
-assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 60}}), true);
-assert.equal(sourceComplete({retention: {byte_limited: true, dropped_oldest_day_count: 2, original_day_count: 60, retained_day_count: 58}}), false);
-assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 59}}), false);
-assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3, pipeline_scope: {collected_from: '2026-10-05T20:00:00Z', complete_window: false}}}), false);
-assert.equal(sourceComplete({retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3, pipeline_scope: {complete_window: true}}}), true);
-assert.equal(sourceComplete({retention: {byte_limited: true, dropped_oldest_day_count: 2, original_day_count: 60, retained_day_count: 58, pipeline_scope: {complete_window: true}}}), false);
-const partialScope = {generated_at: '2026-10-08T20:00:00Z', retention: {byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 3, retained_day_count: 3, pipeline_scope: {collected_from: '2026-10-05T20:00:00Z', complete_window: false}}};
+const oldCoverage = {pipelines: ['ci'], generated_at: '2026-10-08T20:00:00Z', max_window_days: 60,
+  retention: {configured_days: 60, byte_limited: false, dropped_oldest_day_count: 0, original_day_count: 60, retained_day_count: 60,
+    pipeline_scope: {collected_from: '2026-08-01T00:00:00Z', complete_window: true}}};
+assert.equal(sourceComplete(oldCoverage), false);
+assert.equal(sourceComplete(oldCoverage, '2026-10-07'), false);
+const proof = {version: 1, basis: 'terminal_jobs_by_started_at', requested_days: 1,
+  collected_from: '2026-10-07T00:00:00Z', collected_to: '2026-10-08T20:00:00Z', exhaustive: true,
+  discovery_legs: {created: true, older_finished: true, older_active: true},
+  active_build_states: ['creating', 'scheduled', 'running', 'failing', 'blocked', 'canceling'],
+  attempt_policy: 'latest_attempt_per_step', terminal_time_policy: 'finished_at_or_terminal_build_bound_for_canceled',
+  complete_window: false};
+const partialScope = {...oldCoverage, retention: {...oldCoverage.retention, pipeline_scope: proof}};
+assert.equal(sourceComplete(partialScope), false);
 assert.equal(sourceComplete(partialScope, '2026-10-07'), true);
 assert.equal(sourceComplete(partialScope, '2026-10-05'), false);
 assert.equal(sourceComplete(partialScope, '2026-10-01'), false);
 assert.equal(sourceComplete(partialScope, '2026-10-09'), false);
+assert.equal(sourceComplete({...partialScope, generated_at: '2026-10-08T21:00:00Z'}, '2026-10-07'), false);
+assert.equal(sourceComplete({...partialScope, pipelines: ['amd-ci', 'ci']}, '2026-10-07'), false);
+for (const mutation of [
+  {version: true}, {version: 2}, {requested_days: '1'}, {requested_days: 0}, {requested_days: 61},
+  {basis: 'build_created_at'}, {exhaustive: false}, {exhaustive: 'true'},
+  {discovery_legs: {created: true, older_finished: true, older_active: false}},
+  {discovery_legs: {...proof.discovery_legs, unrelated: true}},
+  {active_build_states: ['running']}, {active_build_states: [...proof.active_build_states, 'passed']},
+  {attempt_policy: 'all_attempts'}, {terminal_time_policy: ''}, {complete_window: true},
+  {collected_from: '2026-08-01T00:00:00Z'}, {collected_from: '2026-10-07T01:00:00Z'},
+  {collected_from: '2026-02-30T00:00:00Z'}, {collected_to: '2026-10-08T19:00:00Z'},
+  {collected_to: '2026-10-08T20:00:00.000Z'}, {collected_to: '2026-10-08T20:00:00+01:00'},
+]) {
+  assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, pipeline_scope: {...proof, ...mutation}}}, '2026-10-07'), false);
+}
+for (const field of Object.keys(proof)) {
+  const missing = {...proof}; delete missing[field];
+  assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, pipeline_scope: missing}}, '2026-10-07'), false);
+}
+assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention,
+  pipeline_scope: {...proof, collected_to: '2026-10-08T20:00:00+00:00'}}}, '2026-10-07'), true);
+for (const mutation of [
+  {configured_days: '60'}, {configured_days: true}, {configured_days: 59},
+  {byte_limited: 'false'}, {byte_limited: 0},
+  {original_day_count: -1}, {original_day_count: '60'}, {original_day_count: true},
+  {retained_day_count: -1}, {retained_day_count: 59}, {retained_day_count: 60.5},
+  {dropped_oldest_day_count: -1}, {dropped_oldest_day_count: '0'}, {dropped_oldest_day_count: false},
+]) {
+  assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, ...mutation}}, '2026-10-07'), false);
+}
+for (const field of ['configured_days', 'byte_limited', 'original_day_count', 'retained_day_count', 'dropped_oldest_day_count']) {
+  const missing = {...partialScope.retention}; delete missing[field];
+  assert.equal(sourceComplete({...partialScope, retention: missing}, '2026-10-07'), false);
+}
 assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, byte_limited: true}}, '2026-10-07'), false);
-assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, pipeline_scope: {complete_window: false}}}, '2026-10-07'), false);
+assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, dropped_oldest_day_count: 1}}, '2026-10-07'), false);
+assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, retained_day_count: 59}}, '2026-10-07'), false);
+const fullScope = {...partialScope, retention: {...partialScope.retention, pipeline_scope: {...proof,
+  requested_days: 60, collected_from: '2026-08-09T00:00:00Z', complete_window: true}}};
+assert.equal(sourceComplete(fullScope), true);
+assert.equal(sourceComplete(fullScope, '2026-08-09'), true);
+assert.equal(sourceComplete({...fullScope, retention: {...fullScope.retention,
+  pipeline_scope: {...fullScope.retention.pipeline_scope, complete_window: false}}}, '2026-10-07'), false);
+assert.equal(sourceComplete({...fullScope, retention: {...fullScope.retention, byte_limited: true}}, '2026-10-07'), false);
 const scopeLabel = sandbox.window.OpsV2Test.agentPipelineScopeLabel;
 assert.equal(scopeLabel({pipelines: ['ci']}), 'the ci pipeline');
 assert.equal(scopeLabel({pipelines: ['amd-ci', 'ci']}), 'the amd-ci and ci pipelines');
@@ -2190,7 +2238,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=32' in INDEX
+    assert 'assets/js/ops-v2.js?v=33' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS

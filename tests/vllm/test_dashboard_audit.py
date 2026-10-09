@@ -4973,3 +4973,127 @@ def test_manual_agent_health_audit_preserves_explicit_legacy_scope_compatibility
         "node_days": [], "failing_runs": [],
     }}, "manual-agent-health.json")
     assert audit.report.errors == []
+
+
+def _agent_started_coverage_fixture(days=3, dropped=0):
+    end = datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
+    start = (end - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return {
+        "pipelines": ["ci"], "generated_at": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "max_window_days": 60,
+        # Valid older observations remain outside a short fresh proof interval.
+        "node_days": [{"d": "2026-08-20", "nd": "old-observed-node", "a": [1, 0, 0, 0], "n": [0, 0, 0, 0]}],
+        "retention": {
+            "configured_days": 60, "original_day_count": 5, "byte_limited": dropped > 0,
+            "retained_day_count": 5 - dropped, "dropped_oldest_day_count": dropped,
+            "pipeline_scope": {
+                "version": 1, "basis": "terminal_jobs_by_started_at",
+                "requested_days": days, "collected_from": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "collected_to": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "exhaustive": True, "complete_window": days == 60 and dropped == 0,
+                "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
+                "active_build_states": ["creating", "scheduled", "running", "failing", "blocked", "canceling"],
+                "attempt_policy": "latest_attempt_per_step",
+                "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize("days,dropped", [(3, 0), (60, 0), (60, 1)])
+def test_agent_started_job_proof_validates_only_fresh_interval_and_retention(tmp_path, days, dropped):
+    health = _agent_started_coverage_fixture(days, dropped)
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", True), ("basis", "builds_by_created_at"), ("requested_days", True),
+    ("requested_days", 0), ("requested_days", 61),
+    ("collected_from", "2026-08-01T00:00:00Z"),
+    ("collected_from", "2026-10-06T12:00:00Z"),
+    ("collected_from", "2026-10-06T00:00:00"),
+    ("collected_from", "2026-10-06T00:00:00+03:00"),
+    ("collected_to", "2026-10-09T13:00:00Z"),
+    ("collected_to", "2026-10-09T12:00:00.123Z"),
+    ("exhaustive", 1), ("exhaustive", False),
+    ("discovery_legs", {"created": True, "older_finished": True}),
+    ("discovery_legs", {"created": 1, "older_finished": True, "older_active": True}),
+    ("discovery_legs", {"created": True, "older_finished": True, "older_active": True, "other": True}),
+    ("active_build_states", ["running"]), ("active_build_states", [{}]),
+    ("attempt_policy", "all_attempts"), ("terminal_time_policy", "state_only"),
+    ("complete_window", 1), ("complete_window", True),
+])
+def test_agent_started_job_proof_rejects_false_or_malformed_authority(tmp_path, field, value):
+    health = _agent_started_coverage_fixture()
+    health["retention"]["pipeline_scope"][field] = value
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert {finding.code for finding in audit.report.errors} == {"operations-agent-health-started-coverage"}
+
+
+@pytest.mark.parametrize("tamper", ["clock", "configured", "pruned", "accounting", "scope_type", "missing_byte_limit", "byte_limit_type"])
+def test_agent_started_job_proof_rejects_clock_and_pruned_complete_window(tmp_path, tamper):
+    health = _agent_started_coverage_fixture(60)
+    if tamper == "clock":
+        health["generated_at"] = "2026-10-09T11:00:00Z"
+    elif tamper == "configured":
+        health["retention"]["configured_days"] = 3
+    elif tamper == "pruned":
+        health["retention"]["dropped_oldest_day_count"] = 1
+        health["retention"]["retained_day_count"] = 4
+    elif tamper == "accounting":
+        health["retention"]["retained_day_count"] = 4
+    elif tamper == "missing_byte_limit":
+        del health["retention"]["byte_limited"]
+    elif tamper == "byte_limit_type":
+        health["retention"]["byte_limited"] = "false"
+    else:
+        health["retention"]["pipeline_scope"] = []
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert {finding.code for finding in audit.report.errors} == {"operations-agent-health-started-coverage"}
+
+
+@pytest.mark.parametrize("scope", [None, {}, {"collected_from": "2026-08-01T00:00:00Z", "complete_window": True}])
+def test_legacy_ci_history_remains_observed_without_started_job_authority(tmp_path, scope):
+    health = _agent_started_coverage_fixture()
+    health["retention"]["pipeline_scope"] = scope
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+def test_operations_entrypoint_validates_explicit_started_job_proof(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    health = _agent_started_coverage_fixture()
+    health["retention"]["pipeline_scope"]["complete_window"] = True
+    (ci / "operations_v2.json").write_text(json.dumps({"schema_version": 2, "amd_agent_health": health}))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=True)
+    audit.audit_operations_v2()
+    assert "operations-agent-health-started-coverage" in {finding.code for finding in audit.report.errors}
+
+
+@pytest.mark.parametrize("days", [3, 60])
+def test_started_job_proof_matches_real_generation_retention_contract(tmp_path, days):
+    from vllm.collect_agent_health import _prepare_generation
+
+    health = _agent_started_coverage_fixture(days)
+    now = datetime.fromisoformat(health["generated_at"].replace("Z", "+00:00"))
+    generation = _prepare_generation(
+        health["node_days"], [], now, pipelines=("ci",),
+        pipeline_scope=health["retention"]["pipeline_scope"],
+    )
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(generation["payload"], "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+def test_started_job_source_coverage_can_be_complete_with_bounded_failure_links(tmp_path):
+    health = _agent_started_coverage_fixture(60)
+    health["retention"]["byte_limited"] = True
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []

@@ -4990,7 +4990,7 @@ class TestAlertAutomationWorkflow:
         )
         command = collector["run"]
         assert "python scripts/vllm/collect_agent_health.py" in command
-        assert "--days 3 --pipeline ci --output data/vllm/ci/" in command
+        assert "--days 7 --pipeline ci --output data/vllm/ci/" in command
         assert "--pipeline both" not in command
         assert "--pipeline amd-ci" not in command
         assert "run_surface_collector agent_health" in command

@@ -39,7 +39,7 @@ with the two-file ledger):
 
 Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/vllm/collect_agent_health.py --days 60 --output data/vllm/ci/  # backfill
-    python scripts/vllm/collect_agent_health.py --days 3                           # incremental
+    python scripts/vllm/collect_agent_health.py --days 7                           # incremental
     python scripts/vllm/collect_agent_health.py --dry-run --days 7
 """
 
@@ -55,6 +55,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Callable
 
 # Add scripts/ to path so the vllm package is importable when run directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -108,11 +109,11 @@ UNIDENTIFIED_NODE = "(unidentified)"
 INFRA_SUSPECT_MIN_PASS_RATE = 0.5
 INFRA_SUSPECT_MIN_SAMPLES = 3
 
-# The hourly workflow refreshes three days.  A single upstream ``ci`` page with
+# The hourly workflow refreshes the default seven-day display. An upstream page with
 # 100 embedded job rosters is large enough to approach the HTTP timeout, so
-# split only that small incremental window into independent 24-hour requests.
+# split that incremental window into independent 24-hour requests.
 # Keeping the long backfill path unchanged avoids multiplying its API quota.
-MAX_INCREMENTAL_SLICE_DAYS = 3
+MAX_INCREMENTAL_SLICE_DAYS = DEFAULT_WINDOW_DAYS
 MAX_INCREMENTAL_SLICE_WORKERS = 3
 # The upstream ``ci`` pipeline embeds substantially larger job rosters than
 # ``amd-ci``.  At 100 builds per page, a current 24-hour response can approach
@@ -123,6 +124,10 @@ UPSTREAM_INCREMENTAL_PER_PAGE = 50
 
 # Explicit historical/manual collection can still select either or both slugs.
 AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
+# Documented states that may still contain newly completed jobs in old builds.
+# https://buildkite.com/docs/apis/rest-api/builds
+ACTIVE_BUILD_STATES = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
+TERMINAL_TIME_POLICY = "finished_at_or_terminal_build_bound_for_canceled"
 
 _QUEUE_RULE_RE = re.compile(r"^queue=(.+)$", re.IGNORECASE)
 
@@ -223,6 +228,85 @@ def _incremental_slices(
     return slices
 
 
+def _job_window_start(query_time: datetime, days: int) -> datetime:
+    """Refresh complete UTC job days, matching the ledger's day replacement."""
+    return (query_time.astimezone(timezone.utc) - timedelta(days=days)).replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    )
+
+
+def _aware_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
+
+
+def _observe_in_window(
+    slug: str,
+    build: dict,
+    job: dict,
+    nightly_re: re.Pattern | None,
+    window_start: datetime,
+    query_time: datetime,
+) -> dict | None:
+    """Require executed terminal runs whose timestamps prove the as-of window."""
+    if job.get("state") not in (
+        "passed", "failed", "timed_out", "broken", "expired", "canceled",
+        "soft_failed", "soft_fail",
+    ):
+        return None
+    row = _observe(slug, build, job, nightly_re)
+    if row is None:
+        return None
+    started = _aware_timestamp(job.get("started_at"))
+    if started is None:
+        if (
+            job.get("started_at") or row["state"] in ("pass", "soft")
+            or job.get("state") in ("failed", "timed_out")
+        ):
+            raise RuntimeError("agent-health terminal job has invalid started_at")
+        return None  # canceled/broken/expired jobs that never started are not runs
+    if not window_start <= started < query_time:
+        return None
+    finished = _aware_timestamp(job.get("finished_at"))
+    parent_finish_bound = False
+    if finished is None:
+        if job.get("finished_at"):
+            raise RuntimeError("agent-health terminal job has invalid finished_at")
+        if (
+            row["state"] == "canceled"
+            and build.get("state") in ("passed", "failed", "canceled")
+            and build.get("blocked") is not True
+        ):
+            finished = _aware_timestamp(build.get("finished_at"))
+            parent_finish_bound = True
+        if finished is None:
+            raise RuntimeError("agent-health terminal job has no provable finish time")
+    if finished < started:
+        raise RuntimeError("agent-health terminal job finished before it started")
+    if finished > query_time:
+        if parent_finish_bound:
+            raise RuntimeError("agent-health terminal job has no as-of finish bound")
+        return None
+    return row
+
+
+def _validate_discovered_build(build: object) -> dict:
+    if (
+        not isinstance(build, dict) or type(build.get("number")) is not int
+        or build["number"] <= 0
+    ):
+        raise RuntimeError("agent-health discovery returned an invalid build")
+    jobs = build.get("jobs")
+    if not isinstance(jobs, list) or not all(isinstance(job, dict) for job in jobs):
+        raise RuntimeError("agent-health discovery returned an invalid embedded job roster")
+    return build
+
+
 def _fetch_pipeline_builds(
     url: str,
     created_from: datetime,
@@ -230,6 +314,7 @@ def _fetch_pipeline_builds(
     days: int,
     *,
     incremental_per_page: int = 100,
+    project: Callable[[dict], dict] | None = None,
 ) -> list[dict]:
     """Fetch one pipeline's build/job payloads with bounded incremental fan-out.
 
@@ -242,9 +327,17 @@ def _fetch_pipeline_builds(
         "per_page": 100,
         "exclude_pipeline": "true",
     }
+
+    def fetch_slice(params: dict) -> list[dict]:
+        rows = _paginate(url, params)
+        if project is None:
+            return rows
+        # Release each full daily roster after validation/projection instead of
+        # retaining seven days of large embedded responses in completed futures.
+        return [project(_validate_discovered_build(build)) for build in rows]
+
     if days > MAX_INCREMENTAL_SLICE_DAYS:
-        return _paginate(
-            url,
+        return fetch_slice(
             {**base_params, "created_from": created_from.isoformat()},
         )
 
@@ -260,8 +353,7 @@ def _fetch_pipeline_builds(
     ) as executor:
         pending = {
             executor.submit(
-                _paginate,
-                url,
+                fetch_slice,
                 {
                     **incremental_params,
                     "created_from": start.isoformat(),
@@ -280,6 +372,8 @@ def _fetch_pipeline_builds(
     for rows in reversed(results):
         assert rows is not None
         for build in rows:
+            if project is None:
+                build = _validate_discovered_build(build)
             build_number = build.get("number")
             if build_number is not None and build_number in seen_builds:
                 continue
@@ -296,13 +390,26 @@ def _fetch_pipeline_observations(
     query_time: datetime | None = None,
 ) -> list[dict]:
     query_time = query_time or datetime.now(timezone.utc)
-    created_from = query_time - timedelta(days=days)
+    created_from = _job_window_start(query_time, days)
     url = f"{cfg.BK_API_BASE}/organizations/{cfg.BK_ORG}/pipelines/{slug}/builds"
     # NB: we deliberately do NOT request include_retried_jobs. The upstream ``ci``
     # pipeline has thousands of builds over 60d; pulling every superseded attempt
     # inline makes pages huge and the endpoint time out. The latest attempt per
     # job still carries the node tag + terminal state, which is what node-health
     # needs, and this keeps both the backfill and the hourly incremental fast.
+    nightly_re = None
+    pattern = NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug)
+    if pattern:
+        nightly_re = re.compile(pattern, re.IGNORECASE)
+
+    def project(build: dict) -> dict:
+        observations = []
+        for job in build["jobs"]:
+            row = _observe_in_window(slug, build, job, nightly_re, created_from, query_time)
+            if row is not None:
+                observations.append(row)
+        return {"number": build["number"], "observations": observations}
+
     builds = _fetch_pipeline_builds(
         url,
         created_from,
@@ -311,17 +418,29 @@ def _fetch_pipeline_observations(
         incremental_per_page=(
             UPSTREAM_INCREMENTAL_PER_PAGE if slug == "ci" else 100
         ),
+        project=project,
     )
-    nightly_re = None
-    pattern = NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug)
-    if pattern:
-        nightly_re = re.compile(pattern, re.IGNORECASE)
-    obs: list[dict] = []
-    for build in builds:
-        for job in build.get("jobs") or []:
-            row = _observe(slug, build, job, nightly_re)
-            if row is not None:
-                obs.append(row)
+    # Created-time discovery alone omits recent jobs belonging to older builds.
+    # Fetch only that disjoint older cohort, keeping jobs embedded and all
+    # existing same-origin pagination, safety caps, and request guards intact.
+    old_params = {
+        "per_page": UPSTREAM_INCREMENTAL_PER_PAGE if slug == "ci" else 100,
+        "exclude_pipeline": "true",
+        "created_to": created_from.isoformat(),
+    }
+    older_finished = [
+        project(_validate_discovered_build(build))
+        for build in _paginate(url, {**old_params, "finished_from": created_from.isoformat()})
+    ]
+    older_active = [
+        project(_validate_discovered_build(build))
+        for build in _paginate(url, {**old_params, "state[]": list(ACTIVE_BUILD_STATES)})
+    ]
+    by_number: dict = {}
+    for build in [*builds, *older_finished, *older_active]:
+        by_number[build["number"]] = build
+    builds = list(by_number.values())
+    obs = [row for build in builds for row in build["observations"]]
     log.info("Pipeline %s: %d builds -> %d AMD GPU observations", slug, len(builds), len(obs))
     return obs
 
@@ -503,8 +622,7 @@ def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cuto
 def _scoped_retained_history(
     output_dir: Path,
     pipelines: tuple[str, ...],
-    query_from: datetime,
-) -> tuple[list[dict], list[dict], datetime]:
+) -> tuple[list[dict], list[dict]]:
     """Reuse rollups only when their paired generation proves the same scope.
 
     Older node-day rows combine both pipelines and cannot be decomposed into
@@ -535,38 +653,10 @@ def _scoped_retained_history(
                 "(%d node-days, %d failure rows)",
                 list(pipelines), len(node_days), len(failing),
             )
-        return [], [], query_from
+        return [], []
 
     failing = [row for row in failing if row.get("p") in pipelines]
-    collected_from = query_from
-    retention = summary.get("retention") or {}
-    scope = (retention.get("pipeline_scope") or {}) if isinstance(retention, dict) else {}
-    value = scope.get("collected_from") if isinstance(scope, dict) else None
-    previous_end = summary.get("generated_at")
-    if isinstance(value, str) and isinstance(previous_end, str):
-        try:
-            previous_start = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            previous_end = datetime.fromisoformat(previous_end.replace("Z", "+00:00"))
-        except ValueError:
-            previous_start = None
-            previous_end = None
-        if (
-            previous_start is not None and previous_start.tzinfo is not None
-            and previous_end is not None and previous_end.tzinfo is not None
-            and previous_end >= query_from
-        ):
-            collected_from = min(query_from, previous_start.astimezone(timezone.utc))
-    if isinstance(retention, dict) and retention.get("dropped_oldest_day_count"):
-        retained_start = retention.get("retained_start")
-        if isinstance(retained_start, str):
-            try:
-                retained_from = datetime.strptime(retained_start, "%Y-%m-%d").replace(
-                    tzinfo=timezone.utc,
-                )
-            except ValueError:
-                retained_from = query_from
-            collected_from = min(query_from, max(collected_from, retained_from))
-    return node_days, failing, collected_from
+    return node_days, failing
 
 
 def _assemble(
@@ -714,7 +804,10 @@ def _prepare_generation(
                 },
             }
             if pipeline_scope is not None:
-                retention["pipeline_scope"] = pipeline_scope
+                retention["pipeline_scope"] = {
+                    **pipeline_scope,
+                    "complete_window": bool(pipeline_scope.get("complete_window")) and not dropped_days,
+                }
             payload = _assemble(
                 retained_node_days,
                 published_failing,
@@ -928,7 +1021,7 @@ def _publish_generation(output_dir: Path, generation: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--days", type=int, default=3, help="How many days back to walk (max 60).")
+    parser.add_argument("--days", type=int, default=DEFAULT_WINDOW_DAYS, help="How many days back to walk (max 60).")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Data dir.")
     parser.add_argument(
         "--pipeline", choices=("amd-ci", "ci", "both"), default="ci",
@@ -943,7 +1036,7 @@ def main() -> int:
 
     days = max(1, min(args.days, MAX_WINDOW_DAYS))
     slugs = AGENT_HEALTH_SLUGS if args.pipeline == "both" else (args.pipeline,)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
 
     obs: list[dict] = []
     for slug in slugs:
@@ -972,11 +1065,11 @@ def main() -> int:
         log.info("[dry-run] sample failure: %s", json.dumps(fresh_failing[:2], ensure_ascii=False))
         return 0
 
-    query_from = now - timedelta(days=days)
+    query_from = _job_window_start(now, days)
     earliest_day = query_from.strftime("%Y-%m-%d")
     cutoff_day = (now - timedelta(days=MAX_WINDOW_DAYS)).strftime("%Y-%m-%d")
-    stored_node_days, stored_failing, collected_from = _scoped_retained_history(
-        args.output, slugs, query_from,
+    stored_node_days, stored_failing = _scoped_retained_history(
+        args.output, slugs,
     )
 
     node_days = _merge_by_day(
@@ -991,8 +1084,17 @@ def main() -> int:
     generation = _prepare_generation(
         node_days, failing, now, pipelines=slugs,
         pipeline_scope={
-            "collected_from": collected_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "complete_window": collected_from <= now - timedelta(days=MAX_WINDOW_DAYS),
+            "version": 1,
+            "basis": "terminal_jobs_by_started_at",
+            "collected_from": query_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "collected_to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "requested_days": days,
+            "exhaustive": True,
+            "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
+            "active_build_states": list(ACTIVE_BUILD_STATES),
+            "attempt_policy": "latest_attempt_per_step",
+            "terminal_time_policy": TERMINAL_TIME_POLICY,
+            "complete_window": query_from <= now - timedelta(days=MAX_WINDOW_DAYS),
         },
     )
     _publish_generation(args.output, generation)
