@@ -915,6 +915,49 @@ def test_current_mi_cache_requires_exact_bounded_source_index(tmp_path, change):
     assert not (_cache_dir(tmp_path) / "ci.json").exists()
 
 
+def test_current_cache_retains_empty_mi_free_build_without_inventing_source_proof(tmp_path):
+    build = _build()
+    build["jobs"] = []
+    original = __import__("copy").deepcopy(build)
+    cache.write_build_cache(
+        _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+        last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+        current_only=True,
+    )
+    loaded = _load(tmp_path)
+    assert loaded.valid and len(loaded.builds) == 1
+    row = loaded.builds[0]
+    assert row["number"] == build["number"] and row["state"] == build["state"]
+    assert row["jobs"] == [] and row["jobs_complete"] is True
+    assert not {"hardware_scope", "source_scope_index", "source_scope_commit", "source_definition_tree_sha"} & set(row)
+    assert build == original
+
+
+@pytest.mark.parametrize("tamper", ["missing-index", "wrong-tree", "wrong-scope", "restored-cpu-annotation", "incomplete-roster"])
+def test_empty_current_cache_roster_does_not_hide_execution_proof_or_roster_defects(tmp_path, tamper):
+    build = _build()
+    if tamper == "restored-cpu-annotation":
+        build["jobs"][0].update(agent_query_rules=["queue=amd_mi300_1"], source_no_gpu=True)
+    elif tamper == "incomplete-roster":
+        build.update(jobs=[], jobs_complete=False)
+    else:
+        _mi_scope([build])
+        build["jobs"] = []
+        if tamper == "missing-index":
+            del build["source_scope_index"]
+        elif tamper == "wrong-scope":
+            build["hardware_scope"] = "cuda_gpu"
+        else:
+            build["source_scope_index"]["definition_tree_sha"] = "b" * 40
+    with pytest.raises(cache.CacheValidationError):
+        cache.write_build_cache(
+            _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+            last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+            current_only=True,
+        )
+    assert not (_cache_dir(tmp_path) / "ci.json").exists()
+
+
 
 def _source_index(commit="a" * 40):
     return {"version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,

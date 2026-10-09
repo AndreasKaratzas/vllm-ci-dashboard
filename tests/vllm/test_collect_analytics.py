@@ -2736,3 +2736,146 @@ def test_conflicting_embedded_exact_source_indexes_stop_before_acquisition(monke
     monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("contradictory cached proof must not acquire source"))
     with pytest.raises(definitions.RuntimeSourceError, match="reason_class=schema-drift"):
         ca._current_mi_builds([first, second], "ci")
+
+
+@pytest.mark.parametrize("roster", ["empty", "foreign-and-cpu"])
+def test_complete_mi_free_build_keeps_metadata_without_source_acquisition_and_caches(tmp_path, monkeypatch, roster):
+    import vllm.main_ci_definitions as definitions
+
+    build = _raw_api_build(88829, state="failed")
+    build["commit"] = "9d4d9aa5bceddb78219525cb1516d8042860fbab"
+    original_job = build["jobs"][0]
+    build["jobs"] = [] if roster == "empty" else [
+        {**original_job, "id": "cuda", "agent_query_rules": ["queue=gh200_queue"],
+         "name": ":amd: (MI250) stale decoration"},
+        {**original_job, "id": "cpu", "agent_query_rules": ["queue=cpu_queue"]},
+        {**original_job, "id": "explicit-cpu", "no_gpu": True},
+        {**original_job, "id": "trigger", "type": "trigger"},
+    ]
+    original = copy.deepcopy(build)
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("MI-free roster cannot require source"))
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", lambda *_args, **_kwargs: pytest.fail("MI-free metadata cannot fabricate source proof"))
+
+    scoped = ca._current_mi_builds([build], "ci")
+    assert scoped == [{**original, "jobs": []}]
+    assert build == original
+    assert ca._SOURCE_SCOPE_INDEXES == {}
+    assert ca.summarize_pipeline_builds("ci", scoped) == []
+
+    cache_dir = tmp_path / ca.CACHE_DIR_NAME
+    ca.write_build_cache(
+        cache_dir, "ci", builds=scoped, watermark=NOW, window_days=30,
+        last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+        current_only=True,
+    )
+    loaded = ca.load_build_cache(cache_dir, "ci", cutoff=NOW - timedelta(days=30), window_days=30, ref_now=NOW)
+    assert loaded.valid and loaded.builds == ca.sanitize_builds(scoped, "ci")
+    assert loaded.complete_from == NOW - timedelta(days=30)
+    assert loaded.watermark == loaded.last_full_at == NOW
+    assert loaded.builds[0]["number"] == build["number"]
+    assert loaded.builds[0]["state"] == "failed"
+    assert loaded.builds[0]["jobs_complete"] is True
+    assert not any(key in loaded.builds[0] for key in ("hardware_scope", "source_scope_index", "source_scope_commit", "source_definition_tree_sha"))
+
+
+@pytest.mark.parametrize("restored_annotation", [False, True])
+def test_mi_cpu_offload_candidate_still_requires_exact_source_even_with_restored_cpu_annotation(monkeypatch, restored_annotation):
+    import vllm.main_ci_definitions as definitions
+
+    build = _raw_api_build(123)
+    build["jobs"][0]["name"] = ":amd: (MI300) GPU CPU offload tests"
+    if restored_annotation:
+        build["jobs"][0]["source_no_gpu"] = True
+    original = copy.deepcopy(build)
+    calls = []
+
+    def unavailable(pins):
+        calls.append(pins)
+        raise definitions.RuntimeSourceError(reason_class="dependency-unavailable", commit_sha=build["commit"], phase="batch")
+
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", unavailable)
+    with pytest.raises(definitions.RuntimeSourceError, match="reason_class=dependency-unavailable"):
+        ca._current_mi_builds([build], "ci")
+    assert calls == [[build["commit"]]]
+    assert build == original
+
+
+@pytest.mark.parametrize("roster", [None, [None], [], "missing"])
+def test_mi_free_source_skip_requires_a_complete_validated_roster(monkeypatch, roster):
+    import vllm.main_ci_definitions as definitions
+
+    build = _raw_api_build(123)
+    if roster == "missing":
+        del build["jobs"]
+    else:
+        build["jobs"] = roster
+    if roster == []:
+        build["jobs_complete"] = False
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("invalid roster must fail before acquisition"))
+    with pytest.raises(definitions.RuntimeSourceError, match="reason_class=schema-drift"):
+        ca._current_mi_builds([build], "ci")
+
+
+@pytest.mark.parametrize("tamper", ["provided", "restored-conflict", "embedded-commit", "embedded-tree", "embedded-null"])
+def test_empty_roster_does_not_bypass_invalid_or_conflicting_immutable_proof(monkeypatch, tamper):
+    import vllm.main_ci_definitions as definitions
+
+    build = _raw_api_build(123)
+    build["jobs"] = []
+    index = _review_source_index(build["commit"])
+    provided = {}
+    if tamper in {"provided", "restored-conflict"}:
+        provided[build["commit"]] = copy.deepcopy(index)
+        if tamper == "provided":
+            provided[build["commit"]]["commit_sha"] = "d" * 40
+        else:
+            conflicting = copy.deepcopy(index)
+            conflicting["definition_tree_sha"] = "b" * 40
+            monkeypatch.setattr(ca, "_SOURCE_SCOPE_INDEXES", {build["commit"]: conflicting})
+    else:
+        build.update(hardware_scope="amd_mi_gpu", source_scope_commit=build["commit"],
+                     source_definition_tree_sha=index["definition_tree_sha"], source_scope_index=copy.deepcopy(index))
+        if tamper == "embedded-commit":
+            build["source_scope_index"]["commit_sha"] = "d" * 40
+        elif tamper == "embedded-tree":
+            build["source_definition_tree_sha"] = "b" * 40
+        else:
+            build["source_scope_index"] = None
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("invalid proof must not be bypassed or reacquired"))
+    with pytest.raises(definitions.RuntimeSourceError, match="reason_class=schema-drift"):
+        ca._current_mi_builds([build], "ci", scope_indexes=provided)
+
+
+def test_source_only_warmup_skips_authenticated_mi_free_metadata_and_preserves_raw_cache(tmp_path, monkeypatch):
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+
+    gpu = _raw_api_build(1)
+    gpu["jobs"][0].update(name=":amd: (MI300) GPU CPU offload", source_no_gpu=True)
+    empty = _raw_api_build(2)
+    empty["commit"] = "9d4d9aa5bceddb78219525cb1516d8042860fbab"
+    empty["jobs"] = []
+    foreign = _raw_api_build(3)
+    foreign["jobs"][0]["agent_query_rules"] = ["queue=gh200_queue"]
+    analytics = _write_test_build_cache(tmp_path, builds=[gpu, empty, foreign])
+    before = {str(path.relative_to(analytics)): path.read_bytes() for path in analytics.rglob("*") if path.is_file()}
+    primed = []
+    derived = []
+
+    def prime(pins):
+        primed.append(pins)
+        assert pins == [gpu["commit"]]
+
+    def annotate(build):
+        derived.append(build["commit"])
+        assert build == {"commit": gpu["commit"], "jobs": []}
+        return {"source_scope_index": _review_source_index(build["commit"])}
+
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", prime)
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    source = analytics.parent / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    result = ca.prewarm_runtime_source_indexes(analytics, source)
+    assert result["complete"] is True and result["inventory_pins"] == result["resolved_new_pins"] == 1
+    assert primed == [[gpu["commit"]]] and derived == [gpu["commit"]]
+    assert set(cache.read_runtime_source_indexes(source)) == {gpu["commit"]}
+    assert before == {str(path.relative_to(analytics)): path.read_bytes() for path in analytics.rglob("*") if path.is_file()}

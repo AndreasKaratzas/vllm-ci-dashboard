@@ -864,9 +864,28 @@ def write_build_cache(
     if current_only:
         if pipeline != "ci":
             raise CacheValidationError("pipeline_mismatch", "current-only cache must use ci")
-        builds = [{**build, "hardware_scope": "amd_mi_gpu", "jobs": [
-            job for job in build.get("jobs") or [] if is_amd_ci_job(job)
-        ]} for build in builds]
+        scoped_builds = []
+        for build in builds:
+            raw_jobs = build.get("jobs")
+            if (not isinstance(raw_jobs, list) or any(not isinstance(job, dict) for job in raw_jobs)
+                    or build.get("jobs_complete", True) is not True):
+                raise CacheValidationError("query_mismatch", "current-only cache requires a complete job roster")
+            if "hardware_scope" in build and build["hardware_scope"] != "amd_mi_gpu":
+                raise CacheValidationError("query_mismatch", "current-only cache has an invalid hardware scope")
+            source_claimed = any(key in build for key in (
+                "hardware_scope", "source_scope_commit", "source_definition_tree_sha", "source_scope_index",
+            ))
+            if not source_claimed and any(is_amd_ci_job({key: value for key, value in job.items()
+                                                       if key != "source_no_gpu"}) for job in raw_jobs):
+                raise CacheValidationError("query_mismatch", "MI cache requires immutable execution source proof")
+            jobs = [job for job in raw_jobs if is_amd_ci_job(job)]
+            scoped = {**build, "jobs": jobs}
+            # An empty MI-free roster is build metadata, not an immutable
+            # source proof. Existing MI claims still require full validation.
+            if jobs or source_claimed:
+                scoped["hardware_scope"] = "amd_mi_gpu"
+            scoped_builds.append(scoped)
+        builds = scoped_builds
     projected = sanitize_builds(builds, pipeline)
     projected = merge_builds([], projected, cutoff=complete_from)
     generated_at_text = _timestamp(updated_at, "updated_at", required=True)
@@ -1453,12 +1472,15 @@ def _cache_at_source_clock(cache_dir: Path, *, ref_now: datetime | None = None) 
 
 
 def cached_runtime_source_commits(cache_dir: Path, *, ref_now: datetime | None = None) -> list[str]:
-    """Return only exact source pins from the hash-bound private CI inventory."""
+    """Return exact pins needed for MI candidates or incomplete cached rosters."""
     cached = _cache_at_source_clock(cache_dir, ref_now=ref_now)
     if cached is None:
         raise CacheValidationError("invalid_inventory", "source prewarm requires an authenticated private CI cache")
     return sorted({str(build["commit"]) for build in cached.builds
-                   if isinstance(build.get("commit"), str) and _SHA_RE.fullmatch(build["commit"])})
+                   if isinstance(build.get("commit"), str) and _SHA_RE.fullmatch(build["commit"])
+                   and (build.get("jobs_complete") is not True
+                        or any(is_amd_ci_job({key: value for key, value in job.items()
+                                             if key != "source_no_gpu"}) for job in build["jobs"]))})
 
 
 def load_source_scope_indexes(cache_dir: Path, *, ref_now: datetime | None = None) -> dict[str, dict]:

@@ -1254,16 +1254,32 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
     )
     indexes = {}
     commits = []
+    source_required = set()
     for build in builds:
         commit = str(build.get("commit") or "").strip().casefold()
         commits.append(commit)
         try:
+            jobs = build.get("jobs")
+            if (not isinstance(jobs, list) or any(not isinstance(job, dict) for job in jobs)
+                    or build.get("jobs_complete", True) is not True):
+                raise ValueError("runtime source scope requires a complete job roster")
+            # A restored source annotation cannot prove that an MI roster is
+            # empty. Only raw routing and explicit execution metadata decide
+            # whether the immutable CPU-definition join is needed.
+            needs_source = any(is_amd_ci_job({key: value for key, value in job.items()
+                                             if key != "source_no_gpu"}) for job in jobs)
+            if needs_source:
+                source_required.add(commit)
+            else:
+                # Keep build metadata for the exhaustive all-main cohort, but
+                # validate every row before discarding irrelevant execution.
+                sanitize_builds([build], pipeline_slug)
             provided = (scope_indexes or {}).get(commit)
             restored = _SOURCE_SCOPE_INDEXES.get(commit)
             if provided is not None and restored is not None and provided != restored:
                 raise ValueError("conflicting exact source indexes")
             index = provided if provided is not None else restored
-            if build.get("hardware_scope") == "amd_mi_gpu" and build.get("source_scope_index") is not None:
+            if "source_scope_index" in build:
                 embedded = validate_runtime_scope_index(build["source_scope_index"], expected_commit=commit)
                 if (build.get("source_scope_commit") != commit
                         or build.get("source_definition_tree_sha") != embedded["definition_tree_sha"]
@@ -1281,7 +1297,8 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
                 reason_class="schema-drift", commit_sha=commit,
             ) from None
 
-    missing = list(dict.fromkeys(commit for commit in commits if commit not in indexes))
+    missing = list(dict.fromkeys(commit for commit in commits
+                                if commit in source_required and commit not in indexes))
     for offset in range(0, len(missing), RUNTIME_SOURCE_BATCH_SIZE):
         batch = missing[offset:offset + RUNTIME_SOURCE_BATCH_SIZE]
         prewarm_runtime_snapshots(batch)
@@ -1312,6 +1329,11 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
 
     scoped = []
     for build, commit in zip(builds, commits):
+        if commit not in indexes:
+            # No MI candidate exists in this complete roster. Do not fabricate
+            # a source index or hardware proof for its metadata-only record.
+            scoped.append({**build, "jobs": []})
+            continue
         # All pins are proved and checkpointed before joining current rosters.
         # Restored per-job annotations never authorize current execution scope.
         build = annotate_runtime_source_scope(build, scope_index=indexes[commit])
