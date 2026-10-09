@@ -1660,7 +1660,7 @@ class TestHourlyMasterWorkflow:
             ("Collect vLLM/Omni AMD workload mappings", "queue_workload"),
             ("Refresh Omni surge heuristic", "queue_omni"),
             ("Collect CI data", "ci_core"),
-            ("Collect AMD agent health (all builds, all branches)", "agent_health"),
+            ("Collect AMD MI agent health (ci/main builds)", "agent_health"),
             ("Validate private perf-eval event store", "perf_eval"),
             ("Ingest perf-eval artifacts from Buildkite", "perf_eval"),
             ("Collect GitHub data", "github_home"),
@@ -2116,7 +2116,7 @@ class TestHourlyMasterWorkflow:
         assert "always()" in save["if"]
         assert "runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'" in save["if"]
         assert "collect-analytics.outputs.cache_save" not in save["if"]
-        for name in ("Collect CI data", "Collect CI analytics", "Collect AMD agent health (all builds, all branches)", "Collect vLLM/Omni AMD workload mappings"):
+        for name in ("Collect CI data", "Collect CI analytics", "Collect AMD MI agent health (ci/main builds)", "Collect vLLM/Omni AMD workload mappings"):
             assert hourly[names.index(name)]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
 
         queue_job = _load_workflow("queue-monitor.yml")["jobs"]["snapshot"]
@@ -2240,7 +2240,7 @@ class TestHourlyMasterWorkflow:
             "Collect vLLM/Omni AMD workload mappings",
             "Collect CI data",
             "Collect CI analytics",
-            "Collect AMD agent health (all builds, all branches)",
+            "Collect AMD MI agent health (ci/main builds)",
             "Ingest perf-eval artifacts from Buildkite",
         }
         buildkite_steps = {
@@ -5130,13 +5130,14 @@ class TestAlertAutomationWorkflow:
         steps = next(iter(data["jobs"].values()))["steps"]
         collector = next(
             step for step in steps
-            if step.get("name") == "Collect AMD agent health (all builds, all branches)"
+            if step.get("name") == "Collect AMD MI agent health (ci/main builds)"
         )
         command = collector["run"]
         assert "python scripts/vllm/collect_agent_health.py" in command
-        assert "--days 7 --pipeline ci --day-basis build-created --output data/vllm/ci/" in command
+        assert "--days 7 --pipeline ci --branch main --day-basis build-created --output data/vllm/ci/" in command
         assert "--pipeline both" not in command
         assert "--pipeline amd-ci" not in command
+        assert "--branch all" not in command
         assert "run_surface_collector agent_health" in command
 
     def test_alert_watchers_restore_state_and_run_after_collection(self):
@@ -5151,7 +5152,7 @@ class TestAlertAutomationWorkflow:
         assert "origin/gh-pages" not in restore_run
 
         amd_collect = names.index("Collect CI analytics")
-        agent_collect = names.index("Collect AMD agent health (all builds, all branches)")
+        agent_collect = names.index("Collect AMD MI agent health (ci/main builds)")
         ci_watch = names.index(
             "Watch AMD MI main CI test-group failures (open/close issue)"
         )

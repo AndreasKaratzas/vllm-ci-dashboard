@@ -84,30 +84,33 @@ refresh once before their cached results are reused.
 
 Current runtime validation requires concrete MI GPU queue routing and excludes
 CPU-only source steps, including those scheduled on an MI queue. Hardware
-labels come from verified MI execution. Physical AMD MI node-health percentages
-also use `ci` by default. Mixed legacy rollups are
-replaced by the freshly collected CI window when their pipeline scope cannot
-be separated; subsequent CI-only generations retain their scoped history.
+labels come from verified MI execution. Normal physical AMD MI node-health
+percentages use `ci/main`. Mixed pipeline or all-branch legacy rollups are
+replaced by the freshly collected main window when their scope cannot
+be separated; subsequent matching main generations retain their scoped history.
 
-Normal physical node health measures terminal AMD runs from current `ci` builds
+Normal physical node health measures terminal AMD MI runs from current `ci/main` builds
 created in the selected UTC window. Whole UTC creation-day slices exhaust this
-finite cohort across every branch and trigger. Version-two proof explicitly
-names its build-creation eligibility and day basis. Both rollups and failure
+finite main-branch cohort across its triggers. Version-three proof explicitly
+names the branch, build-creation eligibility, and day basis. Both rollups and failure
 membership use the parent's creation day; actual start/finish timestamps remain
 unchanged for timelines and co-failure analysis. Pending/running executions do
 not enter this terminal denominator. A canceled run without its own finish
 still requires a final unblocked parent completion bound. The table names this
 cohort and shows the exact interval; it does not claim to cover recent jobs
-belonging to older builds. Both private ledgers reset when their pipeline or
-day basis changes, so old start-day buckets cannot become creation-day counts.
+belonging to older builds. Both private ledgers change together only after a
+successful collection when their pipeline, branch, or day basis changes, so
+old all-branch or start-day buckets cannot become main creation-day counts.
 Every search must paginate completely before publication; invalid timestamps,
 incomplete pages, or request failures preserve the previous generation.
 Exact failure percentages require a current cohort coverage proof for the
 selected days. Normal Actions refresh the default seven-day view in bounded
 daily slices. Retained observations from earlier refreshes remain available,
 but cannot establish an exhaustive sixty-day denominator on their own.
-Explicit start-day REST collection remains available with strict version-one
-started-job proof: older finished and active builds are
+Agent incident mutations additionally require complete retained evidence;
+compacted evidence preserves the existing incident state. Explicit manual
+all-branch collection remains distinct, using version-two build-created or
+strict version-one start-day proof. That REST collection searches older finished and active builds
 searched separately for each supported state,
 through overlapping creation-time partitions with no oldest-age cutoff.
 Every page retains the original filters and immediately projects compact
@@ -204,3 +207,10 @@ window. Scheduled jobs, canceled jobs that never started, and executions outside
 that window cannot block collection on an unused commit. Executed GPU CPU-offload
 tests still require exact source, and malformed timestamps, incomplete rosters,
 or conflicting cached proofs still stop publication.
+
+Historical runtime source can contain valid steps without explicit keys. The
+runtime CPU index preserves their exact source file and YAML position and joins
+an unambiguous label to its physical MI queue; it never invents an execution key.
+Current parity inventories still require explicit stable keys. Present malformed
+parent or AMD mirror keys, missing CPU labels, and conflicting GPU routes remain
+strictly checked against the immutable definition tree.

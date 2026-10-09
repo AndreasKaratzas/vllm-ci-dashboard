@@ -1482,15 +1482,16 @@
     const retention = agentHealth.retention || {};
     const scope = retention.pipeline_scope || {};
     const states = ['creating', 'scheduled', 'running', 'failing', 'blocked', 'canceling'];
-    const isVersion2 = scope.version === 2;
-    const legs = isVersion2 ? ['created'] : ['created', 'older_finished', 'older_active'];
+    const isCreatedCohort = scope.version === 2 || scope.version === 3;
+    const isMainCohort = scope.version === 3;
+    const legs = isCreatedCohort ? ['created'] : ['created', 'older_finished', 'older_active'];
     const dayCounts = [retention.original_day_count, retention.retained_day_count, retention.dropped_oldest_day_count];
     if (retention.configured_days !== 60 || typeof retention.byte_limited !== 'boolean'
       || dayCounts.some(function (count) { return !Number.isSafeInteger(count) || count < 0; })
       || retention.original_day_count !== retention.retained_day_count + retention.dropped_oldest_day_count) return null;
-    if ((scope.version !== 1 && !isVersion2) || !Number.isInteger(scope.requested_days)
+    if ((scope.version !== 1 && !isCreatedCohort) || !Number.isInteger(scope.requested_days)
       || scope.requested_days < 1 || scope.requested_days > 60
-      || scope.basis !== (isVersion2 ? 'terminal_jobs_by_build_created_at' : 'terminal_jobs_by_started_at')
+      || scope.basis !== (isCreatedCohort ? 'terminal_jobs_by_build_created_at' : 'terminal_jobs_by_started_at')
       || scope.exhaustive !== true
       || scope.attempt_policy !== 'latest_attempt_per_step'
       || scope.terminal_time_policy !== 'finished_at_or_terminal_build_bound_for_canceled'
@@ -1498,7 +1499,7 @@
       || !scope.discovery_legs || typeof scope.discovery_legs !== 'object' || Array.isArray(scope.discovery_legs)
       || Object.keys(scope.discovery_legs).length !== legs.length
       || legs.some(function (leg) { return scope.discovery_legs[leg] !== true; })) return null;
-    if (isVersion2) {
+    if (isCreatedCohort) {
       if (scope.eligible_completion !== 'current_ci_build_creation_cohort_with_provable_completion'
         || scope.day_basis !== 'build_created_at_utc'
         || Object.prototype.hasOwnProperty.call(scope, 'finished_job_source')
@@ -1509,6 +1510,12 @@
       || Object.prototype.hasOwnProperty.call(scope, 'eligible_completion')
       || Object.prototype.hasOwnProperty.call(scope, 'day_basis')
       || Object.prototype.hasOwnProperty.call(scope, 'finished_job_source')) return null;
+    if (isMainCohort) {
+      if (scope.branch !== 'main' || !Array.isArray(agentHealth.branches)
+        || agentHealth.branches.length !== 1 || agentHealth.branches[0] !== 'main'
+        || agentHealth.job_scope !== 'amd_gpu' || agentHealth.hardware_scope !== 'amd_mi_gpu') return null;
+    } else if (Object.prototype.hasOwnProperty.call(scope, 'branch')
+      || Object.prototype.hasOwnProperty.call(agentHealth, 'branches')) return null;
     function utcClock(raw) {
       if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$/.test(raw)) return NaN;
       const instant = Date.parse(raw);
@@ -1541,6 +1548,11 @@
   }
 
   function agentPipelineScopeLabel(agentHealth) {
+    if (Array.isArray((agentHealth || {}).pipelines) && agentHealth.pipelines.length === 1
+      && agentHealth.pipelines[0] === 'ci' && Array.isArray(agentHealth.branches)
+      && agentHealth.branches.length === 1 && agentHealth.branches[0] === 'main') {
+      return 'the ci pipeline on branch main';
+    }
     const pipelines = Array.from(new Set((Array.isArray((agentHealth || {}).pipelines) ? agentHealth.pipelines : [])
       .filter(function (pipeline) { return typeof pipeline === 'string' && pipeline.trim(); })
       .map(function (pipeline) { return pipeline.trim(); })));
@@ -4670,11 +4682,14 @@
 
   function renderAmdAgentHealth(host, agentHealth) {
     const scopeRows = ['node_days', 'failing_runs', 'failure_accounting', 'node_accounting_totals', 'failure_accounting_totals'];
-    if (agentHealth.hardware_scope !== 'amd_mi_gpu' || !Array.isArray(agentHealth.pipelines)
+    const declaredScope = (((agentHealth || {}).retention || {}).pipeline_scope) || {};
+    if (agentHealth.hardware_scope !== 'amd_mi_gpu' || agentHealth.job_scope !== 'amd_gpu' || !Array.isArray(agentHealth.pipelines)
       || agentHealth.pipelines.length !== 1 || agentHealth.pipelines[0] !== 'ci'
+      || !Array.isArray(agentHealth.branches) || agentHealth.branches.length !== 1 || agentHealth.branches[0] !== 'main'
+      || declaredScope.version !== 3 || declaredScope.branch !== 'main'
       || scopeRows.some(function (key) { return (agentHealth[key] || []).some(function (row) { return !isAmdMiHardware(row.h); }); })
       || (agentHealth.failing_runs || []).some(function (row) { return row.p !== 'ci' || !isAmdRuntimeJob({queue: row.q, name: row.g}); })) {
-      host.append(n('div', 'ops-evidence-note is-warning', 'AMD MI agent-health data is unavailable. Current CI MI GPU observations are required.'));
+      host.append(n('div', 'ops-evidence-note is-warning', 'AMD MI agent-health data is unavailable. Current ci/main MI GPU cohort observations are required.'));
       return;
     }
     const nodeDays = Array.isArray(agentHealth.node_days) ? agentHealth.node_days : [];
@@ -4688,7 +4703,7 @@
     const sourceRetention = (agentHealth || {}).retention || {};
     const sourcePipelineScope = sourceRetention.pipeline_scope || {};
     const sourceCoverage = agentSourceCoverage(agentHealth);
-    const buildCreatedCohort = sourcePipelineScope.version === 2
+    const buildCreatedCohort = sourcePipelineScope.version === 3
       && sourcePipelineScope.basis === 'terminal_jobs_by_build_created_at'
       && sourcePipelineScope.day_basis === 'build_created_at_utc';
     const pipelineHistoryIncomplete = !sourceCoverage || sourcePipelineScope.complete_window === false;
@@ -4747,7 +4762,7 @@
     add(host, pageHeaderNote());
     if (sourceCoverage && buildCreatedCohort) {
       add(host, n('div', 'ops-evidence-note is-info ops-agent-completion-scope',
-        'Terminal runs from CI builds created in the selected UTC window. Runs require a recorded or bounded completion time. Fresh build creation coverage for '
+        'Terminal runs from CI main builds created in the selected UTC window. Runs require a recorded or bounded completion time. Fresh build creation coverage for '
         + agentPipelineScopeLabel(agentHealth) + ', from ' + value(sourcePipelineScope.collected_from)
         + ' through ' + value(sourcePipelineScope.collected_to) + ' UTC.'));
     }
@@ -4816,7 +4831,7 @@
 
     function pageHeaderNote() {
       const note = n('div', 'ops-evidence-note is-info');
-      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', (buildCreatedCohort ? 'Terminal runs from CI builds created in the selected UTC window on AMD GPU hardware' : 'Every build on AMD GPU hardware') + ' — all branches and PRs across ' + agentPipelineScopeLabel(agentHealth) + ' — ' + (buildCreatedCohort ? 'are' : 'is') + ' attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering run on the Failure signal you pick below: "infra-suspect" (the default — anomalous, node-attributable failures, since most PR failures are code bugs), all hard failures, or all failures. Toggle the signal, build scope, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
+      add(note, [n('strong', '', 'AMD physical CI main agent health. '), n('span', '', 'Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
       return note;
     }
 
@@ -4868,7 +4883,7 @@
       const gpuSeg = segmented(gpuItems, gpu, function (id) {
         gpu = id; state.agentGpu = id; setQueryValue('agent_gpu', id); buildControls(); apply();
       }, 'GPU type');
-      const nightlySeg = segmented([{id: '0', label: 'All builds'}, {id: '1', label: 'Nightly/main'}], nightlyOnly ? '1' : '0', function (id) {
+      const nightlySeg = segmented([{id: '0', label: 'All main builds'}, {id: '1', label: 'Nightlies'}], nightlyOnly ? '1' : '0', function (id) {
         nightlyOnly = id === '1'; state.agentNightly = id; setQueryValue('agent_nightly', id); buildControls(); apply();
       }, 'Build scope');
       const cancelSeg = segmented([{id: '1', label: 'Exclude'}, {id: '0', label: 'Include'}], excludeCancelled ? '1' : '0', function (id) {

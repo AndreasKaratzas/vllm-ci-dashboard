@@ -185,7 +185,7 @@ def seed_current_ci(data_dir: Path) -> None:
         list(agents._rollup_rows(observed).values()),
         [agents._failing_row(row) for row in observed if row["state"] in ("hard", "soft")],
         now, pipelines=("ci",), pipeline_scope={
-            "version": 2, "basis": "terminal_jobs_by_build_created_at",
+            "version": 3, "branch": "main", "basis": "terminal_jobs_by_build_created_at",
             "eligible_completion": "current_ci_build_creation_cohort_with_provable_completion",
             "day_basis": "build_created_at_utc", "discovery_legs": {"created": True},
             "requested_days": 7, "collected_from": "2026-10-01T00:00:00Z", "collected_to": GENERATED_AT,

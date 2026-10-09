@@ -1343,6 +1343,8 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
     assert "ops_analytics_view=agent-health" in body
     assert "ops_agent_node=gpu-chi-1" in body
     assert "at least three logical failures" in body
+    assert "terminal ci/main executions" in body
+    assert "amd-ci" not in body
 
 
 @pytest.mark.parametrize("field,value", [
@@ -1367,6 +1369,104 @@ def test_agent_health_watcher_refuses_unproved_or_legacy_scope_before_issue_acce
     monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: pytest.fail("invalid scope cannot access issues"))
     monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("invalid scope cannot change incident state"))
     assert agent.run() == 0
+
+
+def _main_agent_payload():
+    return {
+        "generated_at": "2026-07-17T12:00:00Z", "hardware_scope": "amd_mi_gpu",
+        "job_scope": "amd_gpu", "pipelines": ["ci"], "branches": ["main"],
+        "max_window_days": 60,
+        "infra_failure_count": 0, "published_failure_evidence_count": 0,
+        "retention": {"configured_days": 60, "byte_limited": False,
+                      "original_day_count": 0, "retained_day_count": 0,
+                      "failure_evidence": {"source": 0, "published": 0, "omitted": 0,
+                                           "complete_relative_to_source": True},
+                      "dropped_oldest_day_count": 0, "pipeline_scope": {
+            "version": 3, "branch": "main", "basis": "terminal_jobs_by_build_created_at",
+            "day_basis": "build_created_at_utc",
+            "eligible_completion": "current_ci_build_creation_cohort_with_provable_completion",
+            "discovery_legs": {"created": True}, "exhaustive": True,
+            "attempt_policy": "latest_attempt_per_step",
+            "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
+            "requested_days": 7, "collected_from": "2026-07-10T00:00:00Z",
+            "collected_to": "2026-07-17T12:00:00Z",
+            "complete_window": False,
+        }}, "failing_runs": [],
+    }
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", 2), ("version", True), ("branch", "feature"),
+    ("exhaustive", False), ("requested_days", True),
+    ("collected_from", "2026-07-17T11:00:00Z"),
+    ("collected_from", "2026-07-09T00:00:00Z"),
+    ("collected_from", "2026-07-10T00:00:00"),
+    ("collected_to", "2026-07-17T11:00:00Z"),
+    ("discovery_legs", {"created": 1}),
+    ("discovery_legs", {"created": True, "older_active": True}),
+    ("eligible_completion", None),
+    ("complete_window", True), ("active_build_states", []),
+])
+def test_agent_main_watcher_rejects_unproved_cohort_before_issue_access(monkeypatch, field, value):
+    payload = _main_agent_payload()
+    payload["retention"]["pipeline_scope"][field] = value
+    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
+    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: pytest.fail("invalid cohort cannot access issues"))
+    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("invalid cohort cannot change incident state"))
+    assert agent.run() == 0
+
+
+@pytest.mark.parametrize("field,value", [
+    ("byte_limited", True), ("dropped_oldest_day_count", 1),
+    ("original_day_count", 1), ("retained_day_count", True),
+    ("configured_days", 7),
+])
+def test_agent_main_watcher_preserves_incidents_when_evidence_is_compacted(monkeypatch, field, value):
+    payload = _main_agent_payload()
+    payload["retention"][field] = value
+    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
+    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("incomplete evidence must preserve incident state"))
+    assert agent.run() == 0
+
+
+def test_agent_main_watcher_preserves_incident_when_omission_flag_contradicts_byte_marker(monkeypatch):
+    payload = _main_agent_payload()
+    payload["infra_failure_count"] = 3
+    payload["retention"]["failure_evidence"] = {
+        "source": 3, "published": 0, "omitted": 3, "complete_relative_to_source": False,
+    }
+    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
+    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("omitted failures cannot clear an incident"))
+    assert agent.run() == 0
+
+
+@pytest.mark.parametrize("branches", [None, [], ["feature"], ["main", "feature"]])
+def test_agent_main_watcher_rejects_missing_or_mixed_top_scope(monkeypatch, branches):
+    payload = _main_agent_payload()
+    payload["branches"] = branches
+    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
+    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("mixed scope cannot access incident state"))
+    assert agent.run() == 0
+
+
+def test_agent_main_watcher_accepts_exact_scope_and_preserves_observation_clock(monkeypatch):
+    payload = _main_agent_payload()
+    assert agent._current_main_scope(payload)
+    reconciliations = []
+    persisted = []
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "AndreasKaratzas/vllm-ci-dashboard")
+    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
+    monkeypatch.setattr(agent, "_is_fresh", lambda *_: True)
+    monkeypatch.setattr(agent, "_read_state", agent._default_state)
+    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: object())
+    monkeypatch.setattr(agent, "reconcile_managed_issue", lambda state, **kwargs: reconciliations.append(kwargs) or state)
+    monkeypatch.setattr(agent, "_write_state", persisted.append)
+    assert agent.run() == 0
+    assert len(reconciliations) == len(persisted) == 1
+    assert reconciliations[0]["observed_at"] == payload["generated_at"]
+    assert reconciliations[0]["active"] is False
+    assert "terminal ci/main executions" in reconciliations[0]["body"]
 
 
 def test_alert_payload_freshness_fails_closed():

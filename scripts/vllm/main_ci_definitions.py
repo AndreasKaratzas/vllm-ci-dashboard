@@ -85,7 +85,10 @@ def validate_snapshot(snapshot: MainCISnapshot) -> None:
         raise ValueError("main CI snapshot has no test-area definitions")
 
 
-def source_steps(snapshot: MainCISnapshot) -> list[dict[str, Any]]:
+def source_steps(
+    snapshot: MainCISnapshot, *, require_keys: bool = True
+) -> list[dict[str, Any]]:
+    """Read declarations; historical execution joins can use exact source positions."""
     validate_snapshot(snapshot)
     rows = []
     identities = set()
@@ -97,18 +100,20 @@ def source_steps(snapshot: MainCISnapshot) -> list[dict[str, Any]]:
         for index, step in enumerate(document.get("steps", [])):
             if not isinstance(step, dict):
                 raise ValueError(f"main CI definition step is malformed: {path}#{index}")
-            key = step.get("key")
-            if not isinstance(key, str) or not key.strip():
+            key = step.get("key", "")
+            keyless = "key" not in step
+            if not (keyless and not require_keys) and (not isinstance(key, str) or not key.strip()):
                 raise ValueError(
                     f"main CI definition requires an explicit stable key: {path}#{index}"
                 )
-            identity = f"{path}#{key}"
+            identity = f"{path}#yaml-index:{index}" if keyless else f"{path}#{key}"
             if identity in identities:
                 raise ValueError(f"duplicate main CI definition: {identity}")
             identities.add(identity)
             rows.append(
                 {
                     **step,
+                    "key": key,
                     "source_file": path,
                     "definition_id": identity,
                     "area": str(document.get("group") or path.rsplit("/", 1)[-1][:-5]),
@@ -150,11 +155,11 @@ def is_amd_definition(step: dict[str, Any]) -> bool:
 
 
 def amd_source_steps(
-    snapshot: MainCISnapshot, *, include_cpu: bool = False
+    snapshot: MainCISnapshot, *, include_cpu: bool = False, require_keys: bool = True
 ) -> list[dict[str, Any]]:
     """Expand exact MI GPU routes; CPU declarations are opt-in for proof joins."""
     routes = []
-    for step in source_steps(snapshot):
+    for step in source_steps(snapshot, require_keys=require_keys):
         mirror = step.get("mirror")
         amd = mirror.get("amd") if isinstance(mirror, dict) else None
         if isinstance(amd, dict) and amd:
@@ -166,7 +171,13 @@ def amd_source_steps(
                 "upstream_definition_id": step["definition_id"],
                 "source_kind": "inline_mirror",
             }
-            route["key"] = str(amd.get("key") or f"amd-{step['key']}")
+            if "key" in amd:
+                mirror_key = amd["key"]
+                if not isinstance(mirror_key, str) or not mirror_key.strip():
+                    raise ValueError(f"AMD mirror requires a nonempty string key: {step['definition_id']}")
+            else:
+                mirror_key = f"amd-{step['key']}" if step["key"] else ""
+            route["key"] = mirror_key
             if "commands" in amd:
                 route.pop("command", None)
             elif "command" in amd:
@@ -646,6 +657,8 @@ def annotate_runtime_source_scope(
 
     keyed = {(route["key"], route["agent_pool"]) for route in index["cpu_routes"] if route["key"]}
     labeled = {(route["label"], route["agent_pool"]) for route in index["cpu_routes"] if route["label"]}
+    keyless_labeled = {(route["label"], route["agent_pool"]) for route in index["cpu_routes"]
+                       if not route["key"] and route["label"]}
     jobs = []
     for raw_job in build.get("jobs", []) or []:
         if not isinstance(raw_job, dict):
@@ -663,7 +676,8 @@ def annotate_runtime_source_scope(
         raw_step = job.get("step")
         step = raw_step if isinstance(raw_step, dict) else {}
         key = str(job.get("step_key") or step.get("key") or "").strip()
-        cpu_only = (key, queue) in keyed if key else (_normalize_job_name(name), queue) in labeled
+        label_route = (_normalize_job_name(name), queue)
+        cpu_only = ((key, queue) in keyed if key else label_route in labeled) or label_route in keyless_labeled
         if cpu_only:
             job["source_no_gpu"] = True
         job["source_scope_commit"] = commit
@@ -676,7 +690,10 @@ def runtime_scope_index(snapshot: MainCISnapshot) -> dict[str, Any]:
     """Compact the exact source CPU joins for authenticated private-cache reuse."""
     from vllm.ci.analyzer import _normalize_job_name
 
-    routes = amd_source_steps(snapshot, include_cpu=True)
+    # Historical generators allowed absent keys. CPU execution can still be
+    # proved by its unambiguous label and observed pool at this exact commit;
+    # current configuration inventories retain their strict stable-key policy.
+    routes = amd_source_steps(snapshot, include_cpu=True, require_keys=False)
     keys: dict[tuple[str, str], list[dict]] = {}
     labels: dict[tuple[str, str], list[dict]] = {}
     for route in routes:
@@ -689,6 +706,8 @@ def runtime_scope_index(snapshot: MainCISnapshot) -> dict[str, Any]:
             continue
         queue = str(route.get("agent_pool") or "").strip().casefold().removeprefix("amd_")
         key, label = str(route.get("key") or ""), _normalize_job_name(str(route.get("label") or ""))
+        if not key and not label:
+            raise ValueError("keyless runtime CPU route requires an execution label")
         key = key if all(is_cpu_only_definition(row) for row in keys[(key, queue)]) else ""
         label = label if all(is_cpu_only_definition(row) for row in labels[(label, queue)]) else ""
         if key or label:

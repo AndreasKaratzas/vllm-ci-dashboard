@@ -378,6 +378,7 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-agent-health-cofail-default": _OPS_AGENT_HEALTH,
     "operations-agent-health-failing-state": _OPS_AGENT_HEALTH,
     "operations-agent-health-infra-flag": _OPS_AGENT_HEALTH,
+    "operations-agent-health-main-scope": _OPS_AGENT_HEALTH,
     "operations-agent-health-missing": _OPS_AGENT_HEALTH,
     "operations-agent-health-options": _OPS_AGENT_HEALTH,
     "operations-agent-health-pipeline-scope": _OPS_AGENT_HEALTH,

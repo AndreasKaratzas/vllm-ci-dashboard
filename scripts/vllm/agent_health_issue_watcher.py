@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -113,6 +114,65 @@ def _is_fresh(payload: dict, now: datetime) -> bool:
         return False
     age = now - generated
     return -timedelta(minutes=15) <= age <= MAX_DATA_AGE
+
+
+def _current_main_scope(payload: dict) -> bool:
+    """Require the published ci/main cohort before touching incident state."""
+    retention = payload.get("retention")
+    scope = retention.get("pipeline_scope") if isinstance(retention, dict) else None
+    if (payload.get("hardware_scope") != "amd_mi_gpu"
+            or payload.get("job_scope") != "amd_gpu"
+            or payload.get("pipelines") != ["ci"]
+            or payload.get("branches") != ["main"]
+            or not isinstance(scope, dict)):
+        return False
+    if any(
+        not isinstance(scope.get(field), str)
+        or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", scope[field])
+        for field in ("collected_from", "collected_to")
+    ):
+        return False
+    start = _parse_ts(scope.get("collected_from"))
+    end = _parse_ts(scope.get("collected_to"))
+    days = scope.get("requested_days")
+    original = retention.get("original_day_count")
+    retained = retention.get("retained_day_count")
+    dropped = retention.get("dropped_oldest_day_count")
+    failing = payload.get("failing_runs")
+    evidence = retention.get("failure_evidence")
+    if not isinstance(failing, list) or not isinstance(evidence, dict):
+        return False
+    if (evidence.get("complete_relative_to_source") is not True
+            or type(evidence.get("omitted")) is not int or evidence["omitted"] != 0
+            or any(type(value) is not int or value != len(failing) for value in (
+                evidence.get("source"), evidence.get("published"),
+                payload.get("infra_failure_count"), payload.get("published_failure_evidence_count"),
+            ))):
+        return False
+    return bool(
+        type(scope.get("version")) is int and scope["version"] == 3
+        and scope.get("branch") == "main"
+        and scope.get("basis") == "terminal_jobs_by_build_created_at"
+        and scope.get("day_basis") == "build_created_at_utc"
+        and scope.get("eligible_completion") == "current_ci_build_creation_cohort_with_provable_completion"
+        and "finished_job_source" not in scope and "active_build_states" not in scope
+        and isinstance(scope.get("discovery_legs"), dict)
+        and set(scope["discovery_legs"]) == {"created"}
+        and scope["discovery_legs"]["created"] is True
+        and scope.get("exhaustive") is True
+        and scope.get("attempt_policy") == "latest_attempt_per_step"
+        and scope.get("terminal_time_policy") == "finished_at_or_terminal_build_bound_for_canceled"
+        and type(days) is int and 1 <= days <= 60
+        and scope.get("collected_to") == payload.get("generated_at")
+        and start is not None and end is not None and start <= end - LOOKBACK
+        and start == (end - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+        and type(original) is int and type(retained) is int and type(dropped) is int
+        and original >= 0 and retained >= 0 and dropped == 0 and original == retained
+        and retention.get("byte_limited") is False
+        and type(retention.get("configured_days")) is int and retention["configured_days"] == 60
+        and type(payload.get("max_window_days")) is int and payload["max_window_days"] == 60
+        and scope.get("complete_window") is (start <= end - timedelta(days=60))
+    )
 
 
 def _job_url(run: dict) -> str:
@@ -293,7 +353,7 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
         "",
         "- Live window: six hours ending at the collector timestamp.",
         "- Signal: infra-suspect failures from CI Agent Health only.",
-        "- Scope: identified AMD GPU nodes across amd-ci and upstream CI; canceled builds are excluded.",
+        "- Scope: identified AMD MI GPU nodes from terminal ci/main executions in the published UTC build-creation cohort; canceled builds are excluded.",
         "- Clustering: consecutive failures on one node with gaps no larger than three hours.",
         "- Retry handling: one pipeline/build/test-group chain counts once.",
         "- Alert threshold: at least three logical failures across at least two distinct groups in a cluster.",
@@ -358,8 +418,8 @@ def run() -> int:
     if not payload:
         log.error("Agent-health payload is unavailable; refusing issue mutations")
         return 0
-    if payload.get("hardware_scope") != "amd_mi_gpu" or payload.get("pipelines") != ["ci"]:
-        log.error("Agent-health payload has no current MI-only scope; refusing issue mutations")
+    if not _current_main_scope(payload):
+        log.error("Agent-health payload has no proved current MI-only ci/main cohort; refusing issue mutations")
         return 0
     now = datetime.now(timezone.utc)
     if not _is_fresh(payload, now):
