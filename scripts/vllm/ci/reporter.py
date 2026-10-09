@@ -286,7 +286,6 @@ def write_test_results(
 
 def write_ci_health(
     amd_summaries: list[BuildSummary],
-    upstream_summaries: list[BuildSummary],
     health_data: list[TestHealth],
     output_dir: Path,
 ) -> Path:
@@ -294,7 +293,6 @@ def write_ci_health(
 
     Args:
         amd_summaries: AMD build summaries, newest-first
-        upstream_summaries: Upstream build summaries, newest-first
         health_data: All test health labels
         output_dir: Output directory
 
@@ -370,10 +368,6 @@ def write_ci_health(
     log.info("Wrote ci_health.json (%d bytes)", size)
     return path
 
-
-# ---------------------------------------------------------------------------
-# Parity report
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Flaky tests

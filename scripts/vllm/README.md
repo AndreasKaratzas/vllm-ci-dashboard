@@ -328,10 +328,11 @@ create dangling links.
 The canonical workflow separates core health/matrix/current-source parity from
 private analytics/reliability. Queue observations, capacity, workload, Omni,
 lifecycle, agent health, GitHub home, and perf evaluation have independent
-transactions. Contract v7 validates historical v5 and v6 restore proofs before
+transactions. Contract v8 validates historical v5, v6 and v7 restore proofs before
 dropping retired ownership. The v5 gating, group-change, and hotness domains and
 their clocks are retired; v6 runtime `parity_report.json` files are verified in
-full before their paths are removed. Configuration parity remains supported. The
+full before their paths are removed. The v7 optional runtime parity override
+file is also verified in full before retirement. Configuration parity remains supported. The
 current main inventory refresh uses an immutable source SHA and needs no
 Buildkite request. A routed degradation keeps fresh
 candidate bytes and publishes an explicit warning. A collector failure or hard

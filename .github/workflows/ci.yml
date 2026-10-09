@@ -233,18 +233,6 @@ jobs:
           except Exception as e:
               errors.append(f'ci_health.json: {e}')
 
-          # Validate parity_report.json
-          try:
-              d = json.load(open('data/vllm/ci/parity_report.json'))
-              if 'job_groups' not in d:
-                  errors.append('parity_report.json: missing job_groups')
-              elif len(d['job_groups']) == 0:
-                  errors.append('parity_report.json: job_groups is empty')
-          except FileNotFoundError:
-              print('⚠️  parity_report.json not found (skipping)')
-          except Exception as e:
-              errors.append(f'parity_report.json: {e}')
-
           if errors:
               for e in errors:
                   print(f'❌ {e}')

@@ -75,7 +75,7 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
     assert "regional working-hour profiles" in scripts_readme
     assert "Every two hours via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
-    assert "Contract v7" in scripts_readme
+    assert "Contract v8" in scripts_readme
     assert "`ci_analytics` publication surface" in scripts_readme
     assert "`ci-collect.yml` workflow is validation-only" in scripts_readme
     assert "runtime health from the observed `ci` nightly" in audit

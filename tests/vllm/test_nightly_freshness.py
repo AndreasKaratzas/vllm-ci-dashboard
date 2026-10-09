@@ -247,7 +247,7 @@ def test_pipeline_summary_keeps_blocked_nightly_separate_from_test_signal(tmp_pa
     assert summaries[0].test_jobs_blocked == 1
     assert _latest_signal_summary(summaries).build_number == 10836
 
-    write_ci_health(summaries, [], [], tmp_path)
+    write_ci_health(summaries, [], tmp_path)
     health = json.loads((tmp_path / "ci_health.json").read_text())
     amd = health["amd"]
     assert amd["latest_pipeline_build"]["build_number"] == 10880

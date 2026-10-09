@@ -61,7 +61,6 @@ from collect_ci import (  # noqa: E402
     _completed_result_entries,
     _find_false_normalization_merges,
     _find_missing_parity_groups,
-    _extend_parity_side_hardware,
     _is_complete_nightly_build,
     _select_shard_evidence_build,
     _select_latest_complete_evidence_build,
@@ -629,21 +628,6 @@ def test_observed_route_change_replaces_old_prefix_and_is_idempotent():
     assert _current_scope_results(once, "amd", build) == once
     assert once[0].test_id == original.test_id
     assert once[0].classname == original.classname
-
-
-def test_parity_side_hardware_extends_even_when_merged_hardware_already_exists():
-    group = {
-        "hardware": ["mi300"],
-        "amd_hardware": ["mi300"],
-        "upstream_hardware": [],
-    }
-
-    added = _extend_parity_side_hardware(group, "upstream", {"mi300"})
-
-    assert added == {"mi300"}
-    assert group["amd_hardware"] == ["mi300"]
-    assert group["upstream_hardware"] == ["mi300"]
-    assert group["hardware"] == ["mi300"]
 
 
 class TestCachedJobNames:

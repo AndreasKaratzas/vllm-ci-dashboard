@@ -122,7 +122,7 @@ def test_boolean_schema_version_cannot_prove_collection_outcome():
         }, durable_ref="a" * 40)
 
 
-@pytest.mark.parametrize("version", (True, 6.0, 7.0, "7", 999))
+@pytest.mark.parametrize("version", (True, 6.0, 7.0, 8.0, "7", "8", 999))
 def test_recovery_rejects_malformed_or_unknown_surface_contract_versions(version):
     payload = {"schema_version": 2, "surface_contract_version": version, "mode": "current",
                "fallback_surfaces": [], "fresh_degraded_surfaces": [],
@@ -132,7 +132,7 @@ def test_recovery_rejects_malformed_or_unknown_surface_contract_versions(version
 
 
 @pytest.mark.parametrize("surface", ("ci_gating", "ci_changes", "ci_hotness"))
-@pytest.mark.parametrize("contract_version", (6, 7))
+@pytest.mark.parametrize("contract_version", (6, 7, 8))
 def test_retired_collector_is_never_retried_and_current_contract_rejects_it(surface, contract_version):
     payload = {"schema_version": 2, "surface_contract_version": 5, "mode": "fallback",
                "fallback_surfaces": [surface], "fresh_degraded_surfaces": [],
@@ -161,3 +161,13 @@ def test_historical_proof_never_accepts_unreviewed_retry_surface_names():
              "publication_state_oid": "b" * 40, "retry_surfaces": ["unknown_collector"]}
     with pytest.raises(recovery.CollectionEvidenceError, match="evidence values"):
         recovery.normalize_historical_collection_evidence(proof, durable_ref="a" * 40)
+
+
+@pytest.mark.parametrize("version", [7, 8])
+def test_current_and_exact_previous_contracts_preserve_valid_ci_retry_evidence(version):
+    state = {"schema_version": 2, "surface_contract_version": version, "mode": "fallback",
+             "fallback_surfaces": ["ci_core"], "fresh_degraded_surfaces": [],
+             "degraded_surfaces": ["ci_core"], "collector_failures": [{
+                 "schema_version": 1, "surface": "ci_core", "collector": "collect_ci.py",
+                 "step": "Current MI collection", "reason_class": "network", "exit_code": 1}]}
+    assert recovery.retry_surfaces_from_state(state) == ["ci_core"]

@@ -43,6 +43,8 @@ from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_SURFACE_ALIASES,
     PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
+    PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION,
+    PRE_PARITY_OVERRIDES_SURFACE_SPECS,
     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
     PRE_QUEUE_SPLIT_SURFACE_SPEC,
     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
@@ -1387,6 +1389,7 @@ class DashboardAudit:
                     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
                     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
                     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
+                    PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION,
                     SURFACE_CONTRACT_VERSION,
                 )
             ):
@@ -1414,6 +1417,8 @@ class DashboardAudit:
             proof_specs = (
                 PRE_RUNTIME_PARITY_SURFACE_SPECS
                 if _uses_declared_publication_domain() and surface_contract_version == PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION
+                else PRE_PARITY_OVERRIDES_SURFACE_SPECS
+                if _uses_declared_publication_domain() and surface_contract_version == PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION
                 else SURFACE_SPECS
                 if _uses_declared_publication_domain() and surface_contract_version == SURFACE_CONTRACT_VERSION
                 else _historical_publication_specs()

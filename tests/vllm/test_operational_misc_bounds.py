@@ -112,7 +112,6 @@ def test_definition_control_preflight_preserves_all_lkg_files_on_overflow(
     paths = [
         tmp_path / "shard_bases.json",
         tmp_path / "shard_base_catalog.json",
-        tmp_path / "parity_key_overrides.json",
     ]
     for path in paths:
         path.write_text('{"generation":"last-known-good"}\n')
@@ -120,16 +119,13 @@ def test_definition_control_preflight_preserves_all_lkg_files_on_overflow(
     with pytest.raises(RuntimeError, match="composable byte budgets"):
         collect_ci.write_definition_controls(
             tmp_path,
-            shard_bases=["group"],
+            shard_bases=["x" * 500],
             shard_catalog=_catalog(),
-            parity_key_overrides={"x" * 500: "y" * 500},
-            shard_bases_max_bytes=1_000,
+            shard_bases_max_bytes=100,
             catalog_max_bytes=12_000,
-            overrides_max_bytes=100,
         )
 
     assert [json.loads(path.read_text()) for path in paths] == [
-        {"generation": "last-known-good"},
         {"generation": "last-known-good"},
         {"generation": "last-known-good"},
     ]
@@ -280,7 +276,6 @@ def test_current_fixed_shape_controls_fit_their_independent_caps() -> None:
     writers = budget.writer_limits
     controls = {
         "project_test_results": ROOT / "data/vllm/test_results.json",
-        "parity_key_overrides": ROOT / "data/vllm/ci/parity_key_overrides.json",
         "shard_bases": ROOT / "data/vllm/ci/shard_bases.json",
         "last_collected_at": ROOT / "data/vllm/ci/last_collected_at.txt",
     }

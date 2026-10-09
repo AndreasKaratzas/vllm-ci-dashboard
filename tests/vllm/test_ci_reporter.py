@@ -138,7 +138,6 @@ def test_retention_floor_rejects_shard_or_policy_tampering(tmp_path):
 def test_write_ci_health_emits_zero_count_health_buckets(tmp_path):
     write_ci_health(
         amd_summaries=[],
-        upstream_summaries=[],
         health_data=[
             TestHealth(
                 test_id="tests/example.py::test_passes",
@@ -174,7 +173,7 @@ def test_write_ci_health_emits_explicit_assertion_pass_rate_semantics(tmp_path):
         has_test_results=True,
     )
 
-    write_ci_health([summary], [], [], tmp_path)
+    write_ci_health([summary], [], tmp_path)
 
     health = json.loads((tmp_path / "ci_health.json").read_text())
     assert health["pass_rate_contract_version"] == 1
@@ -204,7 +203,7 @@ def test_write_ci_health_names_observed_unique_test_group_population(tmp_path):
         unique_test_groups=150,
     )
 
-    write_ci_health([summary], [], [], tmp_path)
+    write_ci_health([summary], [], tmp_path)
 
     health = json.loads((tmp_path / "ci_health.json").read_text())
     amd = health["amd"]
@@ -274,7 +273,7 @@ def test_ci_health_compacts_oldest_whole_builds_with_exact_accounting(
     ]
     monkeypatch.setattr(reporter, "CI_HEALTH_MAX_BYTES", 9_000)
 
-    reporter.write_ci_health(summaries, [], [], tmp_path)
+    reporter.write_ci_health(summaries, [], tmp_path)
 
     payload = json.loads((tmp_path / "ci_health.json").read_text())
     retention = payload["publication_retention"]
@@ -308,6 +307,6 @@ def test_ci_health_irreducible_overflow_preserves_lkg(tmp_path, monkeypatch):
     monkeypatch.setattr(reporter, "CI_HEALTH_MAX_BYTES", 500)
 
     with pytest.raises(RuntimeError, match="fixed/latest metadata exceeds"):
-        reporter.write_ci_health([summary], [], [], tmp_path)
+        reporter.write_ci_health([summary], [], tmp_path)
 
     assert json.loads(path.read_text()) == {"generation": "last-known-good"}

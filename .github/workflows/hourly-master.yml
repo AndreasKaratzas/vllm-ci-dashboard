@@ -2107,11 +2107,11 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES, RETIRED_RUNTIME_PARITY_PATHS
+          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES, RETIRED_RUNTIME_PARITY_PATHS, RETIRED_PARITY_OVERRIDE_PATHS
           for surface in sorted(RETIRED_SURFACES):
               for relative in PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths:
                   Path(relative).unlink(missing_ok=True)
-          for relative in RETIRED_RUNTIME_PARITY_PATHS:
+          for relative in RETIRED_RUNTIME_PARITY_PATHS | RETIRED_PARITY_OVERRIDE_PATHS:
               Path(relative).unlink(missing_ok=True)
           for name in ("gating", "trajectory", "comparison_retry_evidence"):
               Path(f"data/vllm/ci/operations_v2/{name}.json").unlink(missing_ok=True)

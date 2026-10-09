@@ -37,12 +37,15 @@ from vllm.publication_surfaces import (  # noqa: E402
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
     PRE_QUEUE_SPLIT_SURFACE_SPEC,
+    PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION,
+    PRE_PARITY_OVERRIDES_SURFACE_SPECS,
     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
     PRE_RUNTIME_PARITY_SURFACE_SPECS,
     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
     PRE_VIEW_RETIREMENT_SURFACE_SPECS,
     RETIRED_SURFACES,
     RETIRED_RUNTIME_PARITY_PATHS,
+    RETIRED_PARITY_OVERRIDE_PATHS,
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -1696,6 +1699,32 @@ def _migrate_retired_view_state(root: Path, ref: str, payload: dict) -> dict:
 
 def _migrate_retired_runtime_parity_state(root: Path, ref: str, payload: dict) -> dict:
     """Verify the complete v6 proof before dropping retired runtime files."""
+    return _migrate_retired_ci_paths(
+        root, ref, payload,
+        historical_specs=PRE_RUNTIME_PARITY_SURFACE_SPECS,
+        target_specs=PRE_PARITY_OVERRIDES_SURFACE_SPECS,
+        retired_paths=RETIRED_RUNTIME_PARITY_PATHS,
+        target_version=PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION,
+    )
+
+
+def _migrate_retired_parity_overrides_state(root: Path, ref: str, payload: dict) -> dict:
+    """Verify every v7 optional path before retiring its runtime-parity override."""
+    return _migrate_retired_ci_paths(
+        root, ref, payload,
+        historical_specs=PRE_PARITY_OVERRIDES_SURFACE_SPECS,
+        target_specs=SURFACE_SPECS,
+        retired_paths=RETIRED_PARITY_OVERRIDE_PATHS,
+        target_version=SURFACE_CONTRACT_VERSION,
+    )
+
+
+def _migrate_retired_ci_paths(
+    root: Path, ref: str, payload: dict, *,
+    historical_specs: dict[str, SurfaceSpec], target_specs: dict[str, SurfaceSpec],
+    retired_paths: frozenset[str], target_version: int,
+) -> dict:
+    """Trim a transaction only after validating its complete historical proof."""
     fallback = payload.get("fallback_surfaces")
     manifest = payload.get("restored_manifest")
     paths = payload.get("restored_paths")
@@ -1705,24 +1734,25 @@ def _migrate_retired_runtime_parity_state(root: Path, ref: str, payload: dict) -
     if not fallback:
         if manifest not in (None, {}) or paths not in (None, {}):
             raise RuntimeError("non-fallback baseline state declares restored content")
-        return {**payload, "surface_contract_version": SURFACE_CONTRACT_VERSION}
+        return {**payload, "surface_contract_version": target_version}
     if not isinstance(manifest, dict) or set(manifest) != set(fallback):
         raise RuntimeError("fallback baseline state has an incomplete restore manifest")
     if paths is not None and (not isinstance(paths, dict) or set(paths) != set(fallback)):
         raise RuntimeError("fallback baseline state has incomplete restored paths")
     validated = {}
-    historical_specs = PRE_RUNTIME_PARITY_SURFACE_SPECS if _uses_declared_surface_domain() else SURFACE_SPECS
+    if not _uses_declared_surface_domain():
+        historical_specs = target_specs = SURFACE_SPECS
     for surface in sorted(fallback):
         entries = _validate_baseline_manifest(root, ref, surface,
             historical_specs[surface], manifest[surface])
         if paths is not None and _migrated_restored_paths(surface, paths[surface]) != sorted(entries):
             raise RuntimeError("fallback baseline restored paths are inconsistent")
         retained = {relative: descriptor for relative, descriptor in entries.items()
-                    if relative not in RETIRED_RUNTIME_PARITY_PATHS}
-        if set(retained) != _baseline_expected_paths(root, ref, SURFACE_SPECS[surface]):
-            raise RuntimeError("fallback baseline runtime-parity migration is incomplete")
+                    if relative not in retired_paths}
+        if set(retained) != _baseline_expected_paths(root, ref, target_specs[surface]):
+            raise RuntimeError("fallback baseline retired-path migration is incomplete")
         validated[surface] = retained
-    return {**payload, "surface_contract_version": SURFACE_CONTRACT_VERSION,
+    return {**payload, "surface_contract_version": target_version,
             "restored_manifest": validated,
             "restored_paths": {surface: sorted(entries) for surface, entries in validated.items()}}
 
@@ -1829,6 +1859,13 @@ def _baseline_publication_state(
     if (
         schema_version == 2
         and _uses_declared_surface_domain()
+        and surface_contract_version == PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION
+    ):
+        payload = _migrate_retired_parity_overrides_state(root, ref, payload)
+        surface_contract_version = payload.get("surface_contract_version")
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
         and surface_contract_version != SURFACE_CONTRACT_VERSION
     ):
         raise RuntimeError(
@@ -1926,7 +1963,8 @@ def _baseline_publication_state(
             },
             "restored_manifest": partitioned,
         })
-        return _migrate_retired_runtime_parity_state(root, ref, migrated)
+        migrated = _migrate_retired_runtime_parity_state(root, ref, migrated)
+        return _migrate_retired_parity_overrides_state(root, ref, migrated)
 
     fresh_degraded = payload.get("fresh_degraded_surfaces")
     fallback = payload.get("fallback_surfaces")

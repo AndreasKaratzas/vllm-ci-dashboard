@@ -110,7 +110,6 @@ QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
 CONFIG_PARITY_MAX_BYTES = writer_max_bytes("config_parity_pair") // 2
 PROJECT_TEST_RESULTS_MAX_BYTES = writer_max_bytes("project_test_results")
 SHARD_BASE_CATALOG_MAX_BYTES = writer_max_bytes("shard_base_catalog")
-PARITY_KEY_OVERRIDES_MAX_BYTES = writer_max_bytes("parity_key_overrides")
 SHARD_BASES_MAX_BYTES = writer_max_bytes("shard_bases")
 DNS_CLASSIFICATION_CACHE = Path(".cache") / "dns-classifications-v1"
 COMPLETE_JOB_STATES = frozenset(
@@ -799,10 +798,8 @@ def write_definition_controls(
     *,
     shard_bases: list,
     shard_catalog: dict,
-    parity_key_overrides: dict,
     shard_bases_max_bytes: int = SHARD_BASES_MAX_BYTES,
     catalog_max_bytes: int = SHARD_BASE_CATALOG_MAX_BYTES,
-    overrides_max_bytes: int = PARITY_KEY_OVERRIDES_MAX_BYTES,
 ) -> dict:
     """Preflight the complete control set, then atomically replace each file."""
     bounded_catalog = bounded_shard_base_catalog(
@@ -821,12 +818,6 @@ def write_definition_controls(
             pretty_json_bytes(bounded_catalog),
             catalog_max_bytes,
             "shard-base catalog",
-        ),
-        (
-            output_dir / "parity_key_overrides.json",
-            pretty_json_bytes(parity_key_overrides),
-            overrides_max_bytes,
-            "parity-key override controls",
         ),
     )
     oversized_controls = [
@@ -1487,7 +1478,6 @@ def _project_test_result_summary(summary: BuildSummary) -> dict:
 
 def _project_test_results_payload(
     latest_amd: BuildSummary,
-    latest_upstream: BuildSummary | None = None,
     *,
     collected_at: str | None = None,
 ) -> dict:
@@ -1539,28 +1529,6 @@ def _merge_with_previous(
                 backfilled.add(result.job_name)
         break
     return merged, latest[1], latest[0], backfilled
-
-
-def _extend_parity_side_hardware(
-    group: dict,
-    side: str,
-    hardware: set[str],
-) -> set[str]:
-    """Add hardware evidence to one parity source side.
-
-    The merged ``hardware`` list is intentionally not used as the prior set:
-    an upstream ``:amd:`` mirror can use the same MI architecture as an
-    amd-ci job, and both sides must still retain their independent evidence.
-    Returns architectures newly observed on the requested side.
-    """
-    if side not in {"amd", "upstream"}:
-        raise ValueError(f"Unsupported parity side: {side}")
-    field = f"{side}_hardware"
-    current_value = group.get(field)
-    current = set(current_value) if isinstance(current_value, list) else set()
-    added = set(hardware) - current
-    group[field] = sorted(current | set(hardware))
-    return added
 
 
 def _append_private_cache_outputs(
@@ -1789,7 +1757,6 @@ def main():
         log.info("Extracting shard bases from upstream YAML...")
         from vllm.config_parity import (
             extract_amd_runtime_group_key_map,
-            extract_parity_key_overrides,
             extract_shard_base_catalog,
         )
         shard_catalog = extract_shard_base_catalog()
@@ -1799,20 +1766,17 @@ def main():
         )
         shard_bases = shard_catalog.get("normalization_bases", [])
         # Install the newly fetched shard catalog before deriving any keys.
-        # Both extractors normalize labels through analyzer._normalize_job_name;
+        # Runtime route identities normalize labels through _normalize_job_name;
         # using the previous on-disk catalog here could create stale route keys.
         from vllm.ci.analyzer import (
             set_amd_runtime_group_key_map,
-            set_parity_key_overrides,
             set_shard_bases,
         )
         set_shard_bases(shard_bases)
-        parity_key_overrides = extract_parity_key_overrides()
         runtime_group_commit, runtime_group_keys = (
             extract_amd_runtime_group_key_map()
         )
         # Update the analyzer's YAML-derived normalization knobs for this run.
-        set_parity_key_overrides(parity_key_overrides)
         set_amd_runtime_group_key_map(
             runtime_group_commit,
             runtime_group_keys,
@@ -1826,17 +1790,12 @@ def main():
             output_dir,
             shard_bases=shard_bases,
             shard_catalog=shard_catalog,
-            parity_key_overrides=parity_key_overrides,
         )
         log.info("Wrote shard_bases.json (%d bases: %s)", len(shard_bases), shard_bases)
         log.info(
             "Wrote shard_base_catalog.json (%d/%d definitions)",
             len(bounded_catalog.get("definitions", [])),
             len(shard_catalog.get("definitions", [])),
-        )
-        log.info(
-            "Wrote parity_key_overrides.json (%d overrides)",
-            len(parity_key_overrides),
         )
     else:
         # Reuse the last published, commit-tagged definition identities when a
@@ -1845,15 +1804,11 @@ def main():
         # groups back together.
         from vllm.ci.analyzer import (
             set_amd_runtime_group_key_map,
-            set_parity_key_overrides,
             set_shard_bases,
         )
         shard_path = output_dir / "shard_bases.json"
         if shard_path.exists():
             set_shard_bases(json.loads(shard_path.read_text()))
-        override_path = output_dir / "parity_key_overrides.json"
-        if override_path.exists():
-            set_parity_key_overrides(json.loads(override_path.read_text()))
         config_parity_path = output_dir / "config_parity.json"
         if config_parity_path.exists():
             from vllm.config_parity import (
@@ -1996,8 +1951,6 @@ def main():
             "amd", amd_by_build, all_builds.get("amd", []),
         )
 
-    upstream_summaries = []
-
     # Apply quarantine
     quarantine_config = load_quarantine(str(QUARANTINE_PATH))
     if amd_health:
@@ -2008,7 +1961,7 @@ def main():
     log.info("=== Generating reports ===")
 
     # CI Health
-    write_ci_health(amd_summaries, upstream_summaries, amd_health, output_dir)
+    write_ci_health(amd_summaries, amd_health, output_dir)
 
     # Flaky tests
     if amd_health:
@@ -2060,10 +2013,8 @@ def main():
     project_dir = output_dir.parent  # data/vllm/
     latest_amd_signal = _latest_signal_summary(amd_summaries)
     if latest_amd_signal:
-        latest_upstream_signal = _latest_signal_summary(upstream_summaries)
         test_results = _project_test_results_payload(
             latest_amd_signal,
-            latest_upstream_signal,
         )
         tr_path = project_dir / "test_results.json"
         write_pretty_json_lkg(
@@ -2083,14 +2034,13 @@ def main():
         retired.unlink(missing_ok=True)
 
     # Print summary
-    _print_summary(amd_summaries, upstream_summaries, amd_health)
+    _print_summary(amd_summaries, amd_health)
 
     log.info("=== Done ===")
 
 
 def _print_summary(
     amd_summaries: list,
-    upstream_summaries: list,
     health_data: list,
 ):
     """Print a human-readable summary to stdout."""
@@ -2114,12 +2064,6 @@ def _print_summary(
         if latest.delta_vs_previous:
             d = latest.delta_vs_previous
             print(f"  Delta: tests {d.get('total', 0):+d}, pass rate {d.get('pass_rate', 0):+.2%}")
-
-    if upstream_summaries:
-        latest = _latest_signal_summary(upstream_summaries) or upstream_summaries[0]
-        print(f"\nUpstream Latest (Build #{latest.build_number}):")
-        print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
-        print(f"  Test Pass Rate (pytest assertions, skipped excluded): {latest.pass_rate:.1%}")
 
     if health_data:
         labels = {}
