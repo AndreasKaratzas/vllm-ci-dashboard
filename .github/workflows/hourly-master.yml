@@ -1840,13 +1840,13 @@ jobs:
             fi
           done < "$LEGACY_CACHE_IDS"
 
-      - name: Collect AMD agent health (all builds, all branches)
+      - name: Collect AMD MI agent health (ci/main builds)
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         # Refresh the explicit current-ci build-creation cohort across whole
-        # UTC days. Terminal executions retain their actual start/finish times,
-        # while node-day rates use their parent's creation day. Version-two
+        # UTC days on main. Terminal executions retain their actual start/finish times,
+        # while node-day rates use their parent's creation day. Version-three
         # proof and UI labels describe this bounded cohort; they do not claim
         # coverage of recent executions belonging to older builds.
         env:
@@ -1856,7 +1856,7 @@ jobs:
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector agent_health "AMD agent health" \
             python scripts/vllm/collect_agent_health.py \
-            --days 7 --pipeline ci --day-basis build-created --output data/vllm/ci/
+            --days 7 --pipeline ci --branch main --day-basis build-created --output data/vllm/ci/
 
       - name: Validate immutable runtime source checkpoint
         id: runtime-source-cache-decision

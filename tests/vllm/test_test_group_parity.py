@@ -254,6 +254,137 @@ def test_runtime_annotation_never_trusts_a_retained_cpu_exclusion():
     assert "source_no_gpu" not in result["jobs"][0]
 
 
+def historical_keyless_snapshot():
+    current = snapshot()
+    current = source.MainCISnapshot(SHA, current.files, GENERATED_AT, "c" * 40)
+    # These execution fields reproduce the keyless CPU mirror at immutable
+    # commit 56d72701380bc68955cc0aa9367636df8356e3c8; commands are irrelevant to scope.
+    current.files[".buildkite/test_areas/docker.yaml"] = {"steps": [{
+        "label": ":computer: (CPU) Docker Build Metadata", "device": "cpu-small",
+        "mirror": {"amd": {"label": ":amd: (MI250) Docker Build Metadata",
+                            "device": "mi250_1", "no_gpu": True}},
+    }]}
+    current.files[FILE]["steps"].extend([
+        {"label": ":amd: (MI355) GPU CPU Offload", "device": "mi355"},
+        {"label": ":computer: (CPU) Infra Metadata", "device": "cpu-small"},
+    ])
+    return current
+
+
+def test_historical_keyless_execution_does_not_relax_current_source_inventory():
+    current = historical_keyless_snapshot()
+    for collect in (source.source_steps, source.amd_source_steps):
+        with pytest.raises(ValueError, match="explicit stable key"):
+            collect(current)
+    with pytest.raises(ValueError, match="explicit stable key"):
+        parity.build_payload(policy(), snapshot=current)
+
+    routes = source.amd_source_steps(current, include_cpu=True, require_keys=False)
+    keyless = [row for row in routes if not row["key"]]
+    assert {row["label"] for row in keyless} == {
+        ":amd: (MI250) Docker Build Metadata", ":amd: (MI355) GPU CPU Offload",
+    }
+    assert all(row["definition_id"].endswith("#yaml-index:" + str(row["yaml_index"]))
+               for row in keyless)
+
+
+def test_keyless_cpu_route_joins_only_exact_label_and_physical_pool():
+    current = historical_keyless_snapshot()
+    index = source.runtime_scope_index(current)
+    assert index["cpu_routes"] == [{"key": "", "label": "docker build metadata",
+                                   "agent_pool": "mi250_1"}]
+    assert source.validate_runtime_scope_index(index, expected_commit=SHA) == index
+    jobs = [
+        {"id": "keyless-job", "name": ":amd: (MI250) Docker Build Metadata",
+         "agent_queue": "amd_mi250_1"},
+        {"id": "generated-key", "step_key": "generated-docker-key",
+         "name": ":amd: (MI250) Docker Build Metadata", "agent_queue": "amd_mi250_1"},
+        {"id": "different-pool", "name": ":amd: (MI250) Docker Build Metadata",
+         "agent_queue": "amd_mi300_1"},
+        {"id": "different-label", "name": ":amd: (MI250) GPU Docker Build Metadata",
+         "agent_queue": "amd_mi250_1"},
+        {"id": "cpu-offload-gpu", "name": ":amd: (MI355) GPU CPU Offload",
+         "agent_queue": "amd_mi355", "source_no_gpu": True},
+    ]
+    result = source.annotate_runtime_source_scope({"commit": SHA, "jobs": jobs}, scope_index=index)
+    assert [job["id"] for job in result["jobs"] if job.get("source_no_gpu")] == [
+        "keyless-job", "generated-key",
+    ]
+    assert all(job["source_scope_commit"] == SHA for job in result["jobs"])
+    assert "source_no_gpu" not in jobs[0]
+    with pytest.raises(source.RuntimeSourceError):
+        source.annotate_runtime_source_scope({"commit": RUNTIME_SHA, "jobs": jobs}, scope_index=index)
+
+
+@pytest.mark.parametrize("gpu_key", [None, "actual-gpu-step"])
+def test_keyless_cpu_label_cannot_exclude_a_same_pool_gpu_definition(gpu_key):
+    current = historical_keyless_snapshot()
+    gpu = {"label": ":amd: (MI355) Docker Build Metadata", "device": "mi250_1"}
+    if gpu_key is not None:
+        gpu["key"] = gpu_key
+    current.files[FILE]["steps"].append(gpu)
+    index = source.runtime_scope_index(current)
+    assert index["cpu_routes"] == []
+    result = source.annotate_runtime_source_scope({"commit": SHA, "jobs": [{
+        "step_key": "generated-key", "name": ":amd: (MI250) Docker Build Metadata",
+        "agent_queue": "amd_mi250_1", "source_no_gpu": True,
+    }]}, scope_index=index)
+    assert "source_no_gpu" not in result["jobs"][0]
+
+
+@pytest.mark.parametrize("key", [None, "", " ", 12, False])
+def test_historical_execution_parser_still_rejects_present_malformed_keys(key):
+    current = historical_keyless_snapshot()
+    current.files[FILE]["steps"][-1]["key"] = key
+    with pytest.raises(ValueError, match="explicit stable key"):
+        source.runtime_scope_index(current)
+
+
+@pytest.mark.parametrize("key", [None, "", " ", False, [], {}, 12])
+@pytest.mark.parametrize("runtime", [False, True])
+def test_present_malformed_mirror_keys_are_rejected_in_both_source_policies(key, runtime):
+    current = snapshot()
+    current.files[FILE]["steps"][0]["mirror"]["amd"].update(key=key, no_gpu=True)
+    with pytest.raises(ValueError, match="AMD mirror requires a nonempty string key"):
+        if runtime:
+            source.runtime_scope_index(current)
+        else:
+            source.amd_source_steps(current, include_cpu=True)
+
+
+def test_present_valid_mirror_key_is_preserved_without_a_parent_key():
+    current = historical_keyless_snapshot()
+    current.files[".buildkite/test_areas/docker.yaml"]["steps"][0]["mirror"]["amd"]["key"] = "exact-cpu-step"
+    index = source.runtime_scope_index(current)
+    assert index["cpu_routes"][0]["key"] == "exact-cpu-step"
+    result = source.annotate_runtime_source_scope({"commit": SHA, "jobs": [
+        {"step_key": "exact-cpu-step", "name": ":amd: (MI250) Docker Build Metadata",
+         "agent_queue": "amd_mi250_1"},
+        {"step_key": "different-step", "name": ":amd: (MI250) Docker Build Metadata",
+         "agent_queue": "amd_mi250_1"},
+    ]}, scope_index=index)
+    assert result["jobs"][0]["source_no_gpu"] is True
+    assert "source_no_gpu" not in result["jobs"][1]
+    assert source.amd_source_steps(snapshot())[0]["key"] == "amd-required"
+
+
+@pytest.mark.parametrize("document", [{"steps": "invalid"}, {"steps": [None]}, []])
+def test_historical_execution_parser_still_rejects_malformed_source_documents(document):
+    current = historical_keyless_snapshot()
+    current.files[FILE] = document
+    with pytest.raises(ValueError, match="malformed"):
+        source.runtime_scope_index(current)
+
+
+def test_keyless_cpu_definition_without_a_label_cannot_invent_an_execution_join():
+    current = historical_keyless_snapshot()
+    del current.files[".buildkite/test_areas/docker.yaml"]["steps"][0]["mirror"]["amd"]["label"]
+    # The parent has no usable execution label either.
+    del current.files[".buildkite/test_areas/docker.yaml"]["steps"][0]["label"]
+    with pytest.raises(ValueError, match="requires an execution label"):
+        source.runtime_scope_index(current)
+
+
 def test_authenticated_exact_pin_index_rejoins_new_attempts_without_source_requests(monkeypatch):
     current = snapshot()
     current = source.MainCISnapshot(current.commit_sha, current.files, current.fetched_at, "c" * 40)

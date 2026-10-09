@@ -352,15 +352,16 @@ const agentCreatedScope = {
   day_basis: 'build_created_at_utc', discovery_legs: {created: true},
 };
 delete agentCreatedScope.active_build_states;
+const agentMainScope = {...agentCreatedScope, version: 3, branch: 'main'};
 
-async function routeAgentHistoryScope(page, scope, delayedEvidence = false) {
+async function routeAgentHistoryScope(page, scope, delayedEvidence = false, nightlyRuns = 10) {
   await page.route('**/operations_v2/amd_agent_health.json*', async route => {
     const response = await route.fetch();
     const packet = await response.json();
     const agent = packet.amd_agent_health;
     Object.assign(agent, {
       pipelines: ['ci'], hardware_scope: 'amd_mi_gpu', generated_at: '2026-10-08T20:00:00Z', max_window_days: 60,
-      node_days: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', a: [10, 0, 1, 0], n: [10, 0, 1, 0]}],
+      node_days: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', a: [10, 0, 1, 0], n: [nightlyRuns, 0, 1, 0]}],
       failing_runs: [],
       failure_accounting: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', s: 'hard', i: 1, ng: 1, bc: 0, c: 1}],
       retention: {
@@ -373,6 +374,8 @@ async function routeAgentHistoryScope(page, scope, delayedEvidence = false) {
         failure_evidence: {source: 0, published: 0, complete: true},
       },
     });
+    if (scope.version === 3) agent.branches = ['main'];
+    else delete agent.branches;
     if (delayedEvidence) {
       agent.node_days.push({...agent.node_days[0], d: '2026-10-06'});
       agent.failure_accounting.push({...agent.failure_accounting[0], d: '2026-10-06'});
@@ -393,44 +396,34 @@ async function routeAgentHistoryScope(page, scope, delayedEvidence = false) {
   });
 }
 
-test('CI agent health discloses fresh started-job scope and keeps covered one-day rates', async ({ page }) => {
+test('CI main agent health rejects legacy all-branch started-job totals', async ({ page }) => {
   await routeAgentHistoryScope(page, agentStartedScope);
   await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
-  await expect(panel.locator('.ops-evidence-note.is-info')).toContainText('all branches and PRs across the ci pipeline');
+  await expect(panel.locator('.ops-evidence-note.is-warning')).toContainText('Current ci/main MI GPU cohort observations are required');
   await expect(panel).not.toContainText('AMD nightly and upstream CI pipelines');
-  const notice = panel.locator('.ops-evidence-note.is-warning');
-  await expect(notice).toContainText('Agent-health pipeline history is incomplete');
-  await expect(notice).toContainText(agentStartedScope.collected_from);
-  await expect(notice).toContainText(agentStartedScope.collected_to);
-  await expect(notice).toContainText('Complete fresh UTC history');
-  await expect(notice).toContainText('the full 60-day window is not yet complete');
-  await expect(notice).not.toContainText('dropped 0 oldest UTC days');
-  const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
-  await expect(row).toHaveCount(1);
-  await expect(row).toContainText('Unavailable');
-  await panel.locator('.ops-agent-controls').getByRole('button', {name: '1d', exact: true}).click();
-  await expect(row).toContainText('10.0%');
-  await expect(row).not.toContainText('Unavailable');
-  await expect(notice).toContainText('the full 60-day window is not yet complete');
-  await panel.locator('.ops-agent-controls').getByRole('button', {name: '3d', exact: true}).click();
-  await expect(row).toContainText('Unavailable');
-  await panel.locator('.ops-agent-controls').getByRole('button', {name: '60d', exact: true}).click();
-  await expect(row).toContainText('Unavailable');
+  await expect(panel.locator('.ops-agent-table')).toHaveCount(0);
+  await expect(panel.locator('.ops-agent-controls')).toHaveCount(0);
+  await expect(panel).not.toContainText('10.0%');
   await expect(panel.locator('.ops-error')).toHaveCount(0);
 });
 
 test('CI agent health labels the build creation cohort and keeps exact covered default-week rates', async ({ page }) => {
-  const scope = {...agentCreatedScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
+  const scope = {...agentMainScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
   await routeAgentHistoryScope(page, scope);
   await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
   const completion = panel.locator('.ops-agent-completion-scope');
-  await expect(completion).toContainText('Terminal runs from CI builds created in the selected UTC window');
+  await expect(completion).toContainText('Terminal runs from CI main builds created in the selected UTC window');
   await expect(completion).toContainText('Runs require a recorded or bounded completion time');
   await expect(completion).toContainText('the ci pipeline');
+  await expect(completion).toContainText('branch main');
+  await expect(panel).not.toContainText('all branches and PRs');
+  await expect(panel.getByRole('button', {name: 'All main builds', exact: true})).toBeVisible();
+  await expect(panel.getByRole('button', {name: 'Nightlies', exact: true})).toBeVisible();
+  await expect(panel.getByRole('button', {name: 'Nightly/main', exact: true})).toHaveCount(0);
   await expect(completion).toContainText(scope.collected_from);
   await expect(completion).toContainText(scope.collected_to);
   const notice = panel.locator('.ops-evidence-note.is-warning');
@@ -451,7 +444,7 @@ test('CI agent health labels the build creation cohort and keeps exact covered d
 });
 
 test('CI agent health selects evidence by build creation day while retaining actual job times', async ({ page }) => {
-  const scope = {...agentCreatedScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
+  const scope = {...agentMainScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
   await routeAgentHistoryScope(page, scope, true);
   await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
@@ -472,19 +465,47 @@ test('CI agent health selects evidence by build creation day while retaining act
   await expect(dialog).toContainText('Oct 7, 01:00 AM');
 });
 
+test('CI main agent health nightlies are a subset of the exact main cohort', async ({ page }) => {
+  const scope = {...agentMainScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
+  await routeAgentHistoryScope(page, scope, false, 4);
+  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.locator('.ops-loading')).toHaveCount(0);
+  const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
+  await expect(row.locator('td').nth(2)).toHaveText('10');
+  await expect(row).toContainText('10.0%');
+  await panel.getByRole('button', {name: 'Nightlies', exact: true}).click();
+  await expect(row.locator('td').nth(2)).toHaveText('4');
+  await expect(row).toContainText('25.0%');
+  await panel.getByRole('button', {name: 'All main builds', exact: true}).click();
+  await expect(row.locator('td').nth(2)).toHaveText('10');
+  await expect(row).toContainText('10.0%');
+  await expect(panel).not.toContainText('all branches and PRs');
+});
+
 for (const [name, scope] of [
   ['legacy creation-only', {collected_from: '2026-08-01T00:00:00Z', complete_window: true}],
   ['stale started-job', {...agentStartedScope, collected_to: '2026-10-08T19:00:00Z'}],
   ['malformed started-job', {...agentStartedScope, discovery_legs: {...agentStartedScope.discovery_legs, older_active: false}}],
-  ['incomplete build-created cohort', {...agentCreatedScope, discovery_legs: {created: false}}],
-  ['missing build-created eligibility', {...agentCreatedScope, eligible_completion: undefined}],
-  ['mixed build-created authority', {...agentCreatedScope, active_build_states: agentStartedScope.active_build_states}],
+  ['legacy all-branch created cohort', agentCreatedScope],
+  ['incomplete build-created cohort', {...agentMainScope, discovery_legs: {created: false}}],
+  ['missing build-created eligibility', {...agentMainScope, eligible_completion: undefined}],
+  ['mixed build-created authority', {...agentMainScope, active_build_states: agentStartedScope.active_build_states}],
+  ['wrong main branch', {...agentMainScope, branch: 'feature'}],
+  ['missing main branch', {...agentMainScope, branch: undefined}],
 ]) {
   test(`CI agent health keeps observed counts and hides rates for ${name} coverage`, async ({ page }) => {
     await routeAgentHistoryScope(page, scope);
     await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
     const panel = page.locator('#tab-ci-analytics');
     await expect(panel.locator('.ops-loading')).toHaveCount(0);
+    if (scope.version !== 3 || scope.branch !== 'main') {
+      await expect(panel.locator('.ops-evidence-note.is-warning')).toContainText('Current ci/main MI GPU cohort observations are required');
+      await expect(panel.locator('.ops-agent-table')).toHaveCount(0);
+      await expect(panel.locator('.ops-agent-completion-scope')).toHaveCount(0);
+      await expect(panel).not.toContainText('10.0%');
+      return;
+    }
     await expect(panel.locator('.ops-evidence-note.is-warning')).toContainText('Complete agent-health history is unavailable');
     await expect(panel).toContainText('Retained counts describe observed runs');
     await panel.locator('.ops-agent-controls').getByRole('button', {name: '1d', exact: true}).click();
@@ -1285,7 +1306,7 @@ for (const foreign of ['pipeline', 'queue', 'cpu']) {
     });
     await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
     const panel = page.locator('#tab-ci-analytics');
-    await expect(panel).toContainText('Current CI MI GPU observations are required');
+    await expect(panel).toContainText('Current ci/main MI GPU cohort observations are required');
     await expect(panel.locator('.ops-agent-table')).toHaveCount(0);
     await expect(panel).not.toContainText('B200');
   });

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Collect per-physical-node AMD CI agent-health data across ALL builds.
+"""Collect per-physical-node AMD CI agent-health data from explicit build cohorts.
 
 Unlike ``scripts/collect_ci.py`` — which tracks only main-branch *nightly*
-builds for the dashboard's headline CI health — this collector walks **every**
-build in the current ``ci`` pipeline: all branches, all triggers (PRs, release
-branches, scheduled). For each job that ran on a physical AMD **GPU** node it
-observes one terminal run. Normal Actions use an explicit seven-day build
-creation cohort across every branch; node-day membership follows the parent's
+builds for the dashboard's headline CI health — this collector can walk every
+build in the selected pipeline and branch scope, across all triggers. Manual
+all-branch collection includes PRs and release branches. For each job that ran on a physical AMD **GPU** node it
+observes one terminal run. Normal Actions use an explicit seven-day main-branch
+build creation cohort; node-day membership follows the parent's
 UTC creation day while execution timestamps remain intact. Manual start-day
 collection can additionally discover recent executions in older parents.
 Physical node identity comes from the Buildkite agent's
@@ -41,7 +41,7 @@ with the two-file ledger):
 
 Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/vllm/collect_agent_health.py --days 60 --output data/vllm/ci/  # backfill
-    python scripts/vllm/collect_agent_health.py --days 7 --day-basis build-created  # normal
+    python scripts/vllm/collect_agent_health.py --days 7 --day-basis build-created --branch main  # normal
     python scripts/vllm/collect_agent_health.py --dry-run --days 7
 """
 
@@ -387,11 +387,14 @@ def _paginate_observation_builds(
     created_to = _aware_timestamp(params.get("created_to"))
     finished_from = _aware_timestamp(params.get("finished_from"))
     state = params.get("state")
+    branch = params.get("branch")
     previous_created: datetime | None = None
     count = 0
 
     def validate_build(raw: object, prior_created: datetime | None) -> tuple[dict, datetime]:
         build = _validate_discovered_build(raw)
+        if branch is not None and build.get("branch") != branch:
+            raise RuntimeError(f"agent-health {phase} returned a build outside its branch filter")
         created = _aware_timestamp(build.get("created_at"))
         if (
             created is None
@@ -518,6 +521,7 @@ def _fetch_pipeline_builds(
     project: Callable[[dict], dict] | None = None,
     bound_created_to: bool = False,
     source_candidate: Callable[[dict], bool] | None = None,
+    branch: str = "all",
 ) -> list[dict]:
     """Fetch one pipeline's build/job payloads with bounded incremental fan-out.
 
@@ -526,14 +530,22 @@ def _fetch_pipeline_builds(
     Any slice failure is re-raised; callers therefore never publish a partial
     agent-health refresh.  ``_paginate`` retains the existing retry behavior.
     """
+    if branch not in ("all", "main"):
+        raise ValueError("agent-health branch scope is invalid")
     base_params = {
         "per_page": 100,
         "exclude_pipeline": "true",
+        **({"branch": "main"} if branch == "main" else {}),
     }
 
     def fetch_slice(params: dict) -> list[dict]:
         if project is None:
-            return _paginate(url, params)
+            rows = _paginate(url, params)
+            if branch == "main" and any(
+                _validate_discovered_build(row).get("branch") != "main" for row in rows
+            ):
+                raise RuntimeError("agent-health created returned a build outside its branch filter")
+            return rows
         return _paginate_observation_builds(
             url, params, project, phase="created", source_candidate=source_candidate,
         )
@@ -610,11 +622,16 @@ def _fetch_pipeline_observations(
     *,
     query_time: datetime | None = None,
     day_basis: str = "started",
+    branch: str = "all",
 ) -> list[dict]:
     if day_basis not in ("started", "build-created"):
         raise ValueError("agent-health day basis is invalid")
     if day_basis == "build-created" and slug != "ci":
         raise ValueError("build-created cohort requires the current ci pipeline")
+    if branch not in ("all", "main"):
+        raise ValueError("agent-health branch scope is invalid")
+    if branch == "main" and (slug != "ci" or day_basis != "build-created"):
+        raise ValueError("main-branch cohort requires current ci and build-created day basis")
     query_time = query_time or datetime.now(timezone.utc)
     created_from = _job_window_start(query_time, days)
     url = f"{cfg.BK_API_BASE}/organizations/{cfg.BK_ORG}/pipelines/{slug}/builds"
@@ -633,6 +650,8 @@ def _fetch_pipeline_observations(
         # window. A scheduled or never-started canceled MI job did not execute
         # a GPU test, and its inaccessible PR commit cannot block the cohort.
         # Restored annotations cannot authorize skipping a real execution.
+        if branch == "main" and build.get("branch") != "main":
+            raise RuntimeError("agent-health created returned a build outside its branch filter")
         return any(
             _observe_in_window(
                 slug, build,
@@ -644,6 +663,8 @@ def _fetch_pipeline_observations(
         )
 
     def project(build: dict) -> dict:
+        if branch == "main" and build.get("branch") != "main":
+            raise RuntimeError("agent-health created returned a build outside its branch filter")
         if slug == "ci" and source_candidate(build):
             from vllm.main_ci_definitions import annotate_runtime_source_scope
             commit = str(build.get("commit") or "").casefold()
@@ -691,6 +712,7 @@ def _fetch_pipeline_observations(
         ),
         project=project,
         source_candidate=source_candidate,
+        **({"branch": "main"} if branch == "main" else {}),
         **({"bound_created_to": True} if day_basis == "build-created" else {}),
     )
     if day_basis == "build-created":
@@ -698,7 +720,7 @@ def _fetch_pipeline_observations(
         # started in older builds. Its finite creation interval is exhausted
         # completely, and every day/rate uses the parent's UTC creation day.
         obs = [row for build in builds for row in build["observations"]]
-        log.info("Pipeline %s creation cohort: %d builds -> %d AMD GPU observations", slug, len(builds), len(obs))
+        log.info("Pipeline %s branch=%s creation cohort: %d builds -> %d AMD GPU observations", slug, branch, len(builds), len(obs))
         return obs
     # Created-time discovery alone omits recent jobs belonging to older builds.
     # Fetch only that disjoint older cohort, keeping jobs embedded and all
@@ -898,11 +920,56 @@ def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cuto
     return list(seen.values())
 
 
+def _valid_retained_main_proof(summary: dict, retention: dict, scope: dict) -> bool:
+    """Check the original main-cohort proof before reusing any older totals."""
+    if set(scope) != {
+        "version", "branch", "basis", "eligible_completion", "day_basis",
+        "discovery_legs", "collected_from", "collected_to", "requested_days",
+        "exhaustive", "attempt_policy", "terminal_time_policy", "complete_window",
+    }:
+        return False
+    if (scope.get("attempt_policy") != "latest_attempt_per_step"
+            or scope.get("terminal_time_policy") != TERMINAL_TIME_POLICY
+            or scope.get("collected_to") != summary.get("generated_at")
+            or type(scope.get("requested_days")) is not int
+            or not 1 <= scope["requested_days"] <= MAX_WINDOW_DAYS
+            or type(scope.get("complete_window")) is not bool
+            or type(retention.get("configured_days")) is not int
+            or retention["configured_days"] != MAX_WINDOW_DAYS
+            or type(retention.get("byte_limited")) is not bool):
+        return False
+    clocks = []
+    for name in ("collected_from", "collected_to"):
+        raw = scope[name]
+        if not isinstance(raw, str) or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", raw,
+        ):
+            return False
+        parsed = _aware_timestamp(raw)
+        if parsed is None:
+            return False
+        clocks.append(parsed)
+    collected_from, collected_to = clocks
+    if collected_from != _job_window_start(collected_to, scope["requested_days"]):
+        return False
+    counts = [retention.get(name) for name in (
+        "original_day_count", "retained_day_count", "dropped_oldest_day_count",
+    )]
+    if any(type(value) is not int or value < 0 for value in counts):
+        return False
+    original, retained, dropped = counts
+    if original != retained + dropped:
+        return False
+    expected_complete = collected_from <= collected_to - timedelta(days=MAX_WINDOW_DAYS) and dropped == 0
+    return scope["complete_window"] is expected_complete
+
+
 def _scoped_retained_history(
     output_dir: Path,
     pipelines: tuple[str, ...],
     *,
     day_basis: str = "started",
+    branch: str = "all",
 ) -> tuple[list[dict], list[dict]]:
     """Reuse rollups only when their paired generation proves the same scope.
 
@@ -926,21 +993,47 @@ def _scoped_retained_history(
     retention = summary.get("retention")
     scope = retention.get("pipeline_scope") if isinstance(retention, dict) else None
     stored_created_basis = isinstance(scope, dict) and (
-        scope.get("version") == 2
+        type(scope.get("version")) is int and scope.get("version") in (2, 3)
         and scope.get("basis") == "terminal_jobs_by_build_created_at"
         and scope.get("day_basis") == CREATED_DAY_BASIS
+    )
+    stored_main_scope = isinstance(scope, dict) and (
+        type(scope.get("version")) is int and scope["version"] == 3
+        and scope.get("branch") == "main"
+        and scope.get("eligible_completion") == CREATED_ELIGIBILITY
+        and scope.get("exhaustive") is True
+        and scope.get("discovery_legs") == {"created": True}
+        and scope["discovery_legs"].get("created") is True
+        and summary.get("branches") == ["main"]
+        and declared == ["ci"]
+        and summary.get("job_scope") == "amd_gpu"
+        and summary.get("hardware_scope") == "amd_mi_gpu"
+        and _valid_retained_main_proof(summary, retention, scope)
+    )
+    stored_all_scope = (
+        "branches" not in summary
+        and isinstance(scope, dict) and "branch" not in scope
+        and type(scope.get("version")) is int
+        and (scope["version"] == 2 and stored_created_basis
+             or scope["version"] == 1 and scope.get("basis") == "terminal_jobs_by_started_at")
     )
     if (
         not isinstance(declared, list)
         or not all(isinstance(slug, str) for slug in declared)
+        or len(declared) != len(set(declared))
         or set(declared) != set(pipelines)
         or stored_created_basis != (day_basis == "build-created")
+        or not (stored_main_scope if branch == "main" else stored_all_scope)
+        or (tuple(pipelines) == ("ci",) and (
+            summary.get("job_scope") != "amd_gpu"
+            or summary.get("hardware_scope") != "amd_mi_gpu"
+        ))
     ):
         if node_days or failing:
             log.info(
-                "Replacing agent-health history outside selected pipeline/day scope %s/%s "
+                "Replacing agent-health history outside selected pipeline/day/branch scope %s/%s/%s "
                 "(%d node-days, %d failure rows)",
-                list(pipelines), day_basis, len(node_days), len(failing),
+                list(pipelines), day_basis, branch, len(node_days), len(failing),
             )
         return [], []
 
@@ -994,6 +1087,10 @@ def _assemble(
     }
     if retention is not None:
         payload["retention"] = retention
+        scope = retention.get("pipeline_scope")
+        if (isinstance(scope, dict) and type(scope.get("version")) is int
+                and scope["version"] == 3 and scope.get("branch") == "main"):
+            payload["branches"] = ["main"]
     return payload
 
 
@@ -1321,11 +1418,17 @@ def main() -> int:
         "--day-basis", choices=("started", "build-created"), default="started",
         help="Group terminal runs by start day or by their current-CI build creation cohort.",
     )
+    parser.add_argument(
+        "--branch", choices=("main", "all"), default="all",
+        help="Branch scope (main requires current CI build-created cohorts; default: all).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Fetch + report, but do not write.")
     args = parser.parse_args()
 
     if args.day_basis == "build-created" and args.pipeline != "ci":
         parser.error("Build-created cohort requires --pipeline ci")
+    if args.branch == "main" and (args.pipeline != "ci" or args.day_basis != "build-created"):
+        parser.error("Main-branch cohort requires --pipeline ci --day-basis build-created")
 
     if not cfg.BK_TOKEN:
         log.error("BUILDKITE_TOKEN not set.")
@@ -1341,14 +1444,18 @@ def main() -> int:
     _SOURCE_SCOPE_INDEXES.update(load_source_scope_indexes(args.output / ".cache" / ANALYTICS_CACHE_DIR_NAME))
     obs: list[dict] = []
     for slug in slugs:
-        source_options = (
-            {"day_basis": "build-created"}
-            if args.day_basis == "build-created" else {}
-        )
-        obs.extend(
-            row for row in _fetch_pipeline_observations(slug, days, query_time=now, **source_options)
-            if row.get("pipeline") in slugs
-        )
+        source_options = {
+            **(
+                {"day_basis": "build-created"}
+                if args.day_basis == "build-created" else {}
+            ),
+            **({"branch": "main"} if args.branch == "main" else {}),
+        }
+        for row in _fetch_pipeline_observations(slug, days, query_time=now, **source_options):
+            if row.get("pipeline") in slugs:
+                if args.branch == "main" and row.get("is_main") is not True:
+                    raise RuntimeError("agent-health main cohort returned an unproved branch observation")
+                obs.append(row)
     _mark_infra_suspect(obs)
 
     fresh_rollups = list(_rollup_rows(obs).values())
@@ -1374,7 +1481,7 @@ def main() -> int:
     earliest_day = query_from.strftime("%Y-%m-%d")
     cutoff_day = (now - timedelta(days=MAX_WINDOW_DAYS)).strftime("%Y-%m-%d")
     stored_node_days, stored_failing = _scoped_retained_history(
-        args.output, slugs, day_basis=args.day_basis,
+        args.output, slugs, day_basis=args.day_basis, branch=args.branch,
     )
 
     node_days = _merge_by_day(
@@ -1388,7 +1495,8 @@ def main() -> int:
 
     source_scope = (
         {
-            "version": 2,
+            "version": 3 if args.branch == "main" else 2,
+            **({"branch": "main"} if args.branch == "main" else {}),
             "basis": "terminal_jobs_by_build_created_at",
             "eligible_completion": CREATED_ELIGIBILITY,
             "day_basis": CREATED_DAY_BASIS,

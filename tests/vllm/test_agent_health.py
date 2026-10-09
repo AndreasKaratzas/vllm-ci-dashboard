@@ -441,7 +441,7 @@ def _retained_failure(day: str, index: int, *, padding: int = 0) -> dict:
 
 def _run_scoped_collection(
     monkeypatch, tmp_path, *, pipeline=None, fail=False, fetch_fn=None, days=3,
-    day_basis=None,
+    day_basis=None, branch=None,
 ):
     class Clock(datetime):
         @classmethod
@@ -470,6 +470,8 @@ def _run_scoped_collection(
         argv.extend(["--pipeline", pipeline])
     if day_basis is not None:
         argv.extend(["--day-basis", day_basis])
+    if branch is not None:
+        argv.extend(["--branch", branch])
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(ah, "datetime", Clock)
     monkeypatch.setattr(ah.cfg, "BK_TOKEN", "unit-test-token")
@@ -488,8 +490,12 @@ def _seed_scoped_history(tmp_path, pipelines, *, generated_at="2026-07-13T12:00:
     (store / ah.INFRA_FAILURES_JSONL).write_bytes(ah._encoded_jsonl(failures))
     (tmp_path / ah.OUTPUT_JSON).write_text(json.dumps({
         "pipelines": pipelines,
+        **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if pipelines == ["ci"] else {}),
         "generated_at": generated_at,
-        "retention": {"pipeline_scope": {"collected_from": "2026-05-10T12:00:00Z"}},
+        "retention": {"pipeline_scope": {
+            "version": 1, "basis": "terminal_jobs_by_started_at",
+            "collected_from": "2026-05-10T12:00:00Z",
+        }},
     }))
     return node, failures
 
@@ -507,6 +513,19 @@ def _expected_job_scope():
         "attempt_policy": "latest_attempt_per_step",
         "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
         "complete_window": False,
+    }
+
+
+def _expected_main_created_scope():
+    return {
+        **{key: value for key, value in _expected_job_scope().items()
+           if key not in ("version", "basis", "discovery_legs", "active_build_states")},
+        "version": 3,
+        "branch": "main",
+        "basis": "terminal_jobs_by_build_created_at",
+        "eligible_completion": ah.CREATED_ELIGIBILITY,
+        "day_basis": ah.CREATED_DAY_BASIS,
+        "discovery_legs": {"created": True},
     }
 
 
@@ -533,6 +552,8 @@ def _window_page(builds, calls):
         calls.append(dict(params))
         selected = []
         for build in builds:
+            if "branch" in params and build.get("branch") != params["branch"]:
+                continue
             created = datetime.fromisoformat(build["created_at"].replace("Z", "+00:00"))
             if "created_from" in params and created < datetime.fromisoformat(params["created_from"]):
                 continue
@@ -748,6 +769,199 @@ def test_long_creation_cohort_excludes_builds_created_after_its_decision_clock(m
     assert calls[0]["created_to"] == NOW.isoformat()
 
 
+def test_main_created_cohort_has_exact_branch_queries_proof_and_original_execution_times(monkeypatch, tmp_path):
+    main = _window_build(1, "2026-07-12T23:50:00Z", job_state="failed")
+    main["message"] = "Full CI run - nightly"
+    foreign = _window_build(2, "2026-07-13T08:00:00Z", job_state="failed")
+    foreign.update(branch="pull-request", commit="unavailable-foreign-commit")
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page([main, foreign], calls))
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, branch="main", day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert len(calls) == 4
+    assert all(params["branch"] == "main" for params in calls)
+    assert not any("state" in params or "finished_from" in params for params in calls)
+    assert payload["pipelines"] == ["ci"] and payload["branches"] == ["main"]
+    assert payload["job_scope"] == "amd_gpu" and payload["hardware_scope"] == "amd_mi_gpu"
+    assert payload["retention"]["pipeline_scope"] == _expected_main_created_scope()
+    assert payload["total_runs"] == 1
+    assert payload["node_days"][0]["a"] == [1, 0, 1, 0]
+    assert payload["node_days"][0]["n"] == [1, 0, 1, 0]
+    assert payload["failing_runs"][0]["d"] == "2026-07-12"
+    assert payload["failing_runs"][0]["t"] == "2026-07-14T09:00:00Z"
+    assert payload["failing_runs"][0]["e"] == "2026-07-14T09:05:00Z"
+
+
+def test_long_main_created_cohort_keeps_branch_and_decision_clock_filters(monkeypatch):
+    calls = []
+    main = _window_build(1, "2026-07-14T08:00:00Z")
+    foreign = deepcopy(main)
+    foreign.update(number=2, branch="release")
+    monkeypatch.setattr(ah, "_paginate", _window_page([main, foreign], calls))
+    rows = ah._fetch_pipeline_observations("ci", 14, query_time=NOW, day_basis="build-created", branch="main")
+    assert len(rows) == 1 and rows[0]["is_main"] is True
+    assert len(calls) == 1
+    assert calls[0]["branch"] == "main"
+    assert calls[0]["created_from"] == "2026-06-30T00:00:00+00:00"
+    assert calls[0]["created_to"] == NOW.isoformat()
+
+
+@pytest.mark.parametrize("branch", [None, "", "pull-request", "release"])
+def test_main_branch_filter_contradictions_fail_before_source_and_preserve_generation(monkeypatch, tmp_path, branch):
+    import vllm.main_ci_definitions as definitions
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    good = _window_build(1, "2026-07-14T08:00:00Z")
+    wrong = deepcopy(good)
+    wrong["number"] = 2
+    if branch is None:
+        wrong.pop("branch")
+    else:
+        wrong["branch"] = branch
+    wrong["commit"] = "unavailable-foreign-pin"
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("wrong branch cannot prime source"))
+    def unfiltered(_url, params, **kwargs):
+        rows = [good, wrong] if params["created_from"] == "2026-07-14T00:00:00+00:00" else []
+        return _project_mock_page(rows, **kwargs)
+    monkeypatch.setattr(ah, "_paginate", unfiltered)
+    with pytest.raises(RuntimeError, match="outside its branch filter"):
+        _run_scoped_collection(
+            monkeypatch, tmp_path, days=1, branch="main", day_basis="build-created",
+            fetch_fn=ah._fetch_pipeline_observations,
+        )
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("slug,day_basis", [("amd-ci", "build-created"), ("ci", "started"), ("both", "started")])
+def test_main_scope_invalid_combinations_stop_before_transport(monkeypatch, slug, day_basis):
+    monkeypatch.setattr(ah, "_paginate", lambda *_args, **_kwargs: pytest.fail("invalid scope cannot transport"))
+    with pytest.raises(ValueError, match="requires"):
+        ah._fetch_pipeline_observations(slug, 1, branch="main", day_basis=day_basis, query_time=NOW)
+    monkeypatch.setattr(sys, "argv", ["collect_agent_health.py", "--pipeline", slug,
+                                     "--day-basis", day_basis, "--branch", "main"])
+    with pytest.raises(SystemExit) as failure:
+        ah.main()
+    assert failure.value.code == 2
+
+
+def test_main_scope_source_failure_preserves_old_all_branch_ledgers(monkeypatch, tmp_path):
+    import vllm.main_ci_definitions as definitions
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    main = _window_build(1, "2026-07-14T08:00:00Z")
+    monkeypatch.setattr(ah, "_paginate", _window_page([main], []))
+    def unavailable(pins):
+        assert pins == [SOURCE_COMMIT]
+        raise definitions.RuntimeSourceError(commit_sha=SOURCE_COMMIT, phase="batch")
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", unavailable)
+    with pytest.raises(definitions.RuntimeSourceError):
+        _run_scoped_collection(
+            monkeypatch, tmp_path, branch="main", day_basis="build-created",
+            fetch_fn=ah._fetch_pipeline_observations,
+        )
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+def test_all_branch_and_main_created_histories_are_never_reinterpreted_in_either_direction(monkeypatch, tmp_path):
+    old = _window_build(1, "2026-07-10T08:00:00Z", job_state="failed")
+    old["branch"] = "pull-request"
+    monkeypatch.setattr(ah, "_paginate", _window_page([old], []))
+    _, all_branch = _run_scoped_collection(
+        monkeypatch, tmp_path, days=7, day_basis="build-created", fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert all_branch["total_runs"] == 1 and "branches" not in all_branch
+    main = _window_build(2, "2026-07-13T08:00:00Z", job_state="failed")
+    monkeypatch.setattr(ah, "_paginate", _window_page([main], []))
+    _, main_only = _run_scoped_collection(
+        monkeypatch, tmp_path, days=1, branch="main", day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert main_only["total_runs"] == 1
+    assert {row["d"] for row in main_only["node_days"]} == {"2026-07-13"}
+    assert {row["b"] for row in main_only["failing_runs"]} == {2}
+    monkeypatch.setattr(ah, "_paginate", _window_page([], []))
+    _, all_again = _run_scoped_collection(
+        monkeypatch, tmp_path, days=1, day_basis="build-created", fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert all_again["total_runs"] == 0 and "branches" not in all_again
+    assert all_again["retention"]["pipeline_scope"]["version"] == 2
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda payload: payload.pop("branches"),
+    lambda payload: payload.update(branches=["release"]),
+    lambda payload: payload.update(hardware_scope="amd_gpu"),
+    lambda payload: payload.pop("job_scope"),
+    lambda payload: payload.update(pipelines=["ci", "ci"]),
+    lambda payload: payload["retention"]["pipeline_scope"].update(version=2),
+    lambda payload: payload["retention"]["pipeline_scope"].pop("branch"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(branch="release"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(basis="terminal_jobs_by_started_at"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(day_basis="started_at_utc"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(exhaustive=1),
+    lambda payload: payload["retention"]["pipeline_scope"].update(discovery_legs={"created": 1}),
+    lambda payload: payload["retention"]["pipeline_scope"].update(attempt_policy="all_attempts"),
+    lambda payload: payload["retention"]["pipeline_scope"].pop("terminal_time_policy"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(requested_days=True),
+    lambda payload: payload["retention"]["pipeline_scope"].update(requested_days=3),
+    lambda payload: payload["retention"]["pipeline_scope"].update(collected_from="2026-07-07T01:00:00Z"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(collected_from="2026-07-07T01:00:00+01:00"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(collected_to="2026-07-14T12:00:01Z"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(collected_to="2026-07-14T12:00:00.000Z"),
+    lambda payload: payload.update(generated_at="2026-07-14T12:00:01Z"),
+    lambda payload: payload["retention"]["pipeline_scope"].update(complete_window=True),
+    lambda payload: payload["retention"]["pipeline_scope"].update(unexpected=True),
+    lambda payload: payload["retention"].update(configured_days=59),
+    lambda payload: payload["retention"].update(configured_days=True),
+    lambda payload: payload["retention"].pop("byte_limited"),
+    lambda payload: payload["retention"].update(byte_limited="false"),
+    lambda payload: payload["retention"].update(original_day_count=2),
+    lambda payload: payload["retention"].update(retained_day_count=True),
+    lambda payload: payload["retention"].update(dropped_oldest_day_count=False),
+])
+def test_main_retained_totals_require_matching_scope_before_reuse(monkeypatch, tmp_path, mutation):
+    old = _window_build(1, "2026-07-10T08:00:00Z", job_state="failed")
+    monkeypatch.setattr(ah, "_paginate", _window_page([old], []))
+    _, prior = _run_scoped_collection(
+        monkeypatch, tmp_path, days=7, branch="main", day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert prior["total_runs"] == 1
+    mutation(prior)
+    (tmp_path / ah.OUTPUT_JSON).write_text(json.dumps(prior))
+    monkeypatch.setattr(ah, "_paginate", _window_page([], []))
+    _, current = _run_scoped_collection(
+        monkeypatch, tmp_path, days=1, branch="main", day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert current["node_days"] == current["failing_runs"] == []
+    assert current["total_runs"] == current["infra_failure_count"] == 0
+
+
+def test_main_retains_only_proven_main_history_and_refreshes_empty_current_days(monkeypatch, tmp_path):
+    old = _window_build(1, "2026-07-10T08:00:00Z", job_state="failed")
+    current = _window_build(2, "2026-07-14T08:00:00Z", job_state="failed")
+    monkeypatch.setattr(ah, "_paginate", _window_page([old, current], []))
+    _run_scoped_collection(
+        monkeypatch, tmp_path, days=7, branch="main", day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    monkeypatch.setattr(ah, "_paginate", _window_page([], []))
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, days=1, branch="main", day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert payload["total_runs"] == payload["infra_failure_count"] == 1
+    assert payload["node_days"][0]["d"] == "2026-07-10"
+    assert payload["failing_runs"][0]["b"] == 1
+    assert payload["retention"]["pipeline_scope"]["collected_from"] == "2026-07-13T00:00:00Z"
+    assert payload["retention"]["pipeline_scope"]["complete_window"] is False
+
+
 def test_seven_day_job_window_uses_bounded_daily_roots_and_projects_each_slice(monkeypatch):
     calls = []
     raw = _window_build(1, "2026-07-14T08:00:00Z")
@@ -885,6 +1099,8 @@ def _install_filtered_build_endpoint(monkeypatch, builds, calls, *, fail=None):
             fail(scalar)
         selected = []
         for build in builds:
+            if "branch" in scalar and build.get("branch") != scalar["branch"]:
+                continue
             created = ah._aware_timestamp(build["created_at"])
             lower = ah._aware_timestamp(scalar.get("created_from"))
             upper = ah._aware_timestamp(scalar.get("created_to"))
@@ -908,6 +1124,20 @@ def _install_filtered_build_endpoint(monkeypatch, builds, calls, *, fail=None):
         return Response(rows, next_url)
 
     monkeypatch.setattr(buildkite_client, "_request", request)
+
+
+def test_main_branch_filter_survives_filterless_next_links_on_real_shared_pager(monkeypatch):
+    builds = [_window_build(index + 1, "2026-07-14T08:00:00Z") for index in range(61)]
+    foreign = _window_build(1000, "2026-07-14T08:00:00Z")
+    foreign.update(branch="pull-request", commit="unavailable-foreign-pin")
+    calls = []
+    _install_filtered_build_endpoint(monkeypatch, [*builds, foreign], calls)
+    rows = ah._fetch_pipeline_observations("ci", 1, query_time=NOW, day_basis="build-created", branch="main")
+    assert len(rows) == 61 and all(row["is_main"] is True for row in rows)
+    assert len(calls) == 3 and any(call.get("page") == "2" for call in calls)
+    assert all(call["branch"] == "main" for call in calls)
+    assert all("created_from" in call and "created_to" in call for call in calls)
+    assert buildkite_client.PAGINATION_SAFETY_CAP == 100
 
 
 def test_all_age_active_partitions_preserve_recent_jobs_and_microsecond_boundary_ties(
@@ -1654,7 +1884,10 @@ def test_agent_health_transaction_scratch_directories_cannot_be_committed():
 # --------------------------------------------------------------------------- #
 
 def test_amd_agent_health_passthrough(tmp_path):
-    block = {"generated_at": "x", "hardware_scope": "amd_mi_gpu", "pipelines": ["ci"], "node_days": [{"nd": "A", "h": "mi300"}], "failing_runs": []}
+    block = ah._prepare_generation(
+        [_retained_node_day("2026-07-14")], [], NOW, pipelines=("ci",),
+        pipeline_scope=_expected_main_created_scope(),
+    )["payload"]
     (tmp_path / "agent_health.json").write_text(json.dumps(block))
     assert ops._amd_agent_health(tmp_path) == block
 

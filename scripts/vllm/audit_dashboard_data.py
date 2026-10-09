@@ -3604,6 +3604,15 @@ class DashboardAudit:
                 "Current Operations agent health must contain only the ci pipeline, including retained fallback evidence",
                 relpath,
             )
+        agent_health = _mapping(payload.get("amd_agent_health"))
+        agent_scope = _mapping(_mapping(agent_health.get("retention")).get("pipeline_scope"))
+        if (agent_health.get("branches") != ["main"] or type(agent_scope.get("version")) is not int
+                or agent_scope.get("version") != 3 or agent_scope.get("branch") != "main"):
+            self.error(
+                "operations-agent-health-main-scope",
+                "Current Operations agent health must prove the ci/main build-creation cohort, including retained fallback evidence",
+                relpath,
+            )
         self.audit_agent_health(payload, relpath)
         self.audit_agent_health_started_coverage(_mapping(payload.get("amd_agent_health")), relpath)
 
@@ -4171,6 +4180,7 @@ class DashboardAudit:
             "version", "basis", "collected_to", "requested_days", "exhaustive",
             "discovery_legs", "active_build_states", "attempt_policy", "terminal_time_policy",
             "eligible_completion", "finished_job_source", "day_basis",
+            "branch",
         }
         if isinstance(raw_scope, dict) and not proof_fields.intersection(raw_scope):
             # Historical CI-only ledgers remain observations. Their old
@@ -4179,10 +4189,10 @@ class DashboardAudit:
         scope = _mapping(raw_scope)
         invalid = []
         version = scope.get("version")
-        if type(version) is not int or version not in (1, 2):
+        if type(version) is not int or version not in (1, 2, 3):
             invalid.append("version")
         expected_basis = (
-            "terminal_jobs_by_build_created_at" if type(version) is int and version == 2
+            "terminal_jobs_by_build_created_at" if type(version) is int and version in (2, 3)
             else "terminal_jobs_by_started_at"
         )
         if scope.get("basis") != expected_basis:
@@ -4194,10 +4204,10 @@ class DashboardAudit:
         if scope.get("exhaustive") is not True:
             invalid.append("exhaustive")
         legs = scope.get("discovery_legs")
-        expected_legs = {"created"} if version == 2 else {"created", "older_finished", "older_active"}
+        expected_legs = {"created"} if type(version) is int and version in (2, 3) else {"created", "older_finished", "older_active"}
         if not isinstance(legs, dict) or set(legs) != expected_legs or any(value is not True for value in legs.values()):
             invalid.append("discovery_legs")
-        if type(version) is int and version == 2:
+        if type(version) is int and version in (2, 3):
             if agent_health.get("pipelines") != ["ci"]:
                 invalid.append("pipelines")
             if scope.get("eligible_completion") != "current_ci_build_creation_cohort_with_provable_completion":
@@ -4215,6 +4225,13 @@ class DashboardAudit:
                 invalid.append("active_build_states")
             if "eligible_completion" in scope or "finished_job_source" in scope or "day_basis" in scope:
                 invalid.append("proof_version_fields")
+        if type(version) is int and version == 3:
+            if scope.get("branch") != "main" or agent_health.get("branches") != ["main"]:
+                invalid.append("branch_scope")
+            if agent_health.get("job_scope") != "amd_gpu" or agent_health.get("hardware_scope") != "amd_mi_gpu":
+                invalid.append("hardware_scope")
+        elif "branch" in scope or "branches" in agent_health:
+            invalid.append("proof_version_branch")
 
         def utc_second(value: Any) -> datetime | None:
             if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", value):
@@ -4260,11 +4277,11 @@ class DashboardAudit:
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
         """Cross-check the pre-aggregated AMD CI agent-health block.
 
-        collect_agent_health.py discovers terminal AMD runs across CI branches
+        collect_agent_health.py discovers terminal AMD MI runs from ci/main builds
         and ships compact per-node/day reliability rollups plus bounded exact
-        failing-run evidence. Version 2 explicitly measures terminal runs from
-        CI builds created within the UTC cohort, with a recorded finish or valid
-        final-parent completion bound.
+        failing-run evidence. Version 3 identifies main builds created within
+        the UTC cohort, with a recorded finish or valid final-parent completion
+        bound; earlier proof versions retain their explicit manual scope.
         Compact accounting keeps table counts exact
         when link evidence is shortened; the frontend clusters only retained
         evidence client-side. This audits the block's meta, accounting, rollup

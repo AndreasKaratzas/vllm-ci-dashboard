@@ -209,7 +209,39 @@ assert.equal(sourceComplete(createdFull), true);
 assert.equal(sourceComplete(createdFull, '2026-08-09'), true);
 assert.equal(sourceComplete({...createdFull, retention: {...createdFull.retention,
   dropped_oldest_day_count: 1, retained_day_count: 59}}, '2026-10-07'), false);
+const mainProof = {...createdProof, version: 3, branch: 'main'};
+const mainScope = {...createdScope, branches: ['main'], job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu',
+  retention: {...createdScope.retention, pipeline_scope: mainProof}};
+assert.equal(sourceComplete(mainScope, '2026-10-07'), true);
+assert.equal(sourceComplete(mainScope), false);
+assert.equal(sourceComplete({...mainScope, branches: ['main', 'feature']}, '2026-10-07'), false);
+assert.equal(sourceComplete({...mainScope, branches: ['main', 'main']}, '2026-10-07'), false);
+assert.equal(sourceComplete({...mainScope, branches: 'main'}, '2026-10-07'), false);
+assert.equal(sourceComplete({...mainScope, hardware_scope: 'amd_gpu'}, '2026-10-07'), false);
+assert.equal(sourceComplete({...mainScope, job_scope: 'all_jobs'}, '2026-10-07'), false);
+for (const branch of [undefined, null, true, ['main'], 'feature']) {
+  assert.equal(sourceComplete({...mainScope, retention: {...mainScope.retention,
+    pipeline_scope: {...mainProof, branch}}}, '2026-10-07'), false);
+}
+for (const missingField of ['branches', 'hardware_scope', 'job_scope']) {
+  const missing = {...mainScope}; delete missing[missingField];
+  assert.equal(sourceComplete(missing, '2026-10-07'), false);
+}
+for (const legacy of [partialScope, createdScope]) {
+  assert.equal(sourceComplete({...legacy, branches: ['main']}, '2026-10-07'), false);
+  assert.equal(sourceComplete({...legacy, retention: {...legacy.retention,
+    pipeline_scope: {...legacy.retention.pipeline_scope, branch: 'main'}}}, '2026-10-07'), false);
+}
+const mainWeek = {...mainScope, retention: {...mainScope.retention, pipeline_scope: {...mainProof,
+  requested_days: 7, collected_from: '2026-10-01T00:00:00Z'}}};
+for (const start of ['2026-10-07', '2026-10-05', '2026-10-01']) assert.equal(sourceComplete(mainWeek, start), true);
+assert.equal(sourceComplete(mainWeek, '2026-09-30'), false);
+const mainFull = {...mainScope, retention: {...mainScope.retention, pipeline_scope: {...mainProof,
+  requested_days: 60, collected_from: '2026-08-09T00:00:00Z', complete_window: true}}};
+assert.equal(sourceComplete(mainFull), true);
+assert.equal(sourceComplete({...mainFull, retention: {...mainFull.retention, byte_limited: true}}), false);
 const scopeLabel = sandbox.window.OpsV2Test.agentPipelineScopeLabel;
+assert.equal(scopeLabel(mainScope), 'the ci pipeline on branch main');
 assert.equal(scopeLabel({pipelines: ['ci']}), 'the ci pipeline');
 assert.equal(scopeLabel({pipelines: ['amd-ci', 'ci']}), 'the amd-ci and ci pipelines');
 assert.equal(scopeLabel({pipelines: [' ci ', 'ci', '', null]}), 'the ci pipeline');
@@ -2230,7 +2262,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=37' in INDEX
+    assert 'assets/js/ops-v2.js?v=38' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS

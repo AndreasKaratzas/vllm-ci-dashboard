@@ -100,7 +100,7 @@ AMD_TEST_PIPELINE = "ci"
 EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
 QUEUE_JOB_PIPELINES = frozenset({"ci", "vllm-omni-amd-ci"})
 # Per-physical-agent (node) AMD GPU health is now collected and aggregated by
-# scripts/vllm/collect_agent_health.py (all builds, all branches) and embedded
+# scripts/vllm/collect_agent_health.py (current ci/main cohort) and embedded
 # verbatim from agent_health.json by _amd_agent_health below. See that collector
 # for the rollup / infra-suspect model and the frontend for client-side
 # aggregation + co-failure clustering.
@@ -3391,8 +3391,8 @@ def _parse_dt(value: Any) -> datetime | None:
 def _amd_agent_health(data_dir: Path) -> dict:
     """Load the pre-aggregated AMD agent-health block for the CI-agent-health view.
 
-    All heavy lifting — walking every build across every branch in the AMD
-    pipelines, computing per-node/day reliability rollups, and isolating
+    All heavy lifting — walking the current ci/main build-creation cohort on
+    AMD MI hardware, computing per-node/day reliability rollups, and isolating
     infra-suspect failures (a failure whose test group otherwise passes that day,
     on another node) — is done by ``scripts/vllm/collect_agent_health.py`` and
     persisted to ``agent_health.json``. This snapshot simply embeds that payload;
@@ -3402,6 +3402,12 @@ def _amd_agent_health(data_dir: Path) -> dict:
     """
     payload = _load_json(data_dir / "agent_health.json")
     if not isinstance(payload, dict) or payload.get("hardware_scope") != "amd_mi_gpu" or payload.get("pipelines") != ["ci"]:
+        return {}
+    retention = payload.get("retention")
+    scope = retention.get("pipeline_scope") if isinstance(retention, dict) else None
+    if (payload.get("branches") != ["main"] or not isinstance(scope, dict)
+            or type(scope.get("version")) is not int or scope.get("version") != 3
+            or scope.get("branch") != "main" or payload.get("job_scope") != "amd_gpu"):
         return {}
     for key in ("node_days", "failing_runs", "failure_accounting", "node_accounting_totals", "failure_accounting_totals"):
         if any(not isinstance(row, dict) or not re.fullmatch(r"mi\d{3,4}", str(row.get("h") or ""), flags=re.I) for row in payload.get(key) or []):

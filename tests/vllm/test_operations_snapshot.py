@@ -21,6 +21,31 @@ from vllm.ci.reliability_history import (
 GENERATED_AT = "2026-04-22T12:00:00Z"
 
 
+@pytest.mark.parametrize("version,branches,branch", [
+    (1, None, None), (2, None, None), (2, ["main"], "main"),
+    (3, ["main", "feature"], "main"), (3, ["main"], "feature"),
+    (True, ["main"], "main"),
+])
+def test_current_agent_snapshot_rejects_legacy_or_mixed_branch_totals(tmp_path, version, branches, branch):
+    payload = {
+        "hardware_scope": "amd_mi_gpu", "job_scope": "amd_gpu", "pipelines": ["ci"],
+        "branches": branches, "retention": {"pipeline_scope": {"version": version, "branch": branch}},
+        "node_days": [{"d": "2026-04-22", "nd": "fixture-node", "h": "MI300", "a": [5, 0, 0, 0], "n": [1, 0, 0, 0]}],
+    }
+    (tmp_path / "agent_health.json").write_text(json.dumps(payload))
+    assert ops._amd_agent_health(tmp_path) == {}
+
+
+def test_current_agent_snapshot_preserves_explicit_main_cohort(tmp_path):
+    payload = {
+        "hardware_scope": "amd_mi_gpu", "job_scope": "amd_gpu", "pipelines": ["ci"], "branches": ["main"],
+        "retention": {"pipeline_scope": {"version": 3, "branch": "main"}},
+        "node_days": [{"d": "2026-04-22", "nd": "fixture-node", "h": "MI300", "a": [5, 0, 0, 0], "n": [1, 0, 0, 0]}],
+    }
+    (tmp_path / "agent_health.json").write_text(json.dumps(payload))
+    assert ops._amd_agent_health(tmp_path) == payload
+
+
 def _write_json(path: Path, payload: dict) -> None:
     if path.name == "analytics.json":
         for block in payload.values():

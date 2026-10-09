@@ -4889,21 +4889,67 @@ def _agent_started_coverage_fixture(days=3, dropped=0, version=1):
             },
         },
     }
-    if version == 2:
+    if version in (2, 3):
         scope = health["retention"]["pipeline_scope"]
         scope.update(
-            version=2,
+            version=version,
             basis="terminal_jobs_by_build_created_at",
             eligible_completion="current_ci_build_creation_cohort_with_provable_completion",
             day_basis="build_created_at_utc",
             discovery_legs={"created": True},
         )
         del scope["active_build_states"]
+        if version == 3:
+            scope["branch"] = "main"
+            health.update(branches=["main"], job_scope="amd_gpu", hardware_scope="amd_mi_gpu")
     return health
 
 
-@pytest.mark.parametrize("days,dropped", [(3, 0), (60, 0), (60, 1)])
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize("version", [1, 2, 3])
+def test_current_agent_health_rejects_all_branch_proof_as_main_even_for_fallback(tmp_path, fallback, version):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    health = _agent_started_coverage_fixture(version=version)
+    (ci / "operations_v2.json").write_text(json.dumps({"schema_version": 2, "amd_agent_health": health}))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=fallback)
+    audit.audit_operations_v2()
+    codes = {finding.code for finding in audit.report.errors}
+    assert ("operations-agent-health-main-scope" in codes) is (version != 3)
+
+
+@pytest.mark.parametrize("location,field,value", [
+    ("proof", "branch", None), ("proof", "branch", "feature"),
+    ("proof", "branch", ["main"]), ("proof", "branch", True),
+    ("payload", "branches", None), ("payload", "branches", "main"),
+    ("payload", "branches", ["main", "feature"]), ("payload", "branches", ["main", "main"]),
+    ("payload", "branches", []), ("payload", "hardware_scope", "amd_gpu"),
+    ("payload", "job_scope", "all_jobs"),
+])
+def test_agent_main_proof_requires_consistent_exact_branch_and_mi_scope(tmp_path, location, field, value):
+    health = _agent_started_coverage_fixture(version=3)
+    target = health["retention"]["pipeline_scope"] if location == "proof" else health
+    target[field] = value
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert {finding.code for finding in audit.report.errors} == {"operations-agent-health-started-coverage"}
+
+
 @pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("location", ["proof", "payload"])
+def test_legacy_agent_proof_cannot_be_promoted_with_only_a_main_label(tmp_path, version, location):
+    health = _agent_started_coverage_fixture(version=version)
+    if location == "proof":
+        health["retention"]["pipeline_scope"]["branch"] = "main"
+    else:
+        health["branches"] = ["main"]
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "manual-agent-health.json")
+    assert {finding.code for finding in audit.report.errors} == {"operations-agent-health-started-coverage"}
+
+
+@pytest.mark.parametrize("days,dropped", [(3, 0), (60, 0), (60, 1)])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_agent_started_job_proof_validates_only_fresh_interval_and_retention(tmp_path, days, dropped, version):
     health = _agent_started_coverage_fixture(days, dropped, version)
     audit = DashboardAudit(tmp_path)
@@ -4928,7 +4974,7 @@ def test_agent_started_job_proof_validates_only_fresh_interval_and_retention(tmp
     ("attempt_policy", "all_attempts"), ("terminal_time_policy", "state_only"),
     ("complete_window", 1), ("complete_window", True),
 ])
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_agent_started_job_proof_rejects_false_or_malformed_authority(tmp_path, field, value, version):
     health = _agent_started_coverage_fixture(version=version)
     health["retention"]["pipeline_scope"][field] = value
@@ -4938,7 +4984,7 @@ def test_agent_started_job_proof_rejects_false_or_malformed_authority(tmp_path, 
 
 
 @pytest.mark.parametrize("tamper", ["clock", "configured", "pruned", "accounting", "scope_type", "missing_byte_limit", "byte_limit_type"])
-@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize("version", [1, 2, 3])
 def test_agent_started_job_proof_rejects_clock_and_pruned_complete_window(tmp_path, tamper, version):
     health = _agent_started_coverage_fixture(60, version=version)
     if tamper == "clock":
