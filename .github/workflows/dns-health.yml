@@ -107,8 +107,9 @@ jobs:
         run: |
           set -euo pipefail
           # -S proves this isolated validator does not depend on unrelated
-          # dashboard packages. Fail before the bounded scan, not after it.
-          python -S scripts/vllm/audit_dashboard_data.py --dns-only
+          # dashboard packages. Temporary schema evidence lets old checked-in
+          # data migrate; the collected output is still audited before publish.
+          python -S scripts/vllm/audit_dashboard_data.py --dns-dependency-smoke
 
       - name: Resolve durable DNS scanner state
         env:
