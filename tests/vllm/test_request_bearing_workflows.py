@@ -138,7 +138,12 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
         if "BUILDKITE_TOKEN" in (step.get("env") or {})
     ]
     assert token_steps
-    assert token_steps[0][0] == reserve_index + 2  # gated report is skipped on permits
+    source_restore_index = next(
+        index for index, step in enumerate(steps)
+        if step.get("name") == "Restore immutable runtime source indexes"
+    )
+    assert reserve_index < source_restore_index < token_steps[0][0]
+    assert token_steps[0][1]["name"] == "Collect vLLM/Omni AMD workload mappings"
     for index, step in token_steps:
         assert index > reserve_index
         assert "steps.request-attempt.outputs.request_mode == 'reserved'" in str(

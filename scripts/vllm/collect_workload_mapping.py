@@ -30,9 +30,12 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
+import threading
 import time as time_module
 from collections import defaultdict
+from copy import deepcopy
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
@@ -50,10 +53,14 @@ from vllm.buildkite_request_guard import (  # noqa: E402
 install_from_environment_or_exit()
 
 from vllm.constants import BK_API_BASE, BK_ORG, amd_gpu_hardware  # noqa: E402
-from vllm.pipelines import is_cpu_only_job  # noqa: E402
-from vllm.ci.utils import parse_iso, queue_from_rules  # noqa: E402
+from vllm.pipelines import _job_queue as observed_job_queue, is_cpu_only_job  # noqa: E402
+from vllm.ci.utils import parse_iso  # noqa: E402
 from vllm.bounded_json import atomic_write_bytes, pretty_json_bytes  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.ci.analytics_cache import (  # noqa: E402
+    RUNTIME_SOURCE_CACHE_DIR_NAME, read_runtime_source_indexes,
+    retain_runtime_source_indexes, write_runtime_source_indexes,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -69,6 +76,66 @@ DEFAULT_WINDOW_DAYS = 14
 DEFAULT_MAX_PAGES = 50
 WORKLOAD_MAPPING_MAX_BYTES = writer_max_bytes("workload_mapping")
 MAX_SLICE_WORKERS = 3
+
+EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+_SOURCE_SCOPE_LOCK = threading.Lock()
+
+
+def _physical_mi_candidate(job: dict) -> bool:
+    # Restored annotations cannot attest the current API observation.
+    raw = {key: value for key, value in job.items()
+           if key not in {"source_no_gpu", "source_scope_commit"}}
+    return bool(amd_gpu_hardware(_job_queue(raw))) and not is_cpu_only_job(raw)
+
+
+def _scope_ci_builds(builds: list[dict], pipeline: str = "") -> list[dict]:
+    """Attest prospective MI CI jobs against authenticated immutable source."""
+    from vllm.main_ci_definitions import annotate_runtime_source_scope, prewarm_runtime_snapshots
+
+    candidates = []
+    for build in builds:
+        if str((build.get("pipeline") or {}).get("slug") or pipeline) != "ci":
+            continue
+        if not any(isinstance(job, dict) and job.get("type") in {"script", "command"}
+                   and _physical_mi_candidate(job) for job in build.get("jobs") or []):
+            continue
+        commit = str(build.get("commit") or "").strip().casefold()
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ValueError("CI MI execution requires an exact full source commit")
+        candidates.append(commit)
+    # One lock spans priming/checkpointing: concurrent day slices cannot spend
+    # duplicate source starts or overwrite each other's verified progress.
+    with _SOURCE_SCOPE_LOCK:
+        missing = sorted(set(candidates) - _SOURCE_SCOPE_INDEXES.keys())
+        for offset in range(0, len(missing), 50):
+            batch = missing[offset:offset + 50]
+            prewarm_runtime_snapshots(batch)
+            for commit in batch:
+                annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
+                retained = retain_runtime_source_indexes(
+                    {**_SOURCE_SCOPE_INDEXES, commit: annotated["source_scope_index"]},
+                    preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES],
+                )
+                if _SOURCE_SCOPE_CACHE_DIR is not None:
+                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+                _SOURCE_SCOPE_INDEXES.clear()
+                _SOURCE_SCOPE_INDEXES.update(retained)
+        result = []
+        for build in builds:
+            commit = str(build.get("commit") or "").strip().casefold()
+            if str((build.get("pipeline") or {}).get("slug") or pipeline) == "ci" and commit in candidates:
+                prepared = {**build, "jobs": [
+                    {**job, "agent_queue": _job_queue(job)} if isinstance(job, dict) else job
+                    for job in build.get("jobs") or []
+                ]}
+                result.append(annotate_runtime_source_scope(prepared, scope_index=_SOURCE_SCOPE_INDEXES[commit]))
+            else:
+                result.append(build)
+        return result
+
+
 PER_PAGE = 100
 REQUEST_ATTEMPTS = 6
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
@@ -175,13 +242,16 @@ def monitored_queues(config: dict) -> dict[str, dict]:
 
 
 def _job_queue(job: dict) -> str:
-    queue = queue_from_rules(job.get("agent_query_rules"))
-    if queue:
-        return queue
+    observed = observed_job_queue({key: value for key, value in job.items()
+                                   if key != "agent_query_rules"})
+    if observed:
+        return observed
     cluster_queue = job.get("cluster_queue")
     if isinstance(cluster_queue, dict):
-        return str(cluster_queue.get("key") or "")
-    return ""
+        queue = str(cluster_queue.get("key") or "").strip()
+        if queue:
+            return queue
+    return observed_job_queue(job)
 
 
 def _job_mapped_at(job: dict, build: dict) -> datetime | None:
@@ -375,7 +445,9 @@ def _fetch_pipeline_slice(
         if not rows:
             complete = True
             break
-        builds.extend(row for row in rows if isinstance(row, dict))
+        # Source acquisition failures are hard failures, outside the transport
+        # lower-bound catch above; they cannot authorize fresh GPU aggregates.
+        builds.extend(_scope_ci_builds([row for row in rows if isinstance(row, dict)], pipeline))
         if len(rows) < PER_PAGE:
             complete = True
             break
@@ -526,7 +598,7 @@ def _events_from_builds(
     missing_job_ids = 0
     duplicate_job_ids = 0
     missing_mapped_at: list[datetime] = []
-    for build in builds:
+    for build in _scope_ci_builds(builds, pipeline):
         build_pipeline = str((build.get("pipeline") or {}).get("slug") or pipeline)
         if build_pipeline != pipeline:
             continue
@@ -1009,6 +1081,21 @@ def collect_workload_mapping(
         microsecond=0
     )
     existing = existing if isinstance(existing, dict) and existing.get("hardware_scope") == "amd_mi_gpu" else {}
+    if existing and existing.get("execution_scope_contract") != EXECUTION_SCOPE_CONTRACT:
+        # Aggregate main history cannot be re-attested without original jobs.
+        # Omni belongs to another repository and keeps its original evidence.
+        existing = deepcopy(existing)
+        for collection in ("daily", "hourly"):
+            for row in existing.get(collection) or []:
+                if not isinstance(row, dict):
+                    continue
+                row.setdefault("workloads", {})["main"] = _empty_workload()
+                complete = bool(row.get("collection_complete", not row.get("lower_bound", False)))
+                prior = row.get("collection_complete_by_workload") or {}
+                row["collection_complete_by_workload"] = {"omni": bool(prior.get("omni", complete)), "main": False}
+                row["collection_complete"] = False
+                row["complete"] = False
+                row["lower_bound"] = True
     if retention_days > DEFAULT_RETENTION_DAYS:
         raise ValueError(
             f"retention_days may not exceed {DEFAULT_RETENTION_DAYS}"
@@ -1225,6 +1312,7 @@ def collect_workload_mapping(
     return {
         "schema_version": 2,
         "hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": EXECUTION_SCOPE_CONTRACT,
         "generated_at": _utc_iso(now),
         "collection_start": collection_start,
         "timezone": "UTC",
@@ -1445,6 +1533,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument("--runtime-source-cache", type=Path, default=None)
     parser.add_argument("--bootstrap-days", type=int, default=DEFAULT_BOOTSTRAP_DAYS)
     parser.add_argument("--refresh-days", type=int, default=DEFAULT_REFRESH_DAYS)
     parser.add_argument("--retention-days", type=int, default=DEFAULT_RETENTION_DAYS)
@@ -1483,6 +1572,10 @@ def main() -> None:
     token = os.getenv("BUILDKITE_TOKEN", "").strip()
     if not token:
         raise SystemExit("BUILDKITE_TOKEN not set")
+    global _SOURCE_SCOPE_CACHE_DIR
+    _SOURCE_SCOPE_CACHE_DIR = args.runtime_source_cache or args.output.parent / ".cache" / RUNTIME_SOURCE_CACHE_DIR_NAME
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(read_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR))
     config = load_config(args.config)
     existing = {}
     if args.output.exists():

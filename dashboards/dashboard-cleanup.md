@@ -158,3 +158,16 @@ as progress is made; an incomplete pass fails visibly while retaining that
 bounded progress. Rerun the helper until its completeness output is true before
 a cold full refresh. A successful warmup does not advance dashboard clocks or
 establish current agent-health coverage.
+
+Queue job details and workload events also join current-CI jobs to these exact
+source definitions. Retained detail overlays require that execution proof;
+older workload buckets without it remain explicitly incomplete. Native queue
+occupancy retains its separate physical hardware meaning. Omni source commits
+are not joined to the vLLM repository.
+
+Automatic workload refreshes query two recent days plus the existing parent
+build lookback. This keeps a scope migration from launching a 90-day backfill
+inside the shared full-collection request allowance. The CLI still supports
+explicit historical reconciliation; partial retained history stays visible as
+partial, and neither a dependency smoke check nor a source warmup supplies
+runtime coverage.

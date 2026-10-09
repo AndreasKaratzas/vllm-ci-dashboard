@@ -2072,6 +2072,8 @@ class TestHourlyMasterWorkflow:
         hourly = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
         names = [step.get("name") for step in hourly]
         assert names.index("Restore immutable runtime source indexes") < names.index("Collect CI data")
+        assert names.index("Restore immutable runtime source indexes") < names.index("Collect vLLM/Omni AMD workload mappings")
+        assert "--force-days 2" in hourly[names.index("Collect vLLM/Omni AMD workload mappings")]["run"]
         decision = hourly[names.index("Validate immutable runtime source checkpoint")]
         assert "always()" in decision["if"]
         assert "read_runtime_source_indexes(cache)" in decision["run"]
@@ -2080,8 +2082,23 @@ class TestHourlyMasterWorkflow:
         assert "always()" in save["if"]
         assert "runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'" in save["if"]
         assert "collect-analytics.outputs.cache_save" not in save["if"]
-        for name in ("Collect CI data", "Collect CI analytics", "Collect AMD agent health (all builds, all branches)"):
+        for name in ("Collect CI data", "Collect CI analytics", "Collect AMD agent health (all builds, all branches)", "Collect vLLM/Omni AMD workload mappings"):
             assert hourly[names.index(name)]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+
+        queue_job = _load_workflow("queue-monitor.yml")["jobs"]["snapshot"]
+        assert queue_job["permissions"]["actions"] == "read"
+        queue = queue_job["steps"]
+        queue_names = [step.get("name") for step in queue]
+        assert queue_names.index("Restore immutable runtime source indexes") < queue_names.index("Reserve durable rolling queue request budget")
+        collect = queue[queue_names.index("Collect bounded queue snapshot")]
+        assert collect["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+        assert "--metrics-max-pages 2" in collect["run"] and "--details-max-pages 12" in collect["run"]
+        decision = queue[queue_names.index("Validate immutable runtime source checkpoint")]
+        assert "always()" in decision["if"] and "request_mode == 'metrics_and_details'" in decision["if"]
+        assert decision["run"].index("read_runtime_source_indexes(cache)") < decision["run"].index('output.write("runtime_source_cache_save=true')
+        save = queue[queue_names.index("Save immutable runtime source checkpoint")]
+        assert "always()" in save["if"] and "request_mode == 'metrics_and_details'" in save["if"]
+        assert "runtime_source_cache_save == 'true'" in save["if"] and "collect.outcome" not in save["if"]
 
         dns = _load_workflow("dns-health.yml")["jobs"]["collect"]["steps"]
         dns_names = [step.get("name") for step in dns]

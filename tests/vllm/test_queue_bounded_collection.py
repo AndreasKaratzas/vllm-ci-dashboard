@@ -18,6 +18,7 @@ def _prior_overlay(path: Path) -> None:
     path.write_text(json.dumps({
         "ts": PRIOR,
         "hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": queue.EXECUTION_SCOPE_CONTRACT,
         "zombie_threshold_min": 240,
         "pending": [{
             "name": "retained pending",
@@ -25,6 +26,12 @@ def _prior_overlay(path: Path) -> None:
             "state": "scheduled",
             "wait_min": 4.0,
             "url": "https://buildkite.com/vllm/ci/builds/1",
+            "pipeline": "ci",
+            "commit": "a" * 12,
+            "execution_proof": {
+                "version": 1, "source_commit": "a" * 40,
+                "definition_tree": "b" * 40, "classification": "amd_mi_gpu",
+            },
         }],
         "running": [],
     }))

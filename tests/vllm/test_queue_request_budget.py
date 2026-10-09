@@ -378,7 +378,10 @@ def test_workflow_gates_every_trigger_before_exposing_buildkite_token() -> None:
         "BUILDKITE_REQUEST_GUARD_ALLOWANCE",
     ):
         assert f'echo "{name}=' in reserve["run"]
-    assert collect["env"] == {"BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}"}
+    assert collect["env"] == {
+        "BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}",
+        "GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+    }
     assert collect["id"] == "collect-queue"
     assert "--metrics-max-pages 2" in collect["run"]
     assert "--details-max-pages 12" in collect["run"]

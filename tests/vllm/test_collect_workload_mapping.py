@@ -14,6 +14,27 @@ from vllm.bounded_json import pretty_json_bytes
 
 
 NOW = datetime(2026, 7, 29, 18, 35, tzinfo=timezone.utc)
+SOURCE_COMMIT = "a" * 40
+
+
+@pytest.fixture(autouse=True)
+def immutable_source_fixture(monkeypatch):
+    """Use validated deterministic source indexes, never a GitHub transport."""
+    from vllm import main_ci_definitions as source
+
+    real_annotate = source.annotate_runtime_source_scope
+    monkeypatch.setattr(cwm, "_SOURCE_SCOPE_INDEXES", {})
+    monkeypatch.setattr(cwm, "_SOURCE_SCOPE_CACHE_DIR", None)
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda pins: None)
+
+    def annotate(build, **kwargs):
+        index = kwargs.get("scope_index") or {
+            "version": 1, "commit_sha": build.get("commit"),
+            "definition_tree_sha": "b" * 40, "cpu_routes": [],
+        }
+        return real_annotate(build, scope_index=index)
+
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", annotate)
 
 
 def _config() -> dict:
@@ -99,6 +120,7 @@ def _build(
 ) -> dict:
     return {
         "number": number,
+        "commit": SOURCE_COMMIT,
         "created_at": created_at,
         "pipeline": {"slug": pipeline},
         "jobs": jobs,
@@ -926,3 +948,165 @@ def test_legacy_mapping_aggregates_cannot_extend_new_mi_scope_history():
     assert payload["hardware_scope"] == "amd_mi_gpu"
     assert payload["scope"]["workload_pipelines"]["main"] == ["ci"]
     assert not any(row["workloads"]["main"]["mapped_jobs"] == 999 for row in payload["daily"])
+
+
+def _mi_cpu_index(commit=SOURCE_COMMIT):
+    return {"version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+            "cpu_routes": [{"key": "torch-abi", "label": "Torch ABI", "agent_pool": "mi250_1"}]}
+
+
+def test_workload_source_cpu_exclusions_apply_before_gpu_slot_aggregation_and_ignore_title_words():
+    cwm._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _mi_cpu_index()
+    cpu = {**_job("cpu", "amd_mi250_1"), "name": "Misleading GPU name", "step": {"key": "torch-abi"}}
+    gpu = {**_job("gpu", "amd_mi250_1"), "name": "CPU Offload with CUDA model preset", "step": {"key": "gpu"}}
+    payload = cwm.collect_workload_mapping(
+        "fake", _config(), now=NOW, force_days=1,
+        page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [cpu, gpu])]}),
+    )
+    assert payload["totals"]["main"]["mapped_jobs"] == 1
+    assert payload["totals"]["main"]["mapped_gpu_slots"] == 1
+    assert payload["execution_scope_contract"] == cwm.EXECUTION_SCOPE_CONTRACT
+    assert "cpu_routes" not in json.dumps(payload)
+    assert "source_scope_index" not in json.dumps(payload)
+
+
+@pytest.mark.parametrize("commit", [None, "", "abc123", "g" * 40])
+def test_workload_ci_missing_full_source_pin_is_a_hard_failure(commit):
+    build = {**_build("ci", [_job("gpu", "amd_mi250_1")]), "commit": commit}
+    with pytest.raises(ValueError, match="exact full source commit"):
+        cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1,
+                                    page_fetcher=_slice_aware_fetcher({"ci": [build]}))
+
+
+def test_workload_wrong_cached_source_pin_is_rejected():
+    cwm._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _mi_cpu_index("c" * 40)
+    with pytest.raises(ValueError, match="commit"):
+        cwm._events_from_builds([_build("ci", [_job("gpu", "amd_mi250_1")])],
+                                workload="main", pipeline="ci", queue_catalog=cwm.monitored_queues(_config()),
+                                start=NOW - timedelta(days=1), end=NOW)
+
+
+def test_workload_source_failure_preserves_existing_output_and_is_not_query_complete(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as source
+
+    output = tmp_path / "mapping.json"
+    original = b'{"generated_at":"2026-07-28T18:00:00Z","legacy":true}\n'
+    output.write_bytes(original)
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: (_ for _ in ()).throw(RuntimeError("source unavailable")))
+    with pytest.raises(RuntimeError, match="source unavailable"):
+        payload = cwm.collect_workload_mapping(
+            "fake", _config(), now=NOW, force_days=1,
+            page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [_job("gpu", "amd_mi250_1")])]}),
+        )
+        cwm.write_workload_mapping(output, payload)
+    assert output.read_bytes() == original
+
+
+def test_workload_scope_migration_preserves_omni_and_marks_old_main_incomplete_until_reconciled():
+    old = cwm._empty_day("2026-07-20")
+    old["workloads"]["omni"]["mapped_jobs"] = 7
+    old["workloads"]["main"]["mapped_jobs"] = 999
+    old["collection_complete_by_workload"] = {"omni": True, "main": True}
+    old["collection_complete"] = True
+    existing = {"schema_version": 2, "hardware_scope": "amd_mi_gpu",
+                "generated_at": "2026-07-20T23:59:59Z", "daily": [old]}
+    bounded = cwm.collect_workload_mapping("fake", _config(), existing=existing, now=NOW,
+                                          force_days=2, page_fetcher=_slice_aware_fetcher({}))
+    retained = next(row for row in bounded["daily"] if row["date"] == "2026-07-20")
+    assert retained["workloads"]["omni"]["mapped_jobs"] == 7
+    assert retained["workloads"]["main"]["mapped_jobs"] == 0
+    assert retained["collection_complete_by_workload"] == {"omni": True, "main": False}
+    assert retained["lower_bound"] is True
+    assert bounded["window"]["collection_complete"] is False
+    assert existing["daily"][0]["workloads"]["main"]["mapped_jobs"] == 999
+    assert existing["generated_at"] == "2026-07-20T23:59:59Z"
+    # Explicit reconciliation replaces the incomplete day with actual current
+    # CI observations, not the old aggregate or an invented complete zero.
+    job = _job("new", "amd_mi250_1", created_at="2026-07-20T10:00:00Z")
+    build = _build("ci", [job], created_at="2026-07-20T09:59:00Z")
+    reconciled = cwm.collect_workload_mapping("fake", _config(), existing=bounded, now=NOW,
+                                             force_days=10, page_fetcher=_slice_aware_fetcher({"ci": [build]}))
+    refreshed = next(row for row in reconciled["daily"] if row["date"] == "2026-07-20")
+    assert refreshed["workloads"]["main"]["mapped_jobs"] == 1
+    assert refreshed["collection_complete_by_workload"]["main"] is True
+
+
+def test_workload_omni_uses_its_own_mi_routing_without_vllm_source_lookup(monkeypatch):
+    from vllm import main_ci_definitions as source
+
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("Omni cannot use vLLM definitions"))
+    omni = {**_build("vllm-omni-amd-ci", [_job("omni", "amd_mi250_1")]), "commit": None}
+    payload = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1,
+                                          page_fetcher=_slice_aware_fetcher({"vllm-omni-amd-ci": [omni]}))
+    assert payload["totals"]["omni"]["mapped_jobs"] == 1
+    assert payload["totals"]["main"]["mapped_jobs"] == 0
+
+
+def test_workload_page_batches_exact_pins_before_event_projection(monkeypatch):
+    from vllm import main_ci_definitions as source
+
+    batches = []
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda pins: batches.append(pins))
+    builds = [{**_build("ci", [_job(str(index), "amd_mi250_1")]), "commit": f"{index:040x}"}
+              for index in range(1, 52)]
+    calls = []
+    def fetch_page(path, token, params):
+        calls.append(params)
+        return builds
+    scoped, metadata = cwm._fetch_pipeline_slice("unused", "fake", "ci", NOW - timedelta(days=1), NOW,
+                                                max_pages=12, page_fetcher=fetch_page)
+    assert len(calls) == 1
+    assert [len(batch) for batch in batches] == [50, 1]
+    assert metadata["complete"] is True
+    assert metadata["pages_fetched"] == 1
+    assert all(build["source_scope_commit"] == build["commit"] for build in scoped)
+
+
+@pytest.mark.parametrize("metadata", [["queue=B200"], {"queue": "B200"}])
+def test_workload_actual_agent_overrides_requested_mi_before_source_and_aggregation(monkeypatch, metadata):
+    from vllm import main_ci_definitions as source
+
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("foreign execution must avoid source lookup"))
+    job = {**_job("foreign", "amd_mi250_1"), "agent": {"meta_data": metadata}}
+    payload = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1,
+                                          page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [job])]}))
+    assert payload["totals"]["main"]["mapped_jobs"] == 0
+    assert payload["totals"]["main"]["started_jobs"] == 0
+    assert cwm._SOURCE_SCOPE_INDEXES == {}
+
+
+def test_workload_actual_mi_agent_queue_is_used_for_gpu_slots_and_source_join():
+    job = {**_job("actual-mi", "B200"), "agent": {"meta_data": ["queue=amd_mi250_1"]}}
+    payload = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1,
+                                          page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [job])]}))
+    assert payload["totals"]["main"]["mapped_jobs"] == 1
+    assert set(payload["totals"]["main"]["by_queue"]) == {"amd_mi250_1"}
+    assert payload["totals"]["main"]["mapped_gpu_slots"] == 1
+
+
+def test_workload_observed_cluster_route_also_drives_exact_source_cpu_join():
+    cwm._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _mi_cpu_index()
+    job = {**_job("cpu", "B200"), "step": {"key": "torch-abi"},
+           "cluster_queue": {"key": "amd_mi250_1"}}
+    payload = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1,
+                                          page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [job])]}))
+    assert payload["totals"]["main"]["mapped_jobs"] == 0
+
+
+@pytest.mark.parametrize("cluster", [None, {}, {"key": None}, {"key": ""}])
+def test_workload_unassigned_job_empty_cluster_retains_requested_queue(cluster):
+    job = {**_job("pending", "amd_mi250_1", started_at=None, finished_at=None), "cluster_queue": cluster}
+    payload = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1,
+                                          page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [job])]}))
+    assert payload["totals"]["main"]["mapped_jobs"] == 1
+    assert payload["totals"]["main"]["started_jobs"] == 0
+
+
+def test_workload_cluster_only_route_drives_source_cpu_exclusion():
+    cwm._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _mi_cpu_index()
+    job = {**_job("cpu", "amd_mi250_1"), "agent_query_rules": [],
+           "step": {"key": "torch-abi"}, "cluster_queue": {"key": "amd_mi250_1"}}
+    events, _ = cwm._events_from_builds([_build("ci", [job])], workload="main", pipeline="ci",
+                                      queue_catalog=cwm.monitored_queues(_config()),
+                                      start=NOW - timedelta(days=1), end=NOW)
+    assert events == []

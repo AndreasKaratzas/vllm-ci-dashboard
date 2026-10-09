@@ -596,8 +596,8 @@ class TestQueueMonitorWorkflow:
     def test_workflow_has_contents_write_permission(self, workflow):
         assert workflow.get("permissions") == {}
         perms = workflow["jobs"]["snapshot"].get("permissions", {})
-        assert perms == {"contents": "write"}, (
-            "only the queue snapshot job needs contents:write to push data"
+        assert perms == {"actions": "read", "contents": "write"}, (
+            "the snapshot job reads immutable source caches and pushes validated data"
         )
 
     def test_validated_generation_requires_exact_publish_or_safe_durable_retry(

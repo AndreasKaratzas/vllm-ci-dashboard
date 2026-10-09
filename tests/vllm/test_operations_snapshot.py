@@ -34,6 +34,7 @@ def _write_json(path: Path, payload: dict) -> None:
             collector.setdefault("job_scope", "amd_gpu")
     if path.name == "workload_mapping.json":
         payload.setdefault("hardware_scope", "amd_mi_gpu")
+        payload.setdefault("execution_scope_contract", ops.EXECUTION_SCOPE_CONTRACT)
     if path.name == "ci_health.json":
         for side in ("amd", "upstream"):
             block = payload.get(side) or {}
@@ -1759,6 +1760,7 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
         {},
         {
             "hardware_scope": "amd_mi_gpu",
+            "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
             "scope": {
                 "queues": ["amd_mi300_1"],
                 "workload_pipelines": {"omni": ["vllm-omni-amd-ci"], "main": ["ci"]},
@@ -1802,6 +1804,7 @@ def test_omni_uses_job_ledger_when_workload_aggregate_is_unavailable():
         {},
         {
             "hardware_scope": "amd_mi_gpu",
+            "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
             "scope": {
                 "queues": ["amd_mi300_1"],
                 "workload_pipelines": {"omni": ["vllm-omni-amd-ci"], "main": ["ci"]},
@@ -3548,3 +3551,65 @@ def test_amd_result_routing_uses_job_label_or_exact_mi_roster_and_excludes_cpu(t
     grouped, stats = ops._load_amd_test_result_groups(tmp_path, roster)
     assert {name for _, name in grouped} == {rows[0]["job_name"], rows[1]["job_name"]}
     assert stats["ignored_rows"] == 4
+
+
+def test_queue_projection_requires_exact_current_ci_source_proof_and_keeps_physical_counts():
+    commit = "9" * 40
+    proof = {"version": 1, "source_commit": commit, "definition_tree": "a" * 40,
+             "classification": "amd_mi_gpu"}
+    gpu = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": commit[:12],
+           "name": "CPU Offload", "execution_proof": proof}
+    legacy_cpu = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": commit[:12],
+                  "name": ":amd: (MI250) Torch Stable ABI Audit"}
+    omni = {"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi300_1", "name": "Omni GPU"}
+    jobs = {"hardware_scope": "amd_mi_gpu", "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
+            "pending": [gpu, legacy_cpu, omni], "running": []}
+    snapshot = {"queues": {"amd_mi300_1": {"waiting": 3, "running": 0,
+                                           "count_source": "cluster_metrics"}}}
+
+    result = ops._queue(snapshot, jobs, [snapshot])
+    assert result["queue_jobs"]["pending"] == [gpu, omni]
+    assert result["snapshot"]["total_waiting"] == 3
+    assert result["history"][0]["queues"]["amd_mi300_1"]["waiting"] == 3
+
+    for marker in (None, "physical_mi_only"):
+        legacy = {**jobs, "execution_scope_contract": marker}
+        assert ops._filter_queue_jobs(legacy)["pending"] == [omni]
+
+
+@pytest.mark.parametrize("invalid", [
+    {"version": True}, {"source_commit": "b" * 40}, {"source_commit": "9" * 12},
+    {"definition_tree": "A" * 40}, {"classification": "excluded_cpu"}, {"extra": True},
+])
+def test_queue_projection_rejects_invalid_or_contradictory_ci_execution_proofs(invalid):
+    proof = {"version": 1, "source_commit": "9" * 40, "definition_tree": "a" * 40,
+             "classification": "amd_mi_gpu", **invalid}
+    row = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": "9" * 12,
+           "execution_proof": proof}
+    result = ops._filter_queue_jobs({"hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT, "pending": [row], "running": []})
+    assert result["pending"] == []
+
+
+def test_omni_mapping_requires_new_ci_aggregate_scope_without_reclassifying_omni_jobs():
+    snapshot = {"queues": {"amd_mi300_1": {"waiting": 2, "running": 0}}}
+    jobs = {"pending": [{"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi300_1",
+                         "name": "Omni GPU"}], "running": []}
+    mapping = {"hardware_scope": "amd_mi_gpu", "generated_at": GENERATED_AT,
+        "scope": {"queues": ["amd_mi300_1"],
+                  "workload_pipelines": {"main": ["ci"], "omni": ["vllm-omni-amd-ci"]}},
+        "totals": {"main": {"mapped_jobs": 10}, "omni": {"mapped_jobs": 2}}}
+    capacity = {"queues": [{"id": "amd_mi300_1", "monitored": True}]}
+    for marker in (None, "physical_mi_only"):
+        old = {**mapping, "execution_scope_contract": marker}
+        result = ops._omni(snapshot, jobs, [], {}, {}, old, capacity)
+        assert result["mapping_history"] == {}
+        assert result["provenance"]["sources"]["mapping_history"]["timestamp"] is None
+        assert result["current"]["waiting"] == 1
+    current = {**mapping, "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT}
+    result = ops._omni(snapshot, jobs, [], {}, {}, current, capacity)
+    assert result["mapping_history"] == current
+    assert result["current"]["waiting"] == 1
+    wrong_pipeline = {**current, "scope": {**current["scope"],
+        "workload_pipelines": {"main": ["amd-ci"], "omni": ["vllm-omni-amd-ci"]}}}
+    assert ops._omni(snapshot, jobs, [], {}, {}, wrong_pipeline, capacity)["mapping_history"] == {}
