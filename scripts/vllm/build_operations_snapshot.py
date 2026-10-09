@@ -3967,6 +3967,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
 
     return {
         "schema_version": 2,
+        "hardware_scope": "amd_mi_gpu",
         "generated_at": generated_at or _utc_now(),
         "sources": sources,
         "home": home,
@@ -4258,7 +4259,7 @@ def _operations_shell(payload: dict) -> dict:
     queue = payload.get("queue") or {}
     return {
         key: payload.get(key)
-        for key in ("schema_version", "generated_at", "sources", "home", "attention")
+        for key in ("schema_version", "hardware_scope", "generated_at", "sources", "home", "attention")
     } | {
         "nightly": nightly,
         "amd_test_health": {"summary": amd_health.get("summary") or {}},

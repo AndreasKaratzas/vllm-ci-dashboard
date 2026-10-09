@@ -116,11 +116,13 @@ project-root `test_results.json` top levels and in each `analytics.json`
 pipeline block. Unversioned payloads are legacy rollout data; the audit warns
 but does not require the new fields until a producer has emitted version 1.
 
-- Each `analytics.json` pipeline and window summary publishes
+- Each current CI AMD MI `analytics.json` pipeline and window summary publishes
   `build_pass_rate_pct` (0–100) with
-  `build_pass_rate_basis: "terminal_build_state_all_green"`. It is the share
-  of terminal builds whose final state is fully passed. The legacy `pass_rate`
-  remains the same percentage.
+  `build_pass_rate_basis: "terminal_mi_job_attempts_all_green"`. It is the share
+  of terminal CI cohort builds whose latest relevant MI job attempts pass under
+  Buildkite's soft-failure policy. CPU and other GPU failures do not contribute;
+  the original whole-build state remains in `source_state`. The legacy
+  `pass_rate` remains the same percentage.
 - Every build summary in `ci_health.json` publishes `test_pass_rate_pct`
   (0–100) with
   `test_pass_rate_basis: "pytest_assertions_excluding_skipped"`. It is

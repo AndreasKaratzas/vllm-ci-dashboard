@@ -36,7 +36,7 @@ def _summary(*, explicit: bool = True) -> dict:
             {
                 "terminal_builds": 8,
                 "build_pass_rate_pct": 75.0,
-                "build_pass_rate_basis": "terminal_build_state_all_green",
+                "build_pass_rate_basis": "terminal_mi_job_attempts_all_green",
             }
         )
     return summary
@@ -218,7 +218,7 @@ def test_projection_preserves_exact_browser_contract_and_legacy_fallbacks() -> N
         "jobs_with_soft_failures": 1,
         "build_pass_rate_pct": 75.0,
         "pass_rate": 75.0,
-        "build_pass_rate_basis": "terminal_build_state_all_green",
+        "build_pass_rate_basis": "terminal_mi_job_attempts_all_green",
     }
     assert amd["builds"] == [
         {

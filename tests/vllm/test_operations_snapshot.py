@@ -1,8 +1,9 @@
-# cspell:ignore kwdefaults
+# cspell:ignore kwdefaults reproject
 """Fixture-driven tests for the compact v2 operations snapshot."""
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -12,6 +13,8 @@ import pytest
 
 from vllm import build_operations_snapshot as ops
 from vllm import collect_analytics as analytics
+from vllm.audit_dashboard_data import DashboardAudit
+from vllm.ci import models, reporter
 from vllm.ci.reliability_history import (
     hydrate_reliability_observations,
     validate_all_main_reliability,
@@ -461,6 +464,111 @@ def test_ci_ownership_snapshot_is_top_level_but_raw_source_is_private(tmp_path):
     assert payload["ownership"] == ownership
     assert "gating" not in payload
     assert payload["sources"]["ci_ownership"]["published"] is False
+
+
+@pytest.mark.parametrize("suffix", [".json", ".json.gz"])
+def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit(
+    tmp_path, monkeypatch, suffix,
+):
+    """Exercise the actual MI projection and health writer, without stamping Operations."""
+    data_dir = tmp_path / "data" / "vllm" / "ci"
+    data_dir.mkdir(parents=True)
+    _fixture_data(data_dir)
+    commit = "a" * 40
+    build_url = "https://buildkite.com/vllm/ci/builds/103"
+    raw = {
+        "number": 103, "branch": "main", "state": "failed", "commit": commit,
+        "created_at": "2026-04-22T09:00:00Z", "finished_at": "2026-04-22T10:00:00Z",
+        "web_url": build_url, "message": "Full CI run - nightly", "jobs": [],
+    }
+    for job_id, key, queue, name, state in (
+        ("mi-job", "gpu-tests", "amd_mi300_1", "MI GPU tests", "passed"),
+        ("cpu-job", "cpu-audit", "amd_mi300_1", "CPU audit", "failed"),
+        ("cuda-job", "cuda-tests", "nvidia_b200", "GPU tests", "failed"),
+    ):
+        raw["jobs"].append({
+            "id": job_id, "step_key": key, "type": "script", "name": name,
+            "agent_queue": queue, "state": state, "soft_failed": False,
+            "created_at": "2026-04-22T09:00:00Z", "scheduled_at": "2026-04-22T09:00:00Z",
+            "started_at": "2026-04-22T09:05:00Z", "finished_at": "2026-04-22T09:15:00Z",
+            "web_url": f"{build_url}#{job_id}",
+        })
+    index = {
+        "version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+        "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}],
+    }
+    monkeypatch.setattr(analytics, "_SOURCE_SCOPE_INDEXES", {commit: index})
+    source = analytics.reproject_current_mi_analytics(
+        {"ci": {"generated_at": GENERATED_AT}}, [raw], window_days=8,
+        collection_provenance={
+            "created_from": "2026-04-14T12:00:00Z", "pages_fetched": 1,
+            "termination_reason": "short_page", "exhaustive": True,
+        },
+    )
+    (data_dir / "analytics.json").write_text(json.dumps(source))
+    assert [job["job_id"] for job in source["ci"]["builds"][0]["jobs"]] == ["mi-job"]
+    summary = models.BuildSummary(
+        pipeline="amd", build_number=103, build_url=build_url, branch="main",
+        commit=commit, created_at=raw["created_at"], state="passed", source_state="failed",
+        total_tests=1, passed=1, pass_rate=1.0, job_count=1, jobs_passed=1,
+        test_job_count=1, has_test_results=True, test_groups=1, unique_test_groups=1,
+        test_groups_passing_or=1, test_groups_passing_all=1,
+    )
+    monkeypatch.setattr(reporter, "_now_iso", lambda: GENERATED_AT)
+    reporter.write_ci_health([summary], [], data_dir)
+    (data_dir / "queue_lifecycle.json").write_text("{}\n")
+    result = models.TestResult(
+        test_id="fixture::test_gpu", name="test_gpu", classname="fixture", status="passed",
+        duration_secs=1.0, failure_message="", job_name="amd_mi300_1: MI GPU tests",
+        job_id="mi-job", step_id="gpu-tests", build_number=103, pipeline="ci", date="2026-04-22",
+    )
+    _write_jsonl(data_dir / "test_results" / "2026-04-22_amd.jsonl", [result.to_dict()])
+
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+    assert payload["hardware_scope"] == source["ci"]["hardware_scope"] == "amd_mi_gpu"
+    assert payload["nightly"]["canonical_history"]["builds"][0]["total_groups"] == 1
+    assert payload["amd_test_health"]["summary"]["latest_state_counts"] == {
+        "passed": 1, "soft": 0, "hard": 0, "unknown": 0,
+    }
+    assert payload["reliability"]["available"] is True
+    assert len(payload["reliability"]["group_catalog"]) == 1
+    assert payload["latency"]["rows"][0]["amd"]["sample_count"] == 1
+
+    output = data_dir / ("operations_v2" + suffix)
+    manifest = ops.write_snapshot_bundle(output, payload, log=False)
+    published = json.loads(gzip.decompress(output.read_bytes()) if suffix.endswith(".gz") else output.read_bytes())
+    manifest_path = data_dir / ops.OPERATIONS_MANIFEST_NAME
+    written_manifest = json.loads(manifest_path.read_bytes())
+    assert written_manifest == manifest
+    assert published["hardware_scope"] == written_manifest["shell"]["hardware_scope"] == "amd_mi_gpu"
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+    assert not [error for error in audit.report.errors if error.code == "current-runtime-hardware-scope"]
+    bundle_audit = DashboardAudit(tmp_path)
+    bundle_audit.audit_operations_bundle()
+    assert bundle_audit.report.errors == []
+
+    for marker in (None, "all_ci_gpu", "cuda_gpu"):
+        corrupted_manifest = json.loads(json.dumps(manifest))
+        if marker is None:
+            corrupted_manifest["shell"].pop("hardware_scope")
+        else:
+            corrupted_manifest["shell"]["hardware_scope"] = marker
+        manifest_path.write_text(json.dumps(corrupted_manifest))
+        bundle_audit = DashboardAudit(tmp_path)
+        bundle_audit.audit_operations_bundle()
+        assert any(error.code == "current-runtime-hardware-scope" for error in bundle_audit.report.errors)
+
+    for marker in (None, "all_ci_gpu", "cuda_gpu"):
+        corrupted = dict(payload)
+        if marker is None:
+            corrupted.pop("hardware_scope")
+        else:
+            corrupted["hardware_scope"] = marker
+        ops.write_snapshot_bundle(output, corrupted, log=False)
+        audit = DashboardAudit(tmp_path)
+        audit.audit_operations_v2()
+        assert any(error.code == "current-runtime-hardware-scope" for error in audit.report.errors)
 
 
 def test_current_ci_snapshot_rejects_legacy_amd_evidence_and_latency_fallback(tmp_path):

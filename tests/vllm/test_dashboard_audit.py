@@ -1689,8 +1689,93 @@ def _analytics_rate_summary(*, passed=1, terminal=2):
         "failed": terminal - passed,
         "pass_rate": pct,
         "build_pass_rate_pct": pct,
-        "build_pass_rate_basis": "terminal_build_state_all_green",
+        "build_pass_rate_basis": "terminal_mi_job_attempts_all_green",
     }
+
+
+def _producer_mi_rate_fixture():
+    from vllm import collect_analytics as collector
+
+    now = datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
+    raw_builds = []
+    for number, source_state, mi_state in (
+        (1001, "failed", "passed"), (1002, "passed", "passed"),
+        (1003, "failed", "failed"), (1004, "running", "passed"),
+    ):
+        jobs = [{
+            "id": f"00000000-0000-0000-0000-{number:06d}{index:06d}",
+            "type": "script", "name": f":amd: (MI300) Engine Suite {index}",
+            "agent_query_rules": ["queue=amd_mi300_1"],
+            "state": mi_state if index == 0 else "passed",
+            "started_at": "2026-10-09T10:05:00Z", "finished_at": "2026-10-09T10:06:00Z",
+        } for index in range(12)]
+        jobs.extend([
+            {"type": "script", "name": ":nvidia: (H100) Foreign GPU Failure",
+             "agent_query_rules": ["queue=h100"], "state": "passed" if source_state == "passed" else "failed"},
+            {"type": "script", "name": ":computer: (CPU) Foreign CPU Failure",
+             "agent_query_rules": ["queue=cpu"], "state": "passed" if source_state == "passed" else "failed"},
+        ])
+        raw_builds.append({
+            "number": number, "state": source_state, "branch": "main", "commit": "a" * 40,
+            "message": "Full CI run - nightly", "created_at": "2026-10-09T10:00:00Z",
+            "finished_at": "2026-10-09T10:30:00Z" if source_state != "running" else None,
+            "jobs": jobs,
+        })
+    builds = collector.summarize_pipeline_builds("ci", raw_builds)
+    rankings = collector.compute_job_rankings(builds)
+    block = {
+        "pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
+        "pass_rate_contract_version": collector.PASS_RATE_CONTRACT_VERSION,
+        "builds": builds, "summary": collector.compute_summary(builds, rankings),
+        "default_window": "30d", "windows": collector.compute_window_blocks(builds, 30, now=now),
+    }
+    return raw_builds, block
+
+
+def test_analytics_rate_audit_accepts_actual_producer_mi_outcomes_when_foreign_gpu_fails(tmp_path):
+    from vllm.ci.public_analytics import project_public_analytics
+
+    raw_builds, block = _producer_mi_rate_fixture()
+    normalized = {row["number"]: row for row in block["builds"]}
+    assert raw_builds[0]["state"] == normalized[1001]["source_state"] == "failed"
+    assert normalized[1001]["state"] == "passed"
+    assert all(row["total_jobs"] == 12 for row in normalized.values())
+    assert block["summary"]["terminal_builds"] == 3
+    assert block["summary"]["passed"] == 2
+    assert block["summary"]["build_pass_rate_pct"] == 66.7
+    global_terminal = [row for row in raw_builds if row["state"] in {"passed", "failed"}]
+    assert round(sum(row["state"] == "passed" for row in global_terminal) / len(global_terminal) * 100, 1) == 33.3
+    assert all(window["summary"]["build_pass_rate_pct"] == 66.7 for window in block["windows"].values())
+    public = project_public_analytics({"ci": block})["ci"]
+    for summary in [public["summary"], *(window["summary"] for window in public["windows"].values())]:
+        assert summary["build_pass_rate_basis"] == "terminal_mi_job_attempts_all_green"
+        assert (summary["terminal_builds"], summary["passed"], summary["failed"], summary["build_pass_rate_pct"]) == (3, 2, 1, 66.7)
+    public_builds = {row["number"]: row for row in public["builds"]}
+    assert public_builds[1001]["source_state"] == "failed"
+    assert public_builds[1001]["state"] == "passed"
+    assert all(row["total_jobs"] == 12 for row in public_builds.values())
+    path = tmp_path / "data/vllm/ci/analytics.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"ci": block}))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_analytics()
+    assert not [finding for finding in audit.report.errors
+                if "pass-rate" in finding.code or finding.code == "analytics-runtime-hardware-scope"]
+
+
+@pytest.mark.parametrize("cohort", ["summary", "1d", "3d", "7d", "14d", "30d"])
+def test_analytics_rate_audit_rejects_global_build_basis_in_each_producer_mi_cohort(tmp_path, cohort):
+    _, block = _producer_mi_rate_fixture()
+    summary = block["summary"] if cohort == "summary" else block["windows"][cohort]["summary"]
+    summary["build_pass_rate_basis"] = "terminal_build_state_all_green"
+    path = tmp_path / "data/vllm/ci/analytics.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"ci": block}))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_analytics()
+    failures = [finding for finding in audit.report.errors if finding.code == "analytics-build-pass-rate-basis"]
+    label = "ci.summary" if cohort == "summary" else f"ci.windows[{cohort!r}].summary"
+    assert len(failures) == 1 and failures[0].message.startswith(label + " ")
 
 
 def _write_rate_contract_fixtures(tmp_path):
@@ -5126,7 +5211,8 @@ def _large_current_latency_bundle(tmp_path):
     output.parent.mkdir(parents=True)
     (output.parent / "queue_lifecycle.json").write_text("{}\n")
     manifest = operations_module.write_snapshot_bundle(output, {
-        "schema_version": 2, "generated_at": latency["generated_at"], "latency": latency,
+        "schema_version": 2, "hardware_scope": "amd_mi_gpu",
+        "generated_at": latency["generated_at"], "latency": latency,
     }, log=False)
     return output.parent, manifest
 
