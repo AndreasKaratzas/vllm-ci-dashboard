@@ -761,6 +761,70 @@ def test_canonical_issue_540_scope_migration_purges_foreign_incidents_and_fences
     assert "B200" not in body and "CPU failure" not in body and "Old CPU-only" not in body
 
 
+def test_canonical_issue_540_zero_mi_migration_refreshes_before_close_and_retries(monkeypatch):
+    now = datetime.now(timezone.utc)
+    build = _raw_amd_watcher_build(90001, now - timedelta(hours=1))
+    build["web_url"] = "https://buildkite.com/vllm/ci/builds/90001"
+    reliability = build_all_main_reliability(
+        [build], pipeline_slug="ci", window_days=30,
+        generated_at=now.isoformat(), collection_provenance={"exhaustive": True},
+    )
+    assert validate_all_main_reliability(reliability, "ci")
+    old = {
+        **upstream._default_state(),
+        "initialized": True,
+        "issue": {"number": 540},
+        "last_fingerprint": "old-mixed",
+        "last_content_fingerprint": "old-mixed",
+        "active": {"cuda": {
+            "name": "B200 failure", "raw_name": ":nvidia: (B200) CUDA",
+            "hardware": "b200", "queue": "gpu_1", "result": "failed",
+            "job_url": "https://buildkite.com/vllm/ci/builds/93523#cuda",
+        }},
+    }
+
+    class ScopeClient(FakeIssueClient):
+        def __init__(self):
+            super().__init__()
+            self.update_results = [False, True]
+            self.body = "B200 / CUDA / CPU failures"
+
+        def update_issue(self, number, title, body):
+            assert self.closed == [] and self.comments == []
+            super().update_issue(number, title, body)
+            updated = self.update_results.pop(0)
+            if updated:
+                self.body = body
+            return updated
+
+    client = ScopeClient()
+    saved = []
+    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "andreaskaratzas/vllm-ci-dashboard")
+    monkeypatch.setattr(amd, "_read_reliability", lambda _pipeline: reliability)
+    monkeypatch.setattr(amd, "_read_state", lambda _path: saved[-1] if saved else old)
+    monkeypatch.setattr(amd, "GitHubIssueClient", lambda *_args: client)
+    monkeypatch.setattr(amd, "_write_state", lambda state, _path, **_kwargs: saved.append(state))
+
+    assert upstream.CONFIG.refresh_before_close is True
+    assert upstream.run() == 0
+    assert saved[0]["active"] == {}
+    assert saved[0]["issue"]["number"] == 540
+    assert saved[0]["hardware_scope"] == "amd_mi_gpu"
+    assert client.body == "B200 / CUDA / CPU failures"
+    assert client.closed == [] and client.comments == []
+
+    assert upstream.run() == 0
+    assert saved[1]["issue"] is None
+    assert client.closed == [540]
+    assert len(client.comments) == 1
+    assert len(client.updated) == 2
+    assert client.updated[-1][1] == "AMD MI main CI: 0 confirmed test-group failures (0 peak hard, 0 soft)"
+    assert upstream.OWNERSHIP_MARKER in client.body
+    assert "0 strict AMD MI GPU CI test groups" in client.body
+    assert all(value not in client.body for value in ("B200", "CUDA", "CPU failures"))
+
+
 def test_upstream_watcher_retains_last_good_and_first_bad_commit():
     good = "a" * 40
     first_bad = "b" * 40

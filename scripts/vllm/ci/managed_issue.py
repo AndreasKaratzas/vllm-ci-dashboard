@@ -631,6 +631,7 @@ def reconcile_managed_issue(
     assignees: list[str] | None = None,
     discovery_label: str | None = None,
     recovery_labels: tuple[str, ...] | None = None,
+    refresh_before_close: bool = False,
 ) -> dict:
     """Reconcile one state-owned umbrella issue with an alert signal.
 
@@ -638,6 +639,9 @@ def reconcile_managed_issue(
     manually closed issue may reopen. ``content_fingerprint`` identifies the
     mutable evidence rendered into an open issue. Callers that do not need the
     distinction retain the legacy behavior because content defaults to signal.
+    ``refresh_before_close`` requires the verified open issue's title/body to
+    be updated before recovery, so a scope migration cannot leave retired
+    evidence in its closed umbrella issue.
     """
     normalized = normalize_managed_state(state)
     desired_content_fingerprint = (
@@ -848,6 +852,19 @@ def reconcile_managed_issue(
                 client.ensure_owner_assigned(number)
             else:
                 client.set_assignees(number, assignees)
+            if refresh_before_close:
+                updated = (
+                    client.update_issue(number, title, managed_body)
+                    if assignees is None
+                    else client.update_issue(number, title, managed_body, assignees)
+                )
+                if not updated:
+                    log.warning(
+                        "Managed issue #%d recovery evidence could not be refreshed; "
+                        "preserving open issue state",
+                        number,
+                    )
+                    return normalized
             client.comment_issue(number, recovery_body)
             if client.close_issue(number):
                 normalized["issue"] = None

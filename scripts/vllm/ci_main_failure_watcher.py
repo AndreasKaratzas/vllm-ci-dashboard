@@ -43,6 +43,7 @@ CONFIG = shared.WatcherConfig(
     track_commit_range=True,
     initialize_from_history=True,
     job_scope="amd_gpu",
+    refresh_before_close=True,
 )
 
 

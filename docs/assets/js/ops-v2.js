@@ -7581,7 +7581,7 @@
         {label: 'Repository', sticky: true, width: '230px', render: function (row) { return linkButton(row.repository, function () { openWorkloadMappingDetail(row.id, row.repository); }, 'Inspect ' + row.repository + ' mapping details'); }},
         {label: 'Mapped', numeric: true, width: '82px', render: function (row) { return mappingAvailable ? integer(row.stats.mapped_jobs) : '-'; }},
         {label: 'Started', numeric: true, width: '82px', render: function (row) { return mappingAvailable ? integer(row.stats.started_jobs) : '-'; }},
-        {label: 'Start rate', numeric: true, width: '82px', render: function (row) { return mappingAvailable ? percent(row.stats.started_jobs, row.stats.mapped_jobs) : '-'; }},
+        {label: 'Start rate', numeric: true, width: '82px', render: function (row) { return mappingRatesAvailable ? percent(row.stats.started_jobs, row.stats.mapped_jobs) : 'Unavailable'; }},
         {label: 'GPU-slot requests', numeric: true, width: '112px', render: function (row) { return mappingAvailable ? integer(row.stats.mapped_gpu_slots) : '-'; }},
         {label: 'GPU-hours', numeric: true, width: '92px', render: function (row) { return mappingAvailable ? Number(row.stats.gpu_hours || 0).toLocaleString(undefined, {maximumFractionDigits: 1}) : '-'; }},
       ],
