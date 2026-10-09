@@ -191,7 +191,7 @@ class TestPaginate:
         assert bk._paginate("https://api.buildkite.com/v2/foo") == []
 
     def test_params_only_sent_on_first_page(self, monkeypatch):
-        """Subsequent pages must use Link URL params, not the caller's params."""
+        """Subsequent pages carry immutable query scope in their validated URL."""
         seen_params = []
         page1 = _fake_response(
             200,
@@ -208,7 +208,192 @@ class TestPaginate:
         monkeypatch.setattr(bk.requests, "get", fake_get)
         bk._paginate("https://api.buildkite.com/v2/foo", params={"per_page": 100})
         assert seen_params[0] == {"per_page": 100}
-        assert seen_params[1] is None  # follow-up pages use the Link URL verbatim
+        assert seen_params[1] is None  # scope is already merged into the Link URL
+
+    def test_restores_omitted_active_filters_on_every_next_page(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/organizations/vllm/pipelines/ci/builds"
+        states = ["creating", "scheduled", "running", "failing", "blocked", "canceling"]
+        params = {
+            "per_page": 50,
+            "exclude_pipeline": "true",
+            "created_to": "2026-10-02T00:00:00+00:00",
+            "state[]": states,
+        }
+        responses = iter([
+            _fake_response(200, json_body=[{"number": 3}], links={"next": {"url": "?page=2"}}),
+            _fake_response(200, json_body=[{"number": 2}], links={"next": {"url": "?page=3"}}),
+            _fake_response(200, json_body=[{"number": 1}]),
+        ])
+        requested = []
+
+        def fake_get(url, headers=None, params=None, timeout=None):
+            requested.append(requests.Request("GET", url, params=params).prepare().url)
+            return next(responses)
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+        assert [row["number"] for row in bk._paginate(start_url, params)] == [3, 2, 1]
+        from urllib.parse import parse_qs, urlsplit
+
+        for index, url in enumerate(requested):
+            query = parse_qs(urlsplit(url).query)
+            assert query["state[]"] == states
+            assert query["created_to"] == [params["created_to"]]
+            assert query["exclude_pipeline"] == ["true"]
+            assert query["per_page"] == ["50"]
+            assert query.get("page") == (None if index == 0 else [str(index + 1)])
+        assert params["state[]"] == states
+
+    def test_preserves_initial_url_filters_and_accepts_reordered_arrays(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo?branch=main&state[]=scheduled&state[]=running"
+        next_url = "https://api.buildkite.com/v2/foo?page=2&state%5B%5D=running&state%5B%5D=scheduled"
+        responses = iter([
+            _fake_response(200, json_body=[1], links={"next": {"url": next_url}}),
+            _fake_response(200, json_body=[2]),
+        ])
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return next(responses)
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+        assert bk._paginate(start_url) == [1, 2]
+        from urllib.parse import parse_qs, urlsplit
+
+        assert parse_qs(urlsplit(calls[1]).query) == {
+            "page": ["2"], "state[]": ["running", "scheduled"], "branch": ["main"],
+        }
+
+    @pytest.mark.parametrize("next_query", [
+        "page=2&state[]=running",
+        "page=2&state[]=running&state[]=passed",
+        "page=2&created_to=2026-10-03T00:00:00Z",
+        "page=2&exclude_pipeline=false",
+        "page=2&per_page=100",
+        "page=2&branch=main",
+        "page=2&state=running",
+        "page=2&api_key=private-query-sentinel",
+        "page=2&page=3",
+        "page=0",
+    ])
+    def test_rejects_changed_or_unexpected_filters_before_transport(self, monkeypatch, next_query):
+        start_url = "https://api.buildkite.com/v2/foo"
+        calls = []
+        response = _fake_response(200, json_body=[1], links={"next": {"url": f"?{next_query}"}})
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return response
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+        with pytest.raises(RuntimeError) as caught:
+            bk._paginate(start_url, {
+                "state[]": ["scheduled", "running"],
+                "created_to": "2026-10-02T00:00:00Z",
+                "exclude_pipeline": "true", "per_page": 50,
+            })
+        assert calls == [start_url]
+        assert "private-query-sentinel" not in str(caught.value)
+        assert "2026-10" not in str(caught.value)
+        assert "https://" not in str(caught.value)
+
+    def test_reordered_initial_scope_cannot_evade_repeated_url_guard(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo?state[]=scheduled&state[]=running&page=2"
+        response = _fake_response(200, json_body=[1], links={
+            "next": {"url": "?page=2&state[]=running&state[]=scheduled"},
+        })
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return response
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+        with pytest.raises(RuntimeError, match="repeated next URL"):
+            bk._paginate(start_url)
+        assert calls == [start_url]
+
+    def test_explicit_defaults_cannot_evade_repeated_first_page_guard(self, monkeypatch):
+        start_url = "https://api.buildkite.com/v2/foo"
+        response = _fake_response(200, json_body=[1], links={
+            "next": {"url": "?page=1&per_page=30"},
+        })
+        calls = []
+
+        def fake_get(url, **kwargs):
+            calls.append(url)
+            return response
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+        with pytest.raises(RuntimeError, match="repeated next URL"):
+            bk._paginate(start_url)
+        assert calls == [start_url]
+
+    def test_accepts_server_explicit_page_size_default(self, monkeypatch):
+        responses = iter([
+            _fake_response(200, json_body=[1], links={"next": {"url": "?page=2&per_page=30"}}),
+            _fake_response(200, json_body=[2]),
+        ])
+        monkeypatch.setattr(bk.requests, "get", lambda *args, **kwargs: next(responses))
+        assert bk._paginate("https://api.buildkite.com/v2/foo") == [1, 2]
+
+    def test_projection_and_page_callback_preserve_exhaustion(self, monkeypatch):
+        responses = iter([
+            _fake_response(200, json_body=[{"number": 2, "private": "discarded"}], links={"next": {"url": "?page=2"}}),
+            _fake_response(200, json_body=[{"number": 1, "private": "discarded"}]),
+        ])
+        monkeypatch.setattr(bk.requests, "get", lambda *args, **kwargs: next(responses))
+        pages = []
+        result = bk._paginate(
+            "https://api.buildkite.com/v2/foo", {"state": "blocked"},
+            project=lambda row: {"number": row["number"]},
+            on_page=lambda page, rows, has_next: pages.append((page, rows, has_next)),
+        )
+        assert result == [{"number": 2}, {"number": 1}]
+        assert pages == [(1, [{"number": 2}], True), (2, [{"number": 1}], False)]
+
+    @pytest.mark.parametrize("next_url,max_pages", [
+        ("https://attacker.example/steal", 100),
+        ("https://api.buildkite.com/v2/other?page=2", 100),
+        ("?page=2&state=passed", 100),
+        ("?page=2", 1),
+    ])
+    def test_security_and_cap_fail_before_project_or_callback(self, monkeypatch, next_url, max_pages):
+        response = _fake_response(200, json_body=[{"number": 2}], links={"next": {"url": next_url}})
+        monkeypatch.setattr(bk.requests, "get", lambda *args, **kwargs: response)
+        callbacks = []
+        with pytest.raises(RuntimeError):
+            bk._paginate(
+                "https://api.buildkite.com/v2/foo", {"state": "blocked"}, max_pages=max_pages,
+                project=lambda row: callbacks.append(("project", row)),
+                on_page=lambda *args: callbacks.append(("page", args)),
+            )
+        assert callbacks == []
+
+    def test_page_callback_failure_stops_before_another_request(self, monkeypatch):
+        class PartitionComplete(Exception):
+            pass
+
+        response = _fake_response(200, json_body=[{"number": 2}], links={"next": {"url": "?page=2"}})
+        requests_seen = []
+        pages = []
+
+        def fake_get(url, **kwargs):
+            requests_seen.append(url)
+            return response
+
+        def stop_after_validated_page(page, rows, has_next):
+            pages.append((page, rows, has_next))
+            raise PartitionComplete
+
+        monkeypatch.setattr(bk.requests, "get", fake_get)
+        with pytest.raises(PartitionComplete):
+            bk._paginate(
+                "https://api.buildkite.com/v2/foo", {"state": "blocked"},
+                project=lambda row: row["number"], on_page=stop_after_validated_page,
+            )
+        assert requests_seen == ["https://api.buildkite.com/v2/foo"]
+        assert pages == [(1, [2], True)]
 
     def test_rejects_repeated_next_url_without_refetching_it(self, monkeypatch):
         start_url = "https://api.buildkite.com/v2/foo"

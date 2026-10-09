@@ -900,7 +900,7 @@ class TestHourlyMasterWorkflow:
             "queue-reconcile-preflight",
             "publication-watchdog-preflight",
         ]
-        assert collect["timeout-minutes"] == 50
+        assert collect["timeout-minutes"] == 75
         assert "always()" in collect["if"]
         assert "!cancelled()" in collect["if"]
         for conflict in (

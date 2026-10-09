@@ -96,7 +96,9 @@ jobs:
           needs.publication-watchdog-preflight.outputs.required == 'true')
       )
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    # Buildkite sends stop after the separate 50-minute reservation window;
+    # allow the remaining audits, assembly and Pages deployment to finish.
+    timeout-minutes: 75
     concurrency:
       group: gh-pages-deploy
       queue: max
@@ -1344,6 +1346,9 @@ jobs:
           set -euo pipefail
           OUTPUTS="$RUNNER_TEMP/data-collection-attempt.outputs"
           : > "$OUTPUTS"
+          # Capture before durable reservation: a slow ledger push consumes
+          # this window instead of extending its rolling request-budget proof.
+          REQUEST_WINDOW_START_NS=$(python -c 'import time; print(time.monotonic_ns())')
           python scripts/vllm/request_bearing_attempt_budget.py \
             --config config/data_collection_attempt_budget.json reserve \
             --attempt-id "$ATTEMPT_ID" \
@@ -1364,7 +1369,9 @@ jobs:
             python scripts/vllm/buildkite_request_guard.py initialize \
               --file "$GUARD_FILE" \
               --attempt-id "$ATTEMPT_ID" \
-              --allowance "$ALLOWANCE"
+              --allowance "$ALLOWANCE" \
+              --max-duration-seconds 3000 \
+              --started-monotonic-ns "$REQUEST_WINDOW_START_NS"
             {
               echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
               echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"

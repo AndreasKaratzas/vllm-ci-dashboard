@@ -18,6 +18,7 @@ import sys
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -498,8 +499,15 @@ def _window_build(number, created, *, state="passed", start="2026-07-14T09:00:00
     return build
 
 
+def _project_mock_page(rows, project=None, on_page=None):
+    projected = [project(row) for row in rows] if project is not None else rows
+    if on_page is not None:
+        on_page(1, projected, False)
+    return projected
+
+
 def _window_page(builds, calls):
-    def page(_url, params):
+    def page(_url, params, *, project=None, on_page=None):
         calls.append(dict(params))
         selected = []
         for build in builds:
@@ -512,13 +520,14 @@ def _window_page(builds, calls):
                 finish = build.get("finished_at")
                 if not finish or datetime.fromisoformat(finish.replace("Z", "+00:00")) < datetime.fromisoformat(params["finished_from"]):
                     continue
-            if "state[]" in params and not (
-                build["state"] in params["state[]"]
-                or ("blocked" in params["state[]"] and build.get("blocked"))
+            if "state" in params and not (
+                build["state"] == params["state"]
+                or (params["state"] == "blocked" and build.get("blocked"))
             ):
                 continue
             selected.append(build)
-        return selected
+        selected.sort(key=lambda build: build["created_at"], reverse=True)
+        return _project_mock_page(selected, project, on_page)
     return page
 
 
@@ -538,12 +547,12 @@ def test_started_job_discovery_includes_older_finished_and_unfinished_builds(mon
     rows = ah._fetch_pipeline_observations("ci", 3, query_time=NOW)
 
     assert {row["job_id"] for row in rows} == {"1", "2", "3", "4"}
-    assert len(calls) == 6  # four aligned daily roots plus the two old-build legs
+    assert len(calls) == 11  # four aligned daily roots, finished, six active states
     old_finished = next(params for params in calls if "finished_from" in params)
-    old_active = next(params for params in calls if "state[]" in params)
+    old_active = [params for params in calls if "state" in params]
     assert old_finished["finished_from"] == old_finished["created_to"] == "2026-07-11T00:00:00+00:00"
-    assert old_active["created_to"] == "2026-07-11T00:00:00+00:00"
-    assert old_active["state[]"] == list(ah.ACTIVE_BUILD_STATES)
+    assert {params["created_to"] for params in old_active} == {"2026-07-11T00:00:00+00:00"}
+    assert [params["state"] for params in old_active] == list(ah.ACTIVE_BUILD_STATES)
     assert all(params["exclude_pipeline"] == "true" for params in calls)
     assert all("exclude_jobs" not in params and "include_paused" not in params for params in calls)
 
@@ -564,9 +573,10 @@ def test_seven_day_job_window_uses_bounded_daily_roots_and_projects_each_slice(m
     raw = _window_build(1, "2026-07-14T08:00:00Z")
     raw["unneeded_large_metadata"] = "x" * 100_000
 
-    def page(_url, params):
+    def page(_url, params, *, project=None, on_page=None):
         calls.append(dict(params))
-        return [raw]
+        bounded = {**raw, "created_at": params["created_from"]}
+        return _project_mock_page([bounded], project, on_page)
 
     projected = []
 
@@ -597,11 +607,13 @@ def test_seven_day_job_window_uses_bounded_daily_roots_and_projects_each_slice(m
 
 
 def test_started_job_overlap_deduplicates_later_build_snapshot(monkeypatch):
-    early = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
-    late = _window_build(1, "2026-07-14T08:00:00Z")
+    early = _window_build(1, "2026-06-01T08:00:00Z", job_state="failed", build_finish="2026-07-14T09:05:00Z")
+    late = _window_build(1, "2026-06-01T08:00:00Z", build_finish="2026-07-14T09:05:00Z")
+    early["blocked"] = late["blocked"] = True
 
-    def page(_url, params):
-        return [late] if "state[]" in params else [early]
+    def page(_url, params, *, project=None, on_page=None):
+        rows = [late] if params.get("state") == "blocked" else [early] if "finished_from" in params else []
+        return _project_mock_page(rows, project, on_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
 
@@ -634,10 +646,10 @@ def test_started_job_leg_failure_preserves_entire_generation(monkeypatch, tmp_pa
     paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
     before = {path: path.read_bytes() for path in paths}
 
-    def page(_url, params):
-        if (leg == "older_finished" and "finished_from" in params) or (leg == "older_active" and "state[]" in params):
+    def page(_url, params, *, project=None, on_page=None):
+        if (leg == "older_finished" and "finished_from" in params) or (leg == "older_active" and "state" in params):
             raise error("incomplete old-build discovery")
-        return []
+        return _project_mock_page([], project, on_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(error, match="incomplete old-build discovery"):
@@ -660,7 +672,7 @@ def test_started_job_old_build_pagination_cap_preserves_entire_generation(monkey
             return []
 
     def request(url, params=None):
-        if (params and "state[]" in params) or "?page=" in url:
+        if (params and "state" in params) or "page=" in url:
             old_pages.append(url)
             return Response({"next": {"url": url.split("?")[0] + f"?page={len(old_pages) + 1}"}})
         return Response({})
@@ -670,6 +682,160 @@ def test_started_job_old_build_pagination_cap_preserves_entire_generation(monkey
         _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
 
     assert len(old_pages) == buildkite_client.PAGINATION_SAFETY_CAP
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+def _install_filtered_build_endpoint(monkeypatch, builds, calls, *, fail=None):
+    """Offline REST pages deliberately omit immutable filters from next Links."""
+    class Response:
+        def __init__(self, rows, next_url):
+            self.rows = rows
+            self.links = {"next": {"url": next_url}} if next_url else {}
+
+        def json(self):
+            return self.rows
+
+    def request(url, params=None):
+        query = parse_qs(urlsplit(url).query)
+        for key, value in (params or {}).items():
+            query[key] = [str(item) for item in value] if isinstance(value, list) else [str(value)]
+        scalar = {key: values[0] for key, values in query.items()}
+        calls.append(scalar)
+        if fail is not None:
+            fail(scalar)
+        selected = []
+        for build in builds:
+            created = ah._aware_timestamp(build["created_at"])
+            lower = ah._aware_timestamp(scalar.get("created_from"))
+            upper = ah._aware_timestamp(scalar.get("created_to"))
+            if (lower is not None and created < lower) or (upper is not None and created >= upper):
+                continue
+            if "finished_from" in scalar:
+                finish = ah._aware_timestamp(build.get("finished_at"))
+                if finish is None or finish < ah._aware_timestamp(scalar["finished_from"]):
+                    continue
+            state = scalar.get("state")
+            if state is not None and not (
+                build["state"] == state or (state == "blocked" and build.get("blocked") is True)
+            ):
+                continue
+            selected.append(build)
+        selected.sort(key=lambda build: ah._aware_timestamp(build["created_at"]), reverse=True)
+        page = int(scalar.get("page", "1"))
+        per_page = int(scalar.get("per_page", "100"))
+        rows = selected[(page - 1) * per_page:page * per_page]
+        next_url = url.split("?")[0] + f"?page={page + 1}" if page * per_page < len(selected) else None
+        return Response(rows, next_url)
+
+    monkeypatch.setattr(buildkite_client, "_request", request)
+
+
+def test_all_age_active_partitions_preserve_recent_jobs_and_microsecond_boundary_ties(
+    monkeypatch, tmp_path, caplog,
+):
+    pivot = datetime(2020, 8, 15, 12, 0, 0, 500_000, tzinfo=timezone.utc)
+    dates = [datetime(2021, 1, 1, tzinfo=timezone.utc) - timedelta(seconds=index) for index in range(50)]
+    dates += [pivot + timedelta(microseconds=offset) for offset in (800_000, 200_000, 0) for _ in range(20)]
+    dates += [datetime(2019, 1, 1, tzinfo=timezone.utc) - timedelta(seconds=index) for index in range(120)]
+    builds = [_window_build(index + 1, created.isoformat(), state="running") for index, created in enumerate(dates)]
+    for index, state in enumerate(ah.ACTIVE_BUILD_STATES):
+        if state != "running":
+            build = _window_build(1000 + index, "2018-01-01T00:00:00Z", state=state)
+            if state == "blocked":
+                build.update(state="passed", blocked=True, finished_at="2018-01-01T01:00:00Z")
+            builds.append(build)
+    calls = []
+    monkeypatch.setattr(ah, "UPSTREAM_INCREMENTAL_PER_PAGE", 2)
+    _install_filtered_build_endpoint(monkeypatch, builds, calls)
+    caplog.set_level("INFO", logger=ah.__name__)
+
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+    )
+
+    assert payload["total_runs"] == len(builds) == 235
+    assert sum(row["a"][0] for row in payload["node_days"]) == len(builds)
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
+    active = [call for call in calls if "state" in call]
+    assert {call["state"] for call in active} == set(ah.ACTIVE_BUILD_STATES)
+    running = [call for call in active if call["state"] == "running"]
+    assert len(running) > buildkite_client.PAGINATION_SAFETY_CAP
+    assert max(int(call.get("page", "1")) for call in running) < buildkite_client.PAGINATION_SAFETY_CAP
+    partitions = [ah._aware_timestamp(call["created_to"]) for call in running if call.get("page", "1") == "1"]
+    assert len(partitions) > 3 and all(left > right for left, right in zip(partitions, partitions[1:]))
+    assert any(pivot < cutoff < pivot + timedelta(seconds=2) for cutoff in partitions)
+    assert all(call["exclude_pipeline"] == "true" and "state[]" not in call for call in calls)
+    assert "phase=older_active:running page=" in caplog.text
+    assert "total_builds=" in caplog.text and "observations=" in caplog.text
+    assert "current-node" not in caplog.text and "current group" not in caplog.text
+
+
+@pytest.mark.parametrize("error", [RuntimeError, BuildkiteRequestAllowanceExhausted])
+def test_failure_in_final_active_state_preserves_prior_generation(monkeypatch, tmp_path, error):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    calls = []
+
+    def fail(query):
+        if query.get("state") == "canceling":
+            raise error("final active state incomplete")
+
+    _install_filtered_build_endpoint(monkeypatch, [_window_build(1, "2026-07-14T08:00:00Z")], calls, fail=fail)
+    with pytest.raises(error, match="final active state incomplete"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert [call["state"] for call in calls if "state" in call] == list(ah.ACTIVE_BUILD_STATES)
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+def test_dense_equal_time_active_cohort_cannot_bypass_shared_pagination_cap(monkeypatch, tmp_path):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    builds = [_window_build(index + 1, "2020-08-15T12:00:00.500000Z", state="running") for index in range(101)]
+    calls = []
+    monkeypatch.setattr(ah, "UPSTREAM_INCREMENTAL_PER_PAGE", 1)
+    _install_filtered_build_endpoint(monkeypatch, builds, calls)
+
+    with pytest.raises(RuntimeError, match="100-page safety cap"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    running = [call for call in calls if call.get("state") == "running"]
+    assert len({call["created_to"] for call in running}) == 2
+    assert max(int(call.get("page", "1")) for call in running) == buildkite_client.PAGINATION_SAFETY_CAP
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("tamper", ["state", "created_to", "created_at", "order", "finished_from"])
+def test_ignored_or_malformed_discovery_filters_preserve_prior_generation(monkeypatch, tmp_path, tamper):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+
+    def page(_url, params, *, project=None, on_page=None):
+        if tamper == "finished_from" and "finished_from" in params:
+            rows = [_window_build(1, "2020-01-01T00:00:00Z", build_finish="2020-01-01T01:00:00Z")]
+        elif "state" not in params:
+            rows = []
+        elif tamper == "state":
+            rows = [_window_build(1, "2020-01-01T00:00:00Z", state="passed")]
+        elif tamper == "created_to":
+            rows = [_window_build(1, params["created_to"], state=params["state"])]
+        elif tamper == "created_at":
+            rows = [_window_build(1, "private-malformed-timestamp", state=params["state"])]
+        elif tamper == "order":
+            rows = [_window_build(1, "2020-01-01T00:00:00Z", state=params["state"]),
+                    _window_build(2, "2021-01-01T00:00:00Z", state=params["state"])]
+        else:
+            rows = []
+        return _project_mock_page(rows, project, on_page)
+
+    monkeypatch.setattr(ah, "_paginate", page)
+    with pytest.raises(RuntimeError, match="agent-health (older_active|older_finished)") as failure:
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert "private-malformed" not in str(failure.value)
     assert {path: path.read_bytes() for path in paths} == before
 
 
@@ -689,8 +855,9 @@ def test_malformed_embedded_roster_preserves_entire_generation(
     else:
         malformed[invalid_field] = value
 
-    def page(_url, params):
-        return [malformed] if "state[]" in params else []
+    def page(_url, params, *, project=None, on_page=None):
+        rows = [malformed] if "state" in params else []
+        return _project_mock_page(rows, project, on_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(RuntimeError, match="agent-health discovery returned an invalid"):
@@ -956,10 +1123,11 @@ def test_created_slice_duplicate_cannot_hide_malformed_embedded_roster(monkeypat
     valid = _window_build(1, "2026-07-14T08:00:00Z")
     malformed = {"number": 1}
 
-    def page(_url, params):
+    def page(_url, params, *, project=None, on_page=None):
         if params.get("created_from") == "2026-07-12T00:00:00+00:00":
-            return [malformed]
-        return [valid]
+            return _project_mock_page([malformed], project, on_page)
+        rows = [{**valid, "created_at": params["created_from"]}] if "created_from" in params else []
+        return _project_mock_page(rows, project, on_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(RuntimeError, match="invalid embedded job roster"):

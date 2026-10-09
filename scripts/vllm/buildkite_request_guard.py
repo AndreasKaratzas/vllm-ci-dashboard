@@ -7,6 +7,8 @@ later Python process.  Each ``requests.Session.send`` of a prepared request to
 an audited Buildkite API host atomically increments the shared counter before
 transport; allowance + 1 raises without sending a request.  Send-level
 instrumentation also covers same-origin redirect hops.
+An optional monotonic transport window expires independently of the job's
+validation/deployment time. Its anchor is captured before durable reservation.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import os
 import re
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
@@ -25,7 +28,8 @@ from urllib.parse import urlsplit
 import fcntl
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+MAX_REQUEST_DURATION_SECONDS = 50 * 60
 API_HOSTS = frozenset({"api.buildkite.com", "graphql.buildkite.com"})
 SAFE_ATTEMPT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,159}")
 MAX_ALLOWANCE = 10_000
@@ -45,14 +49,23 @@ class BuildkiteRequestAllowanceExhausted(BuildkiteRequestGuardError):
     """The exact valid local counter has no remaining request starts."""
 
 
-def _canonical_payload(*, attempt_id: str, allowance: int, starts: int) -> bytes:
+class BuildkiteRequestWindowExpired(BuildkiteRequestGuardError):
+    """The reservation's bounded transport window has ended."""
+
+
+def _canonical_payload(
+    *, attempt_id: str, allowance: int, starts: int,
+    request_window: dict[str, int] | None = None,
+) -> bytes:
     value = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION if request_window is not None else 1,
         "attempt_id": attempt_id,
         "allowance": allowance,
         "request_starts": starts,
         "api_hosts": sorted(API_HOSTS),
     }
+    if request_window is not None:
+        value["request_window"] = request_window
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
 
 
@@ -62,16 +75,35 @@ def _validate_state(
     expected_attempt_id: str,
     expected_allowance: int,
 ) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != {
+    fields = {
         "schema_version",
         "attempt_id",
         "allowance",
         "request_starts",
         "api_hosts",
-    }:
+    }
+    if not isinstance(value, dict):
         raise BuildkiteRequestGuardError("request guard state has an unexpected shape")
-    if value.get("schema_version") != SCHEMA_VERSION:
+    version = value.get("schema_version")
+    if isinstance(version, bool) or not isinstance(version, int) or version not in (1, SCHEMA_VERSION):
         raise BuildkiteRequestGuardError("request guard schema is unsupported")
+    if set(value) != (fields if version == 1 else fields | {"request_window"}):
+        raise BuildkiteRequestGuardError("request guard state has an unexpected shape")
+    request_window = None
+    if version == SCHEMA_VERSION:
+        window = value.get("request_window")
+        if not isinstance(window, dict) or set(window) != {
+            "started_monotonic_ns", "deadline_monotonic_ns",
+        }:
+            raise BuildkiteRequestGuardError("request guard transport window is invalid")
+        start = window["started_monotonic_ns"]
+        deadline = window["deadline_monotonic_ns"]
+        if any(isinstance(item, bool) or not isinstance(item, int)
+               or not 0 <= item <= 2**63 - 1 for item in (start, deadline)):
+            raise BuildkiteRequestGuardError("request guard transport window is invalid")
+        if not 0 < deadline - start <= MAX_REQUEST_DURATION_SECONDS * 1_000_000_000:
+            raise BuildkiteRequestGuardError("request guard transport window is invalid")
+        request_window = dict(window)
     attempt_id = value.get("attempt_id")
     if attempt_id != expected_attempt_id or not SAFE_ATTEMPT_RE.fullmatch(attempt_id):
         raise BuildkiteRequestGuardError("request guard attempt identity disagrees")
@@ -88,13 +120,16 @@ def _validate_state(
         raise BuildkiteRequestGuardError("request guard count is outside its allowance")
     if value.get("api_hosts") != sorted(API_HOSTS):
         raise BuildkiteRequestGuardError("request guard API host policy disagrees")
-    return {
-        "schema_version": SCHEMA_VERSION,
+    result = {
+        "schema_version": version,
         "attempt_id": attempt_id,
         "allowance": allowance,
         "request_starts": starts,
         "api_hosts": sorted(API_HOSTS),
     }
+    if request_window is not None:
+        result["request_window"] = request_window
+    return result
 
 
 def _decode(raw: bytes) -> object:
@@ -134,11 +169,34 @@ def _open_locked(path: Path, *, writable: bool):
     return handle
 
 
-def initialize(path: Path, *, attempt_id: str, allowance: int) -> None:
+def initialize(
+    path: Path, *, attempt_id: str, allowance: int,
+    max_duration_seconds: int | None = None,
+    started_monotonic_ns: int | None = None,
+) -> None:
     if not SAFE_ATTEMPT_RE.fullmatch(attempt_id):
         raise BuildkiteRequestGuardError("request guard attempt id is invalid")
     if isinstance(allowance, bool) or not isinstance(allowance, int) or not 0 <= allowance <= MAX_ALLOWANCE:
         raise BuildkiteRequestGuardError("request guard allowance is invalid")
+    request_window = None
+    if started_monotonic_ns is not None and max_duration_seconds is None:
+        raise BuildkiteRequestGuardError("request guard start requires a duration")
+    if max_duration_seconds is not None:
+        if (isinstance(max_duration_seconds, bool) or not isinstance(max_duration_seconds, int)
+                or not 1 <= max_duration_seconds <= MAX_REQUEST_DURATION_SECONDS):
+            raise BuildkiteRequestGuardError("request guard duration is invalid")
+        now = time.monotonic_ns()
+        start = now if started_monotonic_ns is None else started_monotonic_ns
+        if (isinstance(start, bool) or not isinstance(start, int)
+                or not 0 <= start <= now):
+            raise BuildkiteRequestGuardError("request guard start is invalid")
+        deadline = start + max_duration_seconds * 1_000_000_000
+        if deadline <= now or deadline > 2**63 - 1:
+            raise BuildkiteRequestWindowExpired("request guard transport window already ended")
+        request_window = {
+            "started_monotonic_ns": start,
+            "deadline_monotonic_ns": deadline,
+        }
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -151,7 +209,10 @@ def initialize(path: Path, *, attempt_id: str, allowance: int) -> None:
             f"refusing to replace existing request guard state: {exc}"
         ) from exc
     try:
-        payload = _canonical_payload(attempt_id=attempt_id, allowance=allowance, starts=0)
+        payload = _canonical_payload(
+            attempt_id=attempt_id, allowance=allowance, starts=0,
+            request_window=request_window,
+        )
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
@@ -176,6 +237,7 @@ def read_count(path: Path, *, attempt_id: str, allowance: int) -> int:
             attempt_id=attempt_id,
             allowance=allowance,
             starts=state["request_starts"],
+            request_window=state.get("request_window"),
         ):
             raise BuildkiteRequestGuardError("request guard state is not canonical JSON")
         return state["request_starts"]
@@ -194,8 +256,17 @@ def consume(path: Path, *, attempt_id: str, allowance: int) -> int:
             attempt_id=attempt_id,
             allowance=allowance,
             starts=state["request_starts"],
+            request_window=state.get("request_window"),
         ):
             raise BuildkiteRequestGuardError("request guard state is not canonical JSON")
+        window = state.get("request_window")
+        if window is not None:
+            now = time.monotonic_ns()
+            if not window["started_monotonic_ns"] <= now < window["deadline_monotonic_ns"]:
+                raise BuildkiteRequestWindowExpired(
+                    "Buildkite request transport window ended; "
+                    "request was blocked before transport"
+                )
         if state["request_starts"] >= allowance:
             raise BuildkiteRequestAllowanceExhausted(
                 f"Buildkite request-start allowance exhausted at {allowance}; "
@@ -206,6 +277,7 @@ def consume(path: Path, *, attempt_id: str, allowance: int) -> int:
             attempt_id=attempt_id,
             allowance=allowance,
             starts=starts,
+            request_window=window,
         )
         handle.seek(0)
         handle.write(payload)
@@ -326,6 +398,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     init.add_argument("--file", type=Path, required=True)
     init.add_argument("--attempt-id", required=True)
     init.add_argument("--allowance", type=int, required=True)
+    init.add_argument("--max-duration-seconds", type=int)
+    init.add_argument("--started-monotonic-ns", type=int)
     report = subparsers.add_parser("report")
     report.add_argument("--file", type=Path, required=True)
     report.add_argument("--attempt-id", required=True)
@@ -338,7 +412,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         if args.command == "initialize":
-            initialize(args.file, attempt_id=args.attempt_id, allowance=args.allowance)
+            initialize(
+                args.file, attempt_id=args.attempt_id, allowance=args.allowance,
+                max_duration_seconds=args.max_duration_seconds,
+                started_monotonic_ns=args.started_monotonic_ns,
+            )
             _append_outputs(
                 None,
                 {"attempt_id": args.attempt_id, "request_start_allowance": args.allowance},

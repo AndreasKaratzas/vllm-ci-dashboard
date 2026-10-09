@@ -255,9 +255,15 @@ wait budget per process; shared runner cooldown state contains timestamps only.
 Home label discovery uses bounded repository Issues REST reads. These transport
 retries reduce transient fallback before a separate collection retry is needed.
 
-The 50-minute workflow timeout leaves at
-least ten minutes between the last possible request's rolling-24-hour boundary
-and reservation expiry, so a 25-hour ledger proves the corresponding bound.
+The Data Collection transport guard stops Buildkite request starts after fifty
+minutes, using a cross-process monotonic anchor captured before durable
+reservation. Ledger push and initialization delays consume that same window.
+This leaves at least ten minutes between the last possible request's
+rolling-24-hour boundary and reservation expiry, so the unchanged 25-hour ledger
+proves the corresponding bound. The job may run for seventy-five minutes to
+finish source audits, tests, assembly, and deployment. Expiry blocks transport
+without charging another start; the exact counter remains readable afterward.
+Other bounded workflows retain their existing guard and job limits.
 
 Every token-reading CLI explicitly activates the request guard after its path
 setup, and the shared Buildkite client/config ingress covers dormant library
@@ -805,15 +811,14 @@ DNS keeps
 its stronger generation acknowledgement: a targeted run is skipped only once
 Pages contains that DNS generation, its full contract validates, DNS is no
 longer affected, and publication remains fresh. The canonical collector has a
-50-minute timeout so a hung run cannot retain the lock indefinitely. Excluding
+75-minute timeout so a hung run cannot retain the lock indefinitely. Excluding
 time already held by another bounded Pages writer, the first-attempt bound is
-`95 + 15 + 50 = 160` minutes (trigger age, detection interval, timeout), twenty
-minutes before the three-hour site-health freshness
-limit. At the normal 25-minute runtime, one failed attempt plus its 15-minute
-cooldown and retry is bounded by `95 + 15 + 25 + 15 + 25 = 175` minutes,
-retaining five minutes of margin. GitHub schedules remain best-effort, so the
-independent external 15-minute tick is still required for the timing guarantee
-when Actions cron is delayed or dropped.
+`95 + 15 + 75 = 185` minutes (trigger age, detection interval, timeout), five
+minutes beyond the unchanged three-hour site-health freshness limit. A slow or
+failed refresh can therefore still produce a truthful stale warning. Buildkite
+request starts remain separately limited to fifty minutes from before the
+durable reservation. GitHub schedules remain best-effort; an independent
+external 15-minute tick remains necessary to detect a delayed or dropped cron.
 
 Declaring a `repository_dispatch` trigger is not an independent scheduler. To
 make publication recovery enforceable independently of GitHub's scheduler,

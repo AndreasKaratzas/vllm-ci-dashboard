@@ -83,6 +83,168 @@ def test_zero_allowance_is_a_valid_deny_all_guard(
     assert guard.read_count(path, attempt_id="data-100-1", allowance=0) == 0
 
 
+def test_transport_deadline_blocks_without_charge_and_reports_after_expiry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = [10_000_000_000]
+    monkeypatch.setattr(guard.time, "monotonic_ns", lambda: clock[0])
+    path = tmp_path / "guard.json"
+    guard.initialize(
+        path, attempt_id="data-100-1", allowance=2, max_duration_seconds=1,
+    )
+    transported: list[str] = []
+    monkeypatch.setattr(
+        requests.sessions.Session, "send",
+        lambda session, request, *args, **kwargs: transported.append(request.url),
+    )
+    guard.install(path, attempt_id="data-100-1", allowance=2)
+    session = requests.Session()
+    clock[0] = 10_999_999_999
+    session.send(prepared("https://api.buildkite.com/v2/builds"))
+    before_expiry = path.read_bytes()
+    clock[0] = 11_000_000_000
+    with pytest.raises(guard.BuildkiteRequestWindowExpired, match="before transport"):
+        session.send(prepared("https://api.buildkite.com/v2/builds"))
+    assert path.read_bytes() == before_expiry
+    session.send(prepared("https://github.com/example"))
+    assert len(transported) == 2
+    assert guard.read_count(path, attempt_id="data-100-1", allowance=2) == 1
+
+
+def test_reservation_handoff_delay_consumes_the_transport_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(guard.time, "monotonic_ns", lambda: 2_000_000_000)
+    path = tmp_path / "guard.json"
+    guard.initialize(
+        path, attempt_id="data-100-1", allowance=2, max_duration_seconds=2,
+        started_monotonic_ns=1_000_000_000,
+    )
+    monkeypatch.setattr(guard.time, "monotonic_ns", lambda: 3_000_000_000)
+    with pytest.raises(guard.BuildkiteRequestWindowExpired):
+        guard.consume(path, attempt_id="data-100-1", allowance=2)
+    assert guard.read_count(path, attempt_id="data-100-1", allowance=2) == 0
+
+
+def test_v2_window_expires_across_processes_and_final_report_remains_readable(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "guard.json"
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    env = os.environ.copy()
+    for name in (*guard.GUARD_ENV_NAMES, *guard.TOKEN_ENV_NAMES):
+        env.pop(name, None)
+    env["PYTHONPATH"] = str(scripts)
+    subprocess.run(
+        [sys.executable, "-m", "vllm.buildkite_request_guard", "initialize",
+         "--file", str(path), "--attempt-id", "data-100-1", "--allowance", "2",
+         "--max-duration-seconds", "1"],
+        env=env, check=True, capture_output=True, text=True,
+    )
+    env.update({
+        "BUILDKITE_REQUEST_GUARD_FILE": str(path),
+        "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID": "data-100-1",
+        "BUILDKITE_REQUEST_GUARD_ALLOWANCE": "2",
+    })
+    code = """
+import json
+import time
+import requests
+from vllm import buildkite_request_guard as guard
+transported = []
+def transport(adapter, request, **kwargs):
+    transported.append(request.url)
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b'{}'
+    response.request = request
+    return response
+requests.adapters.HTTPAdapter.send = transport
+requests.get('https://api.buildkite.com/v2/builds')
+time.sleep(1.05)
+try:
+    requests.get('https://api.buildkite.com/v2/builds')
+except guard.BuildkiteRequestWindowExpired:
+    print(json.dumps({'transported': len(transported), 'expired': True}))
+else:
+    raise AssertionError('expired transport was not blocked')
+"""
+    child = subprocess.run(
+        [sys.executable, "-c", code], env=env, check=True,
+        capture_output=True, text=True,
+    )
+    assert json.loads(child.stdout) == {"transported": 1, "expired": True}
+    report = subprocess.run(
+        [sys.executable, "-m", "vllm.buildkite_request_guard", "report",
+         "--file", str(path), "--attempt-id", "data-100-1", "--allowance", "2"],
+        env=env, check=True, capture_output=True, text=True,
+    )
+    assert report.stdout.strip() == "actual_request_starts=1"
+
+
+@pytest.mark.parametrize("start", [True, -1, 3_000_000_000, "0"])
+def test_invalid_request_window_anchor_cannot_create_a_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, start: object,
+) -> None:
+    monkeypatch.setattr(guard.time, "monotonic_ns", lambda: 2_000_000_000)
+    path = tmp_path / "guard.json"
+    with pytest.raises(guard.BuildkiteRequestGuardError):
+        guard.initialize(
+            path, attempt_id="data-100-1", allowance=2, max_duration_seconds=2,
+            started_monotonic_ns=start,
+        )
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("duration", [True, 0, -1, 3001, "50"])
+def test_invalid_request_duration_cannot_create_a_guard(
+    tmp_path: Path, duration: object,
+) -> None:
+    path = tmp_path / "guard.json"
+    with pytest.raises(guard.BuildkiteRequestGuardError):
+        guard.initialize(
+            path, attempt_id="data-100-1", allowance=2, max_duration_seconds=duration,
+        )
+    assert not path.exists()
+
+
+def test_expired_initialization_and_clock_rollback_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(guard.time, "monotonic_ns", lambda: 2_000_000_000)
+    path = tmp_path / "guard.json"
+    with pytest.raises(guard.BuildkiteRequestWindowExpired):
+        guard.initialize(
+            path, attempt_id="data-100-1", allowance=2, max_duration_seconds=1,
+            started_monotonic_ns=1_000_000_000,
+        )
+    assert not path.exists()
+    guard.initialize(path, attempt_id="data-100-1", allowance=2, max_duration_seconds=1)
+    before = path.read_bytes()
+    monkeypatch.setattr(guard.time, "monotonic_ns", lambda: 1_999_999_999)
+    with pytest.raises(guard.BuildkiteRequestWindowExpired):
+        guard.consume(path, attempt_id="data-100-1", allowance=2)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("change", ["missing", "extended", "boolean", "float-version"])
+def test_malformed_v2_request_window_is_rejected(tmp_path: Path, change: str) -> None:
+    path = tmp_path / "guard.json"
+    guard.initialize(path, attempt_id="data-100-1", allowance=2, max_duration_seconds=1)
+    value = json.loads(path.read_text())
+    if change == "missing":
+        del value["request_window"]
+    elif change == "extended":
+        value["request_window"]["deadline_monotonic_ns"] += 3000 * 1_000_000_000
+    elif change == "boolean":
+        value["request_window"]["started_monotonic_ns"] = True
+    else:
+        value["schema_version"] = 2.0
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+    with pytest.raises(guard.BuildkiteRequestGuardError):
+        guard.consume(path, attempt_id="data-100-1", allowance=2)
+
+
 def test_send_level_patch_counts_redirect_hops_and_ignores_non_buildkite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
