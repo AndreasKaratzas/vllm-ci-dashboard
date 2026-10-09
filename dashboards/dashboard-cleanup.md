@@ -55,6 +55,11 @@ its cross-process request guard still stops Buildkite sends fifty minutes from
 before durable reservation. Slow ledger handoffs consume that request window.
 This preserves the existing 25-hour ledger, sixteen-attempt limit, 800-start
 allowance, and retry backoff while leaving time for final validation and deploy.
+The normal full schedule runs every two hours (`13 */2 * * *`), so a healthy
+25-hour window contains at most thirteen full reservations and leaves at least
+three retry slots within the same sixteen-attempt cap. Targeted queue and DNS
+publication uses zero Buildkite requests and consumes no full collection
+reservation.
 Collector logs record exact guarded transport starts per surface and the running
 total, so quota regressions can be traced to a producer without exposing source
 requests or identities.

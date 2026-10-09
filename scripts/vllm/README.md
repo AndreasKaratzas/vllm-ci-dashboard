@@ -7,7 +7,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | Script | Purpose | Trigger |
 |--------|---------|---------|
 | `collect_queue_snapshot.py` | Captures current Buildkite queue-native metrics every permitted poll and refreshes the complete active-job overlay at most hourly; incomplete detail pagination retains the last complete overlay with explicit timestamps/status | Every 10 min via `queue-monitor.yml` (detail at most hourly) |
-| `collect_queue_lifecycle.py` | Resumably collects seven-day privacy-minimized queue lifecycle events through exhaustive disjoint parent-created query units without publishing partial generations | 30-minute recovery checks with a two-hour successful cadence via `queue-lifecycle.yml` |
+| `collect_queue_lifecycle.py` | Collects seven-day privacy-minimized queue lifecycle events through resumable exhaustive disjoint parent-created query units without publishing partial generations | 30-minute recovery checks with a two-hour successful cadence via `queue-lifecycle.yml` |
 | `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every two hours via `hourly-master.yml` |
 | `collect_amd_test_matrix.py` | Derives inline and native AMD GPU main CI routes at the exact observed nightly commit | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
@@ -25,7 +25,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `dns_request_budget.py` | Validates the parentless DNS request ledger and durably reserves a complete per-scan allowance for 25 hours before any Buildkite call, bounding actual starts below 1,000 per rolling day | Every `dns-health.yml` run, plus controlled one-time ledger initialization |
 | `request_bearing_attempt_budget.py` | Gates full Data Collection and Queue Lifecycle through independent parentless 25-hour attempt ledgers, including start-to-start success cadence, bounded failure retry, migration overlap, and read-only webhook/watchdog observation | Before every possible full-collector token exposure, plus controlled one-time initialization |
 | `buildkite_request_guard.py` | Enforces the fixed per-attempt allowance across processes by charging every exact Buildkite `requests.Session.send` before transport and rejecting hidden adapter retries | Explicitly at every token-reading CLI/shared client ingress, with `scripts/sitecustomize.py` as process-start defense in depth |
-| `ci/backfill_checkpoint.py` | Integrity-validates complete per-nightly CI shards so cache-loss recovery makes monotonic progress across repeated 800-request caps without publishing partial data | Restored and failure-survivingly saved by guarded Data Collection runs |
+| `ci/backfill_checkpoint.py` | Integrity-validates complete per-nightly CI shards so cache-loss recovery makes monotonic progress across repeated 800-request caps without publishing partial data | Restored and saved even after collector failure by guarded Data Collection runs |
 | `plan_publication_watchdog.py` | Plans proactive canonical recovery and suppresses active/recent duplicates; durable full-collection due state comes from the separate attempt ledger rather than general publication timestamps | `publication-watchdog.yml` and generation-targeted recovery runs |
 | `dashboard_state.py` | Fully validates/materializes bounded parentless snapshots, provides OID-only metadata validation for watchdogs, creates tested root commits, writes the public marker, rotates refs, and atomically repairs a single valid slot | Canonical collection, deploy-only recovery, watchdog checks, and state rollback |
 | `public_projection.py` | Creates the state-bound SHA-256 manifest for every canonical public file and verifies local or remote Git trees without reading large deployed blobs | Before and after every canonical or deploy-only Pages publication, plus the watchdog |
@@ -355,8 +355,16 @@ exposing private restore metadata. Repeated runs of the same incident do not
 post duplicate comments. Collector failures carry a bounded typed reason into
 the incident fingerprint; a first transient network/HTTP failure uses the
 validated baseline without opening a ticket, while deterministic failures and
-two consecutive transient failures alert. Six consecutive healthy canonical
-publications are required before an incident closes and rearms.
+two consecutive transient failures alert. General incident recovery requires
+two distinct eligible healthy canonical publication states, each bound to its
+exact dashboard-state and code SHAs. Repeated validation of the same state
+does not add recovery credit. Matching DNS-only or queue-only incidents require
+one validated targeted source reconciliation, bound to its exact state and code
+SHAs. A separate Site Health path can confirm an already credited full
+publication: normalized evidence must show a current healthy publication with
+no fallback or degraded surfaces, at least two healthy probes out of three,
+and at least two probes matching the complete projection for that same state
+and code identity.
 
 The legacy manual `ci-collect.yml` workflow is validation-only. It can exercise
 the focused collectors and show the resulting workspace changes, but its token
