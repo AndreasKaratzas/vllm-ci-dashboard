@@ -14,10 +14,13 @@ import yaml
 
 from vllm import export_ci_cache_evidence as evidence
 from vllm.ci import analytics_cache as cache
+from vllm.ci import backfill_checkpoint as checkpoint
+from vllm.ci.models import TestResult
 
 NOW = datetime(2026, 10, 9, 21, tzinfo=timezone.utc)
 COMMIT = "ad73a4740dd780c5620099261738a30b979b262c"
 KEY = "analytics-builds-v1-Linux-2026-10-09-37986924810-1"
+CHECKPOINT_KEY = "ci-backfill-v1-Linux-2026-10-09-37986924810-1"
 REQUEST = evidence.normalize_request(KEY, "93775", COMMIT)
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,6 +62,146 @@ def _write(tmp_path, builds=None):
         complete_from=NOW - timedelta(days=8), current_only=True,
     )
     return directory
+
+
+def _mi_roster(count=1):
+    build = _build()
+    original = build["jobs"][0]
+    build["jobs"] = []
+    for number in range(count):
+        job = json.loads(json.dumps(original))
+        job["id"] = f"01a12000-0000-7000-8000-{number + 1:012x}"
+        # Preserve the observed route independently of the source declaration.
+        job["name"] = "amd_mi355_1: Basic Models CPU offload"
+        job["agent_query_rules"] = ["queue=amd_mi355_1"]
+        build["jobs"].append(job)
+    return build
+
+
+def _parsed_row(job, **changes):
+    row = TestResult(
+        test_id="test_basic::example", name="example", classname="test_basic",
+        status="passed", duration_secs=1.25, failure_message="",
+        job_name=job["name"], job_id=job["id"], step_id=job["step"]["id"],
+        build_number=93775, pipeline="ci", date="2026-10-09", parser_version=1,
+    ).to_dict()
+    row.update({
+        "source_definition_id": "main-ci/basic-models", "source_agent_pool": "mi355_dpx",
+        "source_commit": COMMIT, "source_step_key": "basic-models-dpx",
+        "source_binding_basis": "runtime_step_key",
+    })
+    row.update(changes)
+    return row
+
+
+def _checkpoint(tmp_path, rows):
+    directory = tmp_path / "ci-backfill-v1"
+    source = tmp_path / "2026-10-09_amd.jsonl"
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    checkpoint.record_complete_shard(directory, source)
+    manifest_path = directory / checkpoint.MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["updated_at"] = "2026-10-09T20:31:33Z"
+    manifest_path.write_bytes(checkpoint._canonical(manifest))
+    return directory
+
+
+def test_optional_export_preserves_exact_290_job_parsed_shard_and_clocks(tmp_path):
+    build = _mi_roster(290)
+    directory = _write(tmp_path, [build])
+    rows = [_parsed_row(job) for job in build["jobs"]]
+    rows.append(_parsed_row(build["jobs"][0], test_id="test_basic::second", name="second"))
+    parsed = _checkpoint(tmp_path, rows)
+    originals = {path.relative_to(parsed): path.read_bytes() for path in parsed.rglob("*") if path.is_file()}
+    request = evidence.normalize_request(KEY, "93775", COMMIT, CHECKPOINT_KEY)
+    report = _export(tmp_path, directory, request, checkpoint_dir=parsed)
+    output = tmp_path / "evidence"
+    assert set(path.name for path in output.iterdir()) == {"build.json", "receipt.json", "parsed-results.jsonl"}
+    selected = originals[Path("test_results/2026-10-09_amd.jsonl")]
+    assert (output / evidence.PARSED_FILE_NAME).read_bytes() == selected
+    proof = json.loads((output / "receipt.json").read_bytes())["parsed_checkpoint_proof"]
+    assert proof["cache_key"] == CHECKPOINT_KEY
+    assert proof["original_manifest"] == json.loads(originals[Path("manifest.json")])
+    assert proof["original_manifest"]["updated_at"] == "2026-10-09T20:31:33Z"
+    assert proof["selected_descriptor"] == proof["original_manifest"]["shards"]["2026-10-09_amd.jsonl"]
+    assert proof["roster_job_count"] == proof["parsed_job_count"] == 290
+    assert proof["rows"] == 291 and proof["parser_versions"] == [1]
+    assert proof["selected_shard"] == {
+        "file": evidence.PARSED_FILE_NAME, "source_file": "test_results/2026-10-09_amd.jsonl",
+        "bytes": len(selected), "sha256": hashlib.sha256(selected).hexdigest(),
+        "git_blob_oid": hashlib.sha1(f"blob {len(selected)}\0".encode() + selected).hexdigest(),
+    }
+    assert originals == {path.relative_to(parsed): path.read_bytes() for path in parsed.rglob("*") if path.is_file()}
+    assert report["bytes"] == sum(path.stat().st_size for path in output.iterdir()) <= evidence.MAX_EXPORT_BYTES
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in output.iterdir())
+
+
+def test_optional_export_supports_existing_parser_rows_without_new_source_fields(tmp_path):
+    build = _mi_roster()
+    directory = _write(tmp_path, [build])
+    row = _parsed_row(build["jobs"][0])
+    for key in evidence.PARSED_SOURCE_FIELDS:
+        row.pop(key)
+    parsed = _checkpoint(tmp_path, [row])
+    original = (parsed / "test_results/2026-10-09_amd.jsonl").read_bytes()
+    request = evidence.normalize_request(KEY, "93775", COMMIT, CHECKPOINT_KEY)
+    _export(tmp_path, directory, request, checkpoint_dir=parsed)
+    assert (tmp_path / "evidence/parsed-results.jsonl").read_bytes() == original
+
+
+@pytest.mark.parametrize("change", [
+    "foreign_job", "foreign_queue", "foreign_commit", "legacy_pipeline", "private_field",
+    "bool_duration", "missing_parser", "corrupt", "symlink", "duplicate_build_shard",
+])
+def test_optional_export_rejects_unproved_parsed_rows_without_artifact(tmp_path, change):
+    build = _mi_roster()
+    directory = _write(tmp_path, [build])
+    row = _parsed_row(build["jobs"][0])
+    if change == "foreign_job":
+        row["job_id"] = "01a12000-0000-7000-8000-000000000002"
+    elif change == "foreign_queue":
+        row["job_name"] = "gpu_h200: Basic Models CPU offload"
+    elif change == "foreign_commit":
+        row["source_commit"] = "c" * 40
+    elif change == "private_field":
+        row["env"] = {"TOKEN": "must-never-be-exported"}
+    elif change == "bool_duration":
+        row["duration_secs"] = True
+    elif change == "missing_parser":
+        row.pop("parser_version")
+    parsed = _checkpoint(tmp_path, [row])
+    path = parsed / "test_results/2026-10-09_amd.jsonl"
+    if change == "legacy_pipeline":
+        path.write_bytes(path.read_bytes().replace(b'"pipeline": "ci"', b'"pipeline": "amd-ci"'))
+    elif change == "corrupt":
+        path.write_bytes(path.read_bytes() + b"unexpected\n")
+    elif change == "symlink":
+        original = path.read_bytes()
+        path.unlink()
+        outside = tmp_path / "outside.jsonl"
+        outside.write_bytes(original)
+        path.symlink_to(outside)
+    elif change == "duplicate_build_shard":
+        duplicate = tmp_path / "2026-10-08_amd.jsonl"
+        duplicate.write_bytes(path.read_bytes())
+        checkpoint.record_complete_shard(parsed, duplicate)
+    request = evidence.normalize_request(KEY, "93775", COMMIT, CHECKPOINT_KEY)
+    with pytest.raises((evidence.EvidenceError, checkpoint.BackfillCheckpointError)):
+        _export(tmp_path, directory, request, checkpoint_dir=parsed)
+    assert not (tmp_path / "evidence").exists()
+
+
+def test_optional_shard_shares_existing_total_export_byte_bound(tmp_path, monkeypatch):
+    build = _mi_roster()
+    directory = _write(tmp_path, [build])
+    parsed = _checkpoint(tmp_path, [_parsed_row(build["jobs"][0])])
+    before = (parsed / "test_results/2026-10-09_amd.jsonl").read_bytes()
+    monkeypatch.setattr(evidence, "MAX_EXPORT_BYTES", len(before) + 100)
+    request = evidence.normalize_request(KEY, "93775", COMMIT, CHECKPOINT_KEY)
+    with pytest.raises(evidence.EvidenceError, match="2 MiB"):
+        _export(tmp_path, directory, request, checkpoint_dir=parsed)
+    assert not (tmp_path / "evidence").exists()
+    assert (parsed / "test_results/2026-10-09_amd.jsonl").read_bytes() == before
 
 
 @pytest.fixture(autouse=True)
@@ -218,13 +361,42 @@ def test_cli_requires_exact_cache_hit_before_reading(tmp_path, monkeypatch, caps
     assert not (tmp_path / "evidence").exists()
 
 
+@pytest.mark.parametrize("key", [
+    "ci-backfill-v1-Linux-2026-10-08-37986924810-1",
+    "ci-backfill-v1-Linux-2026-10-09-37986924811-1",
+    "ci-backfill-v1-Linux-2026-10-09-37986924810-2",
+    CHECKPOINT_KEY + "\nsecret=unsafe",
+])
+def test_optional_key_requires_same_exact_collection_suffix(key):
+    with pytest.raises(evidence.EvidenceError):
+        evidence.normalize_request(KEY, "93775", COMMIT, key)
+
+
+@pytest.mark.parametrize("hit,matched", [("false", CHECKPOINT_KEY), ("true", CHECKPOINT_KEY + "-other")])
+def test_cli_requires_exact_optional_checkpoint_hit_before_reading(tmp_path, monkeypatch, capsys, hit, matched):
+    for key, value in {
+        "CACHE_KEY": KEY, "BUILD_NUMBER": "93775", "FULL_COMMIT": COMMIT,
+        "CACHE_HIT": "true", "CACHE_MATCHED_KEY": KEY,
+        "CHECKPOINT_CACHE_KEY": CHECKPOINT_KEY, "CHECKPOINT_CACHE_HIT": hit,
+        "CHECKPOINT_CACHE_MATCHED_KEY": matched,
+        "CACHE_DIRECTORY": str(tmp_path / "missing"),
+        "CHECKPOINT_DIRECTORY": str(tmp_path / "missing-checkpoint"),
+        "EVIDENCE_DIRECTORY": str(tmp_path / "evidence"),
+    }.items():
+        monkeypatch.setenv(key, value)
+    assert evidence.main([]) == 1
+    assert capsys.readouterr().out == "CI cache evidence rejected; no diagnostic upload is authorized.\n"
+    assert not (tmp_path / "evidence").exists()
+
+
 def test_workflow_is_manual_exact_restore_read_only_and_bounded():
     path = ROOT / ".github/workflows/ci-cache-diagnostics.yml"
     text = path.read_text()
     workflow = yaml.safe_load(text)
     trigger = workflow.get("on", workflow.get(True))
     assert set(trigger) == {"workflow_dispatch"}
-    assert set(trigger["workflow_dispatch"]["inputs"]) == {"cache_key", "build_number", "full_commit"}
+    assert set(trigger["workflow_dispatch"]["inputs"]) == {"cache_key", "build_number", "full_commit", "checkpoint_cache_key"}
+    assert trigger["workflow_dispatch"]["inputs"]["checkpoint_cache_key"]["required"] is False
     assert workflow["permissions"] == {"contents": "read", "actions": "read"}
     job = workflow["jobs"]["evidence"]
     assert job["timeout-minutes"] == 15
@@ -235,12 +407,20 @@ def test_workflow_is_manual_exact_restore_read_only_and_bounded():
         "path": "data/vllm/ci/.cache/analytics-builds-v1",
         "key": "${{ steps.request.outputs.cache_key }}", "fail-on-cache-miss": True,
     }
+    checkpoint_restore = next(step for step in steps if step.get("id") == "checkpoint")
+    assert checkpoint_restore["if"] == "steps.request.outputs.checkpoint_cache_key != ''"
+    assert checkpoint_restore["with"] == {
+        "path": "data/vllm/ci/.cache/ci-backfill-v1",
+        "key": "${{ steps.request.outputs.checkpoint_cache_key }}", "fail-on-cache-miss": True,
+    }
+    assert steps.index(checkpoint_restore) > 2
     upload = steps[-1]
     assert upload["with"]["retention-days"] == 1
     assert upload["if"] == "steps.export.outcome == 'success'"
     assert upload["with"]["path"].splitlines() == [
         "${{ runner.temp }}/ci-cache-evidence/build.json",
         "${{ runner.temp }}/ci-cache-evidence/receipt.json",
+        "${{ runner.temp }}/ci-cache-evidence/parsed-results.jsonl",
     ]
     assert not any("cache/save" in step.get("uses", "") for step in steps)
     assert all(len(step["uses"].split("@")[-1]) == 40 for step in steps if "uses" in step)
@@ -249,4 +429,5 @@ def test_workflow_is_manual_exact_restore_read_only_and_bounded():
     assert steps[2]["env"] == {
         "CACHE_KEY": "${{ inputs.cache_key }}", "BUILD_NUMBER": "${{ inputs.build_number }}",
         "FULL_COMMIT": "${{ inputs.full_commit }}",
+        "CHECKPOINT_CACHE_KEY": "${{ inputs.checkpoint_cache_key }}",
     }
