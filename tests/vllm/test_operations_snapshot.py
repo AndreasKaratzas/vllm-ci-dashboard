@@ -3528,7 +3528,7 @@ def test_snapshot_amd_scope_rejects_mixed_aggregates_and_recounts_raw_queues(tmp
     assert queues["total_running"] == 4
     assert queues["scope_totals"]["all"]["waiting"] == 2
     jobs = ops._filter_queue_jobs({"pending": [
-        {"queue": "amd_mi300_1", "name": "CPU Offload with CUDA model preset"},
+        {"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi300_1", "name": "CPU Offload with CUDA model preset"},
         {"queue": "amd_mi300_1", "name": ":computer: (CPU) Torch ABI"},
         {"queue": "amd_mi300_1", "no_gpu": True},
         {"queue": "H200"},
@@ -3557,11 +3557,11 @@ def test_queue_projection_requires_exact_current_ci_source_proof_and_keeps_physi
     commit = "9" * 40
     proof = {"version": 1, "source_commit": commit, "definition_tree": "a" * 40,
              "classification": "amd_mi_gpu"}
-    gpu = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": commit[:12],
+    gpu = {"pipeline": "ci", "workload": "vllm", "queue": "amd_mi300_1", "commit": commit[:12],
            "name": "CPU Offload", "execution_proof": proof}
     legacy_cpu = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": commit[:12],
                   "name": ":amd: (MI250) Torch Stable ABI Audit"}
-    omni = {"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi300_1", "name": "Omni GPU"}
+    omni = {"pipeline": "vllm-omni-amd-ci", "workload": "omni", "queue": "amd_mi300_1", "name": "Omni GPU"}
     jobs = {"hardware_scope": "amd_mi_gpu", "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
             "pending": [gpu, legacy_cpu, omni], "running": []}
     snapshot = {"queues": {"amd_mi300_1": {"waiting": 3, "running": 0,
@@ -3613,3 +3613,36 @@ def test_omni_mapping_requires_new_ci_aggregate_scope_without_reclassifying_omni
     wrong_pipeline = {**current, "scope": {**current["scope"],
         "workload_pipelines": {"main": ["amd-ci"], "omni": ["vllm-omni-amd-ci"]}}}
     assert ops._omni(snapshot, jobs, [], {}, {}, wrong_pipeline, capacity)["mapping_history"] == {}
+
+
+def test_current_queue_projection_removes_legacy_pipelines_and_attributes_exact_job_identity():
+    proof = {"version": 1, "source_commit": "9" * 40, "definition_tree": "a" * 40,
+             "classification": "amd_mi_gpu"}
+    ci = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": "9" * 12,
+          "branch": "fix/omni-regression", "name": "Omni model GPU test", "workload": "omni",
+          "execution_proof": proof}
+    omni = {"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi300_1", "name": "Main branch model test",
+            "branch": "main", "workload": "vllm"}
+    legacy = {"pipeline": "amd-ci", "queue": "amd_mi300_1", "name": "Legacy AMD", "workload": "vllm"}
+    source = {"hardware_scope": "amd_mi_gpu", "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
+              "pending": [], "running": [*[ci.copy() for _ in range(69)],
+                  *[omni.copy() for _ in range(89)], legacy, legacy.copy()]}
+    snapshot = {"queues": {"amd_mi300_1": {"waiting": 0, "running": 160,
+                                           "count_source": "cluster_metrics"}}}
+    result = ops._queue(snapshot, source, [snapshot])
+    jobs = result["queue_jobs"]["running"]
+    assert len(jobs) == 158
+    assert sum(row["workload"] == "vllm" for row in jobs) == 69
+    assert sum(row["workload"] == "omni" for row in jobs) == 89
+    assert {row["pipeline"] for row in jobs} == {"ci", "vllm-omni-amd-ci"}
+    assert result["snapshot"]["total_running"] == 160
+    assert result["history"][0]["queues"]["amd_mi300_1"]["running"] == 160
+    assert source["running"][0]["workload"] == "omni"
+
+
+@pytest.mark.parametrize("pipeline", ["amd-ci", "vllm", "perf-eval", "foreign", "", None, ["ci"], {"slug": "ci"}])
+def test_current_queue_projection_rejects_unapproved_or_missing_pipeline(pipeline):
+    row = {"pipeline": pipeline, "queue": "amd_mi300_1", "name": "AMD GPU test"}
+    result = ops._filter_queue_jobs({"hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT, "pending": [row], "running": []})
+    assert result["pending"] == []

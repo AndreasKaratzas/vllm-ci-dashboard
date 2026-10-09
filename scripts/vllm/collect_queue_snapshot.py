@@ -53,7 +53,7 @@ from vllm.constants import (  # noqa: E402
     queue_history_reset_datetime,
 )
 from vllm.pipelines import _job_queue as observed_job_queue, is_cpu_only_job  # noqa: E402
-from vllm.ci.utils import classify_workload, parse_iso, percentile, queue_from_rules  # noqa: E402
+from vllm.ci.utils import parse_iso, percentile, queue_from_rules  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.analytics_cache import (  # noqa: E402
     RUNTIME_SOURCE_CACHE_DIR_NAME, read_runtime_source_indexes,
@@ -76,6 +76,7 @@ HISTORY_REPO_PATH = "data/vllm/ci/queue_timeseries.jsonl"
 QUEUE_DETAILS_MAX_BYTES = writer_max_bytes("queue_details")
 
 EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
+QUEUE_JOB_PIPELINES = frozenset({"ci", "vllm-omni-amd-ci"})
 _SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
 _SOURCE_SCOPE_CACHE_DIR: Path | None = None
 _SOURCE_SCOPE_LOCK = threading.Lock()
@@ -1935,15 +1936,25 @@ def _valid_execution_proof(job: dict) -> bool:
             and job.get("commit") == proof["source_commit"][:12])
 
 
+def _eligible_detail_job(job: dict) -> bool:
+    """Current CI tests and the approved Omni exception, with MI evidence."""
+    return (isinstance(job, dict) and isinstance(job.get("pipeline"), str)
+            and job["pipeline"] in QUEUE_JOB_PIPELINES
+            and bool(amd_gpu_hardware(job.get("queue"))) and not is_cpu_only_job(job)
+            and (job["pipeline"] != "ci" or _valid_execution_proof(job)))
+
+
 def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
     state = node.get("state") or ""
+    pipeline = node.get("pipeline") or {}
+    if pipeline.get("slug") not in QUEUE_JOB_PIPELINES:
+        return None
     source_build = _graphql_source_build(node, fallback_queue)
     source_job = source_build["jobs"][0]
     queue = _execution_queue(source_job)
     if not _physical_mi_candidate(source_job):
         return None
     build = node.get("build") or {}
-    pipeline = node.get("pipeline") or {}
     proof = {}
     if pipeline.get("slug") == "ci":
         scoped = _scope_ci_builds([source_build])[0]
@@ -1964,7 +1975,7 @@ def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
         "build": build.get("number") or 0,
         "branch": build.get("branch") or "",
         "commit": (build.get("commit") or "")[:12],
-        "workload": classify_workload(pipeline.get("slug") or "", build.get("branch") or "", queue),
+        "workload": "omni" if pipeline["slug"] == "vllm-omni-amd-ci" else "vllm",
         "fork_url": "",
         "source": "",
         "runnable_at": node.get("runnableAt"),
@@ -2050,6 +2061,8 @@ def _fetch_graphql_jobs(
                 )
         # Reject incomplete/invalid pages before spending source-proof starts.
         nodes = [edge.get("node") or {} for edge in conn.get("edges") or []]
+        nodes = [node for node in nodes
+                 if (node.get("pipeline") or {}).get("slug") in QUEUE_JOB_PIPELINES]
         _scope_ci_builds([_graphql_source_build(node, fallback_queue) for node in nodes])
         for node in nodes:
             record = _graphql_job_record(node, fallback_queue)
@@ -2144,6 +2157,8 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
         builds = bk_get_paginated(f"/organizations/{BK_ORG}/builds", token, {"state": state})
         log.info("Fetched %d %s builds", len(builds), state)
 
+        builds = [build for build in builds
+                  if (build.get("pipeline") or {}).get("slug") in QUEUE_JOB_PIPELINES]
         for build in _scope_ci_builds(builds):
             build_branch = build.get("branch", "") or ""
             build_commit = (build.get("commit", "") or "")[:12]
@@ -2182,7 +2197,7 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
                         "build": build.get("number", 0),
                         "branch": build_branch,
                         "commit": build_commit,
-                        "workload": classify_workload(pipeline_slug, build_branch, queue),
+                        "workload": "omni" if pipeline_slug == "vllm-omni-amd-ci" else "vllm",
                         "fork_url": fork_url,
                         "source": build_source,
                         "runnable_at": job.get("runnable_at"),
@@ -2217,9 +2232,7 @@ def _load_complete_job_overlay(path: Path) -> dict | None:
         or parse_iso(observed_at) is None
     ):
         return None
-    if any(not isinstance(job, dict) or not amd_gpu_hardware(job.get("queue")) or is_cpu_only_job(job)
-           or (job.get("pipeline") == "ci" and not _valid_execution_proof(job))
-           for job in pending + running):
+    if any(not _eligible_detail_job(job) for job in pending + running):
         return None
     return {
         "details_observed_at": observed_at,
@@ -2261,8 +2274,10 @@ def _compact_queue_jobs(
         max_bytes = QUEUE_DETAILS_MAX_BYTES
     if max_bytes <= 0:
         raise ValueError("queue-detail byte budget must be positive")
-    pending = [job for job in source.get("pending") or [] if amd_gpu_hardware(job.get("queue")) and not is_cpu_only_job(job)]
-    running = [job for job in source.get("running") or [] if amd_gpu_hardware(job.get("queue")) and not is_cpu_only_job(job)]
+    pending = [{**job, "workload": "omni" if job["pipeline"] == "vllm-omni-amd-ci" else "vllm"}
+               for job in source.get("pending") or [] if _eligible_detail_job(job)]
+    running = [{**job, "workload": "omni" if job["pipeline"] == "vllm-omni-amd-ci" else "vllm"}
+               for job in source.get("running") or [] if _eligible_detail_job(job)]
     previous = source.get("publication_retention") or {}
     previous_pending = previous.get("pending") or {}
     previous_running = previous.get("running") or {}
@@ -2381,7 +2396,7 @@ def _apply_active_jobs(
 
     for job in active_jobs:
         queue = job.get("queue") or ""
-        if not amd_gpu_hardware(queue) or is_cpu_only_job(job):
+        if not _eligible_detail_job(job):
             continue
 
         stats = queue_stats[queue]
@@ -2392,7 +2407,7 @@ def _apply_active_jobs(
         if not is_waiting and not is_running:
             continue
 
-        workload = job.get("workload") or "vllm"
+        workload = "omni" if job["pipeline"] == "vllm-omni-amd-ci" else "vllm"
         build_url = job.get("build_url") or ""
         web_url = _make_canvas_job_url(
             build_url, job.get("job_uuid") or "", job.get("fallback_url", "")

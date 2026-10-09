@@ -98,6 +98,7 @@ AMD_TEST_HISTORY_LIMIT = 30
 AMD_TEST_RESULTS_GLOB = "test_results/*_amd.jsonl"
 AMD_TEST_PIPELINE = "ci"
 EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
+QUEUE_JOB_PIPELINES = frozenset({"ci", "vllm-omni-amd-ci"})
 # Per-physical-agent (node) AMD GPU health is now collected and aggregated by
 # scripts/vllm/collect_agent_health.py (all builds, all branches) and embedded
 # verbatim from agent_health.json by _amd_agent_health below. See that collector
@@ -2861,8 +2862,10 @@ def _filter_queue_jobs(queue_jobs: dict) -> dict:
     )
     for state in ("pending", "running"):
         result[state] = [
-            job for job in queue_jobs.get(state) or []
+            {**job, "workload": "vllm" if job["pipeline"] == "ci" else "omni"}
+            for job in queue_jobs.get(state) or []
             if isinstance(job, dict)
+            and isinstance(job.get("pipeline"), str) and job["pipeline"] in QUEUE_JOB_PIPELINES
             and _is_amd_queue(job.get("queue") or job.get("q")) and not is_cpu_only_job(job)
             and (job.get("pipeline") != "ci"
                  or (ci_source_attested and _valid_queue_ci_execution_proof(job)))

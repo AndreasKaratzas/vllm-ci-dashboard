@@ -7679,7 +7679,7 @@ class DashboardAudit:
         else:
             if require_current_scope:
                 from vllm.build_operations_snapshot import (
-                    EXECUTION_SCOPE_CONTRACT, _valid_queue_ci_execution_proof,
+                    EXECUTION_SCOPE_CONTRACT, QUEUE_JOB_PIPELINES, _valid_queue_ci_execution_proof,
                 )
                 from vllm.constants import amd_gpu_hardware
                 from vllm.pipelines import is_cpu_only_job
@@ -7695,9 +7695,11 @@ class DashboardAudit:
                     )
                 invalid_scope = sum(
                     not isinstance(job, dict)
+                    or not isinstance(job.get("pipeline"), str) or job["pipeline"] not in QUEUE_JOB_PIPELINES
                     or not amd_gpu_hardware(job.get("queue") or job.get("q"))
                     or is_cpu_only_job(job)
                     or (job.get("pipeline") == "ci" and not _valid_queue_ci_execution_proof(job))
+                    or ("workload" in job and job["workload"] != ("vllm" if job["pipeline"] == "ci" else "omni"))
                     for job in pending + running
                 )
                 if invalid_scope:
