@@ -34,6 +34,7 @@ def _reconcile(
     active=True,
     fingerprint="fingerprint",
     content_fingerprint=None,
+    refresh_before_close=False,
 ):
     return reconcile_managed_issue(
         state,
@@ -47,6 +48,7 @@ def _reconcile(
         observed_at="2026-07-28T12:00:00Z",
         label_specs=LABEL_SPECS,
         client=client,
+        refresh_before_close=refresh_before_close,
     )
 
 
@@ -594,3 +596,126 @@ def test_changed_fingerprint_automatically_clears_suppression():
     assert reconciled["suppressed"] is False
     assert reconciled["suppressed_fingerprint"] == ""
     assert reconciled["last_fingerprint"] == "new"
+
+
+class _ScopeRecoveryClient:
+    def __init__(self, *, state="open", update_results=None):
+        self.state = state
+        self.update_results = list(update_results or [True])
+        self.events = []
+        self.body = "Old CUDA / CPU incident evidence"
+
+    def issue_state(self, number, ownership_marker):
+        self.events.append(("verify", number, ownership_marker))
+        return self.state
+
+    def ensure_issue_labels(self, number, label_specs):
+        self.events.append(("labels", number))
+        return True
+
+    def ensure_owner_assigned(self, number):
+        self.events.append(("assign", number))
+        return True
+
+    def update_issue(self, number, title, body):
+        self.events.append(("update", number, title, body))
+        updated = self.update_results.pop(0)
+        if updated:
+            self.body = body
+        return updated
+
+    def comment_issue(self, number, body):
+        self.events.append(("comment", number))
+        return True
+
+    def close_issue(self, number):
+        self.events.append(("close", number))
+        self.state = "closed"
+        return True
+
+
+def test_opt_in_recovery_refreshes_verified_body_before_comment_and_close():
+    client = _ScopeRecoveryClient()
+    recovered = _reconcile(
+        {"issue": {"number": 540}},
+        client,
+        active=False,
+        fingerprint="",
+        refresh_before_close=True,
+    )
+
+    assert [event[0] for event in client.events] == [
+        "verify", "labels", "assign", "update", "comment", "close",
+    ]
+    assert client.events[3] == (
+        "update", 540, "Managed alert", f"{MARKER}\nCurrent evidence",
+    )
+    assert "CUDA" not in client.body and "CPU" not in client.body
+    assert recovered["issue"] is None
+
+
+def test_failed_recovery_refresh_preserves_owned_issue_and_retries():
+    client = _ScopeRecoveryClient(update_results=[False, True])
+    original = {
+        "issue": {"number": 540, "opened_at": "2026-07-28T10:00:00Z"},
+        "last_fingerprint": "old-mixed-signal",
+        "last_content_fingerprint": "old-mixed-evidence",
+    }
+    failed = _reconcile(
+        original, client, active=False, fingerprint="", refresh_before_close=True,
+    )
+
+    assert [event[0] for event in client.events] == [
+        "verify", "labels", "assign", "update",
+    ]
+    assert failed["issue"] == original["issue"]
+    assert failed["last_fingerprint"] == original["last_fingerprint"]
+    assert failed["last_content_fingerprint"] == original["last_content_fingerprint"]
+    assert client.body == "Old CUDA / CPU incident evidence"
+
+    retried = _reconcile(
+        failed, client, active=False, fingerprint="", refresh_before_close=True,
+    )
+    assert [event[0] for event in client.events[-6:]] == [
+        "verify", "labels", "assign", "update", "comment", "close",
+    ]
+    assert retried["issue"] is None
+    assert retried["last_fingerprint"] == ""
+    assert retried["last_content_fingerprint"] == ""
+
+
+def test_default_recovery_keeps_existing_comment_and_close_behavior():
+    client = _ScopeRecoveryClient()
+    recovered = _reconcile({"issue": {"number": 7}}, client, active=False)
+
+    assert [event[0] for event in client.events] == [
+        "verify", "labels", "assign", "comment", "close",
+    ]
+    assert client.body == "Old CUDA / CPU incident evidence"
+    assert recovered["issue"] is None
+
+
+@pytest.mark.parametrize("remote_state", [None, "foreign", "closed"])
+def test_opt_in_recovery_never_refreshes_unverified_or_closed_issue(remote_state):
+    client = _ScopeRecoveryClient(state=remote_state)
+    recovered = _reconcile(
+        {"issue": {"number": 540}}, client, active=False, refresh_before_close=True,
+    )
+
+    assert client.events == [("verify", 540, MARKER)]
+    assert (recovered["issue"] is None) == (remote_state == "closed")
+
+
+def test_opt_in_refresh_preserves_manual_close_suppression():
+    client = _ScopeRecoveryClient(state="closed")
+    suppressed = _reconcile(
+        {"issue": {"number": 540}, "last_fingerprint": "same"},
+        client,
+        fingerprint="same",
+        refresh_before_close=True,
+    )
+
+    assert client.events == [("verify", 540, MARKER)]
+    assert suppressed["issue"] is None
+    assert suppressed["suppressed"] is True
+    assert suppressed["suppressed_fingerprint"] == "same"

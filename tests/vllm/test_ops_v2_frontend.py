@@ -2230,7 +2230,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=36' in INDEX
+    assert 'assets/js/ops-v2.js?v=37' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS

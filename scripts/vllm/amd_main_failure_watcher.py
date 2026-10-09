@@ -73,6 +73,7 @@ class WatcherConfig:
     track_commit_range: bool = False
     initialize_from_history: bool = False
     job_scope: str = ""
+    refresh_before_close: bool = False
 
 
 
@@ -989,6 +990,7 @@ def run_watcher(config: WatcherConfig) -> int:
         client=client,
         discovery_label=config.label_specs[0][0],
         recovery_labels=("automated", "workstream:dev"),
+        refresh_before_close=config.refresh_before_close,
     )
     reconciled["schema_version"] = 2
     if config.job_scope == "amd_gpu":

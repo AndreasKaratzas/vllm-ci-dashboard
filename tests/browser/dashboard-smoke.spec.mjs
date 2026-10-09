@@ -1290,3 +1290,70 @@ for (const foreign of ['pipeline', 'queue', 'cpu']) {
     await expect(panel).not.toContainText('B200');
   });
 }
+
+test('Omni partial mapping history keeps counts and limits rates to covered windows', async ({page}) => {
+  const generatedAt = '2026-10-08T20:00:00Z';
+  const hourly = Array.from({length: 48}, (_, index) => {
+    const start = new Date(Date.parse(generatedAt) - (48 - index) * 3600000).toISOString();
+    const end = new Date(Date.parse(start) + 3600000).toISOString();
+    const stats = (mapped, started, pipeline) => ({
+      mapped_jobs: mapped, started_jobs: started, finished_jobs: started,
+      mapped_gpu_slots: mapped, gpu_hours: started,
+      by_queue: {amd_mi250_1: {mapped_jobs: mapped, started_jobs: started}},
+      by_pipeline: {[pipeline]: {mapped_jobs: mapped, started_jobs: started}},
+    });
+    return {
+      hour: start, end_exclusive: end, observed_through: end,
+      state: 'closed', open: false, complete: true, collection_complete: true,
+      lower_bound: false, collection_complete_by_workload: {omni: true, main: true},
+      workloads: {omni: stats(2, 1, 'vllm-omni-amd-ci'), main: stats(4, 1, 'ci')},
+    };
+  });
+  const mapping = {
+    schema_version: 2, generated_at: generatedAt, hardware_scope: 'amd_mi_gpu',
+    execution_scope_contract: 'ci_exact_source_cpu_exclusions_v1',
+    scope: {
+      queues: ['amd_mi250_1'],
+      workload_pipelines: {main: ['ci'], omni: ['vllm-omni-amd-ci']},
+      attribution: {
+        exact_within_declared_source_window: true, job_created_range_exhaustive: false,
+        parent_build_lookback_days: 3,
+      },
+    },
+    hourly, daily: [], coverage: {hourly: {complete: true}},
+  };
+  await page.route('**/operations_v2/omni.json*', async route => {
+    const response = await route.fetch();
+    const packet = await response.json();
+    packet.omni.mapping_history = mapping;
+    await route.fulfill({response, json: packet});
+  });
+  await page.goto('/#ci-omni', {waitUntil: 'domcontentloaded'});
+  const panel = page.locator('#tab-ci-omni');
+  const rows = panel.locator('.ops-omni-comparison tbody tr');
+  const mappingControls = panel.locator('.ops-omni-mapping-toolbar');
+
+  // The automatic two-day refresh cannot establish a seven-day rate.
+  await expect(mappingControls.getByRole('button', {name: '7 days', exact: true})).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows.nth(0).locator('td').nth(1)).toHaveText('96');
+  await expect(rows.nth(0).locator('td').nth(2)).toHaveText('48');
+  await expect(rows.nth(1).locator('td').nth(1)).toHaveText('192');
+  await expect(rows.nth(0).locator('td').nth(3)).toHaveText('Unavailable');
+  await expect(rows.nth(1).locator('td').nth(3)).toHaveText('Unavailable');
+  await expect(panel.locator('.ops-omni-coverage-note')).toContainText('Rates, shares, and deltas are unavailable');
+
+  // A fully covered one-day selection still has an exact source-window rate.
+  await mappingControls.getByRole('button', {name: '1 day', exact: true}).click();
+  await expect(rows.nth(0).locator('td').nth(1)).toHaveText('48');
+  await expect(rows.nth(0).locator('td').nth(2)).toHaveText('24');
+  await expect(rows.nth(1).locator('td').nth(1)).toHaveText('96');
+  await expect(rows.nth(0).locator('td').nth(3)).toHaveText('50.0%');
+  await expect(rows.nth(1).locator('td').nth(3)).toHaveText('25.0%');
+  await expect(panel.locator('.ops-omni-coverage-note')).not.toContainText('Rates, shares, and deltas are unavailable');
+
+  await mappingControls.getByRole('button', {name: '7 days', exact: true}).click();
+  await expect(rows.nth(0).locator('td').nth(1)).toHaveText('96');
+  await expect(rows.nth(0).locator('td').nth(3)).toHaveText('Unavailable');
+  await expect(rows.nth(1).locator('td').nth(3)).toHaveText('Unavailable');
+  await expect(panel.locator('.ops-error')).toHaveCount(0);
+});

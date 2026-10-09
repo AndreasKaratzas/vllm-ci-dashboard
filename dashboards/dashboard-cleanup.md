@@ -37,8 +37,9 @@ flake/retry comparison limits and their exclusive live-data checks are removed.
 
 Bundle v3 publishes exactly eleven lazy sections. Its health readers retain
 strict bounded support for immutable v1/v2 publications, deployed before writer
-activation. Publication surface contract v6 validates complete v5 restore proofs
-before removing retired domains and their clocks. Canonical Actions purge retired
+activation. Publication surface contract v7 validates complete historical restore
+proofs, including v5/v6, before removing retired domains, runtime parity, and their
+clocks. Canonical Actions purge retired
 artifacts only after validated selection; the public allowlist also forbids them.
 
 Current source parity refreshes without a Buildkite token. Runtime collection
@@ -164,6 +165,11 @@ source definitions. Retained detail overlays require that execution proof;
 older workload buckets without it remain explicitly incomplete. Native queue
 occupancy retains its separate physical hardware meaning. Omni source commits
 are not joined to the vLLM repository.
+
+Current queue test details admit only `ci` and `vllm-omni-amd-ci`, and workload
+attribution comes from that exact pipeline. Legacy `amd-ci`, unknown pipelines,
+and missing pipeline identities cannot enter test details or their workload
+counts. Reusing valid details preserves their original observation time.
 
 Automatic workload refreshes query two recent days plus the existing parent
 build lookback. This keeps a scope migration from launching a 90-day backfill
