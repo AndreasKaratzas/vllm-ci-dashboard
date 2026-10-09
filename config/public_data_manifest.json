@@ -11,7 +11,6 @@
     "vllm/ci/failure_trends.json",
     "vllm/ci/flaky_tests.json",
     "vllm/ci/omni_surge_heuristic.json",
-    "vllm/ci/parity_report.json",
     "vllm/ci/project_items.json",
     "vllm/ci/queue_jobs.json",
     "vllm/ci/queue_lifecycle.json",
@@ -20,7 +19,6 @@
     "vllm/ci/test_group_parity.json",
     "vllm/ci/workload_mapping.json",
     "vllm/issues.json",
-    "vllm/parity_report.json",
     "vllm/perf_eval/perf_eval.json",
     "vllm/prs.json",
     "vllm/releases.json",
@@ -58,6 +56,8 @@
     "vllm/ci/publication_status.json"
   ],
   "never_publish_patterns": [
+    "vllm/ci/parity_report.json",
+    "vllm/parity_report.json",
     "*/.cache/*",
     "**/.cache/**/*",
     "users.json",
