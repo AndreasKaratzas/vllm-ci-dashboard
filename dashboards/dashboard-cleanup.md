@@ -57,6 +57,10 @@ The artifact excludes private caches, agent identities, and arbitrary logs.
 Collector failures also produce that early artifact when a raw audit cannot run.
 The matrix selects its observed nightly from fresh CI health before consulting
 retained analytics; older analytics metadata cannot reject a new frozen roster.
+When a nightly resumes in an active retry, the active head remains visible while
+the completed runtime signal uses its exact matching result shard, frozen matrix,
+commit, and terminal analytics build. A strictly validated current completed
+transaction may publish; only a failed transaction requires baseline recovery.
 
 Current analytics cache writes remove the retired `amd-ci` partition. If the
 active cache reaches its existing 256 MiB cap, it keeps a complete recent
@@ -78,6 +82,12 @@ Exact failure percentages require a current started-job coverage proof for the
 selected days. Normal Actions refresh the default seven-day view in bounded
 daily slices. Retained observations from earlier refreshes remain available,
 but cannot establish an exhaustive sixty-day denominator on their own.
+Control jobs (`waiter`, `manual`, and `trigger`) do not enter physical run counts.
+Failed command jobs explicitly reported as never run (`signature_rejected`,
+`agent_incompatible`, or `stack_error`) with no start timestamp also stay outside
+that started-job denominator. A supplied start timestamp still requires validation.
+Ambiguous command execution timestamps still block the source proof and retain
+the prior generation; failure diagnostics contain bounded operational metadata.
 
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,

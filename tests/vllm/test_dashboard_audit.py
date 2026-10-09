@@ -5183,3 +5183,139 @@ def test_operations_bundle_still_enforces_shared_32_mib_aggregate_cap(tmp_path, 
     audit.audit_operations_bundle()
     assert [finding.code for finding in audit.report.errors] == ["operations-health-payload-budget"]
     assert f"limit is {32 * 1024 * 1024} bytes" in audit.report.errors[0].message
+
+
+def _completed_current_retry_fixture(tmp_path):
+    from vllm.ci.nightly_latency import build_current_nightly_latency
+
+    output = _current_ci_core_fixture(tmp_path)
+    for path in output.rglob("*"):
+        if path.is_file() and path.suffix in {".json", ".jsonl"} and path.name not in {"analytics.json", "operations_v2.json"}:
+            path.write_text(path.read_text().replace("93523", "93244").replace("2026-10-08", "2026-10-07"))
+    for side in ("amd", "upstream"):
+        old = output / f"test_results/2026-10-08_{side}.jsonl"
+        old.rename(output / f"test_results/2026-10-07_{side}.jsonl")
+        # A retained newer legacy shard must never displace the exact current
+        # completed signal or contribute a job to this transaction.
+        old.write_text(json.dumps({"pipeline": "amd-ci", "build_number": 14276,
+            "job_id": "legacy-job", "job_name": "mi250_1: Legacy test"}) + "\n")
+    health = json.loads((output / "ci_health.json").read_text())
+    health["generated_at"] = "2026-10-09T01:00:00Z"
+    for side in ("amd", "upstream"):
+        signal = health[side]["latest_build"]
+        health[side]["latest_test_signal_build"] = signal
+        health[side]["latest_pipeline_build"] = {**signal,
+            "build_number": 93523, "build_url": "https://buildkite.com/vllm/ci/builds/93523",
+            "created_at": "2026-10-08T06:00:00Z", "date": "2026-10-08",
+            "state": "running", "active_retry": True, "has_test_results": False}
+    (output / "ci_health.json").write_text(json.dumps(health))
+    jobs = []
+    for side in ("amd", "upstream"):
+        for raw in (output / f"test_results/2026-10-07_{side}.jsonl").read_text().splitlines():
+            row = json.loads(raw)
+            jobs.append({"job_id": row["job_id"], "raw_name": row["job_name"], "name": row["job_name"],
+                "q": "gpu_1" if side == "upstream" else "amd_mi355_dpx" if "Native" in row["job_name"] else "amd_mi300_1",
+                "state": "passed", "url": f"https://buildkite.com/vllm/ci/builds/93244#{row['job_id']}",
+                "started_at": "2026-10-07T06:00:00Z", "finished_at": "2026-10-07T08:00:00Z"})
+    completed = {"number": 93244, "commit": "a" * 40, "branch": "main", "state": "passed",
+        "message": "Full CI run - nightly", "web_url": "https://buildkite.com/vllm/ci/builds/93244",
+        "created_at": "2026-10-07T06:00:00Z", "finished_at": "2026-10-07T08:00:00Z", "jobs": jobs}
+    builds = [{**completed, "number": 93523, "state": "running", "finished_at": None,
+        "created_at": "2026-10-08T06:00:00Z", "web_url": "https://buildkite.com/vllm/ci/builds/93523"}, completed]
+    for index, number in enumerate((93039, 92838, 92785, 92635)):
+        date = f"2026-10-0{6-index}"
+        builds.append({**completed, "number": number, "web_url": f"https://buildkite.com/vllm/ci/builds/{number}",
+            "created_at": date + "T06:00:00Z", "finished_at": date + "T08:00:00Z",
+            "jobs": [{**job, "url": job["url"].replace("93244", str(number)),
+                "started_at": date + "T06:00:00Z", "finished_at": date + "T08:00:00Z"} for job in jobs]})
+    latency = build_current_nightly_latency(builds, generated_at=health["generated_at"], source_available=True)
+    analytics = {"ci": {"builds": builds, "current_nightly_latency": latency}}
+    (output / "analytics.json").write_text(json.dumps(analytics))
+    return output, health, analytics
+
+
+def test_current_retry_transaction_uses_completed_ci_and_ignores_newer_legacy_shard(tmp_path):
+    output, health, analytics = _completed_current_retry_fixture(tmp_path)
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    assert audit.audit_current_completed_ci_transaction() is True
+    audit.audit_ci_health()
+    audit.audit_amd_matrix()
+    audit.audit_current_nightly_latency(analytics["ci"]["current_nightly_latency"], "fixture.json", source_builds=analytics["ci"]["builds"])
+    assert audit.report.errors == []
+    for side in ("amd", "upstream"):
+        assert audit.latest_result_file(side) == output / f"test_results/2026-10-07_{side}.jsonl"
+    assert [row["number"] for row in analytics["ci"]["current_nightly_latency"]["cohort"]["nightlies"]] == [93244, 93039, 92838, 92785, 92635]
+    assert health["amd"]["latest_pipeline_build"]["active_retry"] is True
+
+
+@pytest.mark.parametrize("tamper,expected", [
+    ("health_commit", "current-runtime-completed-signal"),
+    ("matrix_commit", "current-runtime-completed-commit"),
+    ("result_job", "current-runtime-completed-results"),
+    ("result_build", "current-runtime-completed-results"),
+    ("missing_result", "current-runtime-completed-results"),
+    ("missing_terminal", "analytics-completed-cohort"),
+    ("matching_terminal_running", "analytics-completed-cohort"),
+    ("running_job", "analytics-completed-job-roster"),
+    ("wrong_job_url", "analytics-completed-job-roster"),
+])
+def test_current_retry_transaction_rejects_unproven_completed_evidence(tmp_path, tamper, expected):
+    output, health, analytics = _completed_current_retry_fixture(tmp_path)
+    if tamper == "health_commit":
+        health["amd"]["latest_test_signal_build"]["commit"] = "b" * 12
+        (output / "ci_health.json").write_text(json.dumps(health))
+    elif tamper == "matrix_commit":
+        path = output / "amd_test_matrix.json"
+        matrix = json.loads(path.read_text())
+        matrix["source"]["runtime_source_commit_sha"] = "b" * 40
+        path.write_text(json.dumps(matrix))
+    elif tamper in {"result_job", "result_build", "missing_result"}:
+        path = output / "test_results/2026-10-07_amd.jsonl"
+        if tamper == "missing_result":
+            path.unlink()
+        else:
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            rows[0]["job_id" if tamper == "result_job" else "build_number"] = "foreign-job" if tamper == "result_job" else 93523
+            path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    else:
+        if tamper == "missing_terminal":
+            analytics["ci"]["builds"] = [analytics["ci"]["builds"][0]]
+        elif tamper == "matching_terminal_running":
+            analytics["ci"]["builds"][1]["state"] = "running"
+        elif tamper == "running_job":
+            analytics["ci"]["builds"][1]["jobs"][0]["state"] = "running"
+        else:
+            analytics["ci"]["builds"][1]["jobs"][0]["url"] = "https://buildkite.com/vllm/ci/builds/93523#foreign"
+        (output / "analytics.json").write_text(json.dumps(analytics))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    assert audit.audit_current_completed_ci_transaction() is False
+    assert expected in {finding.code for finding in audit.report.errors}
+
+
+def test_completed_retry_preserves_distinct_gpu_signals_and_separate_runtime_commits(tmp_path):
+    output, health, analytics = _completed_current_retry_fixture(tmp_path)
+    original = output / "test_results/2026-10-07_upstream.jsonl"
+    rows = [json.loads(line) for line in original.read_text().splitlines()]
+    for row in rows:
+        row.update(build_number=93039, date="2026-10-06")
+    (output / "test_results/2026-10-06_upstream.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    signal = {**health["upstream"]["latest_build"], "build_number": 93039,
+        "build_url": "https://buildkite.com/vllm/ci/builds/93039", "commit": "c" * 12,
+        "date": "2026-10-06", "created_at": "2026-10-06T06:00:00Z"}
+    health["upstream"]["latest_build"] = signal
+    health["upstream"]["latest_test_signal_build"] = signal
+    analytics["ci"]["builds"][2]["commit"] = "c" * 40
+    # An even newer completed raw roster without parsed test evidence does not
+    # select either role's current test-signal denominator.
+    analytics["ci"]["builds"][0].update(state="passed", finished_at="2026-10-08T08:00:00Z")
+    (output / "ci_health.json").write_text(json.dumps(health))
+    (output / "analytics.json").write_text(json.dumps(analytics))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    assert audit.audit_current_completed_ci_transaction() is True
+    audit.audit_ci_health()
+    audit.audit_amd_matrix()
+    audit.audit_ci_core()
+    assert audit.report.errors == []
+    assert audit.latest_result_file("upstream").name == "2026-10-06_upstream.jsonl"
+    assert audit_module._ci_analytics_test_signal_build(analytics, health, "amd")["number"] == 93244
+    assert audit_module._ci_analytics_test_signal_build(analytics, health, "upstream")["number"] == 93039

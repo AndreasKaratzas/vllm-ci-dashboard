@@ -462,6 +462,19 @@ def _parse_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _ci_analytics_test_signal_build(analytics: dict, health: dict, side: str) -> dict:
+    """Bind analytics to that GPU role's explicit current CI test signal."""
+    builds = _rows(_mapping(analytics.get("ci")).get("builds"))
+    section = _mapping(health.get(side))
+    signal = _mapping(section.get("latest_test_signal_build") or section.get("latest_build"))
+    number = signal.get("build_number") or signal.get("number")
+    if signal.get("branch") == "main" and _buildkite_url_matches(signal.get("build_url") or signal.get("web_url"), "ci", number):
+        matching = [row for row in builds if isinstance(row, dict) and row.get("number") == number]
+        return matching[0] if len(matching) == 1 else {}
+    # Explicit legacy/manual comparators retain their original head selection.
+    return _mapping(builds[0]) if builds else {}
+
+
 def _strict_positive_int_set(value: Any) -> set[int] | None:
     if not isinstance(value, list):
         return None
@@ -2108,7 +2121,22 @@ class DashboardAudit:
         return rows
 
     def latest_result_file(self, suffix: str) -> Path | None:
-        paths = sorted((self.root / "data/vllm/ci/test_results").glob(f"*_{suffix}.jsonl"))
+        directory = self.root / "data/vllm/ci/test_results"
+        health_path = self.root / "data/vllm/ci/ci_health.json"
+        if health_path.exists():
+            health = _mapping(self.load_json(self.rel(health_path), {}))
+            section = _mapping(health.get(suffix))
+            signal = _mapping(section.get("latest_test_signal_build") or section.get("latest_build"))
+            number = signal.get("build_number") or signal.get("number")
+            if signal.get("branch") == "main" and _buildkite_url_matches(signal.get("build_url") or signal.get("web_url"), "ci", number):
+                date = signal.get("date")
+                if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+                    created = _parse_timestamp(signal.get("created_at"))
+                    date = ((created + timedelta(days=1)) if created and created.hour >= 12 else created).strftime("%Y-%m-%d") if created else None
+                if date:
+                    exact = directory / f"{date}_{suffix}.jsonl"
+                    return exact if exact.is_file() else None
+        paths = sorted(directory.glob(f"*_{suffix}.jsonl"))
         return paths[-1] if paths else None
 
     def build_numbers_in_jsonl(self, path: Path | None) -> set[int]:
@@ -4994,7 +5022,7 @@ class DashboardAudit:
         for suffix in ("amd", "upstream"):
             latest = _mapping(_mapping(health.get(suffix)).get("latest_build"))
             health_commit = str(latest.get("commit") or "").casefold()
-            if FULL_COMMIT_SHA_RE.fullmatch(runtime_commit) and health_commit not in (runtime_commit, runtime_commit[:12]):
+            if suffix == "amd" and FULL_COMMIT_SHA_RE.fullmatch(runtime_commit) and health_commit not in (runtime_commit, runtime_commit[:12]):
                 self.error(
                     "ci-core-runtime-commit",
                     f"{suffix} latest health commit does not match the pinned matrix runtime commit",
@@ -5029,6 +5057,93 @@ class DashboardAudit:
         parity = payloads[parity_path]
         if isinstance(parity, dict):
             self.audit_current_source_parity(parity, parity_path)
+
+    def audit_current_completed_ci_transaction(self) -> bool:
+        """Prove an active retry's replacement completed CI transaction.
+
+        The current pipeline head remains visible, but it cannot supply final
+        test evidence. Each GPU role's completed signal must agree with its
+        exact terminal analytics roster, job identities and immutable commit.
+        """
+        from vllm.pipelines import UPSTREAM_NIGHTLY_NAME_PATTERN, pipeline_job_matches_scope
+
+        initial_errors = len(self.report.errors)
+        health_path = "data/vllm/ci/ci_health.json"
+        analytics_path = "data/vllm/ci/analytics.json"
+        health = _mapping(self.load_json(health_path, {}))
+        analytics = _mapping(self.load_json(analytics_path, {}))
+        builds = _rows(_mapping(analytics.get("ci")).get("builds"))
+        clock = _parse_timestamp(health.get("generated_at"))
+        source = _mapping(_mapping(self.load_json("data/vllm/ci/amd_test_matrix.json", {})).get("source"))
+        terminal_states = {
+            "passed", "failed", "soft_fail", "soft_failed", "timed_out", "broken",
+            "canceled", "cancelled", "blocked", "waiting_failed", "expired", "not_run", "skipped",
+        }
+        for side in ("amd", "upstream"):
+            selected = _ci_analytics_test_signal_build(analytics, health, side)
+            number = selected.get("number")
+            commit = str(selected.get("commit") or "").casefold()
+            created = _parse_timestamp(selected.get("created_at"))
+            finished = _parse_timestamp(selected.get("finished_at"))
+            if (
+                type(number) is not int or number <= 0
+                or selected.get("state") not in {"passed", "failed"}
+                or selected.get("branch") != "main"
+                or not re.search(UPSTREAM_NIGHTLY_NAME_PATTERN, str(selected.get("message") or ""), re.I)
+                or not _buildkite_url_matches(selected.get("web_url"), "ci", number)
+                or not FULL_COMMIT_SHA_RE.fullmatch(commit)
+                or created is None or finished is None or clock is None
+                or not created <= finished <= clock
+                or sum(_mapping(row).get("number") == number for row in builds) != 1
+            ):
+                self.error("analytics-completed-cohort", f"{side} current retry evidence requires its exact completed main-ci nightly analytics roster", analytics_path)
+                continue
+            if side == "amd" and (
+                source.get("pipeline") != "ci"
+                or source.get("latest_build_number") != number
+                or source.get("commit_sha") != commit
+                or source.get("runtime_source_commit_sha") != commit
+            ):
+                self.error("current-runtime-completed-commit", "Matrix runtime must identify the AMD completed CI nightly and full analytics commit", "data/vllm/ci/amd_test_matrix.json")
+            jobs = [_mapping(row) for row in _rows(selected.get("jobs")) if not _mapping(row).get("retried_in_job_id")]
+            section = _mapping(health.get(side))
+            for key in ("latest_build", "latest_test_signal_build"):
+                signal = _mapping(section.get(key))
+                if (
+                    (signal.get("build_number") or signal.get("number")) != number
+                    or signal.get("state") not in {"passed", "failed"}
+                    or signal.get("branch") != "main"
+                    or signal.get("active_retry") is not False
+                    or signal.get("has_test_results") is not True
+                    or str(signal.get("commit") or "").casefold() not in {commit, commit[:12]}
+                    or not _buildkite_url_matches(signal.get("build_url") or signal.get("web_url"), "ci", number)
+                ):
+                    self.error("current-runtime-completed-signal", f"{side}.{key} must identify the same completed CI test signal and runtime commit", health_path)
+            scoped_jobs = [job for job in jobs if pipeline_job_matches_scope(job, side)]
+            identities = [job.get("job_id") or job.get("id") for job in scoped_jobs]
+            if (
+                not scoped_jobs or any(job.get("state") not in terminal_states for job in scoped_jobs)
+                or any(not isinstance(identity, str) or not identity for identity in identities)
+                or len(set(identities)) != len(identities)
+                or any(job.get("url") not in {
+                    f"https://buildkite.com/vllm/ci/builds/{number}#{identity}",
+                    f"https://buildkite.com/vllm/ci/builds/{number}/steps/canvas?jid={identity}&tab=output",
+                } for job, identity in zip(scoped_jobs, identities))
+            ):
+                self.error("analytics-completed-job-roster", f"{side} completed CI analytics needs an exhaustive terminal GPU job roster with unique identities", analytics_path)
+            result_path = self.latest_result_file(side)
+            results = self.load_jsonl(self.rel(result_path)) if result_path is not None else []
+            allowed_ids = {identity for identity in identities if isinstance(identity, str)}
+            if not results or any(
+                type(row.get("build_number")) is not int or row.get("build_number") != number or row.get("pipeline") != "ci"
+                or not all(isinstance(row.get(key), str) and row[key].strip() for key in ("test_id", "job_id", "job_name"))
+                or row.get("status") not in {"passed", "failed", "skipped", "error", "xfailed", "xpassed", "canceled"}
+                or row.get("job_id") not in allowed_ids
+                or not pipeline_job_matches_scope({"job_name": row.get("job_name")}, side)
+                for row in results
+            ):
+                self.error("current-runtime-completed-results", f"{side} latest JSONL must contain exact job evidence from the completed CI analytics roster", self.rel(result_path) if result_path is not None else "data/vllm/ci/test_results")
+        return len(self.report.errors) == initial_errors
 
     def audit_root_test_results(self) -> None:
         path = "data/vllm/test_results.json"
@@ -5195,6 +5310,11 @@ class DashboardAudit:
         analytics = self.load_json("data/vllm/ci/analytics.json", {})
         if not isinstance(analytics, dict):
             return
+        health_path = self.root / "data/vllm/ci/ci_health.json"
+        if health_path.exists():
+            health = _mapping(self.load_json(self.rel(health_path), {}))
+            if any(_mapping(_mapping(health.get(side)).get("latest_pipeline_build")).get("active_retry") is True for side in ("amd", "upstream")):
+                self.audit_current_completed_ci_transaction()
         metrics: dict[str, Any] = {}
 
         for slug in ("ci",):
@@ -5222,11 +5342,11 @@ class DashboardAudit:
             suffix = "upstream"
             latest_results = self.latest_result_file(suffix)
             result_numbers = self.build_numbers_in_jsonl(latest_results)
-            latest = _mapping(builds[0])
+            latest = _ci_analytics_test_signal_build(analytics, health if health_path.exists() else {}, "upstream")
             if result_numbers and latest.get("number") not in result_numbers:
                 self.report_cross_surface_build_mismatch(
                     "analytics-jsonl-build-mismatch",
-                    f"{slug} latest analytics build #{latest.get('number')} does not match {latest_results.name} build numbers {sorted(result_numbers)}",
+                    f"{slug} latest completed analytics build #{latest.get('number')} does not match {latest_results.name} build numbers {sorted(result_numbers)}",
                     "data/vllm/ci/analytics.json",
                     left_surface="ci_analytics",
                     left_build=latest.get("number"),
@@ -7020,9 +7140,9 @@ class DashboardAudit:
             if validate_analytics else {}
         )
         health = self.load_json("data/vllm/ci/ci_health.json", {})
-        analytics_build = (((analytics.get("ci") or {}).get("builds") or [{}])[0]).get("number")
+        analytics_build = _ci_analytics_test_signal_build(analytics, health, "amd").get("number")
         health_build = ((health.get("amd") or {}).get("latest_build") or {}).get("build_number")
-        if analytics_build and source_build != analytics_build:
+        if _rows(_mapping(analytics.get("ci")).get("builds")) and source_build != analytics_build:
             self.report_cross_surface_build_mismatch(
                 "matrix-analytics-build",
                 f"matrix source build #{source_build} does not match analytics AMD latest #{analytics_build}",

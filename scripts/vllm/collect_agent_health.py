@@ -126,6 +126,13 @@ AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
 # https://buildkite.com/docs/apis/rest-api/builds
 ACTIVE_BUILD_STATES = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
 TERMINAL_TIME_POLICY = "finished_at_or_terminal_build_bound_for_canceled"
+# Control jobs do not execute commands on physical agents, even if their
+# embedded roster inherits agent routing rules. A completed waiter may pass
+# without ever running: https://buildkite.com/docs/apis/rest-api/builds
+NON_EXECUTION_JOB_TYPES = ("waiter", "manual", "trigger")
+# These exact reasons prove the script never ran, rather than merely stopping
+# an existing run: https://buildkite.com/docs/pipelines/configure/retry
+PRE_EXECUTION_FAILURE_REASONS = ("signature_rejected", "agent_incompatible", "stack_error")
 
 _QUEUE_RULE_RE = re.compile(r"^queue=(.+)$", re.IGNORECASE)
 
@@ -169,8 +176,19 @@ def _day_of(value) -> str | None:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _is_non_execution_job(job: dict) -> bool:
+    return job.get("type") in NON_EXECUTION_JOB_TYPES or (
+        job.get("type") == "script"
+        and job.get("state") == "failed"
+        and job.get("started_at") in (None, "")
+        and job.get("signal_reason") in PRE_EXECUTION_FAILURE_REASONS
+    )
+
+
 def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -> dict | None:
     """One raw observation for an AMD GPU job, or ``None`` if out of scope."""
+    if _is_non_execution_job(job):
+        return None
     queue = _queue_of(job)
     hardware = amd_gpu_hardware(queue)
     if not hardware:  # not an AMD GPU queue (or excluded family)
@@ -243,6 +261,40 @@ def _aware_timestamp(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
 
 
+def _terminal_timestamp_error(reason: str, build: dict, job: dict, hardware: str) -> RuntimeError:
+    """Describe a failed source proof without job, agent, or raw-value identities."""
+    kind = job.get("type")
+    state = job.get("state")
+    number = build.get("number")
+    signal_reason = job.get("signal_reason")
+    exit_status = job.get("exit_status")
+    diagnostic = {
+        "job_type": kind if kind in ("script", *NON_EXECUTION_JOB_TYPES) else (
+            "missing" if kind is None else "unknown"
+        ),
+        "state": state if state in (
+            "passed", "failed", "timed_out", "broken", "expired", "canceled",
+            "soft_failed", "soft_fail",
+        ) else "unknown",
+        "build_number": number if type(number) is int and 0 < number <= 2 ** 53 - 1 else None,
+        "signal_reason": signal_reason if signal_reason in (
+            "agent_stop", "cancel", "process_run_error", "agent_refused",
+            "signature_rejected", "stack_error", "agent_incompatible",
+        ) else (None if signal_reason is None else "unknown"),
+        # Buildkite documents normal exit codes 0..255 and -1 for agent loss.
+        "exit_status": exit_status if type(exit_status) is int and -1 <= exit_status <= 255 else None,
+        "hardware": hardware,
+        "started_at_present": bool(job.get("started_at")),
+        "finished_at_present": bool(job.get("finished_at")),
+        "parent_finished_at_present": bool(build.get("finished_at")),
+        "agent_present": bool(job.get("agent")),
+    }
+    return RuntimeError(
+        f"agent-health terminal job {reason}; "
+        + json.dumps(diagnostic, sort_keys=True, separators=(",", ":"))
+    )
+
+
 def _observe_in_window(
     slug: str,
     build: dict,
@@ -252,12 +304,15 @@ def _observe_in_window(
     query_time: datetime,
 ) -> dict | None:
     """Require executed terminal runs whose timestamps prove the as-of window."""
+    if _is_non_execution_job(job):
+        return None
     if job.get("state") not in (
         "passed", "failed", "timed_out", "broken", "expired", "canceled",
         "soft_failed", "soft_fail",
     ):
         return None
-    if not amd_gpu_hardware(_queue_of(job)):
+    hardware = amd_gpu_hardware(_queue_of(job))
+    if not hardware:
         return None
     started = _aware_timestamp(job.get("started_at"))
     if started is None:
@@ -265,7 +320,7 @@ def _observe_in_window(
             job.get("started_at")
             or job.get("state") in ("passed", "failed", "timed_out", "soft_failed", "soft_fail")
         ):
-            raise RuntimeError("agent-health terminal job has invalid started_at")
+            raise _terminal_timestamp_error("has invalid started_at", build, job, hardware)
         return None  # canceled/broken/expired jobs that never started are not runs
     row = _observe(slug, build, job, nightly_re)
     if row is None:
@@ -276,7 +331,7 @@ def _observe_in_window(
     parent_finish_bound = False
     if finished is None:
         if job.get("finished_at"):
-            raise RuntimeError("agent-health terminal job has invalid finished_at")
+            raise _terminal_timestamp_error("has invalid finished_at", build, job, hardware)
         if (
             row["state"] == "canceled"
             and build.get("state") in ("passed", "failed", "canceled")
@@ -285,12 +340,12 @@ def _observe_in_window(
             finished = _aware_timestamp(build.get("finished_at"))
             parent_finish_bound = True
         if finished is None:
-            raise RuntimeError("agent-health terminal job has no provable finish time")
+            raise _terminal_timestamp_error("has no provable finish time", build, job, hardware)
     if finished < started:
-        raise RuntimeError("agent-health terminal job finished before it started")
+        raise _terminal_timestamp_error("finished before it started", build, job, hardware)
     if finished > query_time:
         if parent_finish_bound:
-            raise RuntimeError("agent-health terminal job has no as-of finish bound")
+            raise _terminal_timestamp_error("has no as-of finish bound", build, job, hardware)
         return None
     return row
 

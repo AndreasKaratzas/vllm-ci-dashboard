@@ -4267,3 +4267,159 @@ def test_retirement_does_not_escalate_a_surviving_first_transient_failure(tmp_pa
     assert state["incident_policy"]["alert"] is False
     assert state["collector_incident_policy"]["max_observed_streak"] == 1
     assert state["candidate_errors"] == [{"code": "publication-collector-failed", "surfaces": ["ci_analytics"]}]
+
+
+def _write_current_retry_cohort(repo, number, *, active_retry):
+    from collect_ci import _current_scope_results, _scope_nightly_build
+    from vllm.ci.analyzer import compute_build_summary, compute_parity
+    from vllm.ci.models import TestResult
+    from vllm.ci.nightly_latency import build_current_nightly_latency
+    from vllm.collect_amd_test_matrix import RAW_YAML_URL_TEMPLATE, build_buildkite_job_index, build_matrix, parse_main_ci_steps
+    from vllm.main_ci_definitions import MainCISnapshot
+
+    output = repo / "data/vllm/ci"
+    (output / "test_results").mkdir(parents=True, exist_ok=True)
+    date = "2026-10-07" if number == 93244 else "2026-10-08"
+    url = f"https://buildkite.com/vllm/ci/builds/{number}"
+    snapshot = MainCISnapshot("a" * 40, {
+        ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+        ".buildkite/test_areas/shared.yaml": {"steps": [{"key": "shared",
+            "label": ":nvidia: (H100) Shared workload", "device": "h100",
+            "commands": ["pytest tests/shared.py"],
+            "mirror": {"amd": {"label": ":amd: (MI300) Shared workload", "device": "mi300_1"}}}]},
+    }, "2026-10-09T01:00:00Z")
+    jobs = [{"type": "script", "id": f"00000000-0000-4000-8000-00000000000{index}",
+        "name": label, "state": "passed", "agent_queue": queue}
+        for index, label, queue in ((1, ":amd: (MI300) Shared workload", "amd_mi300_1"),
+                                   (2, ":nvidia: (H100) Shared workload", "gpu_1"))]
+    build = {"number": number, "commit": "a" * 40, "branch": "main", "state": "passed",
+        "message": "Full CI run - nightly", "web_url": url,
+        "created_at": date + "T06:00:00Z", "finished_at": date + "T08:00:00Z", "jobs": jobs}
+    results = [TestResult(test_id="__job_level__", name="__job_level__", classname="", status="passed",
+        duration_secs=0.0, failure_message="", job_name=job["name"], job_id=job["id"], step_id="",
+        build_number=number, pipeline="ci", date=date) for job in jobs]
+    scoped_results = {}
+    health = {"generated_at": "2026-10-09T01:00:00Z"}
+    for side in ("amd", "upstream"):
+        scoped = _scope_nightly_build(json.loads(json.dumps(build)), side)
+        scoped_results[side] = _current_scope_results(results, side, scoped)
+        summary = compute_build_summary(scoped, scoped_results[side], side).to_dict()
+        health[side] = {"latest_build": summary, "latest_test_signal_build": summary,
+            "latest_pipeline_build": {**summary, "build_number": 93523,
+                "build_url": "https://buildkite.com/vllm/ci/builds/93523", "date": "2026-10-08",
+                "created_at": "2026-10-08T06:00:00Z", "active_retry": active_retry,
+                "state": "running" if active_retry else "passed", "has_test_results": not active_retry}}
+        (output / f"test_results/{date}_{side}.jsonl").write_text(
+            "".join(json.dumps(row.to_dict()) + "\n" for row in scoped_results[side]))
+    steps, arches = parse_main_ci_steps(snapshot)
+    matrix = build_matrix(steps, arches, build_buildkite_job_index(build, []), build, {}, {}, [], RAW_YAML_URL_TEMPLATE.format(commit=snapshot.commit_sha))
+    matrix["source"].update(pipeline="ci", definition_source="main_ci_inline_and_native_amd",
+        commit_sha=snapshot.commit_sha, runtime_source_commit_sha=snapshot.commit_sha)
+    normalized = {**build, "jobs": [{"job_id": job["id"], "name": job["name"], "raw_name": job["name"],
+        "q": job["agent_queue"], "state": "passed", "url": url + "#" + job["id"],
+        "started_at": build["created_at"], "finished_at": build["finished_at"]} for job in jobs]}
+    builds = [normalized]
+    if active_retry:
+        builds.insert(0, {**normalized, "number": 93523, "state": "running", "finished_at": None,
+            "created_at": "2026-10-08T06:00:00Z", "web_url": "https://buildkite.com/vllm/ci/builds/93523"})
+    analytics = {"ci": {"builds": builds,
+        "current_nightly_latency": build_current_nightly_latency(builds, generated_at=health["generated_at"], source_available=True)}}
+    for filename, payload in (("ci_health.json", health), ("analytics.json", analytics), ("amd_test_matrix.json", matrix),
+                              ("parity_report.json", compute_parity(scoped_results["amd"], scoped_results["upstream"]))):
+        (output / filename).write_text(json.dumps(payload))
+    return output
+
+
+@pytest.mark.parametrize("baseline_kind,tamper", [
+    ("legacy", None), ("current", None),
+    ("legacy", "health_commit"), ("current", "health_commit"),
+    ("legacy", "result_job"), ("current", "result_job"),
+    ("legacy", "missing_terminal"), ("current", "missing_terminal"),
+    ("current", "derived_failure"),
+])
+def test_retry_publishes_only_strict_current_completed_cohort_or_recovers_atomically(tmp_path, monkeypatch, baseline_kind, tamper):
+    repo = tmp_path / "repo"
+    output = _write_current_retry_cohort(repo, 93523, active_retry=False)
+    if baseline_kind == "legacy":
+        health = json.loads((output / "ci_health.json").read_text())
+        health["amd"]["latest_build"].update(build_number=14276, build_url="https://buildkite.com/vllm/amd-ci/builds/14276")
+        (output / "ci_health.json").write_text(json.dumps(health))
+        (output / "amd_test_matrix.json").write_text(json.dumps({"source": {"latest_build_number": 14276}}))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "config", "commit.gpgsign", "false")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "immutable previous completed publication")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    _write_current_retry_cohort(repo, 93244, active_retry=True)
+    if tamper == "health_commit":
+        path = output / "ci_health.json"
+        payload = json.loads(path.read_text())
+        payload["amd"]["latest_build"]["commit"] = "b" * 12
+        path.write_text(json.dumps(payload))
+    elif tamper == "result_job":
+        path = output / "test_results/2026-10-07_amd.jsonl"
+        row = json.loads(path.read_text())
+        row["job_id"] = "foreign-job"
+        path.write_text(json.dumps(row) + "\n")
+    elif tamper == "missing_terminal":
+        path = output / "analytics.json"
+        payload = json.loads(path.read_text())
+        payload["ci"]["builds"] = payload["ci"]["builds"][:1]
+        path.write_text(json.dumps(payload))
+    specs = {
+        "ci_core": SurfaceSpec(required_paths=(selector_module.CI_HEALTH_PATH,
+            "data/vllm/ci/amd_test_matrix.json", "data/vllm/ci/parity_report.json"),
+            globs=("data/vllm/ci/test_results/*_amd.jsonl", "data/vllm/ci/test_results/*_upstream.jsonl")),
+        "ci_analytics": SurfaceSpec(required_paths=("data/vllm/ci/analytics.json",)),
+    }
+    generations = []
+
+    class StrictCurrentCohortAudit(DashboardAudit):
+        def audit_root_test_results(self):
+            pass
+
+        def audit_shard_bases(self):
+            pass
+
+        def audit_analytics(self):
+            self.audit_current_completed_ci_transaction()
+            analytics = self.load_json("data/vllm/ci/analytics.json")
+            self.audit_current_nightly_latency(analytics["ci"]["current_nightly_latency"], "data/vllm/ci/analytics.json", source_builds=analytics["ci"]["builds"])
+
+        def run(self):
+            self.audit_ci_health()
+            self.audit_analytics()
+            self.audit_amd_matrix()
+            signal = self.load_json(selector_module.CI_HEALTH_PATH)["amd"]["latest_build"]["build_number"]
+            generations.append(signal)
+            if tamper == "derived_failure" and signal == 93244:
+                self.error("matrix-summary", "Derived current grid failed validation", "data/vllm/ci/amd_test_matrix.json")
+            return self.report
+
+    monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(audit_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(surfaces_module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", StrictCurrentCohortAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    state_path = output / "publication_state.json"
+    if tamper is not None and baseline_kind == "legacy":
+        with pytest.raises(RuntimeError):
+            selector_module.select_publication(repo, baseline, state_path)
+        assert json.loads(state_path.read_text())["mode"] == "blocked"
+    else:
+        state = selector_module.select_publication(repo, baseline, state_path)
+        assert state["upstream_retry_observations"]
+        if tamper is None:
+            assert state["mode"] == "current"
+            assert state["fallback_surfaces"] == []
+            assert state["restored_paths"] == {}
+            assert state["candidate_errors"] == []
+            assert generations == [93244]
+            assert json.loads((output / "ci_health.json").read_text())["upstream"]["latest_pipeline_build"]["active_retry"] is True
+        else:
+            assert state["fallback_surfaces"] == ["ci_analytics", "ci_core"]
+            assert state["mode"] == "fallback"
+            assert generations[-1] == 93523
+            assert state["final_errors"] == []
