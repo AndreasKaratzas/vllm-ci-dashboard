@@ -732,6 +732,8 @@ steps:
         "https://buildkite.com/vllm/ci/builds/10972/steps/canvas"
         "?jid=current-job&tab=output"
     )
+
+
 def test_build_matrix_collapses_titles_and_matches_latest_nightly():
     steps, architectures = parse_steps(SAMPLE_YAML)
     analytics = {
