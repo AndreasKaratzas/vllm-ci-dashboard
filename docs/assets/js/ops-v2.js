@@ -5732,6 +5732,26 @@
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   }
 
+  function exactLatencyJobUrl(job, buildNumber) {
+    if (!job || typeof job.job_id !== 'string' || !job.job_id.trim()
+      || typeof job.url !== 'string' || job.url !== job.url.trim()
+      || !Number.isSafeInteger(buildNumber) || buildNumber <= 0) return '';
+    try {
+      const parsed = new URL(job.url);
+      if (parsed.protocol !== 'https:' || parsed.host !== 'buildkite.com'
+        || parsed.username || parsed.password) return '';
+      const buildPath = '/vllm/ci/builds/' + buildNumber;
+      if (parsed.pathname === buildPath && !parsed.search
+        && parsed.hash === '#' + job.job_id) return job.url;
+      const keys = Array.from(parsed.searchParams.keys());
+      if (parsed.pathname === buildPath + '/steps/canvas' && !parsed.hash
+        && keys.length === 2 && keys.includes('jid') && keys.includes('tab')
+        && parsed.searchParams.get('jid') === job.job_id
+        && parsed.searchParams.get('tab') === 'output') return job.url;
+    } catch (_) {}
+    return '';
+  }
+
   function latencyComparison(ops) {
     const payload = (ops || {}).latency || {};
     const cohort = payload.cohort || {};
@@ -5843,7 +5863,7 @@
           const jobs = Array.isArray(item.sample.jobs) ? item.sample.jobs : [];
           const links = n('div', 'ops-inline-links');
           jobs.forEach(function (job) {
-            const url = exactPipelineEvidenceUrl({url: job.url, build_number: item.build.number}, 'ci');
+            const url = exactLatencyJobUrl(job, item.build.number);
             const label = value(job.queue || job.hardware || job.step_id, 'Gating job') + ' · ' + duration(job.duration_mins);
             if (url) links.append(externalLink(label, url));
           });
@@ -8294,6 +8314,7 @@
       nightlyForCohort: nightlyForCohort,
       latencyComparison: latencyComparison,
       latencyMetric: latencyMetric,
+      exactLatencyJobUrl: exactLatencyJobUrl,
       matrixHealthPolicy: matrixHealthPolicy,
       populationSemantics: populationSemantics,
       observedCountLabel: observedCountLabel,

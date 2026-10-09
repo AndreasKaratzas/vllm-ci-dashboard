@@ -2238,7 +2238,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=33' in INDEX
+    assert 'assets/js/ops-v2.js?v=34' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
@@ -2295,11 +2295,51 @@ def test_nightly_main_ci_hardware_selector_defaults_amd_and_is_route_backed():
 
 
 def test_recent_latency_uses_exact_main_ci_evidence():
-    assert "exactPipelineEvidenceUrl({url: job.url, build_number: item.build.number}, 'ci')" in OPS_JS
+    assert "exactLatencyJobUrl(job, item.build.number)" in OPS_JS
     assert "pipelineUrlMatches(url, 'ci', false, item.build.number)" in OPS_JS
     assert "source_pipeline !== 'ci'" in OPS_JS
     assert "build_limit !== 5" in OPS_JS
     assert "median_of_per_nightly_group_wall_minutes" in OPS_JS
+
+
+def test_latency_links_require_exact_current_ci_build_and_job_identity():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available")
+    script = r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const sandbox = {window: {__OPS_V2_TEST__: true}, document: {addEventListener() {}}, console, URL};
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), sandbox);
+const link = sandbox.window.OpsV2Test.exactLatencyJobUrl;
+const id = '019fffb7-f7b6-4eca-b534-a381854a3268';
+const base = 'https://buildkite.com/vllm/ci/builds/30005';
+for (const url of [base + '#' + id, base + '/steps/canvas?jid=' + id + '&tab=output']) {
+  assert.equal(link({job_id: id, url}, 30005), url);
+  assert.equal(link({job_id: 'different-job', url}, 30005), '');
+  assert.equal(link({job_id: id, url}, 30004), '');
+}
+for (const url of [
+  base.replace('/ci/', '/amd-ci/') + '#' + id,
+  base.replace('https:', 'http:') + '#' + id,
+  base.replace('buildkite.com', 'buildkite.com.example.org') + '#' + id,
+  base.replace('https://', 'https://user@') + '#' + id,
+  base + '#' + id + '-extra', base + '?unexpected=1#' + id,
+  base + '/steps/canvas?sid=' + id + '&tab=output',
+  base + '/steps/canvas?jid=' + id + '&tab=output&jid=different-job',
+  base + '/steps/canvas?jid=' + id + '&tab=output&unexpected=1',
+  base + '/steps/canvas?jid=' + id + '&tab=output#' + id,
+]) assert.equal(link({job_id: id, url}, 30005), '');
+assert.equal(link({job_id: '', url: base + '#'}, 30005), '');
+assert.equal(link({job_id: id, url: base + '#' + id}, '30005'), '');
+"""
+    result = subprocess.run(
+        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_nightly_failure_drilldowns_only_show_the_selected_current_outcomes():
