@@ -4458,6 +4458,15 @@ class DashboardAudit:
             )
         shell = _mapping(manifest.get("shell"))
         monolith = self.load_json("data/vllm/ci/operations_v2.json", {})
+        if (
+            shell.get("hardware_scope") != "amd_mi_gpu"
+            or shell.get("hardware_scope") != _mapping(monolith).get("hardware_scope")
+        ):
+            self.error(
+                "current-runtime-hardware-scope",
+                "Operations shell must preserve the AMD MI GPU runtime authority of its snapshot",
+                relpath,
+            )
         if shell.get("generated_at") != _mapping(monolith).get("generated_at"):
             self.error(
                 "operations-bundle-freshness",
@@ -5369,7 +5378,7 @@ class DashboardAudit:
             code_prefix="analytics-build-pass-rate",
             percentage_field="build_pass_rate_pct",
             basis_field="build_pass_rate_basis",
-            expected_basis="terminal_build_state_all_green",
+            expected_basis="terminal_mi_job_attempts_all_green",
             expected_percentage=expected_percentage,
             decimal_places=1,
             legacy_is_ratio=False,

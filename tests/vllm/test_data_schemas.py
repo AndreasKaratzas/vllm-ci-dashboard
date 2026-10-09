@@ -226,7 +226,7 @@ class TestAnalytics:
                     summary["build_pass_rate_pct"],
                     f"{path}.build_pass_rate_pct",
                 )
-                assert summary["build_pass_rate_basis"] == "terminal_build_state_all_green"
+                assert summary["build_pass_rate_basis"] == "terminal_mi_job_attempts_all_green"
                 terminal = summary["terminal_builds"]
                 expected = round(summary["passed"] / terminal * 100, 1) if terminal else 0.0
                 assert pct == expected
