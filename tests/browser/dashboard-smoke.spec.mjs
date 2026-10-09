@@ -1087,10 +1087,21 @@ for (const migration of [
 }
 
 for (const evidenceFormat of ['dictionary', 'compact']) {
-test(`latency comparison uses five current main CI nightlies and exact ${evidenceFormat} gating links`,async ({page})=>{
+for (const linkFormat of ['canvas', 'fragment']) {
+test(`latency comparison uses five current main CI nightlies and exact ${evidenceFormat} ${linkFormat} gating links`,async ({page})=>{
   const nightlies=[30005,30004,30003,30002,30001].map((number,index)=>({number,created_at:`2026-10-0${8-index}T00:00:00Z`,finished_at:`2026-10-0${8-index}T01:00:00Z`,web_url:`https://buildkite.com/vllm/ci/builds/${number}`}));
   const jobId='019fffb7-f7b6-4eca-b534-a381854a3268';
-  const sample={build_number:30005,build_url:nightlies[0].web_url,created_at:nightlies[0].created_at,finished_at:nightlies[0].finished_at,duration_mins:20,jobs:[{job_id:jobId,step_id:'current-test',url:`${nightlies[0].web_url}/steps/${jobId}`,queue:'amd_mi300_1',hardware:'mi300',raw_name:'Current gating test',started_at:nightlies[0].created_at,finished_at:nightlies[0].finished_at,duration_mins:20}]};
+  const jobUrl=linkFormat==='fragment'?`${nightlies[0].web_url}#${jobId}`:`${nightlies[0].web_url}/steps/canvas?jid=${jobId}&tab=output`;
+  const job={job_id:jobId,step_id:'current-test',url:jobUrl,queue:'amd_mi300_1',hardware:'mi300',raw_name:'Current gating test',started_at:nightlies[0].created_at,finished_at:'2026-10-08T00:20:00Z',duration_mins:20};
+  const invalidJobs=[
+    ['pipeline',jobUrl.replace('/ci/','/amd-ci/')],
+    ['build',jobUrl.replace('/30005','/30004')],
+    ['identity',jobUrl.replace(jobId,'different-job')],
+    ['scheme',jobUrl.replace('https:','http:')],
+    ['host',jobUrl.replace('buildkite.com','buildkite.com.example.org')],
+    ['step-only',`${nightlies[0].web_url}/steps/canvas?sid=${jobId}&tab=output`],
+  ].map(([kind,url])=>({...job,url,queue:`invalid-${kind}`}));
+  const sample={build_number:30005,build_url:nightlies[0].web_url,created_at:nightlies[0].created_at,finished_at:nightlies[0].finished_at,duration_mins:20,jobs:[job,...invalidJobs]};
   const side={median_duration_mins:20,sample_count:1,samples:[sample]};
   const latency={schema_version:1,source_pipeline:'ci',branch:'main',build_limit:5,statistic:'median_of_per_nightly_group_wall_minutes',available:true,cohort:{nightlies},rows:[{id:'current-test',label:'Current gating test',match_status:'matched',amd:side,upstream:{...side,median_duration_mins:10,samples:[{...sample,duration_mins:10,jobs:[{...sample.jobs[0],queue:'gpu_h100',hardware:'h100',duration_mins:10}]}]}},{id:'missing-current-test',label:'Missing recent test',match_status:'unmatched',match_reason:'No exact CUDA counterpart',amd:null,upstream:null}]};
   if(evidenceFormat==='compact') {
@@ -1110,9 +1121,11 @@ test(`latency comparison uses five current main CI nightlies and exact ${evidenc
   await expect(evidence).toContainText('longest wall completion time');
   await expect(evidence.locator('tbody tr')).toHaveCount(10);
   await expect(evidence.getByText('Not observed',{exact:true})).toHaveCount(8);
-  await expect(evidence.getByRole('link',{name:/^amd_mi300_1 · 20m/})).toHaveAttribute('href',`${nightlies[0].web_url}/steps/${jobId}`);
+  await expect(evidence.getByRole('link',{name:/^amd_mi300_1 · 20m/})).toHaveAttribute('href',jobUrl);
+  await expect(evidence.getByRole('link',{name:/^invalid-/})).toHaveCount(0);
   expect(await evidence.locator('a[href*="buildkite.com"]').evaluateAll(links=>links.every(link=>link.href.includes('/vllm/ci/builds/')))).toBe(true);
 });
+}
 }
 
 test('current AMD mirror inventory separates required optional and soft-fail source modes',async ({page})=>{

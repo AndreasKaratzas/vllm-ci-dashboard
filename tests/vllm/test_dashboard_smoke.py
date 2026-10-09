@@ -103,7 +103,7 @@ class TestIndexHtml:
     def test_current_operations_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "index.html").read_text()
         assert 'assets/css/ops-v2.css?v=17' in html
-        assert 'assets/js/ops-v2.js?v=33' in html
+        assert 'assets/js/ops-v2.js?v=34' in html
         assert 'assets/js/utils.js?v=63' in html
         assert 'assets/js/dashboard-nav.js?v=5' in html
         source = (JS / "ops-v2.js").read_text()
