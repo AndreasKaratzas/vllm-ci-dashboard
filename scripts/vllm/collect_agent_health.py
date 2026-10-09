@@ -53,6 +53,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
@@ -68,8 +69,16 @@ install_from_environment_or_exit()
 
 from vllm.ci import config as cfg
 from vllm.ci.buildkite_client import _paginate
+from vllm.ci.analytics_cache import (
+    CACHE_DIR_NAME as ANALYTICS_CACHE_DIR_NAME,
+    RUNTIME_SOURCE_CACHE_DIR_NAME,
+    load_source_scope_indexes,
+    retain_runtime_source_indexes,
+    write_runtime_source_indexes,
+)
 from vllm.ci.log_parser import node_from_agent
 from vllm.constants import amd_gpu_hardware
+from vllm.pipelines import _job_queue, is_cpu_only_job
 from vllm.dashboard_storage_budget import writer_max_bytes
 from vllm.pipelines import (
     BK_ORG as VLLM_ORG,
@@ -149,15 +158,8 @@ cfg.configure(VLLM_ORG, VLLM_PIPELINES)
 
 
 def _queue_of(job: dict) -> str:
-    """Extract the ``queue=<name>`` value from a job's agent_query_rules."""
-    for rule in job.get("agent_query_rules") or []:
-        match = _QUEUE_RULE_RE.match(str(rule).strip())
-        if match:
-            return match.group(1).strip()
-    for tag in (job.get("agent") or {}).get("meta_data") or []:
-        if isinstance(tag, str) and tag.startswith("queue="):
-            return tag[len("queue="):].strip()
-    return ""
+    """Prefer the actual agent's physical route over requested routing."""
+    return _job_queue(job)
 
 
 def _run_state(job: dict) -> str:
@@ -196,7 +198,7 @@ def _is_non_execution_job(job: dict) -> bool:
 
 def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -> dict | None:
     """One raw observation for an AMD GPU job, or ``None`` if out of scope."""
-    if _is_non_execution_job(job):
+    if _is_non_execution_job(job) or is_cpu_only_job(job):
         return None
     queue = _queue_of(job)
     hardware = amd_gpu_hardware(queue)
@@ -313,7 +315,7 @@ def _observe_in_window(
     query_time: datetime,
 ) -> dict | None:
     """Require executed terminal runs whose timestamps prove the as-of window."""
-    if _is_non_execution_job(job):
+    if _is_non_execution_job(job) or is_cpu_only_job(job):
         return None
     if job.get("state") not in (
         "passed", "failed", "timed_out", "broken", "expired", "canceled",
@@ -387,18 +389,16 @@ def _paginate_observation_builds(
     previous_created: datetime | None = None
     count = 0
 
-    def validate_project(raw: object) -> dict:
-        nonlocal previous_created
+    def validate_build(raw: object, prior_created: datetime | None) -> tuple[dict, datetime]:
         build = _validate_discovered_build(raw)
         created = _aware_timestamp(build.get("created_at"))
         if (
             created is None
             or (created_from is not None and created < created_from)
             or (created_to is not None and created >= created_to)
-            or (previous_created is not None and created > previous_created)
+            or (prior_created is not None and created > prior_created)
         ):
             raise RuntimeError(f"agent-health {phase} returned invalid creation bounds or order")
-        previous_created = created
         if state is not None and not (
             build.get("state") == state
             or (state == "blocked" and build.get("blocked") is True)
@@ -408,6 +408,29 @@ def _paginate_observation_builds(
             finished = _aware_timestamp(build.get("finished_at"))
             if finished is None or finished < finished_from:
                 raise RuntimeError(f"agent-health {phase} returned a build outside its finish filter")
+        return build, created
+
+    def prepare_page(raw_rows: list) -> None:
+        # Validate the entire roster/filter scope before configuration lookup.
+        # Priming exact source pins is independent of runtime freshness.
+        prior = previous_created
+        pins = set()
+        for raw in raw_rows:
+            build, prior = validate_build(raw, prior)
+            if url.endswith("/pipelines/ci/builds") and _has_mi_runtime_candidate(build):
+                commit = str(build.get("commit") or "").casefold()
+                if not re.fullmatch(r"[0-9a-f]{40}", commit):
+                    raise RuntimeError("agent-health MI execution requires an exact source commit")
+                with _SOURCE_SCOPE_INDEX_LOCK:
+                    if commit not in _SOURCE_SCOPE_INDEXES:
+                        pins.add(commit)
+        if pins:
+            from vllm.main_ci_definitions import prewarm_runtime_snapshots
+            prewarm_runtime_snapshots(sorted(pins))
+
+    def validate_project(raw: object) -> dict:
+        nonlocal previous_created
+        build, previous_created = validate_build(raw, previous_created)
         return project(build)
 
     def progress(page: int, rows: list, has_next: bool) -> None:
@@ -421,7 +444,7 @@ def _paginate_observation_builds(
         if on_page is not None:
             on_page(page, rows, has_next)
 
-    return _paginate(url, params, project=validate_project, on_page=progress)
+    return _paginate(url, params, prepare_page=prepare_page, project=validate_project, on_page=progress)
 
 
 class _OlderActivePartition(Exception):
@@ -562,6 +585,17 @@ def _fetch_pipeline_builds(
     return builds
 
 
+def _has_mi_runtime_candidate(build: dict) -> bool:
+    """Avoid configuration lookups for foreign queues and known nonexecutions."""
+    return any(amd_gpu_hardware(_queue_of(job)) and not is_cpu_only_job(job)
+               and not _is_non_execution_job(job) for job in build.get("jobs") or [])
+
+
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+_SOURCE_SCOPE_INDEX_LOCK = threading.Lock()
+
+
 def _fetch_pipeline_observations(
     slug: str,
     days: int,
@@ -587,6 +621,24 @@ def _fetch_pipeline_observations(
         nightly_re = re.compile(pattern, re.IGNORECASE)
 
     def project(build: dict) -> dict:
+        if slug == "ci" and _has_mi_runtime_candidate(build):
+            from vllm.main_ci_definitions import annotate_runtime_source_scope
+            commit = str(build.get("commit") or "").casefold()
+            if not re.fullmatch(r"[0-9a-f]{40}", commit):
+                raise RuntimeError("agent-health MI execution requires an exact source commit")
+            with _SOURCE_SCOPE_INDEX_LOCK:
+                index = _SOURCE_SCOPE_INDEXES.get(commit)
+            build = annotate_runtime_source_scope(build, **({"scope_index": index} if index is not None else {}))
+            if isinstance(build.get("source_scope_index"), dict):
+                new_index = build["source_scope_index"]
+                with _SOURCE_SCOPE_INDEX_LOCK:
+                    if _SOURCE_SCOPE_INDEXES.get(commit) != new_index:
+                        candidates = {**_SOURCE_SCOPE_INDEXES, commit: new_index}
+                        retained = retain_runtime_source_indexes(candidates, preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES])
+                        if _SOURCE_SCOPE_CACHE_DIR is not None:
+                            write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+                        _SOURCE_SCOPE_INDEXES.clear()
+                        _SOURCE_SCOPE_INDEXES.update(retained)
         observations = []
         build_created = _aware_timestamp(build.get("created_at"))
         if day_basis == "build-created" and (
@@ -902,6 +954,7 @@ def _assemble(
         "exclude_cancelled_default": True,
         "nightly_only_default": False,
         "pipelines": list(pipelines),
+        **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if tuple(pipelines) == ("ci",) else {}),
         "hardware_types": hardware_types,
         "infra_suspect_min_pass_rate": INFRA_SUSPECT_MIN_PASS_RATE,
         "infra_suspect_min_samples": INFRA_SUSPECT_MIN_SAMPLES,
@@ -1256,6 +1309,10 @@ def main() -> int:
     slugs = AGENT_HEALTH_SLUGS if args.pipeline == "both" else (args.pipeline,)
     now = datetime.now(timezone.utc).replace(microsecond=0)
 
+    global _SOURCE_SCOPE_CACHE_DIR
+    _SOURCE_SCOPE_CACHE_DIR = args.output / ".cache" / RUNTIME_SOURCE_CACHE_DIR_NAME
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(load_source_scope_indexes(args.output / ".cache" / ANALYTICS_CACHE_DIR_NAME))
     obs: list[dict] = []
     for slug in slugs:
         source_options = (

@@ -23,7 +23,8 @@ from vllm.ci.incident_transitions import (
     completed_build_eligibility,
 )
 from vllm.ci.utils import duration_mins, hardware_from_job_name, percentile, queue_from_rules
-from vllm.constants import BK_ORG, is_excluded_queue
+from vllm.constants import BK_ORG, amd_gpu_hardware, is_excluded_queue
+from vllm.pipelines import _job_queue, is_amd_ci_job
 from vllm.pipelines import SKIP_JOB_PATTERNS
 
 
@@ -475,10 +476,12 @@ def _step_key(job: dict) -> str:
 
 
 def _queue(job: dict) -> str:
-    return str(job.get("q") or queue_from_rules(job.get("agent_query_rules")) or "")
+    return _job_queue(job)
 
 
 def _hardware(job_name: str, queue: str, pipeline_slug: str) -> str:
+    if pipeline_slug == "ci" and amd_gpu_hardware(queue):
+        return amd_gpu_hardware(queue).lower()
     if pipeline_slug != "ci":
         return hardware_from_job_name(job_name, queue)
     amd_hardware = hardware_from_job_name(job_name, (queue or "").lower())
@@ -827,6 +830,10 @@ def build_all_main_reliability(
     for build in builds:
         if not _trusted_main_build(build):
             continue
+        if pipeline_slug == "ci":
+            build = {**build, "jobs": [job for job in build.get("jobs") or [] if is_amd_ci_job(job)]}
+            if not build["jobs"]:
+                continue
         number = int(build["number"])
         existing = trusted_by_number.get(number)
         if existing is None or _trusted_build_rank(build) > _trusted_build_rank(existing):
@@ -931,6 +938,7 @@ def build_all_main_reliability(
                 reverse=True,
             )
         groups.append({
+            **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if pipeline_slug == "ci" else {}),
             "group_id": group["group_id"],
             "name": identity["canonical_label"],
             "raw_name": identity["raw_label"],
@@ -976,11 +984,13 @@ def build_all_main_reliability(
     eligible_groups = sum(bool(group["denominator"]) for group in groups)
     return {
         "schema_version": SCHEMA_VERSION,
+        **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if pipeline_slug == "ci" else {}),
         "generated_at": generated_at,
         "cohort": {
             "id": f"{pipeline_slug}-main-completed-pass-fail",
             "name": f"{pipeline_slug} branch=main builds with state passed or failed and finished_at",
             "pipeline": pipeline_slug,
+            **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if pipeline_slug == "ci" else {}),
             "branch": "main",
             "window_days": window_days,
             "requested_from": requested_from,

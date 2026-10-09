@@ -18,7 +18,7 @@ from vllm.pipelines import PIPELINES, _job_queue, is_amd_ci_job, is_upstream_cud
         ),
         ({"q": "gpu_1", "name": "Undecorated test"}, "cuda"),
         ({"q": "amd_mi355_dpx", "raw_name": ":amd: (MI355 DPX) Test", "name": "Test"}, "amd"),
-        ({"name": ":amd: (MI355) Test"}, "amd"),
+        ({"name": ":amd: (MI355) Test"}, "neither"),
         ({"name": "mi300_1: Test"}, "amd"),
         ({"name": ":nvidia: (B200) Test"}, "cuda"),
         ({"q": "cpu", "name": ":nvidia: (H100) Conflicting label"}, "neither"),
@@ -59,3 +59,21 @@ def test_normalized_current_cuda_hardware_retains_its_scope(label, hardware):
 ])
 def test_normalized_cuda_hardware_rejects_cpu_amd_and_unknown_families(hardware):
     assert not is_upstream_cuda_ci_job({"hardware": hardware})
+
+
+@pytest.mark.parametrize("job", [
+    {"q": "amd_generic", "name": ":amd: (MI300) Tests"},
+    {"q": "unknown", "name": "amd_mi300_1: Tests"},
+    {"hardware": "mi300", "name": ":amd: (MI300) Tests"},
+    {"q": "amd_mi300_1", "name": ":computer: (CPU) ABI audit"},
+    {"q": "amd_mi300_1", "name": "ABI audit", "source_no_gpu": True},
+    {"q": "amd_mi300_1", "name": "ABI audit", "step": {"no_gpu": True}},
+    {"q": "amd_mi300_1", "name": "ABI audit", "gpu_count": 0},
+])
+def test_mi_scope_rejects_unproven_routing_and_explicit_cpu_execution(job):
+    assert not is_amd_ci_job(job)
+
+
+def test_mi_scope_keeps_gpu_cpu_offload_tests_and_observed_route_authority():
+    assert is_amd_ci_job({"q": "amd_mi300_1", "name": "CPU Offload GPU Tests"})
+    assert not is_amd_ci_job({"agent_queue": "gpu_1", "agent_query_rules": ["queue=amd_mi300_1"]})

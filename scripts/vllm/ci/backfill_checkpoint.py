@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -341,3 +342,41 @@ def validate(root: Path) -> dict[str, int]:
         "shards": len(manifest["shards"]),
         "bytes": sum(row["bytes"] for row in manifest["shards"].values()),
     }
+
+
+def synchronize_current_mi_shards(root: Path, results_dir: Path) -> dict[str, int]:
+    """Replace authenticated old checkpoint rows with verified current MI shards.
+
+    Stage the entire bounded generation before swapping directories. A failed
+    source validation or write leaves the previous checkpoint intact.
+    """
+    from vllm.pipelines import is_amd_ci_job
+    root = root.resolve()
+    if root.exists():
+        _load_manifest(root)
+    token = uuid.uuid4().hex
+    staging = root.with_name(root.name + ".mi-stage-" + token)
+    backup = root.with_name(root.name + ".mi-backup-" + token)
+    try:
+        _empty(staging)
+        for path in sorted(results_dir.glob("*_amd.jsonl")):
+            _validate_shard(path, path.name)
+            with path.open() as handle:
+                if any(not is_amd_ci_job(json.loads(line)) for line in handle):
+                    raise BackfillCheckpointError("current checkpoint source contains unproved MI routing")
+            record_complete_shard(staging, path)
+        summary = validate(staging)
+        if root.exists():
+            os.replace(root, backup)
+        try:
+            os.replace(staging, root)
+        except BaseException:
+            if backup.exists():
+                os.replace(backup, root)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+        return summary
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)

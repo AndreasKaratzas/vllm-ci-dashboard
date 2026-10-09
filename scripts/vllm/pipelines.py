@@ -50,6 +50,7 @@ PIPELINES = {
         "branch": "main",
         "display_name": "AMD main CI",
         "job_scope": "amd_gpu",
+        "hardware_scope": "amd_mi_gpu",
     },
     "upstream": {
         "slug": "ci",
@@ -92,7 +93,7 @@ def _job_hardware_scope(job: dict) -> str:
             r"(?:[abhl]\d+|gh\d+|dgx-spark)(?:[_-].*)?", queue
         ):
             return "cuda_gpu"
-    name = str(job.get("raw_name") or job.get("name") or job.get("job_name") or "")
+    name = str(job.get("raw_name") or job.get("job_name") or job.get("name") or "")
     if re.search(r":computer:\s*\(\s*cpu\b", name, flags=re.I):
         return ""
     if re.match(r"(?:amd_)?mi\d+b?(?:_[a-z0-9_-]+)?:", name, flags=re.I):
@@ -119,9 +120,36 @@ def _job_hardware_scope(job: dict) -> str:
     return ""
 
 
+def is_cpu_only_job(job: dict) -> bool:
+    """Recognize explicit CPU execution, without excluding GPU CPU-offload tests."""
+    if job.get("no_gpu") is True or job.get("source_no_gpu") is True:
+        return True
+    for source in (job, job.get("step")):
+        if not isinstance(source, dict):
+            continue
+        if source.get("no_gpu") is True or str(source.get("device") or "").casefold() == "cpu":
+            return True
+        if any(type(source.get(key)) is int and source[key] == 0 for key in ("gpu_count", "num_gpus")):
+            return True
+    name = str(job.get("raw_name") or job.get("job_name") or job.get("name") or "")
+    return bool(re.search(r":(?:computer|amd):\s*\(\s*cpu(?:\s|\))", name, flags=re.I))
+
+
 def is_amd_ci_job(job: dict) -> bool:
-    """Select AMD GPU test jobs from the authoritative upstream ``ci`` roster."""
-    return _job_hardware_scope(job) == "amd_gpu"
+    """Select MI GPU execution only from concrete roster routing evidence.
+
+    Current parsed result rows preserve the verified queue as a leading pool
+    annotation. Architecture decorations alone do not prove physical routing.
+    """
+    if not isinstance(job, dict) or job.get("type", "script") != "script" or is_cpu_only_job(job):
+        return False
+    queue = _job_queue(job).casefold()
+    if queue:
+        return bool(amd_gpu_hardware(queue))
+    name = str(job.get("raw_name") or job.get("job_name") or job.get("name") or "")
+    match = re.match(r"^((?:amd_)?mi\d+b?(?:_[a-z0-9_-]+)?):", name, flags=re.I)
+    pool = match.group(1).casefold() if match else ""
+    return bool(amd_gpu_hardware(pool if pool.startswith("amd_") else "amd_" + pool))
 
 
 def is_upstream_cuda_ci_job(job: dict) -> bool:

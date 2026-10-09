@@ -26,7 +26,6 @@ TEST_RESULT_STORE_MAX_BYTES = writer_max_bytes("test_result_store")
 TEST_RESULT_RETENTION_MAX_BYTES = writer_max_bytes("test_result_retention")
 TEST_RESULT_RETENTION_FILE = "retention.json"
 CI_HEALTH_MAX_BYTES = writer_max_bytes("ci_health")
-CI_PARITY_PAIR_MAX_BYTES = writer_max_bytes("ci_parity_pair")
 FAILURE_TRENDS_MAX_BYTES = writer_max_bytes("failure_trends")
 FLAKY_TESTS_MAX_BYTES = writer_max_bytes("flaky_tests")
 QUARANTINE_REPORT_MAX_BYTES = writer_max_bytes("quarantine_report")
@@ -125,7 +124,7 @@ def _compact_ci_health(source: dict, *, max_bytes: int) -> dict:
     """Retain newest whole build summaries while keeping exact scalar totals."""
     source_builds = {
         side: list((source.get(side) or {}).get("builds") or [])
-        for side in ("amd", "upstream")
+        for side in ("amd", "upstream") if side in source
     }
 
     def candidate(counts: dict[str, int]) -> dict:
@@ -135,7 +134,7 @@ def _compact_ci_health(source: dict, *, max_bytes: int) -> dict:
             if key not in {"amd", "upstream", "publication_retention"}
         }
         metadata = {}
-        for side in ("amd", "upstream"):
+        for side in source_builds:
             section = dict(source.get(side) or {})
             retained = source_builds[side][: counts[side]]
             section["builds"] = retained
@@ -326,6 +325,8 @@ def write_ci_health(
         return "stable"
 
     def _build_section(summaries: list[BuildSummary]) -> dict:
+        def summary_row(summary: BuildSummary) -> dict:
+            return {**summary.to_dict(), "source_pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"}
         if not summaries:
             return {
                 "latest_build": None,
@@ -340,19 +341,19 @@ def write_ci_health(
         return {
             # ``latest_build`` is retained as the test-evidence build for
             # compatibility with parity, matrix, and raw-JSONL audits.
-            "latest_build": latest_signal.to_dict() if latest_signal else None,
-            "latest_test_signal_build": latest_signal.to_dict() if latest_signal else None,
-            "latest_pipeline_build": latest_pipeline.to_dict(),
+            "latest_build": summary_row(latest_signal) if latest_signal else None,
+            "latest_test_signal_build": summary_row(latest_signal) if latest_signal else None,
+            "latest_pipeline_build": summary_row(latest_pipeline),
             "latest_pipeline_build_has_test_results": latest_pipeline.has_test_results,
-            "builds": [s.to_dict() for s in summaries],
+            "builds": [summary_row(s) for s in summaries],
             "trend": _health_direction(summaries),
         }
 
     data = {
         "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
+        "source_pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
         "generated_at": _now_iso(),
-        "amd": _build_section(amd_summaries),
-        "upstream": _build_section(upstream_summaries),
+        "amd": {**_build_section(amd_summaries), "source_pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"},
         "overall_health": _health_direction(amd_summaries),
         "test_counts": label_counts,
         "total_unique_tests": len(health_data),
@@ -373,40 +374,6 @@ def write_ci_health(
 # ---------------------------------------------------------------------------
 # Parity report
 # ---------------------------------------------------------------------------
-
-def write_parity_report(
-    parity_data: dict,
-    amd_date: str,
-    upstream_date: str,
-    output_dir: Path,
-) -> Path:
-    """Write parity_report.json."""
-    report = {
-        "generated_at": _now_iso(),
-        "amd_date": amd_date,
-        "upstream_date": upstream_date,
-        **parity_data,
-    }
-
-    path = output_dir / "parity_report.json"
-    # This snapshot is published twice (CI path plus compatibility copy), so
-    # each exact encoding receives half of the pair allocation.
-    per_file_max = CI_PARITY_PAIR_MAX_BYTES // 2
-    bounded = _compact_collection_fields(
-        report,
-        fields=("by_module", "job_groups", "details"),
-        max_bytes=per_file_max,
-        policy="retain_deterministic_whole_parity_rows",
-    )
-    write_pretty_json_lkg(
-        path,
-        bounded,
-        max_bytes=per_file_max,
-        label="CI parity snapshot",
-    )
-    log.info("Wrote parity_report.json (parity: %.1f%%)", parity_data.get("parity_pct", 0))
-    return path
-
 
 # ---------------------------------------------------------------------------
 # Flaky tests

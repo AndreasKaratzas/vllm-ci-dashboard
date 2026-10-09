@@ -179,6 +179,8 @@ def build_payload(
     source = {
         "repository": "vllm-project/vllm",
         "pipeline": "ci",
+        "hardware_scope": "amd_mi_gpu",
+        "upstream_scope": "cuda_gpu_configuration_benchmark",
         "main_commit": snapshot.commit_sha,
         "current_definition_commit_sha": snapshot.commit_sha,
         "runtime_source_commit_sha": runtime_commit,
@@ -223,7 +225,7 @@ def build_payload(
             "coverage_basis": "At least one inline AMD mirror in current main ci; native AMD and legacy amd-ci never inflate the CUDA coverage numerator.",
             "gate_basis": "Required means the configured AMD route has neither optional nor soft_fail; this is source configuration, not proof of runtime success or blocking behavior.",
             "excluded": [
-                "CPU and other accelerator definitions",
+                "CPU, no_gpu, and other accelerator definitions",
                 "Explicit NVIDIA/backend-specific or temporary monitoring workloads listed in classification policy",
             ],
             "included_but_classified": [

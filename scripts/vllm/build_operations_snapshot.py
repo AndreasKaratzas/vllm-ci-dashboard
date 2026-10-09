@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.bounded_json import atomic_write_bytes  # noqa: E402
-from vllm.constants import is_excluded_queue  # noqa: E402
+from vllm.constants import amd_gpu_hardware, is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_SECTION_MAX_BYTES,
@@ -49,9 +49,7 @@ from vllm.ci.reliability_history import (  # noqa: E402
 from vllm.config_parity import (  # noqa: E402
     extract_amd_runtime_group_key_map_from_report,
 )
-from vllm.pipelines import (  # noqa: E402
-    pipeline_job_matches_scope, is_amd_ci_job,
-)
+from vllm.pipelines import is_amd_ci_job, is_cpu_only_job  # noqa: E402
 from vllm.ci.nightly_latency import (  # noqa: E402
     build_current_nightly_latency, project_public_nightly_latency,
 )
@@ -369,19 +367,22 @@ def _nightly_group_observations(
     return observations
 
 
-def _scoped_ci_analytics(analytics: dict, pipeline_key: str) -> dict:
+def _scoped_ci_analytics(analytics: dict) -> dict:
     builds = []
     for build in analytics.get("builds") or []:
         number = _strict_int(build.get("number"))
         if number is None or build.get("branch") != "main" or not _pipeline_build_url_matches(build.get("web_url"), "ci", number):
             continue
-        jobs = [job for job in build.get("jobs") or [] if pipeline_job_matches_scope(job, pipeline_key)]
-        builds.append({**build, "jobs": jobs, "total_jobs": len(jobs)})
+        jobs = [job for job in build.get("jobs") or [] if is_amd_ci_job(job)]
+        if jobs:
+            builds.append({**build, "jobs": jobs, "total_jobs": len(jobs)})
     return {**analytics, "pipeline": "ci", "builds": builds,
-            "display_name": "AMD main CI" if pipeline_key == "amd" else "CUDA main CI"}
+            "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "display_name": "AMD MI main CI"}
 
 
 def _current_ci_health(health: dict) -> dict:
+    if health.get("hardware_scope") != "amd_mi_gpu" or health.get("job_scope") != "amd_gpu":
+        return {}
     def valid(build: dict) -> bool:
         number = _strict_int(build.get("number") or build.get("build_number"))
         return number is not None and build.get("branch") == "main" and _pipeline_build_url_matches(build.get("build_url") or build.get("url"), "ci", number)
@@ -654,11 +655,12 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
         "pipeline": pipeline,
         "source_pipeline": pipeline,
         "job_scope": job_scope,
-        "cohort_id": "ci-amd" if job_scope == "amd_gpu" else "ci-cuda",
+        "hardware_scope": "amd_mi_gpu",
+        "cohort_id": "ci-amd",
         "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
         "failure_movement_policy_id": OBSERVED_FAILURE_MOVEMENT_ID,
         "display_name": analytics.get("display_name") or pipeline,
-        "role": "canonical_amd_nightly" if job_scope == "amd_gpu" else "upstream_cuda_nightly",
+        "role": "canonical_amd_nightly",
         "history_window_days": min(int(analytics.get("days") or NIGHTLY_BUILD_LIMIT), NIGHTLY_BUILD_LIMIT),
         "history_limit": NIGHTLY_BUILD_LIMIT,
         "builds_available": len(source_builds),
@@ -973,7 +975,7 @@ def _amd_test_job_url(build_number: int, evidence: dict, metadata: dict) -> str:
     return _job_url(AMD_TEST_PIPELINE, {"number": build_number}, job)
 
 
-def _load_amd_test_result_groups(data_dir: Path) -> tuple[dict[tuple[int, str], dict], dict]:
+def _load_amd_test_result_groups(data_dir: Path, metadata_by_build: dict[int, dict] | None = None) -> tuple[dict[tuple[int, str], dict], dict]:
     try:
         paths = sorted((data_dir / "test_results").glob("*_amd.jsonl"))
     except OSError:
@@ -1011,7 +1013,11 @@ def _load_amd_test_result_groups(data_dir: Path) -> tuple[dict[tuple[int, str], 
                     if not isinstance(row, dict):
                         stats["malformed_rows"] += 1
                         continue
-                    if row.get("pipeline") != AMD_TEST_PIPELINE or not is_amd_ci_job({"job_name": row.get("job_name")}):
+                    number = _strict_int(row.get("build_number"))
+                    roster = ((metadata_by_build or {}).get(number) if number is not None else None) or {}
+                    matched = next((job for job in roster.get("jobs") or [] if row.get("job_id") and job.get("job_id") == row["job_id"]), {})
+                    routing = {**matched, **row, "raw_name": row.get("job_name")}
+                    if row.get("pipeline") != AMD_TEST_PIPELINE or is_cpu_only_job({**row, "raw_name": row.get("job_name")}) or not is_amd_ci_job(routing):
                         stats["ignored_rows"] += 1
                         continue
                     build_number = _strict_int(row.get("build_number"))
@@ -1490,7 +1496,7 @@ def _latest_logical_amd_test_groups(
         )
         rows.append({
             "id": hashlib.sha1(
-                f"amd-ci-logical:{logical_key}".encode()
+                f"ci-amd-logical:{logical_key}".encode()
             ).hexdigest()[:20],
             "logical_key": logical_key,
             "label": _friendly_amd_logical_label(logical_key, variants),
@@ -1558,8 +1564,8 @@ def _amd_test_health(
     amd_ci_health: Any = None,
     definition_parity: Any = None,
 ) -> dict:
-    grouped, load_stats = _load_amd_test_result_groups(data_dir)
     metadata_by_build = _amd_test_metadata_builds(amd_analytics)
+    grouped, load_stats = _load_amd_test_result_groups(data_dir, metadata_by_build)
     observations_by_group: dict[str, list[dict]] = defaultdict(list)
     observations_by_build: dict[int, list[dict]] = defaultdict(list)
     for (build_number, exact_job_name), bucket in grouped.items():
@@ -1815,6 +1821,7 @@ def _amd_test_health(
         "available": bool(builds),
         "source_pipeline": AMD_TEST_PIPELINE,
         "job_scope": "amd_gpu",
+        "hardware_scope": "amd_mi_gpu",
         "cohort": {
             "id": "ci-amd-retained-nightly-test-results",
             "available": bool(builds),
@@ -1844,7 +1851,7 @@ def _amd_test_health(
             },
             "nightly_metadata": {
                 "path": SOURCE_FILES["analytics"],
-                "source_key": "amd-ci.builds",
+                "source_key": "ci.builds",
                 "retained_build_count": len(metadata_by_build),
                 "job_join_key": ["build_number", "job_id"],
                 "joined_group_observations": joined_observation_count,
@@ -1909,6 +1916,8 @@ def _strict_build_rows(rows: Any, pipeline_slug: str) -> tuple[bool, set[int]]:
 def _collector_main_is_strict(payload: Any, pipeline_slug: str) -> bool:
     if not isinstance(payload, dict):
         return False
+    if payload.get("hardware_scope") != "amd_mi_gpu":
+        return False
     cohort = payload.get("cohort")
     provenance = payload.get("provenance")
     builds = payload.get("builds")
@@ -1943,6 +1952,8 @@ def _collector_main_is_strict(payload: Any, pipeline_slug: str) -> bool:
         return False
     for group in groups:
         if not isinstance(group, dict) or not isinstance(group.get("observations"), list):
+            return False
+        if not is_amd_ci_job(group) or not re.fullmatch(r"mi\d{3,4}", str(group.get("hardware") or "").lower()):
             return False
         numeric_fields = (
             "denominator", "passed", "failed", "soft_failed",
@@ -2003,7 +2014,7 @@ def _historical_observation(
     build: dict,
     job: dict,
     group_id: str = "",
-    pipeline_slug: str = "amd-ci",
+    pipeline_slug: str = "ci",
 ) -> dict:
     state = _historical_state(job)
     row = {
@@ -2118,7 +2129,7 @@ def _streak(observations: list[dict], build_kind: str | None = None) -> int:
 
 def _group_catalog(
     builds: list[dict],
-    pipeline_slug: str = "amd-ci",
+    pipeline_slug: str = "ci",
 ) -> tuple[list[dict], dict]:
     groups: dict[str, dict] = {}
     unknown_observations = 0
@@ -2130,7 +2141,7 @@ def _group_catalog(
     for build in source_builds:
         for job in build.get("jobs") or []:
             queue = job.get("q") or job.get("queue")
-            if _is_excluded_queue(queue):
+            if not is_amd_ci_job(job) or _is_excluded_queue(queue):
                 continue
             label = _strict_group_label(job.get("name") or _group_identity(job))
             if not label:
@@ -2275,7 +2286,7 @@ def _group_catalog(
 
 def _collector_main_catalog(
     payload: dict,
-    pipeline_slug: str = "amd-ci",
+    pipeline_slug: str = "ci",
 ) -> tuple[list[dict], dict, dict]:
     """Adapt the collector's strict all-main variant catalog for the UI contract."""
     build_kind = {
@@ -2286,7 +2297,7 @@ def _collector_main_catalog(
     retry_attempts = []
     recoveries = []
     for source in payload.get("groups") or []:
-        if _is_excluded_queue(source.get("queue")):
+        if not is_amd_ci_job(source) or _is_excluded_queue(source.get("queue")):
             continue
         source_observations = [
             row
@@ -2738,6 +2749,8 @@ def _reliability(pipeline_analytics: Any, pipeline_slug: str = "ci") -> dict:
     return {
         "available": strict_available,
         "source_pipeline": pipeline_slug,
+        "job_scope": "amd_gpu",
+        "hardware_scope": "amd_mi_gpu",
         "cohort": {
             "id": "main",
             "available": strict_available,
@@ -2798,9 +2811,21 @@ def _filter_queue_snapshot(snapshot: dict) -> dict:
     queues = {
         name: stats
         for name, stats in (snapshot.get("queues") or {}).items()
-        if not _is_excluded_queue(name)
+        if _is_amd_queue(name)
     }
     row["queues"] = queues
+    row["hardware_scope"] = "amd_mi_gpu"
+    if "scope_totals" in row:
+        def totals_for(selected: dict) -> dict:
+            sources = sorted({str((stats or {}).get("count_source") or "unknown") for stats in selected.values()})
+            return {"waiting": sum(int((stats or {}).get("waiting") or 0) for stats in selected.values()),
+                    "running": sum(int((stats or {}).get("running") or 0) for stats in selected.values()),
+                    "queue_count": len(selected), "count_sources": sources,
+                    "count_source": sources[0] if len(sources) == 1 else "mixed" if sources else "unavailable"}
+        row["scope_totals"] = {"all": totals_for(queues), "amd": totals_for(queues)}
+        target_ids = set((row.get("target_queue_scope") or {}).get("queue_ids") or [])
+        if target_ids:
+            row["scope_totals"]["target"] = totals_for({name: stats for name, stats in queues.items() if name in target_ids})
     for total, metric in (
         ("total_waiting", "waiting"),
         ("total_running", "running"),
@@ -2817,7 +2842,7 @@ def _filter_queue_jobs(queue_jobs: dict) -> dict:
     for state in ("pending", "running"):
         result[state] = [
             job for job in queue_jobs.get(state) or []
-            if not _is_excluded_queue(job.get("queue") or job.get("q"))
+            if _is_amd_queue(job.get("queue") or job.get("q")) and not is_cpu_only_job(job)
         ]
     return result
 
@@ -2826,7 +2851,7 @@ def _compact_history_snapshot(snapshot: dict) -> dict:
     """Project history to chart/detail fields without duplicating verbose contracts."""
     queues = {}
     for name, source in (snapshot.get("queues") or {}).items():
-        if _is_excluded_queue(name) or not isinstance(source, dict):
+        if not _is_amd_queue(name) or not isinstance(source, dict):
             continue
         compact_fields = (
             "waiting", "running", "scheduled", "total",
@@ -2969,10 +2994,7 @@ def _queue(snapshot: dict, queue_jobs: dict, history: list[dict]) -> dict:
 
 def _is_amd_queue(value: Any) -> bool:
     name = str(value or "").strip().lower()
-    return (
-        (name == "amd-cpu" or name.startswith("amd_"))
-        and not _is_excluded_queue(name)
-    )
+    return bool(amd_gpu_hardware(name)) and not _is_excluded_queue(name)
 
 
 def _nonnegative_count(value: Any) -> int:
@@ -3092,13 +3114,14 @@ def _omni(
     workload_mapping: dict | None = None,
     capacity: dict | None = None,
 ) -> dict:
-    workload_mapping = workload_mapping or {}
+    workload_mapping = workload_mapping if ((workload_mapping or {}).get("hardware_scope") == "amd_mi_gpu"
+        and (((workload_mapping or {}).get("scope") or {}).get("workload_pipelines") or {}).get("main") == ["ci"]) else {}
     capacity = capacity or {}
     mapping_scope = workload_mapping.get("scope") or {}
     allowed_queues = {
         str(name)
         for name in mapping_scope.get("queues") or []
-        if str(name) and not _is_excluded_queue(name)
+        if _is_amd_queue(name)
     }
     if not allowed_queues:
         allowed_queues = {
@@ -3107,7 +3130,7 @@ def _omni(
             if isinstance(row, dict)
             and row.get("monitored") is not False
             and row.get("id")
-            and not _is_excluded_queue(row.get("id"))
+            and _is_amd_queue(row.get("id"))
         }
     omni_pipelines = {
         str(name)
@@ -3121,6 +3144,7 @@ def _omni(
         state: [
             job for job in queue_jobs.get(state) or []
             if str(job.get("pipeline") or "") in omni_pipelines
+            and is_amd_ci_job(job)
             and str(job.get("queue") or job.get("q") or "") in allowed_queues
         ]
         for state in ("pending", "running")
@@ -3167,6 +3191,7 @@ def _omni(
         status = "healthy"
     return {
         "status": status,
+        "hardware_scope": "amd_mi_gpu",
         "current": {
             "waiting": waiting,
             "running": running,
@@ -3349,7 +3374,14 @@ def _amd_agent_health(data_dir: Path) -> dict:
     exclude-cancelled / nightly-only controls.
     """
     payload = _load_json(data_dir / "agent_health.json")
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict) or payload.get("hardware_scope") != "amd_mi_gpu" or payload.get("pipelines") != ["ci"]:
+        return {}
+    for key in ("node_days", "failing_runs", "failure_accounting", "node_accounting_totals", "failure_accounting_totals"):
+        if any(not isinstance(row, dict) or not re.fullmatch(r"mi\d{3,4}", str(row.get("h") or ""), flags=re.I) for row in payload.get(key) or []):
+            return {}
+    if any(row.get("p") != "ci" or not is_amd_ci_job({"queue": row.get("q"), "name": row.get("g")}) for row in payload.get("failing_runs") or []):
+        return {}
+    return payload
 
 
 def _agent_health_row_key(row: dict) -> tuple[str, str, str]:
@@ -3761,20 +3793,15 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     analytics = loaded.get("analytics") or {}
     ci_health = loaded.get("ci_health") or {}
     ci_analytics = analytics.get("ci") or {}
-    amd_analytics = _scoped_ci_analytics(ci_analytics, "amd")
-    cuda_analytics = _scoped_ci_analytics(ci_analytics, "upstream")
+    amd_analytics = _scoped_ci_analytics(ci_analytics)
     amd_health = _current_ci_health(ci_health.get("amd") or {})
-    cuda_health = _current_ci_health(ci_health.get("upstream") or {})
     amd_nightly = _nightly_pipeline(
         "ci", amd_analytics, amd_health, job_scope="amd_gpu",
-    )
-    upstream_parity = _nightly_pipeline(
-        "ci", cuda_analytics, cuda_health, job_scope="cuda_gpu",
     )
     ci_health_retention = ci_health.get("publication_retention") or {}
     ci_health_build_retention = ci_health_retention.get("builds") or {}
     if isinstance(ci_health_retention, dict) and ci_health_retention:
-        for nightly, side in ((amd_nightly, "amd"), (upstream_parity, "upstream")):
+        for nightly, side in ((amd_nightly, "amd"),):
             nightly["ci_health_publication_retention"] = {
                 "policy": ci_health_retention.get("policy"),
                 "max_bytes": ci_health_retention.get("max_bytes"),
@@ -3798,19 +3825,21 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     runtime_source = runtime_matrix.get("source") or {}
     matrix_is_current_ci = (
         runtime_source.get("pipeline") == "ci"
+        and runtime_source.get("hardware_scope") == "amd_mi_gpu"
         and runtime_source.get("definition_source") == "main_ci_inline_and_native_amd"
         and _pipeline_build_url_matches(runtime_source.get("latest_build_url"), "ci", _strict_int(runtime_source.get("latest_build_number")))
     )
     amd_test_health["runtime_matrix_summary"] = runtime_matrix.get("summary") or {} if matrix_is_current_ci else {}
     amd_test_health["runtime_matrix_source"] = runtime_source if matrix_is_current_ci else {}
     amd_agent_health = _amd_agent_health(data_dir)
-    pipeline_blocks = [amd_nightly, upstream_parity]
+    pipeline_blocks = [amd_nightly]
     nightly = {
         "primary_pipeline": "ci",
         "primary_cohort": "ci-amd",
         "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
         "failure_movement_policy_id": OBSERVED_FAILURE_MOVEMENT_ID,
-        "pipeline_order": ["ci-amd", "ci-cuda"],
+        "hardware_scope": "amd_mi_gpu",
+        "pipeline_order": ["ci-amd"],
         "history_window_days": NIGHTLY_BUILD_LIMIT,
         "failure_movement_basis": (
             "current versus preceding eligible completed nightly with usable test "
@@ -3824,7 +3853,6 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
             "builds; passes resolve; absent and indeterminate observations hold state"
         ),
         "canonical_history": amd_nightly,
-        "upstream_parity": upstream_parity,
         "pipelines": pipeline_blocks,
     }
     reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
@@ -3837,7 +3865,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
             ),
         }
     latency = ci_analytics.get("current_nightly_latency")
-    if not isinstance(latency, dict) or latency.get("source_pipeline") != "ci" or latency.get("build_limit") != 5:
+    if not isinstance(latency, dict) or latency.get("schema_version") != 2 or latency.get("hardware_scope") != "amd_mi_gpu" or latency.get("source_pipeline") != "ci" or latency.get("build_limit") != 5:
         latency = build_current_nightly_latency([], generated_at=generated_at or _utc_now(), source_available=False)
     ownership = loaded.get("ci_ownership") or {}
     ownership = (
@@ -3924,7 +3952,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
 
 
 def _compact_nightly(nightly: dict, build_limit: int | None = None) -> dict:
-    """Drop serialized compatibility aliases while retaining both pipelines."""
+    """Drop compatibility aliases and retain only the AMD MI CI cohort."""
     compact = {
         key: value
         for key, value in nightly.items()
@@ -3932,6 +3960,8 @@ def _compact_nightly(nightly: dict, build_limit: int | None = None) -> dict:
     }
     pipelines = []
     for pipeline in nightly.get("pipelines") or []:
+        if pipeline.get("cohort_id") != "ci-amd" or pipeline.get("hardware_scope") != "amd_mi_gpu":
+            continue
         row = dict(pipeline)
         if build_limit is not None:
             row["builds"] = list(row.get("builds") or [])[:build_limit]
@@ -4187,7 +4217,7 @@ def _operations_shell(payload: dict) -> dict:
     nightly = _compact_nightly(payload.get("nightly") or {}, build_limit=7)
     nightly["pipelines"] = [
         row for row in nightly.get("pipelines") or []
-        if row.get("pipeline") == AMD_TEST_PIPELINE and row.get("job_scope") == "amd_gpu"
+        if row.get("pipeline") == AMD_TEST_PIPELINE and row.get("job_scope") == "amd_gpu" and row.get("hardware_scope") == "amd_mi_gpu"
     ]
     amd_health = payload.get("amd_test_health") or {}
     definition_parity = payload.get("definition_parity") or {}
@@ -5682,6 +5712,7 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
     }
     logical_available = (
         (payload.get("amd_test_health") or {}).get("source_pipeline") == "ci"
+        and (payload.get("amd_test_health") or {}).get("hardware_scope") == "amd_mi_gpu"
         and _pipeline_build_url_matches(amd_summary.get("latest_build_url"), "ci", logical_build)
         and bool(logical.get("available"))
     ) and (
@@ -5707,6 +5738,8 @@ def build_org_summary(payload: dict, queue_lifecycle: dict | None = None) -> dic
     queue_ids = sorted(str(name) for name in (target_scope.get("queue_ids") or []))
     queue_rows = []
     for queue_id in queue_ids:
+        if not _is_amd_queue(queue_id):
+            continue
         row = queue_map.get(queue_id) or {}
         queue_rows.append({
             "queue": queue_id,

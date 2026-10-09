@@ -49,7 +49,8 @@ from vllm.buildkite_request_guard import (  # noqa: E402
 
 install_from_environment_or_exit()
 
-from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
+from vllm.constants import BK_API_BASE, BK_ORG, amd_gpu_hardware  # noqa: E402
+from vllm.pipelines import is_cpu_only_job  # noqa: E402
 from vllm.ci.utils import parse_iso, queue_from_rules  # noqa: E402
 from vllm.bounded_json import atomic_write_bytes, pretty_json_bytes  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
@@ -153,7 +154,7 @@ def monitored_queues(config: dict) -> dict[str, dict]:
         if not isinstance(raw, dict) or raw.get("monitored") is not True:
             continue
         queue_id = str(raw.get("id") or "").strip()
-        if not queue_id or "perf_eval" in queue_id.casefold():
+        if not amd_gpu_hardware(queue_id) or "perf_eval" in queue_id.casefold():
             continue
         try:
             gpus_per_job = int(raw.get("gpus_per_job"))
@@ -533,7 +534,7 @@ def _events_from_builds(
             if not isinstance(job, dict) or job.get("type") not in {"script", "command"}:
                 continue
             queue = _job_queue(job)
-            if queue not in queue_catalog:
+            if queue not in queue_catalog or is_cpu_only_job(job):
                 continue
             mapped_at = _job_mapped_at(job, build)
             if mapped_at is None or mapped_at < start or mapped_at >= end:
@@ -1007,7 +1008,7 @@ def collect_workload_mapping(
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(
         microsecond=0
     )
-    existing = existing if isinstance(existing, dict) else {}
+    existing = existing if isinstance(existing, dict) and existing.get("hardware_scope") == "amd_mi_gpu" else {}
     if retention_days > DEFAULT_RETENTION_DAYS:
         raise ValueError(
             f"retention_days may not exceed {DEFAULT_RETENTION_DAYS}"
@@ -1223,6 +1224,7 @@ def collect_workload_mapping(
 
     return {
         "schema_version": 2,
+        "hardware_scope": "amd_mi_gpu",
         "generated_at": _utc_iso(now),
         "collection_start": collection_start,
         "timezone": "UTC",

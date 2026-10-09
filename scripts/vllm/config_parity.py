@@ -42,7 +42,7 @@ from vllm.collect_amd_test_matrix import (
     definition_fingerprint as matrix_definition_fingerprint,
 )
 from vllm.reviewed_definition_labels import execution_sha256, flatten_execution_commands
-from vllm.main_ci_definitions import MainCISnapshot, amd_source_steps, is_cuda_definition, load_snapshot
+from vllm.main_ci_definitions import MainCISnapshot, amd_source_steps, is_cpu_only_definition, is_cuda_definition, load_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -432,6 +432,8 @@ def _parse_amd_data(data: dict) -> list[ConfigStep]:
         return []
     steps = []
     for yaml_index, item in enumerate(data.get('steps', [])):
+        if is_cpu_only_definition(item):
+            continue
         agent_pool = item.get('agent_pool', '')
         if 'mi355' in agent_pool:
             group = 'mi355'
@@ -476,6 +478,8 @@ def _parse_nvidia_data(
                     else {}
                 )
                 if not amd_cfg:
+                    continue
+                if is_cpu_only_definition({**item, **amd_cfg}):
                     continue
                 amd_cmds_raw = amd_cfg.get('commands')
                 commands_overridden = amd_cmds_raw is not None

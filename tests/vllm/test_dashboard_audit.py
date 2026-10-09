@@ -392,7 +392,7 @@ def _production_shaped_compacted_matrix(*, max_bytes=AMD_TEST_MATRIX_MAX_BYTES):
     ]
     steps, arches = parse_steps(json.dumps({"steps": definitions}))
     source = build_matrix(steps, arches, {}, None, {}, {}, [], "https://example.invalid/main-ci.yaml")
-    source["source"].update({"pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd",
+    source["source"].update({"pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
                              "commit_sha": "a" * 40, "runtime_source_commit_sha": None})
     for row in source["rows"]:
         row["_retention_regression_padding"] = "x" * 30_000
@@ -476,7 +476,6 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/test_results.json",
         "data/vllm/ci/ci_health.json",
         "data/vllm/ci/dns_failures.json",
-        "data/vllm/ci/parity_report.json",
         "data/vllm/ci/analytics.json",
         "data/vllm/ci/amd_test_matrix.json",
         "data/vllm/ci/test_group_parity.json",
@@ -1061,11 +1060,12 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
         "count_basis": "distinct_buildkite_job_attempts_with_strong_dns_evidence",
         "scope": {
             "organization": "vllm",
-            "pipelines": ["amd-ci", "ci"],
+            "pipelines": ["ci"],
             "branches": "all",
             "job_types": ["script"],
             "states": ["passed", "soft", "hard"],
             "queue_scope": "active_amd_gpu",
+            "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
         },
         "classifier": {
@@ -1095,12 +1095,12 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "items": [
                 {
                     "id": hashlib.sha256(
-                        f"dns-evidence-v1\0amd-ci\0{job_id}".encode()
+                        f"dns-evidence-v1\0ci\0{job_id}".encode()
                     ).hexdigest(),
                     "first_at": _dns_iso(first_at),
                     "last_at": _dns_iso(first_at),
                     "time_basis": "log_timestamp",
-                    "pipeline": "amd-ci",
+                    "pipeline": "ci",
                     "queue": "amd_mi300_1",
                     "node": "node-1",
                     "hardware": "MI300",
@@ -1498,10 +1498,18 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
 
     now = datetime.now(timezone.utc).replace(microsecond=0)
     state = empty_state(now, now - timedelta(hours=720))
+    state["scoped_discovery"] = {
+        "version": 1,
+        "hardware_scope": "amd_mi_gpu",
+        "pipelines": ["ci"],
+        "start": iso_timestamp(now - timedelta(hours=720)),
+        "end_exclusive": iso_timestamp(now),
+        "complete": True,
+    }
     state["jobs"] = [
         scan_record(
             {
-                "pipeline": "amd-ci",
+                "pipeline": "ci",
                 "build_number": 457,
                 "job_id": "00000000-0000-4000-8000-000000000003",
                 "queue": "amd_mi300_1",
@@ -1510,6 +1518,12 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
                 "state": "passed",
                 "started_at": iso_timestamp(now - timedelta(hours=3)),
                 "finished_at": iso_timestamp(now - timedelta(minutes=10)),
+                "execution_proof": {
+                    "version": 1,
+                    "source_commit": "a" * 40,
+                    "definition_tree": "b" * 40,
+                    "classification": "amd_mi_gpu",
+                },
             },
             DnsClassification(
                 match_count=1,
@@ -1525,6 +1539,8 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
     assert payload["windows"]["1h"]["coverage"]["positive_jobs"] == 0
     assert payload["windows"]["1h"]["coverage"]["negative_jobs"] == 1
     assert payload["windows"]["1h"]["totals"]["affected_jobs"] == 0
+    assert payload["windows"]["24h"]["coverage"]["positive_jobs"] == 1
+    assert payload["windows"]["24h"]["totals"]["affected_jobs"] == 1
     _write_dns_audit_payload(tmp_path, payload)
     audit = DashboardAudit(tmp_path)
 
@@ -2259,8 +2275,7 @@ def _write_split_build_alignment_fixtures(
             required_paths=(
                 "data/vllm/ci/amd_test_matrix.json",
                 "data/vllm/ci/ci_health.json",
-                "data/vllm/ci/parity_report.json",
-            ),
+                    ),
             globs=("data/vllm/ci/test_results/*.jsonl",),
         ),
     }
@@ -2319,10 +2334,7 @@ def test_attested_split_fallback_allows_directional_build_skew(
     assert {
         finding.context["fallback_surface"] for finding in skew_warnings
     } == {fallback_surface}
-    assert {finding.context["pipeline"] for finding in skew_warnings} == {
-        "amd",
-        "upstream",
-    }
+    assert {finding.context["pipeline"] for finding in skew_warnings} == {"amd"}
 
 
 @pytest.mark.parametrize("state_kind", ("missing", "tampered", "both"))
@@ -2367,7 +2379,7 @@ def test_split_build_mismatch_requires_valid_restore_attestation(
             "analytics-jsonl-build-mismatch",
             "matrix-analytics-build",
         }
-    } == {"amd", "upstream"}
+    } == {"amd"}
     if state_kind == "tampered":
         assert "publication-fallback-manifest-mismatch" in error_codes
 
@@ -3567,7 +3579,7 @@ def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 2,
                     "architecture_count": 1,
@@ -3607,93 +3619,8 @@ def test_dashboard_audit_allows_in_progress_hardware_count_drift(tmp_path):
     assert not audit.report.errors
     warning_codes = {finding.code for finding in audit.report.warnings}
     assert "matrix-health-hardware-count-in-progress" in warning_codes
-    assert "parity-matrix-hardware-failing-in-progress" in warning_codes
 
 
-def test_dashboard_audit_allows_retry_recovery_final_state_drift(tmp_path):
-    """Retained failed tests may precede a passed final Buildkite retry."""
-    ci = tmp_path / "data/vllm/ci"
-    ci.mkdir(parents=True)
-
-    (ci / "analytics.json").write_text(
-        json.dumps({"amd-ci": {"builds": [{"number": 123}]}})
-    )
-    (ci / "ci_health.json").write_text(
-        json.dumps(
-            {
-                "amd": {
-                    "latest_build": {
-                        "build_number": 123,
-                        "by_hardware": {"mi300": {"groups": 1}},
-                    }
-                }
-            }
-        )
-    )
-    (ci / "parity_report.json").write_text(
-        json.dumps(
-            {
-                "job_groups": [
-                    {
-                        "name": "recovered by retry",
-                        "hardware": ["mi300"],
-                        "amd": {"total": 1, "failed": 1},
-                        "hw_failures": {"mi300": 1},
-                    }
-                ]
-            }
-        )
-    )
-    (ci / "amd_test_matrix.json").write_text(
-        json.dumps(
-            {
-                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
-                "summary": {
-                    "unique_groups": 1,
-                    "architecture_count": 1,
-                    "hardware_cells": 1,
-                    "latest_matched_cells": 1,
-                    "passing_cells": 1,
-                    "failing_cells": 0,
-                    "waiting_cells": 0,
-                    "unknown_cells": 0,
-                    "fully_shared_groups": 1,
-                    "single_arch_groups": 1,
-                    "multi_variant_cells": 0,
-                },
-                "architectures": [
-                    {
-                        "id": "mi300",
-                        "label": "MI300",
-                        "group_count": 1,
-                        "nightly_match_count": 1,
-                    }
-                ],
-                "rows": [
-                    {
-                        "title": "recovered by retry",
-                        "coverage_count": 1,
-                        "nightly_coverage_count": 1,
-                        "cells": {
-                            "mi300": {
-                                "exists": True,
-                                "latest_matched": True,
-                                "latest_state": "passed",
-                            }
-                        },
-                    }
-                ],
-            }
-        )
-    )
-
-    audit = DashboardAudit(tmp_path)
-    audit.audit_amd_matrix()
-
-    assert not audit.report.errors
-    assert {
-        finding.code for finding in audit.report.warnings
-    } == {"parity-matrix-hardware-failing-final-state-drift"}
 
 
 def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
@@ -3738,7 +3665,7 @@ def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 1,
                     "architecture_count": 1,
@@ -3771,79 +3698,8 @@ def test_dashboard_audit_rejects_one_group_cross_view_hardware_drift(tmp_path):
     audit.audit_amd_matrix()
     error_codes = {finding.code for finding in audit.report.errors}
     assert "matrix-health-hardware-count" in error_codes
-    assert "parity-matrix-hardware-total" in error_codes
-    assert "parity-matrix-hardware-failing" in error_codes
 
 
-def test_dashboard_audit_uses_only_amd_side_parity_hardware_and_incidents(
-    tmp_path,
-):
-    ci = tmp_path / "data/vllm/ci"
-    ci.mkdir(parents=True)
-    (ci / "parity_report.json").write_text(
-        json.dumps(
-            {
-                "job_groups": [
-                    {
-                        "name": "shared same-hardware group",
-                        "hardware": ["mi300"],
-                        "amd_hardware": ["mi300"],
-                        "upstream_hardware": ["mi300"],
-                        "amd": {"total": 1, "passed": 1},
-                        "upstream": {"total": 1, "failed": 1},
-                        "hw_failures": {"mi300": 1},
-                        "amd_hw_failures": {},
-                        "upstream_hw_failures": {"mi300": 1},
-                        "hw_canceled": {"mi300": 1},
-                        "amd_hw_canceled": {},
-                        "upstream_hw_canceled": {"mi300": 1},
-                    },
-                    {
-                        "name": "upstream AMD mirror only",
-                        "hardware": ["mi355"],
-                        "amd_hardware": [],
-                        "upstream_hardware": ["mi355"],
-                        "amd": None,
-                        "upstream": {"total": 1, "passed": 1},
-                        "hw_failures": {},
-                        "amd_hw_failures": {},
-                        "upstream_hw_failures": {},
-                        "hw_canceled": {},
-                        "amd_hw_canceled": {},
-                        "upstream_hw_canceled": {},
-                    },
-                ]
-            }
-        )
-    )
-
-    audit = DashboardAudit(tmp_path)
-    audit.audit_parity_hardware_matches_matrix(
-        {},
-        {
-            "by_arch": {
-                "mi300": {
-                    "total": 1,
-                    "passing": 1,
-                    "failing": 0,
-                    "waiting": 0,
-                    "unknown": 0,
-                    "matched": 1,
-                }
-            }
-        },
-    )
-
-    assert not audit.report.errors
-    assert audit.report.metrics["parity_hardware"] == {
-        "mi300": {
-            "passing": 1,
-            "failing": 0,
-            "pending": 0,
-            "canceled": 0,
-            "total": 1,
-        }
-    }
 
 
 def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):
@@ -3888,7 +3744,7 @@ def test_dashboard_audit_compares_health_with_observed_matrix_cells(tmp_path):
     (ci / "amd_test_matrix.json").write_text(
         json.dumps(
             {
-                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
+                "source": {"latest_build_number": 123, "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "commit_sha": "a" * 40, "runtime_source_commit_sha": "a" * 40},
                 "summary": {
                     "unique_groups": 2,
                     "architecture_count": 1,
@@ -3955,6 +3811,9 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     workflows.mkdir(parents=True)
     ordered_steps = [
         "name: Restore validated dashboard state",
+        "name: Prepare private analytics cache key",
+        "name: Restore private analytics build cache",
+        "name: Restore immutable runtime source indexes",
         "name: Collect CI data",
         "name: Save private CI roster cache",
         "name: Save private DNS classification cache",
@@ -3963,10 +3822,9 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
         "name: Refresh current main CI parity",
         "name: Collect build-pinned CI ownership parity",
         "name: Validate current CI core before analytics",
-        "name: Prepare private analytics cache key",
-        "name: Restore private analytics build cache",
         "name: Collect CI analytics",
         "name: Save private analytics build cache",
+        "name: Save immutable runtime source checkpoint",
         "name: Live publication audit",
         "name: Run test suite",
         "name: Enforce publication validation results",
@@ -4374,7 +4232,7 @@ def test_current_latency_audit_reconstructs_one_global_five_nightly_cohort(tmp_p
     assert not audit.report.errors
     assert [row["number"] for row in latency["cohort"]["nightlies"]] == [600, 599, 598, 597, 596]
     assert latency["rows"][0]["amd"]["median_duration_mins"] == 12
-    assert latency["rows"][0]["upstream"]["median_duration_mins"] == 7
+    assert set(latency["rows"][0]) == {"id", "label", "amd"}
 
 
 @pytest.mark.parametrize(
@@ -4406,7 +4264,7 @@ def test_current_latency_audit_reconstructs_one_global_five_nightly_cohort(tmp_p
             "latency-shard-wall",
         ),
         (lambda p: p["rows"][0]["amd"].update(median_duration_mins=99), "latency-median"),
-        (lambda p: p["rows"][0].update(ratio=99), "latency-comparison"),
+        (lambda p: p["rows"][0].update(ratio=99), "latency-job-representation"),
         (
             lambda p: p["rows"][0]["amd"]["interval"].update(start="2020-01-01T00:00:00Z"),
             "latency-sample-interval",
@@ -4545,7 +4403,7 @@ def _columnar_latency_fixture():
     latency = _current_latency_fixture()
     latency["job_columns"] = list(JOB_COLUMNS)
     for row in latency["rows"]:
-        for side in ("amd", "upstream"):
+        for side in ("amd",):
             for sample in row[side]["samples"]:
                 sample["jobs"] = [[job[column] for column in JOB_COLUMNS] for job in sample["jobs"]]
     return latency
@@ -4597,7 +4455,7 @@ def test_current_latency_audit_rejects_malformed_columnar_job_evidence(tmp_path,
 
 def _current_main_matrix_replay_fixture(tmp_path):
     from collect_ci import _current_scope_results, _scope_nightly_build
-    from vllm.ci.analyzer import compute_build_summary, compute_parity
+    from vllm.ci.analyzer import compute_build_summary
     from vllm.ci.models import TestResult
     from vllm.collect_amd_test_matrix import (
         RAW_YAML_URL_TEMPLATE,
@@ -4621,7 +4479,7 @@ def _current_main_matrix_replay_fixture(tmp_path):
                         "device": "h100",
                         "commands": ["pytest tests/shared.py"],
                         "mirror": {
-                            "amd": {"label": ":amd: (MI250) Shared workload", "device": "mi300_1", "no_gpu": True}
+                            "amd": {"label": ":amd: (MI250) Shared workload", "device": "mi300_1"}
                         },
                     },
                     {
@@ -4634,6 +4492,7 @@ def _current_main_matrix_replay_fixture(tmp_path):
             },
         },
         "2026-10-08T20:00:00Z",
+        "b" * 40,
     )
     build_url = "https://buildkite.com/vllm/ci/builds/93523"
     build = {
@@ -4679,6 +4538,7 @@ def _current_main_matrix_replay_fixture(tmp_path):
         definition_source="main_ci_inline_and_native_amd",
         commit_sha=sha,
         runtime_source_commit_sha=sha,
+        hardware_scope="amd_mi_gpu", job_scope="amd_gpu",
     )
     output = tmp_path / "data/vllm/ci"
     output.mkdir(parents=True)
@@ -4692,11 +4552,12 @@ def _current_main_matrix_replay_fixture(tmp_path):
         job_name=job["name"], job_id=job["id"], step_id="",
         build_number=build["number"], pipeline="ci", date="2026-10-08",
     ) for job in build["jobs"]]
-    scoped_build = _scope_nightly_build(json.loads(json.dumps(build)), "amd")
+    from unittest.mock import patch
+    with patch("vllm.main_ci_definitions.runtime_snapshot", return_value=snapshot), patch("collect_ci._SOURCE_SCOPE_INDEXES", {}):
+        scoped_build = _scope_nightly_build(json.loads(json.dumps(build)), "amd")
     routed_results = _current_scope_results(results, "amd", scoped_build)
     health = compute_build_summary(scoped_build, routed_results, "amd").to_dict()
-    (output / "ci_health.json").write_text(json.dumps({"amd": {"latest_build": health}}))
-    (output / "parity_report.json").write_text(json.dumps(compute_parity(routed_results, [])))
+    (output / "ci_health.json").write_text(json.dumps({"hardware_scope": "amd_mi_gpu", "job_scope": "amd_gpu", "amd": {"latest_build": health}}))
     results_dir = output / "test_results"
     results_dir.mkdir()
     (results_dir / "2026-10-08_amd.jsonl").write_text(
@@ -4751,40 +4612,9 @@ def test_current_matrix_audit_rejects_forged_source_pins_and_job_structure(tmp_p
 
 
 def _current_ci_core_fixture(tmp_path):
-    from collect_ci import _scope_nightly_build
-    from vllm.ci.analyzer import compute_build_summary
-    from vllm.ci.models import TestResult
-
     matrix, output = _current_main_matrix_replay_fixture(tmp_path)
     (output / "amd_test_matrix.json").write_text(json.dumps(matrix))
     (output / "test_group_parity.json").write_text(json.dumps(_current_parity_fixture()))
-    build = {
-        "number": 93523,
-        "commit": "a" * 40,
-        "branch": "main",
-        "state": "passed",
-        "web_url": "https://buildkite.com/vllm/ci/builds/93523",
-        "created_at": "2026-10-08T06:00:00Z",
-        "jobs": [{
-            "type": "script", "id": "cuda-job", "state": "passed",
-            "name": ":nvidia: (H100) Shared workload", "agent_queue": "gpu_1",
-        }],
-    }
-    result = TestResult(
-        test_id="__job_level__", name="__job_level__", classname="",
-        status="passed", duration_secs=0.0, failure_message="",
-        job_name=build["jobs"][0]["name"], job_id="cuda-job", step_id="",
-        build_number=93523, pipeline="ci", date="2026-10-08",
-    )
-    health_path = output / "ci_health.json"
-    health = json.loads(health_path.read_text())
-    health["upstream"] = {"latest_build": compute_build_summary(
-        _scope_nightly_build(build, "upstream"), [result], "upstream",
-    ).to_dict()}
-    health_path.write_text(json.dumps(health))
-    (output / "test_results/2026-10-08_upstream.jsonl").write_text(
-        json.dumps(result.to_dict()) + "\n"
-    )
     (output / "analytics.json").write_text("old analytics must not be read")
     (output / "operations_v2.json").write_text("old Operations must not be read")
     return output
@@ -4816,7 +4646,7 @@ def test_ci_core_only_runs_existing_strict_raw_methods_without_old_analytics_or_
     ]
     assert calls[1][2] == {"validate_analytics": False}
     assert calls[2][1][1] == "data/vllm/ci/test_group_parity.json"
-    assert set(report["metrics"]) == {"ci_health", "amd_matrix", "parity_hardware"}
+    assert set(report["metrics"]) == {"ci_health", "amd_matrix"}
     assert {path.relative_to(tmp_path): path.read_bytes()
             for path in tmp_path.rglob("*") if path.is_file()} == before
 
@@ -4835,7 +4665,6 @@ def test_ci_core_only_runs_existing_strict_raw_methods_without_old_analytics_or_
     ("source_parity", "current-parity-source"),
     ("missing_results", "ci-core-result-missing"),
     ("empty_amd_results", "ci-core-result-evidence"),
-    ("empty_upstream_results", "ci-core-result-evidence"),
     ("invalid_result", "ci-core-result-evidence"),
     ("runtime_commit", "ci-core-runtime-commit"),
     ("malformed_health", "ci-core-object"),
@@ -4865,12 +4694,12 @@ def test_ci_core_only_fails_fatal_raw_routing_matrix_and_current_source_errors(
         payload["source"]["pipeline"] = "amd-ci"
         path.write_text(json.dumps(payload))
     elif tamper == "missing_results":
-        (output / "test_results/2026-10-08_upstream.jsonl").unlink()
+        (output / "test_results/2026-10-08_amd.jsonl").unlink()
     elif tamper.startswith("empty_"):
         suffix = "amd" if tamper == "empty_amd_results" else "upstream"
         (output / f"test_results/2026-10-08_{suffix}.jsonl").write_text("\n")
     elif tamper == "invalid_result":
-        (output / "test_results/2026-10-08_upstream.jsonl").write_text("{}\n")
+        (output / "test_results/2026-10-08_amd.jsonl").write_text("{}\n")
     elif tamper == "runtime_commit":
         path = output / "ci_health.json"
         payload = json.loads(path.read_text())
@@ -4891,7 +4720,7 @@ def test_ci_core_accepts_exact_full_or_public_runtime_commit(tmp_path, commit):
     output = _current_ci_core_fixture(tmp_path)
     path = output / "ci_health.json"
     health = json.loads(path.read_text())
-    for side in ("amd", "upstream"):
+    for side in ("amd",):
         health[side]["latest_build"]["commit"] = commit
     path.write_text(json.dumps(health))
     audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
@@ -4899,53 +4728,22 @@ def test_ci_core_accepts_exact_full_or_public_runtime_commit(tmp_path, commit):
     assert audit.report.errors == []
 
 
-def test_ci_core_accepts_actual_cuda_decorators_and_rejects_foreign_hardware(tmp_path):
-    from collect_ci import _scope_nightly_build
-    from vllm.ci.analyzer import compute_build_summary
-    from vllm.ci.models import TestResult
-
+def test_ci_core_rejects_cuda_role_and_foreign_hardware_aggregates(tmp_path):
     output = _current_ci_core_fixture(tmp_path)
     path = output / "ci_health.json"
-    health = json.loads(path.read_text())
-    build = {
-        "number": 93523, "commit": "a" * 40, "branch": "main", "state": "passed",
-        "web_url": "https://buildkite.com/vllm/ci/builds/93523",
-        "created_at": "2026-10-08T06:00:00Z",
-        "jobs": [
-            {"type": "script", "id": f"cuda-{index}", "state": "passed",
-             "name": label, "agent_queue": "gpu_1"}
-            for index, label in enumerate((
-                ":nvidia: (H200 MIG 18GB) Basic Correctness Models",
-                ":nvidia: (H200 MIG 35GB) E2E Core Large Memory",
-                ":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)",
-                ":nvidia: (4xB200) Distributed workload",
-            ))
-        ],
-    }
-    results = [TestResult(
-        test_id="__job_level__", name="__job_level__", classname="", status="passed",
-        duration_secs=0.0, failure_message="", job_name=job["name"], job_id=job["id"],
-        step_id="", build_number=93523, pipeline="ci", date="2026-10-08",
-    ) for job in build["jobs"]]
-    summary = compute_build_summary(_scope_nightly_build(build, "upstream"), results, "upstream").to_dict()
-    assert set(summary["by_hardware"]) == {"h200 mig 18gb", "h200 mig 35gb", "dgx", "4xb200"}
-    health["upstream"] = {key: summary for key in (
-        "latest_build", "latest_pipeline_build", "latest_test_signal_build",
-    )}
-    path.write_text(json.dumps(health))
-    (output / "test_results/2026-10-08_upstream.jsonl").write_text(
-        "".join(json.dumps(row.to_dict()) + "\n" for row in results)
-    )
-    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
-    audit.audit_ci_core()
-    assert audit.report.errors == []
-
-    for hardware in ("cpu", "amd_cpu", "mi300", "unknown", "h200 mig bogus", "dgx-unknown"):
-        summary["by_hardware"] = {hardware: {"groups": 1}}
+    original = json.loads(path.read_text())
+    for hardware in ("cpu", "amd_cpu", "h200 mig 18gb", "dgx", "4xb200", "unknown"):
+        health = copy.deepcopy(original)
+        health["amd"]["latest_build"]["by_hardware"] = {hardware: {"groups": 1}}
         path.write_text(json.dumps(health))
         audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
         audit.audit_ci_core()
         assert "current-runtime-hardware-scope" in {finding.code for finding in audit.report.errors}
+    original["upstream"] = {"latest_build": original["amd"]["latest_build"]}
+    path.write_text(json.dumps(original))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    audit.audit_ci_core()
+    assert "current-runtime-hardware-scope" in {finding.code for finding in audit.report.errors}
 
 
 @pytest.mark.parametrize("fallback", [False, True])
@@ -5174,7 +4972,7 @@ def _large_current_latency_bundle(tmp_path):
         row = copy.deepcopy(template)
         row["label"] = f"Shared workload {group_index}"
         row["id"] = row["label"].lower()
-        for side in ("amd", "upstream"):
+        for side in ("amd",):
             for sample in row[side]["samples"]:
                 original = sample["jobs"][0]
                 sample["jobs"] = []
@@ -5239,7 +5037,7 @@ def test_operations_bundle_still_enforces_shared_32_mib_aggregate_cap(tmp_path, 
     # nightly solely to exercise the independent aggregate guard after every
     # individual section has passed its own declared test allowance.
     monkeypatch.setitem(contract.OPERATIONS_CANARY_SECTION_MAX_BYTES, "nightly", 12 * 1024 * 1024)
-    for name in ("nightly", "amd_test_health", "amd_agent_health"):
+    for name in ("nightly", "amd_test_health", "amd_agent_health", "comparison"):
         descriptor = manifest["sections"][name]
         path = output / descriptor["path"]
         raw = path.read_bytes()
@@ -5259,7 +5057,7 @@ def _completed_current_retry_fixture(tmp_path):
     for path in output.rglob("*"):
         if path.is_file() and path.suffix in {".json", ".jsonl"} and path.name not in {"analytics.json", "operations_v2.json"}:
             path.write_text(path.read_text().replace("93523", "93244").replace("2026-10-08", "2026-10-07"))
-    for side in ("amd", "upstream"):
+    for side in ("amd",):
         old = output / f"test_results/2026-10-08_{side}.jsonl"
         old.rename(output / f"test_results/2026-10-07_{side}.jsonl")
         # A retained newer legacy shard must never displace the exact current
@@ -5268,7 +5066,7 @@ def _completed_current_retry_fixture(tmp_path):
             "job_id": "legacy-job", "job_name": "mi250_1: Legacy test"}) + "\n")
     health = json.loads((output / "ci_health.json").read_text())
     health["generated_at"] = "2026-10-09T01:00:00Z"
-    for side in ("amd", "upstream"):
+    for side in ("amd",):
         signal = health[side]["latest_build"]
         health[side]["latest_test_signal_build"] = signal
         health[side]["latest_pipeline_build"] = {**signal,
@@ -5277,7 +5075,7 @@ def _completed_current_retry_fixture(tmp_path):
             "state": "running", "active_retry": True, "has_test_results": False}
     (output / "ci_health.json").write_text(json.dumps(health))
     jobs = []
-    for side in ("amd", "upstream"):
+    for side in ("amd",):
         for raw in (output / f"test_results/2026-10-07_{side}.jsonl").read_text().splitlines():
             row = json.loads(raw)
             jobs.append({"job_id": row["job_id"], "raw_name": row["job_name"], "name": row["job_name"],
@@ -5309,10 +5107,30 @@ def test_current_retry_transaction_uses_completed_ci_and_ignores_newer_legacy_sh
     audit.audit_amd_matrix()
     audit.audit_current_nightly_latency(analytics["ci"]["current_nightly_latency"], "fixture.json", source_builds=analytics["ci"]["builds"])
     assert audit.report.errors == []
-    for side in ("amd", "upstream"):
+    for side in ("amd",):
         assert audit.latest_result_file(side) == output / f"test_results/2026-10-07_{side}.jsonl"
     assert [row["number"] for row in analytics["ci"]["current_nightly_latency"]["cohort"]["nightlies"]] == [93244, 93039, 92838, 92785, 92635]
     assert health["amd"]["latest_pipeline_build"]["active_retry"] is True
+
+
+def test_current_mi_audits_reject_a_cpu_definition_despite_its_observed_mi_queue(tmp_path):
+    output, _, analytics = _completed_current_retry_fixture(tmp_path)
+    completed = analytics["ci"]["builds"][1]
+    job = completed["jobs"][0]
+    # The physical MI route and old MI decorator do not override the exact
+    # immutable definition's CPU-only execution semantics.
+    assert job["q"] == "amd_mi300_1"
+    job.update(source_no_gpu=True, source_scope_commit=completed["commit"])
+    (output / "analytics.json").write_text(json.dumps(analytics))
+    transaction = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    assert transaction.audit_current_completed_ci_transaction() is False
+    assert "current-runtime-completed-results" in {finding.code for finding in transaction.report.errors}
+    latency = DashboardAudit(tmp_path)
+    latency.audit_current_nightly_latency(
+        analytics["ci"]["current_nightly_latency"], "fixture.json",
+        source_builds=analytics["ci"]["builds"],
+    )
+    assert "latency-hardware-scope" in {finding.code for finding in latency.report.errors}
 
 
 @pytest.mark.parametrize("tamper,expected", [
@@ -5359,23 +5177,9 @@ def test_current_retry_transaction_rejects_unproven_completed_evidence(tmp_path,
     assert expected in {finding.code for finding in audit.report.errors}
 
 
-def test_completed_retry_preserves_distinct_gpu_signals_and_separate_runtime_commits(tmp_path):
+def test_completed_retry_preserves_exact_amd_signal_before_newer_no_result_nightly(tmp_path):
     output, health, analytics = _completed_current_retry_fixture(tmp_path)
-    original = output / "test_results/2026-10-07_upstream.jsonl"
-    rows = [json.loads(line) for line in original.read_text().splitlines()]
-    for row in rows:
-        row.update(build_number=93039, date="2026-10-06")
-    (output / "test_results/2026-10-06_upstream.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    signal = {**health["upstream"]["latest_build"], "build_number": 93039,
-        "build_url": "https://buildkite.com/vllm/ci/builds/93039", "commit": "c" * 12,
-        "date": "2026-10-06", "created_at": "2026-10-06T06:00:00Z"}
-    health["upstream"]["latest_build"] = signal
-    health["upstream"]["latest_test_signal_build"] = signal
-    analytics["ci"]["builds"][2]["commit"] = "c" * 40
-    # An even newer completed raw roster without parsed test evidence does not
-    # select either role's current test-signal denominator.
     analytics["ci"]["builds"][0].update(state="passed", finished_at="2026-10-08T08:00:00Z")
-    (output / "ci_health.json").write_text(json.dumps(health))
     (output / "analytics.json").write_text(json.dumps(analytics))
     audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
     assert audit.audit_current_completed_ci_transaction() is True
@@ -5383,6 +5187,5 @@ def test_completed_retry_preserves_distinct_gpu_signals_and_separate_runtime_com
     audit.audit_amd_matrix()
     audit.audit_ci_core()
     assert audit.report.errors == []
-    assert audit.latest_result_file("upstream").name == "2026-10-06_upstream.jsonl"
+    assert audit.latest_result_file("amd").name == "2026-10-07_amd.jsonl"
     assert audit_module._ci_analytics_test_signal_build(analytics, health, "amd")["number"] == 93244
-    assert audit_module._ci_analytics_test_signal_build(analytics, health, "upstream")["number"] == 93039

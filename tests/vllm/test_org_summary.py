@@ -38,6 +38,7 @@ def _payload() -> dict:
         },
         "amd_test_health": {
             "source_pipeline": "ci",
+            "hardware_scope": "amd_mi_gpu",
             "summary": {
                 "latest_build_number": 12275,
                 "latest_build_url": (

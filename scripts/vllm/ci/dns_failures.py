@@ -63,15 +63,9 @@ PUBLIC_OUTPUT_CORE_TOP_LEVEL_KEYS = frozenset(
         "evidence",
     }
 )
-PUBLIC_OUTPUT_SOURCE_TOP_LEVEL_KEYS = PUBLIC_OUTPUT_CORE_TOP_LEVEL_KEYS | {
-    "outcome_contract"
-}
-PUBLIC_OUTPUT_TOP_LEVEL_KEYS = PUBLIC_OUTPUT_SOURCE_TOP_LEVEL_KEYS | {
-    "publication_retention"
-}
-PUBLICATION_RETENTION_POLICY = (
-    "retain_exact_totals_with_deterministic_whole_row_prefixes"
-)
+PUBLIC_OUTPUT_SOURCE_TOP_LEVEL_KEYS = PUBLIC_OUTPUT_CORE_TOP_LEVEL_KEYS | {"outcome_contract"}
+PUBLIC_OUTPUT_TOP_LEVEL_KEYS = PUBLIC_OUTPUT_SOURCE_TOP_LEVEL_KEYS | {"publication_retention"}
+PUBLICATION_RETENTION_POLICY = "retain_exact_totals_with_deterministic_whole_row_prefixes"
 PUBLICATION_RETENTION_KEYS = frozenset(
     {
         "policy",
@@ -82,11 +76,12 @@ PUBLICATION_RETENTION_KEYS = frozenset(
         "evidence",
     }
 )
-PUBLICATION_RETENTION_COUNT_KEYS = frozenset(
-    {"source", "published", "omitted", "complete"}
-)
+PUBLICATION_RETENTION_COUNT_KEYS = frozenset({"source", "published", "omitted", "complete"})
 
 PIPELINES = ("amd-ci", "ci")
+# Legacy encrypted state may contain both pipelines. Current discovery and
+# public denominators are exclusively the MI hardware population on ``ci``.
+CURRENT_PIPELINES = ("ci",)
 JOB_STATES = ("passed", "soft", "hard")
 OUTCOME_COUNT_FIELD_BY_STATE = {
     "passed": "passed_jobs",
@@ -114,6 +109,7 @@ UNAVAILABLE_REASONS = (
     "invalid_response",
 )
 TIME_BASES = ("log_timestamp", "job_finished_at")
+
 
 class WindowOption(TypedDict):
     id: str
@@ -206,6 +202,7 @@ _SENSITIVE_VALUE_RE = re.compile(
 )
 _HARDWARE_RE = re.compile(r"^MI[0-9]{3,4}$")
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _STATE_TOP_KEYS = frozenset(
     {
         "schema_version",
@@ -259,9 +256,7 @@ _CLASSIFICATION_KEYS = frozenset(
         "time_basis",
     }
 )
-_CLASSIFICATION_METRIC_KEYS = frozenset(
-    {"at", "match_count", "signature_ids", "target_categories"}
-)
+_CLASSIFICATION_METRIC_KEYS = frozenset({"at", "match_count", "signature_ids", "target_categories"})
 
 
 class StateValidationError(ValueError):
@@ -400,9 +395,7 @@ def _episode_metrics(
             DnsEpisodeMetric(
                 at=iso_timestamp(cluster[0][0].replace(microsecond=0)),
                 match_count=len(cluster),
-                signature_ids=tuple(
-                    sorted({value for entry in cluster for value in entry[1]})
-                ),
+                signature_ids=tuple(sorted({value for entry in cluster for value in entry[1]})),
                 target_categories=tuple(
                     value for value in TARGET_CATEGORIES if value in observed_targets
                 ),
@@ -428,9 +421,7 @@ def classify_dns_log(
         raise TypeError("log_text must be a string")
     fallback = parse_timestamp(job_finished_at, "job_finished_at")
     started = (
-        parse_timestamp(job_started_at, "job_started_at")
-        if job_started_at is not None
-        else None
+        parse_timestamp(job_started_at, "job_started_at") if job_started_at is not None else None
     )
     if started is not None and started > fallback:
         raise StateValidationError("job_started_at cannot be after job_finished_at")
@@ -440,7 +431,9 @@ def classify_dns_log(
 
     for line in lines:
         current_time = _line_timestamp(line, current_time)
-        signatures = {identifier for identifier, pattern in SIGNATURE_PATTERNS if pattern.search(line)}
+        signatures = {
+            identifier for identifier, pattern in SIGNATURE_PATTERNS if pattern.search(line)
+        }
         if not signatures:
             continue
         # Target attribution stays on the matching physical line. Looking at
@@ -570,11 +563,7 @@ def classification_from_payload(payload: object) -> DnsClassification:
             or not metric_target_categories
             or not all(isinstance(value, str) for value in metric_target_categories)
             or metric_target_categories
-            != [
-                value
-                for value in TARGET_CATEGORIES
-                if value in set(metric_target_categories)
-            ]
+            != [value for value in TARGET_CATEGORIES if value in set(metric_target_categories)]
             or not set(metric_target_categories) <= set(TARGET_CATEGORIES)
         ):
             raise StateValidationError("DNS classification episode enums are invalid")
@@ -596,8 +585,7 @@ def classification_from_payload(payload: object) -> DnsClassification:
         and len(metrics) == len(normalized_times)
         and metric_count == match_count
         and signature_ids == sorted(metric_signatures)
-        and target_categories
-        == [value for value in TARGET_CATEGORIES if value in metric_targets]
+        and target_categories == [value for value in TARGET_CATEGORIES if value in metric_targets]
     )
     negative_contract = bool(
         match_count == 0
@@ -669,7 +657,7 @@ def evidence_id(pipeline: str, job_id: str) -> str:
 
 def pending_record(metadata: dict, *, previous_attempts: int = 0) -> dict:
     """Return the strict durable-state record for a newly discovered job."""
-    return {
+    row = {
         "pipeline": metadata["pipeline"],
         "build_number": metadata["build_number"],
         "job_id": metadata["job_id"],
@@ -683,6 +671,9 @@ def pending_record(metadata: dict, *, previous_attempts: int = 0) -> dict:
         "attempts": previous_attempts,
         "last_attempt_at": None,
     }
+    if "execution_proof" in metadata:
+        row["execution_proof"] = dict(metadata["execution_proof"])
+    return row
 
 
 def scan_record(
@@ -726,9 +717,7 @@ def scan_record(
                 match_count=normalized_counts[at],
                 signature_ids=tuple(sorted(normalized_signatures[at])),
                 target_categories=tuple(
-                    value
-                    for value in TARGET_CATEGORIES
-                    if value in normalized_targets[at]
+                    value for value in TARGET_CATEGORIES if value in normalized_targets[at]
                 ),
             )
             for at in normalized_counts
@@ -737,9 +726,7 @@ def scan_record(
         metric_signature_ids = tuple(
             sorted({value for metric in metrics for value in metric.signature_ids})
         )
-        observed_targets = {
-            value for metric in metrics for value in metric.target_categories
-        }
+        observed_targets = {value for metric in metrics for value in metric.target_categories}
         metric_target_categories = tuple(
             value for value in TARGET_CATEGORIES if value in observed_targets
         )
@@ -825,7 +812,7 @@ def empty_state(now: datetime, discovery_start: datetime) -> dict:
             "start": iso_timestamp(discovery_start),
             "end_exclusive": end,
             "complete": True,
-            "pipelines": list(PIPELINES),
+            "pipelines": list(CURRENT_PIPELINES),
             "include_retried_jobs": True,
         },
         "classifier": {
@@ -856,7 +843,10 @@ def validate_state(payload: object) -> dict:
     """Validate and normalize decoded sanitized scanner state, failing closed."""
     if not isinstance(payload, dict):
         raise StateValidationError("state must be an object")
-    _validate_exact_keys(payload, _STATE_TOP_KEYS, "state")
+    _validate_exact_keys(
+        payload, _STATE_TOP_KEYS | ({"scoped_discovery"} if "scoped_discovery" in payload else set()),
+        "state",
+    )
     if payload.get("schema_version") != SCHEMA_VERSION or payload.get("kind") != STATE_KIND:
         raise StateValidationError("unsupported state schema")
     generated = parse_timestamp(payload.get("generated_at"), "generated_at")
@@ -871,7 +861,9 @@ def validate_state(payload: object) -> dict:
         raise StateValidationError("retention hours do not match the contract")
     retention_start = parse_timestamp(retention.get("start"), "retention.start")
     retention_end = parse_timestamp(retention.get("end_exclusive"), "retention.end_exclusive")
-    if retention_end != generated or retention_start != retention_end - timedelta(hours=RETENTION_HOURS):
+    if retention_end != generated or retention_start != retention_end - timedelta(
+        hours=RETENTION_HOURS
+    ):
         raise StateValidationError("retention boundaries are inconsistent")
 
     discovery = payload.get("discovery")
@@ -888,8 +880,31 @@ def validate_state(payload: object) -> dict:
         raise StateValidationError("discovery boundaries are inconsistent")
     if not isinstance(discovery.get("complete"), bool):
         raise StateValidationError("persisted discovery completeness must be boolean")
-    if discovery.get("pipelines") != list(PIPELINES) or discovery.get("include_retried_jobs") is not True:
+    if (
+        discovery.get("pipelines") not in (list(PIPELINES), list(CURRENT_PIPELINES))
+        or discovery.get("include_retried_jobs") is not True
+    ):
         raise StateValidationError("discovery scope does not match the contract")
+
+    scoped = payload.get("scoped_discovery")
+    if "scoped_discovery" in payload:
+        if not isinstance(scoped, dict):
+            raise StateValidationError("scoped_discovery must be an object")
+        _validate_exact_keys(scoped, frozenset({
+            "version", "hardware_scope", "pipelines", "start", "end_exclusive", "complete",
+        }), "scoped_discovery")
+        if (type(scoped.get("version")) is not int or scoped["version"] != 1
+                or scoped.get("hardware_scope") != "amd_mi_gpu"
+                or scoped.get("pipelines") != list(CURRENT_PIPELINES)
+                or not isinstance(scoped.get("complete"), bool)):
+            raise StateValidationError("scoped_discovery scope does not match the contract")
+        scoped_start = parse_timestamp(scoped.get("start"), "scoped_discovery.start")
+        scoped_end = parse_timestamp(scoped.get("end_exclusive"), "scoped_discovery.end_exclusive")
+        if (scoped_end != generated or not discovery_start <= scoped_start < scoped_end
+                or scoped["start"] != iso_timestamp(scoped_start)
+                or scoped["end_exclusive"] != iso_timestamp(scoped_end)
+                or (scoped["complete"] and not discovery["complete"])):
+            raise StateValidationError("scoped_discovery boundaries are inconsistent")
 
     classifier = payload.get("classifier")
     if not isinstance(classifier, dict):
@@ -920,7 +935,8 @@ def validate_state(payload: object) -> dict:
             raise StateValidationError(f"jobs[{index}].status is invalid")
         _validate_exact_keys(
             raw,
-            _STATE_BASE_JOB_KEYS | _STATE_STATUS_KEYS[status],
+            _STATE_BASE_JOB_KEYS | _STATE_STATUS_KEYS[status]
+            | ({"execution_proof"} if "execution_proof" in raw else set()),
             f"jobs[{index}]",
         )
         pipeline = raw.get("pipeline")
@@ -940,6 +956,20 @@ def validate_state(payload: object) -> dict:
             raise StateValidationError(f"jobs[{index}].hardware is invalid")
         if queue_hardware(queue) != hardware:
             raise StateValidationError(f"jobs[{index}] queue/hardware mismatch")
+        if "execution_proof" in raw:
+            proof = raw["execution_proof"]
+            if not isinstance(proof, dict):
+                raise StateValidationError("execution_proof must be an object")
+            _validate_exact_keys(proof, frozenset({
+                "version", "source_commit", "definition_tree", "classification",
+            }), "execution_proof")
+            if (type(proof.get("version")) is not int or proof["version"] != 1
+                    or pipeline not in CURRENT_PIPELINES
+                    or proof.get("classification") not in {"amd_mi_gpu", "excluded_cpu"}
+                    or any(not isinstance(proof.get(key), str)
+                           or not _FULL_SHA_RE.fullmatch(proof[key])
+                           for key in ("source_commit", "definition_tree"))):
+                raise StateValidationError("execution_proof does not match the contract")
         node = raw.get("node")
         if node != "unidentified":
             _validate_token(node, f"jobs[{index}].node")
@@ -968,7 +998,11 @@ def validate_state(payload: object) -> dict:
 
         if status == "positive":
             match_count = raw.get("match_count")
-            if isinstance(match_count, bool) or not isinstance(match_count, int) or match_count <= 0:
+            if (
+                isinstance(match_count, bool)
+                or not isinstance(match_count, int)
+                or match_count <= 0
+            ):
                 raise StateValidationError("positive match_count must be positive")
             episodes = raw.get("episode_times")
             if not isinstance(episodes, list) or not episodes:
@@ -978,9 +1012,7 @@ def validate_state(payload: object) -> dict:
                 value.microsecond or raw_value != iso_timestamp(value)
                 for raw_value, value in zip(episodes, parsed_episodes)
             ):
-                raise StateValidationError(
-                    "episode_times must be canonical whole-second UTC"
-                )
+                raise StateValidationError("episode_times must be canonical whole-second UTC")
             if parsed_episodes != sorted(set(parsed_episodes)):
                 raise StateValidationError("episode_times must be unique and sorted")
             if parsed_started is None:
@@ -1007,9 +1039,7 @@ def validate_state(payload: object) -> dict:
                     raise StateValidationError("episode metric must be an object")
                 _validate_exact_keys(
                     metric,
-                    frozenset(
-                        {"at", "match_count", "signature_ids", "target_categories"}
-                    ),
+                    frozenset({"at", "match_count", "signature_ids", "target_categories"}),
                     f"jobs[{index}].episode_metrics[{metric_index}]",
                 )
                 metric_at = metric.get("at")
@@ -1044,9 +1074,7 @@ def validate_state(payload: object) -> dict:
                     ]
                     or not set(metric_target_categories) <= set(TARGET_CATEGORIES)
                 ):
-                    raise StateValidationError(
-                        "episode metric target_categories are invalid"
-                    )
+                    raise StateValidationError("episode metric target_categories are invalid")
                 metric_targets.update(metric_target_categories)
             if metric_times != episodes:
                 raise StateValidationError("episode metrics do not match episode_times")
@@ -1082,7 +1110,11 @@ def validate_state(payload: object) -> dict:
                 raise StateValidationError("unavailable_reason is invalid")
         elif status == "oversize":
             log_bytes = raw.get("log_bytes")
-            if isinstance(log_bytes, bool) or not isinstance(log_bytes, int) or log_bytes <= MAX_LOG_BYTES:
+            if (
+                isinstance(log_bytes, bool)
+                or not isinstance(log_bytes, int)
+                or log_bytes <= MAX_LOG_BYTES
+            ):
                 raise StateValidationError("oversize log_bytes must exceed the byte cap")
 
         sort_key = (finished, build_number, job_id)
@@ -1097,12 +1129,15 @@ def validate_state(payload: object) -> dict:
 def state_bytes(payload: object) -> bytes:
     """Return deterministic gzip bytes for one validated state."""
     normalized = validate_state(payload)
-    encoded = json.dumps(
-        normalized,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8") + b"\n"
+    encoded = (
+        json.dumps(
+            normalized,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
     if len(encoded) > MAX_DECOMPRESSED_STATE_BYTES:
         raise StateValidationError("decompressed state exceeds the safety limit")
     compressed = gzip.compress(encoded, compresslevel=9, mtime=0)
@@ -1194,6 +1229,12 @@ def merge_state_jobs(*collections: Iterable[dict]) -> list[dict]:
                 raise StateValidationError(f"conflicting final DNS scans for {identity}")
             if _record_rank(row) > _record_rank(previous):
                 merged[identity] = dict(row)
+            proofs = [item["execution_proof"] for item in (previous, row)
+                      if "execution_proof" in item]
+            if len(proofs) == 2 and proofs[0] != proofs[1]:
+                raise StateValidationError("conflicting exact execution proofs")
+            if proofs:
+                merged[identity]["execution_proof"] = dict(proofs[0])
     return sort_state_jobs(merged.values())
 
 
@@ -1244,9 +1285,7 @@ def _window_coverage(
     relative_rows: list[dict] = []
     for row in rows:
         relative = row
-        if row["status"] == "positive" and not _positive_in_window(
-            row, start, end_exclusive
-        ):
+        if row["status"] == "positive" and not _positive_in_window(row, start, end_exclusive):
             relative = dict(row)
             relative["status"] = "negative"
         relative_rows.append(relative)
@@ -1268,28 +1307,19 @@ def _episode_metrics_in_window(
 
 
 def _positive_in_window(row: dict, start: datetime, end_exclusive: datetime) -> list[str]:
-    return [
-        metric["at"]
-        for metric in _episode_metrics_in_window(row, start, end_exclusive)
-    ]
+    return [metric["at"] for metric in _episode_metrics_in_window(row, start, end_exclusive)]
 
 
 def _episode_summary(metrics: list[dict]) -> dict:
-    signatures = sorted(
-        {value for metric in metrics for value in metric["signature_ids"]}
-    )
-    observed_targets = {
-        value for metric in metrics for value in metric["target_categories"]
-    }
+    signatures = sorted({value for metric in metrics for value in metric["signature_ids"]})
+    observed_targets = {value for metric in metrics for value in metric["target_categories"]}
     return {
         "first_at": metrics[0]["at"],
         "last_at": metrics[-1]["at"],
         "episodes": len(metrics),
         "match_count": sum(metric["match_count"] for metric in metrics),
         "signature_ids": signatures,
-        "target_categories": [
-            value for value in TARGET_CATEGORIES if value in observed_targets
-        ],
+        "target_categories": [value for value in TARGET_CATEGORIES if value in observed_targets],
     }
 
 
@@ -1335,23 +1365,24 @@ def build_public_output(state: object) -> dict:
     payload = validate_state(state)
     end = parse_timestamp(payload["generated_at"], "generated_at")
     retention_start = end - timedelta(hours=RETENTION_HOURS)
-    discovery_start = parse_timestamp(payload["discovery"]["start"], "discovery.start")
-    if not payload["discovery"]["complete"]:
+    scoped = payload.get("scoped_discovery")
+    scope_complete = bool(scoped and scoped["complete"])
+    discovery_start = parse_timestamp(scoped["start"], "scoped_discovery.start") if scoped else end
+    if not scope_complete:
         # Public v1 derives window completeness from these bounds. Retain the
         # attempted query bounds privately, but advertise no complete public
         # window when discovery stopped before proving exhaustive coverage.
         discovery_start = end - timedelta(seconds=1)
-    jobs = payload["jobs"]
+    jobs = [row for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
+            and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
 
     windows: dict[str, dict] = {}
     for option in WINDOW_OPTIONS:
         start = end - timedelta(hours=option["hours"])
         window_jobs = [
-            row
-            for row in jobs
-            if start <= parse_timestamp(row["finished_at"], "finished_at") < end
+            row for row in jobs if start <= parse_timestamp(row["finished_at"], "finished_at") < end
         ]
-        discovery_complete = bool(payload["discovery"]["complete"] and start >= discovery_start)
+        discovery_complete = bool(scope_complete and start >= discovery_start)
         coverage = _window_coverage(
             window_jobs,
             start=start,
@@ -1386,10 +1417,7 @@ def build_public_output(state: object) -> dict:
             bucket[OUTCOME_COUNT_FIELD_BY_STATE[row["state"]]] += 1
             bucket["episodes"] += len(episode_metrics)
             bucket["huggingface_affected_jobs"] += int(
-                any(
-                    "huggingface_hub" in metric["target_categories"]
-                    for metric in episode_metrics
-                )
+                any("huggingface_hub" in metric["target_categories"] for metric in episode_metrics)
             )
             bucket["evidence_total"] += 1
         rows = sorted(grouped.values(), key=lambda row: (row["queue"], row["node"]))
@@ -1399,15 +1427,9 @@ def build_public_output(state: object) -> dict:
             "coverage": coverage,
             "totals": {
                 "affected_jobs": len(positives),
-                "passed_jobs": sum(
-                    row["state"] == "passed" for row, _ in positives
-                ),
-                "soft_failed_jobs": sum(
-                    row["state"] == "soft" for row, _ in positives
-                ),
-                "hard_failed_jobs": sum(
-                    row["state"] == "hard" for row, _ in positives
-                ),
+                "passed_jobs": sum(row["state"] == "passed" for row, _ in positives),
+                "soft_failed_jobs": sum(row["state"] == "soft" for row, _ in positives),
+                "hard_failed_jobs": sum(row["state"] == "hard" for row, _ in positives),
                 "episodes": sum(len(episodes) for _, episodes in positives),
                 "huggingface_affected_jobs": sum(
                     any(
@@ -1426,8 +1448,7 @@ def build_public_output(state: object) -> dict:
     evidence_rows = [
         row
         for row in jobs
-        if row["status"] == "positive"
-        and _positive_in_window(row, retention_start, end)
+        if row["status"] == "positive" and _positive_in_window(row, retention_start, end)
     ]
     evidence_items = [_evidence_item(row, end) for row in evidence_rows]
     evidence_items.sort(
@@ -1465,7 +1486,7 @@ def build_public_output(state: object) -> dict:
         start=retention_start,
         end_exclusive=end,
         discovery_complete=bool(
-            payload["discovery"]["complete"] and discovery_start <= retention_start
+            scope_complete and discovery_start <= retention_start
         ),
     )
     top_coverage = {
@@ -1490,7 +1511,8 @@ def build_public_output(state: object) -> dict:
         "count_basis": COUNT_BASIS,
         "scope": {
             "organization": "vllm",
-            "pipelines": list(PIPELINES),
+            "pipelines": list(CURRENT_PIPELINES),
+            "hardware_scope": "amd_mi_gpu",
             "branches": "all",
             "job_types": ["script"],
             "states": list(JOB_STATES),
@@ -1516,8 +1538,7 @@ def build_public_output(state: object) -> dict:
 
 def _public_output_bytes(payload: dict) -> bytes:
     return (
-        json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=False)
-        + "\n"
+        json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=False) + "\n"
     ).encode("utf-8")
 
 
@@ -1606,8 +1627,7 @@ def compact_public_output(
             high = ratio - 1
     if best is None:
         raise RuntimeError(
-            "DNS public fixed metadata exceeds its byte budget; preserving the "
-            "last-known-good file"
+            "DNS public fixed metadata exceeds its byte budget; preserving the last-known-good file"
         )
     return best
 

@@ -25,7 +25,7 @@ BK_CLUSTER_UUID = "9cecc6b1-94cd-43d1-a256-ab438083f4f5"
 
 # Pipelines that land on AMD hardware. Used by hotness/analytics collectors
 # to scope which builds to walk.
-AMD_PIPELINES: tuple[str, ...] = ("amd-ci",)
+AMD_PIPELINES: tuple[str, ...] = ("ci",)
 
 # ---------------------------------------------------------------------------
 # Queue taxonomy
@@ -96,31 +96,11 @@ _TRACKED_QUEUE_NAMES = {
     "amd_mi355_2",
     "amd_mi355_4",
     "amd_mi355_8",
-    # NVIDIA
-    "gpu_1_queue",
-    "gpu_4_queue",
-    "B200",
-    "H200",
-    "a100_queue",
-    "mithril-h100-pool",
-    "nebius-h200",
-    # CPU
-    "cpu_queue_postmerge",
-    "cpu_queue_premerge",
-    "cpu_queue_postmerge_us_east_1",
-    "cpu_queue_premerge_us_east_1",
-    # Other hardware partners
-    "intel-gpu",
-    "intel-hpu",
-    "intel-cpu",
-    "arm-cpu",
-    "ascend",
-    # vLLM-Omni workload identifiers (same BK org / pipelines; separate queues)
-    "intel-gpu-omni",
+
 }
 
 TRACKED_QUEUES: frozenset[str] = frozenset(
-    queue for queue in _TRACKED_QUEUE_NAMES if not is_excluded_queue(queue)
+    queue for queue in _TRACKED_QUEUE_NAMES if amd_gpu_hardware(queue)
 )
 
 AMD_QUEUE_PREFIX = "amd_"

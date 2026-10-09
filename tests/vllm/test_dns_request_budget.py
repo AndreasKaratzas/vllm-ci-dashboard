@@ -391,7 +391,10 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     assert 'echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"' in reserve["run"]
     assert 'echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"' in reserve["run"]
     assert 'echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"' in reserve["run"]
-    assert collect["env"] == {"BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}"}
+    assert collect["env"] == {
+        "BUILDKITE_TOKEN": "${{ secrets.BUILDKITE_TOKEN }}",
+        "GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+    }
     assert collect["id"] == "collect-dns"
     assert collect["if"] == (
         "steps.dns-request-budget.outputs.request_mode != 'capacity_gated'"

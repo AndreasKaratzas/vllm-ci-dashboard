@@ -45,6 +45,8 @@ from vllm.publication_surfaces import (  # noqa: E402
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
     PRE_QUEUE_SPLIT_SURFACE_SPEC,
+    PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
+    PRE_RUNTIME_PARITY_SURFACE_SPECS,
     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
     PRE_VIEW_RETIREMENT_SURFACE_SPECS,
     RETIRED_SURFACES,
@@ -176,7 +178,7 @@ DNS_OUTCOME_COUNT_FIELD_BY_STATE = {
     "soft": "soft_failed_jobs",
     "hard": "hard_failed_jobs",
 }
-DNS_PIPELINES = ("amd-ci", "ci")
+DNS_PIPELINES = ("ci",)
 DNS_UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
 )
@@ -559,15 +561,8 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "data/vllm/ci/ci_health.json",
         ("scripts/collect_ci.py", "scripts/vllm/ci/reporter.py"),
         ("docs/assets/js/utils.js", "scripts/vllm/build_operations_snapshot.py"),
-        ("generated_at", "amd", "upstream"),
+        ("generated_at", "amd", "hardware_scope"),
         "CI Health cards and hardware test-count breakdown",
-    ),
-    DataSpec(
-        "data/vllm/ci/parity_report.json",
-        ("scripts/collect_ci.py", "scripts/vllm/ci/reporter.py"),
-        ("docs/assets/js/utils.js",),
-        ("generated_at", "job_groups", "amd_build", "upstream_build"),
-        "ROCm/CUDA parity and Home AMD hardware breakdown",
     ),
     DataSpec(
         "data/vllm/ci/config_parity.json",
@@ -836,6 +831,13 @@ def is_amd_queue(name: str) -> bool:
     return str(name or "").startswith("amd_") or str(name or "") == "amd-cpu"
 
 
+def is_mi_hardware(name: Any) -> bool:
+    from vllm.constants import amd_gpu_hardware
+
+    normalized = str(name or "").strip().casefold()
+    return bool(amd_gpu_hardware(normalized if normalized.startswith("amd_") else "amd_" + normalized))
+
+
 def is_retired_queue(name: str) -> bool:
     normalized = str(name or "").strip().casefold()
     return "mi355b" in normalized
@@ -915,7 +917,6 @@ class DashboardAudit:
             "data/vllm/ci/test_group_parity.json": ("publication_retention",),
             "data/vllm/ci/failure_trends.json": ("publication_retention",),
             "data/vllm/ci/flaky_tests.json": ("publication_retention",),
-            "data/vllm/ci/parity_report.json": ("publication_retention",),
             "data/vllm/ci/amd_test_matrix.json": ("publication_retention",),
             "data/vllm/ci/queue_jobs.json": ("publication_retention",),
             "data/vllm/ci/shard_base_catalog.json": ("publication_retention",),
@@ -1385,6 +1386,7 @@ class DashboardAudit:
                     None,
                     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
                     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
+                    PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
                     SURFACE_CONTRACT_VERSION,
                 )
             ):
@@ -1408,6 +1410,13 @@ class DashboardAudit:
                 else set(_historical_publication_specs())
                 if surface_contract_version == PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION
                 else set(SURFACE_SPECS)
+            )
+            proof_specs = (
+                PRE_RUNTIME_PARITY_SURFACE_SPECS
+                if _uses_declared_publication_domain() and surface_contract_version == PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION
+                else SURFACE_SPECS
+                if _uses_declared_publication_domain() and surface_contract_version == SURFACE_CONTRACT_VERSION
+                else _historical_publication_specs()
             )
             if (
                 mode not in {"current", "degraded", "fallback", "mixed", "blocked"}
@@ -1711,7 +1720,7 @@ class DashboardAudit:
                     surface, manifest[surface]
                 )
                 valid = verify_manifest(
-                    surface, _historical_publication_specs()[surface], manifest[surface]
+                    surface, proof_specs[surface], manifest[surface]
                 ) and valid
                 if restored_paths is not None:
                     valid = verify_restored_paths(
@@ -2382,6 +2391,8 @@ class DashboardAudit:
                 "Operations snapshot must use schema_version 2",
                 relpath,
             )
+        if payload.get("hardware_scope") != "amd_mi_gpu":
+            self.error("current-runtime-hardware-scope", "Operations runtime aggregates require explicit AMD MI GPU source authority", relpath)
 
         generated_at = _parse_timestamp(payload.get("generated_at"))
         source_ages: dict[str, float] = {}
@@ -2458,6 +2469,8 @@ class DashboardAudit:
                         )
 
         amd_test_health = _mapping(payload.get("amd_test_health"))
+        if amd_test_health.get("hardware_scope") != "amd_mi_gpu" or amd_test_health.get("job_scope") != "amd_gpu":
+            self.error("current-runtime-hardware-scope", "AMD test health must be recomputed from the MI GPU roster", relpath)
         amd_health_summary = _mapping(amd_test_health.get("summary"))
         amd_latest_logical_counts = _mapping(
             amd_health_summary.get("latest_test_group_counts")
@@ -3199,6 +3212,8 @@ class DashboardAudit:
                     )
 
         reliability = _mapping(payload.get("reliability"))
+        if reliability.get("hardware_scope") != "amd_mi_gpu" or reliability.get("job_scope") != "amd_gpu":
+            self.error("operations-reliability-hardware-identity", "Reliability aggregates must identify AMD MI GPU jobs exclusively", relpath)
         if reliability.get("source_pipeline") != "ci":
             self.error(
                 "operations-reliability-source-pipeline",
@@ -3211,7 +3226,7 @@ class DashboardAudit:
         if reliability.get("available") is not True:
             self.error(
                 "operations-reliability-unavailable",
-                "Canonical upstream reliability must fail closed until a strict ci all-main cohort is present",
+                "AMD MI reliability must fail closed until a strict ci all-main cohort is present",
                 relpath,
             )
         if "amd_reliability" in payload:
@@ -3309,11 +3324,19 @@ class DashboardAudit:
                 f"canonical AMD history retains {len(canonical_rows)} builds, expected {expected_nightlies}",
                 relpath,
             )
-        upstream_parity = _mapping(nightly.get("upstream_parity"))
-        if upstream_parity.get("pipeline") != "ci" or canonical.get("pipeline") != "ci":
+        pipelines = _rows(nightly.get("pipelines"))
+        if (
+            canonical.get("pipeline") != "ci"
+            or canonical.get("cohort_id") != "ci-amd"
+            or canonical.get("hardware_scope") != "amd_mi_gpu"
+            or nightly.get("hardware_scope") != "amd_mi_gpu"
+            or len(pipelines) != 1
+            or _mapping(pipelines[0]).get("cohort_id") != "ci-amd"
+            or any(key in nightly for key in ("upstream", "upstream_parity"))
+        ):
             self.error(
                 "operations-upstream-parity-scope",
-                "Canonical AMD nightly history and upstream parity must be published separately",
+                "Current nightly history must contain only the AMD MI CI runtime cohort",
                 relpath,
             )
         if "branch=main" not in str((reliability.get("denominator") or {}).get("unit") or ""):
@@ -3358,6 +3381,9 @@ class DashboardAudit:
         for raw_group in catalog:
             group = _mapping(raw_group)
             rows = _rows(group.get("observations"))
+            from vllm.pipelines import is_amd_ci_job
+            if not is_mi_hardware(group.get("hardware")) or any(not is_amd_ci_job({"queue": queue}) for queue in _rows(group.get("queues"))):
+                self.error("operations-reliability-hardware-identity", f"{group.get('name')}: reliability includes a non-MI hardware or queue", relpath)
             if group.get("source_pipeline") != "ci":
                 self.error(
                     "operations-reliability-group-source",
@@ -3645,7 +3671,10 @@ class DashboardAudit:
                 invalid("Latency workload rows must be objects")
                 return None
             row = dict(raw_row)
-            for side in ("amd", "upstream"):
+            if set(row) - {"id", "label", "amd"}:
+                invalid("MI latency workloads must not contain a CUDA comparison or legacy fields")
+                return None
+            for side in ("amd",):
                 if not isinstance(row.get(side), dict) or not isinstance(
                     row[side].get("samples"), list
                 ):
@@ -3708,7 +3737,7 @@ class DashboardAudit:
     ) -> None:
         """Reconstruct medians from exact jobs in one fixed latest-five cohort."""
         from statistics import median
-        from vllm.pipelines import is_amd_ci_job, is_upstream_cuda_ci_job
+        from vllm.pipelines import is_amd_ci_job
 
         normalized = self._normalize_current_latency_evidence(latency, relpath)
         if normalized is None:
@@ -3719,8 +3748,10 @@ class DashboardAudit:
             self.error(f"latency-{code}", message, relpath)
 
         if (
-            latency.get("schema_version") != 1
+            latency.get("schema_version") != 2
             or latency.get("source_pipeline") != "ci"
+            or latency.get("job_scope") != "amd_gpu"
+            or latency.get("hardware_scope") != "amd_mi_gpu"
             or latency.get("branch") != "main"
             or latency.get("build_limit") != 5
             or latency.get("statistic") != "median_of_per_nightly_group_wall_minutes"
@@ -3794,6 +3825,7 @@ class DashboardAudit:
                 "Latency interval does not reconcile with its retained nightly dates",
             )
         rows = _rows(latency.get("rows"))
+        clock = _parse_timestamp(latency.get("generated_at"))
         if latency.get("available") is not True:
             if (
                 rows
@@ -3817,8 +3849,11 @@ class DashboardAudit:
                 _safe_int(_mapping(build).get("number")): _mapping(build)
                 for build in source_builds
                 if _mapping(build).get("branch") == "main"
-                and _mapping(build).get("state") in {"passed", "failed"}
+                and _mapping(build).get("source_state", _mapping(build).get("state")) in {"passed", "failed"}
+                and _parse_timestamp(_mapping(build).get("created_at")) is not None
                 and _parse_timestamp(_mapping(build).get("finished_at")) is not None
+                and clock is not None
+                and _parse_timestamp(_mapping(build).get("created_at")) <= _parse_timestamp(_mapping(build).get("finished_at")) <= clock
                 and re.search(
                     UPSTREAM_NIGHTLY_NAME_PATTERN, str(_mapping(build).get("message") or ""), re.I
                 )
@@ -3836,7 +3871,6 @@ class DashboardAudit:
                     "global-cohort",
                     "Latency must select the latest five completed main-ci nightlies before inspecting any workload",
                 )
-        clock = _parse_timestamp(latency.get("generated_at"))
         newest = _parse_timestamp(_mapping(nightlies[0]).get("created_at")) if nightlies else None
         if (
             clock is None
@@ -3855,7 +3889,7 @@ class DashboardAudit:
                 fail("group-identity", "Latency rows require unique logical workload identities")
             seen_ids.add(str(identity))
             medians = {}
-            for side, predicate in (("amd", is_amd_ci_job), ("upstream", is_upstream_cuda_ci_job)):
+            for side, predicate in (("amd", is_amd_ci_job),):
                 block = _mapping(row.get(side))
                 samples = _rows(block.get("samples"))
                 sample_numbers = [
@@ -3863,6 +3897,8 @@ class DashboardAudit:
                 ]
                 if (
                     block.get("source_pipeline") != "ci"
+                    or block.get("job_scope") != "amd_gpu"
+                    or block.get("hardware_scope") != "amd_mi_gpu"
                     or block.get("sample_count") != len(samples)
                     or len(samples) > 5
                     or len(set(sample_numbers)) != len(samples)
@@ -3894,6 +3930,14 @@ class DashboardAudit:
                             f"{identity}/{side}: sample backfills or misidentifies the fixed nightly cohort",
                         )
                     jobs = _rows(sample.get("jobs"))
+                    source_jobs = None
+                    if source_builds is not None:
+                        source_build = next((_mapping(build) for build in source_builds if _mapping(build).get("number") == number), {})
+                        source_jobs = {
+                            str(job.get("job_id") or job.get("id") or ""): job
+                            for job in _rows(source_build.get("jobs"))
+                            if isinstance(job, dict) and not job.get("retried_in_job_id") and is_amd_ci_job(job)
+                        }
                     job_durations = []
                     job_ids = set()
                     for raw_job in jobs:
@@ -3926,6 +3970,8 @@ class DashboardAudit:
                                 f"{identity}/{side}: timing needs exact unique ci job links",
                             )
                         job_ids.add(job_id)
+                        if source_jobs is not None and job_id not in source_jobs:
+                            fail("hardware-scope", f"{identity}/{side}: timing job is absent from the exact eligible MI source roster")
                         if not predicate(
                             {
                                 "raw_name": job.get("raw_name"),
@@ -3986,30 +4032,11 @@ class DashboardAudit:
                         f"{identity}/{side}: median does not reconcile with this cohort's samples",
                     )
                 medians[side] = expected
-            matched = medians["upstream"] is not None
-            if medians["amd"] is None or row.get("match_status") != (
-                "matched" if matched else "unmatched"
-            ):
+            if medians["amd"] is None:
                 fail(
-                    "match-state",
-                    f"{identity}: match state must reflect current AMD/CUDA timing availability",
+                    "median",
+                    f"{identity}: MI workloads must have timed current cohort samples",
                 )
-            expected_ratio = (
-                round(medians["amd"] / medians["upstream"], 4)
-                if medians["amd"] is not None and medians["upstream"]
-                else None
-            )
-            expected_delta = (
-                round(medians["amd"] - medians["upstream"], 4)
-                if matched and medians["amd"] is not None
-                else None
-            )
-            for key, expected in (("ratio", expected_ratio), ("delta_mins", expected_delta)):
-                if (expected is None and row.get(key) is not None) or (
-                    expected is not None
-                    and not math.isclose(_safe_float(row.get(key), -999), expected, abs_tol=0.0001)
-                ):
-                    fail("comparison", f"{identity}: {key} disagrees with current cohort medians")
         self.report.metrics["current_nightly_latency"] = {
             "build_count": len(nightlies),
             "groups": len(rows),
@@ -4024,6 +4051,8 @@ class DashboardAudit:
         commit = str(source.get("current_definition_commit_sha") or "")
         if (
             source.get("pipeline") != "ci"
+            or source.get("hardware_scope") != "amd_mi_gpu"
+            or source.get("upstream_scope") != "cuda_gpu_configuration_benchmark"
             or not FULL_COMMIT_SHA_RE.fullmatch(commit)
             or source.get("main_commit") != commit
         ):
@@ -4932,13 +4961,11 @@ class DashboardAudit:
         )
 
     def _audit_current_runtime_build(self, row: dict, side: str, relpath: str) -> None:
-        from vllm.pipelines import is_amd_ci_job, is_upstream_cuda_ci_job
         number = row.get("build_number") or row.get("number")
         url = row.get("build_url") or row.get("web_url")
         if row.get("pipeline") not in {side, "ci"} or row.get("branch") != "main" or not _buildkite_url_matches(url, "ci", number):
             self.error("current-runtime-source", f"{side} runtime must identify exact upstream ci main build metadata", relpath)
-        predicate = is_amd_ci_job if side == "amd" else is_upstream_cuda_ci_job
-        wrong_hardware = [hardware for hardware in _mapping(row.get("by_hardware")) if not predicate({"hardware": hardware})]
+        wrong_hardware = [hardware for hardware in _mapping(row.get("by_hardware")) if not is_mi_hardware(hardware)]
         if wrong_hardware:
             self.error("current-runtime-hardware-scope", f"{side} runtime includes hardware outside its GPU roster: {wrong_hardware}", relpath)
 
@@ -4946,6 +4973,8 @@ class DashboardAudit:
         health = self.load_json("data/vllm/ci/ci_health.json", {})
         if not isinstance(health, dict):
             return
+        if health.get("hardware_scope") != "amd_mi_gpu" or health.get("job_scope") != "amd_gpu" or "upstream" in health:
+            self.error("current-runtime-hardware-scope", "Current CI health must contain only the explicitly recomputed AMD MI GPU runtime role", "data/vllm/ci/ci_health.json")
 
         rate_contract_enabled = self._pass_rate_contract_enabled(
             health.get("pass_rate_contract_version"),
@@ -4955,7 +4984,7 @@ class DashboardAudit:
         )
 
         metrics: dict[str, Any] = {}
-        for side, suffix in (("amd", "amd"), ("upstream", "upstream")):
+        for side, suffix in (("amd", "amd"),):
             latest = ((health.get(side) or {}).get("latest_build") or {})
             if not latest:
                 self.error("ci-health-latest", f"ci_health.json lacks {side}.latest_build")
@@ -5026,7 +5055,6 @@ class DashboardAudit:
             "data/vllm/ci/ci_health.json",
             "data/vllm/ci/amd_test_matrix.json",
             "data/vllm/ci/test_group_parity.json",
-            "data/vllm/ci/parity_report.json",
         )
         payloads = {}
         for path in paths:
@@ -5043,7 +5071,7 @@ class DashboardAudit:
         health = payloads[paths[0]]
         matrix = payloads[paths[1]]
         runtime_commit = str(_mapping(matrix.get("source")).get("runtime_source_commit_sha") or "").casefold()
-        for suffix in ("amd", "upstream"):
+        for suffix in ("amd",):
             latest = _mapping(_mapping(health.get(suffix)).get("latest_build"))
             health_commit = str(latest.get("commit") or "").casefold()
             if suffix == "amd" and FULL_COMMIT_SHA_RE.fullmatch(runtime_commit) and health_commit not in (runtime_commit, runtime_commit[:12]):
@@ -5086,7 +5114,7 @@ class DashboardAudit:
         """Prove an active retry's replacement completed CI transaction.
 
         The current pipeline head remains visible, but it cannot supply final
-        test evidence. Each GPU role's completed signal must agree with its
+        test evidence. The AMD MI completed signal must agree with its
         exact terminal analytics roster, job identities and immutable commit.
         """
         from vllm.pipelines import UPSTREAM_NIGHTLY_NAME_PATTERN, pipeline_job_matches_scope
@@ -5103,7 +5131,7 @@ class DashboardAudit:
             "passed", "failed", "soft_fail", "soft_failed", "timed_out", "broken",
             "canceled", "cancelled", "blocked", "waiting_failed", "expired", "not_run", "skipped",
         }
-        for side in ("amd", "upstream"):
+        for side in ("amd",):
             selected = _ci_analytics_test_signal_build(analytics, health, side)
             number = selected.get("number")
             commit = str(selected.get("commit") or "").casefold()
@@ -5111,7 +5139,7 @@ class DashboardAudit:
             finished = _parse_timestamp(selected.get("finished_at"))
             if (
                 type(number) is not int or number <= 0
-                or selected.get("state") not in {"passed", "failed"}
+                or selected.get("source_state", selected.get("state")) not in {"passed", "failed"}
                 or selected.get("branch") != "main"
                 or not re.search(UPSTREAM_NIGHTLY_NAME_PATTERN, str(selected.get("message") or ""), re.I)
                 or not _buildkite_url_matches(selected.get("web_url"), "ci", number)
@@ -5174,6 +5202,8 @@ class DashboardAudit:
         payload = self.load_json(path, {})
         if not isinstance(payload, dict):
             return
+        if payload.get("hardware_scope") != "amd_mi_gpu" or "cuda" in payload:
+            self.error("current-runtime-hardware-scope", "Root test results must contain only recomputed ROCm MI GPU execution evidence", path)
 
         rate_contract_enabled = self._pass_rate_contract_enabled(
             payload.get("pass_rate_contract_version"),
@@ -5183,7 +5213,7 @@ class DashboardAudit:
         )
 
         metrics: dict[str, Any] = {}
-        for platform in ("rocm", "cuda"):
+        for platform in ("rocm",):
             block = payload.get(platform)
             if block is None:
                 continue
@@ -5337,7 +5367,7 @@ class DashboardAudit:
         health_path = self.root / "data/vllm/ci/ci_health.json"
         if health_path.exists():
             health = _mapping(self.load_json(self.rel(health_path), {}))
-            if any(_mapping(_mapping(health.get(side)).get("latest_pipeline_build")).get("active_retry") is True for side in ("amd", "upstream")):
+            if any(_mapping(_mapping(health.get(side)).get("latest_pipeline_build")).get("active_retry") is True for side in ("amd",)):
                 self.audit_current_completed_ci_transaction()
         metrics: dict[str, Any] = {}
 
@@ -5347,6 +5377,11 @@ class DashboardAudit:
                 self.error("analytics-pipeline-missing", f"analytics.json missing {slug}")
                 continue
             builds = _rows(block.get("builds"))
+            if block.get("job_scope") != "amd_gpu" or block.get("hardware_scope") != "amd_mi_gpu" or "amd-ci" in analytics or "upstream" in analytics:
+                self.error("analytics-runtime-hardware-scope", "Analytics must contain only explicitly recomputed MI GPU runtime aggregates from current ci", "data/vllm/ci/analytics.json")
+            from vllm.pipelines import is_amd_ci_job
+            if any(not isinstance(job, dict) or not is_amd_ci_job(job) for build in builds for job in _rows(_mapping(build).get("jobs"))):
+                self.error("analytics-runtime-hardware-scope", "Analytics CI source roster includes CPU, no_gpu, CUDA or unknown jobs", "data/vllm/ci/analytics.json")
             rate_contract_enabled = self._pass_rate_contract_enabled(
                 block.get("pass_rate_contract_version"),
                 label=f"analytics.json[{slug}]",
@@ -5363,10 +5398,10 @@ class DashboardAudit:
                     f"{slug}.summary",
                 )
 
-            suffix = "upstream"
+            suffix = "amd"
             latest_results = self.latest_result_file(suffix)
             result_numbers = self.build_numbers_in_jsonl(latest_results)
-            latest = _ci_analytics_test_signal_build(analytics, health if health_path.exists() else {}, "upstream")
+            latest = _ci_analytics_test_signal_build(analytics, health if health_path.exists() else {}, "amd")
             if result_numbers and latest.get("number") not in result_numbers:
                 self.report_cross_surface_build_mismatch(
                     "analytics-jsonl-build-mismatch",
@@ -5377,7 +5412,7 @@ class DashboardAudit:
                     right_surface="ci_core",
                     right_build=max(result_numbers),
                     context={
-                        "pipeline": "upstream"
+                        "pipeline": "amd"
                     },
                 )
             if result_numbers and latest.get("source") != "test_results":
@@ -7157,8 +7192,10 @@ class DashboardAudit:
         source_build = source.get("latest_build_number")
         commit = str(source.get("commit_sha") or "")
         runtime_commit = str(source.get("runtime_source_commit_sha") or "")
-        if source.get("pipeline") != "ci" or source.get("definition_source") != "main_ci_inline_and_native_amd" or not FULL_COMMIT_SHA_RE.fullmatch(commit) or (source_build and runtime_commit != commit):
+        if source.get("pipeline") != "ci" or source.get("definition_source") != "main_ci_inline_and_native_amd" or source.get("job_scope") != "amd_gpu" or source.get("hardware_scope") != "amd_mi_gpu" or not FULL_COMMIT_SHA_RE.fullmatch(commit) or (source_build and runtime_commit != commit):
             self.error("matrix-current-source", "AMD matrix must expand main ci definitions at the exact observed nightly commit", "data/vllm/ci/amd_test_matrix.json")
+        if any(not is_mi_hardware(arch) for arch in stats["by_arch"]):
+            self.error("matrix-current-source", "AMD matrix includes an architecture outside the current MI GPU inventory", "data/vllm/ci/amd_test_matrix.json")
         analytics = (
             self.load_json("data/vllm/ci/analytics.json", {})
             if validate_analytics else {}
@@ -7284,11 +7321,6 @@ class DashboardAudit:
                 "data/vllm/ci/amd_test_matrix.json",
             )
 
-        self.audit_parity_hardware_matches_matrix(
-            matrix,
-            stats,
-            source_totals=incomplete_detail,
-        )
         self.report.metrics["amd_matrix"] = {
             **{k: v for k, v in stats.items() if k != "by_arch"},
             "by_arch": stats["by_arch"],
@@ -7297,105 +7329,6 @@ class DashboardAudit:
             "best_hardware": best_hardware_metrics,
         }
 
-    def audit_parity_hardware_matches_matrix(
-        self,
-        matrix: dict[str, Any],
-        matrix_stats: dict[str, Any],
-        *,
-        source_totals: bool = False,
-    ) -> None:
-        parity = self.load_json("data/vllm/ci/parity_report.json", {})
-        if not isinstance(parity, dict):
-            return
-        parity_stats: dict[str, dict[str, int]] = {}
-        for group in parity.get("job_groups") or []:
-            if _safe_int(_mapping(group.get("amd")).get("total")) <= 0:
-                continue
-            amd_hardware = group.get("amd_hardware")
-            hardware = (
-                amd_hardware
-                if isinstance(amd_hardware, list)
-                else (group.get("hardware") or [])
-            )
-            amd_hw_failures = group.get("amd_hw_failures")
-            hw_failures = (
-                amd_hw_failures
-                if isinstance(amd_hw_failures, dict)
-                else (group.get("hw_failures") or {})
-            )
-            amd_hw_canceled = group.get("amd_hw_canceled")
-            hw_canceled = (
-                amd_hw_canceled
-                if isinstance(amd_hw_canceled, dict)
-                else (group.get("hw_canceled") or {})
-            )
-            for hw in hardware:
-                if not re.match(r"^mi\d+", str(hw), flags=re.I):
-                    continue
-                stats = parity_stats.setdefault(
-                    hw,
-                    {"passing": 0, "failing": 0, "pending": 0, "canceled": 0, "total": 0},
-                )
-                pending = bool(group.get("backfilled") or (group.get("hw_backfilled") or {}).get(hw))
-                failed = hw_failures.get(hw, 0) > 0
-                canceled = hw_canceled.get(hw, 0) > 0 and not failed
-                if pending:
-                    stats["pending"] += 1
-                elif failed:
-                    stats["failing"] += 1
-                elif canceled:
-                    stats["canceled"] += 1
-                else:
-                    stats["passing"] += 1
-                stats["total"] += 1
-
-        architecture_sources = {
-            str(row.get("id") or ""): row
-            for row in _rows(matrix.get("architectures"))
-        }
-        for arch, mstats in matrix_stats["by_arch"].items():
-            pstats = parity_stats.get(arch, {})
-            matrix_total = (
-                _mapping(architecture_sources.get(arch)).get("nightly_match_count")
-                if source_totals
-                else mstats.get("matched", mstats["total"])
-            )
-            totals_match = pstats.get("total", 0) == matrix_total
-            if not totals_match:
-                self.error(
-                    "parity-matrix-hardware-total",
-                    f"{arch} parity hardware total={pstats.get('total')} but AMD matrix total={matrix_total}",
-                    "data/vllm/ci/parity_report.json",
-                )
-            if source_totals:
-                continue
-            parity_failing = pstats.get("failing")
-            if parity_failing != mstats["failing"]:
-                diff = abs((parity_failing or 0) - mstats["failing"])
-                if mstats.get("waiting", 0) and diff <= mstats["waiting"]:
-                    self.warning(
-                        "parity-matrix-hardware-failing-in-progress",
-                        f"{arch} parity failing groups={parity_failing} and AMD matrix "
-                        f"failing cells={mstats['failing']} differ by {diff} while "
-                        f"{mstats['waiting']} matrix cells are still waiting",
-                        "data/vllm/ci/parity_report.json",
-                    )
-                elif totals_match:
-                    self.warning(
-                        "parity-matrix-hardware-failing-final-state-drift",
-                        f"{arch} parity retained test-result failing groups={parity_failing} "
-                        f"but AMD matrix final-job failing cells={mstats['failing']}; "
-                        f"hardware totals agree at {mstats['total']} and a retry can "
-                        "change the final Buildkite state",
-                        "data/vllm/ci/parity_report.json",
-                    )
-                else:
-                    self.error(
-                        "parity-matrix-hardware-failing",
-                        f"{arch} parity failing groups={parity_failing} but AMD matrix failing cells={mstats['failing']}",
-                        "data/vllm/ci/parity_report.json",
-                    )
-        self.report.metrics["parity_hardware"] = parity_stats
 
     def audit_queue_data(self, *, validate_derived: bool = False) -> None:
         rows = self.load_jsonl("data/vllm/ci/queue_timeseries.jsonl")
@@ -8882,6 +8815,7 @@ class DashboardAudit:
                 "job_types",
                 "states",
                 "queue_scope",
+                "hardware_scope",
                 "retried_jobs",
             },
             "scope",
@@ -8893,6 +8827,7 @@ class DashboardAudit:
             "job_types": ["script"],
             "states": ["passed", "soft", "hard"],
             "queue_scope": "active_amd_gpu",
+            "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
         }
         if scope != expected_scope:
@@ -10158,6 +10093,9 @@ class DashboardAudit:
 
         ordered_tokens = [
             "name: Restore validated dashboard state",
+            "name: Prepare private analytics cache key",
+            "name: Restore private analytics build cache",
+            "name: Restore immutable runtime source indexes",
             "name: Collect CI data",
             "name: Save private CI roster cache",
             "name: Save private DNS classification cache",
@@ -10166,10 +10104,9 @@ class DashboardAudit:
             "name: Refresh current main CI parity",
             "name: Collect build-pinned CI ownership parity",
             "name: Validate current CI core before analytics",
-            "name: Prepare private analytics cache key",
-            "name: Restore private analytics build cache",
             "name: Collect CI analytics",
             "name: Save private analytics build cache",
+            "name: Save immutable runtime source checkpoint",
             "name: Live publication audit",
             "name: Run test suite",
             "name: Enforce publication validation results",

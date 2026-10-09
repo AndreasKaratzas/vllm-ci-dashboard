@@ -53,7 +53,7 @@ def _metadata(
     node: str = "unidentified",
 ) -> dict:
     return {
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "build_number": build_number,
         "job_id": job["id"],
         "queue": "amd_mi300_1",
@@ -62,6 +62,10 @@ def _metadata(
         "state": "passed",
         "started_at": job["started_at"],
         "finished_at": job["finished_at"],
+        "execution_proof": {
+            "version": 1, "source_commit": "a" * 40, "definition_tree": "b" * 40,
+            "classification": "amd_mi_gpu",
+        },
     }
 
 
@@ -83,7 +87,7 @@ def test_core_log_parse_emits_cache_without_a_second_log_request(monkeypatch, tm
     results = log_parser.parse_job_results(
         job,
         12001,
-        "amd-ci",
+        "ci",
         "2026-08-20",
         dns_classification_sink=cache.observe_job_log,
     )
@@ -104,7 +108,7 @@ def test_optional_dns_sink_failure_never_breaks_core_log_parsing():
     results = log_parser.parse_job_results(
         job,
         12001,
-        "amd-ci",
+        "ci",
         "2026-08-20",
         log_text="===== 1 passed in 1.0s =====\n",
         dns_classification_sink=broken_sink,
@@ -118,7 +122,7 @@ def test_dns_cache_hit_is_consumed_before_any_job_log_get(tmp_path):
     cache = DnsClassificationCache(tmp_path / "dns-cache", now=NOW)
     assert cache.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="ordinary successful output with no DNS resolver errors",
     )
@@ -150,7 +154,7 @@ def test_unidentified_node_bypasses_cache_so_log_can_recover_attribution(tmp_pat
     cache = DnsClassificationCache(tmp_path / "dns-cache", now=NOW)
     assert cache.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="ordinary successful output with no DNS resolver errors",
     )
@@ -187,7 +191,7 @@ def test_metadata_mismatch_is_a_miss_and_falls_back_to_log_get(tmp_path):
     cache = DnsClassificationCache(tmp_path / "dns-cache", now=NOW)
     assert cache.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="ordinary successful output with no DNS resolver errors",
     )
@@ -223,7 +227,7 @@ def test_fresh_log_replaces_stale_restored_classification(tmp_path):
     initial = DnsClassificationCache(cache_path, now=NOW)
     assert initial.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="curl: (6) Could not resolve host: github.com",
     )
@@ -232,7 +236,7 @@ def test_fresh_log_replaces_stale_restored_classification(tmp_path):
     refreshed = DnsClassificationCache(cache_path, now=NOW)
     assert refreshed.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="ordinary successful output with no DNS resolver errors",
     )
@@ -252,7 +256,7 @@ def test_shard_contains_only_minimized_classification_fields(tmp_path):
     cache = DnsClassificationCache(tmp_path / "dns-cache", now=NOW)
     assert cache.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text=secret_log,
     )
@@ -283,7 +287,7 @@ def test_flush_prunes_beyond_35_days_and_enforces_shard_limit(monkeypatch, tmp_p
     old_cache = DnsClassificationCache(cache_path, now=old_clock)
     assert old_cache.observe_job_log(
         job=old_job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="no resolver failure",
     )
@@ -295,7 +299,7 @@ def test_flush_prunes_beyond_35_days_and_enforces_shard_limit(monkeypatch, tmp_p
     current_cache = DnsClassificationCache(cache_path, now=NOW)
     assert current_cache.observe_job_log(
         job=current_job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12002,
         log_text="no resolver failure",
     )
@@ -308,7 +312,7 @@ def test_flush_prunes_beyond_35_days_and_enforces_shard_limit(monkeypatch, tmp_p
     yesterday = NOW - timedelta(days=1)
     assert current_cache.observe_job_log(
         job=_job(7, finished_at=yesterday),
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12004,
         log_text="no resolver failure",
     )
@@ -326,7 +330,7 @@ def test_flush_prunes_beyond_35_days_and_enforces_shard_limit(monkeypatch, tmp_p
     limited = DnsClassificationCache(too_small, now=NOW)
     assert limited.observe_job_log(
         job=_job(6),
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12003,
         log_text="no resolver failure",
     )
@@ -360,7 +364,7 @@ def test_malformed_optional_cache_is_discarded_before_dns_collection(tmp_path):
         now=NOW,
     )
 
-    assert client.calls == 2
+    assert client.calls == 1
     assert payload["coverage"]["scanned_jobs"] == 0
     assert cache_path.is_dir()
     assert list(cache_path.iterdir()) == []
@@ -387,7 +391,7 @@ def test_same_day_future_row_is_rejected_at_the_wall_clock_boundary(tmp_path):
     cache = DnsClassificationCache(cache_path, now=future)
     assert cache.observe_job_log(
         job=job,
-        pipeline="amd-ci",
+        pipeline="ci",
         build_number=12001,
         log_text="ordinary successful output with no DNS resolver errors",
     )
@@ -473,7 +477,7 @@ def test_main_uses_one_fresh_clock_for_roster_expiry_and_upload_validation(
 
     core_collector.main()
 
-    assert pipelines == ["amd", "upstream"]
+    assert pipelines == ["amd"]
     assert prune_clocks == [upload_clock]
     assert validation_clocks == [upload_clock]
 

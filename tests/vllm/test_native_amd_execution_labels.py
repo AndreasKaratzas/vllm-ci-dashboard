@@ -32,7 +32,8 @@ def test_observed_native_labels_share_runtime_group_hardware_and_route(raw, titl
     assert collect_analytics.normalize_job(raw) == title
     assert collect_analytics.queue_from_result_job_name(raw) == f"amd_{pool}"
     assert collect_amd_test_matrix._normalize_job_name(raw) == title.lower()
-    assert is_amd_ci_job({"job_name": raw}) is True
+    assert is_amd_ci_job({"job_name": raw}) is False
+    assert is_amd_ci_job({"job_name": raw, "agent_queue": f"amd_{pool}"}) is True
     assert is_upstream_cuda_ci_job({"job_name": raw}) is False
 
 
@@ -42,19 +43,15 @@ def _result(name, identity):
                       job_id=identity, step_id="", build_number=93523, pipeline="ci", date="2026-10-08")
 
 
-def test_native_ci_groups_count_as_amd_hardware_and_can_match_cuda_counterparts():
-    results = [_result(name, f"native-{index}") for index, (name, _title, _pool) in enumerate(OBSERVED_NATIVE_LABELS)]
+def test_native_ci_groups_count_only_with_verified_mi_physical_route():
+    results = [_result(f"amd_{pool}: {name}", f"native-{index}")
+               for index, (name, _title, pool) in enumerate(OBSERVED_NATIVE_LABELS)]
     summary = analyzer.compute_build_summary({
         "number": 93523, "state": "passed", "branch": "main", "job_scope": "amd_gpu",
         "jobs": [{"type": "script", "name": row.job_name, "id": row.job_id, "state": "passed"} for row in results],
     }, results, "amd")
     assert summary.passed == summary.unique_test_groups == 10
     assert set(summary.by_hardware) == {"mi300", "mi355"}
-    cuda = _result(":nvidia: (H100) FP8 MoE Kernels", "cuda-job")
-    parity = analyzer.compute_parity(results, [cuda])
-    row = next(row for row in parity["job_groups"] if row["name"] == "fp8 moe kernels")
-    assert row["amd"]["passed"] == row["upstream"]["passed"] == 1
-    assert row["amd_hardware"] == ["mi355"]
 
 
 def test_native_execution_pool_removal_preserves_real_suite_and_gpu_count_tags():
@@ -81,7 +78,7 @@ def test_observed_physical_prefix_precedes_conflicting_decorators_and_cached_pre
     assert analyzer._extract_hardware(raw) == family
     assert analyzer._normalize_job_name(raw) == "torch stable abi audit"
     assert collect_analytics.normalize_job(raw) == "Torch Stable ABI Audit"
-    assert is_amd_ci_job({"job_name": raw}) is True
+    assert is_amd_ci_job({"job_name": raw}) is (not prefix.startswith("amd_mi355b"))
 
 
 def test_route_prefix_keeps_exact_job_identity_soft_fail_behavior():

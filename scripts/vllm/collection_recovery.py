@@ -21,6 +21,7 @@ from typing import Any
 from vllm.publication_surfaces import (
     SURFACE_SPECS, PRE_VIEW_RETIREMENT_SURFACE_SPECS,
     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION, SURFACE_CONTRACT_VERSION,
+    PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION, PRE_RUNTIME_PARITY_SURFACE_SPECS,
 )
 from vllm import github_git_proof
 from vllm.dashboard_storage_budget import writer_max_bytes
@@ -74,9 +75,12 @@ def retry_surfaces_from_state(payload: object) -> list[str]:
     if payload.get("mode") not in {"current", "degraded", "fallback", "mixed"}:
         raise CollectionEvidenceError("publication state is not publishable")
     version = payload.get("surface_contract_version")
-    if version not in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION, SURFACE_CONTRACT_VERSION) or isinstance(version, bool):
+    if version not in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
+                       PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION, SURFACE_CONTRACT_VERSION) or (version is not None and type(version) is not int):
         raise CollectionEvidenceError("unsupported publication surface contract")
-    allowed = PRE_VIEW_RETIREMENT_SURFACE_SPECS if version in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION) else SURFACE_SPECS
+    allowed = (PRE_VIEW_RETIREMENT_SURFACE_SPECS if version in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION)
+               else PRE_RUNTIME_PARITY_SURFACE_SPECS if version == PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION
+               else SURFACE_SPECS)
     lanes: dict[str, set[str]] = {}
     for field in ("fallback_surfaces", "fresh_degraded_surfaces", "degraded_surfaces"):
         values = payload.get(field)

@@ -311,32 +311,3 @@ def test_ci_health_irreducible_overflow_preserves_lkg(tmp_path, monkeypatch):
         reporter.write_ci_health([summary], [], [], tmp_path)
 
     assert json.loads(path.read_text()) == {"generation": "last-known-good"}
-
-
-def test_parity_writer_compacts_whole_rows_with_pair_budget(tmp_path, monkeypatch):
-    rows = [{"name": f"group-{index}", "padding": "x" * 500} for index in range(10)]
-    monkeypatch.setattr(reporter, "CI_PARITY_PAIR_MAX_BYTES", 5_000)
-
-    reporter.write_parity_report(
-        {
-            "parity_pct": 99.0,
-            "summary": {"amd_only": 10, "upstream_only": 0},
-            "by_module": {f"module-{index}": row for index, row in enumerate(rows)},
-            "job_groups": rows,
-            "details": rows,
-        },
-        "2026-08-01",
-        "2026-08-01",
-        tmp_path,
-    )
-
-    payload = json.loads((tmp_path / "parity_report.json").read_text())
-    retention = payload["publication_retention"]
-    assert retention["complete_relative_to_source"] is False
-    assert payload["parity_pct"] == 99.0
-    for field in ("by_module", "job_groups", "details"):
-        counts = retention["collections"][field]
-        assert counts["source"] == 10
-        assert counts["published"] == len(payload[field])
-        assert counts["omitted"] == 10 - len(payload[field])
-    assert (tmp_path / "parity_report.json").stat().st_size <= 2_500

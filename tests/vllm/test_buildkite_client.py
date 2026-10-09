@@ -365,6 +365,7 @@ class TestPaginate:
         with pytest.raises(RuntimeError):
             bk._paginate(
                 "https://api.buildkite.com/v2/foo", {"state": "blocked"}, max_pages=max_pages,
+                prepare_page=lambda rows: callbacks.append(("prepare", rows)),
                 project=lambda row: callbacks.append(("project", row)),
                 on_page=lambda *args: callbacks.append(("page", args)),
             )
@@ -1118,3 +1119,30 @@ class TestFetchBuildDetail:
             "include_retried_jobs": "true",
             "exclude_pipeline": "true",
         }
+
+
+
+def test_prepare_page_sees_bounded_raw_payload_before_projection(monkeypatch):
+    response = _fake_response(200, json_body=[{"number": 2}, {"number": 1}])
+    monkeypatch.setattr(bk.requests, "get", lambda *_args, **_kwargs: response)
+    events = []
+    result = bk._paginate("https://api.buildkite.com/v2/foo",
+                          prepare_page=lambda rows: events.append(("prepare", [row["number"] for row in rows])),
+                          project=lambda row: (events.append(("project", row["number"])), row["number"])[1])
+    assert result == [2, 1]
+    assert events == [("prepare", [2, 1]), ("project", 2), ("project", 1)]
+
+
+def test_prepare_page_failure_stops_before_projection_and_next_request(monkeypatch):
+    calls = []
+    response = _fake_response(200, json_body=[{"number": 2}], links={"next": {"url": "?page=2"}})
+    def get(url, **_kwargs):
+        calls.append(url)
+        return response
+    def fail(_rows):
+        raise ValueError("source proof incomplete")
+    monkeypatch.setattr(bk.requests, "get", get)
+    with pytest.raises(ValueError, match="source proof incomplete"):
+        bk._paginate("https://api.buildkite.com/v2/foo", prepare_page=fail,
+                     project=lambda _: pytest.fail("unproved page cannot be projected"))
+    assert calls == ["https://api.buildkite.com/v2/foo"]

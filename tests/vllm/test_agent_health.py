@@ -27,11 +27,21 @@ from vllm import collect_agent_health as ah
 from vllm.audit_dashboard_data import DashboardAudit
 from vllm.buildkite_request_guard import BuildkiteRequestAllowanceExhausted
 from vllm.constants import amd_gpu_hardware
+from vllm.main_ci_definitions import annotate_runtime_source_scope as exact_source_join
 from vllm.ci import buildkite_client
 from vllm.ci.log_parser import extract_node, node_from_agent
 
 
 NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def offline_runtime_source_scope(monkeypatch):
+    import vllm.main_ci_definitions as definitions
+    monkeypatch.setattr(ah, "_SOURCE_SCOPE_INDEXES", {})
+    monkeypatch.setattr(ah, "_SOURCE_SCOPE_CACHE_DIR", None)
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda _pins: {}, raising=False)
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", lambda build, **_kwargs: build)
 
 
 # --------------------------------------------------------------------------- #
@@ -108,7 +118,7 @@ def _job(job_id, name, state, queue, node, start, end, soft=False):
 
 def _build(number=100, branch="main", message="PR: fix thing", created="2026-07-14T09:00:00Z",
            state="finished"):
-    return {"number": number, "branch": branch, "message": message, "created_at": created,
+    return {"number": number, "commit": "a" * 40, "branch": branch, "message": message, "created_at": created,
             "state": state}
 
 
@@ -504,7 +514,9 @@ def _window_build(number, created, *, state="passed", start="2026-07-14T09:00:00
     return build
 
 
-def _project_mock_page(rows, project=None, on_page=None):
+def _project_mock_page(rows, project=None, on_page=None, prepare_page=None):
+    if prepare_page is not None:
+        prepare_page(rows)
     projected = [project(row) for row in rows] if project is not None else rows
     if on_page is not None:
         on_page(1, projected, False)
@@ -512,7 +524,7 @@ def _project_mock_page(rows, project=None, on_page=None):
 
 
 def _window_page(builds, calls):
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         calls.append(dict(params))
         selected = []
         for build in builds:
@@ -532,7 +544,7 @@ def _window_page(builds, calls):
                 continue
             selected.append(build)
         selected.sort(key=lambda build: build["created_at"], reverse=True)
-        return _project_mock_page(selected, project, on_page)
+        return _project_mock_page(selected, project, on_page, prepare_page)
     return page
 
 
@@ -736,10 +748,10 @@ def test_seven_day_job_window_uses_bounded_daily_roots_and_projects_each_slice(m
     raw = _window_build(1, "2026-07-14T08:00:00Z")
     raw["unneeded_large_metadata"] = "x" * 100_000
 
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         calls.append(dict(params))
         bounded = {**raw, "created_at": params["created_from"]}
-        return _project_mock_page([bounded], project, on_page)
+        return _project_mock_page([bounded], project, on_page, prepare_page)
 
     projected = []
 
@@ -774,9 +786,9 @@ def test_started_job_overlap_deduplicates_later_build_snapshot(monkeypatch):
     late = _window_build(1, "2026-06-01T08:00:00Z", build_finish="2026-07-14T09:05:00Z")
     early["blocked"] = late["blocked"] = True
 
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         rows = [late] if params.get("state") == "blocked" else [early] if "finished_from" in params else []
-        return _project_mock_page(rows, project, on_page)
+        return _project_mock_page(rows, project, on_page, prepare_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
 
@@ -809,10 +821,10 @@ def test_started_job_leg_failure_preserves_entire_generation(monkeypatch, tmp_pa
     paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
     before = {path: path.read_bytes() for path in paths}
 
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         if (leg == "older_finished" and "finished_from" in params) or (leg == "older_active" and "state" in params):
             raise error("incomplete old-build discovery")
-        return _project_mock_page([], project, on_page)
+        return _project_mock_page([], project, on_page, prepare_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(error, match="incomplete old-build discovery"):
@@ -976,7 +988,7 @@ def test_ignored_or_malformed_discovery_filters_preserve_prior_generation(monkey
     paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
     before = {path: path.read_bytes() for path in paths}
 
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         if tamper == "finished_from" and "finished_from" in params:
             rows = [_window_build(1, "2020-01-01T00:00:00Z", build_finish="2020-01-01T01:00:00Z")]
         elif "state" not in params:
@@ -992,7 +1004,7 @@ def test_ignored_or_malformed_discovery_filters_preserve_prior_generation(monkey
                     _window_build(2, "2021-01-01T00:00:00Z", state=params["state"])]
         else:
             rows = []
-        return _project_mock_page(rows, project, on_page)
+        return _project_mock_page(rows, project, on_page, prepare_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(RuntimeError, match="agent-health (older_active|older_finished)") as failure:
@@ -1018,9 +1030,9 @@ def test_malformed_embedded_roster_preserves_entire_generation(
     else:
         malformed[invalid_field] = value
 
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         rows = [malformed] if "state" in params else []
-        return _project_mock_page(rows, project, on_page)
+        return _project_mock_page(rows, project, on_page, prepare_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(RuntimeError, match="agent-health discovery returned an invalid"):
@@ -1286,11 +1298,11 @@ def test_created_slice_duplicate_cannot_hide_malformed_embedded_roster(monkeypat
     valid = _window_build(1, "2026-07-14T08:00:00Z")
     malformed = {"number": 1}
 
-    def page(_url, params, *, project=None, on_page=None):
+    def page(_url, params, *, prepare_page=None, project=None, on_page=None):
         if params.get("created_from") == "2026-07-12T00:00:00+00:00":
-            return _project_mock_page([malformed], project, on_page)
+            return _project_mock_page([malformed], project, on_page, prepare_page)
         rows = [{**valid, "created_at": params["created_from"]}] if "created_from" in params else []
-        return _project_mock_page(rows, project, on_page)
+        return _project_mock_page(rows, project, on_page, prepare_page)
 
     monkeypatch.setattr(ah, "_paginate", page)
     with pytest.raises(RuntimeError, match="invalid embedded job roster"):
@@ -1637,7 +1649,7 @@ def test_agent_health_transaction_scratch_directories_cannot_be_committed():
 # --------------------------------------------------------------------------- #
 
 def test_amd_agent_health_passthrough(tmp_path):
-    block = {"generated_at": "x", "node_days": [{"nd": "A"}], "failing_runs": []}
+    block = {"generated_at": "x", "hardware_scope": "amd_mi_gpu", "pipelines": ["ci"], "node_days": [{"nd": "A", "h": "mi300"}], "failing_runs": []}
     (tmp_path / "agent_health.json").write_text(json.dumps(block))
     assert ops._amd_agent_health(tmp_path) == block
 
@@ -1748,3 +1760,139 @@ def test_js_cofailure_clustering_matches_reference():
             assert je["group_count"] == pe["group_count"]
             assert je["concurrent"] == pe["concurrent"]
             assert je["cross_pipeline"] == pe["cross_pipeline"]
+
+
+
+def test_agent_page_primes_only_new_mi_pins_and_rejoins_cpu_source_before_counts(tmp_path, monkeypatch):
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+    pins = {letter: letter * 40 for letter in "abcdef"}
+    rows = []
+    for index, letter in enumerate("abcdef", 1):
+        row = _window_build(index, "2026-07-14T08:00:00Z")
+        row["commit"] = pins[letter]
+        rows.append(row)
+    rows[1]["jobs"][0]["step_key"] = "cpu-audit"
+    rows[2]["jobs"][0]["agent_query_rules"] = ["queue=gpu_1_queue"]
+    rows[2]["jobs"][0]["agent"]["meta_data"] = ["queue=gpu_1_queue"]
+    rows[3]["jobs"][0]["no_gpu"] = True
+    rows[4]["jobs"][0]["type"] = "waiter"
+    rows[5]["jobs"][0]["agent_query_rules"] = ["queue=amd_unknown"]
+    rows[5]["jobs"][0]["agent"]["meta_data"] = ["queue=amd_unknown"]
+    indexes = {pins[letter]: {"version": 1, "commit_sha": pins[letter], "definition_tree_sha": "f" * 40,
+                             "cpu_routes": ([{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}]
+                                            if letter == "b" else [])}
+               for letter in "ab"}
+    monkeypatch.setattr(ah, "_SOURCE_SCOPE_INDEXES", {pins["a"]: indexes[pins["a"]]})
+    monkeypatch.setattr(ah, "_SOURCE_SCOPE_CACHE_DIR", tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME)
+    primed = []
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda found: primed.append(found))
+    def annotate(build, **kwargs):
+        assert build["commit"] in indexes
+        return exact_source_join(build, scope_index=kwargs.get("scope_index") or indexes[build["commit"]])
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    def get(_url, params=None):
+        selected = [row for row in rows if params["created_from"] <= row["created_at"].replace("Z", "+00:00") < params["created_to"]]
+        class Response:
+            links = {}
+            def json(self):
+                return selected
+        return Response()
+    monkeypatch.setattr(buildkite_client, "_request", get)
+    observations = ah._fetch_pipeline_observations("ci", 1, query_time=NOW, day_basis="build-created")
+    assert [row["job_id"] for row in observations] == ["1"]
+    assert primed == [[pins["b"]]]
+    assert cache.read_runtime_source_indexes(ah._SOURCE_SCOPE_CACHE_DIR) == indexes
+
+
+@pytest.mark.parametrize("damage", ["creation", "roster", "commit"])
+def test_agent_page_rejects_invalid_source_before_any_github_priming(monkeypatch, damage):
+    import vllm.main_ci_definitions as definitions
+    build = _window_build(1, "2026-07-14T08:00:00Z")
+    if damage == "creation":
+        build["created_at"] = "2026-07-15T08:00:00Z"
+    elif damage == "roster":
+        build["jobs"] = None
+    else:
+        build["commit"] = "not-a-full-pin"
+    class Response:
+        links = {}
+        def json(self):
+            return [build]
+    monkeypatch.setattr(buildkite_client, "_request", lambda *_args, **_kwargs: Response())
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("invalid source cannot acquire Git proof"))
+    with pytest.raises(RuntimeError):
+        ah._paginate_observation_builds(
+            "https://api.buildkite.com/v2/organizations/vllm/pipelines/ci/builds",
+            {"created_from": "2026-07-14T00:00:00Z", "created_to": "2026-07-14T12:00:00Z"},
+            lambda _: pytest.fail("invalid source cannot project"), phase="created",
+        )
+
+
+@pytest.mark.parametrize("commit", [None, "", "a" * 12, "not-a-full-pin"])
+def test_agent_mi_candidate_missing_exact_pin_preserves_prior_generation(monkeypatch, tmp_path, commit):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    build = _window_build(1, "2026-07-14T08:00:00Z")
+    build["commit"] = commit
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+    with pytest.raises(RuntimeError, match="requires an exact source commit"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+def test_concurrent_agent_source_joins_persist_both_new_proofs_without_overlapping_writes(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+    local = threading.local()
+    barrier = threading.Barrier(2)
+    second_merge_attempt = threading.Event()
+    tracking_mutex = threading.Lock()
+    merge_attempts = 0
+
+    class SourceLock:
+        def __init__(self):
+            self.lock = threading.Lock()
+        def __enter__(self):
+            nonlocal merge_attempts
+            if getattr(local, "annotated", False):
+                with tracking_mutex:
+                    merge_attempts += 1
+                    if merge_attempts == 2:
+                        second_merge_attempt.set()
+            self.lock.acquire()
+        def __exit__(self, *_args):
+            self.lock.release()
+
+    monkeypatch.setattr(ah, "_SOURCE_SCOPE_INDEX_LOCK", SourceLock())
+    root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    monkeypatch.setattr(ah, "_SOURCE_SCOPE_CACHE_DIR", root)
+    def annotate(build, **_kwargs):
+        index = {"version": 1, "commit_sha": build["commit"], "definition_tree_sha": "f" * 40, "cpu_routes": []}
+        annotated = exact_source_join(build, scope_index=index)
+        barrier.wait(timeout=5)
+        local.annotated = True
+        return annotated
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    calls = []
+    def write(path, indexes):
+        calls.append(set(indexes))
+        if len(calls) == 1:
+            # The second worker reaches the merge lock while this checkpoint
+            # write is still active. It must wait and then merge the first pin.
+            assert second_merge_attempt.wait(timeout=5)
+        cache.write_runtime_source_indexes(path, indexes)
+    monkeypatch.setattr(ah, "write_runtime_source_indexes", write)
+    monkeypatch.setattr(ah, "_fetch_pipeline_builds", lambda *_args, project, **_kwargs: [project(local.build)])
+    def collect(letter):
+        local.build = _window_build(1 if letter == "a" else 2, "2026-07-14T08:00:00Z")
+        local.build["commit"] = letter * 40
+        return ah._fetch_pipeline_observations("ci", 1, query_time=NOW, day_basis="build-created")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(collect, "ab"))
+    assert all(len(rows) == 1 for rows in results)
+    assert [len(pins) for pins in calls] == [1, 2]
+    assert set(cache.read_runtime_source_indexes(root)) == {"a" * 40, "b" * 40}
+    assert ah._SOURCE_SCOPE_INDEXES == cache.read_runtime_source_indexes(root)

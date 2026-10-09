@@ -68,18 +68,19 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "PROJECTS_WRITE_TOKEN" in text
         assert "`gating_targets.json` is regenerated" not in text
         assert "The private `operations_v2.json.gz` build input produces bundle v3 with eleven" in text
-        assert "Current runtime metrics use AMD and CUDA GPU jobs from the `ci` pipeline." in text
+        assert "Current CI execution metrics use only AMD MI GPU jobs from the `ci` pipeline." in text
         assert "runtime gates" not in text
 
     assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme
     assert "regional working-hour profiles" in scripts_readme
     assert "Every two hours via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
-    assert "Contract v6 validates historical v5 restore proofs" in scripts_readme
+    assert "Contract v7" in scripts_readme
     assert "`ci_analytics` publication surface" in scripts_readme
     assert "`ci-collect.yml` workflow is validation-only" in scripts_readme
     assert "runtime health from the observed `ci` nightly" in audit
-    assert "CPU and legacy `amd-ci` jobs do not" in audit
+    assert "CUDA, NVIDIA, Intel, CPU," in audit
+    assert "unknown routing, and legacy `amd-ci` results do not contribute" in audit
     assert "exact evidence links, five-nightly" in audit
 
 
@@ -118,9 +119,11 @@ ANALYTICS_PROJECTOR = "public_analytics_v1"
 ANALYTICS_MAX_BYTES = 8 * 1024 * 1024
 
 PRIVATE_ANALYTICS = {
-    "amd-ci": {
-        "pipeline": "amd-ci",
-        "display_name": "AMD CI",
+    "ci": {
+        "pipeline": "ci",
+        "display_name": "AMD MI CI",
+        "job_scope": "amd_gpu",
+        "hardware_scope": "amd_mi_gpu",
         "days": 30,
         "generated_at": "2026-01-01T00:00:00Z",
         "summary": {"total_builds": 1, "passed": 1, "failed": 0},
@@ -147,17 +150,6 @@ PRIVATE_ANALYTICS = {
         "all_main_reliability": {"private": "full reliability evidence"},
         "main_builds": [{"private": "compatibility reliability rows"}],
         "main_retry_analysis": {"private": "retry evidence"},
-    },
-    "ci": {
-        "pipeline": "ci",
-        "display_name": "Upstream CI",
-        "days": 30,
-        "generated_at": "2026-01-01T00:00:00Z",
-        "summary": {"total_builds": 0, "passed": 0, "failed": 0},
-        "builds": [],
-        "default_window": "30d",
-        "windows": {},
-        "all_main_reliability": {"private": "upstream evidence"},
     },
 }
 PRIVATE_ANALYTICS_TEXT = json.dumps(PRIVATE_ANALYTICS, indent=2) + "\n"

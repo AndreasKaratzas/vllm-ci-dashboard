@@ -32,6 +32,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
     validate_target_repo,
 )
 from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
+from vllm.constants import amd_gpu_hardware  # noqa: E402
 
 
 logging.basicConfig(
@@ -138,7 +139,10 @@ def _normalized_runs(payload: dict) -> list[dict]:
         finished = _parse_ts(raw.get("e")) or started
         state = str(raw.get("s") or "")
         if (
-            raw.get("i") != 1
+            raw.get("p") != "ci"
+            or not amd_gpu_hardware(str(raw.get("q") or ""))
+            or raw.get("ng") is True
+            or raw.get("i") != 1
             or raw.get("bc") == 1
             or not node
             or node == "(unidentified)"
@@ -353,6 +357,9 @@ def run() -> int:
     payload = _read_payload()
     if not payload:
         log.error("Agent-health payload is unavailable; refusing issue mutations")
+        return 0
+    if payload.get("hardware_scope") != "amd_mi_gpu" or payload.get("pipelines") != ["ci"]:
+        log.error("Agent-health payload has no current MI-only scope; refusing issue mutations")
         return 0
     now = datetime.now(timezone.utc)
     if not _is_fresh(payload, now):

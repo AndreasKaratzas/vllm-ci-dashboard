@@ -122,8 +122,18 @@ def test_boolean_schema_version_cannot_prove_collection_outcome():
         }, durable_ref="a" * 40)
 
 
+@pytest.mark.parametrize("version", (True, 6.0, 7.0, "7", 999))
+def test_recovery_rejects_malformed_or_unknown_surface_contract_versions(version):
+    payload = {"schema_version": 2, "surface_contract_version": version, "mode": "current",
+               "fallback_surfaces": [], "fresh_degraded_surfaces": [],
+               "degraded_surfaces": [], "collector_failures": []}
+    with pytest.raises(recovery.CollectionEvidenceError, match="surface contract"):
+        recovery.retry_surfaces_from_state(payload)
+
+
 @pytest.mark.parametrize("surface", ("ci_gating", "ci_changes", "ci_hotness"))
-def test_retired_collector_is_never_retried_and_current_contract_rejects_it(surface):
+@pytest.mark.parametrize("contract_version", (6, 7))
+def test_retired_collector_is_never_retried_and_current_contract_rejects_it(surface, contract_version):
     payload = {"schema_version": 2, "surface_contract_version": 5, "mode": "fallback",
                "fallback_surfaces": [surface], "fresh_degraded_surfaces": [],
                "degraded_surfaces": [surface], "collector_failures": [{
@@ -131,7 +141,7 @@ def test_retired_collector_is_never_retried_and_current_contract_rejects_it(surf
                    "step": "Retired", "reason_class": "timeout", "exit_code": 1,
                }]}
     assert recovery.retry_surfaces_from_state(payload) == []
-    payload["surface_contract_version"] = 6
+    payload["surface_contract_version"] = contract_version
     with pytest.raises(recovery.CollectionEvidenceError, match="surface lanes"):
         recovery.retry_surfaces_from_state(payload)
 

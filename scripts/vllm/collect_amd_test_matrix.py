@@ -42,7 +42,7 @@ from vllm.amd_nightly_handoff import (  # noqa: E402
     load_frozen_build_snapshot,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.main_ci_definitions import amd_source_steps, load_snapshot  # noqa: E402
+from vllm.main_ci_definitions import amd_source_steps, is_cpu_only_definition, load_snapshot  # noqa: E402
 from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
 from vllm.ci.analyzer import (  # noqa: E402
     _AMD_RUNTIME_POOL_SUFFIX_RE,
@@ -1188,6 +1188,8 @@ def parse_steps(yaml_text: str) -> tuple[list[dict[str, Any]], list[str]]:
     for idx, step in enumerate(raw_steps):
         if not isinstance(step, dict):
             continue
+        if is_cpu_only_definition(step):
+            continue
         label = clean_label(step.get("label", ""))
         arch = arch_from_agent_pool(step.get("agent_pool", ""))
         if not label or not arch:
@@ -1998,13 +2000,12 @@ def main() -> None:
 
     analytics = _load_json(output / "analytics.json", {})
     ci_health = _load_json(output / "ci_health.json", {})
-    parity = _load_json(output / "parity_report.json", {})
     shard_bases = _load_json(output / "shard_bases.json", [])
 
     analytics_job_index, analytics_latest_build = build_latest_job_index(
         analytics, shard_bases
     )
-    latest_build = latest_build_metadata(analytics_latest_build, ci_health, parity)
+    latest_build = latest_build_metadata(analytics_latest_build, ci_health, {})
     snapshot_path = (
         Path(args.build_snapshot)
         if args.build_snapshot
@@ -2049,19 +2050,19 @@ def main() -> None:
         steps, architectures = parse_main_ci_steps(source_snapshot)
         yaml_url = RAW_YAML_URL_TEMPLATE.format(commit=source_snapshot.commit_sha)
         log.info("Loaded %s AMD routes from main ci at %s", len(steps), source_snapshot.commit_sha)
-    parity_exact_index, parity_norm_index = build_parity_amd_index(parity, shard_bases)
 
     matrix = build_matrix(
         steps=steps,
         architectures=architectures,
         latest_job_index=latest_job_index,
         latest_build=latest_build,
-        parity_exact_index=parity_exact_index,
-        parity_norm_index=parity_norm_index,
+        parity_exact_index={},
+        parity_norm_index={},
         shard_bases=shard_bases,
         yaml_url=yaml_url,
     )
     matrix["source"].update({"pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd",
+        "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
         "runtime_source_commit_sha": (latest_build or {}).get("commit"),
         "commit_sha": source_snapshot.commit_sha if source_snapshot is not None else None})
 

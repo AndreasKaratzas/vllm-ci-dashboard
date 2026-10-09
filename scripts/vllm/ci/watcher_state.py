@@ -1,6 +1,6 @@
 """Bounded, atomic persistence for the dashboard's issue-watcher ledgers.
 
-The eight ledgers are independently updated by different workflows.  Giving
+The active ledgers are independently updated by different workflows. Giving
 each one a fixed envelope is what makes their aggregate three-MiB allocation a
 real invariant rather than a best-effort final publication check.  Compaction
 never removes an open issue mapping or a confirmed/pending incident identity.
@@ -24,7 +24,6 @@ RETENTION_KEY = "publication_retention"
 
 WATCHER_STATE_WRITERS = {
     "open_ci_main_failure_issues.json": "ci_main_failure_watcher_state",
-    "open_amd_main_failure_issues.json": "amd_main_failure_watcher_state",
     "open_ci_area_regression_issues.json": "ci_area_regression_watcher_state",
     "open_amd_duration_regression_issues.json": "amd_duration_regression_watcher_state",
     "open_agent_health_issues.json": "agent_health_watcher_state",
@@ -32,6 +31,10 @@ WATCHER_STATE_WRITERS = {
     "open_queue_issues.json": "queue_issue_watcher_state",
     "open_queue_zombie_issues.json": "queue_zombie_watcher_state",
 }
+LEGACY_WATCHER_STATE_WRITERS = {
+    "open_amd_main_failure_issues.json": "amd_main_failure_watcher_state",
+}
+_ALL_WATCHER_STATE_WRITERS = {**WATCHER_STATE_WRITERS, **LEGACY_WATCHER_STATE_WRITERS}
 
 
 class WatcherStateBudgetError(RuntimeError):
@@ -41,14 +44,14 @@ class WatcherStateBudgetError(RuntimeError):
 def watcher_state_max_bytes(path: Path | str) -> int:
     name = Path(path).name
     try:
-        writer = WATCHER_STATE_WRITERS[name]
+        writer = _ALL_WATCHER_STATE_WRITERS[name]
     except KeyError as error:
         raise ValueError(f"unrecognized watcher state path: {name}") from error
     return writer_max_bytes(writer)
 
 
 def watcher_state_allocated_bytes() -> int:
-    return sum(writer_max_bytes(name) for name in WATCHER_STATE_WRITERS.values())
+    return sum(writer_max_bytes(name) for name in _ALL_WATCHER_STATE_WRITERS.values())
 
 
 def _encoded(value: dict) -> bytes:
@@ -89,6 +92,8 @@ def _managed_fields(source: dict) -> dict:
         "body_schema_version",
         "incident_state_version",
         "retirement_streak",
+        "hardware_scope",
+        "job_scope",
     )
     return {key: copy.deepcopy(source[key]) for key in fields if key in source}
 
@@ -412,11 +417,13 @@ def _compact_area_state(source: dict) -> tuple[dict, dict]:
         areas[key] = area
         published_signals += len(signals)
         published_detail_fields += sum(_field_count(signal) for signal in signals.values())
-    return {
+    compact = _managed_fields(source)
+    compact.update({
         "schema_version": source.get("schema_version", 1),
         "areas": areas,
         "last_run": str(source.get("last_run") or ""),
-    }, {
+    })
+    return compact, {
         "areas": (len(raw_areas), len(areas)),
         "signals": (source_signals, published_signals),
         "detail_fields": (source_detail_fields, published_detail_fields),
@@ -610,7 +617,7 @@ def bounded_watcher_state(
     """Return a deterministic legal ledger while preserving actionable state."""
     target = Path(path)
     name = state_filename or target.name
-    if name not in WATCHER_STATE_WRITERS:
+    if name not in _ALL_WATCHER_STATE_WRITERS:
         raise ValueError(f"unrecognized watcher state path: {name}")
     if not isinstance(state, dict):
         raise TypeError("watcher state must be an object")
@@ -716,7 +723,7 @@ def _aggregate_bytes(path: Path, replacement_size: int) -> int | None:
     except OSError:
         return None
     total = 0
-    for basename in WATCHER_STATE_WRITERS:
+    for basename in _ALL_WATCHER_STATE_WRITERS:
         candidate = STATE_DIRECTORY / basename
         if candidate.resolve() == path.resolve():
             total += replacement_size

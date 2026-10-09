@@ -118,7 +118,7 @@ def test_perf_eval_master_finished_build_does_not_dispatch(monkeypatch):
     assert handler.wfile.getvalue() == b"Ignored (not canonical perf-eval nightly)"
 
 
-def _job_event(*, pipeline="amd-ci", queue="amd_mi300_1", job_id="job-1"):
+def _job_event(*, pipeline="ci", queue="amd_mi300_1", job_id="job-1"):
     return {
         "pipeline": {"slug": pipeline},
         "build": {"number": 123},
@@ -134,7 +134,7 @@ def test_queue_job_event_requires_configured_pipeline_and_queue():
     context = webhook.queue_event_context("job.scheduled", _job_event())
 
     assert context == {
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "queue": "amd_mi300_1",
         "build_number": 123,
         "job_id": "job-1",
@@ -143,6 +143,11 @@ def test_queue_job_event_requires_configured_pipeline_and_queue():
     assert webhook.queue_event_context(
         "job.scheduled", _job_event(pipeline="unrelated-pipeline")
     ) is None
+    assert webhook.queue_event_context(
+        "job.scheduled", _job_event(pipeline="amd-ci")
+    ) is None
+    for queue in ("gpu_1_queue", "amd_cpu", "amd_unknown"):
+        assert webhook.queue_event_context("job.scheduled", _job_event(queue=queue)) is None
     assert webhook.queue_event_context(
         "job.scheduled", _job_event(queue="unconfigured-queue")
     ) is None

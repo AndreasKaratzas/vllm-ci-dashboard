@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Alert on unresolved upstream CI test-group failures on ``main``.
+"""Alert on unresolved MI GPU CI test-group failures on ``main``.
 
 The source is ``ci.all_main_reliability`` from ``analytics.json``. The shared
 watcher retains a last-known-good and first-known-bad vLLM commit for every
@@ -22,7 +22,7 @@ PIPELINE = "ci"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_ci_main_failure_issues.json"
 OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:ci-main-failure:v1 -->"
 LABEL_SPECS = [
-    ("ci-main-failure", "d73a49", "Unresolved upstream CI test-group failure on origin/main"),
+    ("ci-main-failure", "d73a49", "Unresolved MI GPU CI test-group failure on origin/main"),
     ("automated", "6f42c1", "Managed by dashboard automation"),
     ("workstream:dev", "1d76db", "AMD CI test-area development"),
 ]
@@ -36,12 +36,13 @@ CONFIG = shared.WatcherConfig(
     ownership_marker=OWNERSHIP_MARKER,
     label_specs=tuple(LABEL_SPECS),
     dashboard_url=DASHBOARD_URL,
-    title_prefix="CI main",
-    heading="Upstream CI origin/main test-group alert",
-    scope_name="upstream CI",
+    title_prefix="AMD MI main CI",
+    heading="AMD MI GPU origin/main test-group alert",
+    scope_name="AMD MI GPU CI",
     script_name="ci_main_failure_watcher.py",
     track_commit_range=True,
     initialize_from_history=True,
+    job_scope="amd_gpu",
 )
 
 
@@ -51,8 +52,8 @@ _is_fresh = shared._is_fresh
 
 def advance_incidents(reliability: dict, state: dict) -> dict:
     return shared.advance_incidents(
-        reliability,
-        state,
+        shared.mi_scoped_reliability(reliability),
+        shared.mi_scoped_state(state, reliability),
         track_commit_range=True,
         initialize_from_history=True,
     )

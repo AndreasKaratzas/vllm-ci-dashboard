@@ -40,7 +40,7 @@ def _now() -> datetime:
 
 def _metadata(now: datetime, *, node: str = "node-1") -> dict:
     return {
-        "pipeline": "amd-ci",
+        "pipeline": "ci",
         "build_number": 123,
         "job_id": "00000000-0000-4000-8000-000000000001",
         "queue": "amd_mi300_1",
@@ -49,6 +49,10 @@ def _metadata(now: datetime, *, node: str = "node-1") -> dict:
         "state": "passed",
         "started_at": dns.iso_timestamp(now - timedelta(minutes=20)),
         "finished_at": dns.iso_timestamp(now - timedelta(minutes=10)),
+        "execution_proof": {
+            "version": 1, "source_commit": "a" * 40, "definition_tree": "b" * 40,
+            "classification": "amd_mi_gpu",
+        },
     }
 
 
@@ -100,8 +104,11 @@ def test_source_job_labels_never_enter_dns_state_or_public_output(
         },
     }
     [discovered] = collector.discover_job_metadata(
-        {"amd-ci": [{"number": metadata["build_number"], "jobs": [job]}], "ci": []}
+        {"ci": [{"number": metadata["build_number"], "jobs": [job]}]}
     )
+    # This privacy regression exercises the proven public projection; scope
+    # attestation itself is independently covered by the DNS collector tests.
+    discovered["execution_proof"] = metadata["execution_proof"]
     assert "job_name" not in discovered
 
     state = dns.empty_state(now, now - timedelta(hours=dns.RETENTION_HOURS))

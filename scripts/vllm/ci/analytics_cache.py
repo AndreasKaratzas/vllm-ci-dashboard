@@ -25,6 +25,7 @@ from vllm.pipelines import (
     NIGHTLY_NAME_PATTERNS_BY_SLUG,
     SCHEDULED_GATING_KINDS,
     _job_queue,
+    is_amd_ci_job,
     upstream_scheduled_gating_kind,
 )
 
@@ -316,7 +317,7 @@ def _sanitize_build(build: object, pipeline: str, nightly_pattern: str) -> dict:
 
     state = _token(build.get("state"), f"build {number}.state", required=True)
     created_at = _timestamp(build.get("created_at"), f"build {number}.created_at", required=True)
-    row = {
+    row: dict = {
         "number": number,
         "branch": branch,
         "state": state,
@@ -380,6 +381,31 @@ def _sanitize_build(build: object, pipeline: str, nightly_pattern: str) -> dict:
             raise CacheValidationError("malformed_types", "build.jobs_complete must be boolean")
     row["jobs_complete"] = jobs_complete
     row["jobs"] = [_sanitize_job(job, number) for job in raw_jobs]
+    if "hardware_scope" in build:
+        if pipeline != "ci" or build["hardware_scope"] != "amd_mi_gpu" or any(
+            not is_amd_ci_job(job) for job in row["jobs"]
+        ):
+            raise CacheValidationError("query_mismatch", "MI cache contains out-of-scope jobs")
+        row["hardware_scope"] = "amd_mi_gpu"
+        for key in ("source_scope_commit", "source_definition_tree_sha"):
+            value = build.get(key)
+            if not isinstance(value, str) or not _SHA_RE.fullmatch(value):
+                raise CacheValidationError("malformed_types", "MI source scope must use full Git object IDs")
+            if key == "source_scope_commit" and value.casefold() != str(row.get("commit") or "").casefold():
+                raise CacheValidationError("query_mismatch", "MI source scope does not match the build commit")
+            row[key] = value.casefold()
+        if "source_scope_index" not in build:
+            raise CacheValidationError("query_mismatch", "MI cache requires an immutable source routing index")
+        if "source_scope_index" in build:
+            from vllm.main_ci_definitions import validate_runtime_scope_index
+            try:
+                row["source_scope_index"] = validate_runtime_scope_index(
+                    build["source_scope_index"], expected_commit=str(row["commit"]),
+                )
+            except ValueError as exc:
+                raise CacheValidationError("query_mismatch", "MI source routing index is invalid") from exc
+            if row["source_scope_index"]["definition_tree_sha"] != row["source_definition_tree_sha"]:
+                raise CacheValidationError("query_mismatch", "MI source index tree does not match its proof")
     return row
 
 
@@ -835,6 +861,12 @@ def write_build_cache(
     if complete_from > watermark or watermark > updated_at or last_full_at > updated_at:
         raise CacheValidationError("invalid_metadata", "cache timestamps are inconsistent")
 
+    if current_only:
+        if pipeline != "ci":
+            raise CacheValidationError("pipeline_mismatch", "current-only cache must use ci")
+        builds = [{**build, "hardware_scope": "amd_mi_gpu", "jobs": [
+            job for job in build.get("jobs") or [] if is_amd_ci_job(job)
+        ]} for build in builds]
     projected = sanitize_builds(builds, pipeline)
     projected = merge_builds([], projected, cutoff=complete_from)
     generated_at_text = _timestamp(updated_at, "updated_at", required=True)
@@ -1298,3 +1330,153 @@ def load_build_cache(
         return _invalid(path, exc.reason)
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
         return _invalid(path, "malformed_json")
+
+
+RUNTIME_SOURCE_CACHE_DIR_NAME = "runtime-source-indexes-v1"
+RUNTIME_SOURCE_CACHE_MAX_BYTES = 8 * 1024 * 1024
+RUNTIME_SOURCE_CACHE_MAX_PINS = 4096
+_RUNTIME_SOURCE_CACHE_KIND = "vllm-ci-immutable-runtime-source-indexes"
+
+
+def read_runtime_source_indexes(cache_dir: Path) -> dict[str, dict]:
+    """Authenticate immutable configuration proofs without runtime timestamps."""
+    from vllm.main_ci_definitions import validate_runtime_scope_index
+    root = Path(cache_dir)
+    path = root / "index.json"
+    if root.is_symlink() or path.is_symlink():
+        raise CacheValidationError("unsafe_cache_path", "runtime source index path is unsafe")
+    if not path.exists():
+        if root.exists() and (not root.is_dir() or any(root.iterdir())):
+            raise CacheValidationError("unexpected_files", "runtime source index directory is not empty")
+        return {}
+    if not root.is_dir() or {child.name for child in root.iterdir()} != {"index.json"} or not path.is_file():
+        raise CacheValidationError("unexpected_files", "runtime source index directory is invalid")
+    size = path.stat().st_size
+    if size > RUNTIME_SOURCE_CACHE_MAX_BYTES:
+        raise CacheValidationError("payload_budget", "runtime source index exceeds its byte bound")
+    raw = path.read_bytes()
+    if len(raw) != size:
+        raise CacheValidationError("hash_mismatch", "runtime source index changed during read")
+    payload = _decode_json(raw)
+    if not isinstance(payload, dict) or set(payload) != {"schema_version", "cache_kind", "indexes", "integrity"}:
+        raise CacheValidationError("malformed_types", "runtime source index has an invalid shape")
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1 or payload["cache_kind"] != _RUNTIME_SOURCE_CACHE_KIND:
+        raise CacheValidationError("schema_mismatch", "runtime source index schema is unsupported")
+    indexes = payload["indexes"]
+    if not isinstance(indexes, dict) or len(indexes) > RUNTIME_SOURCE_CACHE_MAX_PINS:
+        raise CacheValidationError("payload_budget", "runtime source index exceeds its pin bound")
+    unsigned = {key: value for key, value in payload.items() if key != "integrity"}
+    if payload["integrity"] != {"algorithm": "sha256", "canonical_sha256": _digest(unsigned)} or raw != _serialized(unsigned):
+        raise CacheValidationError("hash_mismatch", "runtime source index integrity does not match")
+    try:
+        return {commit: validate_runtime_scope_index(index, expected_commit=commit)
+                for commit, index in indexes.items()}
+    except (TypeError, ValueError) as exc:
+        raise CacheValidationError("query_mismatch", "runtime source index contains an invalid immutable proof") from exc
+
+
+def write_runtime_source_indexes(cache_dir: Path, indexes: dict[str, dict]) -> None:
+    """Atomically persist only validated Git proofs, preserving old bytes on failure."""
+    from vllm.main_ci_definitions import validate_runtime_scope_index
+    root = Path(cache_dir)
+    # Never replace an unauthenticated existing checkpoint with clean metadata.
+    read_runtime_source_indexes(root)
+    if not isinstance(indexes, dict) or len(indexes) > RUNTIME_SOURCE_CACHE_MAX_PINS:
+        raise CacheValidationError("payload_budget", "runtime source index exceeds its pin bound")
+    try:
+        validated = {commit: validate_runtime_scope_index(index, expected_commit=commit)
+                     for commit, index in indexes.items()}
+    except (TypeError, ValueError) as exc:
+        raise CacheValidationError("query_mismatch", "runtime source index contains an invalid immutable proof") from exc
+    payload = _serialized({"schema_version": 1, "cache_kind": _RUNTIME_SOURCE_CACHE_KIND, "indexes": validated})
+    if len(payload) > RUNTIME_SOURCE_CACHE_MAX_BYTES:
+        raise CacheValidationError("payload_budget", "runtime source index exceeds its byte bound")
+    root.mkdir(parents=True, exist_ok=True)
+    _atomic_write(root / "index.json", payload)
+
+
+def retain_runtime_source_indexes(indexes: dict[str, dict], *, preferred_commits=()) -> dict[str, dict]:
+    """Bound reusable proofs while prioritizing authenticated active source pins.
+
+    Eviction changes only reuse cost: an absent immutable proof is verified
+    again before any runtime row can use it. Validate discarded proofs too.
+    """
+    from vllm.main_ci_definitions import validate_runtime_scope_index
+    if not isinstance(indexes, dict):
+        raise CacheValidationError("malformed_types", "runtime source indexes must be a mapping")
+    try:
+        validated = {commit: validate_runtime_scope_index(index, expected_commit=commit)
+                     for commit, index in indexes.items()}
+    except (TypeError, ValueError) as exc:
+        raise CacheValidationError("query_mismatch", "runtime source index contains an invalid immutable proof") from exc
+    ordered = dict.fromkeys([*preferred_commits, *validated])
+    retained: dict[str, dict] = {}
+    size = len(_serialized({"schema_version": 1, "cache_kind": _RUNTIME_SOURCE_CACHE_KIND, "indexes": {}}))
+    for commit in ordered:
+        if commit not in validated:
+            continue
+        extra = len(_canonical_json(commit)) + 1 + len(_canonical_json(validated[commit])) + bool(retained)
+        if len(retained) >= RUNTIME_SOURCE_CACHE_MAX_PINS or size + extra > RUNTIME_SOURCE_CACHE_MAX_BYTES:
+            if not retained:
+                raise CacheValidationError("payload_budget", "active runtime source proof exceeds its byte bound")
+            continue
+        retained[commit] = validated[commit]
+        size += extra
+    return retained
+
+
+def _cache_at_source_clock(cache_dir: Path, *, ref_now: datetime | None = None) -> CacheLoad | None:
+    """Authenticate raw cache inventory at its original clock, never as fresh data."""
+    clock = ref_now or datetime.now(timezone.utc)
+    try:
+        path = _cache_path(cache_dir, "ci")
+        if path.is_symlink() or not path.is_file() or path.parent.is_symlink():
+            return None
+        size = path.stat().st_size
+        if size > _MAX_CACHE_TOTAL_BYTES:
+            return None
+        raw = path.read_bytes()
+        if len(raw) != size:
+            return None
+        metadata = _decode_json(raw)
+        if not isinstance(metadata, dict):
+            return None
+        generated = _parse_timestamp(metadata.get("generated_at"), "generated_at", required=True)
+        if generated is None or generated > clock + _FUTURE_SKEW:
+            return None
+        del raw, metadata
+        cached = load_build_cache(cache_dir, "ci", cutoff=generated - timedelta(days=10000),
+                                  window_days=1, ref_now=generated, allow_partial_coverage=True)
+        return cached if cached.valid else None
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return None
+
+
+def cached_runtime_source_commits(cache_dir: Path, *, ref_now: datetime | None = None) -> list[str]:
+    """Return only exact source pins from the hash-bound private CI inventory."""
+    cached = _cache_at_source_clock(cache_dir, ref_now=ref_now)
+    if cached is None:
+        raise CacheValidationError("invalid_inventory", "source prewarm requires an authenticated private CI cache")
+    return sorted({str(build["commit"]) for build in cached.builds
+                   if isinstance(build.get("commit"), str) and _SHA_RE.fullmatch(build["commit"])})
+
+
+def load_source_scope_indexes(cache_dir: Path, *, ref_now: datetime | None = None) -> dict[str, dict]:
+    """Merge authenticated standalone and legacy embedded immutable Git indexes.
+
+    Runtime cache age/coverage cannot authorize old build observations. Only
+    exact Git configuration proofs escape; source clocks/completeness do not.
+    """
+    indexes = read_runtime_source_indexes(Path(cache_dir).parent / RUNTIME_SOURCE_CACHE_DIR_NAME)
+    cached = _cache_at_source_clock(cache_dir, ref_now=ref_now)
+    if cached is None:
+        return retain_runtime_source_indexes(indexes)
+    for build in cached.builds:
+        index = build.get("source_scope_index")
+        if not index:
+            continue
+        commit = str(build.get("commit") or "")
+        if commit in indexes and indexes[commit] != index:
+            raise CacheValidationError("query_mismatch", "source index checkpoints disagree on an exact immutable pin")
+        indexes[commit] = index
+    return retain_runtime_source_indexes(indexes, preferred_commits=[build.get("commit") for build in cached.builds])

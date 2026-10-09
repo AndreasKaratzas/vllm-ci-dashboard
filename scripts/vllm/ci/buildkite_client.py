@@ -174,13 +174,15 @@ def _paginate(
     *,
     max_pages: int = PAGINATION_SAFETY_CAP,
     project: Callable[[Any], Any] | None = None,
+    prepare_page: Callable[[list], None] | None = None,
     on_page: Callable[[int, list, bool], None] | None = None,
 ) -> list:
     """Fetch bounded pages without changing the initial endpoint/query scope.
 
     Optional projection retains only small caller-approved records. The page
     callback receives those projected records and whether a validated next
-    page exists; security and safety-cap errors always precede callbacks.
+    page exists. Optional preparation sees one validated raw page before
+    projection; security and safety-cap errors always precede every callback.
     """
     if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
@@ -199,6 +201,8 @@ def _paginate(
     current_url = url
 
     def record_page(page: int, payload: list, *, has_next: bool) -> None:
+        if prepare_page is not None:
+            prepare_page(payload)
         rows = [project(row) for row in payload] if project is not None else payload
         results.extend(rows)
         if on_page is not None:

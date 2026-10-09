@@ -1,6 +1,6 @@
 """CRITICAL: Tests that validate the dashboard numbers are CORRECT.
 
-These tests cross-reference the data in ci_health.json and parity_report.json
+These tests cross-reference current MI data in ci_health.json
 against the raw JSONL test results and internal consistency rules.
 
 If ANY of these tests fail, the dashboard is showing wrong numbers.
@@ -60,21 +60,6 @@ def _load_test_results():
     return results, amd_files[0].name
 
 
-def _load_upstream_test_results():
-    """Load all JSONL test results for the latest upstream date."""
-    results_dir = DATA / "test_results"
-    if not results_dir.exists():
-        pytest.skip("no test_results directory")
-    upstream_files = sorted(results_dir.glob("*_upstream.jsonl"), reverse=True)
-    if not upstream_files:
-        pytest.skip("no upstream JSONL files")
-    results = []
-    with upstream_files[0].open() as handle:
-        for line in handle:
-            line = line.strip()
-            if line:
-                results.append(json.loads(line))
-    return results, upstream_files[0].name
 
 
 @pytest.mark.live_data
@@ -542,88 +527,6 @@ def test_definition_audit_rejects_unassigned_current_ci_execution_routes(
         audit()
 
 
-@pytest.mark.live_data
-class TestGroupFailureCorrectness:
-    """Validate that groups marked as failing actually have failures."""
-
-    def test_failing_groups_have_actual_failures(self):
-        """Every group in parity report with failures must have failed test
-        results in at least one JSONL file (current or previous build, since
-        the parity report backfills from previous builds)."""
-        parity = _load_json("parity_report.json")
-
-        from vllm.ci.analyzer import _normalize_job_name
-
-        # Load ALL AMD JSONL files (current + previous builds)
-        results_dir = DATA / "test_results"
-        groups_with_failures = set()
-        for jsonl_path in results_dir.glob("*_amd.jsonl"):
-            with open(jsonl_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    r = json.loads(line)
-                    if r.get("status") in ("failed", "error"):
-                        norm = _normalize_job_name(r.get("job_name", ""))
-                        groups_with_failures.add(norm)
-        # Also check upstream JSONL (parity includes upstream failures now)
-        for jsonl_path in results_dir.glob("*_upstream.jsonl"):
-            with open(jsonl_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    r = json.loads(line)
-                    if r.get("status") in ("failed", "error"):
-                        norm = _normalize_job_name(r.get("job_name", ""))
-                        groups_with_failures.add(norm)
-
-        for g in parity.get("job_groups", []):
-            if not g.get("amd") and not g.get("upstream"):
-                continue
-            # Only check AMD failures against JSONL — upstream failures use
-            # different normalized names due to parity key matching and won't
-            # match the JSONL group name exactly.
-            amd_failed = 0
-            if g.get("amd"):
-                amd_failed = g["amd"].get("failed", 0) + g["amd"].get("error", 0)
-            if amd_failed > 0:
-                assert g["name"] in groups_with_failures, (
-                    f"Group '{g['name']}' shows {amd_failed} AMD failures in parity "
-                    f"report but has no failed test results in any JSONL"
-                )
-
-    def test_passing_groups_have_no_failures(self):
-        """Groups with 0 failures must not have failed results in JSONL
-        (after job-state override)."""
-        parity = _load_json("parity_report.json")
-        results, fname = _load_test_results()
-
-        from vllm.ci.analyzer import _normalize_job_name
-        
-
-        # Build map of group -> failure count from JSONL
-        group_failures = defaultdict(int)
-        for r in results:
-            if r.get("status") in ("failed", "error"):
-                norm = _normalize_job_name(r.get("job_name", ""))
-                name = r.get("name", "")
-                count_match = re.search(r"\((\d+)\)", name)
-                count = int(count_match.group(1)) if count_match else 1
-                group_failures[norm] += count
-
-        for g in parity.get("job_groups", []):
-            if not g.get("amd"):
-                continue
-            amd_failed = g["amd"].get("failed", 0) + g["amd"].get("error", 0)
-            if amd_failed == 0:
-                jsonl_fail = group_failures.get(g["name"], 0)
-                assert jsonl_fail == 0, (
-                    f"Group '{g['name']}' shows 0 failures in parity report but "
-                    f"has {jsonl_fail} failures in JSONL ({fname}). "
-                    "The log parser may be creating false failures."
-                )
 
 
 @pytest.mark.live_data
@@ -655,47 +558,6 @@ class TestSkipPatternsCompleteness:
                 )
 
 
-@pytest.mark.live_data
-class TestParityReportConsistency:
-    """Validate parity_report.json is internally consistent."""
-
-    def test_amd_groups_match_ci_health_unique_groups(self):
-        """Parity report AMD group count should match ci_health unique_test_groups."""
-        parity = _load_json("parity_report.json")
-        health = _load_json("ci_health.json")
-
-        parity_amd = len([g for g in parity.get("job_groups", []) if g.get("amd")])
-        ci_unique = health.get("amd", {}).get("latest_build", {}).get("unique_test_groups", 0)
-
-        # Allow small differences due to timing (parity might use different build)
-        diff = abs(parity_amd - ci_unique)
-        assert diff <= 5, (
-            f"Parity report has {parity_amd} AMD groups but ci_health has "
-            f"{ci_unique} unique_test_groups (diff={diff}). These should be close."
-        )
-
-    def test_hw_failure_counts_are_subset_of_total_failures(self):
-        """Per-HW failure counts for AMD hardware must not exceed AMD total failures.
-        Legacy hw_failures may also contain upstream hardware — skip those."""
-        AMD_HW = {"mi250", "mi300", "mi325", "mi355", "cpu"}
-        parity = _load_json("parity_report.json")
-        for g in parity.get("job_groups", []):
-            if not g.get("amd"):
-                continue
-            total_fail = g["amd"].get("failed", 0) + g["amd"].get("error", 0)
-            amd_hw_failures = g.get("amd_hw_failures")
-            hw_failures = (
-                amd_hw_failures
-                if isinstance(amd_hw_failures, dict)
-                else (g.get("hw_failures") or {})
-            )
-            for hw, count in hw_failures.items():
-                if hw not in AMD_HW:
-                    continue  # upstream hw failures checked separately
-                assert count <= total_fail, (
-                    f"Group '{g['name']}': {hw} has {count} failures but "
-                    f"total AMD failures is only {total_fail}"
-                )
 
 
 @pytest.mark.live_data
@@ -774,89 +636,6 @@ class TestNightlyDateAlignment:
         assert nightly_date(None) == ""
 
 
-@pytest.mark.live_data
-class TestUpstreamHardwareTracking:
-    """Validate that upstream GPU hardware (H100, B200, etc.) is tracked."""
-
-    def test_upstream_has_hardware_breakdown(self):
-        """ci_health upstream must have non-unknown hardware entries."""
-        health = _load_json("ci_health.json")
-        up = health.get("upstream", {}).get("latest_build", {})
-        bh = up.get("by_hardware", {})
-        non_unknown = {k: v for k, v in bh.items() if k not in ("unknown", "cpu")}
-        assert len(non_unknown) >= 1, (
-            f"Upstream has no GPU hardware breakdown — only {list(bh.keys())}. "
-            "The _extract_hardware() function may not detect (H100), (B200) etc."
-        )
-
-    def test_upstream_hardware_group_counts_match_jsonl(self):
-        """Published hardware groups must match the latest upstream evidence."""
-        health = _load_json("ci_health.json")
-        results, fname = _load_upstream_test_results()
-
-        from vllm.ci.analyzer import _extract_hardware, _normalize_job_name
-
-        # Parse standardized NVIDIA decorators independently from the analyzer.
-        # This keeps the live contract capable of detecting a regression where
-        # H200/L4/etc. decorators silently fall back to the legacy H100 bucket.
-        queue_prefix = re.compile(
-            r"^(?:mi\d+(?:_\d+)?|gpu_\d+|amd_[^:]+):\s*",
-            re.IGNORECASE,
-        )
-        nvidia_decorator = re.compile(
-            r"^:nvidia:\s*\(([^)]+)\)\s*",
-            re.IGNORECASE,
-        )
-        expected_groups = defaultdict(set)
-        build_numbers = set()
-        for result in results:
-            job_name = result.get("job_name", "")
-            without_queue = queue_prefix.sub("", job_name, count=1)
-            match = nvidia_decorator.match(without_queue)
-            hardware = (
-                " ".join(match.group(1).split()).casefold()
-                if match
-                else _extract_hardware(job_name)
-            )
-            expected_groups[hardware].add(_normalize_job_name(job_name))
-            build_numbers.add(result.get("build_number"))
-
-        latest = health.get("upstream", {}).get("latest_test_signal_build", {})
-        health_build = latest.get("build_number")
-        assert build_numbers == {health_build}, (
-            f"Upstream JSONL {fname} contains builds "
-            f"{sorted(str(number) for number in build_numbers)} but "
-            f"ci_health latest test signal is build {health_build}"
-        )
-
-        published_groups = {
-            hardware: data.get("groups", 0)
-            for hardware, data in latest.get("by_hardware", {}).items()
-        }
-        expected_counts = {
-            hardware: len(groups)
-            for hardware, groups in expected_groups.items()
-        }
-        assert published_groups == expected_counts, (
-            f"ci_health upstream hardware groups {published_groups} do not match "
-            f"the independently classified groups in {fname}: {expected_counts}"
-        )
-
-    def test_parity_report_has_upstream_hardware(self):
-        """Parity report groups must have upstream hardware tags."""
-        parity = _load_json("parity_report.json")
-        upstream_hw_groups = [
-            g for g in parity.get("job_groups", [])
-            if g.get("upstream") and g.get("upstream_hardware")
-            and any(
-                hw not in ("unknown", "cpu")
-                for hw in g["upstream_hardware"]
-            )
-        ]
-        assert len(upstream_hw_groups) >= 5, (
-            f"Only {len(upstream_hw_groups)} parity groups have upstream GPU hardware tags. "
-            "Expected at least 5 (H100, B200, etc.)"
-        )
 
 
 class TestExtractHardwareFunction:
@@ -1038,7 +817,7 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(
             job_id=f"job-{index}",
             step_id=f"step-{index}",
             build_number=500,
-            pipeline="amd-ci",
+            pipeline="ci",
             date="2026-08-20",
         )
         for index, job_name in enumerate((mi300_shard_1, mi300_shard_2, mi355), 1)
@@ -1063,12 +842,6 @@ def test_standardized_decorators_collapse_logical_groups_and_shards(
     assert summary.by_hardware["mi300"]["groups"] == 1
     assert summary.by_hardware["mi355"]["groups"] == 1
 
-    parity = analyzer.compute_parity(results, [])
-    parity_hardware_totals = defaultdict(int)
-    for group in parity["job_groups"]:
-        for hardware in group.get("hardware") or []:
-            parity_hardware_totals[hardware] += 1
-    assert parity_hardware_totals == {"mi300": 1, "mi355": 1}
 
 
 @pytest.mark.parametrize("mi355_pool", ["mi355_2", "mi355_dpx"])
@@ -1107,7 +880,7 @@ def test_aligned_amd_route_map_preserves_topology_distinct_groups(
             job_id=f"job-{index}",
             step_id=f"step-{index}",
             build_number=501,
-            pipeline="amd-ci",
+            pipeline="ci",
             date="2026-08-21",
         )
         for index, (job_name, status) in enumerate(
@@ -1186,18 +959,6 @@ class TestSkipPatternsRobust:
         assert any(pattern in infra_name for pattern in SKIP_JOB_PATTERNS)
         assert any(pattern in legacy_infra_name for pattern in SKIP_JOB_PATTERNS)
 
-    @pytest.mark.live_data
-    def test_patterns_dont_match_upstream_groups(self):
-        """Skip patterns must not match any upstream test group names."""
-        from vllm.pipelines import SKIP_JOB_PATTERNS
-        parity = _load_json("parity_report.json")
-        upstream_groups = [g["name"] for g in parity.get("job_groups", []) if g.get("upstream")]
-        for group in upstream_groups:
-            lower = group.lower()
-            for pattern in SKIP_JOB_PATTERNS:
-                assert pattern not in lower, (
-                    f"SKIP_JOB_PATTERNS '{pattern}' matches upstream group '{group}'"
-                )
 
 
 @pytest.mark.parametrize(("summary_text", "expected"), [
@@ -1209,7 +970,7 @@ class TestSkipPatternsRobust:
 ])
 def test_pytest_summary_preserves_xpass_counts(summary_text, expected):
     """The build 13954 XPASS summary must retain real passing test evidence."""
-    from vllm.ci.analyzer import compute_build_summary, compute_parity
+    from vllm.ci.analyzer import compute_build_summary
     from vllm.ci.log_parser import parse_job_results
 
     job = {
@@ -1218,7 +979,7 @@ def test_pytest_summary_preserves_xpass_counts(summary_text, expected):
         "state": "passed",
     }
     results = parse_job_results(
-        job, 13954, "amd-ci", "2026-10-01",
+        job, 13954, "ci", "2026-10-01",
         log_text=(
             "\x1b_bk;t=1790848161565\x07\x1b[33m==== "
             f"{summary_text} in 354.38s (0:05:54) ====\x1b[0m"
@@ -1234,11 +995,6 @@ def test_pytest_summary_preserves_xpass_counts(summary_text, expected):
     assert summary.test_groups_passing_or == int(summary.passed > 0)
     if summary.passed:
         assert summary.duration_secs == 354.4
-    parity = compute_parity(results, [])["job_groups"][0]["amd"]
-    assert parity["passed"] == expected.get("passed", 0)
-    assert parity["xpassed"] == expected.get("xpassed", 0)
-    assert parity["total"] == sum(expected.values())
-    assert parity["duration"] == (354.38 if summary.passed else 0.0)
 
 
 @pytest.mark.live_data
@@ -1387,60 +1143,6 @@ class TestParityKeyHandling:
     in the parity report — not just the last one.
     """
 
-    @pytest.mark.live_data
-    def test_parity_key_no_group_loss(self):
-        """compute_parity must not silently drop AMD groups that share a parity key."""
-        from vllm.ci.analyzer import (
-            _normalize_job_name, _parity_key, compute_parity,
-        )
-        from vllm.ci.models import TestResult
-
-        results, fname = _load_test_results()
-        # Count AMD groups by norm
-        amd_norms = set()
-        for r in results:
-            amd_norms.add(_normalize_job_name(r.get("job_name", "")))
-
-        # Check for parity key collisions
-        pk_to_norms = defaultdict(set)
-        for norm in amd_norms:
-            pk = _parity_key(norm)
-            pk_to_norms[pk].add(norm)
-
-        collisions = {pk: norms for pk, norms in pk_to_norms.items() if len(norms) > 1}
-        if not collisions:
-            pytest.skip("no parity key collisions in current data")
-
-        # Run actual compute_parity and verify all norms are present
-        amd_results = [
-            TestResult(**{**json.loads(line), "step_id": json.loads(line).get("step_id", "")})
-            for line in open(DATA / "test_results" / fname).read().splitlines()
-            if line.strip()
-        ]
-        # Need upstream too
-        up_file = fname.replace("_amd.", "_upstream.")
-        up_path = DATA / "test_results" / up_file
-        if not up_path.exists():
-            pytest.skip("no upstream JSONL for this date")
-        up_results = [
-            TestResult(**{**json.loads(line), "step_id": json.loads(line).get("step_id", "")})
-            for line in up_path.read_text().splitlines()
-            if line.strip()
-        ]
-
-        parity = compute_parity(amd_results, up_results)
-        parity_names = {g["name"] for g in parity.get("job_groups", [])}
-
-        missing = amd_norms - parity_names
-        # Filter out excluded groups (CPU, Intel, etc.)
-        from vllm.ci.analyzer import _EXCLUDE_PATTERNS
-        missing = {n for n in missing if not _EXCLUDE_PATTERNS.match(n)}
-
-        assert not missing, (
-            f"{len(missing)} AMD groups lost in parity matching:\n"
-            + "\n".join(f"  {n} (parity_key={_parity_key(n)})" for n in sorted(missing)[:10])
-            + "\nThis means the parity key dict comprehension is dropping duplicates."
-        )
 
     def test_parity_key_cross_pipeline_matching(self):
         """_parity_key must produce the same key for the SAME test across
@@ -1529,310 +1231,36 @@ class TestShardBasesSync:
             )
 
 
-@pytest.mark.live_data
-class TestPendingGroupCompleteness:
-    """Validate that scheduled/waiting jobs appear as pending groups."""
 
-    def test_pending_groups_have_hardware(self):
-        """Every pending group in the parity report must have a hardware list."""
-        parity = _load_json("parity_report.json")
-        for g in parity.get("job_groups", []):
-            if g.get("backfilled"):
-                assert g.get("hardware"), (
-                    f"Pending group '{g['name']}' has no hardware list. "
-                    "Scheduled job injection should set hardware from the queue."
-                )
 
-    def test_pending_groups_without_data_are_backfilled(self):
-        """Groups with no AMD or upstream data must be marked as backfilled."""
-        parity = _load_json("parity_report.json")
-        for g in parity.get("job_groups", []):
-            if not g.get("amd") and not g.get("upstream"):
-                assert g.get("backfilled"), (
-                    f"Group '{g['name']}' has no test data but is not marked "
-                    "as backfilled/pending."
-                )
 
-    def test_amd_completed_groups_not_pending(self):
-        """If a group has AMD test results from the CURRENT build, it must
-        NOT be marked as backfilled/pending — even if the upstream build
-        hasn't completed that group yet.
 
-        This catches the bug where upstream pending incorrectly made AMD
-        groups show as PENDING (backfilled = amd_bf OR up_bf)."""
-        parity = _load_json("parity_report.json")
-        results, fname = _load_test_results()
-
-        from vllm.ci.analyzer import _normalize_job_name
-
-        # Get the current AMD build number from parity report
-        amd_build = parity.get("amd_build")
-        if not amd_build:
-            pytest.skip("no amd_build in parity report")
-
-        # Find groups that have results from the CURRENT build
-        current_build_groups = set()
-        for r in results:
-            if r.get("build_number") == amd_build:
-                current_build_groups.add(_normalize_job_name(r.get("job_name", "")))
-
-        # These groups must NOT be marked as backfilled
-        bad = []
-        for g in parity.get("job_groups", []):
-            if g.get("backfilled") and g["name"] in current_build_groups:
-                bad.append(g["name"])
-
-        assert not bad, (
-            f"{len(bad)} groups have AMD results from current build #{amd_build} "
-            f"but are marked as PENDING:\n"
-            + "\n".join(f"  {n}" for n in bad[:10])
-            + "\nThis means upstream pending is incorrectly affecting AMD status. "
-            "The backfilled flag should only depend on AMD build state."
-        )
-
-    def test_backfilled_groups_have_no_current_build_results(self):
-        """Every group marked backfilled=True must NOT have test results
-        from the current AMD build. If it does, the backfill tagging is wrong."""
-        parity = _load_json("parity_report.json")
-        results, fname = _load_test_results()
-
-        from vllm.ci.analyzer import _normalize_job_name
-
-        amd_build = parity.get("amd_build")
-        if not amd_build:
-            pytest.skip("no amd_build in parity report")
-
-        # Build set of norms that have results in current build
-        current_norms = set()
-        for r in results:
-            if r.get("build_number") == amd_build:
-                current_norms.add(_normalize_job_name(r.get("job_name", "")))
-
-        backfilled_with_data = []
-        for g in parity.get("job_groups", []):
-            if g.get("backfilled") and g["name"] in current_norms:
-                backfilled_with_data.append(g["name"])
-
-        assert not backfilled_with_data, (
-            f"{len(backfilled_with_data)} groups are backfilled but have "
-            f"current build data:\n"
-            + "\n".join(f"  {n}" for n in backfilled_with_data[:10])
-        )
 
 
 @pytest.mark.live_data
-class TestNoStaleFailuresFromBackfill:
-    """Validate that backfilled data doesn't inflate failure counts.
+class TestCurrentMiExecutionScope:
+    """Keep published health and exact parsed evidence in the same MI cohort."""
 
-    When a group has hw_backfilled (e.g., mi355 from a previous build),
-    the backfilled failures must NOT be included in the AMD regression
-    count. Only current-build failures should be counted.
-    """
+    def test_current_health_has_only_mi_execution_and_no_cuda_role(self):
+        from vllm.pipelines import is_amd_ci_job
+        health = _load_json("ci_health.json")
+        assert health.get("hardware_scope") == "amd_mi_gpu"
+        assert "upstream" not in health
+        results, _ = _load_test_results()
+        assert results
+        assert all(row.get("pipeline") == "ci" and is_amd_ci_job(row) for row in results)
+        assert not list((DATA / "test_results").glob("*_upstream.jsonl"))
 
-    def test_backfilled_hw_failures_not_in_amd_counts(self):
-        """Groups with hw_backfilled should not have their AMD failure
-        count inflated by stale data from previous builds.
-
-        If amd.failed > 0 and ALL failing hardware is backfilled,
-        the group should not appear as a regression."""
-        parity = _load_json("parity_report.json")
-
-        from vllm.ci.analyzer import _normalize_job_name
-
-        bad = []
-        for g in parity.get("job_groups", []):
-            if not g.get("amd") or not g.get("hw_backfilled"):
-                continue
-            amd_failed = g["amd"].get("failed", 0) + g["amd"].get("error", 0)
-            if amd_failed == 0:
-                continue
-            # Check if ALL hw_failures come from backfilled hardware
-            amd_hw_failures = g.get("amd_hw_failures")
-            hwf = (
-                amd_hw_failures
-                if isinstance(amd_hw_failures, dict)
-                else (g.get("hw_failures") or {})
-            )
-            bf_hw = set(g.get("hw_backfilled", {}).keys())
-            # If all failing hardware is backfilled, these are stale failures
-            failing_hw = {hw for hw, c in hwf.items() if c > 0}
-            if failing_hw and failing_hw.issubset(bf_hw):
-                bad.append(f"{g['name']}: failed={amd_failed}, "
-                          f"failing_hw={failing_hw}, backfilled_hw={bf_hw}")
-
-        assert not bad, (
-            f"{len(bad)} groups have AMD failures ONLY from backfilled hardware "
-            f"(stale data from previous builds):\n"
-            + "\n".join(f"  {b}" for b in bad[:10])
-            + "\ncompute_parity should not include backfilled results "
-            "in test counts."
-        )
-
-    def test_regression_count_matches_current_build(self):
-        """The number of AMD regressions should reflect CURRENT build only.
-
-        Count groups where amd.failed > 0 and upstream.failed == 0
-        (pass upstream, fail AMD). This count should only include
-        groups with current-build failures, not backfilled ones."""
-        parity = _load_json("parity_report.json")
-        results, fname = _load_test_results()
-
-        from vllm.ci.analyzer import _normalize_job_name
-
-        amd_build = parity.get("amd_build")
-        if not amd_build:
-            pytest.skip("no amd_build")
-
-        # Groups that ACTUALLY failed in the current build
-        current_failures = set()
-        for r in results:
-            if r.get("build_number") == amd_build and r.get("status") in ("failed", "error"):
-                current_failures.add(_normalize_job_name(r.get("job_name", "")))
-
-        # Parity regressions
-        regressions = []
-        for g in parity.get("job_groups", []):
-            if not g.get("amd") or not g.get("upstream"):
-                continue
-            amd_f = g["amd"].get("failed", 0) + g["amd"].get("error", 0)
-            up_f = g["upstream"].get("failed", 0) + g["upstream"].get("error", 0)
-            if amd_f > 0 and up_f == 0:
-                regressions.append(g["name"])
-
-        # Every regression should have current-build failures
-        stale_regressions = [r for r in regressions if r not in current_failures]
-        assert not stale_regressions, (
-            f"{len(stale_regressions)} regressions are from backfilled data, "
-            f"not the current build #{amd_build}:\n"
-            + "\n".join(f"  {r}" for r in stale_regressions[:10])
-        )
-
-
-@pytest.mark.live_data
-class TestUpstreamFailureCompleteness:
-    """Validate that ALL upstream failures from Buildkite appear in the parity report."""
-
-    def test_no_blocked_jobs_in_parity(self):
-        """Blocked jobs (AMD jobs in upstream pipeline) must not appear
-        as groups in the parity report."""
-        parity = _load_json("parity_report.json")
-        blocked = [g for g in parity.get("job_groups", [])
-                   if g["name"].startswith("amd:")]
-        assert not blocked, (
-            f"{len(blocked)} blocked AMD jobs appear in parity report:\n"
-            + "\n".join(f"  {g['name']}" for g in blocked[:5])
-            + "\nThese are AMD-side jobs in the upstream pipeline that never ran."
-        )
-
-    def test_upstream_failed_jobs_are_failures(self):
-        """Upstream failures from the CURRENT build must appear in parity.
-
-        Only checks failures from the build matching parity's upstream_build,
-        not backfilled data from previous builds.
-
-        Note: AMD and upstream may normalize to different names for the same
-        logical group (e.g. 'quantized moe test (b200)' vs 'quantized moe test
-        (b200-mi325)'). The parity report uses parity-key matching to align
-        them, so we check that every upstream failure's base name (stripping
-        the GPU tag) appears somewhere in the parity report's base names."""
-        parity = _load_json("parity_report.json")
-        up_build = parity.get("upstream_build")
-        if not up_build:
-            pytest.skip("no upstream_build in parity")
-
-        results, fname = _load_test_results()
-        from vllm.ci.analyzer import _EXCLUDE_PATTERNS, _HW_MULTI, _HW_SINGLE, _normalize_job_name
-
-        up_file = fname.replace("_amd.", "_upstream.")
-        up_path = DATA / "test_results" / up_file
-        if not up_path.exists():
-            pytest.skip("no upstream JSONL")
-
-        def _strip_hw_tag(name):
-            """Strip trailing hardware tag like (B200) or (B200-MI325).
-
-            Keep semantic group qualifiers like "(2 GPUs)" intact.
-            """
-            s = name.strip()
-            for pat in (_HW_MULTI, _HW_SINGLE):
-                m = pat.search(s)
-                if m and m.end() == len(s):
-                    return (s[:m.start()] + s[m.end():]).strip()
-            return s
-
-        # Only failures from the CURRENT upstream build
-        up_failing_groups = set()
-        with open(up_path) as f:
-            for line in f:
-                r = json.loads(line.strip())
-                if r.get("build_number") != up_build:
-                    continue
-                if r.get("status") in ("failed", "error"):
-                    norm = _normalize_job_name(r.get("job_name", ""))
-                    if not _EXCLUDE_PATTERNS.match(norm):
-                        up_failing_groups.add(norm)
-
-        parity_up_fail = set()
-        for g in parity.get("job_groups", []):
-            up = g.get("upstream")
-            if up and (up.get("failed", 0) + up.get("error", 0)) > 0:
-                parity_up_fail.add(g["name"])
-                # Family aliases are the canonical identity for parity-facing
-                # views when one upstream group fans out into multiple AMD HW
-                # variants (for example 2xH100-2xMI300 / 2xH100-2xMI355).
-                if g.get("family_name"):
-                    parity_up_fail.add(g["family_name"])
-
-        # Build base-name sets for fuzzy matching (parity key alignment)
-        parity_bases = {_strip_hw_tag(n) for n in parity_up_fail}
-
-        missing = set()
-        for g in up_failing_groups:
-            if g not in parity_up_fail and _strip_hw_tag(g) not in parity_bases:
-                missing.add(g)
-
-        assert not missing, (
-            f"{len(missing)} upstream failures from build #{up_build} "
-            f"not in parity report:\n"
-            + "\n".join(f"  {g}" for g in sorted(missing)[:10])
-        )
-
-    def test_failed_job_state_produces_failure_result(self):
-        """Jobs with Buildkite state=failed must have at least one failed
-        test result in the JSONL. Tests the log parser's job-state override."""
-        parity = _load_json("parity_report.json")
-        results, fname = _load_test_results()
-
-        from vllm.ci.analyzer import _normalize_job_name
-
-        # Check upstream JSONL
-        up_file = fname.replace("_amd.", "_upstream.")
-        up_path = DATA / "test_results" / up_file
-        if not up_path.exists():
-            pytest.skip("no upstream JSONL")
-
-        # Group results by job_name
-        job_results = defaultdict(list)
-        with open(up_path) as f:
-            for line in f:
-                r = json.loads(line.strip())
-                job_results[r.get("job_name", "")].append(r)
-
-        # For each job that has __job_level__ failed or __unidentified_failures__,
-        # verify it contributes to the parity report
-        for job_name, entries in job_results.items():
-            has_failure = any(
-                e["status"] in ("failed", "error")
-                for e in entries
-            )
-            has_pass_only = all(
-                e["status"] in ("passed", "xpassed", "skipped", "xfailed")
-                for e in entries
-            )
-            # If there's a __job_level__ with status != passed, verify failure tracked
-            job_level = [e for e in entries if e["name"] == "__job_level__"]
-            if job_level and job_level[0]["status"] in ("failed", "error"):
-                assert has_failure, (
-                    f"Job '{job_name}' has __job_level__ failed but no failure "
-                    f"entries in JSONL"
-                )
+    def test_latest_mi_assertion_counts_match_exact_current_shard(self):
+        from vllm.ci.analyzer import _actual_count
+        from vllm.ci.models import TestResult
+        health = _load_json("ci_health.json")
+        latest = (health.get("amd") or {}).get("latest_test_signal_build") or {}
+        rows, filename = _load_test_results()
+        current = [TestResult(**row) for row in rows if row.get("build_number") == latest.get("build_number")]
+        assert current, f"latest MI signal has no exact records in {filename}"
+        passing = sum(_actual_count(row) for row in current if row.status in {"passed", "xpassed"})
+        failing = sum(_actual_count(row) for row in current if row.status in {"failed", "error"})
+        assert latest["passed"] == passing
+        assert latest["failed"] == failing
+        assert latest["total_tests"] == passing + failing + latest["skipped"]

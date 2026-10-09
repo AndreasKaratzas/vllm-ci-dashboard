@@ -110,6 +110,8 @@ def _read_state() -> dict:
     except (OSError, json.JSONDecodeError):
         return _default_state()
     normalized = normalize_managed_state(raw)
+    if isinstance(raw, dict) and raw.get("hardware_scope") == "amd_mi_gpu":
+        normalized["hardware_scope"] = "amd_mi_gpu"
     raw_active = raw.get("active") if isinstance(raw, dict) else {}
     normalized["active"] = {
         str(group_id): dict(row)
@@ -260,6 +262,10 @@ def evaluate_regressions(reliability: dict, state: dict) -> dict[str, dict]:
     """Evaluate current regressions while retaining each incident's baseline."""
     previous = state.get("active") if isinstance(state, dict) else {}
     previous = previous if isinstance(previous, dict) else {}
+    if state.get("hardware_scope") != "amd_mi_gpu":
+        # Old baselines may include CPU work on an MI queue. Rebuild them from
+        # the newly scoped raw-attempt catalog before issuing a duration alert.
+        previous = {}
     generated = _parse_ts(reliability.get("generated_at"))
     cutoff = (
         generated - INCIDENT_MAX_AGE
@@ -488,7 +494,7 @@ def run() -> int:
     )
 
     reliability = _read_reliability()
-    if not reliability or not validate_all_main_reliability(reliability, PIPELINE):
+    if not reliability or reliability.get("hardware_scope") != "amd_mi_gpu" or not validate_all_main_reliability(reliability, PIPELINE):
         log.error("Strict exhaustive AMD main reliability is unavailable; refusing issue mutations")
         return 0
     now = datetime.now(timezone.utc)
@@ -502,6 +508,7 @@ def run() -> int:
     state = _read_state()
     active = evaluate_regressions(reliability, state)
     state["active"] = active
+    state["hardware_scope"] = "amd_mi_gpu"
     observed_at = str(
         reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ")
     )

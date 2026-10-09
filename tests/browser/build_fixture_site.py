@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -23,6 +24,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import build_site  # noqa: E402
 from vllm import build_operations_snapshot as operations  # noqa: E402
 from vllm import build_test_group_parity as parity  # noqa: E402
+from vllm import collect_agent_health as agents  # noqa: E402
 from vllm import collect_amd_test_matrix as matrix  # noqa: E402
 from vllm.ci.nightly_latency import build_current_nightly_latency  # noqa: E402
 from vllm.collect_analytics import summarize_pipeline_builds  # noqa: E402
@@ -113,7 +115,7 @@ def raw_nightlies() -> list[dict]:
 def seed_current_ci(data_dir: Path) -> None:
     raw = raw_nightlies()
     builds = summarize_pipeline_builds("ci", raw)
-    analytics = {"builds": builds, "generated_at": GENERATED_AT}
+    analytics = {"builds": builds, "generated_at": GENERATED_AT, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"}
     analytics["current_nightly_latency"] = build_current_nightly_latency(
         builds, generated_at=GENERATED_AT, source_available=True,
     )
@@ -126,7 +128,7 @@ def seed_current_ci(data_dir: Path) -> None:
         "test_groups_passing_all": 2, "test_groups_partial": 1,
     }
     write_json(data_dir / "ci_health.json", {
-        "amd": {"source_pipeline": "ci", "job_scope": "amd_gpu", "latest_test_signal_build": reference},
+        "amd": {"source_pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "latest_test_signal_build": reference},
     })
     definition_parity = {"source": {"commit_sha": SOURCE_SHA}, "matches": [{
         "amd_identity_family_key": "routed family (2 gpus)",
@@ -164,10 +166,35 @@ def seed_current_ci(data_dir: Path) -> None:
     )
     current_matrix["generated_at"] = GENERATED_AT
     current_matrix["source"].update({
-        "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd",
+        "pipeline": "ci", "definition_source": "main_ci_inline_and_native_amd", "hardware_scope": "amd_mi_gpu",
         "commit_sha": SOURCE_SHA,
     })
     write_json(data_dir / "amd_test_matrix.json", current_matrix)
+
+    now = datetime.fromisoformat(GENERATED_AT.replace("Z", "+00:00"))
+    observed = []
+    for build in raw:
+        for job in build["jobs"]:
+            source = {**job, "agent": {"meta_data": ["k8s:node=fixture-" + job["id"][:8]]}}
+            observation = agents._observe("ci", build, source, re.compile("nightly", re.I))
+            if observation:
+                observation["day"] = build["created_at"][:10]
+                observed.append(observation)
+    agents._mark_infra_suspect(observed)
+    generation = agents._prepare_generation(
+        list(agents._rollup_rows(observed).values()),
+        [agents._failing_row(row) for row in observed if row["state"] in ("hard", "soft")],
+        now, pipelines=("ci",), pipeline_scope={
+            "version": 2, "basis": "terminal_jobs_by_build_created_at",
+            "eligible_completion": "current_ci_build_creation_cohort_with_provable_completion",
+            "day_basis": "build_created_at_utc", "discovery_legs": {"created": True},
+            "requested_days": 7, "collected_from": "2026-10-01T00:00:00Z", "collected_to": GENERATED_AT,
+            "exhaustive": True, "complete_window": False,
+            "attempt_policy": "latest_attempt_per_step",
+            "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
+        },
+    )
+    write_json(data_dir / "agent_health.json", generation["payload"])
 
 
 def main() -> None:

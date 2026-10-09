@@ -12,6 +12,7 @@ import json
 import math
 from collections.abc import Callable
 from typing import Any
+from vllm.pipelines import is_amd_ci_job
 
 
 PUBLIC_ANALYTICS_PROJECTOR_ID = "public_analytics_v1"
@@ -22,6 +23,8 @@ _PIPELINE_STRING_FIELDS = (
     "generated_at",
     "transition_policy_id",
     "default_window",
+    "job_scope",
+    "hardware_scope",
 )
 _PIPELINE_INTEGER_FIELDS = ("days", "pass_rate_contract_version")
 _SUMMARY_INTEGER_FIELDS = (
@@ -35,7 +38,7 @@ _SUMMARY_INTEGER_FIELDS = (
     "jobs_with_soft_failures",
 )
 _SUMMARY_NUMBER_FIELDS = ("build_pass_rate_pct", "pass_rate")
-_BUILD_STRING_FIELDS = ("state", "created_at", "date")
+_BUILD_STRING_FIELDS = ("state", "source_state", "created_at", "date")
 _BUILD_INTEGER_FIELDS = ("passed", "failed", "soft_failed", "skipped", "total_jobs")
 _FAILURE_INTEGER_FIELDS = ("failed", "soft_failed")
 
@@ -109,6 +112,8 @@ def _project_job(value: object, path: str) -> dict[str, Any]:
     source = _require_object(value, path)
     if "name" not in source or not isinstance(source["name"], str):
         raise ValueError(f"{path}.name must be a string")
+    if not is_amd_ci_job(source):
+        raise ValueError(f"{path} contains non-MI runtime evidence")
 
     output: dict[str, Any] = {"name": source["name"]}
     for field in ("state", "q"):
@@ -243,6 +248,8 @@ def _project_windows(value: object, path: str) -> dict[str, dict[str, Any]]:
 
 def _project_pipeline(value: object, path: str, pipeline_key: str) -> dict[str, Any]:
     source = _require_object(value, path)
+    if source.get("hardware_scope") != "amd_mi_gpu" or source.get("job_scope") != "amd_gpu":
+        raise ValueError(f"{path} must declare current MI-only runtime evidence")
     output: dict[str, Any] = {}
 
     if "pipeline" in source:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from vllm import agent_health_issue_watcher as agent
 from vllm import amd_duration_regression_watcher as duration
 from vllm import amd_main_failure_watcher as amd
@@ -198,12 +200,12 @@ def test_current_amd_failure_watcher_uses_ci_gpu_groups_only(monkeypatch):
     monkeypatch.setattr(amd, "GitHubIssueClient", lambda *args: object())
     monkeypatch.setattr(amd, "reconcile_managed_issue", lambda state, **kwargs: state)
     monkeypatch.setattr(amd, "_write_state", lambda state, path, **kwargs: captured.append((state, path, kwargs)))
-    assert amd.run_watcher(amd.AMD_CONFIG) == 0
+    assert amd.run_watcher(upstream.CONFIG) == 0
     active = captured[0][0]["active"]
     assert len(active) == 1
     assert all(row["hardware"].startswith("mi") for row in active.values())
     assert "retired" not in active
-    assert captured[0][2]["state_filename"] == "open_amd_main_failure_issues.json"
+    assert captured[0][2]["state_filename"] == "open_ci_main_failure_issues.json"
 
 
 def test_amd_duration_regressions_exclude_cuda_and_retired_held_state():
@@ -329,13 +331,13 @@ def test_amd_watcher_schema_v2_matches_legacy_hydrated_evidence_and_links():
     assert incident["build_commit"] == f"{610:040x}"
     assert incident["build_message"] == message
 
-    normalized_body = amd._issue_body(
+    normalized_body = upstream._issue_body(
         normalized_state["active"],
         normalized,
         "https://github.com/run",
         "AndreasKaratzas",
     )
-    legacy_body = amd._issue_body(
+    legacy_body = upstream._issue_body(
         legacy_state["active"],
         legacy,
         "https://github.com/run",
@@ -622,7 +624,7 @@ def test_amd_issue_body_contains_exact_job_evidence_and_rule():
         "observed_at": "2026-07-17T11:00:00Z",
     }
 
-    body = amd._issue_body(
+    body = upstream._issue_body(
         {"group-42": row},
         {"generated_at": "2026-07-17T12:00:00Z"},
         "https://github.com/run",
@@ -731,12 +733,32 @@ def _ci_group(group_id, observations):
     return {
         "group_id": group_id,
         "name": "Upstream group",
-        "raw_name": "gpu_1: Upstream group",
+        "raw_name": "amd_mi300_1: MI group",
         "step_key": "upstream-step",
-        "hardware": "h100",
-        "queue": "h100",
+        "hardware": "mi300",
+        "queue": "amd_mi300_1",
         "observations": observations,
     }
+
+
+def test_canonical_issue_540_scope_migration_purges_foreign_incidents_and_fences():
+    mi = {**_ci_group("mi", []), "result": "failed", "job_url": "https://buildkite.com/vllm/ci/builds/93523#mi"}
+    cuda = {**mi, "name": "B200 failure", "raw_name": ":nvidia: (B200) CUDA", "hardware": "b200", "queue": "gpu_1"}
+    cpu = {**mi, "name": "CPU failure", "raw_name": ":computer: (CPU) CPU", "queue": "amd_mi300_1"}
+    unproved_cpu = {**mi, "name": "Old CPU-only source on MI queue"}
+    reliability = {"groups": [_ci_group("mi", [])], "builds": [], "hardware_scope": "amd_mi_gpu"}
+    state = {**upstream._default_state(), "initialized": True, "issue": {"number": 540},
+             "active": {"mi": mi, "cuda": cuda, "cpu": cpu, "source-cpu": unproved_cpu},
+             "pending_soft": {"cuda-soft": cuda},
+             "group_watermarks": {key: {"number": 93523} for key in ("mi", "cuda", "cpu", "source-cpu", "cuda-soft")}}
+    migrated = upstream.advance_incidents(reliability, state)
+    assert set(migrated["active"]) == {"mi"}
+    assert migrated["pending_soft"] == {}
+    assert set(migrated["group_watermarks"]) == {"mi"}
+    assert migrated["issue"]["number"] == 540
+    assert migrated["hardware_scope"] == "amd_mi_gpu"
+    body = upstream._issue_body(migrated["active"], reliability, "https://example.invalid/run", "owner")
+    assert "B200" not in body and "CPU failure" not in body and "Old CPU-only" not in body
 
 
 def test_upstream_watcher_retains_last_good_and_first_bad_commit():
@@ -865,8 +887,8 @@ def test_upstream_issue_body_contains_bisect_candidate():
     row = {
         "group_id": "upstream-group",
         "name": "Upstream group",
-        "hardware": "h100",
-        "queue": "h100",
+        "hardware": "mi300",
+        "queue": "amd_mi300_1",
         "result": "failed",
         "build_number": 31,
         "build_url": "https://buildkite.com/vllm/ci/builds/31",
@@ -886,7 +908,7 @@ def test_upstream_issue_body_contains_bisect_candidate():
         "AndreasKaratzas",
     )
 
-    assert "Upstream CI origin/main test-group alert" in body
+    assert "AMD MI GPU origin/main test-group alert" in body
     assert f"/compare/{good}...{bad}" in body
     assert f"git bisect start {bad} {good}" in body
     assert "ancestry must be verified" in body
@@ -1132,14 +1154,14 @@ def test_duration_watcher_holds_fixed_baseline_until_recent_median_recovers():
 
     still_slow = duration.evaluate_regressions(
         _duration_reliability([118] * 3, [118] * 12),
-        {"active": initial},
+        {"active": initial, "hardware_scope": "amd_mi_gpu"},
     )
     assert still_slow["duration-group"]["baseline_mins"] == 100
     assert still_slow["duration-group"]["recent_median_mins"] == 118
 
     recovered = duration.evaluate_regressions(
         _duration_reliability([114.9] * 3, [118] * 12),
-        {"active": still_slow},
+        {"active": still_slow, "hardware_scope": "amd_mi_gpu"},
     )
     assert recovered == {}
 
@@ -1176,7 +1198,7 @@ def _agent_row(
     state="soft",
     infra=1,
     canceled=0,
-    pipeline="amd-ci",
+    pipeline="ci",
 ):
     return {
         "nd": node,
@@ -1257,6 +1279,30 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
     assert "ops_analytics_view=agent-health" in body
     assert "ops_agent_node=gpu-chi-1" in body
     assert "at least three logical failures" in body
+
+
+@pytest.mark.parametrize("field,value", [
+    ("p", "amd-ci"), ("p", "other"), ("q", "gpu_1_queue"),
+    ("q", "amd_cpu"), ("q", "amd_unknown"), ("q", "amd_mi355B_8"),
+    ("ng", True),
+])
+def test_agent_health_alert_excludes_foreign_and_non_gpu_execution(field, value):
+    rows = [_agent_row("gpu1", f"group-{index}", "2026-07-17T10:00:00Z", build=index)
+            for index in range(1, 4)]
+    rows[2][field] = value
+    assert agent.find_alert_events({"generated_at": "2026-07-17T12:00:00Z", "failing_runs": rows}) == []
+
+
+@pytest.mark.parametrize("scope,pipelines", [
+    (None, ["ci"]), ("amd_mi_gpu", ["amd-ci"]), ("amd_mi_gpu", ["ci", "amd-ci"]),
+])
+def test_agent_health_watcher_refuses_unproved_or_legacy_scope_before_issue_access(monkeypatch, scope, pipelines):
+    monkeypatch.setattr(agent, "_read_payload", lambda: {
+        "generated_at": "2026-07-17T12:00:00Z", "hardware_scope": scope, "pipelines": pipelines,
+    })
+    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: pytest.fail("invalid scope cannot access issues"))
+    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("invalid scope cannot change incident state"))
+    assert agent.run() == 0
 
 
 def test_alert_payload_freshness_fails_closed():

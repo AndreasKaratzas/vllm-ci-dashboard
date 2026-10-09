@@ -109,6 +109,7 @@ def _full_payload() -> dict:
     return {
         "ci": {
             "pipeline": "ci",
+            "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
             "display_name": "AMD CI",
             "days": 90,
             "generated_at": "2026-08-17T00:00:00Z",
@@ -193,6 +194,7 @@ def test_projection_preserves_exact_browser_contract_and_legacy_fallbacks() -> N
     amd = projected["ci"]
     assert set(amd) == {
         "pipeline",
+        "job_scope", "hardware_scope",
         "display_name",
         "days",
         "generated_at",
@@ -296,8 +298,8 @@ def test_projection_strips_private_and_unknown_fields_at_every_nested_level() ->
 
 
 def test_current_public_analytics_discards_the_retired_pipeline_block():
-    source = {"ci": {"pipeline": "ci", "builds": []}, "amd-ci": {"private": "retired"}}
-    assert project_public_analytics(source) == {"ci": {"pipeline": "ci", "builds": []}}
+    source = {"ci": {"pipeline": "ci", "builds": [], "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"}, "amd-ci": {"private": "retired"}}
+    assert project_public_analytics(source) == {"ci": source["ci"]}
     assert source["amd-ci"] == {"private": "retired"}
 
 
@@ -305,6 +307,7 @@ def test_projection_preserves_absent_fields_and_explicit_empty_structures() -> N
     payload = {
         "amd-ci": {},
         "ci": {
+            "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
             "summary": {},
             "builds": [],
             "failure_ranking": [],
@@ -383,6 +386,8 @@ def test_projection_rejects_malformed_or_out_of_domain_payloads(
     payload: object,
     message: str,
 ) -> None:
+    if isinstance(payload, dict) and isinstance(payload.get("ci"), dict):
+        payload["ci"].update(job_scope="amd_gpu", hardware_scope="amd_mi_gpu")
     with pytest.raises(ValueError, match=message):
         project_public_analytics(payload)
 
@@ -391,7 +396,26 @@ def test_tracked_public_projection_is_bounded_and_at_least_ninety_percent_smalle
     raw_size = ANALYTICS.stat().st_size
     payload = json.loads(ANALYTICS.read_text())
 
+    if (payload.get("ci") or {}).get("hardware_scope") != "amd_mi_gpu":
+        with pytest.raises(ValueError, match="MI-only"):
+            compact_public_analytics_json(payload)
+        return
     projected_bytes = compact_public_analytics_json(payload).encode("utf-8")
 
     assert len(projected_bytes) < 8 * 1024 * 1024
     assert len(projected_bytes) <= raw_size * 0.10
+
+
+@pytest.mark.parametrize("queue", ["gpu_1", "intel-gpu", "cpu", "amd_generic", "unknown"])
+def test_even_declared_mi_aggregate_rejects_foreign_job_evidence(queue):
+    payload = _full_payload()
+    payload["ci"]["builds"][0]["jobs"][0]["q"] = queue
+    with pytest.raises(ValueError, match="non-MI"):
+        project_public_analytics(payload)
+
+
+def test_old_mixed_aggregate_cannot_be_republished_as_current():
+    payload = _full_payload()
+    payload["ci"].pop("hardware_scope")
+    with pytest.raises(ValueError, match="MI-only"):
+        project_public_analytics(payload)

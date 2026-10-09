@@ -46,10 +46,12 @@ from vllm.constants import (  # noqa: E402
     QUEUE_HISTORY_RETENTION_DAYS,
     QUEUE_ZOMBIE_THRESHOLD_MIN,
     TRACKED_QUEUES,
+    amd_gpu_hardware,
     is_amd_queue,
     is_excluded_queue,
     queue_history_reset_datetime,
 )
+from vllm.pipelines import is_cpu_only_job  # noqa: E402
 from vllm.ci.utils import classify_workload, parse_iso, percentile, queue_from_rules  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
@@ -965,11 +967,12 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
             legacy=row_is_legacy.get(queue, True),
         )
         for queue, row in sorted(queues.items())
-        if not is_excluded_queue(queue)
+        if bool(amd_gpu_hardware(queue))
     }
 
     normalized = dict(snapshot)
     normalized["schema_version"] = 2
+    normalized["hardware_scope"] = "amd_mi_gpu"
     normalized["queues"] = normalized_queues
     normalized["total_waiting"] = sum(row["waiting"] for row in normalized_queues.values())
     normalized["total_running"] = sum(row["running"] for row in normalized_queues.values())
@@ -1789,7 +1792,7 @@ def fetch_cluster_queue_metrics(
         for edge in queues.get("edges") or []:
             node = edge.get("node") or {}
             key = node.get("key") or ""
-            if not key or is_excluded_queue(key):
+            if not key or not amd_gpu_hardware(key):
                 continue
             latest = node.get("metrics") or {}
             waiting_count = latest.get("waitingJobsCount")
@@ -1837,7 +1840,7 @@ def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
         or fallback_queue
         or queue_from_rules(node.get("agentQueryRules"))
     )
-    if not queue or is_excluded_queue(queue):
+    if not amd_gpu_hardware(queue) or is_cpu_only_job({**node, "name": node.get("label")}):
         return None
     build = node.get("build") or {}
     pipeline = node.get("pipeline") or {}
@@ -1978,7 +1981,7 @@ def fetch_active_cluster_jobs(
     selected_by_key = {
         str(queue).casefold(): str(queue)
         for queue in queue_ids_by_key
-        if queue and not is_excluded_queue(queue)
+        if queue and bool(amd_gpu_hardware(queue))
     }
     selected: list[dict] = []
     for job in jobs:
@@ -2000,7 +2003,7 @@ def _fetch_active_cluster_jobs_by_queue(
     """
     jobs: list[dict] = []
     for queue, queue_id in sorted(queue_ids_by_key.items()):
-        if not queue_id or is_excluded_queue(queue):
+        if not queue_id or not amd_gpu_hardware(queue):
             continue
         jobs.extend(
             _fetch_graphql_jobs(
@@ -2038,7 +2041,7 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
                 if job.get("type") != "script":
                     continue
                 queue = queue_from_rules(job.get("agent_query_rules"))
-                if not queue or is_excluded_queue(queue):
+                if not amd_gpu_hardware(queue) or is_cpu_only_job(job):
                     continue
 
                 job_state = (job.get("state", "") or "").lower()
@@ -2082,6 +2085,8 @@ def _load_complete_job_overlay(path: Path) -> dict | None:
         return None
     pending = payload.get("pending")
     running = payload.get("running")
+    if payload.get("hardware_scope") != "amd_mi_gpu":
+        return None
     observed_at = payload.get("details_observed_at") or payload.get("ts")
     if (
         not isinstance(pending, list)
@@ -2089,6 +2094,8 @@ def _load_complete_job_overlay(path: Path) -> dict | None:
         or not isinstance(observed_at, str)
         or parse_iso(observed_at) is None
     ):
+        return None
+    if any(not isinstance(job, dict) or not amd_gpu_hardware(job.get("queue")) or is_cpu_only_job(job) for job in pending + running):
         return None
     return {
         "details_observed_at": observed_at,
@@ -2130,8 +2137,8 @@ def _compact_queue_jobs(
         max_bytes = QUEUE_DETAILS_MAX_BYTES
     if max_bytes <= 0:
         raise ValueError("queue-detail byte budget must be positive")
-    pending = list(source.get("pending") or [])
-    running = list(source.get("running") or [])
+    pending = [job for job in source.get("pending") or [] if amd_gpu_hardware(job.get("queue")) and not is_cpu_only_job(job)]
+    running = [job for job in source.get("running") or [] if amd_gpu_hardware(job.get("queue")) and not is_cpu_only_job(job)]
     previous = source.get("publication_retention") or {}
     previous_pending = previous.get("pending") or {}
     previous_running = previous.get("running") or {}
@@ -2211,7 +2218,7 @@ def _write_bounded_queue_jobs(path: Path, source: dict) -> dict:
 
 def _seed_queue_metrics(queue_stats: dict, metrics_by_queue: dict[str, dict]) -> None:
     for queue, meta in metrics_by_queue.items():
-        if is_excluded_queue(queue):
+        if not amd_gpu_hardware(queue):
             continue
         stats = queue_stats[queue]
         if meta.get("counts_available", True):
@@ -2250,7 +2257,7 @@ def _apply_active_jobs(
 
     for job in active_jobs:
         queue = job.get("queue") or ""
-        if not queue or is_excluded_queue(queue):
+        if not amd_gpu_hardware(queue) or is_cpu_only_job(job):
             continue
 
         stats = queue_stats[queue]
@@ -2425,7 +2432,7 @@ def collect_snapshot(
         queue: str(meta.get("graphql_id") or "")
         for queue, meta in metrics_by_queue.items()
         if (
-            not is_excluded_queue(queue)
+            bool(amd_gpu_hardware(queue))
             and (
                 not meta.get("counts_available", True)
                 or _as_count(meta.get("waiting"))
@@ -2436,7 +2443,7 @@ def collect_snapshot(
     metrics_by_key = {
         queue.casefold(): meta
         for queue, meta in metrics_by_queue.items()
-        if not is_excluded_queue(queue)
+        if bool(amd_gpu_hardware(queue))
     }
 
     # One organization-wide active-job connection replaces the old N+1 path
@@ -2448,7 +2455,7 @@ def collect_snapshot(
     requested_job_queues = {
         queue: str((metrics_by_key.get(queue.casefold()) or {}).get("graphql_id") or "")
         for queue in TRACKED_QUEUES
-        if not is_excluded_queue(queue)
+        if bool(amd_gpu_hardware(queue))
     }
     for queue, queue_id in active_metric_queues.items():
         requested_job_queues.setdefault(queue, queue_id)
@@ -2524,7 +2531,7 @@ def collect_snapshot(
     trusted_count_queues = {
         queue
         for queue, meta in metrics_by_queue.items()
-        if not is_excluded_queue(queue) and meta.get("counts_available", True)
+        if bool(amd_gpu_hardware(queue)) and meta.get("counts_available", True)
     }
     pending_jobs, running_jobs = _apply_active_jobs(
         now,
@@ -2563,7 +2570,7 @@ def collect_snapshot(
     has_agent_metrics = False
     has_native_activity = False
     for queue, stats in sorted(queue_stats.items()):
-        if is_excluded_queue(queue):
+        if not amd_gpu_hardware(queue):
             continue
         if queue not in TRACKED_QUEUES and not stats["waiting"] and not stats["running"]:
             continue
@@ -2661,6 +2668,7 @@ def collect_snapshot(
         # ``ts`` remains the compatibility timestamp for consumers that have
         # not yet adopted ``details_observed_at``. It advances only after a
         # complete detail query, never on a metrics-only publication.
+        "hardware_scope": "amd_mi_gpu",
         "ts": details_observed_at,
         "schema_version": 2,
         "metrics_observed_at": current_observed_at,

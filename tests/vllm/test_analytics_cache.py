@@ -98,6 +98,16 @@ def _build(
     return row
 
 
+def _mi_scope(builds):
+    for build in builds:
+        build.update(hardware_scope="amd_mi_gpu", source_scope_commit=build["commit"], source_definition_tree_sha="a" * 40,
+                     source_scope_index={"version": 1, "commit_sha": build["commit"],
+                                         "definition_tree_sha": "a" * 40, "cpu_routes": []})
+        for job in build.get("jobs") or []:
+            job["agent_query_rules"] = ["queue=amd_mi300_1"]
+    return builds
+
+
 def _cache_dir(tmp_path):
     return tmp_path / cache.CACHE_DIR_NAME
 
@@ -112,6 +122,8 @@ def _write(tmp_path, builds=None, **overrides):
         "complete_from": NOW - timedelta(days=30),
     }
     kwargs.update(overrides)
+    if kwargs.get("current_only"):
+        kwargs["builds"] = _mi_scope(kwargs["builds"])
     return cache.write_build_cache(_cache_dir(tmp_path), "ci", **kwargs)
 
 
@@ -848,3 +860,174 @@ def test_cache_path_is_private_versioned_directory_and_rejects_other_locations(t
             last_full_at=NOW,
             updated_at=NOW,
         )
+
+
+@pytest.mark.parametrize("age_days", [0, 60])
+def test_authenticated_immutable_source_index_survives_runtime_expiry(tmp_path, age_days):
+    build = _mi_scope([_build()])[0]
+    build["source_scope_index"]["cpu_routes"] = [
+        {"key": "cpu-audit", "label": "ABI audit", "agent_pool": "mi300_1"},
+    ]
+    cache.write_build_cache(
+        _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+        last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+        current_only=True,
+    )
+    clock = NOW + timedelta(days=age_days)
+    indexes = cache.load_source_scope_indexes(_cache_dir(tmp_path), ref_now=clock)
+    assert indexes == {build["commit"]: build["source_scope_index"]}
+    assert all(set(index) == {"version", "commit_sha", "definition_tree_sha", "cpu_routes"}
+               for index in indexes.values())
+    if age_days:
+        assert cache.load_build_cache(
+            _cache_dir(tmp_path), "ci", cutoff=clock - timedelta(days=30), window_days=30,
+            ref_now=clock,
+        ).valid is False
+
+
+def test_immutable_source_index_reader_authenticates_entire_cache(tmp_path):
+    path = _write(tmp_path, current_only=True)
+    payload = json.loads(path.read_text())
+    payload["builds"][0]["source_scope_index"]["cpu_routes"] = [
+        {"key": "forged", "label": "", "agent_pool": "mi300_1"},
+    ]
+    path.write_text(json.dumps(payload))
+    assert cache.load_source_scope_indexes(_cache_dir(tmp_path), ref_now=NOW) == {}
+
+
+@pytest.mark.parametrize("change", ["missing", "foreign_commit", "wrong_tree", "extra_field"])
+def test_current_mi_cache_requires_exact_bounded_source_index(tmp_path, change):
+    build = _mi_scope([_build()])[0]
+    if change == "missing":
+        del build["source_scope_index"]
+    elif change == "foreign_commit":
+        build["source_scope_index"]["commit_sha"] = "b" * 40
+    elif change == "wrong_tree":
+        build["source_scope_index"]["definition_tree_sha"] = "b" * 40
+    else:
+        build["source_scope_index"]["private_raw"] = "never retain"
+    with pytest.raises(cache.CacheValidationError):
+        cache.write_build_cache(
+            _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+            last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+            current_only=True,
+        )
+    assert not (_cache_dir(tmp_path) / "ci.json").exists()
+
+
+
+def _source_index(commit="a" * 40):
+    return {"version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+            "cpu_routes": [{"key": "cpu", "label": "CPU audit", "agent_pool": "mi300_1"}]}
+
+
+def test_standalone_source_checkpoint_has_no_runtime_or_private_observations(tmp_path):
+    root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    index = _source_index()
+    cache.write_runtime_source_indexes(root, {index["commit_sha"]: index})
+    assert cache.read_runtime_source_indexes(root) == {index["commit_sha"]: index}
+    payload = json.loads((root / "index.json").read_text())
+    assert set(payload) == {"schema_version", "cache_kind", "indexes", "integrity"}
+    assert not set(payload) & {"generated_at", "watermark", "complete_from", "builds", "jobs"}
+    assert cache.load_source_scope_indexes(tmp_path / cache.CACHE_DIR_NAME) == {index["commit_sha"]: index}
+
+
+@pytest.mark.parametrize("failure", ["corruption", "noncanonical", "oversized", "symlink"])
+def test_standalone_source_checkpoint_refuses_unsafe_cache_without_replacement(tmp_path, monkeypatch, failure):
+    root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    index = _source_index()
+    cache.write_runtime_source_indexes(root, {index["commit_sha"]: index})
+    path = root / "index.json"
+    if failure == "corruption":
+        payload = json.loads(path.read_text())
+        payload["indexes"][index["commit_sha"]]["definition_tree_sha"] = "c" * 40
+        path.write_text(json.dumps(payload))
+    elif failure == "noncanonical":
+        path.write_text(json.dumps(json.loads(path.read_text()), indent=2))
+    elif failure == "oversized":
+        monkeypatch.setattr(cache, "RUNTIME_SOURCE_CACHE_MAX_BYTES", 10)
+    else:
+        real = tmp_path / "actual-index.json"
+        path.rename(real)
+        path.symlink_to(real)
+    before = path.read_bytes()
+    with pytest.raises(cache.CacheValidationError):
+        cache.read_runtime_source_indexes(root)
+    with pytest.raises(cache.CacheValidationError):
+        cache.write_runtime_source_indexes(root, {})
+    assert path.read_bytes() == before
+
+
+def test_standalone_source_checkpoint_bounds_and_failed_write_preserve_old_bytes(tmp_path, monkeypatch):
+    root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    first = _source_index()
+    cache.write_runtime_source_indexes(root, {first["commit_sha"]: first})
+    before = (root / "index.json").read_bytes()
+    second = _source_index("c" * 40)
+    both = {first["commit_sha"]: first, second["commit_sha"]: second}
+    with monkeypatch.context() as bounded:
+        bounded.setattr(cache, "RUNTIME_SOURCE_CACHE_MAX_PINS", 1)
+        with pytest.raises(cache.CacheValidationError):
+            cache.write_runtime_source_indexes(root, both)
+    def fail(*_):
+        raise OSError("simulated atomic failure")
+    monkeypatch.setattr(cache, "_atomic_write", fail)
+    with pytest.raises(OSError, match="atomic failure"):
+        cache.write_runtime_source_indexes(root, both)
+    assert (root / "index.json").read_bytes() == before
+
+
+
+def test_reusable_source_proofs_rotate_at_cap_without_losing_active_pin(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "RUNTIME_SOURCE_CACHE_MAX_PINS", 2)
+    root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    old = {letter * 40: _source_index(letter * 40) for letter in "ab"}
+    cache.write_runtime_source_indexes(root, old)
+    candidates = {**old, "c" * 40: _source_index("c" * 40)}
+    with pytest.raises(cache.CacheValidationError):
+        cache.write_runtime_source_indexes(root, candidates)
+    retained = cache.retain_runtime_source_indexes(candidates, preferred_commits=["c" * 40, "b" * 40])
+    cache.write_runtime_source_indexes(root, retained)
+    assert list(retained) == ["c" * 40, "b" * 40]
+    assert set(cache.read_runtime_source_indexes(root)) == {"b" * 40, "c" * 40}
+    assert all(index["commit_sha"] == commit for commit, index in retained.items())
+    # Never hide malformed source proof merely because it would be evicted.
+    candidates["a" * 40]["definition_tree_sha"] = "invalid"
+    with pytest.raises(cache.CacheValidationError):
+        cache.retain_runtime_source_indexes(candidates, preferred_commits=["c" * 40, "b" * 40])
+
+
+def test_source_index_union_prefers_authenticated_current_ci_inventory(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "RUNTIME_SOURCE_CACHE_MAX_PINS", 2)
+    standalone = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    old = {letter * 40: _source_index(letter * 40) for letter in "ab"}
+    cache.write_runtime_source_indexes(standalone, old)
+    build = _mi_scope([_build()])[0]
+    cache.write_build_cache(
+        _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+        last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30), current_only=True,
+    )
+    indexes = cache.load_source_scope_indexes(_cache_dir(tmp_path), ref_now=NOW)
+    assert len(indexes) == 2
+    assert list(indexes)[0] == build["commit"]
+    assert indexes[build["commit"]] == build["source_scope_index"]
+
+
+def test_reusable_source_proofs_rotate_at_byte_cap_and_keep_new_pin(tmp_path, monkeypatch):
+    root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    old = {"a" * 40: _source_index("a" * 40)}
+    cache.write_runtime_source_indexes(root, old)
+    cap = (root / "index.json").stat().st_size
+    monkeypatch.setattr(cache, "RUNTIME_SOURCE_CACHE_MAX_BYTES", cap)
+    candidates = {**old, "c" * 40: _source_index("c" * 40)}
+    with pytest.raises(cache.CacheValidationError, match="byte bound"):
+        cache.write_runtime_source_indexes(root, candidates)
+    retained = cache.retain_runtime_source_indexes(candidates, preferred_commits=["c" * 40])
+    assert retained == {"c" * 40: candidates["c" * 40]}
+    cache.write_runtime_source_indexes(root, retained)
+    assert (root / "index.json").stat().st_size == cap
+    assert cache.read_runtime_source_indexes(root) == retained
+    # A single source proof that cannot fit must still fail rather than vanish.
+    monkeypatch.setattr(cache, "RUNTIME_SOURCE_CACHE_MAX_BYTES", cap - 1)
+    with pytest.raises(cache.CacheValidationError, match="active runtime source proof"):
+        cache.retain_runtime_source_indexes(retained)

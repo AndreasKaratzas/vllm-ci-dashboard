@@ -1531,6 +1531,58 @@ jobs:
             ${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}
             ${{ steps.dns-classification-cache-key.outputs.namespace_prefix }}
 
+      # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
+      # GitHub Actions cache storage. It is never seeded from gh-pages, staged
+      # in git, or included in the public site manifest. Every successful run
+      # saves a unique immutable key; the next run restores the newest prefix.
+      - name: Prepare private analytics cache key
+        id: analytics-cache-key
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_DAY=$(date -u +%Y-%m-%d)
+          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
+          CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
+            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore private analytics build cache
+        id: analytics-cache-restore
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: ${{ steps.analytics-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.analytics-cache-key.outputs.current_day_prefix }}
+            ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
+            ${{ steps.analytics-cache-key.outputs.namespace_prefix }}
+
+      - name: Prepare immutable runtime source cache key
+        id: runtime-source-cache-key
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          echo "key=runtime-source-indexes-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore immutable runtime source indexes
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: ${{ steps.runtime-source-cache-key.outputs.key }}
+          restore-keys: runtime-source-indexes-v1-${{ runner.os }}-
+
       - name: Collect CI data
         id: collect-ci
         if: >-
@@ -1702,39 +1754,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # PRIVATE-ANALYTICS-CACHE-BOUNDARY: this cache is restored only from
-      # GitHub Actions cache storage. It is never seeded from gh-pages, staged
-      # in git, or included in the public site manifest. Every successful run
-      # saves a unique immutable key; the next run restores the newest prefix.
-      - name: Prepare private analytics cache key
-        id: analytics-cache-key
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        shell: bash
-        run: |
-          set -euo pipefail
-          CACHE_DAY=$(date -u +%Y-%m-%d)
-          PRIOR_CACHE_DAY=$(date -u -d '1 day ago' +%Y-%m-%d)
-          CACHE_NAMESPACE="analytics-builds-v1-${{ runner.os }}"
-          {
-            echo "key=$CACHE_NAMESPACE-$CACHE_DAY-${{ github.run_id }}-${{ github.run_attempt }}"
-            echo "current_day_prefix=$CACHE_NAMESPACE-$CACHE_DAY-"
-            echo "prior_day_prefix=$CACHE_NAMESPACE-$PRIOR_CACHE_DAY-"
-            echo "namespace_prefix=$CACHE_NAMESPACE-"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Restore private analytics build cache
-        id: analytics-cache-restore
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        continue-on-error: true
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: data/vllm/ci/.cache/analytics-builds-v1
-          key: ${{ steps.analytics-cache-key.outputs.key }}
-          restore-keys: |
-            ${{ steps.analytics-cache-key.outputs.current_day_prefix }}
-            ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
-            ${{ steps.analytics-cache-key.outputs.namespace_prefix }}
-
       - name: Collect CI analytics
         id: collect-analytics
         if: >-
@@ -1742,6 +1761,7 @@ jobs:
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector ci_analytics "CI analytics" \
@@ -1780,6 +1800,7 @@ jobs:
             "nightly-rosters-v2-${{ runner.os }}-" \
             "ci-backfill-v1-${{ runner.os }}-" \
             "analytics-builds-v1-${{ runner.os }}-" \
+            "runtime-source-indexes-v1-${{ runner.os }}-" \
             "dns-classifications-v1-${{ runner.os }}-"; do
             CACHE_IDS="$RUNNER_TEMP/private-cache-ids.txt"
             gh cache list \
@@ -1828,11 +1849,42 @@ jobs:
         # coverage of recent executions belonging to older builds.
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector agent_health "AMD agent health" \
             python scripts/vllm/collect_agent_health.py \
             --days 7 --pipeline ci --day-basis build-created --output data/vllm/ci/
+
+      - name: Validate immutable runtime source checkpoint
+        id: runtime-source-cache-decision
+        if: >-
+          always() && inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+          cache = Path("data/vllm/ci/.cache/runtime-source-indexes-v1")
+          if (cache / "index.json").is_file():
+              indexes = read_runtime_source_indexes(cache)
+              print(f"Validated {len(indexes)} immutable runtime source indexes")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("runtime_source_cache_save=true\n")
+          PY
+
+      - name: Save immutable runtime source checkpoint
+        if: >-
+          always() && inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: ${{ steps.runtime-source-cache-key.outputs.key }}
 
       - name: Validate private perf-eval event store
         if: >-
@@ -2053,10 +2105,12 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES
+          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES, RETIRED_RUNTIME_PARITY_PATHS
           for surface in sorted(RETIRED_SURFACES):
               for relative in PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths:
                   Path(relative).unlink(missing_ok=True)
+          for relative in RETIRED_RUNTIME_PARITY_PATHS:
+              Path(relative).unlink(missing_ok=True)
           for name in ("gating", "trajectory", "comparison_retry_evidence"):
               Path(f"data/vllm/ci/operations_v2/{name}.json").unlink(missing_ok=True)
           PY
@@ -2111,19 +2165,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python scripts/vllm/omni_surge_watcher.py --issues-only
 
-      - name: Watch AMD main test-group failures (open/close issue)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/amd_main_failure_watcher.py
-
-      - name: Watch upstream CI main test-group failures (open/close issue)
+      - name: Watch AMD MI main CI test-group failures (open/close issue)
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
@@ -2165,8 +2207,11 @@ jobs:
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success'
         run: |
+          # One MI-only CI watcher owns the umbrella issue. The old AMD
+          # watcher state belongs to the retired amd-ci collection path.
+          git rm -f --ignore-unmatch -- data/vllm/ci/open_amd_main_failure_issues.json
+          rm -f data/vllm/ci/open_amd_main_failure_issues.json
           git add \
-            data/vllm/ci/open_amd_main_failure_issues.json \
             data/vllm/ci/open_ci_main_failure_issues.json \
             data/vllm/ci/open_amd_duration_regression_issues.json \
             data/vllm/ci/open_agent_health_issues.json
