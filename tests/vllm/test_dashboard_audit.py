@@ -5097,3 +5097,89 @@ def test_started_job_source_coverage_can_be_complete_with_bounded_failure_links(
     audit = DashboardAudit(tmp_path)
     audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
     assert audit.report.errors == []
+
+
+def _large_current_latency_bundle(tmp_path):
+    latency = _current_latency_fixture()
+    template = latency["rows"][0]
+    latency["rows"] = []
+    for group_index in range(225):
+        row = copy.deepcopy(template)
+        row["label"] = f"Shared workload {group_index}"
+        row["id"] = row["label"].lower()
+        for side in ("amd", "upstream"):
+            for sample in row[side]["samples"]:
+                original = sample["jobs"][0]
+                sample["jobs"] = []
+                for shard in range(8):
+                    job = copy.deepcopy(original)
+                    job["job_id"] = f"00000000-0000-4000-8000-{1 if side == 'amd' else 2}{sample['build_number']:05d}{group_index:03d}{shard:03d}"
+                    job["url"] = sample["build_url"] + "#" + job["job_id"]
+                    job["raw_name"] = f"{original['raw_name']} {group_index}"
+                    sample["jobs"].append(job)
+        latency["rows"].append(row)
+    output = tmp_path / "data/vllm/ci/operations_v2.json"
+    output.parent.mkdir(parents=True)
+    (output.parent / "queue_lifecycle.json").write_text("{}\n")
+    manifest = operations_module.write_snapshot_bundle(output, {
+        "schema_version": 2, "generated_at": latency["generated_at"], "latency": latency,
+    }, log=False)
+    return output.parent, manifest
+
+
+def test_operations_bundle_accepts_current_latency_above_retired_comparison_limit(tmp_path):
+    from vllm.operations_bundle_contract import (
+        OPERATIONS_CANARY_BUNDLE_MAX_BYTES, OPERATIONS_CANARY_SECTION_MAX_BYTES,
+    )
+
+    _output, manifest = _large_current_latency_bundle(tmp_path)
+    assert manifest["bundle_version"] == 3
+    assert 1_500_000 < manifest["sections"]["comparison"]["bytes"] <= OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
+    assert OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] == 7 * 1024 * 1024
+    assert OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+    assert audit.report.errors == []
+    assert audit.report.metrics["operations_bundle"]["canary_bundle_bytes"] <= OPERATIONS_CANARY_BUNDLE_MAX_BYTES
+
+
+def test_operations_bundle_rejects_latency_one_byte_above_shared_allocation(tmp_path):
+    from vllm.operations_bundle_contract import OPERATIONS_CANARY_SECTION_MAX_BYTES
+    from vllm.publication_surfaces import finding_surfaces
+
+    output, manifest = _large_current_latency_bundle(tmp_path)
+    descriptor = manifest["sections"]["comparison"]
+    path = output / descriptor["path"]
+    limit = OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
+    raw = path.read_bytes()
+    path.write_bytes(raw + b" " * (limit + 1 - len(raw)))
+    descriptor["bytes"] = path.stat().st_size
+    (output / "operations_v2_manifest.json").write_text(json.dumps(manifest))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+    errors = {finding.code: finding for finding in audit.report.errors}
+    assert {"operations-comparison-payload-budget", "operations-health-payload-budget"} == set(errors)
+    assert str(limit) in errors["operations-comparison-payload-budget"].message
+    assert finding_surfaces(errors["operations-comparison-payload-budget"]) == frozenset({"ci_analytics"})
+
+
+def test_operations_bundle_still_enforces_shared_32_mib_aggregate_cap(tmp_path, monkeypatch):
+    from vllm import operations_bundle_contract as contract
+
+    output, manifest = _large_current_latency_bundle(tmp_path)
+    assert contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024
+    # The real additive allocations fit below32MiB. Allow a larger fixture
+    # nightly solely to exercise the independent aggregate guard after every
+    # individual section has passed its own declared test allowance.
+    monkeypatch.setitem(contract.OPERATIONS_CANARY_SECTION_MAX_BYTES, "nightly", 12 * 1024 * 1024)
+    for name in ("nightly", "amd_test_health", "amd_agent_health"):
+        descriptor = manifest["sections"][name]
+        path = output / descriptor["path"]
+        raw = path.read_bytes()
+        path.write_bytes(raw + b" " * (contract.OPERATIONS_CANARY_SECTION_MAX_BYTES[name] - len(raw)))
+        descriptor["bytes"] = path.stat().st_size
+    (output / "operations_v2_manifest.json").write_text(json.dumps(manifest))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+    assert [finding.code for finding in audit.report.errors] == ["operations-health-payload-budget"]
+    assert f"limit is {32 * 1024 * 1024} bytes" in audit.report.errors[0].message

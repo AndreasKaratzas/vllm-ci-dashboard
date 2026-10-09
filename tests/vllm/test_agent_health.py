@@ -726,6 +726,30 @@ def test_started_terminal_timestamp_ambiguity_refuses_exact_generation(field, va
         ah._observe_in_window("ci", build, job, None, NOW - timedelta(days=3), NOW)
 
 
+@pytest.mark.parametrize("state", ["passed", "failed", "timed_out", "soft_failed"])
+def test_missing_started_execution_without_agent_preserves_prior_generation(
+    monkeypatch, tmp_path, state,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state, start=None)
+    build["jobs"][0]["agent"] = None
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+
+    with pytest.raises(RuntimeError, match="invalid started_at"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("state", ["canceled", "broken", "expired"])
+def test_never_started_terminal_jobs_with_no_agent_remain_out_of_execution_scope(state):
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state, start=None)
+    build["jobs"][0]["agent"] = None
+    assert ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW) is None
+
+
 def test_started_canceled_job_uses_final_parent_finish_bound():
     build = _window_build(1, "2026-07-14T08:00:00Z", job_state="canceled", finish="", build_finish="2026-07-14T10:00:00Z")
     assert ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW)

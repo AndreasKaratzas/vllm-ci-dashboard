@@ -17,6 +17,8 @@ Exclusive tests, workflow steps, public manifest entries, storage allocations,
 source-audit rules, and CSS were retired with their consumers. Old deep links
 redirect to supported views. The still-used hardware identity normalizer moved
 from the retired candidate collector into `ci/group_identity.py`.
+Latency publication audits use the shared bundle allocation; the historical
+flake/retry comparison limits and their exclusive live-data checks are removed.
 
 ## Retained contracts
 

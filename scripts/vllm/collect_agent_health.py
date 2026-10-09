@@ -7,14 +7,12 @@ build in the current ``ci`` pipeline: all branches, all triggers (PRs, release
 branches, scheduled). For each job that ran on a physical AMD **GPU** node it
 observes one run. Physical node identity comes from the Buildkite agent's
 ``k8s:node`` tag, which the build *list* endpoint already returns inline, so no
-per-build detail fetch and no log download is needed (~135 paginated GETs for a
-full 60-day backfill).
+per-build detail fetch or log download is needed.
 
-Volume note: all-branch AMD GPU volume is ~9k runs/day across 200+ nodes, ~45-80%
-of which "fail" — overwhelmingly PR *code* bugs, not node infra. Shipping raw
-runs to the browser (250 MB/60d) is infeasible and clustering every failure would
-bury the infra signal. So this collector does the heavy lifting server-side and
-emits only compact, meaningful artifacts:
+All-branch observations include PR code failures as well as infrastructure
+failures. Shipping every run to the browser would obscure the infrastructure
+signal and exceed its bounded payload. This collector aggregates on the server
+and emits compact artifacts:
 
   1. Per-node/day **rollups** (run / failure / cancelled counts, split into an
      "all builds" bucket and a "nightly-on-main" bucket) — the reliability table
@@ -259,17 +257,19 @@ def _observe_in_window(
         "soft_failed", "soft_fail",
     ):
         return None
-    row = _observe(slug, build, job, nightly_re)
-    if row is None:
+    if not amd_gpu_hardware(_queue_of(job)):
         return None
     started = _aware_timestamp(job.get("started_at"))
     if started is None:
         if (
-            job.get("started_at") or row["state"] in ("pass", "soft")
-            or job.get("state") in ("failed", "timed_out")
+            job.get("started_at")
+            or job.get("state") in ("passed", "failed", "timed_out", "soft_failed", "soft_fail")
         ):
             raise RuntimeError("agent-health terminal job has invalid started_at")
         return None  # canceled/broken/expired jobs that never started are not runs
+    row = _observe(slug, build, job, nightly_re)
+    if row is None:
+        return None
     if not window_start <= started < query_time:
         return None
     finished = _aware_timestamp(job.get("finished_at"))

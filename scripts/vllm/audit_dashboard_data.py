@@ -125,8 +125,6 @@ PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
-OPERATIONS_COMPARISON_MAX_BYTES = 1_500_000
-OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES = 6_000_000
 OPERATIONS_RAW_DATA_PATH = "data/vllm/ci/operations_v2.json"
 OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
@@ -4544,6 +4542,7 @@ class DashboardAudit:
             section_sizes.get(name, 0) for name in OPERATIONS_CANARY_SECTIONS
         )
         queue_budget = OPERATIONS_CANARY_SECTION_MAX_BYTES["queue"]
+        comparison_budget = OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
         if manifest_size > OPERATIONS_MANIFEST_MAX_BYTES:
             self.error(
                 "operations-home-payload-budget",
@@ -4570,13 +4569,13 @@ class DashboardAudit:
                 f"queue section is {section_sizes['queue']} bytes; budget is {queue_budget}",
                 relpath,
             )
-        if section_sizes.get("comparison", 0) > OPERATIONS_COMPARISON_MAX_BYTES:
+        if section_sizes.get("comparison", 0) > comparison_budget:
             self.error(
                 "operations-comparison-payload-budget",
                 (
-                    "flake/retry/latency comparison section is "
+                    "current five-nightly latency comparison section is "
                     f"{section_sizes['comparison']} bytes; budget is "
-                    f"{OPERATIONS_COMPARISON_MAX_BYTES}"
+                    f"{comparison_budget}"
                 ),
                 relpath,
             )
