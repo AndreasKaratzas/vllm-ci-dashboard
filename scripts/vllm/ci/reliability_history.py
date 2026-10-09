@@ -852,6 +852,10 @@ def build_all_main_reliability(
     retry_observations = 0
 
     for build in trusted:
+        source_families = {}
+        if "source_family_catalog" in build:
+            from vllm.ci.runtime_families import validate_build_source_families
+            source_families = validate_build_source_families(build)
         raw_message = str(build.get("message") or "")
         message, original_message_chars = _bounded_build_message(raw_message)
         is_nightly = bool(nightly_re and nightly_re.search(raw_message))
@@ -895,8 +899,15 @@ def build_all_main_reliability(
                 "excluded_counts": Counter(),
                 "durations": defaultdict(list),
                 "retry_evidence_observations": 0,
+                "source_family_keys": set(),
             })
             observation = _observation(pipeline_slug, build, job, test_durations)
+            if job_id in source_families:
+                group["source_family_keys"].add(source_families[job_id])
+                observation.update({key: job[key] for key in (
+                    "source_definition_id", "source_agent_pool", "source_commit",
+                    "source_step_key", "source_binding_basis", "source_family_key",
+                )})
             group["observations"].append(observation)
             if observation["eligible_for_reliability"]:
                 group["result_counts"][observation["result"]] += 1
@@ -945,6 +956,8 @@ def build_all_main_reliability(
             "step_key": identity["step_key"],
             "hardware": identity["hardware"],
             "queue": identity["queue"],
+            **({"source_family_keys": sorted(group["source_family_keys"])}
+               if group["source_family_keys"] else {}),
             "denominator": denominator,
             "passed": counts["passed"],
             "failed": counts["failed"],

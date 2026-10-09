@@ -38,6 +38,7 @@ from vllm.ci.incident_transitions import (  # noqa: E402
 from vllm.ci import analyzer as ci_analyzer  # noqa: E402
 from vllm.ci.models import (  # noqa: E402
     AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS,
+    TestResult,
 )
 from vllm.ci.reliability_history import (  # noqa: E402
     OBSERVED_FAILURE_MOVEMENT_ID,
@@ -97,6 +98,10 @@ GROUP_HISTORY_LIMIT = 60
 AMD_TEST_HISTORY_LIMIT = 30
 AMD_TEST_RESULTS_GLOB = "test_results/*_amd.jsonl"
 AMD_TEST_PIPELINE = "ci"
+AMD_TEST_SOURCE_FIELDS = (
+    "source_definition_id", "source_agent_pool", "source_commit",
+    "source_step_key", "source_binding_basis",
+)
 EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
 QUEUE_JOB_PIPELINES = frozenset({"ci", "vllm-omni-amd-ci"})
 # Per-physical-agent (node) AMD GPU health is now collected and aggregated by
@@ -1038,6 +1043,7 @@ def _load_amd_test_result_groups(data_dir: Path, metadata_by_build: dict[int, di
                         "status_row_counts": Counter(),
                         "test_duration_secs": 0.0,
                         "evidence_rows": [],
+                        "source_identity_rows": [],
                     })
                     date = row.get("date") or fallback_date
                     if date:
@@ -1055,6 +1061,11 @@ def _load_amd_test_result_groups(data_dir: Path, metadata_by_build: dict[int, di
                         )
                         if row.get(key) not in (None, "")
                     } | {"status": status})
+                    bucket["source_identity_rows"].append({
+                        key: row[key]
+                        for key in ("job_id", "step_id", *AMD_TEST_SOURCE_FIELDS)
+                        if key in row
+                    })
                     file_valid_rows += 1
                     stats["valid_rows"] += 1
         except (OSError, UnicodeError):
@@ -1311,6 +1322,45 @@ def _friendly_amd_logical_label(logical_key: str, variants: list[dict]) -> str:
     return logical_key[:1].upper() + logical_key[1:]
 
 
+def _amd_test_runtime_jobs(metadata: dict) -> dict[str, dict]:
+    """Recover the original declaration and exact IDs from analytics rows."""
+    result = {}
+    for job in metadata.get("jobs") or []:
+        identity = str(job.get("job_id") or "")
+        if not identity:
+            continue
+        if identity in result:
+            raise ValueError("AMD runtime metadata contains duplicate attempt identities")
+        step = dict(job.get("step") or {})
+        if job.get("step_id"):
+            if step.get("id") and step["id"] != job["step_id"]:
+                raise ValueError("AMD runtime metadata step UUIDs disagree")
+            step["id"] = job["step_id"]
+        runtime = {
+            "id": identity,
+            "name": job.get("raw_name") or job.get("name") or "",
+            "q": job.get("q") or job.get("queue") or "",
+            "step": step,
+        }
+        # Analytics normalization emits None when the provider supplied no key.
+        # Actual present malformed keys are rejected before that projection.
+        if "step_key" in job and job["step_key"] is not None:
+            runtime["step_key"] = job["step_key"]
+        result[identity] = runtime
+    return result
+
+
+def _amd_test_result_identity(row: dict, exact_job_name: str, build_number: int) -> TestResult:
+    """Carry restored source assertions unchanged into the shared validator."""
+    return TestResult(
+        test_id="", name="", classname="", status="", duration_secs=0,
+        failure_message="", job_name=exact_job_name,
+        job_id=str(row.get("job_id") or ""), step_id=str(row.get("step_id") or ""),
+        build_number=build_number, pipeline=AMD_TEST_PIPELINE, date="",
+        **{field: row.get(field, "") for field in AMD_TEST_SOURCE_FIELDS},
+    )
+
+
 def _latest_logical_amd_test_groups(
     data_dir: Path,
     latest_counts: dict,
@@ -1365,7 +1415,7 @@ def _latest_logical_amd_test_groups(
             "metadata": SOURCE_FILES["analytics"],
             "definitions": SOURCE_FILES["config_parity"],
             "shard_bases": "shard_bases.json",
-            "identity_function": "vllm.ci.analyzer._amd_runtime_group_key",
+            "identity_function": "vllm.ci.analyzer._amd_runtime_result_group_key",
             "hardware_function": "vllm.ci.analyzer._extract_hardware",
             "state_semantics": "vllm.ci.analyzer.compute_build_summary",
         },
@@ -1399,10 +1449,22 @@ def _latest_logical_amd_test_groups(
     previous_shard_bases = list(ci_analyzer._SHARD_BASES)
     previous_route_commit = ci_analyzer._AMD_RUNTIME_GROUP_KEY_COMMIT
     previous_route_keys = dict(ci_analyzer._AMD_RUNTIME_GROUP_KEYS)
+    previous_definitions = dict(ci_analyzer._AMD_RUNTIME_DEFINITIONS)
     logical: dict[str, dict] = {}
     try:
         ci_analyzer.set_shard_bases(shard_bases)
-        ci_analyzer.set_amd_runtime_group_key_map(definition_commit, route_map)
+        definitions = {}
+        if definition_report.get("amd_execution_definitions"):
+            from vllm.ci.runtime_families import catalog_definitions_from_report
+            catalog_commit, definitions = catalog_definitions_from_report(definition_report)
+            if catalog_commit != definition_commit:
+                raise ValueError("AMD runtime definition and family commits disagree")
+        ci_analyzer.set_amd_runtime_group_key_map(definition_commit, route_map, definitions)
+        jobs_by_id = _amd_test_runtime_jobs(metadata)
+        metadata_families = None
+        if "source_family_catalog" in metadata:
+            from vllm.ci.runtime_families import validate_build_source_families
+            metadata_families = validate_build_source_families(metadata)
         for (row_build_number, exact_job_name), bucket in sorted(grouped.items()):
             if row_build_number != build_number:
                 continue
@@ -1416,15 +1478,32 @@ def _latest_logical_amd_test_groups(
             }
             if not recognized.intersection(status_counts):
                 continue
-            logical_key = ci_analyzer._amd_runtime_group_key(
-                exact_job_name,
-                build_commit,
-            ).strip()
+            identity_rows = bucket.get("source_identity_rows") or [{}]
+            logical_keys = set()
+            for identity_row in identity_rows:
+                has_claim = any(field in identity_row for field in AMD_TEST_SOURCE_FIELDS)
+                if metadata_families is not None and not has_claim:
+                    raise ValueError("AMD result source identity is absent from a pinned runtime build")
+                if has_claim and (
+                    not route_map_aligned or not definitions
+                    or not any(identity_row.get(field) for field in AMD_TEST_SOURCE_FIELDS)
+                ):
+                    raise ValueError("AMD result source identity lacks its exact pinned definitions")
+                identity_key = ci_analyzer._amd_runtime_result_group_key(
+                    _amd_test_result_identity(identity_row, exact_job_name, build_number),
+                    build_commit, jobs_by_id,
+                ).strip()
+                if metadata_families is not None and metadata_families.get(identity_row.get("job_id")) != identity_key:
+                    raise ValueError("AMD result source family disagrees with its exact runtime metadata")
+                logical_keys.add(identity_key)
+            if len(logical_keys) != 1:
+                raise ValueError("AMD exact job variant spans multiple source families")
+            logical_key = logical_keys.pop()
             if not logical_key:
                 continue
-            hardware = ci_analyzer._extract_hardware(exact_job_name)
             signal_value = _amd_test_signal_value(status_counts)
             observation = observations.get(exact_job_name) or {}
+            hardware = str(observation.get("hardware") or ci_analyzer._extract_hardware(exact_job_name))
             display_name, _, hardware_variant, queue = (
                 _amd_test_job_labels(exact_job_name)
             )
@@ -1457,6 +1536,12 @@ def _latest_logical_amd_test_groups(
             for field in ("job_id", "step_id"):
                 if observation.get(field):
                     evidence[field] = str(observation[field])
+            source_identity = next((row for row in identity_rows
+                                    if row.get("job_id") == observation.get("job_id")
+                                    and any(field in row for field in AMD_TEST_SOURCE_FIELDS)), None)
+            if source_identity is not None:
+                evidence.update({field: source_identity.get(field, "")
+                                 for field in AMD_TEST_SOURCE_FIELDS})
             entry = logical.setdefault(logical_key, {
                 "hardware_states": {},
                 "job_variants": [],
@@ -1471,6 +1556,7 @@ def _latest_logical_amd_test_groups(
         ci_analyzer.set_amd_runtime_group_key_map(
             previous_route_commit,
             previous_route_keys,
+            previous_definitions,
         )
 
     rows = []
@@ -2402,7 +2488,13 @@ def _collector_main_catalog(
                         "failed_job_url": job_url,
                         "passed_job_url": recovered_job_url,
                     })
-            observations.append({key: value for key, value in row.items() if value not in (None, "")})
+            public_observation = {key: value for key, value in row.items() if value not in (None, "")}
+            public_observation.update({
+                field: raw[field]
+                for field in (*AMD_TEST_SOURCE_FIELDS, "source_family_key")
+                if field in raw
+            })
+            observations.append(public_observation)
 
         observations.sort(
             key=lambda row: (str(row.get("observed_at") or ""), int(row.get("build_number") or 0)),
@@ -2433,6 +2525,8 @@ def _collector_main_catalog(
             "name": source.get("name") or source.get("raw_name") or "Unknown group",
             "raw_names": [source.get("raw_name")] if source.get("raw_name") else [],
             "step_key": source.get("step_key") or "",
+            **({"source_family_keys": list(source["source_family_keys"])}
+               if "source_family_keys" in source else {}),
             "hardware": _resolved_hardware(source, source.get("queue")),
             "queues": [source.get("queue")] if source.get("queue") else [],
             "build_count": len({row.get("build_number") for row in observations if row.get("build_number")}),
@@ -4297,9 +4391,10 @@ _RELIABILITY_OBSERVATION_KEYS = (
     "step_url", "job_id", "step_id", "queue", "wall_duration_mins",
     "test_duration_mins", "wait_mins", "end_to_end_mins", "duration_basis",
     "duration_mins", "tests", "passed_tests", "failed_tests", "skipped_tests",
+    *AMD_TEST_SOURCE_FIELDS, "source_family_key",
 )
 _RELIABILITY_GROUP_SUMMARY_KEYS = (
-    "source_pipeline", "id", "group_ids", "name", "raw_names", "step_key",
+    "source_pipeline", "id", "group_ids", "name", "raw_names", "step_key", "source_family_keys",
     "hardware", "queues", "build_count", "runs", "passed", "failed",
     "soft_failed", "incident_count", "incident_rate_pct", "fail_rate",
     "mixed_outcomes", "latest_state", "latest_observed_at", "latest_url",
@@ -4422,6 +4517,12 @@ def _project_group_summary(group: dict) -> tuple[dict | None, bool]:
             projected[key] = _bounded_public_text(value)
         elif isinstance(value, (int, float, bool)):
             projected[key] = value
+        elif key == "source_family_keys" and isinstance(value, list):
+            projected[key] = [
+                _bounded_public_text(item, 512)
+                for item in value[:64]
+                if isinstance(item, str)
+            ]
         elif key in {"group_ids", "raw_names", "queues"} and isinstance(value, list):
             projected[key] = [
                 _bounded_public_text(item, 512)

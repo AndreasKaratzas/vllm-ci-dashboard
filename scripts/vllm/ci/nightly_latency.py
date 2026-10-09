@@ -103,6 +103,7 @@ def _interval(samples: list[dict]) -> dict:
 def build_current_nightly_latency(
     builds: list[dict], *, generated_at: str, source_available: bool,
     unavailable_reason: str | None = None,
+    source_identity_basis: str | None = None,
 ) -> dict:
     """Use fresh Buildkite metadata only; missing groups never backfill old runs.
 
@@ -110,6 +111,10 @@ def build_current_nightly_latency(
     group/platform. Superseded attempts, missing timing jobs, CPU steps and legacy
     pipeline links never contribute to a median.
     """
+    from vllm.ci.runtime_families import IDENTITY_BASIS, validate_build_source_families
+
+    if source_identity_basis not in (None, IDENTITY_BASIS):
+        raise ValueError("Unknown nightly source identity contract")
     result: dict[str, Any] = {
         "schema_version": 2, "source_pipeline": "ci", "branch": "main",
         "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
@@ -120,6 +125,8 @@ def build_current_nightly_latency(
         "cohort": {"nightlies": [], "build_count": 0}, "interval": _interval([]),
         "rows": [],
     }
+    if source_identity_basis is not None:
+        result["source_identity_basis"] = source_identity_basis
     if not source_available:
         result["unavailable_reason"] = unavailable_reason or "fresh_ci_buildkite_metadata_unavailable"
         return result
@@ -143,6 +150,12 @@ def build_current_nightly_latency(
         candidates.append(build)
     unique = {build["number"]: build for build in candidates}
     cohort = sorted(unique.values(), key=lambda b: (str(b.get("created_at") or ""), b["number"]), reverse=True)[:BUILD_LIMIT]
+    strict_families = source_identity_basis is not None or any("source_family_catalog" in build for build in cohort)
+    families = {}
+    if strict_families:
+        result["source_identity_basis"] = IDENTITY_BASIS
+        for build in cohort:
+            families[build["number"]] = validate_build_source_families(build)
     nightlies = [{key: build.get(key) for key in ("number", "created_at", "finished_at", "web_url")} for build in cohort]
     result["cohort"] = {"nightlies": nightlies, "build_count": len(nightlies)}
     result["interval"] = _interval(nightlies)
@@ -164,7 +177,12 @@ def build_current_nightly_latency(
             side = "amd" if is_amd_ci_job(job) else ""
             if not side:
                 continue
-            key = step_families.get((side, str(job.get("step_key") or ""))) or _group_key(job, raw_name)
+            if strict_families:
+                key = families[build["number"]].get(job.get("job_id"))
+                if not key:
+                    raise ValueError("Nightly attempt lacks its validated pinned source family")
+            else:
+                key = step_families.get((side, str(job.get("step_key") or ""))) or _group_key(job, raw_name)
             if not key:
                 continue
             if job.get("state") not in {"passed", "failed", "soft_fail", "soft_failed", "timed_out", "broken"}:

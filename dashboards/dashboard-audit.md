@@ -11,7 +11,7 @@ AMD coverage; they are not executed-hardware observations.
 | --- | --- | --- |
 | Command Center / Upstream parity / AMD mirrors | `test_group_parity.json` with current-main source SHA and configured gate flags | `build_test_group_parity.py` |
 | AMD runtime / hardware health | `ci_health.json`, `amd_test_matrix.json`, exact nightly source definitions | `collect_ci.py`, `collect_amd_test_matrix.py` |
-| Latency | `analytics.json` current five-nightly AMD MI cohort and exact job timing | `collect_analytics.py`, `ci/nightly_latency.py` |
+| Latency | `analytics.json` current five-nightly AMD MI cohort, exact job timing, and each nightly's immutable source families | `collect_analytics.py`, `ci/nightly_latency.py`, `ci/runtime_families.py` |
 | Reliability | Current AMD MI `ci` all-main cohort with retained outcome / attempt evidence | `collect_analytics.py` |
 | DNS / physical agents | Independently collected infrastructure evidence | DNS and agent-health collectors |
 | Omni | Current queue observations, workload mapping, capacity, and exact active jobs | Queue and workload collectors |
@@ -22,6 +22,9 @@ coverage arithmetic, runtime logical counts, exact evidence links, five-nightly
 latency samples, shard durations, medians, retained public sections, and bounded
 publication proofs. Global/code defects stop publication; collector failures can
 restore a validated last-known-good source transaction within its explicit TTL.
+The latency audit also reconstructs each job's definition family from that
+build's source catalog and rejects timing rows that merge distinct families,
+even when their durations and build membership are internally consistent.
 
 Physical AMD agent-health evidence also declares its current `ci` scope and
 exhaustive job-start interval. Older retained observations do not extend this

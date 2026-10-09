@@ -24,6 +24,13 @@ from vllm.ci.reliability_history import (
 GENERATED_AT = "2026-04-22T12:00:00Z"
 
 
+@pytest.fixture(autouse=True)
+def _offline_operations_fixtures(monkeypatch):
+    def reject_request(*args, **kwargs):
+        raise AssertionError("Operations fixture tests cannot request providers")
+    monkeypatch.setattr("requests.sessions.Session.request", reject_request)
+
+
 @pytest.mark.parametrize("version,branches,branch", [
     (1, None, None), (2, None, None), (2, ["main"], "main"),
     (3, ["main", "feature"], "main"), (3, ["main"], "feature"),
@@ -475,6 +482,8 @@ def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit
     data_dir.mkdir(parents=True)
     _fixture_data(data_dir)
     commit = "a" * 40
+    mi_job_id = "00000000-0000-0000-0000-000000000001"
+    mi_step_id = "00000000-0000-0000-0000-000000000011"
     build_url = "https://buildkite.com/vllm/ci/builds/103"
     raw = {
         "number": 103, "branch": "main", "state": "failed", "commit": commit,
@@ -482,9 +491,9 @@ def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit
         "web_url": build_url, "message": "Full CI run - nightly", "jobs": [],
     }
     for job_id, key, queue, name, state in (
-        ("mi-job", "gpu-tests", "amd_mi300_1", "MI GPU tests", "passed"),
-        ("cpu-job", "cpu-audit", "amd_mi300_1", "CPU audit", "failed"),
-        ("cuda-job", "cuda-tests", "nvidia_b200", "GPU tests", "failed"),
+        (mi_job_id, "gpu-tests", "amd_mi300_1", "MI GPU tests", "passed"),
+        ("00000000-0000-0000-0000-000000000002", "cpu-audit", "amd_mi300_1", "CPU audit", "failed"),
+        ("00000000-0000-0000-0000-000000000003", "cuda-tests", "nvidia_b200", "GPU tests", "failed"),
     ):
         raw["jobs"].append({
             "id": job_id, "step_key": key, "type": "script", "name": name,
@@ -492,11 +501,24 @@ def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit
             "created_at": "2026-04-22T09:00:00Z", "scheduled_at": "2026-04-22T09:00:00Z",
             "started_at": "2026-04-22T09:05:00Z", "finished_at": "2026-04-22T09:15:00Z",
             "web_url": f"{build_url}#{job_id}",
+            "step": {"id": mi_step_id if job_id == mi_job_id else job_id, "key": key},
         })
     index = {
         "version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
         "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}],
     }
+    definition_id = ".buildkite/test_areas/fixture.yaml#gpu-tests"
+    catalog = {
+        "version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+        "shard_bases": [], "definitions": [{
+            "definition_id": definition_id, "label": "mi gpu tests", "agent_pool": "mi300_1",
+            "family_key": "mi gpu tests", "source_label": "MI GPU tests", "step_key": "gpu-tests",
+        }],
+    }
+    def fixture_catalog(scope_index, *, expected_commit):
+        assert scope_index == index and expected_commit == commit
+        return catalog
+    monkeypatch.setattr("vllm.ci.runtime_families.family_catalog_from_scope_index", fixture_catalog)
     monkeypatch.setattr(analytics, "_SOURCE_SCOPE_INDEXES", {commit: index})
     source = analytics.reproject_current_mi_analytics(
         {"ci": {"generated_at": GENERATED_AT}}, [raw], window_days=8,
@@ -506,7 +528,7 @@ def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit
         },
     )
     (data_dir / "analytics.json").write_text(json.dumps(source))
-    assert [job["job_id"] for job in source["ci"]["builds"][0]["jobs"]] == ["mi-job"]
+    assert [job["job_id"] for job in source["ci"]["builds"][0]["jobs"]] == [mi_job_id]
     summary = models.BuildSummary(
         pipeline="amd", build_number=103, build_url=build_url, branch="main",
         commit=commit, created_at=raw["created_at"], state="passed", source_state="failed",
@@ -520,9 +542,15 @@ def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit
     result = models.TestResult(
         test_id="fixture::test_gpu", name="test_gpu", classname="fixture", status="passed",
         duration_secs=1.0, failure_message="", job_name="amd_mi300_1: MI GPU tests",
-        job_id="mi-job", step_id="gpu-tests", build_number=103, pipeline="ci", date="2026-04-22",
+        job_id=mi_job_id, step_id=mi_step_id, build_number=103, pipeline="ci", date="2026-04-22",
+        **{field: source["ci"]["builds"][0]["jobs"][0][field] for field in ops.AMD_TEST_SOURCE_FIELDS},
     )
     _write_jsonl(data_dir / "test_results" / "2026-04-22_amd.jsonl", [result.to_dict()])
+    _write_json(data_dir / "config_parity.json", {
+        "source": {"commit_sha": commit},
+        "amd_execution_definitions": [{"definition_id": definition_id, "label": "MI GPU tests", "agent_pool": "mi300_1"}],
+        "amd_only": [{"label": "MI GPU tests", "agent_pool": "mi300_1", "amd_identity_family_key": "mi gpu tests"}],
+    })
 
     payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
     assert payload["hardware_scope"] == source["ci"]["hardware_scope"] == "amd_mi_gpu"
@@ -1335,6 +1363,177 @@ def test_amd_test_health_publishes_reconciled_logical_group_inventory(tmp_path):
     attention = rows["attention kernels shard"]
     assert attention["state"] == "passing_all"
     assert attention["job_variant_count"] == 2
+
+
+@pytest.fixture
+def rerouted_lm_eval_inventory(tmp_path):
+    """Provider-keyless MI300 and DPX definitions share a logical title."""
+    commit = "ad73a4740dd780c5620099261738a30b979b262c"
+    routes = [
+        ("amd-lm-eval-small-models", "mi300_1", ":amd: (MI300) LM Eval Small Models",
+         "lm eval small models", "01a11f49-ebe6-404b-b4fe-6ae67c2336da",
+         "01a11f49-ea12-4b19-b5e4-ebeff034aed5", "amd_mi300_1"),
+        ("amd-lm-eval-small-models-1xb200", "mi355_dpx", ":amd: (MI355 DPX) LM Eval Small Models",
+         "lm eval small models (1 gpus)", "01a11f49-ebe0-4d61-9f05-18dc66bb0b0c",
+         "01a11f49-ea08-413f-9c7a-5b600f48fb68", "amd_mi355_1"),
+    ]
+    jobs, results, definitions, families = [], [], [], []
+    for key, pool, label, family, job_id, step_id, queue in routes:
+        identity = f".buildkite/test_areas/lm_eval.yaml#{key}"
+        claim = {
+            "source_definition_id": identity, "source_agent_pool": pool,
+            "source_commit": commit, "source_step_key": "",
+            "source_binding_basis": "pinned_declared_label",
+        }
+        jobs.append({"name": "LM Eval Small Models", "raw_name": label,
+                     "job_id": job_id, "step_id": step_id, "step_key": None,
+                     "q": queue, "state": "passed", "finished_at": "2026-10-09T10:00:00Z"})
+        results.append({"name": "__passed__ (3)", "status": "passed", "duration_secs": 20,
+                        "job_name": f"{queue}: {label}", "job_id": job_id, "step_id": step_id,
+                        "build_number": 93775, "pipeline": "ci", "date": "2026-10-09", **claim})
+        definitions.append({"definition_id": identity, "agent_pool": pool, "label": label})
+        families.append({"label": label, "agent_pool": pool, "amd_identity_family_key": family})
+    metadata = {"number": 93775, "commit": commit, "created_at": "2026-10-09T06:00:03Z",
+                "source_definition_tree_sha": "b" * 40,
+                "web_url": "https://buildkite.com/vllm/ci/builds/93775", "jobs": jobs}
+    parity = {"source": {"commit_sha": commit}, "amd_execution_definitions": definitions,
+              "amd_only": families}
+    health = {"latest_test_signal_build": {"build_number": 93775, "unique_test_groups": 2,
+                                           "test_groups_passing_or": 2, "test_groups_passing_all": 2,
+                                           "test_groups_partial": 0}}
+    _write_jsonl(tmp_path / "test_results" / "2026-10-09_amd.jsonl", results)
+    return metadata, parity, health, results
+
+
+def _lm_eval_family_catalog(metadata, parity):
+    families = {row["agent_pool"]: row["amd_identity_family_key"] for row in parity["amd_only"]}
+    return {"version": 1, "commit_sha": metadata["commit"], "definition_tree_sha": "b" * 40,
+            "shard_bases": [], "definitions": sorted([
+                {"definition_id": row["definition_id"], "label": "lm eval small models",
+                 "agent_pool": row["agent_pool"], "family_key": families[row["agent_pool"]],
+                 "source_label": row["label"], "step_key": row["definition_id"].rsplit("#", 1)[-1]}
+                for row in parity["amd_execution_definitions"]
+            ], key=lambda row: row["definition_id"])}
+
+
+def test_logical_inventory_uses_exact_source_proofs_without_changing_routing(
+    tmp_path, rerouted_lm_eval_inventory, monkeypatch,
+):
+    metadata, parity, health, results = rerouted_lm_eval_inventory
+    previous_commit = "f" * 40
+    previous_routes = {("pre-existing", "mi250_1"): "pre-existing"}
+    previous_definitions = {".buildkite/existing.yaml#existing": (
+        "pre-existing", "mi250_1", "pre-existing", ":amd: (MI250) Pre-existing",
+    )}
+    monkeypatch.setattr(ops.ci_analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", previous_commit)
+    monkeypatch.setattr(ops.ci_analyzer, "_AMD_RUNTIME_GROUP_KEYS", previous_routes)
+    monkeypatch.setattr(ops.ci_analyzer, "_AMD_RUNTIME_DEFINITIONS", previous_definitions)
+    monkeypatch.setattr(ops.ci_analyzer, "_SHARD_BASES", ["pre-existing shard"])
+    projected = ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
+    inventory = projected["latest_logical_test_groups"]
+    assert inventory["available"] is True
+    assert inventory["summary"]["total"] == inventory["summary"]["passing"] == 2
+    assert inventory["reconciliation"]["matches_latest_test_group_counts"] is True
+    assert inventory["provenance"]["identity_function"].endswith("._amd_runtime_result_group_key")
+    rows = {row["logical_key"]: row for row in inventory["rows"]}
+    assert set(rows) == {"lm eval small models", "lm eval small models (1 gpus)"}
+    families = {"mi300_1": "lm eval small models", "mi355_dpx": "lm eval small models (1 gpus)"}
+    for job, original in zip(metadata["jobs"], results):
+        family = families[original["source_agent_pool"]]
+        variant = rows[family]["job_variants"][0]
+        assert variant["exact_job_name"] == original["job_name"]
+        assert variant["job_id"] == original["job_id"]
+        assert variant["step_id"] == original["step_id"]
+        assert variant["queue"] == job["q"]
+        assert variant["source_step_key"] == ""
+        assert variant["source_definition_id"] == original["source_definition_id"]
+    dpx = rows["lm eval small models (1 gpus)"]["job_variants"][0]
+    assert dpx["hardware"] == "mi355"
+    assert dpx["hardware_variant"] == "mi355_1"
+    assert dpx["queue"] == "amd_mi355_1"
+    assert dpx["source_agent_pool"] == "mi355_dpx"
+    assert len(projected["group_catalog"]) == 2
+    assert ops.ci_analyzer._AMD_RUNTIME_GROUP_KEY_COMMIT == previous_commit
+    assert ops.ci_analyzer._AMD_RUNTIME_GROUP_KEYS == previous_routes
+    assert ops.ci_analyzer._AMD_RUNTIME_DEFINITIONS == previous_definitions
+    assert ops.ci_analyzer._SHARD_BASES == ["pre-existing shard"]
+
+
+@pytest.mark.parametrize("change", ["alternate_definition", "step_id", "job_id", "commit", "raw_declaration"])
+def test_logical_inventory_rejects_cached_source_proof_contradictions(
+    tmp_path, rerouted_lm_eval_inventory, change,
+):
+    metadata, parity, health, results = rerouted_lm_eval_inventory
+    if change == "alternate_definition":
+        for field in ops.AMD_TEST_SOURCE_FIELDS:
+            results[1][field] = results[0][field]
+    elif change in {"step_id", "job_id"}:
+        results[1][change] = results[0][change]
+    elif change == "commit":
+        metadata["commit"] = "c" * 40
+    else:
+        metadata["jobs"][1]["raw_name"] = metadata["jobs"][0]["raw_name"]
+    _write_jsonl(tmp_path / "test_results" / "2026-10-09_amd.jsonl", results)
+    with pytest.raises(ValueError, match="source identity"):
+        ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
+
+
+def test_pinned_logical_inventory_requires_every_parsed_source_claim(
+    tmp_path, rerouted_lm_eval_inventory,
+):
+    from vllm.ci.runtime_families import annotate_build_source_families
+    metadata, parity, health, results = rerouted_lm_eval_inventory
+    for job in metadata["jobs"]:
+        job.pop("step_key")
+    metadata = annotate_build_source_families(metadata, _lm_eval_family_catalog(metadata, parity))
+    assert ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)["latest_logical_test_groups"]["available"]
+    for field in ops.AMD_TEST_SOURCE_FIELDS:
+        results[1].pop(field)
+    _write_jsonl(tmp_path / "test_results" / "2026-10-09_amd.jsonl", results)
+    with pytest.raises(ValueError, match="source identity is absent"):
+        ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
+
+
+def test_reliability_catalog_retains_supplementary_families_without_regrouping(
+    rerouted_lm_eval_inventory,
+):
+    from vllm.ci.runtime_families import annotate_build_source_families
+    metadata, parity, _, _ = rerouted_lm_eval_inventory
+    metadata.update(branch="main", state="passed", finished_at="2026-10-09T10:00:00Z")
+    for job in metadata["jobs"]:
+        job.pop("step_key")
+        job.update(type="script", id=job["job_id"], step={"id": job["step_id"]})
+    proved = annotate_build_source_families(metadata, _lm_eval_family_catalog(metadata, parity))
+    kwargs = {"pipeline_slug": "ci", "window_days": 30, "generated_at": "2026-10-09T20:00:00Z"}
+    baseline = analytics.build_all_main_reliability([metadata], **kwargs)
+    source = analytics.build_all_main_reliability([proved], **kwargs)
+    old_catalog, old_counts, old_retry = ops._collector_main_catalog(baseline)
+    catalog, counts, retry = ops._collector_main_catalog(source)
+    assert counts == old_counts and retry == old_retry
+    assert {row["id"] for row in catalog} == {row["id"] for row in old_catalog}
+    assert len(catalog) == 2
+    claims = (*ops.AMD_TEST_SOURCE_FIELDS, "source_family_key")
+    old_by_id = {row["id"]: row for row in old_catalog}
+    for row in catalog:
+        unchanged = {key: value for key, value in row.items() if key != "source_family_keys"}
+        unchanged["observations"] = [{key: value for key, value in observation.items() if key not in claims}
+                                      for observation in row["observations"]]
+        assert unchanged == old_by_id[row["id"]]
+        assert row["source_family_keys"] == [row["observations"][0]["source_family_key"]]
+        assert row["observations"][0]["source_step_key"] == ""
+    dpx = next(row for row in catalog if row["hardware"] == "mi355")
+    assert dpx["queues"] == ["amd_mi355_1"]
+    assert dpx["source_family_keys"] == ["lm eval small models (1 gpus)"]
+    oversized = {**dpx, "padding": "x" * (ops.OPERATIONS_RELIABILITY_GROUP_MAX_BYTES + 1),
+                 "observations": [{**dpx["observations"][0],
+                                   "padding": "x" * (ops.OPERATIONS_RELIABILITY_ROW_MAX_BYTES + 1)}]}
+    public, _ = ops._bounded_public_group_catalog([oversized])
+    assert public[0]["source_family_keys"] == dpx["source_family_keys"]
+    assert public[0]["id"] == dpx["id"] and public[0]["runs"] == dpx["runs"]
+    assert public[0]["incident_rate_pct"] == dpx["incident_rate_pct"]
+    assert {field: public[0]["observations"][0][field] for field in claims} == {
+        field: dpx["observations"][0][field] for field in claims
+    }
 
 
 def test_amd_test_health_is_unavailable_for_missing_or_corrupt_results(tmp_path):

@@ -3620,7 +3620,9 @@ class DashboardAudit:
             if retired in payload:
                 self.error("operations-retired-view", f"Operations still publishes retired {retired} view data", relpath)
         self.audit_current_source_parity(_mapping(payload.get("test_group_parity")), relpath)
-        self.audit_current_nightly_latency(_mapping(payload.get("latency")), relpath)
+        self.audit_current_nightly_latency(
+            _mapping(payload.get("latency")), relpath, require_source_families=True
+        )
         current_path = self.root / "data/vllm/ci/test_group_parity.json"
         if current_path.exists():
             current = _mapping(self.load_json(self.rel(current_path), {}))
@@ -3747,7 +3749,8 @@ class DashboardAudit:
         return normalized
 
     def audit_current_nightly_latency(
-        self, latency: dict, relpath: str, *, source_builds: list | None = None
+        self, latency: dict, relpath: str, *, source_builds: list | None = None,
+        require_source_families: bool = False,
     ) -> None:
         """Reconstruct medians from exact jobs in one fixed latest-five cohort."""
         from statistics import median
@@ -3760,6 +3763,13 @@ class DashboardAudit:
 
         def fail(code: str, message: str) -> None:
             self.error(f"latency-{code}", message, relpath)
+
+        if (
+            require_source_families
+            and latency.get("available") is True
+            and latency.get("source_identity_basis") != "commit_pinned_amd_definition_family"
+        ):
+            fail("source-family", "Current latency requires commit-pinned AMD definition families")
 
         if (
             latency.get("schema_version") != 2
@@ -3856,6 +3866,7 @@ class DashboardAudit:
                 "available",
                 "Available latency must publish timed AMD workloads without an unavailable reason",
             )
+        source_family_keys: dict[int, dict[str, str]] = {}
         if source_builds is not None:
             from vllm.pipelines import UPSTREAM_NIGHTLY_NAME_PATTERN
 
@@ -3863,6 +3874,7 @@ class DashboardAudit:
                 _safe_int(_mapping(build).get("number")): _mapping(build)
                 for build in source_builds
                 if _mapping(build).get("branch") == "main"
+                and any(is_amd_ci_job(job) for job in _rows(_mapping(build).get("jobs")))
                 and _mapping(build).get("source_state", _mapping(build).get("state")) in {"passed", "failed"}
                 and _parse_timestamp(_mapping(build).get("created_at")) is not None
                 and _parse_timestamp(_mapping(build).get("finished_at")) is not None
@@ -3885,6 +3897,22 @@ class DashboardAudit:
                     "global-cohort",
                     "Latency must select the latest five completed main-ci nightlies before inspecting any workload",
                 )
+            if require_source_families:
+                from vllm.ci.runtime_families import validate_build_source_families
+
+                for number in numbers:
+                    source_build = eligible.get(number, {})
+                    try:
+                        if not FULL_COMMIT_SHA_RE.fullmatch(
+                            str(source_build.get("source_definition_tree_sha") or "")
+                        ):
+                            raise ValueError("Missing exact definition tree")
+                        source_family_keys[number] = validate_build_source_families(source_build)
+                    except ValueError:
+                        fail(
+                            "source-family",
+                            f"#{number}: timing source lacks valid exact-commit definition family evidence",
+                        )
         newest = _parse_timestamp(_mapping(nightlies[0]).get("created_at")) if nightlies else None
         if (
             clock is None
@@ -3986,6 +4014,33 @@ class DashboardAudit:
                         job_ids.add(job_id)
                         if source_jobs is not None and job_id not in source_jobs:
                             fail("hardware-scope", f"{identity}/{side}: timing job is absent from the exact eligible MI source roster")
+                        if source_jobs is not None and job_id in source_jobs:
+                            from vllm.ci.analyzer import _extract_hardware
+                            from vllm.constants import amd_gpu_hardware
+
+                            original = source_jobs[job_id]
+                            queue = original.get("q") or original.get("queue") or ""
+                            expected_job = {
+                                "step_id": str(original.get("step_id") or ""),
+                                "url": original.get("url"),
+                                "queue": queue,
+                                "hardware": amd_gpu_hardware(queue).lower() or _extract_hardware(
+                                    str(original.get("raw_name") or original.get("name") or "")
+                                ),
+                                "raw_name": str(original.get("raw_name") or original.get("name") or ""),
+                                "started_at": original.get("started_at"),
+                                "finished_at": original.get("finished_at"),
+                            }
+                            if any(job.get(key) != value for key, value in expected_job.items()):
+                                fail(
+                                    "job-source",
+                                    f"{identity}/{side}: timing changed the exact source job's routing, identity, label or timestamps",
+                                )
+                            if require_source_families and source_family_keys.get(number, {}).get(job_id) != identity:
+                                fail(
+                                    "source-family",
+                                    f"{identity}/{side}: timing job belongs to a different pinned source definition family",
+                                )
                         if not predicate(
                             {
                                 "raw_name": job.get("raw_name"),
@@ -5766,7 +5821,11 @@ class DashboardAudit:
             if all_main_metrics is not None:
                 metrics[slug]["all_main"] = all_main_metrics
         current_latency = _mapping(_mapping(analytics.get("ci")).get("current_nightly_latency"))
-        self.audit_current_nightly_latency(current_latency, "data/vllm/ci/analytics.json", source_builds=_rows(_mapping(analytics.get("ci")).get("builds")))
+        self.audit_current_nightly_latency(
+            current_latency, "data/vllm/ci/analytics.json",
+            source_builds=_rows(_mapping(analytics.get("ci")).get("builds")),
+            require_source_families=True,
+        )
         self.report.metrics["analytics"] = metrics
 
     def amd_matrix_audit_view(

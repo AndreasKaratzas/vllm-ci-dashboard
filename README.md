@@ -121,6 +121,9 @@ Latency uses the global latest five completed main CI nightlies with MI GPU exec
 contributes at most one sample per nightly: maximum wall time of the complete
 parallel shard group, followed by the median across available nightly samples.
 Missing groups are unavailable; older nightlies never fill missing samples.
+Each nightly uses its own immutable CI definition tree to identify logical
+workloads. Declared source families and observed physical queues remain separate;
+a DPX workload running on an MI355 queue retains both pieces of evidence.
 
 The private `operations_v2.json.gz` build input produces bundle v3 with eleven
 allowlisted lazy sections. Canonical publication replaces the Pages tree,

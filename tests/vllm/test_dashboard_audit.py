@@ -4486,11 +4486,167 @@ def test_current_latency_audit_rejects_an_older_global_cohort_even_when_samples_
             "message": "Full CI run - nightly",
             "created_at": "2026-10-08T19:00:00Z",
             "finished_at": "2026-10-08T19:30:00Z",
+            "jobs": [{"q": "amd_mi355_1", "raw_name": ":amd: (MI355) Current workload"}],
         }
     )
     audit = DashboardAudit(tmp_path)
     audit.audit_current_nightly_latency(latency, "fixture.json", source_builds=builds)
     assert "latency-global-cohort" in {finding.code for finding in audit.report.errors}
+
+
+def _pinned_current_latency_fixture():
+    from uuid import UUID
+
+    from vllm.ci.nightly_latency import build_current_nightly_latency
+    from vllm.ci.runtime_families import (
+        IDENTITY_BASIS,
+        annotate_build_source_families,
+        family_catalog_from_snapshot,
+    )
+    from vllm.collect_analytics import summarize_pipeline_builds
+    from vllm.main_ci_definitions import MainCISnapshot
+
+    steps = [
+        {"key": "mi300-lm", "label": ":amd: (MI300) LM Eval Small Models",
+         "device": "mi300_1", "commands": ["pytest tests/lm_eval.py"]},
+        {"key": "dpx-lm", "label": ":amd: (MI355 DPX) LM Eval Small Models",
+         "device": "mi355_dpx", "num_devices": 1,
+         "commands": ["pytest tests/lm_eval.py"]},
+    ]
+    snapshot = MainCISnapshot("a" * 40, {
+        ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+        ".buildkite/test_areas/lm_eval.yaml": {"steps": steps},
+    }, "", "b" * 40)
+    catalog = family_catalog_from_snapshot(snapshot)
+    clock = datetime(2026, 10, 8, 20, tzinfo=timezone.utc)
+    builds = []
+    for offset in range(5):
+        number = 600 - offset
+        created = clock - timedelta(days=offset, hours=2)
+        url = f"https://buildkite.com/vllm/ci/builds/{number}"
+        jobs = []
+        for index, (step, queue, duration) in enumerate(zip(
+            steps, ("amd_mi300_1", "amd_mi355_1"), (16 + offset, 12 + offset)
+        )):
+            job_id = str(UUID(int=number * 10 + index))
+            started = created + timedelta(minutes=5)
+            jobs.append({
+                "id": job_id, "type": "script", "name": step["label"],
+                "step": {"id": str(UUID(int=number * 100 + index)), "key": step["key"]},
+                "q": queue, "state": "passed",
+                "started_at": started.isoformat(),
+                "finished_at": (started + timedelta(minutes=duration)).isoformat(),
+            })
+        build = {"number": number, "web_url": url, "branch": "main", "state": "passed",
+                 "message": "Full CI run - nightly", "commit": snapshot.commit_sha,
+                 "source_definition_tree_sha": snapshot.definition_tree_sha,
+                 "created_at": created.isoformat(),
+                 "finished_at": (created + timedelta(hours=1)).isoformat(), "jobs": jobs}
+        builds.append(annotate_build_source_families(build, catalog))
+    source = summarize_pipeline_builds("ci", builds)
+    latency = build_current_nightly_latency(
+        source, generated_at=clock.isoformat(), source_available=True,
+        source_identity_basis=IDENTITY_BASIS,
+    )
+    return latency, source
+
+
+def test_current_latency_audit_binds_distinct_families_to_original_physical_attempts(tmp_path):
+    latency, builds = _pinned_current_latency_fixture()
+    original = copy.deepcopy(builds)
+    # A newer CPU-only nightly must not replace an eligible MI nightly.
+    builds.append({**builds[0], "number": 601, "created_at": "2026-10-08T19:00:00Z",
+                   "web_url": "https://buildkite.com/vllm/ci/builds/601",
+                   "finished_at": "2026-10-08T19:30:00Z", "jobs": [{"q": "cpu"}]})
+    audit = DashboardAudit(tmp_path)
+    audit.audit_current_nightly_latency(
+        latency, "fixture.json", source_builds=builds, require_source_families=True
+    )
+    assert not audit.report.errors
+    assert builds[:5] == original
+    assert {row["id"] for row in latency["rows"]} == {
+        "lm eval small models", "lm eval small models (1 gpus)"
+    }
+    dpx = next(row for row in latency["rows"] if row["id"].endswith("(1 gpus)"))
+    assert dpx["amd"]["median_duration_mins"] == 14
+    assert all(job["queue"] == "amd_mi355_1" for sample in dpx["amd"]["samples"] for job in sample["jobs"])
+
+
+def test_current_latency_audit_rejects_cross_family_merge_with_valid_timing_math(tmp_path):
+    from statistics import median
+
+    latency, builds = _pinned_current_latency_fixture()
+    first, second = latency["rows"]
+    for target, extra in zip(first["amd"]["samples"], second["amd"]["samples"]):
+        assert target["build_number"] == extra["build_number"]
+        target["jobs"].extend(extra["jobs"])
+        target["duration_mins"] = max(job["duration_mins"] for job in target["jobs"])
+    first["amd"]["median_duration_mins"] = median(sample["duration_mins"] for sample in first["amd"]["samples"])
+    latency["rows"] = [first]
+    legacy = DashboardAudit(tmp_path)
+    legacy.audit_current_nightly_latency(latency, "fixture.json", source_builds=builds)
+    assert not legacy.report.errors  # Exact membership and duration math alone cannot detect this.
+    strict = DashboardAudit(tmp_path)
+    strict.audit_current_nightly_latency(
+        latency, "fixture.json", source_builds=builds, require_source_families=True
+    )
+    assert {finding.code for finding in strict.report.errors} == {"latency-source-family"}
+
+
+@pytest.mark.parametrize("field,value", [
+    ("queue", "amd_mi300_1"), ("hardware", "mi300"),
+    ("raw_name", ":amd: (MI355) Renamed workload"),
+    ("step_id", "00000000-0000-4000-8000-000000999999"),
+])
+def test_current_latency_audit_rejects_rewritten_original_job_evidence(tmp_path, field, value):
+    latency, builds = _pinned_current_latency_fixture()
+    dpx = next(row for row in latency["rows"] if row["id"].endswith("(1 gpus)"))
+    dpx["amd"]["samples"][0]["jobs"][0][field] = value
+    audit = DashboardAudit(tmp_path)
+    audit.audit_current_nightly_latency(
+        latency, "fixture.json", source_builds=builds, require_source_families=True
+    )
+    assert "latency-job-source" in {finding.code for finding in audit.report.errors}
+
+
+@pytest.mark.parametrize("field", ["url", "timestamps"])
+def test_current_latency_audit_rejects_equivalent_rewritten_links_or_shifted_clocks(tmp_path, field):
+    latency, builds = _pinned_current_latency_fixture()
+    job = latency["rows"][0]["amd"]["samples"][0]["jobs"][0]
+    if field == "url":
+        job["url"] = f"{builds[0]['web_url']}#{job['job_id']}"
+    else:
+        for key in ("started_at", "finished_at"):
+            job[key] = (datetime.fromisoformat(job[key]) + timedelta(minutes=1)).isoformat()
+    audit = DashboardAudit(tmp_path)
+    audit.audit_current_nightly_latency(
+        latency, "fixture.json", source_builds=builds, require_source_families=True
+    )
+    assert {finding.code for finding in audit.report.errors} == {"latency-job-source"}
+
+
+@pytest.mark.parametrize("tamper", [
+    lambda build: build.pop("source_definition_tree_sha"),
+    lambda build: build["source_family_catalog"].update(commit_sha="c" * 40),
+    lambda build: build["jobs"][0].update(source_family_key="invented family"),
+    lambda build: build["jobs"][0].update(step_key="unknown-key"),
+])
+def test_current_latency_audit_rejects_unproved_or_contradictory_private_families(tmp_path, tamper):
+    latency, builds = _pinned_current_latency_fixture()
+    tamper(builds[0])
+    audit = DashboardAudit(tmp_path)
+    audit.audit_current_nightly_latency(
+        latency, "fixture.json", source_builds=builds, require_source_families=True
+    )
+    assert "latency-source-family" in {finding.code for finding in audit.report.errors}
+
+
+def test_production_latency_audit_requires_identity_marker(tmp_path):
+    latency, _ = _pinned_current_latency_fixture()
+    latency.pop("source_identity_basis")
+    audit = DashboardAudit(tmp_path)
+    audit.audit_current_nightly_latency(latency, "fixture.json", require_source_families=True)
+    assert "latency-source-family" in {finding.code for finding in audit.report.errors}
 
 
 def _current_parity_fixture():

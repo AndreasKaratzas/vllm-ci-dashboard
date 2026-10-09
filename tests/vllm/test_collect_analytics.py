@@ -7,6 +7,7 @@ import copy
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import pytest
 
@@ -23,15 +24,35 @@ def offline_runtime_definition_pins(monkeypatch):
     # Source joins and Git object integrity have their own pure source tests.
     # Collection tests exercise scoped cache reuse without network access.
     import vllm.main_ci_definitions as definitions
+    from vllm.ci import runtime_families
+    captured = {}
+    monkeypatch.setattr("requests.sessions.Session.request", lambda *_args, **_kwargs: pytest.fail("Unit collection cannot contact providers"))
     monkeypatch.setattr(ca, "_SOURCE_SCOPE_INDEXES", {})
     monkeypatch.setattr(ca, "_SOURCE_SCOPE_CACHE_DIR", None)
     monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda _pins: {}, raising=False)
     def annotate(build, **kwargs):
+        if build.get("jobs"):
+            captured[build["commit"]] = copy.deepcopy(build)
         return {**build, "source_scope_commit": build.get("commit"),
                 "source_definition_tree_sha": "a" * 40,
                 "source_scope_index": {"version": 1, "commit_sha": build.get("commit"),
                                        "definition_tree_sha": "a" * 40, "cpu_routes": []}}
     monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    def catalog(index, *, expected_commit):
+        assert index["commit_sha"] == expected_commit
+        raw = captured[expected_commit]
+        steps = [{"key": job["step"]["key"], "label": job["name"],
+                  "device": ca._job_queue(job).removeprefix("amd_"), "commands": ["pytest tests/unit.py"]}
+                 for job in raw["jobs"] if ca.is_amd_ci_job(job)]
+        # These fixtures retain explicit provider keys; the catalog is still
+        # derived through the real source configuration-family implementation.
+        unique = {step["key"]: step for step in steps}
+        snapshot = definitions.MainCISnapshot(expected_commit, {
+            ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+            ".buildkite/test_areas/unit.yaml": {"steps": list(unique.values())},
+        }, "", index["definition_tree_sha"])
+        return runtime_families.family_catalog_from_snapshot(snapshot)
+    monkeypatch.setattr(runtime_families, "family_catalog_from_scope_index", catalog)
 
 
 @pytest.mark.parametrize("prefix", ["", "mi355_dpx: "])
@@ -380,7 +401,7 @@ def _raw_api_build(
         "web_url": f"https://buildkite.com/vllm/ci/builds/{number}",
         "jobs": [
             {
-                "id": f"job-{number}",
+                "id": str(UUID(int=number)),
                 "type": "script",
                 "name": f"Job {number}",
                 "state": job_state,
@@ -392,7 +413,7 @@ def _raw_api_build(
                     else None
                 ),
                 "agent_query_rules": ["queue=amd_mi300_1"],
-                "step": {"id": f"step-{number}", "key": f"job-{number}"},
+                "step": {"id": str(UUID(int=1_000_000 + number)), "key": f"job-{number}"},
             }
         ],
     }
@@ -1800,19 +1821,19 @@ class TestWindowedAnalyticsMain:
                 "web_url": f"https://buildkite.com/vllm/{pipeline_slug}/builds/{number}",
                 "jobs": [
                     {
-                        "id": f"failed-{number}",
+                        "id": str(UUID(int=number * 10)),
                         "type": "script",
                         "name": "Retry group",
                         "state": "failed",
-                        "retried_in_job_id": f"passed-{number}",
+                        "retried_in_job_id": str(UUID(int=number * 10 + 1)),
                         "runnable_at": "2026-07-12T09:01:00Z",
                         "started_at": "2026-07-12T09:02:00Z",
                         "finished_at": "2026-07-12T09:03:00Z",
                         "agent_query_rules": ["queue=amd_mi300_1"],
-                        "step": {"id": f"step-{number}", "key": "retry-group"},
+                        "step": {"id": str(UUID(int=number * 10 + 2)), "key": "retry-group"},
                     },
                     {
-                        "id": f"passed-{number}",
+                        "id": str(UUID(int=number * 10 + 1)),
                         "type": "script",
                         "name": "Retry group",
                         "state": "passed",
@@ -1821,7 +1842,7 @@ class TestWindowedAnalyticsMain:
                         "started_at": "2026-07-12T09:04:00Z",
                         "finished_at": "2026-07-12T09:05:00Z",
                         "agent_query_rules": ["queue=amd_mi300_1"],
-                        "step": {"id": f"step-{number}", "key": "retry-group"},
+                        "step": {"id": str(UUID(int=number * 10 + 2)), "key": "retry-group"},
                     },
                 ],
             }], {
@@ -2580,7 +2601,7 @@ def test_cold_analytics_primes_missing_pins_in_batches_before_exact_roster_joins
     assert [len(batch) for batch in batches] == [50, 50, 3]
     assert len(set(derived)) == len(derived) == 103
     assert joined == [build["number"] for build in builds]
-    assert all([job["id"] for job in build["jobs"]] == [f"job-{build['number']}"] for build in scoped)
+    assert all([job["id"] for job in build["jobs"]] == [str(UUID(int=build["number"]))] for build in scoped)
     assert all(build["hardware_scope"] == "amd_mi_gpu" for build in scoped)
     assert builds == before
     assert [(build["created_at"], build["started_at"], build["finished_at"]) for build in scoped] == [

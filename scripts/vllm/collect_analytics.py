@@ -1241,6 +1241,50 @@ _SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
 _SOURCE_SCOPE_CACHE_DIR: Path | None = None
 
 
+def annotate_current_nightly_families(builds: list[dict], *, generated_at: str) -> list[dict]:
+    """Bind only the fixed latest-five roster to its own authenticated source tree."""
+    from vllm.ci.runtime_families import (
+        annotate_build_source_families, family_catalog_from_scope_index,
+    )
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    normalized = summarize_pipeline_builds("ci", builds, True, NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"])
+    # Restored claims cannot choose the cohort or bypass typed source checks.
+    # Select by source metadata, then rederive each selected original below.
+    selection_builds = [
+        {key: value for key, value in build.items() if key != "source_family_catalog"}
+        for build in normalized
+    ]
+    selected = {row["number"] for row in build_current_nightly_latency(
+        selection_builds, generated_at=generated_at, source_available=True,
+    )["cohort"]["nightlies"]}
+    result = []
+    for build in builds:
+        if build.get("number") not in selected:
+            result.append(build)
+            continue
+        commit = str(build.get("commit") or "").casefold()
+        try:
+            index = build.get("source_scope_index") or _SOURCE_SCOPE_INDEXES.get(commit)
+            catalog = family_catalog_from_scope_index(index, expected_commit=commit)
+            if "source_family_catalog" in build and build["source_family_catalog"] != catalog:
+                raise ValueError("Restored AMD family catalog contradicts its verified source tree")
+            result.append(annotate_build_source_families(build, catalog))
+        except RuntimeSourceError as exc:
+            if exc.commit_sha is None:
+                raise RuntimeSourceError(
+                    "Exact nightly source family acquisition failed", reason_class=exc.reason_class,
+                    commit_sha=commit, phase=exc.phase,
+                ) from None
+            raise
+        except ValueError:
+            raise RuntimeSourceError(
+                "Exact nightly source family verification failed", reason_class="schema-drift",
+                commit_sha=commit, phase="scope",
+            ) from None
+    return result
+
+
 def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes: dict | None = None) -> list[dict]:
     """Recompute authenticated source rosters using their exact CPU/GPU definition pin."""
     if pipeline_slug != "ci":
@@ -1823,7 +1867,12 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             }
             for key in RETRY_FIELDS:
                 value = j.get(key, (j.get("step") or {}).get("key") if key == "step_key" else None)
-                job_entry[key] = value
+                if key != "step_key" or value is not None:
+                    job_entry[key] = value
+            for key in ("source_definition_id", "source_agent_pool", "source_commit",
+                        "source_step_key", "source_binding_basis", "source_family_key"):
+                if key in j:
+                    job_entry[key] = j[key]
             if job_id:
                 job_entry["job_id"] = job_id
             if step_id:
@@ -1870,6 +1919,9 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             "soft_failed": soft,
             "total_jobs": len(jobs),
             "jobs": job_summaries,
+            **({"source_family_catalog": b["source_family_catalog"],
+                "source_definition_tree_sha": b.get("source_definition_tree_sha")}
+               if "source_family_catalog" in b else {}),
             "web_url": b.get("web_url")
             or buildkite_job_url(pipeline_slug, build_num),
         })
@@ -2580,6 +2632,7 @@ def reproject_current_mi_analytics(
         if (created := _as_utc_datetime(build.get("created_at"))) is not None and cutoff <= created <= clock
         and ((finished := _as_utc_datetime(build.get("finished_at"))) is None or finished <= clock)
     ], "ci")
+    scoped = annotate_current_nightly_families(scoped, generated_at=generated)
     builds = summarize_pipeline_builds("ci", scoped, True, NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"])
     rankings = compute_job_rankings(builds)
     windows = compute_window_blocks(builds, window_days, now=clock)
@@ -2599,7 +2652,10 @@ def reproject_current_mi_analytics(
         "duration_ranking": sorted(rankings, key=lambda job: job.get("median_dur") or 0, reverse=True),
         "queue_stats": compute_queue_stats(rankings), "default_window": default, "windows": windows,
         "nightly_change_history": compute_nightly_change_history(builds, pipeline_slug="ci"),
-        "current_nightly_latency": build_current_nightly_latency(builds, generated_at=generated, source_available=True),
+        "current_nightly_latency": build_current_nightly_latency(
+            builds, generated_at=generated, source_available=True,
+            source_identity_basis="commit_pinned_amd_definition_family",
+        ),
     }
     if canonical_nightlies_only:
         result["seed_provenance"] = {**collection_provenance, "exhaustive": False,
@@ -2742,6 +2798,10 @@ def main():
         )
         if slug == "ci":
             reliability_raw_builds = _current_mi_builds(reliability_raw_builds, slug)
+            if token and collection_provenance.get("exhaustive") is True:
+                reliability_raw_builds = annotate_current_nightly_families(
+                    reliability_raw_builds, generated_at=generated_at,
+                )
         buildkite_builds = (
             collect_pipeline(
                 slug,
@@ -2823,6 +2883,7 @@ def main():
                 buildkite_builds,
                 generated_at=generated_at,
                 source_available=bool(token) and collection_provenance.get("exhaustive") is True,
+                source_identity_basis="commit_pinned_amd_definition_family",
             )
         preserved_retry_analysis = None
         all_main_reliability = None
