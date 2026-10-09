@@ -5254,3 +5254,32 @@ def test_current_queue_audit_rejects_invalid_execution_proof(tmp_path, invalid):
     audit = DashboardAudit(tmp_path)
     audit.audit_queue_data(require_current_scope=True)
     assert {finding.code for finding in audit.report.errors} == {"queue-job-execution-scope"}
+
+
+@pytest.mark.parametrize("pipeline,workload", [
+    ("amd-ci", "vllm"), ("foreign", "vllm"), (None, "vllm"), ("", "vllm"),
+    (["ci"], "vllm"), ({"slug": "ci"}, "vllm"), ("ci", "omni"), ("vllm-omni-amd-ci", "vllm"),
+])
+def test_current_queue_audit_rejects_legacy_pipeline_or_contradictory_workload(tmp_path, pipeline, workload):
+    from vllm.publication_surfaces import finding_surfaces
+
+    queue_dir = tmp_path / "data/vllm/ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    snapshot = {"ts": now, "queues": {"amd_mi300_1": {"waiting": 1, "running": 0}},
+                "total_waiting": 1, "total_running": 0, "sources": {"counts": "cluster_metrics"}}
+    (queue_dir / "queue_timeseries.jsonl").write_text(json.dumps(snapshot) + "\n")
+    row = {"pipeline": pipeline, "workload": workload, "queue": "amd_mi300_1", "commit": "9" * 12,
+           "name": "GPU test", "url": "https://buildkite.com/vllm/ci/builds/1#job", "wait_min": 1,
+           "execution_proof": {"version": 1, "source_commit": "9" * 40, "definition_tree": "a" * 40,
+                               "classification": "amd_mi_gpu"}}
+    jobs = {"hardware_scope": "amd_mi_gpu", "execution_scope_contract": operations_module.EXECUTION_SCOPE_CONTRACT,
+            "ts": now, "pending": [row], "running": []}
+    (queue_dir / "queue_jobs.json").write_text(json.dumps(jobs))
+    current = DashboardAudit(tmp_path)
+    current.audit_queue_data(require_current_scope=True)
+    assert {finding.code for finding in current.report.errors} == {"queue-job-execution-scope"}
+    assert all(finding_surfaces(finding) == frozenset({"queue"}) for finding in current.report.errors)
+    historical = DashboardAudit(tmp_path)
+    historical.audit_queue_data()
+    assert historical.report.errors == []

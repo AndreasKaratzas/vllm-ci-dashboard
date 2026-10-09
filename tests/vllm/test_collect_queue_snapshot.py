@@ -164,10 +164,10 @@ class TestRestApiResilience:
                 {
                     "number": 42,
                     "branch": "main",
-                    "commit": "abc123def456",
+                    "commit": SOURCE_COMMIT,
                     "source": "schedule",
-                    "pipeline": {"slug": "amd-ci"},
-                    "web_url": "https://buildkite.com/vllm/amd-ci/builds/42",
+                    "pipeline": {"slug": "ci"},
+                    "web_url": "https://buildkite.com/vllm/ci/builds/42",
                     "jobs": [
                         {
                             "type": "script",
@@ -382,10 +382,10 @@ class TestGraphqlQueueMetrics:
                                     "build": {
                                         "number": 123,
                                         "branch": "main",
-                                        "commit": "abcdef1234567890",
-                                        "url": "https://buildkite.com/vllm/amd-ci/builds/123",
+                                        "commit": SOURCE_COMMIT,
+                                        "url": "https://buildkite.com/vllm/ci/builds/123",
                                     },
-                                    "pipeline": {"slug": "amd-ci"},
+                                    "pipeline": {"slug": "ci"},
                                 }
                             },
                             {
@@ -1104,14 +1104,16 @@ def _active_job(
     created_at: str | None = None,
     started_at: str | None = None,
     name: str = "mi250_1: foo",
-    pipeline: str = "amd-ci",
+    pipeline: str = "ci",
     branch: str = "main",
     build: int = 100,
-    commit: str = "abc123def456",
-    build_url: str = "https://buildkite.com/vllm/amd-ci/builds/100",
+    commit: str = SOURCE_COMMIT,
+    build_url: str = "https://buildkite.com/vllm/ci/builds/100",
     job_uuid: str | None = None,
 ) -> dict:
     return {
+        **({"execution_proof": {"version": 1, "source_commit": commit,
+             "definition_tree": "b" * 40, "classification": "amd_mi_gpu"}} if pipeline == "ci" else {}),
         "queue": queue,
         "state": state,
         "name": name,
@@ -1124,7 +1126,7 @@ def _active_job(
         "build": build,
         "branch": branch,
         "commit": commit[:12],
-        "workload": cqs.classify_workload(pipeline, branch, queue),
+        "workload": "omni" if pipeline == "vllm-omni-amd-ci" else "vllm",
         "fork_url": "",
         "source": "",
         "runnable_at": runnable_at,
@@ -1150,7 +1152,7 @@ class _FakeBk:
         return []
 
 
-def _build(state_pipeline="amd-ci", branch="main", jobs=None, number=100, commit="abc123def456"):
+def _build(state_pipeline="ci", branch="main", jobs=None, number=100, commit=SOURCE_COMMIT):
     return {
         "number": number,
         "branch": branch,
@@ -2070,7 +2072,7 @@ class TestCollectSnapshot:
             cqs,
             "fetch_active_cluster_jobs",
             lambda token, queue_ids_by_key=None: [
-                _active_job("amd_mi300_1-omni", "SCHEDULED", runnable_at="2026-04-18T11:59:00Z"),
+                _active_job("amd_mi300_1-omni", "SCHEDULED", runnable_at="2026-04-18T11:59:00Z", pipeline="vllm-omni-amd-ci"),
             ],
         )
 
@@ -2083,7 +2085,7 @@ class TestCollectSnapshot:
         row = snap["queues"]["amd_mi300_1-omni"]
         assert row["waiting_by_workload"] == {"vllm": 0, "omni": 1}
 
-    def test_workload_split_from_omni_branch(self, monkeypatch, tmp_path):
+    def test_ci_workload_stays_main_on_branch_with_omni_name(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
         monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: {})
         monkeypatch.setattr(
@@ -2107,7 +2109,7 @@ class TestCollectSnapshot:
             dt_mock.fromisoformat = datetime.fromisoformat
             snap = cqs.collect_snapshot("fake-token")
         row = snap["queues"]["amd_mi250_1"]
-        assert row["running_by_workload"] == {"vllm": 0, "omni": 1}
+        assert row["running_by_workload"] == {"vllm": 1, "omni": 0}
 
     def test_jobs_without_queue_rule_skipped(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
@@ -2224,11 +2226,11 @@ class TestJobsJsonSideEffect:
             "hardware_scope": "amd_mi_gpu",
             "details_observed_at": "2026-04-18T12:00:00Z",
             "pending": [
-                {"queue": "amd_mi300_1", "id": index, "wait_min": 100 - index, "padding": "p" * 500}
+                {"queue": "amd_mi300_1", "pipeline": "vllm-omni-amd-ci", "workload": "omni", "id": index, "wait_min": 100 - index, "padding": "p" * 500}
                 for index in range(50)
             ],
             "running": [
-                {"queue": "amd_mi300_1", "id": index, "padding": "r" * 500}
+                {"queue": "amd_mi300_1", "pipeline": "vllm-omni-amd-ci", "workload": "omni", "id": index, "padding": "r" * 500}
                 for index in range(50)
             ],
         }
@@ -2271,7 +2273,7 @@ def test_physical_mi_scope_excludes_foreign_dynamic_and_cpu_job_routes():
     assert cqs.TRACKED_QUEUES
     assert all(cqs.amd_gpu_hardware(queue) for queue in cqs.TRACKED_QUEUES)
     def node(queue, label="GPU workload"):
-        return {"clusterQueue": {"key": queue}, "label": label, "state": "RUNNING"}
+        return {**_current_ci_node(label=label), "clusterQueue": {"key": queue}, "state": "RUNNING"}
     assert cqs._graphql_job_record(node("amd_mi300_1", "CPU Offload with CUDA model preset")) is not None
     for queue in ("B200", "H200", "gpu_1_queue", "intel-gpu", "amd-cpu", "amd_mi355b_1"):
         assert cqs._graphql_job_record(node(queue)) is None
@@ -2281,7 +2283,7 @@ def test_physical_mi_scope_excludes_foreign_dynamic_and_cpu_job_routes():
 
 def test_retained_queue_overlay_requires_explicit_mi_scope_and_routing(tmp_path):
     path = tmp_path / "queue_jobs.json"
-    payload = {"ts": "2026-04-18T12:00:00Z", "pending": [{"queue": "amd_mi300_1"}], "running": []}
+    payload = {"ts": "2026-04-18T12:00:00Z", "pending": [{"queue": "amd_mi300_1", "pipeline": "vllm-omni-amd-ci"}], "running": []}
     path.write_text(json.dumps(payload))
     assert cqs._load_complete_job_overlay(path) is None
     payload["hardware_scope"] = "amd_mi_gpu"
@@ -2512,3 +2514,83 @@ def test_queue_legacy_cluster_only_route_drives_source_cpu_exclusion(monkeypatch
                        "cluster_queue": {"key": "amd_mi300_1"}, "step": {"key": "torch-abi"}}]}
     monkeypatch.setattr(cqs, "bk_get_paginated", lambda *args: [build])
     assert cqs._collect_legacy_active_jobs("fake") == []
+
+
+@pytest.mark.parametrize("pipeline", ["amd-ci", "perf-eval", "other-ci", "", None])
+def test_queue_details_reject_retired_and_unapproved_pipeline_before_source_lookup(monkeypatch, pipeline):
+    from vllm import main_ci_definitions as source
+
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("out-of-scope jobs need no source lookup"))
+    node = {**_current_ci_node(), "pipeline": {"slug": pipeline}}
+    assert cqs._graphql_job_record(node) is None
+    monkeypatch.setattr(cqs, "bk_graphql", lambda *args: {
+        "organization": {"jobs": {"edges": [{"node": node}], "pageInfo": {"hasNextPage": False}}}})
+    assert cqs._fetch_graphql_jobs("fake", query=cqs.GRAPHQL_ACTIVE_JOBS_Q, variables={}) == []
+    build = {"pipeline": {"slug": pipeline}, "commit": SOURCE_COMMIT,
+             "jobs": [_job("amd_mi300_1", "running")]}
+    monkeypatch.setattr(cqs, "bk_get_paginated", lambda *args: [build])
+    assert cqs._collect_legacy_active_jobs("fake") == []
+    assert cqs._SOURCE_SCOPE_INDEXES == {}
+
+
+@pytest.mark.parametrize("pipeline", ["amd-ci", "perf-eval", "other-ci", "", None, {}])
+def test_queue_overlay_rejects_unapproved_identity_even_with_full_execution_proof(tmp_path, pipeline):
+    row = {**cqs._graphql_job_record(_current_ci_node()), "pipeline": pipeline}
+    path = tmp_path / "queue_jobs.json"
+    path.write_text(json.dumps({"hardware_scope": "amd_mi_gpu", "execution_scope_contract": cqs.EXECUTION_SCOPE_CONTRACT,
+                                "ts": "2026-10-09T10:00:00Z", "pending": [row], "running": []}))
+    assert cqs._load_complete_job_overlay(path) is None
+
+
+def test_queue_detail_scope_excludes_legacy_counts_but_preserves_native_physical_occupancy(monkeypatch, tmp_path):
+    monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "history.jsonl")
+    monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda *args, **kwargs: {
+        "amd_mi300_1": {"counts_available": True, "waiting": 3, "running": 0}})
+    ci = {**_current_ci_node(), "uuid": "current", "build": {**_current_ci_node()["build"], "branch": "user/omni-feature"}}
+    omni = {**_current_ci_node(), "uuid": "omni", "pipeline": {"slug": "vllm-omni-amd-ci"},
+            "build": {"number": 1002, "url": "https://buildkite.com/vllm/vllm-omni-amd-ci/builds/1002", "branch": "main"}}
+    legacy = {**_current_ci_node(), "uuid": "legacy", "pipeline": {"slug": "amd-ci"}}
+    monkeypatch.setattr(cqs, "bk_graphql", lambda *args: {
+        "organization": {"jobs": {"edges": [{"node": node} for node in [ci, omni, legacy]],
+                                  "pageInfo": {"hasNextPage": False}}}})
+    snapshot = cqs.collect_snapshot("fake", bounded_workflow_mode=True)
+    jobs = json.loads((tmp_path / "queue_jobs.json").read_text())
+    assert snapshot["queues"]["amd_mi300_1"]["waiting"] == 3
+    assert snapshot["queues"]["amd_mi300_1"]["waiting_by_workload"] == {"vllm": 1, "omni": 1}
+    assert {job["pipeline"] for job in jobs["pending"]} == cqs.QUEUE_JOB_PIPELINES
+    assert next(job for job in jobs["pending"] if job["pipeline"] == "ci")["workload"] == "vllm"
+    assert next(job for job in jobs["pending"] if job["pipeline"] == "vllm-omni-amd-ci")["workload"] == "omni"
+    assert len(jobs["pending"]) == 2
+
+
+def test_queue_projection_and_byte_bounding_defensively_keep_only_approved_pipeline_records():
+    current = _active_job("amd_mi300_1", "SCHEDULED")
+    omni = _active_job("amd_mi300_1", "SCHEDULED", pipeline="vllm-omni-amd-ci")
+    legacy = _active_job("amd_mi300_1", "SCHEDULED", pipeline="amd-ci")
+    foreign = _active_job("amd_mi300_1", "SCHEDULED", pipeline="perf-eval")
+    now = datetime(2026, 10, 9, 10, tzinfo=timezone.utc)
+    stats = cqs._queue_row()
+    # _apply_active_jobs requires the collector's mutable wait-time accumulator.
+    stats["wait_times"] = []
+    pending, running = cqs._apply_active_jobs(now, {"amd_mi300_1": stats}, [current, omni, legacy, foreign], set())
+    assert {job["pipeline"] for job in pending} == cqs.QUEUE_JOB_PIPELINES
+    assert stats["waiting"] == 2
+    bounded = cqs._compact_queue_jobs({"pending": [*pending, {**pending[0], "pipeline": "amd-ci"}], "running": running})
+    assert len(bounded["pending"]) == 2
+    assert bounded["publication_retention"]["pending"]["source"] == 2
+
+
+def test_retained_proved_queue_labels_are_normalized_without_advancing_source_clock(tmp_path):
+    row = {**cqs._graphql_job_record(_current_ci_node()), "workload": "omni"}
+    path = tmp_path / "queue_jobs.json"
+    source = {"ts": "2026-10-09T10:00:00Z", "details_observed_at": "2026-10-09T10:00:00Z",
+              "hardware_scope": "amd_mi_gpu", "execution_scope_contract": cqs.EXECUTION_SCOPE_CONTRACT,
+              "pending": [row], "running": []}
+    path.write_text(json.dumps(source))
+    retained = cqs._load_complete_job_overlay(path)
+    published = cqs._write_bounded_queue_jobs(path, source)
+    assert published["pending"][0]["workload"] == "vllm"
+    assert published["details_observed_at"] == retained["details_observed_at"] == source["ts"]
+    assert published["ts"] == source["ts"]
+    assert published["pending"][0]["execution_proof"] == row["execution_proof"]
+    assert source["pending"][0]["workload"] == "omni"
