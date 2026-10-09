@@ -365,12 +365,29 @@ def ci_core_report_exit_code(report: object, exit_code: int) -> int:
     return exit_code or (1 if report["errors"] else 0)
 
 
-def write_ci_core_diagnostics(root: Path, path: Path, report: object, exit_code: int) -> None:
+def write_ci_core_diagnostics(
+    root: Path, path: Path, report: object, exit_code: int,
+    *, collector_failures: Iterable[Mapping[str, Any]] = (),
+) -> None:
     """Persist only bounded source facts and findings from the early raw audit."""
     _validate_diagnostics_path(root.resolve(), path)
     payload = report if isinstance(report, Mapping) else {}
-    errors = payload.get("errors") if isinstance(payload.get("errors"), list) else []
+    errors = list(payload["errors"]) if isinstance(payload.get("errors"), list) else []
     degradations = payload.get("degradations") if isinstance(payload.get("degradations"), list) else []
+    for raw in collector_failures:
+        failure = _normalize_collector_failure(raw)
+        if failure["surface"] != "ci_core":
+            continue
+        summary = _diagnostic_text(failure["details"].get("summary", ""))
+        errors.append({
+            "severity": "error", "code": "ci-core-collector-unavailable",
+            "message": (
+                f"{failure['step']} exited {failure['exit_code']} "
+                f"({failure['reason_class']})" + (f": {summary}" if summary else "")
+            ),
+            "surfaces": ["ci_core"],
+            "context": {"exit_code": failure["exit_code"], "reason_class": failure["reason_class"]},
+        })
     if exit_code and not errors:
         errors = [{"severity": "error", "code": "ci-core-audit-report-unavailable",
                    "message": "Current CI core validation failed without a usable JSON error report",

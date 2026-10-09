@@ -1608,23 +1608,34 @@ jobs:
         id: ci-core-validation
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.collect-ci.outputs.cache_save == 'true'
+          steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
           source "$PUBLICATION_COLLECTOR_HELPERS"
+          export CI_CORE_COLLECTOR_FAILED=false
           if ! surface_is_current ci_core; then
             echo "Current CI core has a recorded collector failure; final selector will apply strict fallback proofs."
-            exit 0
+            export CI_CORE_COLLECTOR_FAILED=true
           fi
-          echo "audited=true" >> "$GITHUB_OUTPUT"
+          echo "diagnostics_ready=true" >> "$GITHUB_OUTPUT"
           python - <<'PY'
           import json
           import os
           import subprocess
           import sys
           from pathlib import Path
-          from vllm.select_publication_surfaces import ci_core_report_exit_code, write_ci_core_diagnostics
+          from vllm.select_publication_surfaces import ci_core_report_exit_code, load_collector_failures, write_ci_core_diagnostics
+
+          if os.environ.get("CI_CORE_COLLECTOR_FAILED") == "true":
+              try:
+                  failures = load_collector_failures(Path(os.environ["PUBLICATION_COLLECTOR_FAILURES_FILE"]))
+                  write_ci_core_diagnostics(
+                      Path.cwd(), Path(os.environ["RUNNER_TEMP"]) / "ci-core-validation.json",
+                      None, 1, collector_failures=failures,
+                  )
+              except Exception as exc:
+                  print(f"Current CI core collector diagnostics could not be written ({type(exc).__name__})", file=sys.stderr)
+              raise SystemExit(0)
 
           result = subprocess.run(
               [sys.executable, "scripts/vllm/audit_dashboard_data.py", "--ci-core-only", "--format", "json"],
@@ -1649,7 +1660,7 @@ jobs:
         if: >-
           always() && inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.ci-core-validation.outputs.audited == 'true'
+          steps.ci-core-validation.outputs.diagnostics_ready == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

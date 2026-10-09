@@ -54,6 +54,9 @@ Current CI health, matrix, and source parity are checked before the longer
 analytics fetch. Failed preflight or publication selection retains a bounded
 diagnostic artifact with initial candidate findings and later fallback findings.
 The artifact excludes private caches, agent identities, and arbitrary logs.
+Collector failures also produce that early artifact when a raw audit cannot run.
+The matrix selects its observed nightly from fresh CI health before consulting
+retained analytics; older analytics metadata cannot reject a new frozen roster.
 
 Current analytics cache writes remove the retired `amd-ci` partition. If the
 active cache reaches its existing 256 MiB cap, it keeps a complete recent

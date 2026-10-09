@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import json
+from argparse import Namespace
 
 import pytest
 
-from vllm.amd_nightly_handoff import write_amd_nightly_snapshot
+from vllm.amd_nightly_handoff import AmdNightlyHandoffError, write_amd_nightly_snapshot
+from vllm import collect_amd_test_matrix as matrix_collector
 from vllm.collect_amd_test_matrix import (
     aggregate_state,
     bounded_matrix_payload,
@@ -571,6 +573,92 @@ def test_latest_build_metadata_falls_back_to_ci_health_and_parity():
         "message": "Full CI run - nightly",
         "commit": None,
     }
+
+
+def test_latest_build_metadata_prefers_fresh_test_signal_and_only_matching_analytics_extras():
+    fresh = {"build_number": 1001, "created_at": "2026-10-09T00:00:00Z", "commit": "b" * 40}
+    health = {"amd": {"latest_test_signal_build": fresh, "latest_build": {"build_number": 1002}}}
+    stale = {"number": 1000, "commit": "a" * 40, "analytics_only": "old"}
+    selected = latest_build_metadata(stale, health, {"amd_build": 1001})
+    assert selected["number"] == 1001
+    assert selected["commit"] == "b" * 40
+    assert "analytics_only" not in selected
+    matching = {**stale, "number": 1001, "analytics_only": "same build"}
+    selected = latest_build_metadata(matching, health, {"amd_build": 1001})
+    assert selected["analytics_only"] == "same build"
+    assert selected["commit"] == "b" * 40
+    assert selected["date"] == "2026-10-09"
+
+
+def test_latest_build_metadata_preserves_manual_analytics_fallback_without_fresh_health():
+    analytics = {"number": 1000, "commit": "a" * 40, "analytics_only": "retained"}
+    for latest_signal in (None, {}, {"build_number": 0}, {"build_number": True}, {"build_number": "1001"}):
+        health = {"amd": {"latest_test_signal_build": latest_signal,
+            "latest_pipeline_build": {"build_number": 1002, "state": "running"}}}
+        assert latest_build_metadata(analytics, health, {"amd_build": 999}) is analytics
+    assert latest_build_metadata(analytics, {"amd": {"latest_build": {"build_number": 1001}}}, {})["number"] == 1001
+
+
+@pytest.mark.parametrize("frozen_number", [1001, 1002])
+def test_main_uses_fresh_core_build_before_analytics_and_rejects_wrong_handoff(
+    tmp_path, monkeypatch, frozen_number,
+):
+    from vllm.main_ci_definitions import MainCISnapshot
+
+    commit = "b" * 40
+    fresh = {"build_number": 1001, "created_at": "2026-10-09T00:00:00Z", "commit": commit}
+    payloads = {
+        "analytics.json": {"ci": {"builds": [{"number": 1000, "commit": "a" * 40,
+            "jobs": [{"name": "Current workload", "q": "amd_mi300_1", "state": "failed"}]}]}},
+        "ci_health.json": {"amd": {"latest_test_signal_build": fresh, "latest_build": fresh}},
+        "parity_report.json": {"amd_build": 1001, "amd_date": "2026-10-09"},
+        "shard_bases.json": [],
+    }
+    for filename, payload in payloads.items():
+        (tmp_path / filename).write_text(json.dumps(payload))
+    snapshot_path = write_amd_nightly_snapshot({
+        "number": frozen_number, "commit": commit, "branch": "main", "state": "passed",
+        "created_at": fresh["created_at"], "web_url": f"https://buildkite.com/vllm/ci/builds/{frozen_number}",
+        "jobs": [{"id": "fresh-job", "type": "script", "name": "mi300_1: Current workload",
+            "state": "passed", "agent_query_rules": ["queue=amd_mi300_1"], "step": {"id": "current-step"}}],
+    }, tmp_path)
+    source_requests = []
+
+    def source_snapshot(requested_commit):
+        source_requests.append(requested_commit)
+        assert requested_commit == commit
+        return MainCISnapshot(commit, {
+            ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+            ".buildkite/test_areas/current.yaml": {"steps": [{"key": "current", "label": ":amd: (MI300) Current workload",
+                "device": "mi300_1", "commands": ["pytest tests/current.py"]}]},
+        }, "2026-10-09T01:00:00Z")
+
+    def reject_network(*args, **kwargs):
+        pytest.fail("The frozen matrix regression must not make live requests")
+
+    monkeypatch.setattr(matrix_collector, "parse_args", lambda: Namespace(
+        output=str(tmp_path), yaml_url=None, build_snapshot=str(snapshot_path),
+    ))
+    monkeypatch.setattr(matrix_collector, "load_snapshot", source_snapshot)
+    monkeypatch.setattr(matrix_collector.requests, "get", reject_network)
+    if frozen_number != 1001:
+        with pytest.raises(AmdNightlyHandoffError, match="expected #1001, found #1002"):
+            matrix_collector.main()
+        assert source_requests == []
+        assert not (tmp_path / "amd_test_matrix.json").exists()
+        return
+
+    matrix_collector.main()
+    matrix = json.loads((tmp_path / "amd_test_matrix.json").read_text())
+    assert source_requests == [commit]
+    assert matrix["source"]["latest_build_number"] == 1001
+    assert matrix["summary"]["latest_build_number"] == 1001
+    assert matrix["source"]["latest_build_url"] == "https://buildkite.com/vllm/ci/builds/1001"
+    assert matrix["source"]["runtime_source_commit_sha"] == commit
+    assert matrix["source"]["commit_sha"] == commit
+    cell = matrix["rows"][0]["cells"]["mi300"]
+    assert cell["latest_state"] == "passed"
+    assert cell["latest_url"] == "https://buildkite.com/vllm/ci/builds/1001/steps/canvas?jid=fresh-job&tab=output"
 
 
 def test_buildkite_detail_is_authoritative_for_non_pytest_matrix_jobs():

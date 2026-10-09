@@ -1425,13 +1425,24 @@ def latest_build_metadata(
     ci_health: dict[str, Any],
     parity: dict[str, Any],
 ) -> dict[str, Any] | None:
-    if isinstance(analytics_build, dict) and analytics_build.get("number"):
+    # Analytics still describes the previous publication when this collector
+    # runs before analytics. The fresh test-evidence build selects the exact
+    # frozen roster; old analytics must not choose its expected build number.
+    amd_health = ci_health.get("amd") or {}
+    amd_latest = {}
+    for key in ("latest_test_signal_build", "latest_build"):
+        candidate = amd_health.get(key)
+        candidate_number = (candidate.get("build_number") or candidate.get("number")) if isinstance(candidate, dict) else None
+        if type(candidate_number) is int and candidate_number > 0:
+            amd_latest = candidate
+            break
+    if not amd_latest and isinstance(analytics_build, dict) and analytics_build.get("number"):
         return analytics_build
-
-    amd_latest = ((ci_health.get("amd") or {}).get("latest_build") or {})
     number = amd_latest.get("build_number") or amd_latest.get("number") or parity.get("amd_build")
     if not number:
         return None
+
+    matching_analytics = analytics_build if isinstance(analytics_build, dict) and analytics_build.get("number") == number else {}
 
     created_at = clean_label(amd_latest.get("created_at", ""))
     date = amd_latest.get("date") or (created_at[:10] if created_at else None) or parity.get("amd_date")
@@ -1441,6 +1452,7 @@ def latest_build_metadata(
         or f"https://buildkite.com/vllm/ci/builds/{number}"
     )
     return {
+        **matching_analytics,
         "number": number,
         "created_at": created_at,
         "date": date,
