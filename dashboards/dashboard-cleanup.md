@@ -44,6 +44,11 @@ fetches `ci` once and splits by GPU platform. Private roster caches are invalida
 by the schema-v3 current-CI handoff. Request guards, durable attempt budgets,
 resumable caches, exact source pins, atomic bounded writes, live audits, browser
 checks, publication verification, and synthetic site probes remain enforced.
+The canonical job allows seventy-five minutes for collection and publication;
+its cross-process request guard still stops Buildkite sends fifty minutes from
+before durable reservation. Slow ledger handoffs consume that request window.
+This preserves the existing 25-hour ledger, sixteen-attempt limit, 800-start
+allowance, and retry backoff while leaving time for final validation and deploy.
 
 Historical attempt-ledger evidence retains its exact known retired surface names
 so immutable request accounting remains readable. New evidence and retry requests
@@ -82,6 +87,13 @@ Exact failure percentages require a current started-job coverage proof for the
 selected days. Normal Actions refresh the default seven-day view in bounded
 daily slices. Retained observations from earlier refreshes remain available,
 but cannot establish an exhaustive sixty-day denominator on their own.
+Historical active builds are searched separately for each supported state,
+through overlapping creation-time partitions with no oldest-age cutoff.
+Every page retains the original filters and immediately projects compact
+observations. Equal-time boundaries overlap, and invalid filters, ambiguous
+ordering, non-progressing pagination, or request limits preserve prior data.
+Bounded phase/page counts make slow collection diagnosable without agent or
+job identities; queued daily searches are cancelled after the first failure.
 Control jobs (`waiter`, `manual`, and `trigger`) do not enter physical run counts.
 Failed command jobs explicitly reported as never run (`signature_rejected`,
 `agent_incompatible`, or `stack_error`) with no start timestamp also stay outside

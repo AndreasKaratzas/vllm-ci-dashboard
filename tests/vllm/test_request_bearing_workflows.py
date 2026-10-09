@@ -115,7 +115,7 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
     # The workflow-level groups keep at most one pending wakeup per routine/DNS/
     # watchdog class, while the shared writer queue guarantees that a survivor
     # cannot replace another recovery already awaiting the Pages lock.
-    assert job["timeout-minutes"] <= 50
+    assert job["timeout-minutes"] <= 75
     assert job["env"]["PYTHONPATH"] == "${{ github.workspace }}/scripts"
 
     steps = job["steps"]
@@ -126,6 +126,11 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
     assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
     assert "request_bearing_attempt_budget.py" in reserve["run"]
     assert "buildkite_request_guard.py initialize" in reserve["run"]
+    assert "--max-duration-seconds 3000" in reserve["run"]
+    assert '--started-monotonic-ns "$REQUEST_WINDOW_START_NS"' in reserve["run"]
+    assert reserve["run"].index("time.monotonic_ns()") < reserve["run"].index(
+        "request_bearing_attempt_budget.py"
+    )
 
     token_steps = [
         (index, step)

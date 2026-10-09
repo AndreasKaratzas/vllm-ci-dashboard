@@ -119,6 +119,9 @@ MAX_INCREMENTAL_SLICE_WORKERS = 3
 # the same exact pagination contract while bounding each upstream response;
 # long backfills retain 100/page so their request count does not double.
 UPSTREAM_INCREMENTAL_PER_PAGE = 50
+# Continue large historical state cohorts through overlapping creation-time
+# partitions before their offset pagination can reach the shared 100-page cap.
+ACTIVE_DISCOVERY_PARTITION_PAGES = 25
 
 # Explicit historical/manual collection can still select either or both slugs.
 AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
@@ -362,6 +365,115 @@ def _validate_discovered_build(build: object) -> dict:
     return build
 
 
+def _paginate_observation_builds(
+    url: str,
+    params: dict,
+    project: Callable[[dict], dict],
+    *,
+    phase: str,
+    on_page: Callable[[int, list, bool], None] | None = None,
+) -> list[dict]:
+    """Validate source filters and project each bounded raw page immediately."""
+    created_from = _aware_timestamp(params.get("created_from"))
+    created_to = _aware_timestamp(params.get("created_to"))
+    finished_from = _aware_timestamp(params.get("finished_from"))
+    state = params.get("state")
+    previous_created: datetime | None = None
+    count = 0
+
+    def validate_project(raw: object) -> dict:
+        nonlocal previous_created
+        build = _validate_discovered_build(raw)
+        created = _aware_timestamp(build.get("created_at"))
+        if (
+            created is None
+            or (created_from is not None and created < created_from)
+            or (created_to is not None and created >= created_to)
+            or (previous_created is not None and created > previous_created)
+        ):
+            raise RuntimeError(f"agent-health {phase} returned invalid creation bounds or order")
+        previous_created = created
+        if state is not None and not (
+            build.get("state") == state
+            or (state == "blocked" and build.get("blocked") is True)
+        ):
+            raise RuntimeError(f"agent-health {phase} returned a build outside its state filter")
+        if finished_from is not None:
+            finished = _aware_timestamp(build.get("finished_at"))
+            if finished is None or finished < finished_from:
+                raise RuntimeError(f"agent-health {phase} returned a build outside its finish filter")
+        return project(build)
+
+    def progress(page: int, rows: list, has_next: bool) -> None:
+        nonlocal count
+        count += len(rows)
+        observations = sum(len(row.get("observations") or []) for row in rows)
+        log.info(
+            "Agent discovery phase=%s page=%d builds=%d total_builds=%d observations=%d next=%s",
+            phase, page, len(rows), count, observations, has_next,
+        )
+        if on_page is not None:
+            on_page(page, rows, has_next)
+
+    return _paginate(url, params, project=validate_project, on_page=progress)
+
+
+class _OlderActivePartition(Exception):
+    """A validated page batch needs another overlapping creation-time query."""
+
+    def __init__(self, cutoff: datetime):
+        self.cutoff = cutoff
+
+
+def _fetch_older_active_builds(
+    url: str,
+    params: dict,
+    project: Callable[[dict], dict],
+) -> list[dict]:
+    """Exhaust all six active states at every age without deep offset queries."""
+    initial_upper = _aware_timestamp(params.get("created_to"))
+    if initial_upper is None:
+        raise RuntimeError("agent-health active discovery requires a valid creation bound")
+    by_number: dict[int, dict] = {}
+    for state in ACTIVE_BUILD_STATES:
+        upper = initial_upper
+        partition = 0
+        while True:
+            partition += 1
+            phase = f"older_active:{state}"
+            log.info(
+                "Agent discovery phase=%s partition=%d created_to=%s",
+                phase, partition, upper.isoformat(),
+            )
+
+            def page_batch(page: int, rows: list, has_next: bool) -> None:
+                for row in rows:
+                    by_number[row["number"]] = row
+                if has_next and page >= ACTIVE_DISCOVERY_PARTITION_PAGES and rows:
+                    oldest = _aware_timestamp(rows[-1].get("created_at"))
+                    if oldest is None:
+                        raise RuntimeError("agent-health active partition has no valid creation boundary")
+                    # The endpoint is newest first and created_to is exclusive.
+                    # Overlap one full second so every equal-time boundary job
+                    # remains discoverable, including ties on the next page.
+                    cutoff = oldest + timedelta(seconds=1)
+                    if cutoff < upper:
+                        raise _OlderActivePartition(cutoff)
+                    # Dense equal-time cohorts cannot prove older progress.
+                    # Finish this query or let the unchanged 100-page cap fail.
+
+            try:
+                _paginate_observation_builds(
+                    url, {**params, "state": state, "created_to": upper.isoformat()},
+                    project, phase=phase, on_page=page_batch,
+                )
+            except _OlderActivePartition as continuation:
+                upper = continuation.cutoff
+                continue
+            break  # only a page with no next Link exhausts this state
+    return list(by_number.values())
+
+
 def _fetch_pipeline_builds(
     url: str,
     created_from: datetime,
@@ -384,12 +496,9 @@ def _fetch_pipeline_builds(
     }
 
     def fetch_slice(params: dict) -> list[dict]:
-        rows = _paginate(url, params)
         if project is None:
-            return rows
-        # Release each full daily roster after validation/projection instead of
-        # retaining seven days of large embedded responses in completed futures.
-        return [project(_validate_discovered_build(build)) for build in rows]
+            return _paginate(url, params)
+        return _paginate_observation_builds(url, params, project, phase="created")
 
     if days > MAX_INCREMENTAL_SLICE_DAYS:
         return fetch_slice(
@@ -418,7 +527,12 @@ def _fetch_pipeline_builds(
             for index, (start, end) in enumerate(ranges)
         }
         for future in as_completed(pending):
-            results[pending[future]] = future.result()
+            try:
+                results[pending[future]] = future.result()
+            except Exception:
+                for queued in pending:
+                    queued.cancel()
+                raise
 
     # Restore the builds endpoint's newest-first ordering across slices and
     # defensively deduplicate by pipeline-local build number.
@@ -463,7 +577,7 @@ def _fetch_pipeline_observations(
             row = _observe_in_window(slug, build, job, nightly_re, created_from, query_time)
             if row is not None:
                 observations.append(row)
-        return {"number": build["number"], "observations": observations}
+        return {"number": build["number"], "created_at": build["created_at"], "observations": observations}
 
     builds = _fetch_pipeline_builds(
         url,
@@ -483,14 +597,11 @@ def _fetch_pipeline_observations(
         "exclude_pipeline": "true",
         "created_to": created_from.isoformat(),
     }
-    older_finished = [
-        project(_validate_discovered_build(build))
-        for build in _paginate(url, {**old_params, "finished_from": created_from.isoformat()})
-    ]
-    older_active = [
-        project(_validate_discovered_build(build))
-        for build in _paginate(url, {**old_params, "state[]": list(ACTIVE_BUILD_STATES)})
-    ]
+    older_finished = _paginate_observation_builds(
+        url, {**old_params, "finished_from": created_from.isoformat()},
+        project, phase="older_finished",
+    )
+    older_active = _fetch_older_active_builds(url, old_params, project)
     by_number: dict = {}
     for build in [*builds, *older_finished, *older_active]:
         by_number[build["number"]] = build

@@ -11,8 +11,8 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urljoin, urlsplit
+from typing import Any, Callable, Optional
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
 
@@ -106,7 +106,9 @@ def _request(url: str, params: Optional[dict] = None) -> requests.Response:
     return resp  # should not reach here
 
 
-def _pagination_url_identity(url: str) -> tuple[tuple[str, str, int], str, str]:
+def _pagination_url_identity(
+    url: str,
+) -> tuple[tuple[str, str, int], str, tuple[tuple[str, str], ...]]:
     """Return a normalized origin and request identity for a pagination URL."""
     if not isinstance(url, str) or not url or url.strip() != url:
         raise RuntimeError("Buildkite pagination returned a malformed URL")
@@ -128,7 +130,42 @@ def _pagination_url_identity(url: str) -> tuple[tuple[str, str, int], str, str]:
     if port is None:
         port = 443 if scheme == "https" else 80
     origin = (scheme, hostname.casefold(), port)
-    return origin, parsed.path or "/", parsed.query
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    keys = {key for key, _ in query}
+    for key, default in (("page", "1"), ("per_page", "30")):
+        if key not in keys:
+            query.append((key, default))
+    return origin, parsed.path or "/", tuple(sorted(query))
+
+
+def _pagination_scoped_next_url(url: str, original_query: dict[str, list[str]]) -> str:
+    """Keep the initial discovery scope even when a Link omits filters.
+
+    A Link controls only the page. Contradictory or newly introduced filters
+    fail before transport, while omitted initial filters are restored. Error
+    text deliberately excludes query values and URLs.
+    """
+    parsed = urlsplit(url)
+    query: dict[str, list[str]] = {}
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        query.setdefault(key, []).append(value)
+    for key, values in query.items():
+        if key == "page":
+            if len(values) != 1 or not re.fullmatch(r"[1-9]\d*", values[0]):
+                raise RuntimeError("Buildkite pagination returned an invalid page")
+        elif key in original_query:
+            if sorted(values) != sorted(original_query[key]):
+                raise RuntimeError("Buildkite pagination changed the original query scope")
+        elif key == "per_page" and values == ["30"]:
+            # Buildkite's documented default is 30 when callers omit it.
+            continue
+        else:
+            raise RuntimeError("Buildkite pagination introduced an unexpected query filter")
+    for key, values in original_query.items():
+        if key not in query:
+            query[key] = values
+    pairs = [(key, value) for key, values in query.items() for value in values]
+    return urlunsplit(parsed._replace(query=urlencode(pairs)))
 
 
 def _paginate(
@@ -136,19 +173,39 @@ def _paginate(
     params: Optional[dict] = None,
     *,
     max_pages: int = PAGINATION_SAFETY_CAP,
+    project: Callable[[Any], Any] | None = None,
+    on_page: Callable[[int, list, bool], None] | None = None,
 ) -> list:
-    """Fetch bounded, same-origin pages from a Buildkite endpoint."""
+    """Fetch bounded pages without changing the initial endpoint/query scope.
+
+    Optional projection retains only small caller-approved records. The page
+    callback receives those projected records and whether a validated next
+    page exists; security and safety-cap errors always precede callbacks.
+    """
     if isinstance(max_pages, bool) or not isinstance(max_pages, int) or max_pages < 1:
         raise ValueError("max_pages must be a positive integer")
 
     expected_origin, expected_path, _ = _pagination_url_identity(url)
     results = []
     params = dict(params or {})
-    seen_urls: set[tuple[tuple[str, str, int], str, str]] = set()
+    prepared_url = requests.Request("GET", url, params=params).prepare().url
+    if prepared_url is None:
+        raise RuntimeError("Buildkite pagination could not prepare its initial query")
+    original_query: dict[str, list[str]] = {}
+    for key, value in parse_qsl(urlsplit(prepared_url).query, keep_blank_values=True):
+        if key != "page":
+            original_query.setdefault(key, []).append(value)
+    seen_urls: set[tuple[tuple[str, str, int], str, tuple[tuple[str, str], ...]]] = set()
     current_url = url
 
+    def record_page(page: int, payload: list, *, has_next: bool) -> None:
+        rows = [project(row) for row in payload] if project is not None else payload
+        results.extend(rows)
+        if on_page is not None:
+            on_page(page, rows, has_next)
+
     for page in range(1, max_pages + 1):
-        identity = _pagination_url_identity(current_url)
+        identity = _pagination_url_identity(prepared_url if page == 1 else current_url)
         if identity[0] != expected_origin:
             raise RuntimeError("Buildkite pagination refused a cross-origin next URL")
         if identity[1] != expected_path:
@@ -161,12 +218,11 @@ def _paginate(
         payload = resp.json()
         if not isinstance(payload, list):
             raise RuntimeError("Buildkite pagination expected each page to be a JSON list")
-        results.extend(payload)
-
         links = resp.links
         if not isinstance(links, dict):
             raise RuntimeError("Buildkite pagination returned malformed Link metadata")
         if "next" not in links:
+            record_page(page, payload, has_next=False)
             return results
         next_link = links["next"]
         if (
@@ -182,12 +238,15 @@ def _paginate(
             raise RuntimeError("Buildkite pagination refused a cross-origin next URL")
         if next_identity[1] != expected_path:
             raise RuntimeError("Buildkite pagination refused a different endpoint path")
+        next_url = _pagination_scoped_next_url(next_url, original_query)
+        next_identity = _pagination_url_identity(next_url)
         if next_identity in seen_urls:
             raise RuntimeError("Buildkite pagination returned a repeated next URL")
         if page == max_pages:
             raise RuntimeError(
                 f"Buildkite pagination exceeded its {max_pages}-page safety cap"
             )
+        record_page(page, payload, has_next=True)
         current_url = next_url
 
     raise AssertionError("unreachable Buildkite pagination state")
