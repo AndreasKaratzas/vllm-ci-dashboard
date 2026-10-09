@@ -11,7 +11,7 @@ latency. Physical node and DNS history remain independent infrastructure evidenc
 | CI Workload Trajectory | `collect_hotness.py`, `collect_group_changes.py`, trajectory renderers and snapshot projections, unused matrix hotness fallback/index-merge helpers | `hotness.json`, `group_changes.json`, `operations_v2/trajectory.json` |
 | Target Health | `collect_gating_targets.py`, `collect_gating_target_candidates.py`, `collect_gating_proposals.py`, `write_gating_nightlies`, target renderers and joins | `vllm_amd_gating_targets.json`, `gating_targets.json`, `gating_target_candidates.json`, `gating_proposals.json`, `gating_nightlies.json`, `operations_v2/gating.json` |
 | Flake / Retry Comparison | comparison tables, historical comparison projections, retry-only comparison helpers | `operations_v2/comparison_retry_evidence.json` |
-| Queue Monitor page | queue page renderer, page-only helpers, navigation, controls, and CSS | No independent collector retirement: shared observations still serve Omni and infrastructure automation |
+| Queue Monitor page | queue page renderer, page-only helpers, navigation, controls, CSS, and the obsolete `test_dashboard_trends_data.py` chart contracts | No independent collector retirement: shared observations still serve Omni and infrastructure automation |
 
 Exclusive tests, workflow steps, public manifest entries, storage allocations,
 source-audit rules, and CSS were retired with their consumers. Old deep links

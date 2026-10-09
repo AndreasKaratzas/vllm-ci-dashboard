@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import yaml
 
 from vllm import dashboard_state as state
 from vllm import public_projection as projection
@@ -676,6 +677,83 @@ def test_materialization_is_exact_and_preserves_source_files(
     assert not (tmp_path / "dashboards/stale.md").exists()
     assert (tmp_path / "README.md").read_text() == "readme 2\n"
     assert (tmp_path / "scripts/app.py").read_text() == "print('local source edit')\n"
+
+
+@pytest.mark.parametrize("missing_doc", [None, "dashboard-audit.md", "dashboard-cleanup.md"])
+def test_hourly_restores_authored_docs_from_captured_code_after_state(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+    missing_doc: str | None,
+) -> None:
+    """Old generated roots cannot overwrite guides belonging to new code."""
+    workflow = yaml.safe_load(
+        (state.ROOT / ".github/workflows/hourly-master.yml").read_text()
+    )
+    steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+    restore_position = next(
+        i for i, step in enumerate(steps)
+        if step.get("name") == "Restore validated dashboard state"
+    )
+    docs_position = next(
+        i for i, step in enumerate(steps)
+        if step.get("name") == "Restore authored dashboard documentation from immutable code"
+    )
+    assert docs_position == restore_position + 1
+    assert docs_position < next(
+        i for i, step in enumerate(steps) if step.get("name") == "Collect CI data"
+    )
+    assert docs_position < next(
+        i for i, step in enumerate(steps) if step.get("name") == "Run test suite"
+    )
+
+    init_repo(tmp_path)
+    docs = ("dashboard-audit.md", "dashboard-cleanup.md")
+    for doc in docs:
+        (tmp_path / "dashboards" / doc).write_text(f"old {doc}\n")
+    git(tmp_path, "add", "dashboards")
+    git(tmp_path, "commit", "-m", "old authored guides")
+    old_code = git(tmp_path, "rev-parse", "HEAD")
+    snapshot = make_state(tmp_path, policy, old_code, generation="run-101.2", value=2)
+
+    git(tmp_path, "reset", "--hard", old_code)
+    for doc in docs:
+        path = tmp_path / "dashboards" / doc
+        if doc == missing_doc:
+            path.unlink()
+        else:
+            path.write_text(f"current {doc}\n")
+    git(tmp_path, "add", "dashboards")
+    git(tmp_path, "commit", "-m", "current authored guides")
+    current_code = git(tmp_path, "rev-parse", "HEAD")
+    # A stale checkout must not become the authority for the captured code.
+    git(tmp_path, "checkout", "--detach", old_code)
+    state.materialize_generated_roots(
+        tmp_path, snapshot.state_sha, policy, expected_code_sha=old_code,
+    )
+    assert all(
+        (tmp_path / "dashboards" / doc).read_text() == f"old {doc}\n"
+        for doc in docs
+    )
+    result = subprocess.run(
+        ["bash", "-c", steps[docs_position]["run"]],
+        cwd=tmp_path,
+        env={**os.environ, "PUBLICATION_CODE_SHA": current_code},
+        capture_output=True,
+        text=True,
+    )
+    if missing_doc:
+        assert result.returncode != 0, "Missing immutable code documentation must stop publication"
+    else:
+        assert result.returncode == 0, result.stderr
+        for doc in docs:
+            assert (tmp_path / "dashboards" / doc).read_text() == f"current {doc}\n"
+    assert git(tmp_path, "rev-parse", "HEAD") == old_code
+    assert (tmp_path / "dashboards/summary.md").read_text() == "dashboard 2\n"
+    assert (tmp_path / "README.md").read_text() == "readme 2\n"
+    assert json.loads((tmp_path / "data/vllm/ci/current.json").read_text()) == {"value": 2}
+    assert state.validate_state_ref(
+        tmp_path, snapshot.state_sha, policy, expected_code_sha=old_code,
+    ).state_sha == snapshot.state_sha
 
 
 def test_materialization_failure_restores_every_old_root(

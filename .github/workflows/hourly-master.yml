@@ -913,6 +913,20 @@ jobs:
             echo "baseline_ref=$PUBLICATION_BASELINE_REF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Restore authored dashboard documentation from immutable code
+        run: |
+          set -euo pipefail
+          [[ "$PUBLICATION_CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # The state snapshot retains the whole dashboards root. These two
+          # authored guides belong to the captured code, rather than its old
+          # generated reports; restore them only after full state validation.
+          for GUIDE in dashboards/dashboard-audit.md dashboards/dashboard-cleanup.md; do
+            GIT_NO_LAZY_FETCH=1 git cat-file -e "$PUBLICATION_CODE_SHA:$GUIDE"
+          done
+          GIT_NO_LAZY_FETCH=1 git restore \
+            --source="$PUBLICATION_CODE_SHA" --worktree -- \
+            dashboards/dashboard-audit.md dashboards/dashboard-cleanup.md
+
       - name: Resolve immutable vLLM config snapshot
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:

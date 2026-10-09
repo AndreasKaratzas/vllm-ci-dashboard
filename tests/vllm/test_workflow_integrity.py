@@ -2186,6 +2186,7 @@ class TestHourlyMasterWorkflow:
             "Install deny-all queue reconciliation request guard",
             "Capture immutable main code",
             "Restore validated dashboard state",
+            "Restore authored dashboard documentation from immutable code",
             "Sync validated DNS health aggregate",
             "Validate targeted DNS candidate generation",
             "Validate targeted queue candidate generation",
