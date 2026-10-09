@@ -69,7 +69,7 @@ from collect_ci import (  # noqa: E402
 from vllm.ci.models import TEST_RESULT_PARSER_VERSION, TestResult  # noqa: E402
 from vllm.ci import reporter as reporter_module  # noqa: E402
 from vllm.ci.reporter import prune_old_results  # noqa: E402
-from vllm.ci.analyzer import compute_build_summary  # noqa: E402
+from vllm.ci.analyzer import compute_build_summary, _normalize_job_name  # noqa: E402
 from vllm.ci import backfill_checkpoint as checkpoint_module  # noqa: E402
 
 
@@ -447,6 +447,94 @@ def test_verified_cpu_attempt_is_removed_from_warm_amd_cache_without_log_refetch
     summary = compute_build_summary(builds[0], results[7791], "amd")
     assert summary.unique_test_groups == summary.passed == 1
     assert set(summary.by_hardware) == {"mi300"}
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_exact_gh200_route_preserves_cold_and_warm_failure_evidence(tmp_path, warm):
+    # Current CI93523 has this undecorated CUDA label on gh200_queue. Label
+    # scope alone used to drop its parsed result after every successful fetch.
+    name = "GH200 Test"
+    record = {**_record(name, job_id="current-gh200"), "status": "failed"}
+    original = TestResult(**record)
+    build = {"number": 7791, "state": "failed", "branch": "main",
+             "created_at": "2026-04-18T06:00:00Z", "jobs": [
+                 {**_job(name, state="failed", soft_failed=True), "id": original.job_id,
+                  "agent": {"meta_data": ["queue=gh200_queue"]},
+                  "raw_log_url": "https://example.invalid/log"},
+             ]}
+    results_dir = tmp_path / "test_results"
+    path = results_dir / "2026-04-18_upstream.jsonl"
+    clock = datetime(2026, 4, 19, tzinfo=timezone.utc)
+    if warm:
+        _write_jsonl(path, [record])
+        prune_old_results(results_dir, max_days=90, now=clock)
+    private = tmp_path / "checkpoint"
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(build))]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))) as detail,
+        patch("collect_ci.parse_job_results", return_value=[original]) as parser,
+    ):
+        builds, rows = collect_pipeline("upstream", 8, tmp_path, now=clock,
+                                       backfill_checkpoint_dir=private)
+    detail.assert_called_once_with("upstream", 7791)
+    assert parser.call_count == (0 if warm else 1)
+    expected = {**original.to_dict(), "job_name": ":nvidia: (GH200) GH200 Test"}
+    assert [row.to_dict() for row in rows[7791]] == [expected]
+    assert [row.to_dict() for row in _load_cached_results(path)] == [expected]
+    assert _normalize_job_name(rows[7791][0].job_name) == _normalize_job_name(name)
+    assert _current_scope_results(rows[7791], "upstream", builds[0]) == rows[7791]
+    assert _scoped_result_entries([(7791, "2026-04-18", rows[7791])], "upstream") == [
+        (7791, "2026-04-18", rows[7791]),
+    ]
+    summary = compute_build_summary(builds[0], rows[7791], "upstream")
+    assert summary.unique_test_groups == summary.failed == 1
+    assert summary.test_groups_passing_or == summary.test_groups_passing_all == 0
+    assert summary.pass_rate == 0
+    assert set(summary.by_hardware) == {"gh200"}
+    assert summary.by_hardware["gh200"]["groups"] == 1
+    assert summary.by_hardware["gh200"]["failed"] == 1
+    reporter_module.validate_result_retention(results_dir)
+    assert (private / checkpoint_module.SHARD_DIR / path.name).read_bytes() == path.read_bytes()
+    assert _cache_covers_all_jobs(builds[0], path, "upstream", 7791)
+
+    # A failed publication restores the old public attempt next time. The
+    # complete private GH200 row must now pass strict exact-attempt coverage
+    # and avoid re-fetching every CUDA log in that nightly.
+    _write_jsonl(path, [{**record, "job_id": "old-gh200"}])
+    prune_old_results(results_dir, max_days=90, now=clock, allow_generation_change=True)
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(build))]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))) as detail,
+        patch("collect_ci.parse_job_results", side_effect=AssertionError("logs must be reused")) as parser,
+    ):
+        _, reused = collect_pipeline("upstream", 8, tmp_path, now=clock,
+                                    backfill_checkpoint_dir=private)
+    detail.assert_called_once_with("upstream", 7791)
+    parser.assert_not_called()
+    assert [row.to_dict() for row in reused[7791]] == [expected]
+    assert _cache_covers_all_jobs(builds[0], path, "upstream", 7791)
+
+
+@pytest.mark.parametrize("queue", ["amd_mi300_1", "intel-cpu", "future-unrecognized-pool"])
+def test_non_cuda_route_cannot_promote_undecorated_gh200_label(queue):
+    row = TestResult(**_record("GH200 Test", job_id="job"))
+    build = {"number": 7791, "jobs": [
+        {**_job(row.job_name), "id": row.job_id, "agent_queue": queue},
+    ]}
+    _scope_nightly_build(build, "upstream")
+    assert _current_scope_results([row], "upstream", build) == []
+
+
+@pytest.mark.parametrize("foreign", ["job_id", "build_number", "pipeline"])
+def test_gh200_route_cannot_be_borrowed_by_foreign_evidence(foreign):
+    record = _record("GH200 Test", job_id="current-gh200")
+    build = {"number": 7791, "jobs": [
+        {**_job(record["job_name"]), "id": record["job_id"], "agent_queue": "gh200_queue"},
+    ]}
+    record[foreign] = {"job_id": "other-attempt", "build_number": 7792,
+                       "pipeline": "amd-ci"}[foreign]
+    _scope_nightly_build(build, "upstream")
+    assert _current_scope_results([TestResult(**record)], "upstream", build) == []
 
 
 def test_unrecognized_observed_queue_cannot_invent_a_runtime_hardware_prefix(tmp_path):

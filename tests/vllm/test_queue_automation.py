@@ -1043,21 +1043,6 @@ class TestQueueLifecycleWorkflow:
         assert "queue_timeseries.jsonl" not in publish
 
 
-class TestQueueDashboardControls:
-    """Validate the queue dashboard's visible wait controls."""
-
-
-
-
-
-
-
-
-
-
-
-
-
 class TestCollectorPagination:
     """Validate the collector handles pagination for large result sets."""
 

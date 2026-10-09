@@ -122,9 +122,11 @@ class TestGroupCountCorrectness:
             pytest.skip("AMD matrix and latest test signal use different builds")
 
         from vllm.ci.analyzer import (
+            _AMD_RUNTIME_POOL_SUFFIX_RE,
             _JOB_PREFIX_RE,
             _extract_hardware,
             _normalize_job_name,
+            _parse_job_execution_label,
         )
 
         family_rows = []
@@ -232,8 +234,19 @@ class TestGroupCountCorrectness:
                         continue
                     job_name = str(result.get("job_name") or "")
                     route = _JOB_PREFIX_RE.match(job_name)
+                    pool = route.group(1).casefold() if route else ""
+                    # Main-CI mirrors retain the physical amd_ queue prefix;
+                    # pinned source definitions use its concrete MI pool.
+                    pool = pool.removeprefix("amd_")
+                    if not pool:
+                        # Native main-CI jobs wrap an AMD decorator and retain
+                        # the concrete execution pool in a trailing suffix.
+                        native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(job_name)
+                        _, platform, _ = _parse_job_execution_label(job_name)
+                        if platform == "amd" and native_pool:
+                            pool = native_pool.group("pool").casefold()
                     key = (
-                        route.group(1).casefold() if route else "",
+                        pool,
                         _normalize_job_name(job_name),
                     )
                     families = families_by_definition.get(key, set())
@@ -493,6 +506,39 @@ def test_definition_audit_requires_exact_build_and_source_routes(
     _latest, results, audit = aligned_definition_audit
     results[-1][field] = value
     with pytest.raises(AssertionError, match=message):
+        audit()
+
+
+@pytest.mark.parametrize("label_style", ["ci_queue", "native_amd"])
+def test_definition_audit_assigns_current_ci_execution_routes(
+    aligned_definition_audit, label_style,
+):
+    """Current CI queue/wrapper annotations still bind exact source families."""
+    _latest, results, audit = aligned_definition_audit
+    for result in results:
+        pool, label = result["job_name"].split(": ", 1)
+        hardware = pool.split("_", 1)[0].upper()
+        if label_style == "ci_queue":
+            result["job_name"] = f"amd_{pool}: :amd: ({hardware}) {label}"
+        else:
+            result["job_name"] = f"AMD: :amd: ({hardware}) {label} ({pool})"
+    audit()
+
+
+@pytest.mark.parametrize("job_name", [
+    "amd_mi300_8: :amd: (MI300) Shared 1",
+    "AMD: :amd: (MI300) Shared 1 (mi300_8)",
+    "AMD: :amd: (MI300) Shared 1",
+    ":nvidia: (H100) Shared 1 (mi300_2)",
+    "amd_mi300_2: :amd: (MI300) Unknown 1",
+])
+def test_definition_audit_rejects_unassigned_current_ci_execution_routes(
+    aligned_definition_audit, job_name,
+):
+    """Queue normalization cannot excuse missing or foreign source routes."""
+    _latest, results, audit = aligned_definition_audit
+    results[-1]["job_name"] = job_name
+    with pytest.raises(AssertionError, match="lack definition-family assignments"):
         audit()
 
 

@@ -457,6 +457,19 @@ def _current_scope_results(
                     while _JOB_PREFIX_RE.match(raw_label):
                         raw_label = _JOB_PREFIX_RE.sub("", raw_label, count=1)
                     row = replace(row, job_name=prefix + raw_label)
+            elif pipeline_key == "upstream" and not pipeline_job_matches_scope(
+                {"job_name": row.job_name}, pipeline_key,
+            ):
+                # GH200's native "GH200 Test" label has no architecture
+                # decorator. Preserve its exact frozen CUDA route in the
+                # serialized row so later consumers without a roster retain
+                # both its scope and its physical GH architecture.
+                gh_pool = re.fullmatch(r"(gh\d+)(?:[_-][a-z0-9][a-z0-9_-]*)?", queue)
+                if gh_pool:
+                    row = replace(
+                        row,
+                        job_name=f":nvidia: ({gh_pool.group(1).upper()}) {row.job_name}",
+                    )
         if pipeline_job_matches_scope({"job_name": row.job_name}, pipeline_key):
             scoped.append(row)
     return scoped
