@@ -1245,28 +1245,76 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
     """Recompute authenticated source rosters using their exact CPU/GPU definition pin."""
     if pipeline_slug != "ci":
         return builds
-    from vllm.main_ci_definitions import annotate_runtime_source_scope, validate_runtime_scope_index
-    scoped = []
+    from vllm.main_ci_definitions import (
+        RUNTIME_SOURCE_BATCH_SIZE,
+        RuntimeSourceError,
+        annotate_runtime_source_scope,
+        prewarm_runtime_snapshots,
+        validate_runtime_scope_index,
+    )
+    indexes = {}
+    commits = []
     for build in builds:
-        commit = str(build.get("commit") or "").casefold()
-        index = (scope_indexes or {}).get(commit) or _SOURCE_SCOPE_INDEXES.get(commit)
-        if build.get("hardware_scope") == "amd_mi_gpu" and build.get("source_scope_index") is not None:
-            index = validate_runtime_scope_index(build["source_scope_index"], expected_commit=commit)
-            if (build.get("source_scope_commit") != commit
-                    or build.get("source_definition_tree_sha") != index["definition_tree_sha"]):
-                raise ValueError("cached MI source scope does not match its immutable index")
-        # Rejoin even authenticated cached source indexes against this roster.
-        # Restored per-job annotations never authorize current execution scope.
-        build = annotate_runtime_source_scope(build, **({"scope_index": index} if index is not None else {}))
-        if isinstance(build.get("source_scope_index"), dict):
-            new_index = build["source_scope_index"]
-            if _SOURCE_SCOPE_INDEXES.get(commit) != new_index:
-                candidates = {**_SOURCE_SCOPE_INDEXES, commit: new_index}
-                retained = retain_runtime_source_indexes(candidates, preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES])
-                _SOURCE_SCOPE_INDEXES.clear()
-                _SOURCE_SCOPE_INDEXES.update(retained)
+        commit = str(build.get("commit") or "").strip().casefold()
+        commits.append(commit)
+        try:
+            provided = (scope_indexes or {}).get(commit)
+            restored = _SOURCE_SCOPE_INDEXES.get(commit)
+            if provided is not None and restored is not None and provided != restored:
+                raise ValueError("conflicting exact source indexes")
+            index = provided if provided is not None else restored
+            if build.get("hardware_scope") == "amd_mi_gpu" and build.get("source_scope_index") is not None:
+                embedded = validate_runtime_scope_index(build["source_scope_index"], expected_commit=commit)
+                if (build.get("source_scope_commit") != commit
+                        or build.get("source_definition_tree_sha") != embedded["definition_tree_sha"]
+                        or (index is not None and index != embedded)):
+                    raise ValueError("cached MI source scope differs from its immutable index")
+                index = embedded
+            if index is not None:
+                index = validate_runtime_scope_index(index, expected_commit=commit)
+                if commit in indexes and indexes[commit] != index:
+                    raise ValueError("one commit has conflicting exact source indexes")
+                indexes[commit] = index
+        except ValueError:
+            raise RuntimeSourceError(
+                "Cached runtime source proof is invalid",
+                reason_class="schema-drift", commit_sha=commit,
+            ) from None
+
+    missing = list(dict.fromkeys(commit for commit in commits if commit not in indexes))
+    for offset in range(0, len(missing), RUNTIME_SOURCE_BATCH_SIZE):
+        batch = missing[offset:offset + RUNTIME_SOURCE_BATCH_SIZE]
+        prewarm_runtime_snapshots(batch)
+        for commit in batch:
+            annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
+            try:
+                index = validate_runtime_scope_index(annotated.get("source_scope_index"), expected_commit=commit)
+            except ValueError:
+                raise RuntimeSourceError(
+                    "Discovered runtime source proof is invalid",
+                    reason_class="schema-drift", commit_sha=commit,
+                ) from None
+            try:
+                candidates = {**_SOURCE_SCOPE_INDEXES, **indexes, commit: index}
+                retained = retain_runtime_source_indexes(
+                    candidates, preferred_commits=[commit, *indexes, *_SOURCE_SCOPE_INDEXES],
+                )
                 if _SOURCE_SCOPE_CACHE_DIR is not None:
-                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, _SOURCE_SCOPE_INDEXES)
+                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+            except (OSError, ValueError):
+                raise RuntimeSourceError(
+                    "Exact runtime source checkpoint could not be retained",
+                    reason_class="command-error", commit_sha=commit,
+                ) from None
+            _SOURCE_SCOPE_INDEXES.clear()
+            _SOURCE_SCOPE_INDEXES.update(retained)
+            indexes[commit] = index
+
+    scoped = []
+    for build, commit in zip(builds, commits):
+        # All pins are proved and checkpointed before joining current rosters.
+        # Restored per-job annotations never authorize current execution scope.
+        build = annotate_runtime_source_scope(build, scope_index=indexes[commit])
         scoped.append({**build, "hardware_scope": "amd_mi_gpu", "jobs": [
             job for job in build.get("jobs") or [] if is_amd_ci_job(job)
         ]})
@@ -1381,6 +1429,7 @@ def _incremental_cached_fetch(
     cutoff: datetime,
     max_pages: int | None,
 ) -> tuple[list[dict], dict] | tuple[None, dict]:
+    from vllm.main_ci_definitions import RuntimeSourceError
     watermark = _as_utc_datetime(cache.watermark)
     if watermark is None:
         return None, {"failure": "cache_watermark_missing"}
@@ -1527,7 +1576,7 @@ def _incremental_cached_fetch(
             cache_written = False
             _mark_cache_write_disabled(diagnostics, pipeline_slug, exc)
         log.info("  private analytics cache storage for %s: %s", pipeline_slug, storage)
-    except BuildkiteRequestGuardError:
+    except (BuildkiteRequestGuardError, RuntimeSourceError):
         raise
     except Exception as exc:
         diagnostics["failure"] = f"{type(exc).__name__}: {exc}"

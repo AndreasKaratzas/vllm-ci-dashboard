@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import threading
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -11,6 +14,10 @@ import pytest
 
 from vllm import collect_workload_mapping as cwm
 from vllm.bounded_json import pretty_json_bytes
+from vllm.main_ci_definitions import (
+    annotate_runtime_source_scope as exact_source_join,
+    prewarm_runtime_snapshots as exact_source_prime,
+)
 
 
 NOW = datetime(2026, 7, 29, 18, 35, tzinfo=timezone.utc)
@@ -680,6 +687,8 @@ def test_slice_generator_retains_at_most_the_worker_cap(monkeypatch) -> None:
         *,
         max_pages,
         page_fetcher,
+        mapping_start=None,
+        mapping_end=None,
     ):
         return RawSlice(), {
             "start": cwm._utc_iso(start),
@@ -1110,3 +1119,226 @@ def test_workload_cluster_only_route_drives_source_cpu_exclusion():
                                       queue_catalog=cwm.monitored_queues(_config()),
                                       start=NOW - timedelta(days=1), end=NOW)
     assert events == []
+
+
+@pytest.fixture
+def authenticated_source_recovery(monkeypatch):
+    """Exercise production source acquisition with byte-verified Git fixtures."""
+    from vllm import main_ci_definitions as source
+
+    def blob(payload):
+        oid = hashlib.sha1(f"blob {len(payload)}\0".encode() + payload).hexdigest()
+        return oid, {"sha": oid, "encoding": "base64", "size": len(payload),
+                     "content": base64.b64encode(payload).decode()}
+
+    def tree(rows):
+        ordered = sorted(rows, key=lambda row: row["path"] + ("/" if row["type"] == "tree" else ""))
+        payload = b"".join(row["mode"].lstrip("0").encode() + b" " + row["path"].encode()
+                           + b"\0" + bytes.fromhex(row["sha"]) for row in ordered)
+        oid = hashlib.sha1(f"tree {len(payload)}\0".encode() + payload).hexdigest()
+        return oid, {"sha": oid, "truncated": False, "tree": rows}
+
+    config_oid, config = blob(b"job_dirs: [.buildkite/test_areas]\n")
+    definitions_oid, definitions = blob(
+        b"steps:\n- key: torch-abi\n  label: Torch ABI\n  device: mi250_1\n  no_gpu: true\n"
+        b"- key: gpu-offload\n  label: CPU Offload\n  device: mi250_1\n"
+    )
+    area_oid, area = tree([{"path": "testing.yaml", "sha": definitions_oid, "type": "blob", "mode": "100644"}])
+    definition_tree, buildkite = tree([
+        {"path": "ci_config.yaml", "sha": config_oid, "type": "blob", "mode": "100644"},
+        {"path": "test_areas", "sha": area_oid, "type": "tree", "mode": "040000"},
+    ])
+    root_oid, root = tree([{"path": ".buildkite", "sha": definition_tree, "type": "tree", "mode": "040000"}])
+    responses = {
+        f"commits/{SOURCE_COMMIT}": {"sha": SOURCE_COMMIT, "tree": {"sha": root_oid}},
+        f"trees/{root_oid}": root, f"trees/{definition_tree}": buildkite,
+        f"trees/{area_oid}": area, f"blobs/{config_oid}": config,
+        f"blobs/{definitions_oid}": definitions,
+    }
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+        def __init__(self, value):
+            self.value = value
+            self.content = json.dumps(value).encode()
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return deepcopy(self.value)
+
+    def post(url, **kwargs):
+        assert url == "https://api.github.com/graphql"
+        assert f'object(oid: "{SOURCE_COMMIT}")' in kwargs["json"]["query"]
+        calls.append("graphql")
+        # Error-bearing partial data is never a source of CPU classification.
+        return Response({
+            "errors": [{"type": "RATE_LIMITED", "message": "rate limited"}],
+            "data": {"repository": {"nameWithOwner": source.REPOSITORY, "c0": {
+                "__typename": "Commit", "oid": SOURCE_COMMIT,
+                "tree": {"oid": "f" * 40, "entries": []},
+            }}},
+        })
+
+    def get(url, **kwargs):
+        path = url.removeprefix(source.API_BASE + "/git/")
+        assert kwargs["headers"]["Authorization"] == "Bearer offline-source-token"
+        calls.append(path)
+        return Response(responses[path])
+
+    monkeypatch.setenv("GITHUB_TOKEN", "offline-source-token")
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", exact_source_prime)
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", exact_source_join)
+    monkeypatch.setattr(source, "_RUNTIME_PRIMED_BUILDKITE_TREES", {})
+    for attribute, value in (("_RUNTIME_SOURCE_STARTS", 0), ("_RUNTIME_SOURCE_STARTED_AT", None),
+                             ("_RUNTIME_SOURCE_ACTIVE_SECONDS", 0.0), ("_RUNTIME_SOURCE_ACTIVE_DEPTH", 0),
+                             ("_RUNTIME_SOURCE_GRAPHQL_FALLBACKS", 0)):
+        monkeypatch.setattr(source, attribute, value)
+    monkeypatch.setattr(source.requests, "post", post)
+    monkeypatch.setattr(source.requests, "get", get)
+    caches = [source.runtime_snapshot, source._runtime_commit_tree, source._runtime_tree,
+              source._runtime_blob, source._runtime_definition_files]
+    for cached in caches:
+        cached.cache_clear()
+    try:
+        yield {"source": source, "calls": calls, "responses": responses, "definition_tree": definition_tree,
+               "definitions": definitions, "definitions_oid": definitions_oid}
+    finally:
+        for cached in caches:
+            cached.cache_clear()
+
+
+def test_workload_graphql_error_recovers_exact_cpu_scope_and_reuses_verified_cache(
+    monkeypatch, tmp_path, authenticated_source_recovery,
+):
+    from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+    fixture = authenticated_source_recovery
+    monkeypatch.setattr(cwm, "_SOURCE_SCOPE_CACHE_DIR", tmp_path / "source-cache")
+    cpu = {**_job("cpu", "amd_mi250_1"), "name": "Torch ABI", "step": {"key": "torch-abi"}}
+    gpu = {**_job("gpu", "amd_mi250_1"), "name": "CPU Offload with CUDA model preset", "step": {"key": "gpu-offload"}}
+    builds = {"ci": [_build("ci", [cpu, gpu])],
+              "vllm-omni-amd-ci": [{**_build("vllm-omni-amd-ci", [_job("omni", "amd_mi250_1")]), "commit": None}]}
+    fetcher = _slice_aware_fetcher(builds)
+    payload = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1, page_fetcher=fetcher)
+    assert payload["totals"]["main"]["mapped_jobs"] == payload["totals"]["main"]["started_jobs"] == 1
+    assert payload["totals"]["omni"]["mapped_jobs"] == 1
+    assert payload["generated_at"] == "2026-07-29T18:35:00Z"
+    assert payload["execution_scope_contract"] == cwm.EXECUTION_SCOPE_CONTRACT
+    index = read_runtime_source_indexes(cwm._SOURCE_SCOPE_CACHE_DIR)[SOURCE_COMMIT]
+    assert index["definition_tree_sha"] == fixture["definition_tree"]
+    assert index["cpu_routes"] == [{"key": "torch-abi", "label": "torch abi", "agent_pool": "mi250_1"}]
+    assert "graphql" in fixture["calls"] and f"commits/{SOURCE_COMMIT}" in fixture["calls"]
+    stats = fixture["source"].runtime_source_request_stats()
+    assert stats["request_starts"] == len(fixture["calls"])
+    assert stats["graphql_rest_fallbacks"] == 1
+    assert stats["max_request_starts"] == 2400 and stats["max_active_source_seconds"] == 600
+    starts = len(fixture["calls"])
+    refreshed = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=1, page_fetcher=fetcher)
+    assert refreshed["totals"] == payload["totals"]
+    assert len(fixture["calls"]) == starts
+
+
+@pytest.mark.parametrize("damage", ["commit", "blob"])
+def test_workload_graphql_error_never_promotes_invalid_rest_source_or_updates_output(
+    tmp_path, authenticated_source_recovery, damage,
+):
+    fixture = authenticated_source_recovery
+    if damage == "commit":
+        fixture["responses"][f"commits/{SOURCE_COMMIT}"]["sha"] = "f" * 40
+    else:
+        fixture["definitions"]["content"] = base64.b64encode(b"x" * fixture["definitions"]["size"]).decode()
+    output = tmp_path / "mapping.json"
+    original = b'{"generated_at":"2026-07-28T18:00:00Z","legacy":true}\n'
+    output.write_bytes(original)
+    with pytest.raises(ValueError):
+        payload = cwm.collect_workload_mapping(
+            "fake", _config(), now=NOW, force_days=1,
+            page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [_job("gpu", "amd_mi250_1")])]}),
+        )
+        cwm.write_workload_mapping(output, payload)
+    assert output.read_bytes() == original
+    assert cwm._SOURCE_SCOPE_INDEXES == {}
+    assert "graphql" in fixture["calls"] and f"commits/{SOURCE_COMMIT}" in fixture["calls"]
+
+
+@pytest.mark.parametrize("ambiguous_created", [None, "invalid timestamp"])
+def test_mapping_window_avoids_irrelevant_lookback_pins_but_proves_late_and_ambiguous_jobs(
+    monkeypatch, ambiguous_created,
+):
+    from vllm import main_ci_definitions as source
+
+    old_pin, late_pin, ambiguous_pin = [letter * 40 for letter in "cde"]
+    old_job = _job("old", "amd_mi250_1", created_at="2026-07-26T10:00:00Z")
+    late_gpu = {**_job("late-gpu", "amd_mi250_1", created_at="2026-07-28T10:00:00Z"),
+                "step": {"key": "gpu-offload"}}
+    late_cpu = {**late_gpu, "id": "late-cpu", "step": {"key": "torch-abi"}}
+    ambiguous = {**_job("ambiguous", "amd_mi250_1"), "created_at": ambiguous_created,
+                 "runnable_at": "2026-07-29T10:00:00Z", "step": {"key": "gpu-offload"}}
+    builds = {"ci": [
+        {**_build("ci", [old_job], 1, created_at="2026-07-26T09:59:00Z"), "commit": old_pin},
+        {**_build("ci", [late_cpu, late_gpu], 2, created_at="2026-07-27T09:59:00Z"), "commit": late_pin},
+        {**_build("ci", [ambiguous], 3), "commit": ambiguous_pin},
+    ]}
+    source_calls = []
+    def prime(pins):
+        source_calls.extend(pins)
+    def annotate(build, **kwargs):
+        return exact_source_join(build, scope_index=kwargs.get("scope_index") or _mi_cpu_index(build["commit"]))
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", prime)
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", annotate)
+    scope = cwm._scope_ci_builds
+    baseline_pages = []
+    baseline_fetcher = _slice_aware_fetcher(builds)
+    def baseline_page(path, token, params):
+        baseline_pages.append((path, dict(params)))
+        return baseline_fetcher(path, token, params)
+    with monkeypatch.context() as unbounded:
+        # Reproduce the original source acquisition domain as a reference;
+        # its final published mappings already filtered the job-created range.
+        unbounded.setattr(cwm, "_scope_ci_builds", lambda rows, pipeline="", **_: scope(rows, pipeline))
+        baseline = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=2,
+                                                page_fetcher=baseline_page)
+    assert set(source_calls) == {old_pin, late_pin, ambiguous_pin}
+
+    monkeypatch.setattr(cwm, "_SOURCE_SCOPE_INDEXES", {})
+    source_calls.clear()
+    def available_prime(pins):
+        assert old_pin not in pins, "An irrelevant expired fork must not require source acquisition"
+        source_calls.extend(pins)
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", available_prime)
+    actual_pages = []
+    actual_fetcher = _slice_aware_fetcher(builds)
+    def actual_page(path, token, params):
+        actual_pages.append((path, dict(params)))
+        return actual_fetcher(path, token, params)
+    current = cwm.collect_workload_mapping("fake", _config(), now=NOW, force_days=2,
+                                           page_fetcher=actual_page)
+    assert current == baseline
+    assert current["totals"]["main"]["mapped_jobs"] == 2
+    assert current["totals"]["main"]["started_jobs"] == 2
+    assert set(source_calls) == {late_pin, ambiguous_pin}
+    # The parent lookback, pagination, source completeness and clocks do not
+    # change; only source proof for definitely irrelevant jobs is avoided.
+    def encode(rows):
+        return sorted(json.dumps(row, sort_keys=True) for row in rows)
+    assert encode(actual_pages) == encode(baseline_pages)
+    ci_requests = [params for path, params in actual_pages if "/ci/" in path]
+    assert min(params["created_from"] for params in ci_requests) == "2026-07-25T00:00:00Z"
+    assert current["query"]["end_exclusive"] == baseline["query"]["end_exclusive"]
+
+
+@pytest.mark.parametrize("created", ["2026-07-26", "2026-07-26T10:00:00"])
+def test_mapping_source_prefilter_keeps_timestamp_without_explicit_timezone_conservative(
+    monkeypatch, created,
+):
+    from vllm import main_ci_definitions as source
+
+    calls = []
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda pins: calls.extend(pins))
+    job = {**_job("ambiguous", "amd_mi250_1"), "created_at": created}
+    scoped = cwm._scope_ci_builds([_build("ci", [job])], "ci",
+                                 mapping_start=NOW - timedelta(days=2), mapping_end=NOW)
+    assert calls == [SOURCE_COMMIT]
+    assert scoped[0]["source_scope_commit"] == SOURCE_COMMIT

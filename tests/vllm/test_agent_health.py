@@ -12,10 +12,13 @@ Covers:
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
 import sys
 import threading
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -28,11 +31,13 @@ from vllm.audit_dashboard_data import DashboardAudit
 from vllm.buildkite_request_guard import BuildkiteRequestAllowanceExhausted
 from vllm.constants import amd_gpu_hardware
 from vllm.main_ci_definitions import annotate_runtime_source_scope as exact_source_join
+from vllm.main_ci_definitions import prewarm_runtime_snapshots as exact_source_prime
 from vllm.ci import buildkite_client
 from vllm.ci.log_parser import extract_node, node_from_agent
 
 
 NOW = datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc)
+SOURCE_COMMIT = "a" * 40
 
 
 @pytest.fixture(autouse=True)
@@ -1896,3 +1901,164 @@ def test_concurrent_agent_source_joins_persist_both_new_proofs_without_overlappi
     assert [len(pins) for pins in calls] == [1, 2]
     assert set(cache.read_runtime_source_indexes(root)) == {"a" * 40, "b" * 40}
     assert ah._SOURCE_SCOPE_INDEXES == cache.read_runtime_source_indexes(root)
+
+
+@pytest.fixture
+def agent_authenticated_source_recovery(monkeypatch):
+    """Exercise production source acquisition with byte-verified Git fixtures."""
+    from vllm import main_ci_definitions as source
+
+    def blob(payload):
+        oid = hashlib.sha1(f"blob {len(payload)}\0".encode() + payload).hexdigest()
+        return oid, {"sha": oid, "encoding": "base64", "size": len(payload),
+                     "content": base64.b64encode(payload).decode()}
+
+    def tree(rows):
+        ordered = sorted(rows, key=lambda row: row["path"] + ("/" if row["type"] == "tree" else ""))
+        payload = b"".join(row["mode"].lstrip("0").encode() + b" " + row["path"].encode()
+                           + b"\0" + bytes.fromhex(row["sha"]) for row in ordered)
+        oid = hashlib.sha1(f"tree {len(payload)}\0".encode() + payload).hexdigest()
+        return oid, {"sha": oid, "truncated": False, "tree": rows}
+
+    config_oid, config = blob(b"job_dirs: [.buildkite/test_areas]\n")
+    definitions_oid, definitions = blob(
+        b"steps:\n- key: torch-abi\n  label: Torch ABI\n  device: mi300_1\n  no_gpu: true\n"
+        b"- key: gpu-offload\n  label: CPU Offload\n  device: mi300_1\n"
+    )
+    area_oid, area = tree([{"path": "testing.yaml", "sha": definitions_oid, "type": "blob", "mode": "100644"}])
+    definition_tree, buildkite = tree([
+        {"path": "ci_config.yaml", "sha": config_oid, "type": "blob", "mode": "100644"},
+        {"path": "test_areas", "sha": area_oid, "type": "tree", "mode": "040000"},
+    ])
+    root_oid, root = tree([{"path": ".buildkite", "sha": definition_tree, "type": "tree", "mode": "040000"}])
+    responses = {
+        f"commits/{SOURCE_COMMIT}": {"sha": SOURCE_COMMIT, "tree": {"sha": root_oid}},
+        f"trees/{root_oid}": root, f"trees/{definition_tree}": buildkite,
+        f"trees/{area_oid}": area, f"blobs/{config_oid}": config,
+        f"blobs/{definitions_oid}": definitions,
+    }
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+        def __init__(self, value):
+            self.value = value
+            self.content = json.dumps(value).encode()
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return deepcopy(self.value)
+
+    def post(url, **kwargs):
+        assert url == "https://api.github.com/graphql"
+        assert f'object(oid: "{SOURCE_COMMIT}")' in kwargs["json"]["query"]
+        calls.append("graphql")
+        # Error-bearing partial data is never a source of CPU classification.
+        return Response({
+            "errors": [{"type": "RATE_LIMITED", "message": "rate limited"}],
+            "data": {"repository": {"nameWithOwner": source.REPOSITORY, "c0": {
+                "__typename": "Commit", "oid": SOURCE_COMMIT,
+                "tree": {"oid": "f" * 40, "entries": []},
+            }}},
+        })
+
+    def get(url, **kwargs):
+        path = url.removeprefix(source.API_BASE + "/git/")
+        assert kwargs["headers"]["Authorization"] == "Bearer offline-source-token"
+        calls.append(path)
+        return Response(responses[path])
+
+    monkeypatch.setenv("GITHUB_TOKEN", "offline-source-token")
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", exact_source_prime)
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", exact_source_join)
+    monkeypatch.setattr(source, "_RUNTIME_PRIMED_BUILDKITE_TREES", {})
+    for attribute, value in (("_RUNTIME_SOURCE_STARTS", 0), ("_RUNTIME_SOURCE_STARTED_AT", None),
+                             ("_RUNTIME_SOURCE_ACTIVE_SECONDS", 0.0), ("_RUNTIME_SOURCE_ACTIVE_DEPTH", 0),
+                             ("_RUNTIME_SOURCE_GRAPHQL_FALLBACKS", 0)):
+        monkeypatch.setattr(source, attribute, value)
+    monkeypatch.setattr(source.requests, "post", post)
+    monkeypatch.setattr(source.requests, "get", get)
+    caches = [source.runtime_snapshot, source._runtime_commit_tree, source._runtime_tree,
+              source._runtime_blob, source._runtime_definition_files]
+    for cached in caches:
+        cached.cache_clear()
+    try:
+        yield {"source": source, "calls": calls, "responses": responses, "definition_tree": definition_tree,
+               "definitions": definitions, "definitions_oid": definitions_oid}
+    finally:
+        for cached in caches:
+            cached.cache_clear()
+
+
+
+def _source_recovery_build():
+    build = _window_build(1, "2026-07-14T08:00:00Z", state="failed", job_state="failed")
+    gpu = {**build["jobs"][0], "id": "gpu", "name": "CPU Offload with CUDA model preset", "step_key": "gpu-offload"}
+    cpu = {**build["jobs"][0], "id": "cpu", "name": "Torch ABI", "step_key": "torch-abi"}
+    return {**build, "jobs": [cpu, gpu]}
+
+
+def test_agent_graphql_error_recovers_exact_cpu_scope_without_changing_created_cohort_clock(
+    monkeypatch, tmp_path, agent_authenticated_source_recovery,
+):
+    from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+    fixture = agent_authenticated_source_recovery
+    monkeypatch.setattr(ah, "_paginate", _window_page([_source_recovery_build()], []))
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, pipeline="ci", days=1, day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert len(payload["node_days"]) == 1
+    assert payload["node_days"][0]["a"] == [1, 0, 1, 0]
+    assert [row["j"] for row in payload["failing_runs"]] == ["gpu"]
+    assert payload["generated_at"] == "2026-07-14T12:00:00Z"
+    assert payload["pipelines"] == ["ci"]
+    assert payload["retention"]["pipeline_scope"] == {
+        "version": 2, "basis": "terminal_jobs_by_build_created_at",
+        "eligible_completion": ah.CREATED_ELIGIBILITY, "day_basis": ah.CREATED_DAY_BASIS,
+        "discovery_legs": {"created": True}, "collected_from": "2026-07-13T00:00:00Z",
+        "collected_to": payload["generated_at"], "requested_days": 1, "exhaustive": True,
+        "attempt_policy": "latest_attempt_per_step", "terminal_time_policy": ah.TERMINAL_TIME_POLICY,
+        "complete_window": False,
+    }
+    index = read_runtime_source_indexes(ah._SOURCE_SCOPE_CACHE_DIR)[SOURCE_COMMIT]
+    assert index["definition_tree_sha"] == fixture["definition_tree"]
+    assert index["cpu_routes"] == [{"key": "torch-abi", "label": "torch abi", "agent_pool": "mi300_1"}]
+    assert "graphql" in fixture["calls"] and f"commits/{SOURCE_COMMIT}" in fixture["calls"]
+    stats = fixture["source"].runtime_source_request_stats()
+    assert stats["request_starts"] == len(fixture["calls"])
+    assert stats["graphql_rest_fallbacks"] == 1
+    assert stats["max_request_starts"] == 2400 and stats["max_active_source_seconds"] == 600
+    starts = len(fixture["calls"])
+    _, refreshed = _run_scoped_collection(
+        monkeypatch, tmp_path, pipeline="ci", days=1, day_basis="build-created",
+        fetch_fn=ah._fetch_pipeline_observations,
+    )
+    assert refreshed["node_days"] == payload["node_days"]
+    assert refreshed["failing_runs"] == payload["failing_runs"]
+    assert len(fixture["calls"]) == starts
+
+
+@pytest.mark.parametrize("damage", ["commit", "blob"])
+def test_agent_graphql_error_with_invalid_rest_proof_preserves_entire_generation(
+    monkeypatch, tmp_path, agent_authenticated_source_recovery, damage,
+):
+    fixture = agent_authenticated_source_recovery
+    if damage == "commit":
+        fixture["responses"][f"commits/{SOURCE_COMMIT}"]["sha"] = "f" * 40
+    else:
+        fixture["definitions"]["content"] = base64.b64encode(b"x" * fixture["definitions"]["size"]).decode()
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    monkeypatch.setattr(ah, "_paginate", _window_page([_source_recovery_build()], []))
+    with pytest.raises(ValueError):
+        _run_scoped_collection(
+            monkeypatch, tmp_path, pipeline="ci", days=1, day_basis="build-created",
+            fetch_fn=ah._fetch_pipeline_observations,
+        )
+    assert {path: path.read_bytes() for path in paths} == before
+    assert ah._SOURCE_SCOPE_INDEXES == {}
+    assert "graphql" in fixture["calls"] and f"commits/{SOURCE_COMMIT}" in fixture["calls"]

@@ -2533,3 +2533,206 @@ def test_source_only_prewarm_cli_emits_safe_partial_save_before_nonzero_exit(tmp
     monkeypatch.setattr(ca, "fetch_pipeline_builds", lambda *_args, **_kwargs: pytest.fail("prewarm cannot collect runtime"))
     assert ca.main() == 3
     assert (tmp_path / "outputs").read_text() == "runtime_source_cache_save=true\nruntime_source_indexes_complete=false\n"
+
+
+def _review_source_index(commit):
+    return {"version": 1, "commit_sha": commit, "definition_tree_sha": "a" * 40,
+            "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}]}
+
+
+def test_cold_analytics_primes_missing_pins_in_batches_before_exact_roster_joins(tmp_path, monkeypatch):
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+
+    source_dir = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_CACHE_DIR", source_dir)
+    builds = [_raw_api_build(number) for number in range(1, 106)]
+    for build in builds:
+        build["jobs"].append({**build["jobs"][0], "id": f"cpu-{build['number']}",
+                              "step_key": "cpu-audit", "name": ":amd: (MI250) CPU audit"})
+    builds.append(copy.deepcopy(builds[-1]))
+    before = copy.deepcopy(builds)
+    warm = {build["commit"]: _review_source_index(build["commit"]) for build in builds[:2]}
+    batches = []
+    primed = set()
+    derived = []
+    joined = []
+
+    def prime(pins):
+        batches.append(list(pins))
+        primed.update(pins)
+
+    def annotate(build, *, scope_index=None):
+        if scope_index is None:
+            assert build["jobs"] == [] and build["commit"] in primed
+            derived.append(build["commit"])
+            return {"source_scope_index": _review_source_index(build["commit"])}
+        # Every missing pin must already be durably proved before runtime joins.
+        assert len(cache.read_runtime_source_indexes(source_dir)) == 105
+        joined.append(build["number"])
+        return exact_source_join(build, scope_index=scope_index)
+
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", prime)
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    monkeypatch.setattr(definitions, "runtime_snapshot", lambda *_: pytest.fail("exact index must avoid per-build HTTP"))
+    scoped = ca._current_mi_builds(builds, "ci", scope_indexes=warm)
+
+    assert [len(batch) for batch in batches] == [50, 50, 3]
+    assert len(set(derived)) == len(derived) == 103
+    assert joined == [build["number"] for build in builds]
+    assert all([job["id"] for job in build["jobs"]] == [f"job-{build['number']}"] for build in scoped)
+    assert all(build["hardware_scope"] == "amd_mi_gpu" for build in scoped)
+    assert builds == before
+    assert [(build["created_at"], build["started_at"], build["finished_at"]) for build in scoped] == [
+        (build["created_at"], build["started_at"], build["finished_at"]) for build in before
+    ]
+    assert (source_dir / "index.json").stat().st_size <= cache.RUNTIME_SOURCE_CACHE_MAX_BYTES
+    assert len(cache.read_runtime_source_indexes(source_dir)) <= cache.RUNTIME_SOURCE_CACHE_MAX_PINS
+
+    persisted = cache.read_runtime_source_indexes(source_dir)
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_INDEXES", {})
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("warm pins must not be reacquired"))
+    assert ca._current_mi_builds(builds, "ci", scope_indexes=persisted) == scoped
+    assert len(derived) == 103
+
+
+def test_analytics_source_batch_failure_checkpoints_prior_pins_and_resumes_without_clock_advance(tmp_path, monkeypatch):
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+
+    source_dir = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    old_commit = "b" * 40
+    old = {old_commit: _review_source_index(old_commit)}
+    cache.write_runtime_source_indexes(source_dir, old)
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_CACHE_DIR", source_dir)
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_INDEXES", dict(old))
+    builds = [_raw_api_build(number) for number in range(1, 52)]
+    before = copy.deepcopy(builds)
+    batches = []
+    joins = []
+
+    def prime(pins):
+        batches.append(list(pins))
+        if len(batches) == 2:
+            raise definitions.RuntimeSourceError(reason_class="network", phase="batch")
+
+    def annotate(build, *, scope_index=None):
+        if scope_index is None:
+            return {"source_scope_index": _review_source_index(build["commit"])}
+        joins.append(build["number"])
+        return exact_source_join(build, scope_index=scope_index)
+
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", prime)
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    with pytest.raises(definitions.RuntimeSourceError, match="reason_class=network"):
+        ca._current_mi_builds(builds, "ci")
+
+    checkpoint = cache.read_runtime_source_indexes(source_dir)
+    assert set(checkpoint) == {old_commit, *(build["commit"] for build in builds[:50])}
+    assert joins == []
+    assert builds == before
+    assert not (tmp_path / "analytics.json").exists()
+    assert not (tmp_path / "publication_state.json").exists()
+    assert not (tmp_path / ca.CACHE_DIR_NAME).exists()
+
+    # A new process can reuse the authenticated partial source checkpoint.
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_INDEXES", dict(checkpoint))
+    scoped = ca._current_mi_builds(builds, "ci")
+    assert batches[-1] == [builds[-1]["commit"]]
+    assert len(cache.read_runtime_source_indexes(source_dir)) == 52
+    assert [build["created_at"] for build in scoped] == [build["created_at"] for build in before]
+    assert builds == before
+
+
+@pytest.mark.parametrize("failure_stage", ["prime", "derive", "invalid-index", "join", "checkpoint"])
+def test_immutable_source_failure_does_not_replay_the_full_analytics_window(tmp_path, monkeypatch, failure_stage):
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+
+    cached = _raw_api_build(1)
+    scoped = ca._current_mi_builds([cached], "ci")
+    cache_dir = tmp_path / ca.CACHE_DIR_NAME
+    watermark = NOW - timedelta(hours=1)
+    complete_from = NOW - timedelta(days=22)
+    ca.write_build_cache(
+        cache_dir, "ci", builds=scoped, watermark=watermark, window_days=30,
+        last_full_at=NOW - timedelta(hours=2), updated_at=watermark,
+        complete_from=complete_from,
+    )
+    before = {str(path.relative_to(cache_dir)): path.read_bytes() for path in cache_dir.rglob("*") if path.is_file()}
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_CACHE_DIR", tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME)
+    recent = _raw_api_build(2, created_at=NOW - timedelta(minutes=30), marker="fresh")
+    older = _raw_api_build(3, created_at=NOW - timedelta(days=26), marker="older-gap")
+    overlap = (watermark - ca.ANALYTICS_CACHE_OVERLAP).isoformat()
+    cutoff = (NOW - timedelta(days=30)).isoformat()
+    calls = []
+
+    def get(path, token, params=None):
+        params = dict(params or {})
+        calls.append(params)
+        if params.get("created_from") == overlap and "created_to" not in params:
+            return [recent]
+        if params.get("finished_from") == overlap:
+            return []
+        if params.get("created_from") == cutoff and params.get("created_to") == complete_from.isoformat():
+            return [older]
+        pytest.fail("source failure must not trigger another full Buildkite window")
+
+    def prime(pins):
+        if failure_stage == "prime":
+            raise definitions.RuntimeSourceError(reason_class="network", phase="batch")
+
+    def annotate(build, *, scope_index=None):
+        if scope_index is None:
+            if failure_stage == "derive":
+                raise definitions.RuntimeSourceError(reason_class="schema-drift", commit_sha=build["commit"])
+            if failure_stage == "invalid-index":
+                return {"source_scope_index": _review_source_index("d" * 40)}
+            return {"source_scope_index": _review_source_index(build["commit"])}
+        if failure_stage == "join":
+            raise definitions.RuntimeSourceError(reason_class="schema-drift", commit_sha=build["commit"])
+        return exact_source_join(build, scope_index=scope_index)
+
+    def fail_checkpoint(*_args, **_kwargs):
+        raise OSError("private path must not appear in collector diagnostics")
+
+    monkeypatch.setattr(ca, "bk_get", get)
+    monkeypatch.setattr(ca, "_full_cached_fetch", lambda *_args, **_kwargs: pytest.fail("source verification cannot fall back to full replay"))
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", prime)
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    if failure_stage == "checkpoint":
+        monkeypatch.setattr(ca, "write_runtime_source_indexes", fail_checkpoint)
+
+    with pytest.raises(definitions.RuntimeSourceError) as error:
+        ca.fetch_pipeline_builds("ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW)
+
+    assert error.value.reason_class == ("command-error" if failure_stage == "checkpoint" else "network" if failure_stage == "prime" else "schema-drift")
+    assert "private path" not in str(error.value)
+    if failure_stage == "checkpoint":
+        import traceback
+        assert "private path" not in "".join(traceback.format_exception(error.value))
+    assert len(calls) == 3
+    assert all(params["branch"] == "main" and params["page"] == 1 for params in calls)
+    assert calls[-1]["created_to"] == complete_from.isoformat()
+    assert before == {str(path.relative_to(cache_dir)): path.read_bytes() for path in cache_dir.rglob("*") if path.is_file()}
+    retained = ca.load_build_cache(
+        cache_dir, "ci", cutoff=NOW - timedelta(days=30), window_days=30,
+        ref_now=NOW, allow_partial_coverage=True,
+    )
+    assert retained.valid and retained.complete_from == complete_from
+    assert retained.watermark == watermark
+    assert not (tmp_path / "analytics.json").exists()
+
+
+def test_conflicting_embedded_exact_source_indexes_stop_before_acquisition(monkeypatch):
+    import vllm.main_ci_definitions as definitions
+
+    first = _raw_api_build(1)
+    first.update(hardware_scope="amd_mi_gpu", source_scope_commit=first["commit"],
+                 source_definition_tree_sha="a" * 40, source_scope_index=_review_source_index(first["commit"]))
+    second = copy.deepcopy(first)
+    second["number"] = 2
+    second["source_scope_index"]["definition_tree_sha"] = second["source_definition_tree_sha"] = "b" * 40
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda *_: pytest.fail("contradictory cached proof must not acquire source"))
+    with pytest.raises(definitions.RuntimeSourceError, match="reason_class=schema-drift"):
+        ca._current_mi_builds([first, second], "ci")

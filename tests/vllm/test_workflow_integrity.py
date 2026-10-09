@@ -1687,6 +1687,40 @@ class TestHourlyMasterWorkflow:
             names.index("Normalize and prune queue history")
         ]["run"]
 
+    @pytest.mark.parametrize("declared_reason", ["payload-budget", "schema-drift", "command-error"])
+    def test_terminal_source_failure_overrides_recovered_buildkite_timeout(
+        self, tmp_path, monkeypatch, declared_reason
+    ):
+        import sys
+        from vllm.main_ci_definitions import RuntimeSourceError
+
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        capture = next(step for step in steps if step.get("name") == "Capture immutable main code")
+        helper = capture["run"].split("record_surface_failure() {", 1)[1]
+        inline = helper.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+        diagnostic = tmp_path / "collector.log"
+        diagnostic.write_text(
+            "WARNING Buildkite ReadTimeout, retry 1/5; recovered token=private-value\n"
+            "Traceback (most recent call last):\n"
+            "RuntimeSourceError: "
+            + str(RuntimeSourceError(
+                reason_class=declared_reason, phase="metadata", commit_sha="a" * 40,
+            ))
+            + "\n"
+        )
+        output = tmp_path / "failures.jsonl"
+        monkeypatch.setattr(sys, "argv", [
+            "python", "ci_analytics", "CI analytics", "1", str(diagnostic),
+            "collect_analytics.py", str(output),
+        ])
+        exec(compile(inline, "hourly-source-failure-diagnostic", "exec"), {})
+        [failure] = [json.loads(line) for line in output.read_text().splitlines()]
+        assert failure["reason_class"] == declared_reason
+        assert failure["surface"] == "ci_analytics"
+        assert failure["exit_code"] == 1
+        assert "phase=metadata" in failure["details"]["summary"]
+        assert "private-value" not in output.read_text()
+
     def test_ci_collectors_and_seeds_use_split_publication_surfaces(self):
         data = _load_workflow("hourly-master.yml")
         steps = next(iter(data["jobs"].values())).get("steps", [])
