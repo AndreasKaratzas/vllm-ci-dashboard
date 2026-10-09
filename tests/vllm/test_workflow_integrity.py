@@ -143,7 +143,7 @@ class TestWorkflowYAML:
 
     def test_isolated_dashboard_audits_are_limited_to_stdlib_safe_modes(self):
         isolated_entrypoint = "python -S scripts/vllm/audit_dashboard_data.py"
-        safe_mode_flags = ("--dns-only", "--queue-lifecycle-only")
+        safe_mode_flags = ("--dns-only", "--dns-dependency-smoke", "--queue-lifecycle-only")
         isolated_commands = []
 
         for workflow_path in WORKFLOWS.glob("*.yml"):
@@ -3717,7 +3717,7 @@ class TestDnsHealthWorkflow:
             "Publish durable DNS evidence"
         )
         assert "requests cryptography" in install
-        assert "python -S scripts/vllm/audit_dashboard_data.py --dns-only" in preflight
+        assert "python -S scripts/vllm/audit_dashboard_data.py --dns-dependency-smoke" in preflight
         assert restore_step["env"] == {
             "DNS_STATE_ENCRYPTION_KEY": "${{ secrets.DNS_STATE_ENCRYPTION_KEY }}"
         }

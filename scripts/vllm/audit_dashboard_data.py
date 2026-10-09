@@ -10576,6 +10576,23 @@ def run_audit(root: Path = ROOT) -> AuditReport:
     return DashboardAudit(root).run()
 
 
+def audit_dns_dependency_smoke() -> AuditReport:
+    """Exercise isolated DNS validation without requiring a migrated dataset."""
+    import tempfile
+    from vllm.ci.dns_failures import RETENTION_HOURS, build_public_output, empty_state
+
+    clock = datetime.now(timezone.utc).replace(microsecond=0)
+    payload = build_public_output(empty_state(clock, clock - timedelta(hours=RETENTION_HOURS)))
+    with tempfile.TemporaryDirectory(prefix="dns-validator-smoke-") as directory:
+        path = Path(directory) / "dns_failures.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        audit = DashboardAudit(ROOT)
+        audit.audit_dns_failures(path)
+    # Synthetic dependency evidence is never runtime observation evidence.
+    audit.report.metrics = {"dns_dependency_smoke": {"schema_version": payload["schema_version"]}}
+    return audit.report
+
+
 def format_text(report: AuditReport) -> str:
     lines = [
         "Dashboard data audit",
@@ -10610,6 +10627,11 @@ def main(argv: list[str] | None = None) -> int:
         "--dns-only",
         action="store_true",
         help="Validate only the DNS health aggregate",
+    )
+    focused.add_argument(
+        "--dns-dependency-smoke",
+        action="store_true",
+        help="Exercise isolated DNS validator dependencies using temporary synthetic data",
     )
     focused.add_argument(
         "--queue-lifecycle-only",
@@ -10650,7 +10672,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--dns-path requires --dns-only")
     if args.queue_lifecycle_path is not None and not args.queue_lifecycle_only:
         parser.error("--queue-lifecycle-path requires --queue-lifecycle-only")
-    if args.dns_only:
+    if args.dns_dependency_smoke:
+        report = audit_dns_dependency_smoke()
+    elif args.dns_only:
         audit = DashboardAudit(ROOT)
         audit.audit_dns_failures(args.dns_path)
         report = audit.report
