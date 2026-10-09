@@ -233,9 +233,6 @@ Object.defineProperty(window, 'BK_UP_BUILD', {
   get: function() { return LinkRegistry.bk.buildUrl('upstream'); },
   set: function(v) { LinkRegistry.bk.updateBuildUrls({ upstream: { latest_build: { build_url: v } } }); }
 });
-afterOpsV2FirstRender(function() {
-  LinkRegistry.onReady(function() { BK_READY = true; });
-});
 
 function bkGroupUrl(groupName, pipeline) { return LinkRegistry.bk.groupUrl(groupName, pipeline); }
 function bkSearchUrl(groupName, pipeline) { return LinkRegistry.bk.groupUrl(groupName, pipeline); }
