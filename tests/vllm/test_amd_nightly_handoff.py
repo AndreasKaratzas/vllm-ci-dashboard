@@ -90,6 +90,48 @@ def test_handoff_is_exhaustive_privacy_projected_and_bounded(tmp_path: Path) -> 
     ) == payload["build"]
 
 
+def test_source_step_key_survives_handoff_separately_from_observed_queue(tmp_path):
+    build = _build()
+    job = build["jobs"][0]
+    job["name"] = ":amd: (MI355 DPX) LM Eval Small Models"
+    job["agent_queue"] = "amd_mi355_1"
+    job["agent_query_rules"] = ["queue=amd_mi355_dpx"]
+    job["step"]["key"] = "amd-lm-eval-small-models-1xb200"
+    job["step_key"] = job["step"]["key"]
+    path = write_amd_nightly_snapshot(build, tmp_path, max_bytes=4_096)
+    frozen = load_frozen_build_snapshot(path, 1234, max_bytes=4_096)
+    assert frozen["jobs"][0]["step"] == {
+        "id": "engine", "key": "amd-lm-eval-small-models-1xb200",
+    }
+    assert frozen["jobs"][0]["step_key"] == job["step_key"]
+    assert frozen["jobs"][0]["agent_queue"] == "amd_mi355_1"
+    assert frozen["jobs"][0]["agent_query_rules"] == ["queue=amd_mi355_dpx"]
+    assert "private command" not in path.read_text()
+
+
+@pytest.mark.parametrize("value", ["", " padded ", False, [], {}])
+def test_handoff_rejects_malformed_source_step_keys(tmp_path, value):
+    build = _build()
+    build["jobs"][0]["step"]["key"] = value
+    with pytest.raises(ValueError, match="step.key"):
+        write_amd_nightly_snapshot(build, tmp_path)
+
+
+def test_handoff_cannot_discard_present_null_key_to_authorize_keyless_fallback(tmp_path):
+    build = _build()
+    build["jobs"][0]["step_key"] = None
+    with pytest.raises(ValueError, match="step_key"):
+        write_amd_nightly_snapshot(build, tmp_path)
+
+
+def test_handoff_rejects_contradictory_source_keys(tmp_path):
+    build = _build()
+    build["jobs"][0]["step"]["key"] = "source-key"
+    build["jobs"][0]["step_key"] = "other-key"
+    with pytest.raises(ValueError, match="disagree"):
+        write_amd_nightly_snapshot(build, tmp_path)
+
+
 def test_observed_queue_survives_handoff_without_agent_metadata_or_rule_rewriting(tmp_path):
     build = _build()
     job = build["jobs"][0]

@@ -24,8 +24,12 @@ class TestCIHealthData:
         return json.loads(path.read_text())
 
     def test_has_required_top_keys(self, health):
-        for key in ["generated_at", "amd", "upstream"]:
+        for key in ["generated_at", "amd", "source_pipeline", "job_scope", "hardware_scope"]:
             assert key in health
+        assert health["source_pipeline"] == "ci"
+        assert health["job_scope"] == "amd_gpu"
+        assert health["hardware_scope"] == "amd_mi_gpu"
+        assert not {"upstream", "cuda", "amd-ci"} & health.keys()
 
     def test_amd_has_latest_build(self, health):
         assert "latest_build" in health.get("amd", {})

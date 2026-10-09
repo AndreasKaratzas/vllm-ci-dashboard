@@ -166,11 +166,13 @@ def _normalize_job_name(name: str) -> str:
 # build-pinned, route-aware identity map scoped to the matching AMD build.
 _AMD_RUNTIME_GROUP_KEY_COMMIT = ""
 _AMD_RUNTIME_GROUP_KEYS: dict[tuple[str, str], str] = {}
+_AMD_RUNTIME_DEFINITIONS: dict[str, tuple[str, str, str, str]] = {}
 
 
 def set_amd_runtime_group_key_map(
     commit_sha: str | None,
     route_keys: dict[tuple[str, str], str] | None,
+    definitions: dict[str, tuple[str, str, str, str]] | None = None,
 ) -> None:
     """Install config-family keys for one exact AMD build commit.
 
@@ -180,11 +182,12 @@ def set_amd_runtime_group_key_map(
     Invalid or incomplete provenance therefore clears the map and falls back
     to the historical normalized-label grouping.
     """
-    global _AMD_RUNTIME_GROUP_KEY_COMMIT, _AMD_RUNTIME_GROUP_KEYS
+    global _AMD_RUNTIME_GROUP_KEY_COMMIT, _AMD_RUNTIME_GROUP_KEYS, _AMD_RUNTIME_DEFINITIONS
     commit = str(commit_sha or "").strip().casefold()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         _AMD_RUNTIME_GROUP_KEY_COMMIT = ""
         _AMD_RUNTIME_GROUP_KEYS = {}
+        _AMD_RUNTIME_DEFINITIONS = {}
         return
 
     normalized: dict[tuple[str, str], str] = {}
@@ -200,6 +203,85 @@ def set_amd_runtime_group_key_map(
 
     _AMD_RUNTIME_GROUP_KEY_COMMIT = commit
     _AMD_RUNTIME_GROUP_KEYS = normalized
+    _AMD_RUNTIME_DEFINITIONS = {}
+    for identity, (label, pool, family, source_label) in (definitions or {}).items():
+        if not identity or normalized.get((label, pool)) != family:
+            raise ValueError("AMD source definition disagrees with its pinned family route")
+        _AMD_RUNTIME_DEFINITIONS[identity] = (label, pool, family, source_label)
+
+
+def _amd_declared_label_signature(name: str) -> tuple[str, str, str, str]:
+    """Keep source architecture declarations separate from a physical queue."""
+    _, platform, hardware = _parse_job_execution_label(name)
+    native_pool = _AMD_RUNTIME_POOL_SUFFIX_RE.search(str(name or ""))
+    return (_normalize_job_name(name).strip(), platform, hardware,
+            native_pool.group("pool").casefold() if platform == "amd" and native_pool else "")
+
+
+def _amd_declared_label_matches(name: str, definition: tuple[str, str, str, str]) -> bool:
+    signature = _amd_declared_label_signature(name)
+    source_signature = _amd_declared_label_signature(definition[3])
+    return (signature[1] == "amd" and bool(signature[2])
+            and signature[:3] == source_signature[:3]
+            and signature[3] in {"", definition[1]})
+
+
+def _amd_declared_route_matches(name: str, definition: tuple[str, str, str, str], physical_queue: str) -> bool:
+    """Accept an exact route, or an explicit same-architecture source pool."""
+    if not _amd_declared_label_matches(name, definition):
+        return False
+    pool = str(physical_queue or "").casefold().removeprefix("amd_")
+    if pool == definition[1]:
+        return True
+    physical_family = re.match(r"^mi\d+b?(?=_|$)", pool)
+    source_family = re.match(r"^mi\d+b?(?=_|$)", definition[1])
+    if not physical_family or not source_family:
+        return False
+    signature = _amd_declared_label_signature(name)
+    return (physical_family.group() == source_family.group()
+            and (signature[3] == definition[1]
+                 or signature[2] == definition[1].replace("_", " ")))
+
+
+def _amd_runtime_result_group_key(
+    row: TestResult, build_commit: str, jobs_by_id: dict[str, dict],
+) -> str:
+    """Resolve an attested source identity without replacing physical hardware."""
+    commit = str(build_commit or "").strip().casefold()
+    proof = (row.source_definition_id, row.source_agent_pool,
+             row.source_commit, row.source_binding_basis)
+    if commit == _AMD_RUNTIME_GROUP_KEY_COMMIT and any((*proof, row.source_step_key)):
+        from vllm.pipelines import _job_queue
+        definition = _AMD_RUNTIME_DEFINITIONS.get(row.source_definition_id)
+        job = jobs_by_id.get(row.job_id) or {}
+        step = job.get("step") or {}
+        if not isinstance(step, dict):
+            raise ValueError("AMD runtime source step is malformed")
+        step_keys = ([job["step_key"]] if "step_key" in job else []) + ([step["key"]] if "key" in step else [])
+        key_binding = row.source_binding_basis == "runtime_step_key" and bool(row.source_step_key)
+        label_binding = row.source_binding_basis == "pinned_declared_label" and row.source_step_key == ""
+        label_candidates = [identity for identity, candidate in _AMD_RUNTIME_DEFINITIONS.items()
+                            if _amd_declared_route_matches(str(job.get("name") or ""), candidate, _job_queue(job))] if label_binding else []
+        if (
+            not all(isinstance(value, str) and value for value in proof)
+            or row.source_commit != commit
+            or definition is None
+            or definition[:2] != (_normalize_job_name(row.job_name).strip(), row.source_agent_pool)
+            or not (key_binding or label_binding)
+            or (key_binding and (row.source_definition_id.rsplit("#", 1)[-1] != row.source_step_key
+                                 or not step_keys or any(key != row.source_step_key for key in step_keys)))
+            or (label_binding and (step_keys or not isinstance(step.get("id"), str)
+                                   or not step["id"] or row.step_id != step["id"]
+                                   or label_candidates != [row.source_definition_id]))
+            or _normalize_job_name(str(job.get("name") or "")).strip() != definition[0]
+            or (_amd_declared_label_signature(str(job.get("name") or ""))[1]
+                and not _amd_declared_label_matches(str(job.get("name") or ""), definition))
+            or _amd_declared_label_signature(row.job_name) != _amd_declared_label_signature(str(job.get("name") or ""))
+            or (row.step_id and row.step_id != step.get("id"))
+        ):
+            raise ValueError("AMD result source identity does not match the pinned definition")
+        return definition[2]
+    return _amd_runtime_group_key(row.job_name, build_commit)
 
 
 def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
@@ -824,11 +906,12 @@ def compute_build_summary(
     canceled = 0
     test_groups = len(test_results)  # entry count (old total_tests)
     build_commit = str(build.get("commit") or "").strip().casefold()
+    jobs_by_id = {str(job["id"]): job for job in build.get("jobs", []) if job.get("id")}
 
-    def logical_group_key(job_name: str) -> str:
+    def logical_group_key(row: TestResult) -> str:
         if pipeline_key == "amd":
-            return _amd_runtime_group_key(job_name, build_commit)
-        return _normalize_job_name(job_name).strip()
+            return _amd_runtime_result_group_key(row, build_commit, jobs_by_id)
+        return _normalize_job_name(row.job_name).strip()
 
     # Build set of soft-failed job names — failures in these are expected
     # and should not count toward groups_failed
@@ -875,7 +958,7 @@ def compute_build_summary(
 
         # Track groups per HW — any failure in any shard marks the group as failed
         # but exclude soft-failed jobs (failures are expected/accepted)
-        norm = logical_group_key(r.job_name)
+        norm = logical_group_key(r)
         hw_seen_groups[hw].add(norm)
         if (r.status in ("failed", "error") and r.job_name not in soft_failed_jobs
                 and r.job_id not in soft_failed_job_ids):
@@ -900,7 +983,7 @@ def compute_build_summary(
     # AND-logic across shards: if ANY shard/result in a group fails, the group fails
     group_hw_status: dict[str, dict[str, bool]] = defaultdict(dict)
     for r in test_results:
-        norm = logical_group_key(r.job_name)
+        norm = logical_group_key(r)
         hw = _extract_hardware(r.job_name)
         if r.status in ("failed", "error"):
             # Any failure -> mark group as failed on this HW (AND across shards)

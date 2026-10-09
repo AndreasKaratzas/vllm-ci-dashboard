@@ -112,6 +112,7 @@ class TestGroupCountCorrectness:
             _extract_hardware,
             _normalize_job_name,
             _parse_job_execution_label,
+            _amd_declared_route_matches,
         )
 
         family_rows = []
@@ -172,6 +173,10 @@ class TestGroupCountCorrectness:
             "Agent-pool + normalized-label definition keys are ambiguous: "
             f"{ambiguous_definition_keys}"
         )
+        execution_definitions = {
+            row["definition_id"]: row
+            for row in definition_parity.get("amd_execution_definitions", [])
+        }
 
         matrix_families = set()
         missing_definition_keys = set()
@@ -234,6 +239,25 @@ class TestGroupCountCorrectness:
                         pool,
                         _normalize_job_name(job_name),
                     )
+                    source_fields = ("source_definition_id", "source_agent_pool",
+                                     "source_commit", "source_binding_basis")
+                    if any(result.get(field) for field in (*source_fields, "source_step_key")):
+                        definition = execution_definitions.get(result.get("source_definition_id"))
+                        assert definition and all(isinstance(result.get(field), str) and result[field]
+                                                  for field in source_fields), "AMD result source identity is incomplete"
+                        assert result["source_commit"] == definition_commit, "AMD result source commit is not the runtime pin"
+                        basis = result["source_binding_basis"]
+                        assert basis in {"runtime_step_key", "pinned_declared_label"}, "AMD result source binding is unknown"
+                        if basis == "runtime_step_key":
+                            assert result.get("source_step_key") == definition["definition_id"].rsplit("#", 1)[-1], "AMD result source step is not the pinned definition"
+                        else:
+                            assert result.get("source_step_key") == "" and result.get("step_id") and result.get("job_id"), "AMD result source UUID evidence is incomplete"
+                            assert _amd_declared_route_matches(job_name, (
+                                _normalize_job_name(definition["label"]), definition["agent_pool"], "", definition["label"],
+                            ), pool), "AMD result source declaration is not the pinned route"
+                        assert result["source_agent_pool"] == definition["agent_pool"], "AMD result source declared pool is not the pinned definition"
+                        assert _normalize_job_name(job_name) == _normalize_job_name(definition["label"]), "AMD result source label is not the pinned definition"
+                        key = (result["source_agent_pool"], _normalize_job_name(job_name))
                     families = families_by_definition.get(key, set())
                     if not families:
                         missing_result_keys.add(key)
@@ -409,6 +433,11 @@ def aligned_definition_audit(tmp_path, monkeypatch):
         "config_parity": {
             "source": {"commit_sha": "a" * 40},
             "summary": {"amd_identity_families": 2},
+            "amd_execution_definitions": [
+                {"definition_id": f".buildkite/test_areas/models.yaml#step-{index}",
+                 "agent_pool": pool, "label": label}
+                for index, (pool, label, _family) in enumerate(routes)
+            ],
             "amd_only": [
                 {"agent_pool": pool, "label": label,
                  "amd_identity_family_key": family}
@@ -449,6 +478,54 @@ def aligned_definition_audit(tmp_path, monkeypatch):
         validator.test_commit_aligned_definition_families_match_runtime_groups()
 
     return latest, results, audit
+
+
+def test_definition_audit_accepts_proven_source_route_without_replacing_hardware(aligned_definition_audit):
+    _latest, results, audit = aligned_definition_audit
+    results[2].update({
+        "job_name": "amd_mi355_1: :amd: (MI355 DPX) Shared 1",
+        "source_definition_id": ".buildkite/test_areas/models.yaml#step-1",
+        "source_agent_pool": "mi355_dpx", "source_commit": "a" * 40,
+        "source_step_key": "step-1",
+        "source_binding_basis": "runtime_step_key",
+    })
+    audit()
+
+
+def test_definition_audit_accepts_explicit_source_declaration_without_inventing_key(aligned_definition_audit):
+    _latest, results, audit = aligned_definition_audit
+    results[2].update({
+        "job_name": "amd_mi355_1: :amd: (MI355 DPX) Shared 1",
+        "source_definition_id": ".buildkite/test_areas/models.yaml#step-1",
+        "source_agent_pool": "mi355_dpx", "source_commit": "a" * 40,
+        "source_step_key": "", "source_binding_basis": "pinned_declared_label",
+        "job_id": "01a11f49-ebe0-4d61-9f05-18dc66bb0b0c",
+        "step_id": "01a11f49-ea08-413f-9c7a-5b600f48fb68",
+    })
+    audit()
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("source_commit", "b" * 40),
+    ("source_definition_id", ".buildkite/test_areas/models.yaml#unknown"),
+    ("source_agent_pool", "mi355_1"),
+    ("source_step_key", "other-key"),
+    ("source_step_key", ""),
+    ("source_binding_basis", "unknown"),
+    ("job_name", "amd_mi355_1: Unknown group"),
+])
+def test_definition_audit_rejects_wrong_or_incomplete_source_identity(aligned_definition_audit, field, value):
+    _latest, results, audit = aligned_definition_audit
+    results[2].update({
+        "job_name": "amd_mi355_1: :amd: (MI355 DPX) Shared 1",
+        "source_definition_id": ".buildkite/test_areas/models.yaml#step-1",
+        "source_agent_pool": "mi355_dpx", "source_commit": "a" * 40,
+        "source_step_key": "step-1",
+        "source_binding_basis": "runtime_step_key",
+    })
+    results[2][field] = value
+    with pytest.raises(AssertionError, match="source"):
+        audit()
 
 
 @pytest.mark.parametrize(("statuses", "passing"), [

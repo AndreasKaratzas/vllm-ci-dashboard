@@ -21,6 +21,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.vllm.workload_live_contract import (
+    assert_retention_coverage,
+    assert_window_coverage,
+)
+
 pytestmark = pytest.mark.live_data
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -147,7 +152,8 @@ class TestCIDataFreshness:
             for row in d.get("daily") or []
             if window.get("start_date", "") <= row.get("date", "") <= generated_day
         ]
-        assert len(window_rows) == 14
+        assert_window_coverage(d)
+        assert window_rows, "The current window must include the observed UTC day"
 
         retention = d.get("retention") or {}
         hourly_days = int(retention.get("hourly_days") or 0)
@@ -157,17 +163,10 @@ class TestCIDataFreshness:
 
         hourly = d.get("hourly") or []
         daily = d.get("daily") or []
-        assert len(hourly) >= hourly_days * 24 + 1
-        assert len(daily) >= daily_days
-        assert _parse_ts(hourly[0]["hour"]) <= (
-            generated_hour - timedelta(days=hourly_days)
-        )
+        assert_retention_coverage(d)
         assert _parse_ts(hourly[-1]["hour"]) == generated_hour
         assert hourly[-1]["state"] == "open"
         assert hourly[-1]["observed_through"] == ts
-        assert daily[0]["date"] <= (
-            generated_at.date() - timedelta(days=daily_days - 1)
-        ).isoformat()
         assert daily[-1]["date"] == generated_day
         assert daily[-1]["state"] == "open"
         assert daily[-1]["observed_through"] == ts

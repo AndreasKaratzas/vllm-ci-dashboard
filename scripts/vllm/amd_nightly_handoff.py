@@ -45,6 +45,7 @@ _JOB_FIELDS = frozenset(
         "agent_query_rules",
         "agent_queue",
         "step",
+        "step_key",
     }
 )
 _TEXT_BUILD_FIELDS = _BUILD_FIELDS - {"number", "jobs"}
@@ -91,17 +92,19 @@ def compact_amd_build_snapshot(
                 f"AMD frozen-nightly jobs[{index}] must be an object"
             )
         job: dict[str, Any] = {}
+        if "step_key" in raw_job and raw_job["step_key"] is None:
+            raise AmdNightlyHandoffError("AMD frozen-nightly step_key must be a non-empty normalized string")
         for key in sorted(_TEXT_JOB_FIELDS):
             if key not in raw_job or raw_job[key] is None:
                 continue
             _validate_text_field(
                 raw_job[key], label=f"AMD frozen-nightly jobs[{index}].{key}"
             )
-            if key == "agent_queue" and (
+            if key in {"agent_queue", "step_key"} and (
                 not raw_job[key] or raw_job[key] != raw_job[key].strip()
             ):
                 raise AmdNightlyHandoffError(
-                    "AMD frozen-nightly agent_queue must be a non-empty normalized string"
+                    f"AMD frozen-nightly {key} must be a non-empty normalized string"
                 )
             job[key] = raw_job[key]
         if resolve_agent_queue:
@@ -140,6 +143,13 @@ def compact_amd_build_snapshot(
                 )
                 if step_id:
                     job["step"] = {"id": step_id}
+            if "key" in raw_step:
+                step_key = raw_step["key"]
+                if not isinstance(step_key, str) or not step_key or step_key != step_key.strip():
+                    raise AmdNightlyHandoffError("AMD frozen-nightly step.key must be a non-empty normalized string")
+                if "step_key" in job and job["step_key"] != step_key:
+                    raise AmdNightlyHandoffError("AMD frozen-nightly step keys disagree")
+                job.setdefault("step", {})["key"] = step_key
         jobs.append(job)
     snapshot["jobs"] = jobs
     return snapshot

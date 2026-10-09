@@ -140,6 +140,11 @@ GitHub Actions workflows. Local tests and rendering use fixtures without a
 Buildkite token. Request allowances and successful collection cadence remain
 bounded by the durable ledgers.
 
+The daily [deployment retention workflow](.github/workflows/deployment-retention.yml)
+keeps the newest twenty GitHub deployment records and removes proven superseded
+Pages records. Its [retention policy](scripts/vllm/deployment-retention.md) preserves
+the serving deployment and active work; manual runs default to a preview.
+
 ### CI ownership and regression issues
 
 [`config/vllm_ci_ownership.json`](config/vllm_ci_ownership.json) is the

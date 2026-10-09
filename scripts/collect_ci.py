@@ -68,6 +68,10 @@ from vllm.ci.dns_classification_cache import (
 from vllm.ci.analyzer import (
     _EXCLUDE_PATTERNS,
     _JOB_PREFIX_RE,
+    _normalize_job_name,
+    _amd_declared_label_matches,
+    _amd_declared_label_signature,
+    _amd_declared_route_matches,
     apply_quarantine,
     compute_all_test_health,
     compute_build_summary,
@@ -524,6 +528,127 @@ def _persist_scoped_cached_results(
     log.info("  Persisted %s-only cached CI evidence for %s (%d/%d rows)",
              pipeline_key, date, len(scoped), len(cached))
     return True
+
+
+def _amd_source_definition_catalog(report: dict) -> tuple[str, dict[str, tuple[str, str, str, str]]]:
+    """Index physical definitions from one immutable runtime source report."""
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    commit, routes = extract_amd_runtime_group_key_map_from_report(report)
+    if not FULL_COMMIT_SHA_RE.fullmatch(commit):
+        raise ValueError("AMD definition catalog requires an exact source commit")
+    definitions = {}
+    for raw in report.get("amd_execution_definitions", []):
+        identity = raw.get("definition_id")
+        label = _normalize_job_name(str(raw.get("label") or "")).strip()
+        pool = str(raw.get("agent_pool") or "").strip().casefold()
+        family = routes.get((label, pool))
+        if not isinstance(identity, str) or "#" not in identity or not identity.rsplit("#", 1)[-1] or not family:
+            raise ValueError("AMD execution definition lacks a pinned family identity")
+        if identity in definitions:
+            raise ValueError("AMD execution definition identities are duplicated")
+        definitions[identity] = (label, pool, family, str(raw.get("label") or ""))
+    return commit, definitions
+
+
+def _attest_amd_source_results(
+    rows: list[TestResult], build: dict, commit: str,
+    definitions: dict[str, tuple[str, str, str, str]],
+) -> list[TestResult]:
+    """Join exact attempts to source steps, preserving observed queue routing.
+
+    A provider may execute a declared DPX step on an MI355_1 physical queue.
+    Its step key and immutable source commit establish configuration identity;
+    the observed queue continues to establish the hardware denominator.
+    Cached result annotations never authorize this join.
+    """
+    if build.get("commit") != commit:
+        raise ValueError("AMD source identity must match the exact runtime commit")
+    jobs = {}
+    for job in build.get("jobs") or []:
+        identity = job.get("id")
+        if identity:
+            if identity in jobs:
+                raise ValueError("AMD frozen roster contains duplicate attempt identities")
+            jobs[identity] = job
+    by_step: dict[str, list[str]] = {}
+    routes = {}
+    for identity, (label, pool, family, _source_label) in definitions.items():
+        by_step.setdefault(identity.rsplit("#", 1)[-1], []).append(identity)
+        routes[(label, pool)] = family
+    attested = []
+    for row in rows:
+        job = jobs.get(row.job_id)
+        if row.pipeline != "ci" or row.build_number != build.get("number") or job is None:
+            raise ValueError("AMD result is absent from the exact runtime roster")
+        label = _normalize_job_name(row.job_name).strip()
+        if label != _normalize_job_name(str(job.get("name") or "")).strip():
+            raise ValueError("AMD result label disagrees with its exact runtime attempt")
+        if _amd_declared_label_signature(row.job_name) != _amd_declared_label_signature(str(job.get("name") or "")):
+            raise ValueError("AMD result declaration disagrees with its exact runtime attempt")
+        raw_step = job.get("step") or {}
+        if not isinstance(raw_step, dict):
+            raise ValueError("AMD runtime step identity is malformed")
+        if row.step_id and row.step_id != raw_step.get("id"):
+            raise ValueError("AMD result step UUID disagrees with its exact runtime attempt")
+        keys = ([job["step_key"]] if "step_key" in job else []) + ([raw_step["key"]] if "key" in raw_step else [])
+        if any(not isinstance(key, str) or not key or key != key.strip() for key in keys) or len(set(keys)) > 1:
+            raise ValueError("AMD runtime source step keys are malformed or disagree")
+        # Clear all restored assertions before deriving source authority.
+        clean = replace(row, source_definition_id="", source_agent_pool="",
+                        source_commit="", source_step_key="", source_binding_basis="")
+        if keys:
+            candidates = [identity for identity in by_step.get(keys[0], [])
+                          if definitions[identity][0] == label]
+            if len(candidates) != 1:
+                raise ValueError("AMD runtime step lacks an unambiguous pinned source definition")
+            identity = candidates[0]
+            if _amd_declared_label_signature(str(job.get("name") or ""))[1] and not _amd_declared_label_matches(str(job.get("name") or ""), definitions[identity]):
+                raise ValueError("AMD runtime source key contradicts its declared label")
+            clean = replace(clean, source_definition_id=identity,
+                            source_agent_pool=definitions[identity][1],
+                            source_commit=commit, source_step_key=keys[0],
+                            source_binding_basis="runtime_step_key")
+        else:
+            # Some REST rosters retain only an opaque step UUID. Their original
+            # explicit AMD declaration can bind one pinned source definition;
+            # a generic normalized label cannot authorize a rerouting alias.
+            pool = _job_queue(job).removeprefix("amd_")
+            candidates = [identity for identity, definition in definitions.items()
+                          if _amd_declared_route_matches(str(job.get("name") or ""), definition, _job_queue(job))]
+            if candidates:
+                if len(candidates) != 1 or not isinstance(raw_step.get("id"), str) or not raw_step["id"]:
+                    raise ValueError("AMD declared label lacks an unambiguous source step identity")
+                identity = candidates[0]
+                clean = replace(clean, source_definition_id=identity,
+                                source_agent_pool=definitions[identity][1], source_commit=commit,
+                                step_id=raw_step["id"], source_binding_basis="pinned_declared_label")
+            elif (label, pool) not in routes or _amd_declared_label_signature(str(job.get("name") or ""))[1]:
+                raise ValueError("AMD rerouted runtime attempt requires a pinned declared source identity")
+        attested.append(clean)
+    return attested
+
+
+def _attest_amd_source_shards(
+    results_dir: Path, build: dict, commit: str,
+    definitions: dict[str, tuple[str, str, str, str]],
+) -> dict[int, list[TestResult]]:
+    """Validate every same-build row before atomically writing its source proof."""
+    replacements = []
+    selected = {}
+    for path in sorted(results_dir.glob("*_amd.jsonl")):
+        rows = _load_cached_results(path)
+        if not any(row.build_number == build.get("number") for row in rows):
+            continue
+        if any(row.build_number != build.get("number") for row in rows):
+            raise ValueError("AMD result shard mixes runtime builds")
+        attested = _attest_amd_source_results(rows, build, commit, definitions)
+        replacements.append((path, rows, attested))
+        selected.setdefault(int(build["number"]), []).extend(attested)
+    for path, rows, attested in replacements:
+        if attested != rows:
+            if write_test_results(attested, path.name.rsplit("_", 1)[0], "amd", results_dir) is None:
+                raise ValueError("AMD source-attested result shard could not be retained")
+    return selected
 
 
 def _purge_unproved_result_scope(results_dir: Path, builds: list[dict]) -> None:
@@ -1753,6 +1878,8 @@ def main():
         )
 
     # Extract shard bases from upstream YAML (needed for correct group normalization)
+    runtime_config_parity = None
+    runtime_definitions = {}
     if not args.skip_config_parity:
         log.info("Extracting shard bases from upstream YAML...")
         from vllm.config_parity import (
@@ -1773,6 +1900,12 @@ def main():
             set_shard_bases,
         )
         set_shard_bases(shard_bases)
+        from vllm.config_parity import build_config_parity
+        runtime_config_parity = build_config_parity()
+        if "error" not in runtime_config_parity:
+            runtime_definition_commit, runtime_definitions = _amd_source_definition_catalog(runtime_config_parity)
+        else:
+            runtime_definition_commit = ""
         runtime_group_commit, runtime_group_keys = (
             extract_amd_runtime_group_key_map()
         )
@@ -1780,7 +1913,10 @@ def main():
         set_amd_runtime_group_key_map(
             runtime_group_commit,
             runtime_group_keys,
+            runtime_definitions,
         )
+        if runtime_definitions and runtime_definition_commit != runtime_group_commit:
+            raise ValueError("AMD runtime definition and family source commits disagree")
         log.info(
             "Installed %d AMD runtime group routes for config commit %s",
             len(runtime_group_keys),
@@ -1814,14 +1950,17 @@ def main():
             from vllm.config_parity import (
                 extract_amd_runtime_group_key_map_from_report,
             )
+            runtime_config_parity = json.loads(config_parity_path.read_text())
             runtime_group_commit, runtime_group_keys = (
                 extract_amd_runtime_group_key_map_from_report(
-                    json.loads(config_parity_path.read_text())
+                    runtime_config_parity
                 )
             )
+            _, runtime_definitions = _amd_source_definition_catalog(runtime_config_parity)
             set_amd_runtime_group_key_map(
                 runtime_group_commit,
                 runtime_group_keys,
+                runtime_definitions,
             )
             log.info(
                 "Reused %d AMD runtime group routes for config commit %s",
@@ -1845,6 +1984,10 @@ def main():
     # Authenticate old shards before retiring their out-of-scope runtime
     # evidence. Only MI rows may be retained by the current generation.
     _purge_unproved_result_scope(results_dir, all_builds.get("amd", []))
+    if runtime_definitions and evidence_verified_complete and evidence_build.get("commit") == runtime_group_commit:
+        all_results.setdefault("amd", {}).update(_attest_amd_source_shards(
+            results_dir, evidence_build, runtime_group_commit, runtime_definitions,
+        ))
     try:
         synchronize_current_mi_shards(backfill_checkpoint_dir, results_dir)
     except (OSError, BackfillCheckpointError):
@@ -1978,9 +2121,8 @@ def main():
     # YAML config parity (fetches from upstream GitHub)
     if not args.skip_config_parity:
         log.info("Running YAML config parity analysis (fetching from upstream)...")
-        from vllm.config_parity import build_config_parity
         from vllm.collect_ownership_parity import bounded_config_parity_payload
-        config_parity = build_config_parity()
+        config_parity = runtime_config_parity
         if "error" not in config_parity:
             config_parity = bounded_config_parity_payload(
                 config_parity,

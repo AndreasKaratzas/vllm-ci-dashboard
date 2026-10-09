@@ -842,9 +842,9 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
             "passing_policy": "passes_on_any_observed_hardware",
             "count_basis": (
                 "unique logical test-group identities observed in this build; "
-                "when its commit matches the pinned AMD definitions, normalized "
-                "label plus agent pool resolves the configuration identity family, "
-                "preserving topology-distinct routes; hardware-specific executions "
+                "when its commit matches the pinned AMD definitions, verified source step "
+                "identity or normalized label plus agent pool resolves the configuration "
+                "identity family, preserving topology-distinct routes; hardware-specific executions "
                 "in one family and configured %N shard jobs count once per family; "
                 "without an aligned map they fall back to the normalized group; "
                 "configured-definition inventories are separate"

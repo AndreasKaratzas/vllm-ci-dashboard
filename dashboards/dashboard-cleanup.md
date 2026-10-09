@@ -74,6 +74,13 @@ analytics fetch. Failed preflight or publication selection retains a bounded
 diagnostic artifact with initial candidate findings and later fallback findings.
 The artifact excludes private caches, agent identities, and arbitrary logs.
 Collector failures also produce that early artifact when a raw audit cannot run.
+When final live validation fails, a separate one-day diagnostic retains only the
+prepared generated candidate and its exact manifest. The archive verifies every
+file against the staged Git index and excludes private caches and repository code.
+It records the original source clocks and an explicit rejected-publication flag;
+retaining this evidence never advances production freshness or relaxes a gate.
+Workload checks validate declared partial retention and missing bucket counts,
+including a short initial collection, instead of requiring invented older data.
 The matrix selects its observed nightly from fresh CI health before consulting
 retained analytics; older analytics metadata cannot reject a new frozen roster.
 When a nightly resumes in an active retry, the active head remains visible while
@@ -142,6 +149,13 @@ Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,
 current source coverage, retired navigation, malformed legacy restore proofs,
 and the complete retained public bundle.
+
+The [deployment retention policy](../scripts/vllm/deployment-retention.md) bounds
+GitHub deployment history independently of dashboard state. A daily main-branch
+workflow keeps the newest twenty records, proves a newer serving Pages deployment
+before retiring older completed records, and preserves active or unknown work.
+Manual runs default to a preview, and status writes and deletions are serialized
+within a fixed time and count limit.
 
 The latency projection retains exact job evidence in a declared column format
 when needed to fit its 7 MiB public allocation. A 225-group, five-nightly,
