@@ -15,8 +15,9 @@ OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS = (
 )
 AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS = (
     "unique logical test-group identities observed in this build; "
-    "when its commit matches the pinned AMD definitions, normalized label plus "
-    "agent pool resolves the configuration identity family, preserving "
+    "when its commit matches the pinned AMD definitions, verified source step "
+    "identity or normalized label plus agent pool resolves the configuration "
+    "identity family, preserving "
     "topology-distinct routes; hardware-specific executions in one family and "
     "configured %N shard jobs count once per family; without an aligned map "
     "they fall back to the normalized group; configured-definition inventories "
@@ -44,6 +45,11 @@ class TestResult:
                            # "Node:" line (e.g. "chi-mi325x-pod2-032"); "" when
                            # the log did not expose an identifiable node.
     parser_version: int = TEST_RESULT_PARSER_VERSION
+    source_definition_id: str = ""  # exact commit-pinned YAML execution identity
+    source_agent_pool: str = ""     # declared route, separate from observed hardware
+    source_commit: str = ""
+    source_step_key: str = ""
+    source_binding_basis: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -61,6 +67,15 @@ class TestResult:
             "date": self.date,
             "node": self.node,
             "parser_version": self.parser_version,
+            **({
+                "source_definition_id": self.source_definition_id,
+                "source_agent_pool": self.source_agent_pool,
+                "source_commit": self.source_commit,
+                "source_step_key": self.source_step_key,
+                "source_binding_basis": self.source_binding_basis,
+            } if any((self.source_definition_id, self.source_agent_pool,
+                      self.source_commit, self.source_step_key,
+                      self.source_binding_basis)) else {}),
         }
 
 

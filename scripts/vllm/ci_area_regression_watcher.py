@@ -125,10 +125,16 @@ def _timestamp_is_fresh(
 
 
 def _matrix_commit(matrix: dict) -> str:
-    source = matrix.get("source") or {}
-    if source.get("pipeline") != "ci" or matrix.get("hardware_scope") != "amd_mi_gpu":
+    source = matrix.get("source")
+    if (
+        not isinstance(source, dict)
+        or source.get("pipeline") != "ci"
+        or source.get("hardware_scope") != "amd_mi_gpu"
+    ):
         return ""
     commit = str(source.get("runtime_source_commit_sha") or source.get("commit_sha") or "").lower()
+    if source.get("commit_sha") != commit:
+        return ""
     yaml_url = str(source.get("yaml_url") or "")
     match = COMMIT_IN_YAML_URL_RE.search(yaml_url)
     return commit if match and match.group("commit").lower() == commit else ""

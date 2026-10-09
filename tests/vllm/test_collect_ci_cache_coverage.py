@@ -70,6 +70,9 @@ from collect_ci import (  # noqa: E402
     _current_scope_results,
     _purge_unproved_result_scope,
     _scope_nightly_build,
+    _amd_source_definition_catalog,
+    _attest_amd_source_results,
+    _attest_amd_source_shards,
     _fetch_build_detail_with_routing_diagnostics,
     _log_ci_routing_conflicts,
     _scoped_result_entries,
@@ -628,6 +631,245 @@ def test_observed_route_change_replaces_old_prefix_and_is_idempotent():
     assert _current_scope_results(once, "amd", build) == once
     assert once[0].test_id == original.test_id
     assert once[0].classname == original.classname
+
+
+def _rerouted_source_report():
+    routes = [
+        ("amd-lm-eval-small-models", "mi300_1", ":amd: (MI300) LM Eval Small Models", "lm eval small models"),
+        ("amd-lm-eval-small-models-1xb200", "mi355_dpx", ":amd: (MI355 DPX) LM Eval Small Models", "lm eval small models (1 gpus)"),
+    ]
+    return {
+        "source": {"commit_sha": "a" * 40},
+        "amd_execution_definitions": [
+            {"definition_id": f".buildkite/test_areas/models.yaml#{key}",
+             "agent_pool": pool, "label": label}
+            for key, pool, label, _family in routes
+        ],
+        "amd_only": [{"agent_pool": pool, "label": label,
+                      "amd_identity_family_key": family}
+                     for _key, pool, label, family in routes],
+    }
+
+
+def _rerouted_source_build():
+    report = _rerouted_source_report()
+    return {"number": 7791, "commit": "a" * 40, "branch": "main",
+            "state": "passed", "jobs": [
+                {**_job(definition["label"]), "id": f"job-{index}",
+                 "step": {"id": f"step-{index}", "key": definition["definition_id"].rsplit("#", 1)[-1]},
+                 "agent_queue": "amd_mi300_1" if index == 0 else "amd_mi355_1",
+                 "agent_query_rules": [f"queue=amd_{definition['agent_pool']}"]}
+                for index, definition in enumerate(report["amd_execution_definitions"])
+            ]}
+
+
+def test_exact_source_step_preserves_two_families_on_observed_rerouted_hardware(tmp_path, monkeypatch):
+    """A declared DPX LM-eval step is distinct even on physical MI355_1."""
+    from vllm.ci import analyzer
+    report = _rerouted_source_report()
+    build = _scope_nightly_build(_rerouted_source_build(), "amd")
+    rows = _current_scope_results([
+        TestResult(**_record(job["name"], job_id=job["id"]))
+        for job in build["jobs"]
+    ], "amd", build)
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    commit, routes = extract_amd_runtime_group_key_map_from_report(report)
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
+    analyzer.set_amd_runtime_group_key_map(commit, routes)
+    assert compute_build_summary(build, rows, "amd").unique_test_groups == 1
+    commit, definitions = _amd_source_definition_catalog(report)
+    attested = _attest_amd_source_results(rows, build, commit, definitions)
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions)
+    summary = compute_build_summary(build, attested, "amd")
+    assert summary.unique_test_groups == summary.test_groups_passing_or == 2
+    assert summary.by_hardware["mi355"]["groups"] == 1
+    assert attested[1].job_name.startswith("amd_mi355_1:")
+    assert attested[1].source_agent_pool == "mi355_dpx"
+    assert build["jobs"][1]["agent_query_rules"] == ["queue=amd_mi355_dpx"]
+    directory = tmp_path / "results"
+    path = reporter_module.write_test_results(attested, "2026-04-18", "amd", directory)
+    restored = _load_cached_results(path)
+    assert restored == attested
+    assert _attest_amd_source_results(restored, build, commit, definitions) == attested
+    assert compute_build_summary(build, restored, "amd").unique_test_groups == 2
+
+
+@pytest.mark.parametrize("change", ["key", "label", "commit", "job_id", "build_number", "pipeline", "conflicting_key"])
+def test_rerouted_source_identity_requires_exact_commit_attempt_and_step(change):
+    build = _scope_nightly_build(_rerouted_source_build(), "amd")
+    row = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)[0]
+    commit, definitions = _amd_source_definition_catalog(_rerouted_source_report())
+    if change == "key":
+        build["jobs"][1]["step"]["key"] = "unknown-key"
+    elif change == "label":
+        row.job_name = "amd_mi355_1: Unknown group"
+    elif change == "commit":
+        build["commit"] = "b" * 40
+    elif change == "conflicting_key":
+        build["jobs"][1]["step_key"] = "other-key"
+    else:
+        setattr(row, change, {"job_id": "foreign", "build_number": 7792, "pipeline": "amd-ci"}[change])
+    with pytest.raises(ValueError):
+        _attest_amd_source_results([row], build, commit, definitions)
+
+
+def test_ambiguous_source_key_refuses_cached_claim_and_preserves_shard(tmp_path):
+    build = _scope_nightly_build(_rerouted_source_build(), "amd")
+    rows = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)
+    rows[0].source_definition_id = "forged-source"
+    rows[0].source_commit = "a" * 40
+    report = _rerouted_source_report()
+    commit, definitions = _amd_source_definition_catalog(report)
+    identity = report["amd_execution_definitions"][1]["definition_id"]
+    definitions[identity.replace("models.yaml", "other.yaml")] = definitions[identity]
+    directory = tmp_path / "results"
+    path = reporter_module.write_test_results(rows, "2026-04-18", "amd", directory)
+    before = {item.name: item.read_bytes() for item in directory.iterdir() if item.is_file()}
+    with pytest.raises(ValueError, match="unambiguous"):
+        _attest_amd_source_shards(directory, build, commit, definitions)
+    assert {item.name: item.read_bytes() for item in directory.iterdir() if item.is_file()} == before
+    assert path is not None
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("source_commit", "b" * 40),
+    ("source_definition_id", "foreign#amd-lm-eval-small-models-1xb200"),
+    ("source_agent_pool", "mi355_1"),
+    ("source_step_key", "unknown"),
+])
+def test_analyzer_refuses_unverified_source_identity(field, value, monkeypatch):
+    from vllm.ci import analyzer
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    report = _rerouted_source_report()
+    build = _scope_nightly_build(_rerouted_source_build(), "amd")
+    rows = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)
+    commit, definitions = _amd_source_definition_catalog(report)
+    attested = _attest_amd_source_results(rows, build, commit, definitions)
+    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions)
+    setattr(attested[0], field, value)
+    with pytest.raises(ValueError, match="source identity"):
+        compute_build_summary(build, attested, "amd")
+
+
+def test_same_commit_cached_row_cannot_borrow_another_valid_definition_family(monkeypatch):
+    """Earlier same-pin builds must use their own exact attempt's step key."""
+    from vllm.ci import analyzer
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    report = _rerouted_source_report()
+    build = _scope_nightly_build(_rerouted_source_build(), "amd")
+    build["number"] = 7790
+    row = TestResult(**_record(build["jobs"][0]["name"], build_num=7790, job_id="job-0"))
+    commit, definitions = _amd_source_definition_catalog(report)
+    attested = _attest_amd_source_results(_current_scope_results([row], "amd", build), build, commit, definitions)
+    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions)
+    assert compute_build_summary(build, attested, "amd").unique_test_groups == 1
+    # Every forged field exists in the pinned catalog and has the same display
+    # label, but it belongs to a different actual step and GPU-count family.
+    other = report["amd_execution_definitions"][1]
+    attested[0].source_definition_id = other["definition_id"]
+    attested[0].source_agent_pool = other["agent_pool"]
+    attested[0].source_step_key = other["definition_id"].rsplit("#", 1)[-1]
+    with pytest.raises(ValueError, match="source identity"):
+        compute_build_summary(build, attested, "amd")
+    # A fresh join derives the original MI300 family from the real step key.
+    restored = _attest_amd_source_results(attested, build, commit, definitions)
+    assert restored[0].source_definition_id == report["amd_execution_definitions"][0]["definition_id"]
+    assert compute_build_summary(build, restored, "amd").unique_test_groups == 1
+
+
+def _keyless_rerouted_source_build():
+    build = _rerouted_source_build()
+    for job in build["jobs"]:
+        del job["step"]["key"]
+    return _scope_nightly_build(build, "amd")
+
+
+def test_original_dpx_declaration_binds_keyless_provider_step_without_queue_alias(monkeypatch):
+    from vllm.ci import analyzer
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    report = _rerouted_source_report()
+    build = _keyless_rerouted_source_build()
+    rows = _current_scope_results([TestResult(**_record(job["name"], job_id=job["id"]))
+                                   for job in build["jobs"]], "amd", build)
+    commit, definitions = _amd_source_definition_catalog(report)
+    proved = _attest_amd_source_results(rows, build, commit, definitions)
+    assert {row.source_binding_basis for row in proved} == {"pinned_declared_label"}
+    assert {row.source_step_key for row in proved} == {""}
+    assert proved[1].step_id == build["jobs"][1]["step"]["id"]
+    assert proved[1].source_agent_pool == "mi355_dpx"
+    assert proved[1].job_name.startswith("amd_mi355_1:")
+    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions)
+    summary = compute_build_summary(build, proved, "amd")
+    assert summary.unique_test_groups == 2
+    assert summary.by_hardware["mi355"]["groups"] == 1
+
+
+@pytest.mark.parametrize("change", ["generic_label", "wrong_architecture", "wrong_native_pool", "missing_step_uuid", "forged_row_decorator"])
+def test_keyless_source_binding_rejects_unproved_or_contradictory_declarations(change):
+    build = _keyless_rerouted_source_build()
+    job = build["jobs"][1]
+    if change == "generic_label":
+        job["name"] = "LM Eval Small Models"
+    elif change == "wrong_architecture":
+        job["name"] = ":amd: (MI300) LM Eval Small Models"
+    elif change == "wrong_native_pool":
+        job["name"] = "AMD: :amd: (MI355 DPX) LM Eval Small Models (mi355_1)"
+    elif change == "missing_step_uuid":
+        job["step"] = {}
+    row = _current_scope_results([TestResult(**_record(job["name"], job_id=job["id"]))], "amd", build)[0]
+    if change == "forged_row_decorator":
+        row.job_name = "amd_mi355_1: :amd: (MI300) LM Eval Small Models"
+    commit, definitions = _amd_source_definition_catalog(_rerouted_source_report())
+    with pytest.raises(ValueError):
+        _attest_amd_source_results([row], build, commit, definitions)
+
+
+@pytest.mark.parametrize("location", ["step_key", "step.key"])
+@pytest.mark.parametrize("value", [None, "", False, [], {}])
+def test_present_malformed_key_cannot_downgrade_to_declared_label_proof(location, value):
+    build = _keyless_rerouted_source_build()
+    job = build["jobs"][1]
+    if location == "step.key":
+        job["step"]["key"] = value
+    else:
+        job[location] = value
+    row = _current_scope_results([TestResult(**_record(job["name"], job_id=job["id"]))], "amd", build)[0]
+    commit, definitions = _amd_source_definition_catalog(_rerouted_source_report())
+    with pytest.raises(ValueError, match="malformed"):
+        _attest_amd_source_results([row], build, commit, definitions)
+
+
+def test_cached_declared_label_proof_cannot_choose_an_ambiguous_definition(monkeypatch):
+    from vllm.ci import analyzer
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    report = _rerouted_source_report()
+    build = _keyless_rerouted_source_build()
+    row = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)[0]
+    commit, definitions = _amd_source_definition_catalog(report)
+    proved = _attest_amd_source_results([row], build, commit, definitions)
+    identity = proved[0].source_definition_id
+    definitions[identity.replace("models.yaml", "other.yaml")] = definitions[identity]
+    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions)
+    with pytest.raises(ValueError, match="source identity"):
+        compute_build_summary(build, proved, "amd")
 
 
 class TestCachedJobNames:
@@ -1578,7 +1820,7 @@ class TestFrozenAmdNightlySnapshot:
                 "soft_failed": False,
                 "agent_queue": "amd_mi300_1",
                 "agent_query_rules": ["queue=amd_mi300_1"],
-                "step": {"id": "engine"},
+                "step": {"id": "engine", "key": "private-key"},
             }
         ]
         serialized = json.dumps(compact)

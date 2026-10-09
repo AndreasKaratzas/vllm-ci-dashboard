@@ -929,9 +929,9 @@ def _source_documents(now):
     commit = "a" * 40
     matrix = {
         "generated_at": timestamp,
-        "hardware_scope": "amd_mi_gpu",
         "source": {
             "pipeline": "ci", "commit_sha": commit, "runtime_source_commit_sha": commit,
+            "hardware_scope": "amd_mi_gpu",
             "yaml_url": (
                 "https://raw.githubusercontent.com/vllm-project/vllm/"
                 f"{commit}/.buildkite/ci_config.yaml"
@@ -947,6 +947,16 @@ def _source_documents(now):
         "source": {"commit_sha": commit},
     }
     return matrix, parity, ownership_parity
+
+
+def test_area_watcher_accepts_producer_source_scope_without_a_root_marker(monkeypatch):
+    now = datetime(2026, 10, 9, 20, 38, tzinfo=timezone.utc)
+    matrix, parity, ownership = _source_documents(now)
+    monkeypatch.setattr(watcher, "_source_is_fresh", lambda _: True)
+    assert "hardware_scope" not in matrix
+    assert matrix["source"]["hardware_scope"] == "amd_mi_gpu"
+    assert watcher._matrix_commit(matrix) == matrix["source"]["runtime_source_commit_sha"]
+    assert watcher._source_validation_error(now, matrix, parity, ownership) == ""
 
 
 def test_source_validation_requires_fresh_build_pinned_inputs(monkeypatch):
@@ -993,7 +1003,10 @@ def test_source_validation_rejects_stale_matrix_or_nightly(monkeypatch):
     ) == "amd_nightly_signal_stale"
 
 
-@pytest.mark.parametrize("change", ["legacy_pipeline", "unmarked", "foreign_pin", "legacy_source"])
+@pytest.mark.parametrize("change", [
+    "legacy_pipeline", "unmarked", "root_marker_only", "wrong_source_scope",
+    "foreign_pin", "foreign_definition_pin", "short_pin", "legacy_source",
+])
 def test_area_alerts_refuse_unproved_or_foreign_runtime_matrix(monkeypatch, change):
     now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
     matrix, parity, ownership = _source_documents(now)
@@ -1001,12 +1014,26 @@ def test_area_alerts_refuse_unproved_or_foreign_runtime_matrix(monkeypatch, chan
     if change == "legacy_pipeline":
         matrix["source"]["pipeline"] = "amd-ci"
     elif change == "unmarked":
-        del matrix["hardware_scope"]
+        del matrix["source"]["hardware_scope"]
+    elif change == "root_marker_only":
+        matrix["hardware_scope"] = matrix["source"].pop("hardware_scope")
+    elif change == "wrong_source_scope":
+        matrix["hardware_scope"] = "amd_mi_gpu"
+        matrix["source"]["hardware_scope"] = "all_gpu"
     elif change == "foreign_pin":
         matrix["source"]["runtime_source_commit_sha"] = "b" * 40
+    elif change == "foreign_definition_pin":
+        matrix["source"]["commit_sha"] = "b" * 40
+    elif change == "short_pin":
+        matrix["source"]["commit_sha"] = matrix["source"]["runtime_source_commit_sha"] = "a" * 12
     else:
         matrix["source"]["yaml_url"] = matrix["source"]["yaml_url"].replace("ci_config.yaml", "test-amd.yaml")
     assert watcher._source_validation_error(now, matrix, parity, ownership) == "ownership_parity_commit_mismatch"
+
+
+@pytest.mark.parametrize("source", [None, [], ["invalid"], "invalid"])
+def test_matrix_scope_guard_rejects_malformed_source_records(source):
+    assert watcher._matrix_commit({"source": source, "hardware_scope": "amd_mi_gpu"}) == ""
 
 
 

@@ -3400,6 +3400,7 @@ class TestNoOrphanedCronSchedules:
             "queue-lifecycle.yml",
             "publication-watchdog.yml",
             "scheduler-activity.yml",
+            "deployment-retention.yml",
         }
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
@@ -5004,6 +5005,7 @@ class TestWorkflowPipInstallMatchesImports:
             "subprocess",
             "sys",
             "tempfile",
+            "tarfile",
             "textwrap",
             "threading",
             "time",

@@ -2559,6 +2559,62 @@ jobs:
               handle.write(f"output={encoded(output)}\n")
           PY
 
+      # Preserve exact prepared bytes only when validation fails. This private
+      # diagnostic never substitutes for validation or grants publication credit.
+      - name: Capture exact collected candidate for offline diagnostics
+        id: candidate-diagnostics
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.state-candidate.outcome == 'success' &&
+          steps.publication-selector.outcome == 'success' && (
+            steps.live-data-audit.outcome == 'failure' ||
+            (steps.live-data-audit.outputs.exit_code != '' &&
+             steps.live-data-audit.outputs.exit_code != '0') ||
+            steps.run-tests.outcome == 'failure' ||
+            (steps.run-tests.outputs.exit_code != '' &&
+             steps.run-tests.outputs.exit_code != '0')
+          )
+        continue-on-error: true
+        env:
+          # cspell:ignore PYTHONDONTWRITEBYTECODE
+          PYTHONDONTWRITEBYTECODE: "1"
+          EXPECTED_CANDIDATE_GENERATION: ${{ steps.state-candidate.outputs.generation_id }}
+          LIVE_AUDIT_OUTCOME: ${{ steps.live-data-audit.outcome }}
+          LIVE_AUDIT_EXIT_CODE: ${{ steps.live-data-audit.outputs.exit_code }}
+          TEST_OUTCOME: ${{ steps.run-tests.outcome }}
+          TEST_EXIT_CODE: ${{ steps.run-tests.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          python scripts/vllm/capture_dashboard_candidate.py \
+            --expected-code-sha "$PUBLICATION_CODE_SHA" \
+            --expected-generation-id "$EXPECTED_CANDIDATE_GENERATION" \
+            --live-audit-outcome "$LIVE_AUDIT_OUTCOME" \
+            --live-audit-exit-code "$LIVE_AUDIT_EXIT_CODE" \
+            --test-outcome "$TEST_OUTCOME" \
+            --test-exit-code "$TEST_EXIT_CODE" \
+            --output "$RUNNER_TEMP/collected-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Upload exact collected candidate diagnostics
+        if: >-
+          always() &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved') &&
+          steps.candidate-diagnostics.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: collected-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/collected-candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate.tar
+            ${{ runner.temp }}/collected-candidate-${{ github.run_id }}-${{ github.run_attempt }}/candidate-descriptor.json
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: false
+
       - name: Enforce publication validation results
         if: >-
           always() &&

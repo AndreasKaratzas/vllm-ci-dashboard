@@ -17,6 +17,12 @@ import pytest
 
 from vllm.ci import dns_failures as dns_backend
 from vllm.ci.ownership import load_ownership_config
+from vllm.constants import amd_gpu_hardware
+
+from tests.vllm.workload_live_contract import (
+    assert_retention_coverage,
+    assert_window_coverage,
+)
 
 pytestmark = pytest.mark.live_data
 
@@ -60,12 +66,34 @@ def _require_pass_rate_contract_v1(version, path: str) -> None:
 
 
 class TestCiHealth:
+    @staticmethod
+    def _build_rows(block):
+        rows = [
+            (key, block.get(key))
+            for key in (
+                "latest_build", "latest_test_signal_build", "latest_pipeline_build",
+            )
+        ]
+        rows.extend(
+            (f"builds[{index}]", row)
+            for index, row in enumerate(block.get("builds", []))
+        )
+        return [(name, row) for name, row in rows if row is not None]
+
     def test_top_level_keys(self):
         d = _load_json_or_skip("ci_health.json")
         _assert_has_keys(
-            d, {"generated_at", "amd", "upstream", "overall_health", "test_counts"},
+            d,
+            {
+                "generated_at", "amd", "overall_health", "test_counts",
+                "source_pipeline", "job_scope", "hardware_scope",
+            },
             "ci_health.json",
         )
+        assert d["source_pipeline"] == "ci"
+        assert d["job_scope"] == "amd_gpu"
+        assert d["hardware_scope"] == "amd_mi_gpu"
+        assert not {"upstream", "cuda", "amd-ci"} & d.keys()
 
     def test_test_counts_buckets(self):
         d = _load_json_or_skip("ci_health.json")
@@ -77,21 +105,43 @@ class TestCiHealth:
 
     def test_pipeline_blocks_have_build_rows(self):
         d = _load_json_or_skip("ci_health.json")
-        for side in ("amd", "upstream"):
-            block = d[side]
-            _assert_has_keys(block, {"builds", "latest_build", "trend"}, f"ci_health.json.{side}")
+        block = d["amd"]
+        _assert_has_keys(
+            block,
+            {
+                "builds", "latest_build", "latest_test_signal_build",
+                "latest_pipeline_build", "trend", "source_pipeline", "job_scope",
+                "hardware_scope",
+            },
+            "ci_health.json.amd",
+        )
+        assert block["source_pipeline"] == "ci"
+        assert block["job_scope"] == "amd_gpu"
+        assert block["hardware_scope"] == "amd_mi_gpu"
+        assert isinstance(block["builds"], list) and block["builds"]
+        assert isinstance(block["latest_build"], dict) and block["latest_build"]
+        assert all(isinstance(row, dict) and row for row in block["builds"])
 
     def test_current_hardware_scopes_use_main_ci_source(self):
         d = _load_json_or_skip("ci_health.json")
-        for side in ("amd", "upstream"):
-            for row in d[side].get("builds") or []:
-                assert row.get("branch") == "main"
-                assert row.get("build_url") == f"https://buildkite.com/vllm/ci/builds/{row['build_number']}"
-                hardware = set(row.get("by_hardware") or {})
-                if side == "amd":
-                    assert all(re.fullmatch(r"mi\d+b?(?:[_ -].*)?", device) for device in hardware)
-                else:
-                    assert not any(device.startswith("mi") or device == "cpu" for device in hardware)
+        for name, row in self._build_rows(d["amd"]):
+            path = f"ci_health.json.amd.{name}"
+            assert row.get("source_pipeline") == "ci", path
+            assert row.get("job_scope") == "amd_gpu", path
+            assert row.get("hardware_scope") == "amd_mi_gpu", path
+            assert row.get("pipeline") in {"amd", "ci"}, path
+            assert row.get("branch") == "main", path
+            assert type(row.get("build_number")) is int and row["build_number"] > 0, path
+            assert row.get("build_url") == f"https://buildkite.com/vllm/ci/builds/{row['build_number']}", path
+            assert isinstance(row.get("by_hardware"), dict), path
+            assert all(amd_gpu_hardware("amd_" + device) for device in row["by_hardware"]), path
+            # MI outcomes can pass while another CI job fails the parent build.
+            # Keep that actual parent metadata separate from the MI denominator.
+            assert isinstance(row.get("source_state"), str) and row["source_state"], path
+            assert isinstance(row.get("state"), str) and row["state"], path
+            if row["state"] == "passed":
+                assert row["jobs_failed"] == row["jobs_soft_failed"], path
+                assert row["jobs_running"] == row["jobs_waiting"] == 0, path
 
     def test_build_rows_have_explicit_assertion_pass_rates(self):
         d = _load_json_or_skip("ci_health.json")
@@ -99,44 +149,26 @@ class TestCiHealth:
             d.get("pass_rate_contract_version"),
             "ci_health.json",
         )
-        for side in ("amd", "upstream"):
-            block = d[side]
-            rows = [
-                (key, block.get(key))
-                for key in (
-                    "latest_build",
-                    "latest_test_signal_build",
-                    "latest_pipeline_build",
-                )
-            ]
-            rows.extend(
-                (f"builds[{index}]", row)
-                for index, row in enumerate(block.get("builds", []))
+        for name, row in self._build_rows(d["amd"]):
+            path = f"ci_health.json.amd.{name}"
+            _assert_has_keys(
+                row,
+                {
+                    "passed", "failed", "skipped", "pass_rate",
+                    "test_pass_rate_pct", "test_pass_rate_basis",
+                },
+                path,
             )
-            for name, row in rows:
-                if not row:
-                    continue
-                path = f"ci_health.json.{side}.{name}"
-                _assert_has_keys(
-                    row,
-                    {
-                        "passed",
-                        "failed",
-                        "skipped",
-                        "pass_rate",
-                        "test_pass_rate_pct",
-                        "test_pass_rate_basis",
-                    },
-                    path,
-                )
-                pct = _assert_percentage(row["test_pass_rate_pct"], f"{path}.test_pass_rate_pct")
-                assert row["test_pass_rate_basis"] == "pytest_assertions_excluding_skipped"
-                ran = row["passed"] + row["failed"]
-                expected = round(row["passed"] / ran * 100, 2) if ran else 0.0
-                assert pct == expected, f"{path} pass rate must exclude skipped assertions"
-                assert pct == pytest.approx(row["pass_rate"] * 100, abs=0.0050001), (
-                    f"{path} explicit percentage disagrees with legacy ratio"
-                )
+            for count in ("passed", "failed", "skipped"):
+                assert type(row[count]) is int and row[count] >= 0, f"{path}.{count}"
+            pct = _assert_percentage(row["test_pass_rate_pct"], f"{path}.test_pass_rate_pct")
+            assert row["test_pass_rate_basis"] == "pytest_assertions_excluding_skipped"
+            ran = row["passed"] + row["failed"]
+            expected = round(row["passed"] / ran * 100, 2) if ran else 0.0
+            assert pct == expected, f"{path} pass rate must exclude skipped assertions"
+            assert pct == pytest.approx(row["pass_rate"] * 100, abs=0.0050001), (
+                f"{path} explicit percentage disagrees with legacy ratio"
+            )
 
 
 class TestParityReport:
@@ -899,8 +931,7 @@ class TestWorkloadMapping:
         hourly = self._assert_rows(d, "hourly", "hour")
         daily = self._assert_rows(d, "daily", "date")
 
-        assert len(hourly) >= d["retention"]["hourly_days"] * 24 + 1
-        assert len(daily) >= d["retention"]["daily_days"]
+        assert_retention_coverage(d)
         current_hour = generated.replace(minute=0, second=0, microsecond=0)
         assert _parse_utc(hourly[-1]["hour"]) == current_hour
         assert daily[-1]["date"] == generated.date().isoformat()
@@ -940,12 +971,6 @@ class TestWorkloadMapping:
             )
             assert coverage["has_open_bucket"] is any(row["open"] for row in rows)
 
-        assert (
-            _parse_utc(hourly[-1]["end_exclusive"])
-            - _parse_utc(hourly[0]["hour"])
-            >= timedelta(days=d["retention"]["hourly_days"])
-        )
-
     def test_window_truth_is_independent_of_open_daily_bucket(self):
         d = _load_json_or_skip("workload_mapping.json")
         window = d["window"]
@@ -967,10 +992,7 @@ class TestWorkloadMapping:
             row for row in d["daily"]
             if window["start_date"] <= row["date"] <= window["end_date"]
         ]
-        assert len(rows) == window["days"]
-        assert window["collection_complete"] is all(
-            row["collection_complete"] for row in rows
-        )
+        assert_window_coverage(d)
         assert rows[-1]["open"] is True
         assert rows[-1]["complete"] is False
 
