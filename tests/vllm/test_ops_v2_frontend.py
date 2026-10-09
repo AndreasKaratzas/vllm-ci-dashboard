@@ -365,11 +365,11 @@ def test_dns_deep_link_preloads_only_its_same_origin_fallback():
     assert "data/vllm/ci/dns_failures.json?_=" in INDEX
 
 
-def test_unrelated_link_registry_data_waits_for_first_v2_render():
+def test_shard_data_waits_for_first_render_without_a_legacy_parity_fetch():
     utils = (ROOT / "docs" / "assets" / "js" / "utils.js").read_text()
     assert "function afterOpsV2FirstRender(task)" in utils
     assert "window.addEventListener('ops-v2:first-render', function() { schedule(1500); }" in utils
-    assert "afterOpsV2FirstRender(function() {\n  LinkRegistry.onReady" in utils
+    assert "afterOpsV2FirstRender(function() {\n  LinkRegistry.onReady" not in utils
     shard_start = utils.index("var _shardBasesReady")
     shard_end = utils.index("function _stripShardIndex", shard_start)
     assert "afterOpsV2FirstRender(function()" in utils[shard_start:shard_end]
