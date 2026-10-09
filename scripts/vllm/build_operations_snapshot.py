@@ -97,6 +97,7 @@ GROUP_HISTORY_LIMIT = 60
 AMD_TEST_HISTORY_LIMIT = 30
 AMD_TEST_RESULTS_GLOB = "test_results/*_amd.jsonl"
 AMD_TEST_PIPELINE = "ci"
+EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
 # Per-physical-agent (node) AMD GPU health is now collected and aggregated by
 # scripts/vllm/collect_agent_health.py (all builds, all branches) and embedded
 # verbatim from agent_health.json by _amd_agent_health below. See that collector
@@ -2837,12 +2838,34 @@ def _filter_queue_snapshot(snapshot: dict) -> dict:
     return row
 
 
+def _valid_queue_ci_execution_proof(job: dict) -> bool:
+    proof = job.get("execution_proof")
+    return (
+        isinstance(proof, dict)
+        and set(proof) == {"version", "source_commit", "definition_tree", "classification"}
+        and type(proof.get("version")) is int and proof["version"] == 1
+        and proof.get("classification") == "amd_mi_gpu"
+        and isinstance(proof.get("source_commit"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", proof["source_commit"]) is not None
+        and isinstance(proof.get("definition_tree"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", proof["definition_tree"]) is not None
+        and job.get("commit") == proof["source_commit"][:12]
+    )
+
+
 def _filter_queue_jobs(queue_jobs: dict) -> dict:
     result = dict(queue_jobs)
+    ci_source_attested = (
+        queue_jobs.get("hardware_scope") == "amd_mi_gpu"
+        and queue_jobs.get("execution_scope_contract") == EXECUTION_SCOPE_CONTRACT
+    )
     for state in ("pending", "running"):
         result[state] = [
             job for job in queue_jobs.get(state) or []
-            if _is_amd_queue(job.get("queue") or job.get("q")) and not is_cpu_only_job(job)
+            if isinstance(job, dict)
+            and _is_amd_queue(job.get("queue") or job.get("q")) and not is_cpu_only_job(job)
+            and (job.get("pipeline") != "ci"
+                 or (ci_source_attested and _valid_queue_ci_execution_proof(job)))
         ]
     return result
 
@@ -3115,6 +3138,7 @@ def _omni(
     capacity: dict | None = None,
 ) -> dict:
     workload_mapping = workload_mapping if ((workload_mapping or {}).get("hardware_scope") == "amd_mi_gpu"
+        and (workload_mapping or {}).get("execution_scope_contract") == EXECUTION_SCOPE_CONTRACT
         and (((workload_mapping or {}).get("scope") or {}).get("workload_pipelines") or {}).get("main") == ["ci"]) else {}
     capacity = capacity or {}
     mapping_scope = workload_mapping.get("scope") or {}

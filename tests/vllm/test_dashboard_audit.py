@@ -781,7 +781,9 @@ def test_queue_only_entrypoint_runs_targeted_semantic_audit(tmp_path, monkeypatc
         "".join(json.dumps(row) + "\n" for row in rows)
     )
     (queue_dir / "queue_jobs.json").write_text(
-        json.dumps({"ts": rows[-1]["ts"], "pending": [], "running": []})
+        json.dumps({"ts": rows[-1]["ts"], "pending": [], "running": [],
+                    "hardware_scope": "amd_mi_gpu",
+                    "execution_scope_contract": operations_module.EXECUTION_SCOPE_CONTRACT})
     )
     queue_section_module.main(["--input-dir", str(queue_dir)])
     monkeypatch.setattr(audit_module, "ROOT", tmp_path)
@@ -3811,9 +3813,10 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
     workflows.mkdir(parents=True)
     ordered_steps = [
         "name: Restore validated dashboard state",
+        "name: Restore immutable runtime source indexes",
+        "name: Collect vLLM/Omni AMD workload mappings",
         "name: Prepare private analytics cache key",
         "name: Restore private analytics build cache",
-        "name: Restore immutable runtime source indexes",
         "name: Collect CI data",
         "name: Save private CI roster cache",
         "name: Save private DNS classification cache",
@@ -5189,3 +5192,65 @@ def test_completed_retry_preserves_exact_amd_signal_before_newer_no_result_night
     assert audit.report.errors == []
     assert audit.latest_result_file("amd").name == "2026-10-07_amd.jsonl"
     assert audit_module._ci_analytics_test_signal_build(analytics, health, "amd")["number"] == 93244
+
+
+def test_current_queue_audit_requires_source_proof_on_every_ci_row_and_routes_only_queue(tmp_path):
+    from vllm.publication_surfaces import finding_surfaces
+
+    queue_dir = tmp_path / "data/vllm/ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    snapshot = {"ts": now, "queues": {"amd_mi300_1": {"waiting": 102, "running": 0}},
+                "total_waiting": 102, "total_running": 0, "sources": {"counts": "cluster_metrics"}}
+    (queue_dir / "queue_timeseries.jsonl").write_text(json.dumps(snapshot) + "\n")
+    proof = {"version": 1, "source_commit": "9" * 40, "definition_tree": "a" * 40,
+             "classification": "amd_mi_gpu"}
+    gpu = {"pipeline": "ci", "queue": "amd_mi300_1", "commit": "9" * 12,
+           "name": "CPU Offload", "url": "https://buildkite.com/vllm/ci/builds/1#job",
+           "wait_min": 1, "execution_proof": proof}
+    omni = {**gpu, "pipeline": "vllm-omni-amd-ci"}
+    omni.pop("execution_proof")
+    jobs = {"hardware_scope": "amd_mi_gpu", "execution_scope_contract": operations_module.EXECUTION_SCOPE_CONTRACT,
+            "ts": now, "pending": [*[gpu.copy() for _ in range(101)], omni], "running": []}
+
+    def check(payload):
+        (queue_dir / "queue_jobs.json").write_text(json.dumps(payload))
+        audit = DashboardAudit(tmp_path)
+        audit.audit_queue_data(require_current_scope=True)
+        return audit.report.errors
+
+    assert check(jobs) == []
+    legacy = {**jobs}
+    legacy.pop("execution_scope_contract")
+    assert {finding.code for finding in check(legacy)} == {"queue-runtime-execution-scope"}
+    # Scope validation must cover rows beyond the first 100 display-shape checks.
+    jobs["pending"][100].pop("execution_proof")
+    errors = check(jobs)
+    assert {finding.code for finding in errors} == {"queue-job-execution-scope"}
+    assert all(finding_surfaces(finding) == frozenset({"queue"}) for finding in errors)
+    historical = DashboardAudit(tmp_path)
+    historical.audit_queue_data()
+    assert historical.report.errors == []
+
+
+@pytest.mark.parametrize("invalid", [
+    {"version": True}, {"source_commit": "b" * 40}, {"definition_tree": "bad"},
+    {"classification": "excluded_cpu"}, {"extra": True},
+])
+def test_current_queue_audit_rejects_invalid_execution_proof(tmp_path, invalid):
+    queue_dir = tmp_path / "data/vllm/ci"
+    queue_dir.mkdir(parents=True)
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    snapshot = {"ts": now, "queues": {"amd_mi300_1": {"waiting": 1, "running": 0}},
+                "total_waiting": 1, "total_running": 0, "sources": {"counts": "cluster_metrics"}}
+    (queue_dir / "queue_timeseries.jsonl").write_text(json.dumps(snapshot) + "\n")
+    proof = {"version": 1, "source_commit": "9" * 40, "definition_tree": "a" * 40,
+             "classification": "amd_mi_gpu", **invalid}
+    jobs = {"hardware_scope": "amd_mi_gpu", "execution_scope_contract": operations_module.EXECUTION_SCOPE_CONTRACT,
+            "ts": now, "pending": [{"pipeline": "ci", "queue": "amd_mi300_1", "commit": "9" * 12,
+                "name": "GPU test", "url": "https://buildkite.com/vllm/ci/builds/1#job", "wait_min": 1,
+                "execution_proof": proof}], "running": []}
+    (queue_dir / "queue_jobs.json").write_text(json.dumps(jobs))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_queue_data(require_current_scope=True)
+    assert {finding.code for finding in audit.report.errors} == {"queue-job-execution-scope"}

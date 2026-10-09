@@ -46,6 +46,7 @@ jobs:
       # durable ref hydrated below.
       queue_generation: ${{ steps.queue-generation.outputs.generated_at }}
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,6 +63,13 @@ jobs:
 
       - name: Install dependencies
         run: pip install -c constraints.txt requests pyyaml
+
+      - name: Restore immutable runtime source indexes
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: runtime-source-indexes-v1-${{ runner.os }}-queue-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: runtime-source-indexes-v1-${{ runner.os }}-
 
       - name: Sync durable queue history
         run: |
@@ -225,6 +233,7 @@ jobs:
           steps.queue-request-budget.outputs.request_mode == 'metrics_and_details'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           MODE="${{ steps.queue-request-budget.outputs.request_mode }}"
@@ -255,6 +264,34 @@ jobs:
             --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
             --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate immutable runtime source checkpoint
+        id: runtime-source-cache-decision
+        if: >-
+          always() && steps.queue-request-budget.outputs.request_mode == 'metrics_and_details'
+        run: |
+          set -euo pipefail
+          python - <<'PY_SOURCE'
+          import os
+          from pathlib import Path
+          from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+          cache = Path("data/vllm/ci/.cache/runtime-source-indexes-v1")
+          if (cache / "index.json").is_file():
+              indexes = read_runtime_source_indexes(cache)
+              print(f"Validated {len(indexes)} immutable runtime source indexes")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("runtime_source_cache_save=true\n")
+          PY_SOURCE
+
+      - name: Save immutable runtime source checkpoint
+        if: >-
+          always() && steps.queue-request-budget.outputs.request_mode == 'metrics_and_details' &&
+          steps.runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: runtime-source-indexes-v1-${{ runner.os }}-queue-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Build live queue section
         if: >-

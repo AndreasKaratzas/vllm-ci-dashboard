@@ -890,7 +890,7 @@ class DashboardAudit:
         self.audit_shard_bases()
         self.audit_analytics()
         self.audit_amd_matrix()
-        self.audit_queue_data(validate_derived=True)
+        self.audit_queue_data(validate_derived=True, require_current_scope=True)
         self.audit_queue_lifecycle()
         self.audit_dns_failures()
         self.audit_frontend_contracts()
@@ -7330,7 +7330,9 @@ class DashboardAudit:
         }
 
 
-    def audit_queue_data(self, *, validate_derived: bool = False) -> None:
+    def audit_queue_data(
+        self, *, validate_derived: bool = False, require_current_scope: bool = False,
+    ) -> None:
         rows = self.load_jsonl("data/vllm/ci/queue_timeseries.jsonl")
         if not rows:
             self.error(
@@ -7675,8 +7677,40 @@ class DashboardAudit:
         if not isinstance(pending, list) or not isinstance(running, list):
             self.error("queue-jobs-shape", "queue_jobs.json pending/running must be lists")
         else:
+            if require_current_scope:
+                from vllm.build_operations_snapshot import (
+                    EXECUTION_SCOPE_CONTRACT, _valid_queue_ci_execution_proof,
+                )
+                from vllm.constants import amd_gpu_hardware
+                from vllm.pipelines import is_cpu_only_job
+
+                if (
+                    jobs.get("hardware_scope") != "amd_mi_gpu"
+                    or jobs.get("execution_scope_contract") != EXECUTION_SCOPE_CONTRACT
+                ):
+                    self.error(
+                        "queue-runtime-execution-scope",
+                        "Current queue details require the exact CI source CPU-exclusion contract",
+                        "data/vllm/ci/queue_jobs.json",
+                    )
+                invalid_scope = sum(
+                    not isinstance(job, dict)
+                    or not amd_gpu_hardware(job.get("queue") or job.get("q"))
+                    or is_cpu_only_job(job)
+                    or (job.get("pipeline") == "ci" and not _valid_queue_ci_execution_proof(job))
+                    for job in pending + running
+                )
+                if invalid_scope:
+                    self.error(
+                        "queue-job-execution-scope",
+                        f"{invalid_scope} queue detail rows lack valid MI execution evidence",
+                        "data/vllm/ci/queue_jobs.json",
+                    )
             for kind, job_rows in (("pending", pending), ("running", running)):
                 for job in job_rows[:100]:
+                    if not isinstance(job, dict):
+                        self.error("queue-job-row", f"{kind} job row must be an object", "data/vllm/ci/queue_jobs.json")
+                        continue
                     missing = {"name", "queue", "url"} - set(job.keys())
                     if kind == "pending":
                         missing -= {"url"} if job.get("analysis_excluded") else set()
@@ -10093,9 +10127,10 @@ class DashboardAudit:
 
         ordered_tokens = [
             "name: Restore validated dashboard state",
+            "name: Restore immutable runtime source indexes",
+            "name: Collect vLLM/Omni AMD workload mappings",
             "name: Prepare private analytics cache key",
             "name: Restore private analytics build cache",
-            "name: Restore immutable runtime source indexes",
             "name: Collect CI data",
             "name: Save private CI roster cache",
             "name: Save private DNS classification cache",
@@ -10687,7 +10722,7 @@ def main(argv: list[str] | None = None) -> int:
         report = audit.report
     elif args.queue_only:
         audit = DashboardAudit(ROOT)
-        audit.audit_queue_data(validate_derived=True)
+        audit.audit_queue_data(validate_derived=True, require_current_scope=True)
         report = audit.report
     elif args.ci_core_only:
         audit = DashboardAudit(ROOT, allow_publication_fallback=False)

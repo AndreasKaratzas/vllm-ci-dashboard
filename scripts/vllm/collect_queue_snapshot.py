@@ -19,6 +19,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -51,9 +52,13 @@ from vllm.constants import (  # noqa: E402
     is_excluded_queue,
     queue_history_reset_datetime,
 )
-from vllm.pipelines import is_cpu_only_job  # noqa: E402
+from vllm.pipelines import _job_queue as observed_job_queue, is_cpu_only_job  # noqa: E402
 from vllm.ci.utils import classify_workload, parse_iso, percentile, queue_from_rules  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.ci.analytics_cache import (  # noqa: E402
+    RUNTIME_SOURCE_CACHE_DIR_NAME, read_runtime_source_indexes,
+    retain_runtime_source_indexes, write_runtime_source_indexes,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S"
@@ -69,6 +74,73 @@ OUTPUT = (
 )
 HISTORY_REPO_PATH = "data/vllm/ci/queue_timeseries.jsonl"
 QUEUE_DETAILS_MAX_BYTES = writer_max_bytes("queue_details")
+
+EXECUTION_SCOPE_CONTRACT = "ci_exact_source_cpu_exclusions_v1"
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+_SOURCE_SCOPE_LOCK = threading.Lock()
+
+
+def _physical_mi_candidate(job: dict) -> bool:
+    # Restored annotations cannot attest the current API observation.
+    raw = {key: value for key, value in job.items()
+           if key not in {"source_no_gpu", "source_scope_commit"}}
+    return bool(amd_gpu_hardware(_execution_queue(raw))) and not is_cpu_only_job(raw)
+
+
+def _execution_queue(job: dict) -> str:
+    """Actual agent routing wins; pending jobs retain cluster/request routing."""
+    observed = observed_job_queue({key: value for key, value in job.items()
+                                   if key != "agent_query_rules"})
+    return (observed or str((job.get("cluster_queue") or {}).get("key") or "")
+            or observed_job_queue(job))
+
+
+def _scope_ci_builds(builds: list[dict], pipeline: str = "") -> list[dict]:
+    """Attest prospective MI CI jobs against authenticated immutable source."""
+    from vllm.main_ci_definitions import annotate_runtime_source_scope, prewarm_runtime_snapshots
+
+    candidates = []
+    for build in builds:
+        if str((build.get("pipeline") or {}).get("slug") or pipeline) != "ci":
+            continue
+        if not any(isinstance(job, dict) and job.get("type") in {"script", "command"}
+                   and _physical_mi_candidate(job) for job in build.get("jobs") or []):
+            continue
+        commit = str(build.get("commit") or "").strip().casefold()
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise ValueError("CI MI execution requires an exact full source commit")
+        candidates.append(commit)
+    # One lock spans priming/checkpointing: concurrent day slices cannot spend
+    # duplicate source starts or overwrite each other's verified progress.
+    with _SOURCE_SCOPE_LOCK:
+        missing = sorted(set(candidates) - _SOURCE_SCOPE_INDEXES.keys())
+        for offset in range(0, len(missing), 50):
+            batch = missing[offset:offset + 50]
+            prewarm_runtime_snapshots(batch)
+            for commit in batch:
+                annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
+                retained = retain_runtime_source_indexes(
+                    {**_SOURCE_SCOPE_INDEXES, commit: annotated["source_scope_index"]},
+                    preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES],
+                )
+                if _SOURCE_SCOPE_CACHE_DIR is not None:
+                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+                _SOURCE_SCOPE_INDEXES.clear()
+                _SOURCE_SCOPE_INDEXES.update(retained)
+        result = []
+        for build in builds:
+            commit = str(build.get("commit") or "").strip().casefold()
+            if str((build.get("pipeline") or {}).get("slug") or pipeline) == "ci" and commit in candidates:
+                prepared = {**build, "jobs": [
+                    {**job, "agent_queue": _execution_queue(job)} if isinstance(job, dict) else job
+                    for job in build.get("jobs") or []
+                ]}
+                result.append(annotate_runtime_source_scope(prepared, scope_index=_SOURCE_SCOPE_INDEXES[commit]))
+            else:
+                result.append(build)
+        return result
+
 
 # Buildkite URL rewrite: the jobs endpoint returns hash-anchored URLs that
 # 404 in the step canvas; re-point them so dashboard links land on the output tab.
@@ -132,6 +204,8 @@ query ActiveJobs($org: ID!, $states: [JobStates!], $first: Int!, $after: String)
             createdAt
             startedAt
             agentQueryRules
+            agent { metaData }
+            step { key }
             clusterQueue {
               key
             }
@@ -177,6 +251,8 @@ query QueueJobs($org: ID!, $queue: [ID!]!, $states: [JobStates!], $first: Int!, 
             createdAt
             startedAt
             agentQueryRules
+            agent { metaData }
+            step { key }
             clusterQueue {
               key
             }
@@ -1833,18 +1909,52 @@ def fetch_cluster_queue_metrics(
     raise AssertionError("unreachable")
 
 
+def _graphql_source_build(node: dict, fallback_queue: str = "") -> dict:
+    queue = ((node.get("clusterQueue") or {}).get("key") or fallback_queue
+             or queue_from_rules(node.get("agentQueryRules")))
+    job = {**node, "type": "script", "name": node.get("label") or "",
+           "id": node.get("uuid") or "", "agent_query_rules": [f"queue={queue}"]}
+    agent = node.get("agent")
+    if isinstance(agent, dict):
+        job["agent"] = {"meta_data": agent.get("metaData", agent.get("meta_data"))}
+    # The source annotator also receives the selected physical route.
+    job["agent_queue"] = _execution_queue(job)
+    return {**(node.get("build") or {}), "pipeline": node.get("pipeline") or {}, "jobs": [job]}
+
+
+def _valid_execution_proof(job: dict) -> bool:
+    proof = job.get("execution_proof")
+    return (isinstance(proof, dict)
+            and set(proof) == {"version", "source_commit", "definition_tree", "classification"}
+            and type(proof.get("version")) is int and proof["version"] == 1
+            and proof.get("classification") == "amd_mi_gpu"
+            and isinstance(proof.get("source_commit"), str)
+            and re.fullmatch(r"[0-9a-f]{40}", proof["source_commit"]) is not None
+            and isinstance(proof.get("definition_tree"), str)
+            and re.fullmatch(r"[0-9a-f]{40}", proof["definition_tree"]) is not None
+            and job.get("commit") == proof["source_commit"][:12])
+
+
 def _graphql_job_record(node: dict, fallback_queue: str = "") -> dict | None:
     state = node.get("state") or ""
-    queue = (
-        ((node.get("clusterQueue") or {}).get("key"))
-        or fallback_queue
-        or queue_from_rules(node.get("agentQueryRules"))
-    )
-    if not amd_gpu_hardware(queue) or is_cpu_only_job({**node, "name": node.get("label")}):
+    source_build = _graphql_source_build(node, fallback_queue)
+    source_job = source_build["jobs"][0]
+    queue = _execution_queue(source_job)
+    if not _physical_mi_candidate(source_job):
         return None
     build = node.get("build") or {}
     pipeline = node.get("pipeline") or {}
+    proof = {}
+    if pipeline.get("slug") == "ci":
+        scoped = _scope_ci_builds([source_build])[0]
+        if is_cpu_only_job(scoped["jobs"][0]):
+            return None
+        proof = {"execution_proof": {"version": 1,
+                 "source_commit": scoped["source_scope_commit"],
+                 "definition_tree": scoped["source_definition_tree_sha"],
+                 "classification": "amd_mi_gpu"}}
     return {
+        **proof,
         "queue": queue,
         "state": state,
         "name": node.get("label") or "",
@@ -1925,22 +2035,28 @@ def _fetch_graphql_jobs(
             page_vars,
         )
         conn = (data.get("organization") or {}).get("jobs") or {}
-        for edge in conn.get("edges") or []:
-            node = edge.get("node") or {}
+        page = conn.get("pageInfo") or {}
+        has_next = page.get("hasNextPage")
+        if type(has_next) is not bool:
+            raise RuntimeError("Buildkite GraphQL jobs pagination returned invalid pageInfo")
+        next_cursor = str(page.get("endCursor") or "")
+        if has_next:
+            if not next_cursor or next_cursor in seen_cursors:
+                raise RuntimeError("Buildkite GraphQL jobs pagination returned an invalid cursor")
+            if page_number == max_pages:
+                raise QueuePaginationLimitError(
+                    "Buildkite GraphQL jobs pagination safety cap reached "
+                    f"after {max_pages} pages"
+                )
+        # Reject incomplete/invalid pages before spending source-proof starts.
+        nodes = [edge.get("node") or {} for edge in conn.get("edges") or []]
+        _scope_ci_builds([_graphql_source_build(node, fallback_queue) for node in nodes])
+        for node in nodes:
             record = _graphql_job_record(node, fallback_queue)
             if record:
                 jobs.append(record)
-        page = conn.get("pageInfo") or {}
-        if not page.get("hasNextPage"):
+        if not has_next:
             return jobs
-        next_cursor = str(page.get("endCursor") or "")
-        if not next_cursor or next_cursor in seen_cursors:
-            raise RuntimeError("Buildkite GraphQL jobs pagination returned an invalid cursor")
-        if page_number == max_pages:
-            raise QueuePaginationLimitError(
-                "Buildkite GraphQL jobs pagination safety cap reached "
-                f"after {max_pages} pages"
-            )
         seen_cursors.add(next_cursor)
         after = next_cursor
     raise AssertionError("unreachable")
@@ -2028,7 +2144,7 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
         builds = bk_get_paginated(f"/organizations/{BK_ORG}/builds", token, {"state": state})
         log.info("Fetched %d %s builds", len(builds), state)
 
-        for build in builds:
+        for build in _scope_ci_builds(builds):
             build_branch = build.get("branch", "") or ""
             build_commit = (build.get("commit", "") or "")[:12]
             build_source = build.get("source", "") or ""
@@ -2040,7 +2156,7 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
             for job in build.get("jobs", []):
                 if job.get("type") != "script":
                     continue
-                queue = queue_from_rules(job.get("agent_query_rules"))
+                queue = _execution_queue(job)
                 if not amd_gpu_hardware(queue) or is_cpu_only_job(job):
                     continue
 
@@ -2053,6 +2169,10 @@ def _collect_legacy_active_jobs(token: str) -> list[dict]:
 
                 records.append(
                     {
+                        **({"execution_proof": {"version": 1,
+                            "source_commit": build["source_scope_commit"],
+                            "definition_tree": build["source_definition_tree_sha"],
+                            "classification": "amd_mi_gpu"}} if pipeline_slug == "ci" else {}),
                         "queue": queue,
                         "state": job_state.upper(),
                         "name": job.get("name", "") or "",
@@ -2087,6 +2207,8 @@ def _load_complete_job_overlay(path: Path) -> dict | None:
     running = payload.get("running")
     if payload.get("hardware_scope") != "amd_mi_gpu":
         return None
+    if payload.get("execution_scope_contract") != EXECUTION_SCOPE_CONTRACT:
+        return None
     observed_at = payload.get("details_observed_at") or payload.get("ts")
     if (
         not isinstance(pending, list)
@@ -2095,7 +2217,9 @@ def _load_complete_job_overlay(path: Path) -> dict | None:
         or parse_iso(observed_at) is None
     ):
         return None
-    if any(not isinstance(job, dict) or not amd_gpu_hardware(job.get("queue")) or is_cpu_only_job(job) for job in pending + running):
+    if any(not isinstance(job, dict) or not amd_gpu_hardware(job.get("queue")) or is_cpu_only_job(job)
+           or (job.get("pipeline") == "ci" and not _valid_execution_proof(job))
+           for job in pending + running):
         return None
     return {
         "details_observed_at": observed_at,
@@ -2301,6 +2425,7 @@ def _apply_active_jobs(
 
             pending_jobs.append(
                 {
+                    **({"execution_proof": job["execution_proof"]} if "execution_proof" in job else {}),
                     "name": job.get("name") or "",
                     "queue": queue,
                     "state": "scheduled",
@@ -2333,6 +2458,7 @@ def _apply_active_jobs(
             stats["running_by_workload"][workload] += 1
         running_jobs.append(
             {
+                **({"execution_proof": job["execution_proof"]} if "execution_proof" in job else {}),
                 "name": job.get("name") or "",
                 "queue": queue,
                 "state": "running",
@@ -2607,8 +2733,9 @@ def collect_snapshot(
     elif queue_count_sources:
         counts_source = "mixed_queue_native_and_active_job_scan"
 
-    snapshot = {
+    snapshot: dict = {
         "ts": current_observed_at,
+        "execution_scope_contract": EXECUTION_SCOPE_CONTRACT,
         "metrics_observed_at": current_observed_at,
         "details_observed_at": details_observed_at,
         "details_status": details_status,
@@ -2669,6 +2796,7 @@ def collect_snapshot(
         # not yet adopted ``details_observed_at``. It advances only after a
         # complete detail query, never on a metrics-only publication.
         "hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": EXECUTION_SCOPE_CONTRACT,
         "ts": details_observed_at,
         "schema_version": 2,
         "metrics_observed_at": current_observed_at,
@@ -2735,6 +2863,8 @@ def main():
         action="store_true",
         help="Fail unless the requested git ref contains a complete nonempty history.",
     )
+    parser.add_argument("--runtime-source-cache", type=Path,
+                        default=OUTPUT.parent / ".cache" / RUNTIME_SOURCE_CACHE_DIR_NAME)
     args = parser.parse_args()
 
     if args.require_merge_history and not args.merge_history_git_ref:
@@ -2764,6 +2894,11 @@ def main():
     if not token:
         log.error("BUILDKITE_TOKEN not set")
         sys.exit(1)
+
+    global _SOURCE_SCOPE_CACHE_DIR
+    _SOURCE_SCOPE_CACHE_DIR = args.runtime_source_cache
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(read_runtime_source_indexes(args.runtime_source_cache))
 
     log.info("Collecting queue snapshot...")
     snapshot = collect_snapshot(

@@ -16,6 +16,29 @@ from vllm import collect_queue_snapshot as cqs
 from vllm.dashboard_storage_budget import writer_max_bytes
 
 
+SOURCE_COMMIT = "a" * 40
+
+
+@pytest.fixture(autouse=True)
+def immutable_source_fixture(monkeypatch):
+    """Validate deterministic indexes without any source-network transport."""
+    from vllm import main_ci_definitions as source
+
+    real_annotate = source.annotate_runtime_source_scope
+    monkeypatch.setattr(cqs, "_SOURCE_SCOPE_INDEXES", {})
+    monkeypatch.setattr(cqs, "_SOURCE_SCOPE_CACHE_DIR", None)
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda pins: None)
+
+    def annotate(build, **kwargs):
+        index = kwargs.get("scope_index") or {
+            "version": 1, "commit_sha": build.get("commit"),
+            "definition_tree_sha": "b" * 40, "cpu_routes": [],
+        }
+        return real_annotate(build, scope_index=index)
+
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", annotate)
+
+
 class TestWaitSummary:
     def test_empty_returns_nullable_block(self):
         assert cqs._wait_summary([]) == {
@@ -407,7 +430,7 @@ class TestGraphqlQueueMetrics:
                 "state": "SCHEDULED",
                 "label": uuid,
                 "clusterQueue": {"key": queue},
-                "build": {"number": 1, "url": "https://buildkite.com/vllm/ci/builds/1"},
+                "build": {"number": 1, "commit": SOURCE_COMMIT, "url": "https://buildkite.com/vllm/ci/builds/1"},
                 "pipeline": {"slug": "ci"},
             }
 
@@ -2262,9 +2285,230 @@ def test_retained_queue_overlay_requires_explicit_mi_scope_and_routing(tmp_path)
     path.write_text(json.dumps(payload))
     assert cqs._load_complete_job_overlay(path) is None
     payload["hardware_scope"] = "amd_mi_gpu"
+    payload["execution_scope_contract"] = cqs.EXECUTION_SCOPE_CONTRACT
     path.write_text(json.dumps(payload))
     assert cqs._load_complete_job_overlay(path)["details_observed_at"] == payload["ts"]
     for job in ({"queue": "B200"}, {"queue": "amd_mi300_1", "no_gpu": True}):
         payload["pending"] = [job]
         path.write_text(json.dumps(payload))
         assert cqs._load_complete_job_overlay(path) is None
+
+
+def _current_ci_node(*, commit=SOURCE_COMMIT, key="gpu-test", label="GPU workload"):
+    return {"uuid": "job-id", "state": "SCHEDULED", "label": label,
+            "step": {"key": key}, "clusterQueue": {"key": "amd_mi300_1"},
+            "pipeline": {"slug": "ci"},
+            "build": {"number": 1001, "commit": commit, "branch": "main",
+                      "url": "https://buildkite.com/vllm/ci/builds/1001"}}
+
+
+def _cpu_source_index(commit=SOURCE_COMMIT):
+    return {"version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+            "cpu_routes": [{"key": "torch-abi", "label": "Torch ABI", "agent_pool": "mi300_1"}]}
+
+
+def test_queue_current_ci_exact_source_excludes_hidden_cpu_and_preserves_model_names():
+    cqs._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _cpu_source_index()
+    assert cqs._graphql_job_record(_current_ci_node(key="torch-abi", label="Misleading GPU name")) is None
+    # Exact source keys, not suite-name words, decide CPU exclusion.
+    row = cqs._graphql_job_record(_current_ci_node(label="CPU Offload with CUDA model preset"))
+    assert row["name"] == "CPU Offload with CUDA model preset"
+    assert row["commit"] == SOURCE_COMMIT[:12]
+    assert cqs._valid_execution_proof(row)
+    assert "source_scope_index" not in row
+    assert "cpu_routes" not in json.dumps(row)
+
+
+@pytest.mark.parametrize("commit", [None, "", "abc123", "g" * 40])
+def test_queue_current_ci_rejects_missing_or_short_source_pin(commit):
+    with pytest.raises(ValueError, match="exact full source commit"):
+        cqs._graphql_job_record(_current_ci_node(commit=commit))
+
+
+def test_queue_rejects_cached_source_index_for_wrong_pin():
+    cqs._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _cpu_source_index("c" * 40)
+    with pytest.raises(ValueError, match="commit"):
+        cqs._graphql_job_record(_current_ci_node())
+
+
+def test_queue_page_primes_missing_pins_in_bounded_batches_without_extra_buildkite_reads(monkeypatch):
+    from vllm import main_ci_definitions as source
+
+    batches = []
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda pins: batches.append(pins))
+    nodes = [_current_ci_node(commit=f"{index:040x}") for index in range(1, 52)]
+    calls = []
+    monkeypatch.setattr(cqs, "bk_graphql", lambda *args: calls.append(args) or {
+        "organization": {"jobs": {"edges": [{"node": node} for node in nodes],
+                                  "pageInfo": {"hasNextPage": False}}}})
+    jobs = cqs._fetch_graphql_jobs("fake", query=cqs.GRAPHQL_ACTIVE_JOBS_Q, variables={})
+    assert len(calls) == 1
+    assert [len(batch) for batch in batches] == [50, 1]
+    assert len(jobs) == 51
+    assert all(cqs._valid_execution_proof(job) for job in jobs)
+    assert "step { key }" in cqs.GRAPHQL_ACTIVE_JOBS_Q
+    assert "step { key }" in cqs.GRAPHQL_QUEUE_JOBS_Q
+
+
+def test_queue_authenticated_source_checkpoint_hit_requires_no_git_lookup(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as source
+    from vllm.ci.analytics_cache import read_runtime_source_indexes, write_runtime_source_indexes
+
+    path = tmp_path / "source"
+    write_runtime_source_indexes(path, {SOURCE_COMMIT: _cpu_source_index()})
+    cqs._SOURCE_SCOPE_INDEXES.update(read_runtime_source_indexes(path))
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("cache must avoid source transport"))
+    assert cqs._graphql_job_record(_current_ci_node(key="torch-abi")) is None
+    assert cqs._valid_execution_proof(cqs._graphql_job_record(_current_ci_node()))
+
+
+@pytest.mark.parametrize("mutation", ["missing", "short", "wrong", "classification", "bool_version"])
+def test_queue_retained_ci_overlay_requires_exact_matching_execution_proof(tmp_path, mutation):
+    row = cqs._graphql_job_record(_current_ci_node())
+    if mutation == "missing":
+        row.pop("execution_proof")
+    elif mutation == "short":
+        row["execution_proof"]["source_commit"] = "a" * 12
+    elif mutation == "wrong":
+        row["execution_proof"]["source_commit"] = "c" * 40
+    elif mutation == "classification":
+        row["execution_proof"]["classification"] = "excluded_cpu"
+    else:
+        row["execution_proof"]["version"] = True
+    path = tmp_path / "queue_jobs.json"
+    path.write_text(json.dumps({"ts": "2026-10-09T07:00:00Z", "hardware_scope": "amd_mi_gpu",
+                                "execution_scope_contract": cqs.EXECUTION_SCOPE_CONTRACT,
+                                "pending": [row], "running": []}))
+    assert cqs._load_complete_job_overlay(path) is None
+
+
+def test_queue_source_failure_does_not_replace_unproved_overlay_or_history(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as source
+
+    output = tmp_path / "queue_timeseries.jsonl"
+    output.write_bytes(b"")
+    jobs_path = tmp_path / "queue_jobs.json"
+    original = json.dumps({"ts": "2026-10-09T07:00:00Z", "hardware_scope": "amd_mi_gpu",
+                           "pending": [{"pipeline": "ci", "queue": "amd_mi300_1"}], "running": []}).encode()
+    jobs_path.write_bytes(original)
+    monkeypatch.setattr(cqs, "OUTPUT", output)
+    monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda *args, **kwargs: {
+        "amd_mi300_1": {"counts_available": True, "waiting": 7, "running": 3}})
+    monkeypatch.setattr(cqs, "bk_graphql", lambda *args: {
+        "organization": {"jobs": {"edges": [{"node": _current_ci_node()}],
+                                  "pageInfo": {"hasNextPage": False}}}})
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: (_ for _ in ()).throw(RuntimeError("source unavailable")))
+    with pytest.raises(RuntimeError, match="no prior complete overlay"):
+        cqs.collect_snapshot("fake", bounded_workflow_mode=True)
+    assert jobs_path.read_bytes() == original
+    assert output.read_bytes() == b""
+
+
+def test_queue_source_failure_checkpoints_only_completed_pins(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as source
+    from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+    cqs._SOURCE_SCOPE_CACHE_DIR = tmp_path / "source"
+    prior_annotate = source.annotate_runtime_source_scope
+    failed_commit = "c" * 40
+    def annotate(build, **kwargs):
+        if build.get("commit") == failed_commit:
+            raise RuntimeError("source unavailable")
+        return prior_annotate(build, **kwargs)
+    monkeypatch.setattr(source, "annotate_runtime_source_scope", annotate)
+    with pytest.raises(RuntimeError, match="source unavailable"):
+        cqs._scope_ci_builds([cqs._graphql_source_build(_current_ci_node(commit=commit))
+                              for commit in [SOURCE_COMMIT, failed_commit]])
+    checkpoint = read_runtime_source_indexes(cqs._SOURCE_SCOPE_CACHE_DIR)
+    assert set(checkpoint) == {SOURCE_COMMIT}
+    assert checkpoint[SOURCE_COMMIT]["commit_sha"] == SOURCE_COMMIT
+    assert "generated_at" not in checkpoint[SOURCE_COMMIT]
+
+
+def test_queue_source_filter_leaves_native_physical_cpu_occupancy_unchanged(monkeypatch, tmp_path):
+    cqs._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _cpu_source_index()
+    monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl")
+    monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda *args, **kwargs: {
+        "amd_mi300_1": {"counts_available": True, "waiting": 7, "running": 3,
+                        "connected_agents": 4, "official_wait": {"p95": 5.0}}})
+    monkeypatch.setattr(cqs, "bk_graphql", lambda *args: {
+        "organization": {"jobs": {"edges": [{"node": _current_ci_node(key="torch-abi")}],
+                                  "pageInfo": {"hasNextPage": False}}}})
+    snapshot = cqs.collect_snapshot("fake", bounded_workflow_mode=True)
+    assert snapshot["queues"]["amd_mi300_1"]["waiting"] == 7
+    assert snapshot["queues"]["amd_mi300_1"]["running"] == 3
+    jobs = json.loads((tmp_path / "queue_jobs.json").read_text())
+    assert jobs["pending"] == jobs["running"] == []
+    assert jobs["details_status"] == "current"
+    assert snapshot["execution_scope_contract"] == cqs.EXECUTION_SCOPE_CONTRACT
+
+
+@pytest.mark.parametrize("metadata", [["queue=B200"], {"queue": "B200"}])
+def test_queue_actual_graphql_agent_overrides_requested_mi_cluster_queue(monkeypatch, metadata):
+    from vllm import main_ci_definitions as source
+
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("foreign execution must avoid source lookup"))
+    node = {**_current_ci_node(), "agent": {"metaData": metadata}}
+    assert cqs._graphql_job_record(node) is None
+    assert "agent { metaData }" in cqs.GRAPHQL_ACTIVE_JOBS_Q
+    assert "agent { metaData }" in cqs.GRAPHQL_QUEUE_JOBS_Q
+
+
+def test_queue_actual_graphql_mi_agent_wins_and_retains_no_agent_metadata():
+    node = {**_current_ci_node(), "clusterQueue": {"key": "B200"},
+            "agent": {"metaData": ["queue=amd_mi300_1", "private=never-published"]}}
+    row = cqs._graphql_job_record(node)
+    assert row["queue"] == "amd_mi300_1"
+    assert cqs._valid_execution_proof(row)
+    assert "private" not in json.dumps(row)
+    assert "metaData" not in json.dumps(row)
+    assert "agent" not in row
+
+
+@pytest.mark.parametrize("metadata", [["queue=B200"], {"queue": "B200"}])
+def test_queue_legacy_actual_rest_agent_overrides_requested_mi(monkeypatch, metadata):
+    from vllm import main_ci_definitions as source
+
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("foreign execution must avoid source lookup"))
+    build = {"pipeline": {"slug": "ci"}, "commit": SOURCE_COMMIT, "number": 1001,
+             "jobs": [{"type": "script", "state": "running", "name": "GPU workload",
+                       "agent_query_rules": ["queue=amd_mi300_1"], "agent": {"meta_data": metadata}}]}
+    monkeypatch.setattr(cqs, "bk_get_paginated", lambda *args: [build])
+    assert cqs._collect_legacy_active_jobs("fake") == []
+
+
+@pytest.mark.parametrize("page_info,max_pages,error", [
+    ({"hasNextPage": True, "endCursor": None}, 12, "invalid cursor"),
+    ({"hasNextPage": True, "endCursor": "next"}, 1, "safety cap"),
+    ({"hasNextPage": "false"}, 12, "invalid pageInfo"),
+    ({}, 12, "invalid pageInfo"),
+])
+def test_queue_rejects_invalid_or_capped_page_before_source_prefetch(monkeypatch, page_info, max_pages, error):
+    from vllm import main_ci_definitions as source
+
+    monkeypatch.setattr(source, "prewarm_runtime_snapshots", lambda *args: pytest.fail("invalid page must avoid source lookup"))
+    monkeypatch.setattr(cqs, "bk_graphql", lambda *args: {
+        "organization": {"jobs": {"edges": [{"node": _current_ci_node()}], "pageInfo": page_info}}})
+    with pytest.raises(RuntimeError, match=error):
+        cqs._fetch_graphql_jobs("fake", query=cqs.GRAPHQL_ACTIVE_JOBS_Q, variables={}, max_pages=max_pages)
+    assert cqs._SOURCE_SCOPE_INDEXES == {}
+
+
+@pytest.mark.parametrize("pending", [[], [{"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi300_1"}]])
+def test_queue_loader_does_not_upgrade_empty_or_omni_legacy_overlay_marker(tmp_path, pending):
+    path = tmp_path / "queue_jobs.json"
+    payload = {"ts": "2026-10-09T07:00:00Z", "hardware_scope": "amd_mi_gpu", "pending": pending, "running": []}
+    path.write_text(json.dumps(payload))
+    assert cqs._load_complete_job_overlay(path) is None
+    payload["execution_scope_contract"] = cqs.EXECUTION_SCOPE_CONTRACT
+    path.write_text(json.dumps(payload))
+    assert cqs._load_complete_job_overlay(path)["details_observed_at"] == payload["ts"]
+
+
+def test_queue_legacy_cluster_only_route_drives_source_cpu_exclusion(monkeypatch):
+    cqs._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = _cpu_source_index()
+    build = {"pipeline": {"slug": "ci"}, "commit": SOURCE_COMMIT, "number": 1001,
+             "jobs": [{"type": "script", "state": "running", "name": "Misleading GPU name",
+                       "cluster_queue": {"key": "amd_mi300_1"}, "step": {"key": "torch-abi"}}]}
+    monkeypatch.setattr(cqs, "bk_get_paginated", lambda *args: [build])
+    assert cqs._collect_legacy_active_jobs("fake") == []

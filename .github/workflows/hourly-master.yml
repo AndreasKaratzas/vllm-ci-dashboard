@@ -1414,16 +1414,37 @@ jobs:
           ${{ steps.request-attempt.outputs.request_mode }} until
           ${{ steps.request-attempt.outputs.available_at }}."
 
+      - name: Prepare immutable runtime source cache key
+        id: runtime-source-cache-key
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          echo "key=runtime-source-indexes-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore immutable runtime source indexes
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: ${{ steps.runtime-source-cache-key.outputs.key }}
+          restore-keys: runtime-source-indexes-v1-${{ runner.os }}-
+
       - name: Collect vLLM/Omni AMD workload mappings
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue_workload "AMD workload mappings" \
             python scripts/vllm/collect_workload_mapping.py \
+            --force-days 2 \
             --output data/vllm/ci/workload_mapping.json
 
       - name: Refresh Omni surge heuristic
@@ -1563,25 +1584,6 @@ jobs:
             ${{ steps.analytics-cache-key.outputs.current_day_prefix }}
             ${{ steps.analytics-cache-key.outputs.prior_day_prefix }}
             ${{ steps.analytics-cache-key.outputs.namespace_prefix }}
-
-      - name: Prepare immutable runtime source cache key
-        id: runtime-source-cache-key
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved'
-        run: |
-          set -euo pipefail
-          echo "key=runtime-source-indexes-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore immutable runtime source indexes
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved'
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: data/vllm/ci/.cache/runtime-source-indexes-v1
-          key: ${{ steps.runtime-source-cache-key.outputs.key }}
-          restore-keys: runtime-source-indexes-v1-${{ runner.os }}-
 
       - name: Collect CI data
         id: collect-ci
