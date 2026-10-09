@@ -400,14 +400,14 @@ class TestAnalyticsData:
             if builds:
                 assert "jobs" in builds[0], f"{p} build missing jobs"
 
-    def test_amd_analytics_not_blank_when_test_results_exist(self, analytics):
+    def test_ci_analytics_not_blank_when_amd_test_results_exist(self, analytics):
         result_files = list((DATA / "vllm" / "ci" / "test_results").glob("*_amd.jsonl"))
         if not result_files:
             pytest.skip("AMD test-result files not collected yet")
-        amd = analytics.get("amd-ci") or {}
-        window = (amd.get("windows") or {}).get(amd.get("default_window", "7d"), {})
-        assert window.get("builds") or amd.get("builds"), (
-            "AMD analytics should fall back to parsed test_results instead of publishing an empty block"
+        ci = analytics.get("ci") or {}
+        window = (ci.get("windows") or {}).get(ci.get("default_window", "7d"), {})
+        assert window.get("builds") or ci.get("builds"), (
+            "Current CI analytics must contain build evidence when AMD test results exist"
         )
 
 

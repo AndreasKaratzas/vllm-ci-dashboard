@@ -17,6 +17,8 @@ Exclusive tests, workflow steps, public manifest entries, storage allocations,
 source-audit rules, and CSS were retired with their consumers. Old deep links
 redirect to supported views. The still-used hardware identity normalizer moved
 from the retired candidate collector into `ci/group_identity.py`.
+Latency publication audits use the shared bundle allocation; the historical
+flake/retry comparison limits and their exclusive live-data checks are removed.
 
 ## Retained contracts
 
@@ -64,6 +66,15 @@ analyzer, including H200 MIG profiles, DGX, and GPU-count prefixes. Physical
 AMD node-health percentages also use `ci` by default. Mixed legacy rollups are
 replaced by the freshly collected CI window when their pipeline scope cannot
 be separated; subsequent CI-only generations retain their scoped history.
+
+Physical node-health days follow job start time. Collection refreshes whole UTC
+days and discovers jobs through recently created builds, older builds finished
+within the refresh window, and older active builds. Every search must paginate
+completely before publication; a failed search preserves the previous generation.
+Exact failure percentages require a current started-job coverage proof for the
+selected days. Normal Actions refresh the default seven-day view in bounded
+daily slices. Retained observations from earlier refreshes remain available,
+but cannot establish an exhaustive sixty-day denominator on their own.
 
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,

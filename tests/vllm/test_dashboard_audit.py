@@ -4973,3 +4973,213 @@ def test_manual_agent_health_audit_preserves_explicit_legacy_scope_compatibility
         "node_days": [], "failing_runs": [],
     }}, "manual-agent-health.json")
     assert audit.report.errors == []
+
+
+def _agent_started_coverage_fixture(days=3, dropped=0):
+    end = datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
+    start = (end - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return {
+        "pipelines": ["ci"], "generated_at": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "max_window_days": 60,
+        # Valid older observations remain outside a short fresh proof interval.
+        "node_days": [{"d": "2026-08-20", "nd": "old-observed-node", "a": [1, 0, 0, 0], "n": [0, 0, 0, 0]}],
+        "retention": {
+            "configured_days": 60, "original_day_count": 5, "byte_limited": dropped > 0,
+            "retained_day_count": 5 - dropped, "dropped_oldest_day_count": dropped,
+            "pipeline_scope": {
+                "version": 1, "basis": "terminal_jobs_by_started_at",
+                "requested_days": days, "collected_from": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "collected_to": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "exhaustive": True, "complete_window": days == 60 and dropped == 0,
+                "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
+                "active_build_states": ["creating", "scheduled", "running", "failing", "blocked", "canceling"],
+                "attempt_policy": "latest_attempt_per_step",
+                "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize("days,dropped", [(3, 0), (60, 0), (60, 1)])
+def test_agent_started_job_proof_validates_only_fresh_interval_and_retention(tmp_path, days, dropped):
+    health = _agent_started_coverage_fixture(days, dropped)
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", True), ("basis", "builds_by_created_at"), ("requested_days", True),
+    ("requested_days", 0), ("requested_days", 61),
+    ("collected_from", "2026-08-01T00:00:00Z"),
+    ("collected_from", "2026-10-06T12:00:00Z"),
+    ("collected_from", "2026-10-06T00:00:00"),
+    ("collected_from", "2026-10-06T00:00:00+03:00"),
+    ("collected_to", "2026-10-09T13:00:00Z"),
+    ("collected_to", "2026-10-09T12:00:00.123Z"),
+    ("exhaustive", 1), ("exhaustive", False),
+    ("discovery_legs", {"created": True, "older_finished": True}),
+    ("discovery_legs", {"created": 1, "older_finished": True, "older_active": True}),
+    ("discovery_legs", {"created": True, "older_finished": True, "older_active": True, "other": True}),
+    ("active_build_states", ["running"]), ("active_build_states", [{}]),
+    ("attempt_policy", "all_attempts"), ("terminal_time_policy", "state_only"),
+    ("complete_window", 1), ("complete_window", True),
+])
+def test_agent_started_job_proof_rejects_false_or_malformed_authority(tmp_path, field, value):
+    health = _agent_started_coverage_fixture()
+    health["retention"]["pipeline_scope"][field] = value
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert {finding.code for finding in audit.report.errors} == {"operations-agent-health-started-coverage"}
+
+
+@pytest.mark.parametrize("tamper", ["clock", "configured", "pruned", "accounting", "scope_type", "missing_byte_limit", "byte_limit_type"])
+def test_agent_started_job_proof_rejects_clock_and_pruned_complete_window(tmp_path, tamper):
+    health = _agent_started_coverage_fixture(60)
+    if tamper == "clock":
+        health["generated_at"] = "2026-10-09T11:00:00Z"
+    elif tamper == "configured":
+        health["retention"]["configured_days"] = 3
+    elif tamper == "pruned":
+        health["retention"]["dropped_oldest_day_count"] = 1
+        health["retention"]["retained_day_count"] = 4
+    elif tamper == "accounting":
+        health["retention"]["retained_day_count"] = 4
+    elif tamper == "missing_byte_limit":
+        del health["retention"]["byte_limited"]
+    elif tamper == "byte_limit_type":
+        health["retention"]["byte_limited"] = "false"
+    else:
+        health["retention"]["pipeline_scope"] = []
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert {finding.code for finding in audit.report.errors} == {"operations-agent-health-started-coverage"}
+
+
+@pytest.mark.parametrize("scope", [None, {}, {"collected_from": "2026-08-01T00:00:00Z", "complete_window": True}])
+def test_legacy_ci_history_remains_observed_without_started_job_authority(tmp_path, scope):
+    health = _agent_started_coverage_fixture()
+    health["retention"]["pipeline_scope"] = scope
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+def test_operations_entrypoint_validates_explicit_started_job_proof(tmp_path):
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    health = _agent_started_coverage_fixture()
+    health["retention"]["pipeline_scope"]["complete_window"] = True
+    (ci / "operations_v2.json").write_text(json.dumps({"schema_version": 2, "amd_agent_health": health}))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=True)
+    audit.audit_operations_v2()
+    assert "operations-agent-health-started-coverage" in {finding.code for finding in audit.report.errors}
+
+
+@pytest.mark.parametrize("days", [3, 60])
+def test_started_job_proof_matches_real_generation_retention_contract(tmp_path, days):
+    from vllm.collect_agent_health import _prepare_generation
+
+    health = _agent_started_coverage_fixture(days)
+    now = datetime.fromisoformat(health["generated_at"].replace("Z", "+00:00"))
+    generation = _prepare_generation(
+        health["node_days"], [], now, pipelines=("ci",),
+        pipeline_scope=health["retention"]["pipeline_scope"],
+    )
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(generation["payload"], "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+def test_started_job_source_coverage_can_be_complete_with_bounded_failure_links(tmp_path):
+    health = _agent_started_coverage_fixture(60)
+    health["retention"]["byte_limited"] = True
+    audit = DashboardAudit(tmp_path)
+    audit.audit_agent_health_started_coverage(health, "data/vllm/ci/operations_v2.json")
+    assert audit.report.errors == []
+
+
+def _large_current_latency_bundle(tmp_path):
+    latency = _current_latency_fixture()
+    template = latency["rows"][0]
+    latency["rows"] = []
+    for group_index in range(225):
+        row = copy.deepcopy(template)
+        row["label"] = f"Shared workload {group_index}"
+        row["id"] = row["label"].lower()
+        for side in ("amd", "upstream"):
+            for sample in row[side]["samples"]:
+                original = sample["jobs"][0]
+                sample["jobs"] = []
+                for shard in range(8):
+                    job = copy.deepcopy(original)
+                    job["job_id"] = f"00000000-0000-4000-8000-{1 if side == 'amd' else 2}{sample['build_number']:05d}{group_index:03d}{shard:03d}"
+                    job["url"] = sample["build_url"] + "#" + job["job_id"]
+                    job["raw_name"] = f"{original['raw_name']} {group_index}"
+                    sample["jobs"].append(job)
+        latency["rows"].append(row)
+    output = tmp_path / "data/vllm/ci/operations_v2.json"
+    output.parent.mkdir(parents=True)
+    (output.parent / "queue_lifecycle.json").write_text("{}\n")
+    manifest = operations_module.write_snapshot_bundle(output, {
+        "schema_version": 2, "generated_at": latency["generated_at"], "latency": latency,
+    }, log=False)
+    return output.parent, manifest
+
+
+def test_operations_bundle_accepts_current_latency_above_retired_comparison_limit(tmp_path):
+    from vllm.operations_bundle_contract import (
+        OPERATIONS_CANARY_BUNDLE_MAX_BYTES, OPERATIONS_CANARY_SECTION_MAX_BYTES,
+    )
+
+    _output, manifest = _large_current_latency_bundle(tmp_path)
+    assert manifest["bundle_version"] == 3
+    assert 1_500_000 < manifest["sections"]["comparison"]["bytes"] <= OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
+    assert OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] == 7 * 1024 * 1024
+    assert OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+    assert audit.report.errors == []
+    assert audit.report.metrics["operations_bundle"]["canary_bundle_bytes"] <= OPERATIONS_CANARY_BUNDLE_MAX_BYTES
+
+
+def test_operations_bundle_rejects_latency_one_byte_above_shared_allocation(tmp_path):
+    from vllm.operations_bundle_contract import OPERATIONS_CANARY_SECTION_MAX_BYTES
+    from vllm.publication_surfaces import finding_surfaces
+
+    output, manifest = _large_current_latency_bundle(tmp_path)
+    descriptor = manifest["sections"]["comparison"]
+    path = output / descriptor["path"]
+    limit = OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
+    raw = path.read_bytes()
+    path.write_bytes(raw + b" " * (limit + 1 - len(raw)))
+    descriptor["bytes"] = path.stat().st_size
+    (output / "operations_v2_manifest.json").write_text(json.dumps(manifest))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+    errors = {finding.code: finding for finding in audit.report.errors}
+    assert {"operations-comparison-payload-budget", "operations-health-payload-budget"} == set(errors)
+    assert str(limit) in errors["operations-comparison-payload-budget"].message
+    assert finding_surfaces(errors["operations-comparison-payload-budget"]) == frozenset({"ci_analytics"})
+
+
+def test_operations_bundle_still_enforces_shared_32_mib_aggregate_cap(tmp_path, monkeypatch):
+    from vllm import operations_bundle_contract as contract
+
+    output, manifest = _large_current_latency_bundle(tmp_path)
+    assert contract.OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024
+    # The real additive allocations fit below32MiB. Allow a larger fixture
+    # nightly solely to exercise the independent aggregate guard after every
+    # individual section has passed its own declared test allowance.
+    monkeypatch.setitem(contract.OPERATIONS_CANARY_SECTION_MAX_BYTES, "nightly", 12 * 1024 * 1024)
+    for name in ("nightly", "amd_test_health", "amd_agent_health"):
+        descriptor = manifest["sections"][name]
+        path = output / descriptor["path"]
+        raw = path.read_bytes()
+        path.write_bytes(raw + b" " * (contract.OPERATIONS_CANARY_SECTION_MAX_BYTES[name] - len(raw)))
+        descriptor["bytes"] = path.stat().st_size
+    (output / "operations_v2_manifest.json").write_text(json.dumps(manifest))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+    assert [finding.code for finding in audit.report.errors] == ["operations-health-payload-budget"]
+    assert f"limit is {32 * 1024 * 1024} bytes" in audit.report.errors[0].message

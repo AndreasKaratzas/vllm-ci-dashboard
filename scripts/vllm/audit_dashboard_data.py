@@ -125,8 +125,6 @@ PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
 PUBLIC_SITE_WARN_BYTES = 250 * 1024 * 1024
 DNS_FAILURES_DATA_PATH = "data/vllm/ci/dns_failures.json"
-OPERATIONS_COMPARISON_MAX_BYTES = 1_500_000
-OPERATIONS_COMPARISON_RETRY_EVIDENCE_MAX_BYTES = 6_000_000
 OPERATIONS_RAW_DATA_PATH = "data/vllm/ci/operations_v2.json"
 OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
@@ -3548,6 +3546,7 @@ class DashboardAudit:
                 relpath,
             )
         self.audit_agent_health(payload, relpath)
+        self.audit_agent_health_started_coverage(_mapping(payload.get("amd_agent_health")), relpath)
 
         for retired in ("gating", "trajectory", "comparison_retry_evidence"):
             if retired in payload:
@@ -4100,6 +4099,81 @@ class DashboardAudit:
             if row.get("required") is not required_flag or row.get("source_url") != expected_url:
                 self.error("current-mirror-provenance", "AMD mirrors require exact pinned source links and independent optional/soft-fail flags", relpath)
 
+    def audit_agent_health_started_coverage(self, agent_health: dict, relpath: str) -> None:
+        """Validate fresh started-job authority separately from observed history."""
+        retention = _mapping(agent_health.get("retention"))
+        raw_scope = retention.get("pipeline_scope")
+        if raw_scope is None:
+            return
+        proof_fields = {
+            "version", "basis", "collected_to", "requested_days", "exhaustive",
+            "discovery_legs", "active_build_states", "attempt_policy", "terminal_time_policy",
+        }
+        if isinstance(raw_scope, dict) and not proof_fields.intersection(raw_scope):
+            # Historical CI-only ledgers remain observations. Their old
+            # created-build coverage metadata cannot authorize exact rates.
+            return
+        scope = _mapping(raw_scope)
+        invalid = []
+        if type(scope.get("version")) is not int or scope["version"] != 1:
+            invalid.append("version")
+        if scope.get("basis") != "terminal_jobs_by_started_at":
+            invalid.append("basis")
+        if scope.get("attempt_policy") != "latest_attempt_per_step":
+            invalid.append("attempt_policy")
+        if scope.get("terminal_time_policy") != "finished_at_or_terminal_build_bound_for_canceled":
+            invalid.append("terminal_time_policy")
+        if scope.get("exhaustive") is not True:
+            invalid.append("exhaustive")
+        legs = scope.get("discovery_legs")
+        if not isinstance(legs, dict) or set(legs) != {"created", "older_finished", "older_active"} or any(value is not True for value in legs.values()):
+            invalid.append("discovery_legs")
+        states = scope.get("active_build_states")
+        expected_states = {"creating", "scheduled", "running", "failing", "blocked", "canceling"}
+        if not isinstance(states, list) or not all(isinstance(state, str) for state in states) or len(states) != len(expected_states) or set(states) != expected_states:
+            invalid.append("active_build_states")
+
+        def utc_second(value: Any) -> datetime | None:
+            if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", value):
+                return None
+            return _parse_timestamp(value)
+
+        start = utc_second(scope.get("collected_from"))
+        end = utc_second(scope.get("collected_to"))
+        generated = utc_second(agent_health.get("generated_at"))
+        requested = scope.get("requested_days")
+        requested_valid = type(requested) is int and 1 <= requested <= 60
+        if not requested_valid:
+            invalid.append("requested_days")
+        if start is None or end is None or generated is None or start >= end or end != generated:
+            invalid.append("collection_interval")
+        elif requested_valid and start != (end - timedelta(days=requested)).replace(hour=0, minute=0, second=0, microsecond=0):
+            invalid.append("requested_interval_alignment")
+        if type(retention.get("configured_days")) is not int or retention["configured_days"] != 60 or type(agent_health.get("max_window_days")) is not int or agent_health["max_window_days"] != 60:
+            invalid.append("configured_window")
+        if not isinstance(retention.get("byte_limited"), bool):
+            invalid.append("byte_limited")
+        dropped = retention.get("dropped_oldest_day_count")
+        if not _is_nonnegative_int(dropped):
+            invalid.append("dropped_oldest_day_count")
+        original_days = retention.get("original_day_count")
+        retained_days = retention.get("retained_day_count")
+        if not _is_nonnegative_int(original_days) or not _is_nonnegative_int(retained_days) or not _is_nonnegative_int(dropped) or _safe_int(original_days) != _safe_int(retained_days) + _safe_int(dropped):
+            invalid.append("retained_day_accounting")
+        complete = scope.get("complete_window")
+        if not isinstance(complete, bool):
+            invalid.append("complete_window")
+        elif start is not None and end is not None and _is_nonnegative_int(dropped):
+            expected_complete = start <= end - timedelta(days=60) and dropped == 0
+            if complete is not expected_complete:
+                invalid.append("complete_window")
+        if invalid:
+            self.error(
+                "operations-agent-health-started-coverage",
+                f"Started-job coverage proof is invalid: {', '.join(invalid)}",
+                relpath,
+            )
+
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
         """Cross-check the pre-aggregated AMD CI agent-health block.
 
@@ -4468,6 +4542,7 @@ class DashboardAudit:
             section_sizes.get(name, 0) for name in OPERATIONS_CANARY_SECTIONS
         )
         queue_budget = OPERATIONS_CANARY_SECTION_MAX_BYTES["queue"]
+        comparison_budget = OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
         if manifest_size > OPERATIONS_MANIFEST_MAX_BYTES:
             self.error(
                 "operations-home-payload-budget",
@@ -4494,13 +4569,13 @@ class DashboardAudit:
                 f"queue section is {section_sizes['queue']} bytes; budget is {queue_budget}",
                 relpath,
             )
-        if section_sizes.get("comparison", 0) > OPERATIONS_COMPARISON_MAX_BYTES:
+        if section_sizes.get("comparison", 0) > comparison_budget:
             self.error(
                 "operations-comparison-payload-budget",
                 (
-                    "flake/retry/latency comparison section is "
+                    "current five-nightly latency comparison section is "
                     f"{section_sizes['comparison']} bytes; budget is "
-                    f"{OPERATIONS_COMPARISON_MAX_BYTES}"
+                    f"{comparison_budget}"
                 ),
                 relpath,
             )

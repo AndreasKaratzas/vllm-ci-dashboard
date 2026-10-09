@@ -1511,22 +1511,59 @@
       && aggregateCountMatches;
   }
 
+  function agentStartedJobCoverage(agentHealth) {
+    if (!agentHealth || !Array.isArray(agentHealth.pipelines)
+      || agentHealth.pipelines.length !== 1 || agentHealth.pipelines[0] !== 'ci'
+      || agentHealth.max_window_days !== 60) return null;
+    const retention = agentHealth.retention || {};
+    const scope = retention.pipeline_scope || {};
+    const states = ['creating', 'scheduled', 'running', 'failing', 'blocked', 'canceling'];
+    const legs = ['created', 'older_finished', 'older_active'];
+    const dayCounts = [retention.original_day_count, retention.retained_day_count, retention.dropped_oldest_day_count];
+    if (retention.configured_days !== 60 || typeof retention.byte_limited !== 'boolean'
+      || dayCounts.some(function (count) { return !Number.isSafeInteger(count) || count < 0; })
+      || retention.original_day_count !== retention.retained_day_count + retention.dropped_oldest_day_count) return null;
+    if (scope.version !== 1 || !Number.isInteger(scope.requested_days)
+      || scope.requested_days < 1 || scope.requested_days > 60
+      || scope.basis !== 'terminal_jobs_by_started_at' || scope.exhaustive !== true
+      || scope.attempt_policy !== 'latest_attempt_per_step'
+      || scope.terminal_time_policy !== 'finished_at_or_terminal_build_bound_for_canceled'
+      || typeof scope.complete_window !== 'boolean'
+      || !scope.discovery_legs || typeof scope.discovery_legs !== 'object' || Array.isArray(scope.discovery_legs)
+      || Object.keys(scope.discovery_legs).length !== legs.length
+      || legs.some(function (leg) { return scope.discovery_legs[leg] !== true; })
+      || !Array.isArray(scope.active_build_states) || scope.active_build_states.length !== states.length
+      || new Set(scope.active_build_states).size !== states.length
+      || states.some(function (status) { return !scope.active_build_states.includes(status); })) return null;
+    function utcClock(raw) {
+      if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$/.test(raw)) return NaN;
+      const instant = Date.parse(raw);
+      return Number.isFinite(instant) && new Date(instant).toISOString().replace('.000Z', 'Z') === raw.replace('+00:00', 'Z') ? instant : NaN;
+    }
+    const start = utcClock(scope.collected_from);
+    const end = utcClock(scope.collected_to);
+    const clock = utcClock(agentHealth.generated_at);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end !== clock || start >= end) return null;
+    const expectedStart = new Date(end - scope.requested_days * 86400000);
+    expectedStart.setUTCHours(0, 0, 0, 0);
+    const expectedComplete = scope.requested_days === 60 && retention.dropped_oldest_day_count === 0;
+    if (start !== expectedStart.getTime() || scope.complete_window !== expectedComplete) return null;
+    return {start: start, end: end};
+  }
+
   function agentSourceHistoryComplete(agentHealth, startDay) {
     const retention = ((agentHealth || {}).retention) || {};
     const scope = retention.pipeline_scope || {};
-    const start = typeof startDay === 'string' ? Date.parse(startDay + 'T00:00:00Z') : NaN;
-    const collected = Date.parse(scope.collected_from);
-    const end = Date.parse((agentHealth || {}).generated_at);
-    const scopeComplete = scope.complete_window !== false
-      || (Number.isFinite(start) && Number.isFinite(collected) && Number.isFinite(end)
-        && start >= collected && start <= end && collected <= end);
-    const dropped = Number(retention.dropped_oldest_day_count);
-    const originalDays = Number(retention.original_day_count);
-    const retainedDays = Number(retention.retained_day_count);
-    return scopeComplete
-      && retention.byte_limited !== true
-      && (!Number.isFinite(dropped) || dropped === 0)
-      && (!Number.isFinite(originalDays) || !Number.isFinite(retainedDays) || originalDays === retainedDays);
+    const coverage = agentStartedJobCoverage(agentHealth);
+    const start = typeof startDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(startDay)
+      ? Date.parse(startDay + 'T00:00:00Z') : NaN;
+    const scopeComplete = coverage && (startDay === undefined ? scope.complete_window
+      : Number.isFinite(start) && new Date(start).toISOString().slice(0, 10) === startDay
+        && start >= coverage.start && start < coverage.end);
+    return Boolean(scopeComplete)
+      && retention.byte_limited === false
+      && retention.dropped_oldest_day_count === 0
+      && retention.original_day_count === retention.retained_day_count;
   }
 
   function agentPipelineScopeLabel(agentHealth) {
@@ -5014,7 +5051,8 @@
     const operationsAccountingRetention = operationsRetention.failure_accounting || {};
     const sourceRetention = (agentHealth || {}).retention || {};
     const sourcePipelineScope = sourceRetention.pipeline_scope || {};
-    const pipelineHistoryIncomplete = sourcePipelineScope.complete_window === false;
+    const startedJobCoverage = agentStartedJobCoverage(agentHealth);
+    const pipelineHistoryIncomplete = !startedJobCoverage || sourcePipelineScope.complete_window === false;
     let sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth);
     let nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
     let failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
@@ -5070,8 +5108,8 @@
     if (evidenceIncomplete || nodeDetailIncomplete || failureDetailIncomplete) {
       const retentionNote = n('div', 'ops-evidence-note is-warning');
       add(retentionNote, [
-        n('strong', '', pipelineHistoryIncomplete ? 'Agent-health pipeline history is incomplete. ' : 'Agent-health drill-down evidence is storage-bounded. '),
-        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (pipelineHistoryIncomplete ? 'Collection for ' + agentPipelineScopeLabel(agentHealth) + ' begins ' + value(sourcePipelineScope.collected_from) + '; the full ' + integer(agentHealth.max_window_days || 60) + '-day window is not yet complete. Compact accounting is exact only for the available history. ' : sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + (pipelineHistoryIncomplete ? 'For selections that start before available UTC history or omit node rows, ' : 'When node detail or source history is incomplete, ') + 'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
+        n('strong', '', !startedJobCoverage ? 'Complete agent-health history is unavailable. ' : pipelineHistoryIncomplete ? 'Agent-health pipeline history is incomplete. ' : 'Agent-health drill-down evidence is storage-bounded. '),
+        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (!startedJobCoverage ? 'Retained counts describe observed runs; node-specific failure rates are unavailable. ' : pipelineHistoryIncomplete ? 'Complete fresh UTC history for ' + agentPipelineScopeLabel(agentHealth) + ' begins ' + value(sourcePipelineScope.collected_from) + ' and ends ' + value(sourcePipelineScope.collected_to) + '; the full ' + integer(agentHealth.max_window_days || 60) + '-day window is not yet complete. Older retained history describes observed runs. ' : sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + (pipelineHistoryIncomplete ? 'For selections outside the complete fresh UTC interval or with omitted rows, ' : 'When node detail or source history is incomplete, ') + 'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
       ]);
       host.append(retentionNote);
     }

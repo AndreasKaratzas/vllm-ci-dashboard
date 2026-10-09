@@ -16,7 +16,7 @@ import json
 import re
 import sys
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -24,7 +24,9 @@ import pytest
 from vllm import build_operations_snapshot as ops
 from vllm import collect_agent_health as ah
 from vllm.audit_dashboard_data import DashboardAudit
+from vllm.buildkite_request_guard import BuildkiteRequestAllowanceExhausted
 from vllm.constants import amd_gpu_hardware
+from vllm.ci import buildkite_client
 from vllm.ci.log_parser import extract_node, node_from_agent
 
 
@@ -267,15 +269,15 @@ def test_incremental_build_fetch_is_bounded_exact_and_deduplicated(monkeypatch):
         return [build]
 
     monkeypatch.setattr(ah, "_paginate", paginate)
-    rows = ah._fetch_pipeline_observations(
-        "amd-ci",
+    rows = ah._fetch_pipeline_builds(
+        "https://api.buildkite.com/v2/organizations/vllm/pipelines/amd-ci/builds",
+        NOW - timedelta(days=3), NOW,
         3,
-        query_time=NOW,
     )
 
     assert max_active == ah.MAX_INCREMENTAL_SLICE_WORKERS
     assert len(rows) == 1
-    assert rows[0]["node"] == "node-1"
+    assert rows[0]["jobs"][0]["id"] == "j1"
     assert sorted(
         (params["created_from"], params["created_to"])
         for params in calls
@@ -298,10 +300,10 @@ def test_long_backfill_keeps_single_paginated_query(monkeypatch):
         return []
 
     monkeypatch.setattr(ah, "_paginate", paginate)
-    assert ah._fetch_pipeline_observations(
-        "ci",
+    assert ah._fetch_pipeline_builds(
+        "https://api.buildkite.com/v2/organizations/vllm/pipelines/ci/builds",
+        NOW - timedelta(days=60), NOW,
         60,
-        query_time=NOW,
     ) == []
     assert calls == [{
         "per_page": 100,
@@ -318,10 +320,11 @@ def test_upstream_incremental_bounds_page_payload_without_extra_slices(monkeypat
         return []
 
     monkeypatch.setattr(ah, "_paginate", paginate)
-    assert ah._fetch_pipeline_observations(
-        "ci",
+    assert ah._fetch_pipeline_builds(
+        "https://api.buildkite.com/v2/organizations/vllm/pipelines/ci/builds",
+        NOW - timedelta(days=3), NOW,
         3,
-        query_time=NOW,
+        incremental_per_page=ah.UPSTREAM_INCREMENTAL_PER_PAGE,
     ) == []
 
     # Preserve the three exact daily slice roots (the request ceiling before
@@ -353,7 +356,10 @@ def test_incremental_slice_failure_is_fail_closed(monkeypatch):
 
     monkeypatch.setattr(ah, "_paginate", paginate)
     with pytest.raises(RuntimeError, match="slice failed after retries"):
-        ah._fetch_pipeline_observations("ci", 3, query_time=NOW)
+        ah._fetch_pipeline_builds(
+            "https://api.buildkite.com/v2/organizations/vllm/pipelines/ci/builds",
+            NOW - timedelta(days=3), NOW, 3,
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -416,7 +422,7 @@ def _retained_failure(day: str, index: int, *, padding: int = 0) -> dict:
     }
 
 
-def _run_scoped_collection(monkeypatch, tmp_path, *, pipeline=None, fail=False):
+def _run_scoped_collection(monkeypatch, tmp_path, *, pipeline=None, fail=False, fetch_fn=None, days=3):
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -438,12 +444,14 @@ def _run_scoped_collection(monkeypatch, tmp_path, *, pipeline=None, fail=False):
         return [row]
 
     argv = ["collect_agent_health.py", "--output", str(tmp_path)]
+    if days is not None:
+        argv.extend(["--days", str(days)])
     if pipeline is not None:
         argv.extend(["--pipeline", pipeline])
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(ah, "datetime", Clock)
     monkeypatch.setattr(ah.cfg, "BK_TOKEN", "unit-test-token")
-    monkeypatch.setattr(ah, "_fetch_pipeline_observations", fetch)
+    monkeypatch.setattr(ah, "_fetch_pipeline_observations", fetch_fn or fetch)
     assert ah.main() == 0
     return calls, json.loads((tmp_path / ah.OUTPUT_JSON).read_text())
 
@@ -464,6 +472,316 @@ def _seed_scoped_history(tmp_path, pipelines, *, generated_at="2026-07-13T12:00:
     return node, failures
 
 
+def _expected_job_scope():
+    return {
+        "version": 1,
+        "basis": "terminal_jobs_by_started_at",
+        "collected_from": "2026-07-11T00:00:00Z",
+        "collected_to": "2026-07-14T12:00:00Z",
+        "requested_days": 3,
+        "exhaustive": True,
+        "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
+        "active_build_states": ["creating", "scheduled", "running", "failing", "blocked", "canceling"],
+        "attempt_policy": "latest_attempt_per_step",
+        "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
+        "complete_window": False,
+    }
+
+
+def _window_build(number, created, *, state="passed", start="2026-07-14T09:00:00Z",
+                  finish="2026-07-14T09:05:00Z", job_state="passed", build_finish=None):
+    build = _build(number=number, created=created, state=state)
+    build["finished_at"] = build_finish
+    build["jobs"] = [_job(str(number), "current group", job_state, "amd_mi300_1",
+                          "current-node", start, finish)]
+    return build
+
+
+def _window_page(builds, calls):
+    def page(_url, params):
+        calls.append(dict(params))
+        selected = []
+        for build in builds:
+            created = datetime.fromisoformat(build["created_at"].replace("Z", "+00:00"))
+            if "created_from" in params and created < datetime.fromisoformat(params["created_from"]):
+                continue
+            if "created_to" in params and created >= datetime.fromisoformat(params["created_to"]):
+                continue
+            if "finished_from" in params:
+                finish = build.get("finished_at")
+                if not finish or datetime.fromisoformat(finish.replace("Z", "+00:00")) < datetime.fromisoformat(params["finished_from"]):
+                    continue
+            if "state[]" in params and not (
+                build["state"] in params["state[]"]
+                or ("blocked" in params["state[]"] and build.get("blocked"))
+            ):
+                continue
+            selected.append(build)
+        return selected
+    return page
+
+
+def test_started_job_discovery_includes_older_finished_and_unfinished_builds(monkeypatch):
+    builds = [
+        _window_build(1, "2026-07-05T00:00:00Z", build_finish="2026-07-14T10:00:00Z"),
+        _window_build(2, "2026-06-05T00:00:00Z", state="running"),
+        _window_build(3, "2026-07-14T08:00:00Z"),
+        _window_build(4, "2026-06-01T00:00:00Z", build_finish="2026-06-01T01:00:00Z"),
+    ]
+    # REST retains the prior state for blocked builds; its blocked flag remains
+    # queryable through the documented state[]=blocked filter.
+    builds[3]["blocked"] = True
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page(builds, calls))
+
+    rows = ah._fetch_pipeline_observations("ci", 3, query_time=NOW)
+
+    assert {row["job_id"] for row in rows} == {"1", "2", "3", "4"}
+    assert len(calls) == 6  # four aligned daily roots plus the two old-build legs
+    old_finished = next(params for params in calls if "finished_from" in params)
+    old_active = next(params for params in calls if "state[]" in params)
+    assert old_finished["finished_from"] == old_finished["created_to"] == "2026-07-11T00:00:00+00:00"
+    assert old_active["created_to"] == "2026-07-11T00:00:00+00:00"
+    assert old_active["state[]"] == list(ah.ACTIVE_BUILD_STATES)
+    assert all(params["exclude_pipeline"] == "true" for params in calls)
+    assert all("exclude_jobs" not in params and "include_paused" not in params for params in calls)
+
+
+def test_default_agent_health_fresh_proof_covers_seven_day_display(monkeypatch, tmp_path):
+    calls, payload = _run_scoped_collection(monkeypatch, tmp_path, days=None)
+
+    assert [days for _, days, _ in calls] == [7]
+    scope = payload["retention"]["pipeline_scope"]
+    assert scope["requested_days"] == payload["default_window_days"] == 7
+    assert scope["collected_from"] == "2026-07-07T00:00:00Z"
+    assert scope["collected_to"] == "2026-07-14T12:00:00Z"
+    assert not scope["complete_window"]
+
+
+def test_seven_day_job_window_uses_bounded_daily_roots_and_projects_each_slice(monkeypatch):
+    calls = []
+    raw = _window_build(1, "2026-07-14T08:00:00Z")
+    raw["unneeded_large_metadata"] = "x" * 100_000
+
+    def page(_url, params):
+        calls.append(dict(params))
+        return [raw]
+
+    projected = []
+
+    def project(build):
+        projected.append(build["number"])
+        return {"number": build["number"], "observation_count": len(build["jobs"])}
+
+    monkeypatch.setattr(ah, "_paginate", page)
+    result = ah._fetch_pipeline_builds(
+        "https://api.buildkite.com/v2/organizations/vllm/pipelines/ci/builds",
+        ah._job_window_start(NOW, 7), NOW, 7,
+        incremental_per_page=ah.UPSTREAM_INCREMENTAL_PER_PAGE,
+        project=project,
+    )
+
+    assert ah.MAX_INCREMENTAL_SLICE_DAYS == 7
+    assert ah.MAX_INCREMENTAL_SLICE_WORKERS == 3
+    assert len(calls) == len(projected) == 8
+    assert {params["per_page"] for params in calls} == {50}
+    assert sorted((p["created_from"], p["created_to"]) for p in calls)[0] == (
+        "2026-07-07T00:00:00+00:00", "2026-07-08T00:00:00+00:00",
+    )
+    assert sorted((p["created_from"], p["created_to"]) for p in calls)[-1] == (
+        "2026-07-14T00:00:00+00:00", "2026-07-14T12:00:00+00:00",
+    )
+    assert result == [{"number": 1, "observation_count": 1}]
+    assert "unneeded_large_metadata" not in result[0]
+
+
+def test_started_job_overlap_deduplicates_later_build_snapshot(monkeypatch):
+    early = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
+    late = _window_build(1, "2026-07-14T08:00:00Z")
+
+    def page(_url, params):
+        return [late] if "state[]" in params else [early]
+
+    monkeypatch.setattr(ah, "_paginate", page)
+
+    rows = ah._fetch_pipeline_observations("ci", 3, query_time=NOW)
+
+    assert len(rows) == 1 and rows[0]["state"] == "pass"
+
+
+def test_started_job_whole_day_refresh_preserves_morning_counts_on_repeat(monkeypatch, tmp_path):
+    builds = [
+        _window_build(1, "2026-07-11T01:00:00Z", start="2026-07-11T02:00:00Z", finish="2026-07-11T02:05:00Z"),
+        _window_build(2, "2026-07-11T13:00:00Z", start="2026-07-11T14:00:00Z", finish="2026-07-11T14:05:00Z"),
+    ]
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page(builds, calls))
+    actual_fetch = ah._fetch_pipeline_observations
+    _, first = _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=actual_fetch)
+    _, second = _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=actual_fetch)
+
+    assert first["total_runs"] == second["total_runs"] == 2
+    assert first["node_days"] == second["node_days"]
+    assert second["retention"]["pipeline_scope"]["collected_from"] == "2026-07-11T00:00:00Z"
+    assert any(params.get("created_from") == "2026-07-11T00:00:00+00:00" for params in calls)
+
+
+@pytest.mark.parametrize("leg", ["older_finished", "older_active"])
+@pytest.mark.parametrize("error", [RuntimeError, BuildkiteRequestAllowanceExhausted])
+def test_started_job_leg_failure_preserves_entire_generation(monkeypatch, tmp_path, leg, error):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+
+    def page(_url, params):
+        if (leg == "older_finished" and "finished_from" in params) or (leg == "older_active" and "state[]" in params):
+            raise error("incomplete old-build discovery")
+        return []
+
+    monkeypatch.setattr(ah, "_paginate", page)
+    with pytest.raises(error, match="incomplete old-build discovery"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+def test_started_job_old_build_pagination_cap_preserves_entire_generation(monkeypatch, tmp_path):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    old_pages = []
+
+    class Response:
+        def __init__(self, links):
+            self.links = links
+
+        def json(self):
+            return []
+
+    def request(url, params=None):
+        if (params and "state[]" in params) or "?page=" in url:
+            old_pages.append(url)
+            return Response({"next": {"url": url.split("?")[0] + f"?page={len(old_pages) + 1}"}})
+        return Response({})
+
+    monkeypatch.setattr(buildkite_client, "_request", request)
+    with pytest.raises(RuntimeError, match="100-page safety cap"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert len(old_pages) == buildkite_client.PAGINATION_SAFETY_CAP
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("invalid_field,value", [
+    ("number", True), ("number", 0), ("number", -1), ("number", "1"),
+    ("jobs", None), ("jobs", {}), ("jobs", ["not a job"]), ("missing_jobs", None),
+])
+def test_malformed_embedded_roster_preserves_entire_generation(
+    monkeypatch, tmp_path, invalid_field, value,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    malformed = _window_build(1, "2026-07-05T00:00:00Z")
+    if invalid_field == "missing_jobs":
+        del malformed["jobs"]
+    else:
+        malformed[invalid_field] = value
+
+    def page(_url, params):
+        return [malformed] if "state[]" in params else []
+
+    monkeypatch.setattr(ah, "_paginate", page)
+    with pytest.raises(RuntimeError, match="agent-health discovery returned an invalid"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("start,finish,job_state,expected", [
+    ("2026-07-10T23:59:59Z", "2026-07-14T09:05:00Z", "passed", False),
+    ("2026-07-14T12:00:00Z", "2026-07-14T12:00:00Z", "passed", False),
+    ("2026-07-14T09:00:00Z", "2026-07-14T12:00:01Z", "passed", False),
+    ("2026-07-14T09:00:00Z", "2026-07-14T12:00:00Z", "passed", True),
+    ("2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z", "canceled", True),
+    ("", "", "canceled", False),
+])
+def test_started_job_window_excludes_unexecuted_outside_and_future_terminal_runs(start, finish, job_state, expected):
+    build = _window_build(1, "2026-07-14T08:00:00Z", start=start, finish=finish, job_state=job_state)
+    observed = ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW)
+    assert (observed is not None) is expected
+
+
+@pytest.mark.parametrize("field,value", [
+    ("started_at", "invalid"), ("started_at", "2026-07-14T09:00:00"),
+    ("started_at", None), ("finished_at", "invalid"),
+    ("finished_at", "2026-07-14T09:05:00"), ("finished_at", None),
+    ("finished_at", "2026-07-14T08:59:00Z"),
+])
+def test_started_terminal_timestamp_ambiguity_refuses_exact_generation(field, value):
+    build = _window_build(1, "2026-07-14T08:00:00Z")
+    job = build["jobs"][0]
+    job[field] = value
+    with pytest.raises(RuntimeError, match="agent-health terminal job"):
+        ah._observe_in_window("ci", build, job, None, NOW - timedelta(days=3), NOW)
+
+
+@pytest.mark.parametrize("state", ["passed", "failed", "timed_out", "soft_failed"])
+def test_missing_started_execution_without_agent_preserves_prior_generation(
+    monkeypatch, tmp_path, state,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state, start=None)
+    build["jobs"][0]["agent"] = None
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+
+    with pytest.raises(RuntimeError, match="invalid started_at"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("state", ["canceled", "broken", "expired"])
+def test_never_started_terminal_jobs_with_no_agent_remain_out_of_execution_scope(state):
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state, start=None)
+    build["jobs"][0]["agent"] = None
+    assert ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW) is None
+
+
+def test_started_canceled_job_uses_final_parent_finish_bound():
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="canceled", finish="", build_finish="2026-07-14T10:00:00Z")
+    assert ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW)
+    build["state"] = "canceling"
+    with pytest.raises(RuntimeError, match="no provable finish time"):
+        ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW)
+    build["state"] = "canceled"
+    build["finished_at"] = "2026-07-14T12:00:01Z"
+    with pytest.raises(RuntimeError, match="no as-of finish bound"):
+        ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW)
+
+
+def test_running_soft_failure_flag_is_not_a_terminal_started_run():
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="running")
+    build["jobs"][0]["soft_failed"] = True
+    assert ah._observe_in_window("ci", build, build["jobs"][0], None, NOW - timedelta(days=3), NOW) is None
+
+
+def test_created_slice_duplicate_cannot_hide_malformed_embedded_roster(monkeypatch):
+    valid = _window_build(1, "2026-07-14T08:00:00Z")
+    malformed = {"number": 1}
+
+    def page(_url, params):
+        if params.get("created_from") == "2026-07-12T00:00:00+00:00":
+            return [malformed]
+        return [valid]
+
+    monkeypatch.setattr(ah, "_paginate", page)
+    with pytest.raises(RuntimeError, match="invalid embedded job roster"):
+        ah._fetch_pipeline_observations("ci", 3, query_time=NOW)
+
+
 @pytest.mark.parametrize("old_scope", [("amd-ci", "ci"), ("amd-ci",), None])
 def test_default_agent_health_discards_mixed_or_unproven_retained_totals(
     monkeypatch, tmp_path, old_scope,
@@ -478,9 +796,7 @@ def test_default_agent_health_discards_mixed_or_unproven_retained_totals(
     assert payload["infra_failure_count"] == 1
     assert {row["p"] for row in payload["failing_runs"]} == {"ci"}
     assert {row["d"] for row in payload["node_days"]} == {"2026-07-14"}
-    assert payload["retention"]["pipeline_scope"] == {
-        "collected_from": "2026-07-11T12:00:00Z", "complete_window": False,
-    }
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
     assert ah._load_jsonl(tmp_path / ah.STORE_SUBDIR / ah.NODE_DAYS_JSONL) == payload["node_days"]
     assert ah._load_jsonl(tmp_path / ah.STORE_SUBDIR / ah.INFRA_FAILURES_JSONL) == payload["failing_runs"]
 
@@ -497,9 +813,7 @@ def test_current_agent_health_retains_verified_ci_history_and_filters_legacy_fai
     assert failures[1] in payload["failing_runs"]
     assert failures[0] not in payload["failing_runs"]
     assert {row["p"] for row in payload["failing_runs"]} == {"ci"}
-    assert payload["retention"]["pipeline_scope"] == {
-        "collected_from": "2026-05-10T12:00:00Z", "complete_window": True,
-    }
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
 
 
 @pytest.mark.parametrize("pipeline,expected", [
@@ -523,18 +837,14 @@ def test_agent_health_missing_incremental_overlap_does_not_claim_complete_scope(
 
     _, payload = _run_scoped_collection(monkeypatch, tmp_path)
 
-    assert payload["retention"]["pipeline_scope"] == {
-        "collected_from": "2026-07-11T12:00:00Z", "complete_window": False,
-    }
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
 
 
-@pytest.mark.parametrize("stored_start,expected,complete", [
-    ("2026-05-10T15:30:00+03:30", "2026-05-10T12:00:00Z", True),
-    ("2026-05-10T12:00:00", "2026-07-11T12:00:00Z", False),
-    ("invalid", "2026-07-11T12:00:00Z", False),
+@pytest.mark.parametrize("stored_start", [
+    "2026-05-10T15:30:00+03:30", "2026-05-10T12:00:00", "invalid",
 ])
-def test_agent_health_scope_start_requires_timezone_and_normalizes_to_utc(
-    monkeypatch, tmp_path, stored_start, expected, complete,
+def test_agent_health_old_creation_scope_never_extends_started_job_proof(
+    monkeypatch, tmp_path, stored_start,
 ):
     _seed_scoped_history(tmp_path, ["ci"])
     path = tmp_path / ah.OUTPUT_JSON
@@ -544,9 +854,7 @@ def test_agent_health_scope_start_requires_timezone_and_normalizes_to_utc(
 
     _, payload = _run_scoped_collection(monkeypatch, tmp_path)
 
-    assert payload["retention"]["pipeline_scope"] == {
-        "collected_from": expected, "complete_window": complete,
-    }
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
 
 
 def test_agent_health_keeps_prior_byte_pruning_visible_in_scope_coverage(
@@ -563,9 +871,7 @@ def test_agent_health_keeps_prior_byte_pruning_visible_in_scope_coverage(
 
     _, payload = _run_scoped_collection(monkeypatch, tmp_path)
 
-    assert payload["retention"]["pipeline_scope"] == {
-        "collected_from": "2026-07-10T00:00:00Z", "complete_window": False,
-    }
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
 
 
 def test_agent_health_scope_migration_source_failure_preserves_prior_generation(
