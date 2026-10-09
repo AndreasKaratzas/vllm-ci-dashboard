@@ -4128,7 +4128,7 @@ class DashboardAudit:
                 self.error("current-mirror-provenance", "AMD mirrors require exact pinned source links and independent optional/soft-fail flags", relpath)
 
     def audit_agent_health_started_coverage(self, agent_health: dict, relpath: str) -> None:
-        """Validate fresh started-job authority separately from observed history."""
+        """Validate fresh source-cohort authority separately from observed history."""
         retention = _mapping(agent_health.get("retention"))
         raw_scope = retention.get("pipeline_scope")
         if raw_scope is None:
@@ -4136,6 +4136,7 @@ class DashboardAudit:
         proof_fields = {
             "version", "basis", "collected_to", "requested_days", "exhaustive",
             "discovery_legs", "active_build_states", "attempt_policy", "terminal_time_policy",
+            "eligible_completion", "finished_job_source", "day_basis",
         }
         if isinstance(raw_scope, dict) and not proof_fields.intersection(raw_scope):
             # Historical CI-only ledgers remain observations. Their old
@@ -4143,9 +4144,14 @@ class DashboardAudit:
             return
         scope = _mapping(raw_scope)
         invalid = []
-        if type(scope.get("version")) is not int or scope["version"] != 1:
+        version = scope.get("version")
+        if type(version) is not int or version not in (1, 2):
             invalid.append("version")
-        if scope.get("basis") != "terminal_jobs_by_started_at":
+        expected_basis = (
+            "terminal_jobs_by_build_created_at" if type(version) is int and version == 2
+            else "terminal_jobs_by_started_at"
+        )
+        if scope.get("basis") != expected_basis:
             invalid.append("basis")
         if scope.get("attempt_policy") != "latest_attempt_per_step":
             invalid.append("attempt_policy")
@@ -4154,12 +4160,27 @@ class DashboardAudit:
         if scope.get("exhaustive") is not True:
             invalid.append("exhaustive")
         legs = scope.get("discovery_legs")
-        if not isinstance(legs, dict) or set(legs) != {"created", "older_finished", "older_active"} or any(value is not True for value in legs.values()):
+        expected_legs = {"created"} if version == 2 else {"created", "older_finished", "older_active"}
+        if not isinstance(legs, dict) or set(legs) != expected_legs or any(value is not True for value in legs.values()):
             invalid.append("discovery_legs")
-        states = scope.get("active_build_states")
-        expected_states = {"creating", "scheduled", "running", "failing", "blocked", "canceling"}
-        if not isinstance(states, list) or not all(isinstance(state, str) for state in states) or len(states) != len(expected_states) or set(states) != expected_states:
-            invalid.append("active_build_states")
+        if type(version) is int and version == 2:
+            if agent_health.get("pipelines") != ["ci"]:
+                invalid.append("pipelines")
+            if scope.get("eligible_completion") != "current_ci_build_creation_cohort_with_provable_completion":
+                invalid.append("eligible_completion")
+            if scope.get("day_basis") != "build_created_at_utc":
+                invalid.append("day_basis")
+            if "finished_job_source" in scope:
+                invalid.append("finished_job_source")
+            if "active_build_states" in scope:
+                invalid.append("active_build_states")
+        else:
+            states = scope.get("active_build_states")
+            expected_states = {"creating", "scheduled", "running", "failing", "blocked", "canceling"}
+            if not isinstance(states, list) or not all(isinstance(state, str) for state in states) or len(states) != len(expected_states) or set(states) != expected_states:
+                invalid.append("active_build_states")
+            if "eligible_completion" in scope or "finished_job_source" in scope or "day_basis" in scope:
+                invalid.append("proof_version_fields")
 
         def utc_second(value: Any) -> datetime | None:
             if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", value):
@@ -4198,16 +4219,19 @@ class DashboardAudit:
         if invalid:
             self.error(
                 "operations-agent-health-started-coverage",
-                f"Started-job coverage proof is invalid: {', '.join(invalid)}",
+                f"Agent-health source coverage proof is invalid: {', '.join(invalid)}",
                 relpath,
             )
 
     def audit_agent_health(self, payload: dict, relpath: str) -> None:
         """Cross-check the pre-aggregated AMD CI agent-health block.
 
-        collect_agent_health.py walks every build across all branches in the AMD
-        pipelines and ships compact per-node/day reliability rollups plus bounded
-        exact failing-run evidence. Compact accounting keeps table counts exact
+        collect_agent_health.py discovers terminal AMD runs across CI branches
+        and ships compact per-node/day reliability rollups plus bounded exact
+        failing-run evidence. Version 2 explicitly measures terminal runs from
+        CI builds created within the UTC cohort, with a recorded finish or valid
+        final-parent completion bound.
+        Compact accounting keeps table counts exact
         when link evidence is shortened; the frontend clusters only retained
         evidence client-side. This audits the block's meta, accounting, rollup
         shape, and the AMD scoping of the shipped failing runs.

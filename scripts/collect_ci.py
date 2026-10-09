@@ -37,6 +37,7 @@ from vllm.ci.buildkite_client import (
 from vllm.ci.backfill_checkpoint import (
     BackfillCheckpointError,
     cached_result_parser_version,
+    find_complete_shard,
     record_complete_shard,
     restore_complete_shards,
 )
@@ -1111,6 +1112,42 @@ def collect_pipeline(
                 if loaded:
                     results_by_build[build_num] = loaded
                 continue
+            if backfill_checkpoint_dir is not None and detail_hydrated_from_api:
+                # Publication may have failed after this exact build's logs
+                # were parsed and privately checkpointed. Same-build/parser
+                # restore deliberately preserves the published baseline; use
+                # that alternate generation only after the fresh frozen
+                # roster proves every current job attempt and parser match.
+                try:
+                    checkpoint_path = find_complete_shard(
+                        backfill_checkpoint_dir, jsonl_path.name,
+                        build_number=build_num,
+                    )
+                except (OSError, BackfillCheckpointError):
+                    checkpoint_path = None
+                    log.warning(
+                        "  Build #%d: private parsed checkpoint failed "
+                        "validation; fetching current logs", build_num,
+                    )
+                if checkpoint_path is not None and _cache_covers_all_jobs(
+                    build, checkpoint_path, pipeline_key, build_num,
+                ):
+                    loaded = _current_scope_results(
+                        _load_cached_results(checkpoint_path), pipeline_key, build,
+                    )
+                    if loaded:
+                        result_path = write_test_results(
+                            loaded, date, pipeline_key, results_dir,
+                        )
+                        if result_path is None:
+                            continue
+                        record_complete_shard(backfill_checkpoint_dir, result_path)
+                        results_by_build[build_num] = loaded
+                        log.info(
+                            "  Build #%d (%s): reused exact %s parsed evidence "
+                            "from private checkpoint", build_num, date, pipeline_key,
+                        )
+                        continue
             if build_num in _cached_build_numbers(jsonl_path):
                 jsonl_path.unlink()
                 # Keep the durable retention attestation on the exact same

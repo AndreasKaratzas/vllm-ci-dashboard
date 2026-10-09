@@ -424,7 +424,10 @@ def _retained_failure(day: str, index: int, *, padding: int = 0) -> dict:
     }
 
 
-def _run_scoped_collection(monkeypatch, tmp_path, *, pipeline=None, fail=False, fetch_fn=None, days=3):
+def _run_scoped_collection(
+    monkeypatch, tmp_path, *, pipeline=None, fail=False, fetch_fn=None, days=3,
+    day_basis=None,
+):
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -450,6 +453,8 @@ def _run_scoped_collection(monkeypatch, tmp_path, *, pipeline=None, fail=False, 
         argv.extend(["--days", str(days)])
     if pipeline is not None:
         argv.extend(["--pipeline", pipeline])
+    if day_basis is not None:
+        argv.extend(["--day-basis", day_basis])
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(ah, "datetime", Clock)
     monkeypatch.setattr(ah.cfg, "BK_TOKEN", "unit-test-token")
@@ -566,6 +571,164 @@ def test_default_agent_health_fresh_proof_covers_seven_day_display(monkeypatch, 
     assert scope["collected_from"] == "2026-07-07T00:00:00Z"
     assert scope["collected_to"] == "2026-07-14T12:00:00Z"
     assert not scope["complete_window"]
+
+
+def test_created_cohort_uses_parent_day_and_proves_only_its_complete_finite_source(
+    monkeypatch, tmp_path,
+):
+    blocked = _window_build(1, "2020-01-01T00:00:00Z", build_finish="2020-01-01T01:00:00Z")
+    blocked["blocked"] = True
+    canceled = _window_build(
+        2, "2026-07-11T23:50:00Z", state="canceled", job_state="canceled",
+        finish=None, build_finish="2026-07-14T10:00:00Z",
+    )
+    created = _window_build(3, "2026-07-12T23:50:00Z", job_state="failed")
+    running = _window_build(4, "2026-07-14T08:00:00Z", state="running", job_state="running", finish=None)
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page([blocked, canceled, created, running], calls))
+
+    def old_rosters(*args, **kwargs):
+        pytest.fail("creation cohort must not claim an older-build discovery leg")
+
+    monkeypatch.setattr(ah, "_fetch_older_active_builds", old_rosters)
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+        day_basis="build-created",
+    )
+
+    assert len(calls) == 4  # four aligned creation-day roots only
+    assert not any("state" in params for params in calls)
+    assert not any("finished_from" in params for params in calls)
+    assert payload["pipelines"] == ["ci"]
+    assert payload["total_runs"] == 2
+    assert sum(row["a"][0] for row in payload["node_days"]) == 2
+    assert {row["d"] for row in payload["node_days"]} == {"2026-07-11", "2026-07-12"}
+    failure = payload["failing_runs"][0]
+    assert failure["d"] == "2026-07-12"
+    assert failure["t"] == "2026-07-14T09:00:00Z"
+    assert failure["e"] == "2026-07-14T09:05:00Z"
+    scope = payload["retention"]["pipeline_scope"]
+    assert scope == {
+        **{key: value for key, value in _expected_job_scope().items()
+           if key not in ("version", "basis", "discovery_legs", "active_build_states")},
+        "version": 2,
+        "basis": "terminal_jobs_by_build_created_at",
+        "eligible_completion": ah.CREATED_ELIGIBILITY,
+        "day_basis": ah.CREATED_DAY_BASIS,
+        "discovery_legs": {"created": True},
+    }
+
+
+@pytest.mark.parametrize("failure", [
+    "source request failed", "source pagination did not exhaust",
+    "request-start allowance exhausted",
+])
+def test_created_source_failure_preserves_all_prior_agent_files(monkeypatch, tmp_path, failure):
+    _seed_scoped_history(tmp_path, ["amd-ci", "ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    def failed(*args, **kwargs):
+        raise RuntimeError(failure)
+
+    monkeypatch.setattr(ah, "_paginate", failed)
+    with pytest.raises(RuntimeError, match=re.escape(failure)):
+        _run_scoped_collection(
+            monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+            day_basis="build-created",
+        )
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("slug", ["amd-ci", "both", "unknown"])
+def test_created_source_requires_current_ci_before_transport(monkeypatch, slug):
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid creation scope must not transport")
+
+    monkeypatch.setattr(ah, "_paginate", unexpected)
+    with pytest.raises(ValueError, match="current ci pipeline"):
+        ah._fetch_pipeline_observations(slug, 7, query_time=NOW, day_basis="build-created")
+
+
+@pytest.mark.parametrize("pipeline", ["amd-ci", "both"])
+def test_created_cli_rejects_legacy_scope_before_source_collection(monkeypatch, pipeline):
+    monkeypatch.setattr(sys, "argv", [
+        "collect_agent_health.py", "--pipeline", pipeline, "--day-basis", "build-created",
+    ])
+    with pytest.raises(SystemExit) as failure:
+        ah.main()
+    assert failure.value.code == 2
+
+
+def test_created_basis_resets_start_day_history_and_reverse_migration(monkeypatch, tmp_path):
+    _seed_scoped_history(tmp_path, ["ci"])
+    fresh = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
+    monkeypatch.setattr(ah, "_paginate", _window_page([fresh], []))
+    _, created = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+        day_basis="build-created",
+    )
+    assert {row["d"] for row in created["node_days"]} == {"2026-07-14"}
+    assert {row["d"] for row in created["failing_runs"]} == {"2026-07-14"}
+    # A later start-day collection cannot relabel stored creation buckets.
+    kept_nodes, kept_failures = ah._scoped_retained_history(tmp_path, ("ci",))
+    assert kept_nodes == kept_failures == []
+    retained_nodes, retained_failures = ah._scoped_retained_history(
+        tmp_path, ("ci",), day_basis="build-created",
+    )
+    assert len(retained_nodes) == len(retained_failures) == 1
+
+
+@pytest.mark.parametrize("mutation,error", [
+    ({"started_at": "2026-07-10T09:00:00Z"}, "precedes build creation"),
+    ({"finished_at": "invalid"}, "invalid finished_at"),
+    ({"finished_at": None}, "no provable finish time"),
+])
+def test_created_cohort_invalid_completion_keeps_prior_generation(
+    monkeypatch, tmp_path, mutation, error,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
+    build["jobs"][0].update(mutation)
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+    with pytest.raises(RuntimeError, match=error):
+        _run_scoped_collection(
+            monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+            day_basis="build-created",
+        )
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+def test_created_cohort_empty_refresh_removes_prior_keys_in_covered_days(monkeypatch, tmp_path):
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+    _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+        day_basis="build-created",
+    )
+    monkeypatch.setattr(ah, "_paginate", _window_page([], []))
+    _, refreshed = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+        day_basis="build-created",
+    )
+    assert refreshed["total_runs"] == 0
+    assert refreshed["node_days"] == refreshed["failing_runs"] == []
+
+
+def test_long_creation_cohort_excludes_builds_created_after_its_decision_clock(monkeypatch):
+    current = _window_build(1, "2026-07-14T08:00:00Z")
+    future = _window_build(
+        2, "2026-07-14T13:00:00Z", start="2026-07-14T13:10:00Z",
+        finish="2026-07-14T13:15:00Z",
+    )
+    calls = []
+    monkeypatch.setattr(ah, "_paginate", _window_page([current, future], calls))
+    rows = ah._fetch_pipeline_observations("ci", 14, query_time=NOW, day_basis="build-created")
+    assert {row["job_id"] for row in rows} == {"1"}
+    assert len(calls) == 1
+    assert calls[0]["created_from"] == "2026-06-30T00:00:00+00:00"
+    assert calls[0]["created_to"] == NOW.isoformat()
 
 
 def test_seven_day_job_window_uses_bounded_daily_roots_and_projects_each_slice(monkeypatch):

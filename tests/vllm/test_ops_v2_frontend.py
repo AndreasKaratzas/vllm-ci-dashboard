@@ -159,6 +159,56 @@ assert.equal(sourceComplete(fullScope, '2026-08-09'), true);
 assert.equal(sourceComplete({...fullScope, retention: {...fullScope.retention,
   pipeline_scope: {...fullScope.retention.pipeline_scope, complete_window: false}}}, '2026-10-07'), false);
 assert.equal(sourceComplete({...fullScope, retention: {...fullScope.retention, byte_limited: true}}, '2026-10-07'), false);
+const createdProof = {...proof, version: 2, basis: 'terminal_jobs_by_build_created_at',
+  eligible_completion: 'current_ci_build_creation_cohort_with_provable_completion',
+  day_basis: 'build_created_at_utc', discovery_legs: {created: true}};
+delete createdProof.active_build_states;
+const createdScope = {...partialScope, retention: {...partialScope.retention, pipeline_scope: createdProof}};
+assert.equal(sourceComplete(createdScope), false);
+assert.equal(sourceComplete(createdScope, '2026-10-07'), true);
+assert.equal(sourceComplete(createdScope, '2026-10-05'), false);
+assert.equal(sourceComplete(createdScope, '2026-08-09'), false);
+assert.equal(sourceComplete({...createdScope, generated_at: '2026-10-08T21:00:00Z'}, '2026-10-07'), false);
+assert.equal(sourceComplete({...createdScope, pipelines: ['ci', 'amd-ci']}, '2026-10-07'), false);
+for (const mutation of [
+  {version: true}, {version: 1}, {version: 3}, {basis: proof.basis},
+  {eligible_completion: 'terminal_state_only'}, {finished_job_source: 'buildkite_rest_parent_finished_at'},
+  {day_basis: 'job_started_at_utc'},
+  {finished_job_source: 'buildkite_graphql_organization_jobs_finished_at_utc'},
+  {discovery_legs: proof.discovery_legs},
+  {discovery_legs: {created: false}},
+  {discovery_legs: {created: true, older_finished: true, recent_finished_jobs: true}},
+  {discovery_legs: {...createdProof.discovery_legs, unrelated: true}},
+  {active_build_states: null}, {active_build_states: proof.active_build_states},
+  {requested_days: '1'}, {requested_days: 0}, {requested_days: 61},
+  {exhaustive: false}, {attempt_policy: 'all_attempts'}, {terminal_time_policy: 'state_only'},
+  {complete_window: true}, {collected_from: '2026-08-01T00:00:00Z'},
+  {collected_to: '2026-10-08T19:00:00Z'},
+]) {
+  assert.equal(sourceComplete({...createdScope, retention: {...createdScope.retention,
+    pipeline_scope: {...createdProof, ...mutation}}}, '2026-10-07'), false);
+}
+for (const field of Object.keys(createdProof)) {
+  const missing = {...createdProof}; delete missing[field];
+  assert.equal(sourceComplete({...createdScope, retention: {...createdScope.retention, pipeline_scope: missing}}, '2026-10-07'), false);
+}
+for (const field of ['configured_days', 'byte_limited', 'original_day_count', 'retained_day_count', 'dropped_oldest_day_count']) {
+  const missing = {...createdScope.retention}; delete missing[field];
+  assert.equal(sourceComplete({...createdScope, retention: missing}, '2026-10-07'), false);
+}
+for (const mutation of [{original_day_count: -1}, {retained_day_count: 59}, {dropped_oldest_day_count: true}, {byte_limited: true}]) {
+  assert.equal(sourceComplete({...createdScope, retention: {...createdScope.retention, ...mutation}}, '2026-10-07'), false);
+}
+const createdWeek = {...createdScope, retention: {...createdScope.retention, pipeline_scope: {...createdProof,
+  requested_days: 7, collected_from: '2026-10-01T00:00:00Z'}}};
+assert.equal(sourceComplete(createdWeek, '2026-10-01'), true);
+assert.equal(sourceComplete(createdWeek, '2026-09-30'), false);
+const createdFull = {...createdScope, retention: {...createdScope.retention, pipeline_scope: {...createdProof,
+  requested_days: 60, collected_from: '2026-08-09T00:00:00Z', complete_window: true}}};
+assert.equal(sourceComplete(createdFull), true);
+assert.equal(sourceComplete(createdFull, '2026-08-09'), true);
+assert.equal(sourceComplete({...createdFull, retention: {...createdFull.retention,
+  dropped_oldest_day_count: 1, retained_day_count: 59}}, '2026-10-07'), false);
 const scopeLabel = sandbox.window.OpsV2Test.agentPipelineScopeLabel;
 assert.equal(scopeLabel({pipelines: ['ci']}), 'the ci pipeline');
 assert.equal(scopeLabel({pipelines: ['amd-ci', 'ci']}), 'the amd-ci and ci pipelines');
@@ -2238,7 +2288,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=34' in INDEX
+    assert 'assets/js/ops-v2.js?v=35' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
