@@ -39,7 +39,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_surface_contract_version_has_one_owner() -> None:
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 6
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 7
     assert (
         selector_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
@@ -2434,7 +2434,7 @@ def test_pre_analytics_schema_v2_fallback_proof_and_clock_are_split(
 
     assert migrated is not None
     expected = {"ci_core", "ci_analytics"}
-    assert migrated["surface_contract_version"] == 6
+    assert migrated["surface_contract_version"] == surfaces_module.SURFACE_CONTRACT_VERSION
     assert set(migrated["fallback_surfaces"]) == expected
     assert migrated["fallback_since"] == {
         surface: since for surface in expected
@@ -2488,7 +2488,7 @@ def test_contract_v5_ci_core_fallback_is_not_reinterpreted_as_pre_analytics(
     )
 
     assert validated is not None
-    assert validated["surface_contract_version"] == 6
+    assert validated["surface_contract_version"] == surfaces_module.SURFACE_CONTRACT_VERSION
     assert validated["degraded_surfaces"] == ["ci_core"]
     assert validated["fallback_surfaces"] == ["ci_core"]
     assert set(validated["restored_manifest"]) == {"ci_core"}
@@ -2610,7 +2610,7 @@ def test_v4_queue_fallback_is_partitioned_before_live_only_refresh(
     )
 
     companions = {"queue_capacity", "queue_omni", "queue_workload"}
-    assert state["surface_contract_version"] == 6
+    assert state["surface_contract_version"] == surfaces_module.SURFACE_CONTRACT_VERSION
     assert set(state["degraded_surfaces"]) == companions
     assert state["fresh_degraded_surfaces"] == []
     assert set(state["fallback_surfaces"]) == companions
@@ -2816,7 +2816,7 @@ def test_v4_fresh_degraded_queue_expands_clocks_without_restore_proof(
     )
 
     assert migrated is not None
-    assert migrated["surface_contract_version"] == 6
+    assert migrated["surface_contract_version"] == surfaces_module.SURFACE_CONTRACT_VERSION
     assert migrated["mode"] == "degraded"
     assert set(migrated["degraded_surfaces"]) == selector_module.QUEUE_SPLIT_SURFACES
     assert set(migrated["fresh_degraded_surfaces"]) == (
@@ -2866,7 +2866,7 @@ def test_v4_mixed_queue_fallback_preserves_independent_non_queue_clock(
 
     assert migrated is not None
     companions = selector_module.QUEUE_SPLIT_SURFACES
-    assert migrated["surface_contract_version"] == 6
+    assert migrated["surface_contract_version"] == surfaces_module.SURFACE_CONTRACT_VERSION
     assert migrated["mode"] == "mixed"
     assert migrated["fresh_degraded_surfaces"] == ["dns_health"]
     assert set(migrated["fallback_surfaces"]) == companions
@@ -3061,7 +3061,7 @@ def test_clean_candidate_writes_schema_v2_current_state(
     assert source.read_text() == '{"version":"candidate"}\n'
     assert state == {
         "schema_version": 2,
-        "surface_contract_version": 6,
+        "surface_contract_version": surfaces_module.SURFACE_CONTRACT_VERSION,
         "generated_at": state["generated_at"],
         "baseline_ref": baseline,
         "mode": "current",
@@ -4211,7 +4211,7 @@ def test_v5_retired_failure_is_verified_then_cleared_without_stale_alert(tmp_pat
     _git(repo, "commit", "-m", "retired v5 evidence")
     baseline = _git(repo, "rev-parse", "HEAD")
     migrated = selector_module._baseline_publication_state(repo, baseline, state_path)
-    assert migrated["surface_contract_version"] == 6
+    assert migrated["surface_contract_version"] == surfaces_module.SURFACE_CONTRACT_VERSION
     assert migrated["mode"] == "current"
     assert migrated["fallback_surfaces"] == []
     assert migrated["collector_failures"] == []
@@ -4269,9 +4269,85 @@ def test_retirement_does_not_escalate_a_surviving_first_transient_failure(tmp_pa
     assert state["candidate_errors"] == [{"code": "publication-collector-failed", "surfaces": ["ci_analytics"]}]
 
 
+def _write_v6_runtime_parity_fallback(repo):
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entries = {}
+    spec = surfaces_module.PRE_RUNTIME_PARITY_SURFACE_SPECS["ci_core"]
+    for relative in (*spec.required_paths, "data/vllm/ci/test_results/2026-10-08_amd.jsonl"):
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"path": relative}) + "\n")
+        entries[relative] = _manifest_descriptor(path.read_bytes())
+    state = {"schema_version": 2, "surface_contract_version": 6,
+        "generated_at": since, "baseline_ref": "0" * 40, "mode": "fallback",
+        "degraded_surfaces": ["ci_core"], "fresh_degraded_surfaces": [],
+        "fallback_surfaces": ["ci_core"], "degraded_since": {"ci_core": since},
+        "fallback_since": {"ci_core": since}, "fallback_max_age_hours": 36,
+        "restored_manifest": {"ci_core": entries}, "restored_paths": {"ci_core": sorted(entries)}}
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "exact v6 runtime parity fallback")
+    return state_path, state
+
+
+def test_runtime_parity_retirement_validates_v6_bytes_and_preserves_fallback_clock(tmp_path):
+    repo = tmp_path / "repo"
+    state_path, original = _write_v6_runtime_parity_fallback(repo)
+    retired = surfaces_module.RETIRED_RUNTIME_PARITY_PATHS
+    assert retired <= set(surfaces_module.PRE_RUNTIME_PARITY_SURFACE_SPECS["ci_core"].required_paths)
+    assert retired <= set(surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS["ci_core"].required_paths)
+    assert not retired & set(surfaces_module.SURFACE_SPECS["ci_core"].required_paths)
+    old_audit = DashboardAudit(repo)
+    assert old_audit.fallback_surfaces() == frozenset({"ci_core"})
+    assert not old_audit.report.errors
+    migrated = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+    assert migrated["surface_contract_version"] == 7
+    for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
+        assert migrated[field] == original[field]
+    old_entries = original["restored_manifest"]["ci_core"]
+    assert migrated["restored_manifest"]["ci_core"] == {path: row for path, row in old_entries.items() if path not in retired}
+    # A new proof owns only supported files even while old bytes await purge.
+    state_path.write_text(json.dumps(migrated))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "exact v7 owned-file projection")
+    current_audit = DashboardAudit(repo)
+    assert current_audit.fallback_surfaces() == frozenset({"ci_core"})
+    assert not current_audit.report.errors
+
+
+@pytest.mark.parametrize("tamper", ("hash", "missing", "extra", "paths"))
+def test_runtime_parity_retirement_never_discards_a_corrupt_v6_restore_proof(tmp_path, tamper):
+    repo = tmp_path / "repo"
+    state_path, state = _write_v6_runtime_parity_fallback(repo)
+    retired = "data/vllm/ci/parity_report.json"
+    if tamper == "hash":
+        state["restored_manifest"]["ci_core"][retired]["sha256"] = "0" * 64
+    elif tamper == "missing":
+        state["restored_manifest"]["ci_core"].pop(retired)
+        state["restored_paths"]["ci_core"].remove(retired)
+    elif tamper == "extra":
+        state["restored_manifest"]["ci_core"]["data/unowned.json"] = _manifest_descriptor(b"{}\n")
+        state["restored_paths"]["ci_core"].append("data/unowned.json")
+        state["restored_paths"]["ci_core"].sort()
+    else:
+        state["restored_paths"]["ci_core"].remove(retired)
+    state_path.write_text(json.dumps(state))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "corrupt historical proof")
+    with pytest.raises(RuntimeError, match="manifest|paths"):
+        selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+    audit = DashboardAudit(repo)
+    assert audit.fallback_surfaces() == frozenset()
+    assert audit.report.errors
+
+
 def _write_current_retry_cohort(repo, number, *, active_retry):
     from collect_ci import _current_scope_results, _scope_nightly_build
-    from vllm.ci.analyzer import compute_build_summary, compute_parity
+    from vllm.ci.analyzer import compute_build_summary
     from vllm.ci.models import TestResult
     from vllm.ci.nightly_latency import build_current_nightly_latency
     from vllm.collect_amd_test_matrix import RAW_YAML_URL_TEMPLATE, build_buildkite_job_index, build_matrix, parse_main_ci_steps
@@ -4287,7 +4363,7 @@ def _write_current_retry_cohort(repo, number, *, active_retry):
             "label": ":nvidia: (H100) Shared workload", "device": "h100",
             "commands": ["pytest tests/shared.py"],
             "mirror": {"amd": {"label": ":amd: (MI300) Shared workload", "device": "mi300_1"}}}]},
-    }, "2026-10-09T01:00:00Z")
+    }, "2026-10-09T01:00:00Z", "b" * 40)
     jobs = [{"type": "script", "id": f"00000000-0000-4000-8000-00000000000{index}",
         "name": label, "state": "passed", "agent_queue": queue}
         for index, label, queue in ((1, ":amd: (MI300) Shared workload", "amd_mi300_1"),
@@ -4299,9 +4375,11 @@ def _write_current_retry_cohort(repo, number, *, active_retry):
         duration_secs=0.0, failure_message="", job_name=job["name"], job_id=job["id"], step_id="",
         build_number=number, pipeline="ci", date=date) for job in jobs]
     scoped_results = {}
-    health = {"generated_at": "2026-10-09T01:00:00Z"}
-    for side in ("amd", "upstream"):
-        scoped = _scope_nightly_build(json.loads(json.dumps(build)), side)
+    health = {"generated_at": "2026-10-09T01:00:00Z", "hardware_scope": "amd_mi_gpu", "job_scope": "amd_gpu"}
+    from unittest.mock import patch
+    for side in ("amd",):
+        with patch("vllm.main_ci_definitions.runtime_snapshot", return_value=snapshot), patch("collect_ci._SOURCE_SCOPE_INDEXES", {}):
+            scoped = _scope_nightly_build(json.loads(json.dumps(build)), side)
         scoped_results[side] = _current_scope_results(results, side, scoped)
         summary = compute_build_summary(scoped, scoped_results[side], side).to_dict()
         health[side] = {"latest_build": summary, "latest_test_signal_build": summary,
@@ -4314,18 +4392,18 @@ def _write_current_retry_cohort(repo, number, *, active_retry):
     steps, arches = parse_main_ci_steps(snapshot)
     matrix = build_matrix(steps, arches, build_buildkite_job_index(build, []), build, {}, {}, [], RAW_YAML_URL_TEMPLATE.format(commit=snapshot.commit_sha))
     matrix["source"].update(pipeline="ci", definition_source="main_ci_inline_and_native_amd",
-        commit_sha=snapshot.commit_sha, runtime_source_commit_sha=snapshot.commit_sha)
+        commit_sha=snapshot.commit_sha, runtime_source_commit_sha=snapshot.commit_sha,
+        job_scope="amd_gpu", hardware_scope="amd_mi_gpu")
     normalized = {**build, "jobs": [{"job_id": job["id"], "name": job["name"], "raw_name": job["name"],
         "q": job["agent_queue"], "state": "passed", "url": url + "#" + job["id"],
-        "started_at": build["created_at"], "finished_at": build["finished_at"]} for job in jobs]}
+        "started_at": build["created_at"], "finished_at": build["finished_at"]} for job in jobs if job["agent_queue"].startswith("amd_mi")]}
     builds = [normalized]
     if active_retry:
         builds.insert(0, {**normalized, "number": 93523, "state": "running", "finished_at": None,
             "created_at": "2026-10-08T06:00:00Z", "web_url": "https://buildkite.com/vllm/ci/builds/93523"})
-    analytics = {"ci": {"builds": builds,
+    analytics = {"ci": {"builds": builds, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
         "current_nightly_latency": build_current_nightly_latency(builds, generated_at=health["generated_at"], source_available=True)}}
-    for filename, payload in (("ci_health.json", health), ("analytics.json", analytics), ("amd_test_matrix.json", matrix),
-                              ("parity_report.json", compute_parity(scoped_results["amd"], scoped_results["upstream"]))):
+    for filename, payload in (("ci_health.json", health), ("analytics.json", analytics), ("amd_test_matrix.json", matrix)):
         (output / filename).write_text(json.dumps(payload))
     return output
 
@@ -4370,8 +4448,8 @@ def test_retry_publishes_only_strict_current_completed_cohort_or_recovers_atomic
         path.write_text(json.dumps(payload))
     specs = {
         "ci_core": SurfaceSpec(required_paths=(selector_module.CI_HEALTH_PATH,
-            "data/vllm/ci/amd_test_matrix.json", "data/vllm/ci/parity_report.json"),
-            globs=("data/vllm/ci/test_results/*_amd.jsonl", "data/vllm/ci/test_results/*_upstream.jsonl")),
+            "data/vllm/ci/amd_test_matrix.json"),
+            globs=("data/vllm/ci/test_results/*_amd.jsonl",)),
         "ci_analytics": SurfaceSpec(required_paths=("data/vllm/ci/analytics.json",)),
     }
     generations = []
@@ -4417,7 +4495,7 @@ def test_retry_publishes_only_strict_current_completed_cohort_or_recovers_atomic
             assert state["restored_paths"] == {}
             assert state["candidate_errors"] == []
             assert generations == [93244]
-            assert json.loads((output / "ci_health.json").read_text())["upstream"]["latest_pipeline_build"]["active_retry"] is True
+            assert json.loads((output / "ci_health.json").read_text())["amd"]["latest_pipeline_build"]["active_retry"] is True
         else:
             assert state["fallback_surfaces"] == ["ci_analytics", "ci_core"]
             assert state["mode"] == "fallback"

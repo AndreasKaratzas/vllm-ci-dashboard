@@ -929,10 +929,12 @@ def _source_documents(now):
     commit = "a" * 40
     matrix = {
         "generated_at": timestamp,
+        "hardware_scope": "amd_mi_gpu",
         "source": {
+            "pipeline": "ci", "commit_sha": commit, "runtime_source_commit_sha": commit,
             "yaml_url": (
                 "https://raw.githubusercontent.com/vllm-project/vllm/"
-                f"{commit}/.buildkite/test-amd.yaml"
+                f"{commit}/.buildkite/ci_config.yaml"
             ),
             "latest_build_created_at": timestamp,
         },
@@ -989,3 +991,32 @@ def test_source_validation_rejects_stale_matrix_or_nightly(monkeypatch):
         parity,
         ownership_parity,
     ) == "amd_nightly_signal_stale"
+
+
+@pytest.mark.parametrize("change", ["legacy_pipeline", "unmarked", "foreign_pin", "legacy_source"])
+def test_area_alerts_refuse_unproved_or_foreign_runtime_matrix(monkeypatch, change):
+    now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
+    matrix, parity, ownership = _source_documents(now)
+    monkeypatch.setattr(watcher, "_source_is_fresh", lambda _: True)
+    if change == "legacy_pipeline":
+        matrix["source"]["pipeline"] = "amd-ci"
+    elif change == "unmarked":
+        del matrix["hardware_scope"]
+    elif change == "foreign_pin":
+        matrix["source"]["runtime_source_commit_sha"] = "b" * 40
+    else:
+        matrix["source"]["yaml_url"] = matrix["source"]["yaml_url"].replace("ci_config.yaml", "test-amd.yaml")
+    assert watcher._source_validation_error(now, matrix, parity, ownership) == "ownership_parity_commit_mismatch"
+
+
+
+def test_area_history_migration_keeps_owned_issue_and_current_mi_signals_only():
+    prior = {"schema_version": 1, "areas": {"kernels": {"issue_number": 540, "signals": {
+        "mi-gpu": {"status": "confirmed"}, "cpu-on-mi": {"status": "confirmed"},
+        "cuda": {"status": "confirmed"},
+    }}}}
+    migrated = watcher._mi_scoped_area_history(prior, [{"id": "mi-gpu"}])
+    assert migrated["hardware_scope"] == "amd_mi_gpu"
+    assert migrated["areas"]["kernels"]["issue_number"] == 540
+    assert set(migrated["areas"]["kernels"]["signals"]) == {"mi-gpu"}
+    assert set(prior["areas"]["kernels"]["signals"]) == {"mi-gpu", "cpu-on-mi", "cuda"}

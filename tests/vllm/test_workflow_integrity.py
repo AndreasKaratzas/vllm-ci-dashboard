@@ -1887,6 +1887,7 @@ class TestHourlyMasterWorkflow:
         assert f"--classification-cache {cache_path}" in dns_collect
         assert not any(
             str(step.get("uses", "")).startswith("actions/cache/save@")
+            and step.get("with", {}).get("path") == cache_path
             for step in dns_steps
         )
 
@@ -1906,7 +1907,7 @@ class TestHourlyMasterWorkflow:
         restore_index = names.index("Restore private analytics build cache")
         collect_index = names.index("Collect CI analytics")
         save_index = names.index("Save private analytics build cache")
-        assert key_index < restore_index < collect_index < save_index
+        assert key_index < restore_index < names.index("Collect CI data") < collect_index < save_index
 
         key_step = steps[key_index]
         assert key_step["id"] == "analytics-cache-key"
@@ -2036,12 +2037,64 @@ class TestHourlyMasterWorkflow:
         assert '--key "nightly-rosters-v1-${{ runner.os }}-"' in script
         assert "--jq '.[].id'" in script
         assert "analytics-builds-v1-${{ runner.os }}-" in script
+        assert "runtime-source-indexes-v1-${{ runner.os }}-" in script
         assert "dns-classifications-v1-${{ runner.os }}-" in script
         assert "--ref \"refs/heads/$GITHUB_REF_NAME\"" in script
         assert "--sort created_at" in script
         assert "--order desc" in script
         assert "--jq '.[8:] | .[].id'" in script
         assert 'gh cache delete "$CACHE_ID"' in script
+
+    def test_source_verification_resumes_without_runtime_requests_or_publication(self):
+        workflow = _load_workflow("runtime-source-warmup.yml")
+        assert workflow.get(True, workflow.get("on")) == {"workflow_dispatch": None}
+        assert workflow["permissions"] == {"actions": "read", "contents": "read"}
+        job = workflow["jobs"]["verify"]
+        assert job["if"] == "github.ref == 'refs/heads/main'"
+        assert job["timeout-minutes"] == 20
+        text = _load_workflow_text("runtime-source-warmup.yml")
+        assert "BUILDKITE_TOKEN" not in text and "BUILDKITE_API_TOKEN" not in text
+        assert "git push" not in text and "gh issue" not in text
+        assert "publication" not in "\n".join(step.get("run", "") for step in job["steps"])
+        steps = {step.get("name"): step for step in job["steps"]}
+        assert steps["Restore authenticated private build metadata"]["with"]["path"] == "data/vllm/ci/.cache/analytics-builds-v1"
+        prewarm = steps["Verify exact historical source pins"]
+        assert prewarm["continue-on-error"] is True
+        assert prewarm["env"] == {"GITHUB_TOKEN": "${{ secrets.GITHUB_TOKEN }}"}
+        assert "--prewarm-source-indexes" in prewarm["run"]
+        save = steps["Save proved immutable source indexes"]
+        assert "always()" in save["if"]
+        assert "runtime_source_cache_save == 'true'" in save["if"]
+        assert "runtime_source_indexes_complete" not in save["if"]
+        assert steps["Report source verification completeness"]["if"] == "always()"
+        assert 'exit 1' in steps["Report source verification completeness"]["run"]
+
+        hourly = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        names = [step.get("name") for step in hourly]
+        assert names.index("Restore immutable runtime source indexes") < names.index("Collect CI data")
+        decision = hourly[names.index("Validate immutable runtime source checkpoint")]
+        assert "always()" in decision["if"]
+        assert "read_runtime_source_indexes(cache)" in decision["run"]
+        assert decision["run"].index("read_runtime_source_indexes(cache)") < decision["run"].index('output.write("runtime_source_cache_save=true')
+        save = hourly[names.index("Save immutable runtime source checkpoint")]
+        assert "always()" in save["if"]
+        assert "runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'" in save["if"]
+        assert "collect-analytics.outputs.cache_save" not in save["if"]
+        for name in ("Collect CI data", "Collect CI analytics", "Collect AMD agent health (all builds, all branches)"):
+            assert hourly[names.index(name)]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+
+        dns = _load_workflow("dns-health.yml")["jobs"]["collect"]["steps"]
+        dns_names = [step.get("name") for step in dns]
+        assert dns_names.index("Restore immutable runtime source indexes") < dns_names.index("Reserve durable rolling DNS request budget")
+        install = dns[dns_names.index("Install dependencies")]["run"]
+        assert "pyyaml" in install
+        decision = dns[dns_names.index("Validate immutable DNS source checkpoint")]
+        assert "always()" in decision["if"] and "request_mode == 'reserved'" in decision["if"]
+        assert "read_runtime_source_indexes(cache)" in decision["run"]
+        save = dns[dns_names.index("Save immutable DNS source checkpoint")]
+        assert "always()" in save["if"]
+        assert "runtime_source_cache_save == 'true'" in save["if"]
+        assert "collect-dns.outcome" not in save["if"]
 
     def test_hourly_refuses_to_publish_tracked_private_caches(self):
         workflow = _load_workflow("hourly-master.yml")
@@ -2082,11 +2135,7 @@ class TestHourlyMasterWorkflow:
                 ("queue", "queue_omni"),
             ),
             (
-                "Watch AMD main test-group failures (open/close issue)",
-                ("ci_analytics",),
-            ),
-            (
-                "Watch upstream CI main test-group failures (open/close issue)",
+                "Watch AMD MI main CI test-group failures (open/close issue)",
                 ("ci_analytics",),
             ),
             (
@@ -2162,8 +2211,7 @@ class TestHourlyMasterWorkflow:
             "Watch queue latency (open/close issues)",
             "Watch zombie queue jobs (open/close issues)",
             "Watch Omni workload surge (open/close issues)",
-            "Watch AMD main test-group failures (open/close issue)",
-            "Watch upstream CI main test-group failures (open/close issue)",
+            "Watch AMD MI main CI test-group failures (open/close issue)",
             "Watch AMD main duration regressions (open/close issue)",
             "Watch AMD CI agent health (open/close issue)",
             "Stage managed alert issue state",
@@ -2348,7 +2396,7 @@ class TestHourlyMasterWorkflow:
         assert artifact["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
         assert artifact["with"]["path"] == "${{ runner.temp }}/ci-core-validation.json"
         assert artifact["with"]["retention-days"] == 7
-        assert names.index("Collect build-pinned CI ownership parity") < names.index("Validate current CI core before analytics") < names.index("Upload current CI core validation diagnostics") < names.index("Prepare private analytics cache key")
+        assert names.index("Prepare private analytics cache key") < names.index("Collect CI data") < names.index("Collect build-pinned CI ownership parity") < names.index("Validate current CI core before analytics") < names.index("Upload current CI core validation diagnostics") < names.index("Collect CI analytics")
 
     def test_current_ci_core_workflow_records_collector_failure_without_running_audit(self, tmp_path, monkeypatch):
         from vllm import select_publication_surfaces as selector
@@ -5053,28 +5101,25 @@ class TestAlertAutomationWorkflow:
 
         amd_collect = names.index("Collect CI analytics")
         agent_collect = names.index("Collect AMD agent health (all builds, all branches)")
-        amd_watch = names.index("Watch AMD main test-group failures (open/close issue)")
         ci_watch = names.index(
-            "Watch upstream CI main test-group failures (open/close issue)"
+            "Watch AMD MI main CI test-group failures (open/close issue)"
         )
         duration_watch = names.index("Watch AMD main duration regressions (open/close issue)")
         agent_watch = names.index("Watch AMD CI agent health (open/close issue)")
 
         assert restore < min(amd_collect, agent_collect)
-        assert amd_watch > amd_collect
         assert ci_watch > amd_collect
         assert duration_watch > amd_collect
         assert agent_watch > agent_collect
-        assert steps[amd_watch]["run"] == "python scripts/vllm/amd_main_failure_watcher.py"
         assert steps[ci_watch]["run"] == "python scripts/vllm/ci_main_failure_watcher.py"
         assert steps[duration_watch]["run"] == "python scripts/vllm/amd_duration_regression_watcher.py"
         assert steps[agent_watch]["run"] == "python scripts/vllm/agent_health_issue_watcher.py"
-        for index in (amd_watch, ci_watch, duration_watch, agent_watch):
+        for index in (ci_watch, duration_watch, agent_watch):
             env = steps[index].get("env") or {}
             assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
 
         persist = names.index("Stage managed alert issue state")
-        assert persist > max(amd_watch, ci_watch, duration_watch, agent_watch)
+        assert persist > max(ci_watch, duration_watch, agent_watch)
         assert steps[persist].get("if") == (
             "inputs.dns_generation == '' && "
             "inputs.queue_generation == '' && "
@@ -5082,8 +5127,9 @@ class TestAlertAutomationWorkflow:
             "steps.publication-selector.outcome == 'success'"
         )
         persist_run = steps[persist].get("run", "")
+        assert "git rm -f --ignore-unmatch -- data/vllm/ci/open_amd_main_failure_issues.json" in persist_run
+        assert "python scripts/vllm/amd_main_failure_watcher.py" not in _load_workflow_text("hourly-master.yml")
         for state_file in (
-            "open_amd_main_failure_issues.json",
             "open_ci_main_failure_issues.json",
             "open_amd_duration_regression_issues.json",
             "open_agent_health_issues.json",

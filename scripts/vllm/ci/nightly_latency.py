@@ -1,4 +1,4 @@
-"""Current AMD/CUDA timing from one fixed, observed main-CI nightly cohort."""
+"""Current MI GPU timing from one fixed, observed main-CI nightly cohort."""
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -14,7 +14,6 @@ from vllm.pipelines import (
     SKIP_JOB_PATTERNS,
     UPSTREAM_NIGHTLY_NAME_PATTERN,
     is_amd_ci_job,
-    is_upstream_cuda_ci_job,
 )
 
 BUILD_LIMIT = 5
@@ -42,7 +41,7 @@ def project_public_nightly_latency(payload: dict, *, max_bytes: int) -> dict:
     projected = {**payload, "job_columns": list(JOB_COLUMNS), "rows": []}
     for row in payload.get("rows") or []:
         public_row = dict(row)
-        for side in ("amd", "upstream"):
+        for side in ("amd",):
             public_side = dict(row[side])
             public_side["samples"] = []
             for sample in row[side]["samples"]:
@@ -76,7 +75,7 @@ def _observed_step_families(jobs: list[dict]) -> dict[tuple[str, str], str]:
     for job in jobs:
         if job.get("retried_in_job_id") or not job.get("step_key"):
             continue
-        side = "amd" if is_amd_ci_job(job) else "upstream" if is_upstream_cuda_ci_job(job) else ""
+        side = "amd" if is_amd_ci_job(job) else ""
         if side:
             labels[(side, str(job["step_key"]))].add(str(job.get("raw_name") or job.get("name") or ""))
     result = {}
@@ -112,7 +111,8 @@ def build_current_nightly_latency(
     pipeline links never contribute to a median.
     """
     result: dict[str, Any] = {
-        "schema_version": 1, "source_pipeline": "ci", "branch": "main",
+        "schema_version": 2, "source_pipeline": "ci", "branch": "main",
+        "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
         "build_limit": BUILD_LIMIT, "generated_at": generated_at,
         "statistic": "median_of_per_nightly_group_wall_minutes",
         "duration_basis": "maximum_parallel_shard_wall_minutes",
@@ -132,8 +132,10 @@ def build_current_nightly_latency(
             continue
         if build.get("branch") != "main" or not pattern.search(str(build.get("message") or "")):
             continue
+        if not any(is_amd_ci_job(job) for job in build.get("jobs") or []):
+            continue
         created, finished = _timestamp(build.get("created_at")), _timestamp(build.get("finished_at"))
-        if build.get("state") not in {"passed", "failed"} or clock is None or created is None or finished is None or not created <= finished <= clock:
+        if build.get("source_state", build.get("state")) not in {"passed", "failed"} or clock is None or created is None or finished is None or not created <= finished <= clock:
             continue
         expected_url = f"https://buildkite.com/vllm/ci/builds/{number}"
         if str(build.get("web_url") or "").rstrip("/") != expected_url:
@@ -148,7 +150,7 @@ def build_current_nightly_latency(
     if clock is None or newest is None or newest > clock or clock - newest > LATEST_NIGHTLY_MAX_AGE:
         result["unavailable_reason"] = "latest_completed_ci_nightly_unavailable_or_stale"
         return result
-    grouped: dict[str, dict[str, list[dict]]] = defaultdict(lambda: {"amd": [], "upstream": []})
+    grouped: dict[str, dict[str, list[dict]]] = defaultdict(lambda: {"amd": []})
     for build in cohort:
         per_build: dict[tuple[str, str], list[dict]] = defaultdict(list)
         incomplete_groups: set[tuple[str, str]] = set()
@@ -159,7 +161,7 @@ def build_current_nightly_latency(
             raw_name = str(job.get("raw_name") or job.get("name") or "")
             if any(skip in raw_name.lower() for skip in SKIP_JOB_PATTERNS):
                 continue
-            side = "amd" if is_amd_ci_job(job) else "upstream" if is_upstream_cuda_ci_job(job) else ""
+            side = "amd" if is_amd_ci_job(job) else ""
             if not side:
                 continue
             key = step_families.get((side, str(job.get("step_key") or ""))) or _group_key(job, raw_name)
@@ -203,18 +205,15 @@ def build_current_nightly_latency(
     for key, sides in sorted(grouped.items()):
         if not sides["amd"]:
             continue
-        row: dict[str, Any] = {"id": key, "label": key, "match_status": "matched" if sides["upstream"] else "unmatched",
-               "match_reason": None if sides["upstream"] else "no_timed_cuda_counterpart_in_latest_five_ci_nightlies"}
-        for side, label in (("amd", "AMD GPUs · main CI"), ("upstream", "CUDA GPUs · main CI")):
+        row: dict[str, Any] = {"id": key, "label": key}
+        for side, label in (("amd", "AMD MI GPUs · main CI"),):
             samples = sides[side]
             row[side] = {
                 "platform_label": label, "source_pipeline": "ci",
+                "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
                 "median_duration_mins": round(median(sample["duration_mins"] for sample in samples), 4) if samples else None,
                 "sample_count": len(samples), "samples": samples, "interval": _interval(samples),
             }
-        amd_median, cuda_median = row["amd"]["median_duration_mins"], row["upstream"]["median_duration_mins"]
-        row["ratio"] = round(amd_median / cuda_median, 4) if cuda_median else None
-        row["delta_mins"] = round(amd_median - cuda_median, 4) if cuda_median is not None else None
         result["rows"].append(row)
     result["available"] = bool(result["rows"])
     result["unavailable_reason"] = None if result["available"] else "no_timed_amd_jobs_in_latest_five_ci_nightlies"

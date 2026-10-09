@@ -603,8 +603,9 @@ def _persist_raw_historical_ledger(root, policy, ledger):
     ["ci_gating"], ["ci_changes"], ["ci_hotness"],
     ["agent_health", "ci_analytics", "ci_core", "ci_gating"],
 ])
+@pytest.mark.parametrize("healthy_contract_version", (6, 7))
 def test_exact_historical_retired_proof_survives_new_guarded_reservation_and_success(
-    repo, policy, old_surfaces,
+    repo, policy, old_surfaces, healthy_contract_version,
 ):
     checkout, _ = repo
     initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
@@ -639,7 +640,7 @@ def test_exact_historical_retired_proof_survives_new_guarded_reservation_and_suc
         assert "pending_collection_evidence" not in rows[-1]
 
     healthy = published_state(checkout, generated_at=budget._iso(start + timedelta(minutes=5)),
-                              surface_contract_version=6)
+                              surface_contract_version=healthy_contract_version)
     budget.mark_success(checkout, policy, attempt_id=reserved["attempt_id"], durable_ref=healthy,
                         actual_request_starts=77, now=start + timedelta(minutes=10),
                         remote="origin", require_collection_evidence=True)
@@ -665,12 +666,13 @@ def test_unknown_historical_surface_rejects_ledger_before_new_reservation(repo, 
 
 
 @pytest.mark.parametrize("surface", ["ci_gating", "ci_changes", "ci_hotness"])
-def test_new_current_surface_proof_cannot_write_retired_retry_names(repo, policy, surface):
+@pytest.mark.parametrize("contract_version", (6, 7))
+def test_new_current_surface_proof_cannot_write_retired_retry_names(repo, policy, surface, contract_version):
     checkout, _ = repo
     initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
     started = reserve(checkout, policy, 2000, BASE)
     before = remote_sha(checkout, policy)
-    invalid = published_state(checkout, failures=[surface], surface_contract_version=6)
+    invalid = published_state(checkout, failures=[surface], surface_contract_version=contract_version)
     with pytest.raises(budget.AttemptBudgetError, match="durable collection evidence.*surface lanes"):
         budget.mark_success(checkout, policy, attempt_id=started["attempt_id"], durable_ref=invalid,
                             actual_request_starts=77, now=BASE + timedelta(minutes=10),

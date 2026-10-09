@@ -328,8 +328,10 @@ create dangling links.
 The canonical workflow separates core health/matrix/current-source parity from
 private analytics/reliability. Queue observations, capacity, workload, Omni,
 lifecycle, agent health, GitHub home, and perf evaluation have independent
-transactions. Contract v6 validates historical v5 restore proofs before dropping
-the retired gating, group-change, and hotness domains and their clocks. The
+transactions. Contract v7 validates historical v5 and v6 restore proofs before
+dropping retired ownership. The v5 gating, group-change, and hotness domains and
+their clocks are retired; v6 runtime `parity_report.json` files are verified in
+full before their paths are removed. Configuration parity remains supported. The
 current main inventory refresh uses an immutable source SHA and needs no
 Buildkite request. A routed degradation keeps fresh
 candidate bytes and publishes an explicit warning. A collector failure or hard
@@ -418,15 +420,22 @@ so retired canonical files disappear without silently deleting valid previews.
 
 ## Current main CI and view retirement
 
-Current runtime metrics use AMD and CUDA GPU jobs from the `ci` pipeline.
-Legacy `amd-ci` data does not contribute to current coverage, health, or latency.
+Current CI execution metrics use only AMD MI GPU jobs from the `ci` pipeline.
+CUDA, NVIDIA, Intel, CPU, unknown routes, and legacy `amd-ci` executions do not
+contribute to current runtime coverage, health, reliability, or latency.
 Parity and AMD mirrors are derived from an immutable upstream `main` commit;
 `config/vllm_upstream_test_group_parity.json` stores explicit unsupported-group
 classification policy, rather than a frozen coverage inventory. Coverage and
 required blocking gates are distinct counts, with optional and soft-fail routes
 shown separately. Runtime definitions remain pinned to the observed nightly.
+An MI queue is physical routing evidence; it cannot override an exact source
+step marked `no_gpu`. Compact private execution indexes bind these exclusions
+to each full runtime commit and its verified Git definition tree. The manual
+`runtime-source-warmup.yml` workflow checkpoints bounded immutable source
+verification without Buildkite access or a new data clock. Incomplete warmups
+resume from their proved indexes before the guarded full collection proceeds.
 
-Latency uses the global latest five completed main CI nightlies. Each group
+Latency uses the global latest five completed main CI nightlies. Each AMD MI group
 contributes at most one sample per nightly: maximum wall time of the complete
 parallel shard group, followed by the median across available nightly samples.
 Missing groups are unavailable; older nightlies never fill missing samples.

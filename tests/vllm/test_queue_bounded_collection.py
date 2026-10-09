@@ -17,13 +17,14 @@ PRIOR = "2026-09-01T07:00:00Z"
 def _prior_overlay(path: Path) -> None:
     path.write_text(json.dumps({
         "ts": PRIOR,
+        "hardware_scope": "amd_mi_gpu",
         "zombie_threshold_min": 240,
         "pending": [{
             "name": "retained pending",
             "queue": "amd_mi250_1",
             "state": "scheduled",
             "wait_min": 4.0,
-            "url": "https://buildkite.com/vllm/amd-ci/builds/1",
+            "url": "https://buildkite.com/vllm/ci/builds/1",
         }],
         "running": [],
     }))

@@ -35,7 +35,7 @@ install_from_environment_or_exit()
 
 from vllm.ci.dns_failures import (  # noqa: E402
     MAX_LOG_BYTES,
-    PIPELINES,
+    CURRENT_PIPELINES as PIPELINES,
     RETENTION_HOURS,
     StateValidationError,
     build_public_output,
@@ -62,15 +62,24 @@ from vllm.ci.dns_classification_cache import (  # noqa: E402
     DnsClassificationCache,
     load_optional_dns_classification_cache,
 )
+from vllm.ci.analytics_cache import (  # noqa: E402
+    RUNTIME_SOURCE_CACHE_DIR_NAME,
+    read_runtime_source_indexes,
+    retain_runtime_source_indexes,
+    write_runtime_source_indexes,
+)
 from vllm.constants import BK_CLUSTER_UUID, TRACKED_QUEUES  # noqa: E402
+from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
+
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+_SOURCE_SCOPE_LOCK = threading.Lock()
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STATE = ROOT / "data" / "vllm" / "ci" / "dns_health" / "scan_state.json.gz"
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci" / "dns_failures.json"
-DEFAULT_CLASSIFICATION_CACHE = (
-    ROOT / "data" / "vllm" / "ci" / ".cache" / "dns-classifications-v1"
-)
+DEFAULT_CLASSIFICATION_CACHE = ROOT / "data" / "vllm" / "ci" / ".cache" / "dns-classifications-v1"
 STATE_GIT_PATH = "data/vllm/ci/dns_health/scan_state.json.gz"
 BUILDKITE_API = "https://api.buildkite.com/v2"
 BUILDKITE_GRAPHQL_API = "https://graphql.buildkite.com/v1"
@@ -119,9 +128,7 @@ ACTIVE_BUILD_STATES = (
     "blocked",
     "canceling",
 )
-AMD_DISCOVERY_QUEUES = tuple(
-    sorted(queue for queue in TRACKED_QUEUES if queue_hardware(queue))
-)
+AMD_DISCOVERY_QUEUES = tuple(sorted(queue for queue in TRACKED_QUEUES if queue_hardware(queue)))
 
 _QUEUE_RULE_RE = re.compile(r"^queue=(.+)$", re.IGNORECASE)
 _SAFE_COORD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -422,8 +429,7 @@ class BuildkiteClient:
                     if (
                         kind != "job_log"
                         and self._discovery_request_limit is not None
-                        and self._request_starts["build_page"]
-                        + self._request_starts["graphql"]
+                        and self._request_starts["build_page"] + self._request_starts["graphql"]
                         >= self._discovery_request_limit
                     ):
                         raise RequestBudgetExhausted()
@@ -515,10 +521,7 @@ class BuildkiteClient:
         page: int,
         deadline: float | None = None,
     ) -> list[dict]:
-        path = (
-            f"/organizations/{BUILDKITE_ORGANIZATION}/pipelines/"
-            f"{pipeline}/builds"
-        )
+        path = f"/organizations/{BUILDKITE_ORGANIZATION}/pipelines/{pipeline}/builds"
         params = dict(filters)
         if "branch" in params or not params:
             raise CollectionError("invalid_response")
@@ -650,6 +653,8 @@ class BuildkiteClient:
                 node {
                   ... on JobTypeCommand {
                     uuid
+                    label
+                    step { key }
                     createdAt
                     startedAt
                     finishedAt
@@ -658,7 +663,7 @@ class BuildkiteClient:
                     softFailed
                     agent { metaData }
                     clusterQueue { id key }
-                    build { number pipeline { slug } }
+                    build { number commit pipeline { slug } }
                   }
                 }
               }
@@ -695,9 +700,7 @@ class BuildkiteClient:
                 deadline=deadline,
             )
             organization = data.get("organization")
-            connection = (
-                organization.get("jobs") if isinstance(organization, dict) else None
-            )
+            connection = organization.get("jobs") if isinstance(organization, dict) else None
             if not isinstance(connection, dict):
                 raise CollectionError("invalid_response")
             edges = connection.get("edges")
@@ -706,6 +709,7 @@ class BuildkiteClient:
                 raise CollectionError("invalid_response")
 
             crossed_cutoff = False
+            page_candidates: list[tuple[str, dict, dict]] = []
             for edge in edges:
                 node = edge.get("node") if isinstance(edge, dict) else None
                 if not isinstance(node, dict):
@@ -721,28 +725,16 @@ class BuildkiteClient:
                     crossed_cutoff = True
                     continue
                 build = node.get("build")
-                pipeline_payload = (
-                    build.get("pipeline") if isinstance(build, dict) else None
-                )
+                pipeline_payload = build.get("pipeline") if isinstance(build, dict) else None
                 pipeline = (
-                    pipeline_payload.get("slug")
-                    if isinstance(pipeline_payload, dict)
-                    else None
+                    pipeline_payload.get("slug") if isinstance(pipeline_payload, dict) else None
                 )
                 if pipeline not in PIPELINES:
                     continue
 
                 cluster_queue = node.get("clusterQueue")
-                queue_id = (
-                    cluster_queue.get("id")
-                    if isinstance(cluster_queue, dict)
-                    else None
-                )
-                queue = (
-                    cluster_queue.get("key")
-                    if isinstance(cluster_queue, dict)
-                    else None
-                )
+                queue_id = cluster_queue.get("id") if isinstance(cluster_queue, dict) else None
+                queue = cluster_queue.get("key") if isinstance(cluster_queue, dict) else None
                 if queue_id not in queue_ids or queue not in AMD_DISCOVERY_QUEUES:
                     raise CollectionError("invalid_response")
 
@@ -764,6 +756,8 @@ class BuildkiteClient:
                 agent = node.get("agent")
                 rest_job = {
                     "id": node.get("uuid"),
+                    "name": node.get("label"),
+                    "step": node.get("step"),
                     "type": "script",
                     "state": rest_state,
                     "soft_failed": soft_failed,
@@ -773,14 +767,17 @@ class BuildkiteClient:
                     "agent": {
                         "meta_data": (
                             agent.get("metaData")
-                            if isinstance(agent, dict)
-                            and isinstance(agent.get("metaData"), list)
+                            if isinstance(agent, dict) and isinstance(agent.get("metaData"), list)
                             else []
                         )
                     },
                 }
+                page_candidates.append((pipeline, build, rest_job))
+
+            _prime_source_builds([{**build, "jobs": [job]} for _, build, job in page_candidates])
+            for pipeline, build, rest_job in page_candidates:
                 metadata = job_metadata(pipeline, build, rest_job)
-                if metadata is None or metadata["queue"] != queue:
+                if metadata is None or metadata["queue"] != _queue_of(rest_job):
                     raise CollectionError("invalid_response")
                 discovered[(pipeline, metadata["job_id"])] = metadata
 
@@ -793,11 +790,7 @@ class BuildkiteClient:
             if crossed_cutoff or not has_next_page:
                 return sort_state_jobs(discovered.values())
             next_cursor = page_info.get("endCursor")
-            if (
-                not isinstance(next_cursor, str)
-                or not next_cursor
-                or next_cursor in seen_cursors
-            ):
+            if not isinstance(next_cursor, str) or not next_cursor or next_cursor in seen_cursors:
                 raise CollectionError("invalid_response")
             seen_cursors.add(next_cursor)
             cursor = next_cursor
@@ -890,10 +883,7 @@ class BuildkiteClient:
 
         def submit_available(pool: ThreadPoolExecutor) -> None:
             nonlocal next_index
-            while (
-                next_index < len(slices)
-                and len(in_flight) < MAX_CONCURRENT_ACTIVE_SLICES
-            ):
+            while next_index < len(slices) and len(in_flight) < MAX_CONCURRENT_ACTIVE_SLICES:
                 slice_start, slice_end = slices[next_index]
                 index = next_index
                 next_index += 1
@@ -977,11 +967,7 @@ class BuildkiteClient:
             validated_batch: list[tuple[int, dict]] = []
             for build in batch:
                 number = build.get("number")
-                if (
-                    isinstance(number, bool)
-                    or not isinstance(number, int)
-                    or number <= 0
-                ):
+                if isinstance(number, bool) or not isinstance(number, int) or number <= 0:
                     raise CollectionError("invalid_response")
                 validated_batch.append((number, build))
             if self._discovery_progress is not None:
@@ -1057,9 +1043,7 @@ class BuildkiteClient:
             filters={"finished_from": finished_from},
             deadline=deadline,
         )
-        finished_requests = (
-            self.request_starts()["build_page"] - finished_requests_before
-        )
+        finished_requests = self.request_starts()["build_page"] - finished_requests_before
         log.info(
             "DNS discovery cohort complete: pipeline=%s cohort=finished "
             "elapsed_seconds=%.3f builds=%d build_page_requests=%d",
@@ -1164,14 +1148,7 @@ class BuildkiteClient:
 
 
 def _queue_of(job: dict) -> str:
-    for rule in job.get("agent_query_rules") or []:
-        match = _QUEUE_RULE_RE.match(str(rule).strip())
-        if match:
-            return match.group(1).strip().casefold()
-    for tag in (job.get("agent") or {}).get("meta_data") or []:
-        if isinstance(tag, str) and tag.casefold().startswith("queue="):
-            return tag.split("=", 1)[1].strip().casefold()
-    return ""
+    return _job_queue(job).casefold()
 
 
 def _node_of(job: dict) -> str:
@@ -1220,17 +1197,80 @@ def _normalized_timestamp(value: object, field: str) -> str | None:
         return None
 
 
+def _remember_source_index(commit: str, index: dict) -> None:
+    """Checkpoint immutable source proofs independently of scanner clocks."""
+    with _SOURCE_SCOPE_LOCK:
+        if _SOURCE_SCOPE_INDEXES.get(commit) != index:
+            retained = retain_runtime_source_indexes(
+                {**_SOURCE_SCOPE_INDEXES, commit: index},
+                preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES],
+            )
+            if _SOURCE_SCOPE_CACHE_DIR is not None:
+                write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+            _SOURCE_SCOPE_INDEXES.clear()
+            _SOURCE_SCOPE_INDEXES.update(retained)
+
+
+def _prime_source_builds(builds: Iterable[dict]) -> None:
+    """Batch only missing pins with eligible terminal physical-MI observations."""
+    from vllm.main_ci_definitions import annotate_runtime_source_scope, prewarm_runtime_snapshots
+
+    pins = set()
+    for build in builds:
+        if not isinstance(build, dict) or not isinstance(build.get("jobs"), list):
+            continue
+        commit = str(build.get("commit") or "").strip().casefold()
+        if not re.fullmatch(r"[0-9a-f]{40}", commit):
+            continue
+        if any(isinstance(job, dict) and job.get("type") == "script"
+               and queue_hardware(_queue_of(job)) and _job_state(job)
+               and _normalized_timestamp(job.get("finished_at"), "finished_at") is not None
+               for job in build["jobs"]):
+            pins.add(commit)
+    with _SOURCE_SCOPE_LOCK:
+        missing = sorted(pins - _SOURCE_SCOPE_INDEXES.keys())
+    for offset in range(0, len(missing), 50):
+        batch = missing[offset:offset + 50]
+        prewarm_runtime_snapshots(batch)
+        # Save each completed pin before advancing. A source failure leaves the
+        # proven checkpoint intact and propagates; it cannot prove discovery.
+        for commit in batch:
+            annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
+            _remember_source_index(commit, annotated["source_scope_index"])
+
+
 def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
-    """Return the safe state metadata for one eligible AMD GPU script job."""
+    """Return safe terminal MI-route metadata, including exact CPU exclusions."""
     if pipeline not in PIPELINES or job.get("type") != "script":
-        return None
-    state = _job_state(job)
-    if not state:
         return None
     queue = _queue_of(job)
     hardware = queue_hardware(queue)
     if not hardware:
         return None
+    state = _job_state(job)
+    if not state:
+        return None
+    finished_at = _normalized_timestamp(job.get("finished_at"), "finished_at")
+    if finished_at is None:
+        raise CollectionError("invalid_response")
+    proof = None
+    commit = str(build.get("commit") or "").strip().casefold()
+    if re.fullmatch(r"[0-9a-f]{40}", commit):
+        from vllm.main_ci_definitions import annotate_runtime_source_scope
+
+        with _SOURCE_SCOPE_LOCK:
+            index = _SOURCE_SCOPE_INDEXES.get(commit)
+        annotated = annotate_runtime_source_scope(
+            {**build, "jobs": [job]}, **({"scope_index": index} if index is not None else {}),
+        )
+        _remember_source_index(commit, annotated["source_scope_index"])
+        scoped = annotated["jobs"][0]
+        proof = {
+            "version": 1,
+            "source_commit": annotated["source_scope_commit"],
+            "definition_tree": annotated["source_definition_tree_sha"],
+            "classification": "amd_mi_gpu" if is_amd_ci_job(scoped) else "excluded_cpu",
+        }
     if not _SAFE_COORD_RE.fullmatch(queue):
         raise CollectionError("invalid_response")
     build_number = build.get("number")
@@ -1240,17 +1280,12 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
         job_id = canonical_uuid(job.get("id"))
     except StateValidationError:
         raise CollectionError("invalid_response") from None
-    finished_at = _normalized_timestamp(job.get("finished_at"), "finished_at")
-    if finished_at is None:
-        raise CollectionError("invalid_response")
     started_at = _normalized_timestamp(job.get("started_at"), "started_at")
-    if (
-        started_at is not None
-        and parse_timestamp(started_at, "started_at")
-        > parse_timestamp(finished_at, "finished_at")
+    if started_at is not None and parse_timestamp(started_at, "started_at") > parse_timestamp(
+        finished_at, "finished_at"
     ):
         started_at = None
-    return {
+    metadata = {
         "pipeline": pipeline,
         "build_number": build_number,
         "job_id": job_id,
@@ -1261,13 +1296,18 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
         "started_at": started_at,
         "finished_at": finished_at,
     }
+    if proof is not None:
+        metadata["execution_proof"] = proof
+    return metadata
 
 
 def discover_job_metadata(builds_by_pipeline: dict[str, Iterable[dict]]) -> list[dict]:
     """Extract every distinct terminal AMD GPU script attempt, newest first."""
     discovered: dict[tuple[str, str], dict] = {}
     for pipeline in PIPELINES:
-        for build in builds_by_pipeline.get(pipeline, []):
+        builds = list(builds_by_pipeline.get(pipeline, []))
+        _prime_source_builds(builds)
+        for build in builds:
             if not isinstance(build, dict) or not isinstance(build.get("jobs"), list):
                 raise CollectionError("invalid_response")
             for job in build["jobs"]:
@@ -1310,6 +1350,11 @@ def _refresh_record(record: dict, metadata: dict) -> dict:
             # because the compact build listing still lacks agent metadata.
             continue
         refreshed[key] = metadata[key]
+    if "execution_proof" in metadata:
+        if ("execution_proof" in record
+                and record["execution_proof"] != metadata["execution_proof"]):
+            raise StateValidationError("conflicting exact execution proofs")
+        refreshed["execution_proof"] = dict(metadata["execution_proof"])
     return refreshed
 
 
@@ -1372,7 +1417,9 @@ def _prepare_records(
         identity = (metadata["pipeline"], metadata["job_id"])
         previous = records.get(identity)
         records[identity] = (
-            _refresh_record(previous, metadata) if previous is not None else pending_record(metadata)
+            _refresh_record(previous, metadata)
+            if previous is not None
+            else pending_record(metadata)
         )
     return sort_state_jobs(records.values())
 
@@ -1404,11 +1451,14 @@ def _discovery_window(
         )
         if generated_at > clock:
             raise StateValidationError("prior state generated_at is in the future")
-        intervals.append((
-            max(target_start, discovery_start)
-            if state["discovery"]["complete"] else generated_at,
-            generated_at,
-        ))
+        intervals.append(
+            (
+                max(target_start, discovery_start)
+                if state["discovery"]["complete"]
+                else generated_at,
+                generated_at,
+            )
+        )
 
     if not intervals:
         return bootstrap_start, bootstrap_start
@@ -1432,16 +1482,26 @@ def _discovery_window(
     return query_start, coverage_start
 
 
+def _scoped_coverage_start(prior_states: Iterable[dict], *, query_start: datetime) -> datetime:
+    """Extend only exact MI-scoped intervals touched by this fresh query."""
+    start = query_start
+    scopes = [state["scoped_discovery"] for state in prior_states
+              if state.get("scoped_discovery", {}).get("complete")]
+    for scoped in sorted(scopes, key=lambda item: item["end_exclusive"], reverse=True):
+        prior_start = parse_timestamp(scoped["start"], "scoped_discovery.start")
+        prior_end = parse_timestamp(scoped["end_exclusive"], "scoped_discovery.end_exclusive")
+        if prior_end >= start and prior_start < start:
+            start = prior_start
+    return start
+
+
 def _needs_full_active_reconciliation(
     prior_states: Iterable[dict],
     *,
     clock: datetime,
 ) -> bool:
     """Run the expensive active-parent sweep at most once per UTC day."""
-    generated = [
-        parse_timestamp(state["generated_at"], "generated_at")
-        for state in prior_states
-    ]
+    generated = [parse_timestamp(state["generated_at"], "generated_at") for state in prior_states]
     if not generated:
         return True
     latest = max(generated)
@@ -1583,6 +1643,8 @@ def scan_records(
     cache_hits = 0
     if classification_cache is not None:
         for row in ordered:
+            if row.get("execution_proof", {}).get("classification") != "amd_mi_gpu":
+                continue
             if row["status"] not in {"pending", "unavailable"}:
                 continue
             # The privacy-minimized cache deliberately does not retain host
@@ -1605,10 +1667,10 @@ def scan_records(
             cache_hits += 1
         ordered = sort_state_jobs(by_identity.values())
     log.info("DNS shared classification cache: hits=%d", cache_hits)
-    pending = _fair_pending_order(
-        row for row in ordered if row["status"] == "pending"
-    )
-    unavailable = [row for row in ordered if row["status"] == "unavailable"]
+    scan_eligible = [row for row in ordered
+                     if row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
+    pending = _fair_pending_order(row for row in scan_eligible if row["status"] == "pending")
+    unavailable = [row for row in scan_eligible if row["status"] == "unavailable"]
     candidates = (pending + unavailable)[:max_logs]
     if not candidates:
         return ordered
@@ -1706,8 +1768,7 @@ def collect(
         raise ValueError("minimum_interval_hours must be a non-negative integer")
     started_monotonic = monotonic()
     deadline = (
-        started_monotonic
-        + max(0, time_budget_seconds - FINALIZATION_RESERVE_SECONDS)
+        started_monotonic + max(0, time_budget_seconds - FINALIZATION_RESERVE_SECONDS)
         if time_budget_seconds > 0
         else None
     )
@@ -1721,23 +1782,17 @@ def collect(
         if merge_state_git_ref
         else None
     )
-    available_states = [
-        state for state in (local_state, ref_state) if state is not None
-    ]
+    available_states = [state for state in (local_state, ref_state) if state is not None]
     if available_states:
         latest_state = max(
             available_states,
             key=lambda state: parse_timestamp(state["generated_at"], "generated_at"),
         )
-        latest_generated = parse_timestamp(
-            latest_state["generated_at"], "generated_at"
-        )
+        latest_generated = parse_timestamp(latest_state["generated_at"], "generated_at")
         if latest_generated > clock:
             raise StateValidationError("prior state generated_at is in the future")
-        if (
-            minimum_interval_hours
-            and clock - latest_generated
-            < timedelta(hours=minimum_interval_hours)
+        if minimum_interval_hours and clock - latest_generated < timedelta(
+            hours=minimum_interval_hours
         ):
             output = build_public_output(latest_state)
             if not dry_run:
@@ -1756,8 +1811,7 @@ def collect(
         )
         if cache_was_reset:
             log.warning(
-                "Discarded invalid private DNS classification cache; "
-                "continuing with cache misses"
+                "Discarded invalid private DNS classification cache; continuing with cache misses"
             )
     old_rows = merge_state_jobs(
         local_state["jobs"] if local_state else [],
@@ -1770,10 +1824,9 @@ def collect(
         clock=clock,
         target_start=target_start,
     )
-    full_active_reconciliation = (
-        not isinstance(client, BuildkiteClient)
-        or _needs_full_active_reconciliation(prior_states, clock=clock)
-    )
+    full_active_reconciliation = not isinstance(
+        client, BuildkiteClient
+    ) or _needs_full_active_reconciliation(prior_states, clock=clock)
     finished_from = iso_timestamp(query_start)
     active_created_from = iso_timestamp(target_start)
     active_created_to = iso_timestamp(clock)
@@ -1808,18 +1861,19 @@ def collect(
             )
             client._discovery_request_limit = client.max_request_starts - log_reserve
         discovery_deadline = (
-            started_monotonic + (deadline - started_monotonic) / 2
-            if deadline is not None else None
+            started_monotonic + (deadline - started_monotonic) / 2 if deadline is not None else None
         )
         try:
             # Current AMD job observations come first, even after a stale
             # checkpoint or UTC rollover. The expensive active-parent sweep
             # may add older observations only within the discovery subbudget.
-            discovered.extend(client.discover_incremental_job_metadata(
-                created_from=finished_from,
-                finished_from=finished_from,
-                deadline=discovery_deadline,
-            ))
+            discovered.extend(
+                client.discover_incremental_job_metadata(
+                    created_from=finished_from,
+                    finished_from=finished_from,
+                    deadline=discovery_deadline,
+                )
+            )
             if full_active_reconciliation:
                 for pipeline in PIPELINES:
                     builds = client.discover_builds(
@@ -1840,7 +1894,9 @@ def collect(
             if not progress_pages and not discovered:
                 raise
             discovery_complete = False
-            log.info("DNS discovery stopped at its subbudget; preserving validated partial progress")
+            log.info(
+                "DNS discovery stopped at its subbudget; preserving validated partial progress"
+            )
         finally:
             client._discovery_progress = prior_progress
             client._discovery_request_limit = prior_limit
@@ -1869,10 +1925,8 @@ def collect(
         "full-active" if full_active_reconciliation else "incremental-jobs",
         discovered_builds,
         len(discovered),
-        requests_after_discovery["build_page"]
-        - requests_before_discovery["build_page"],
-        requests_after_discovery["graphql"]
-        - requests_before_discovery["graphql"],
+        requests_after_discovery["build_page"] - requests_before_discovery["build_page"],
+        requests_after_discovery["graphql"] - requests_before_discovery["graphql"],
     )
     rows = _prepare_records(
         old_rows,
@@ -1892,13 +1946,10 @@ def collect(
         monotonic=monotonic,
     )
     requests_after_scan = (
-        client.request_starts()
-        if isinstance(client, BuildkiteClient)
-        else requests_before_scan
+        client.request_starts() if isinstance(client, BuildkiteClient) else requests_before_scan
     )
     log.info(
-        "DNS collection phase complete: phase=scan elapsed_seconds=%.3f "
-        "job_log_requests=%d",
+        "DNS collection phase complete: phase=scan elapsed_seconds=%.3f job_log_requests=%d",
         max(0.0, monotonic() - scan_started),
         requests_after_scan["job_log"] - requests_before_scan["job_log"],
     )
@@ -1928,6 +1979,16 @@ def collect(
 
     state = empty_state(clock, coverage_start)
     state["discovery"]["complete"] = discovery_complete
+    state["scoped_discovery"] = {
+        "version": 1,
+        "hardware_scope": "amd_mi_gpu",
+        "pipelines": list(PIPELINES),
+        "start": iso_timestamp(max(target_start, _scoped_coverage_start(
+            prior_states, query_start=query_start,
+        ))),
+        "end_exclusive": iso_timestamp(clock),
+        "complete": discovery_complete and all("execution_proof" in row for row in discovered),
+    }
     state["jobs"] = prune_state_jobs(rows, retention_start, clock)
     state = validate_state(state)
     output = build_public_output(state)
@@ -1988,6 +2049,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--merge-state-git-ref")
     parser.add_argument(
+        "--runtime-source-cache", type=Path,
+        default=DEFAULT_OUTPUT.parent / ".cache" / RUNTIME_SOURCE_CACHE_DIR_NAME,
+        help="Authenticated immutable source indexes; never supplies runtime freshness or coverage.",
+    )
+    parser.add_argument(
         "--classification-cache",
         type=Path,
         default=DEFAULT_CLASSIFICATION_CACHE,
@@ -2000,9 +2066,11 @@ def main(argv: list[str] | None = None) -> int:
         log.error("BUILDKITE_TOKEN is required")
         return 2
     try:
-        collection_now = (
-            parse_timestamp(args.now, "--now") if args.now is not None else None
-        )
+        global _SOURCE_SCOPE_CACHE_DIR
+        _SOURCE_SCOPE_CACHE_DIR = args.runtime_source_cache
+        _SOURCE_SCOPE_INDEXES.clear()
+        _SOURCE_SCOPE_INDEXES.update(read_runtime_source_indexes(args.runtime_source_cache))
+        collection_now = parse_timestamp(args.now, "--now") if args.now is not None else None
         payload = collect(
             client=BuildkiteClient(
                 token,

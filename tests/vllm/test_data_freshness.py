@@ -87,9 +87,6 @@ class TestCIDataFreshness:
         assert (DATA / "vllm" / "ci" / "ci_health.json").exists(), \
             "ci_health.json does not exist"
 
-    def test_parity_report_exists(self):
-        assert (DATA / "vllm" / "ci" / "parity_report.json").exists(), \
-            "parity_report.json does not exist"
 
     def test_analytics_exists(self):
         assert (DATA / "vllm" / "ci" / "analytics.json").exists(), \
@@ -110,22 +107,15 @@ class TestCIDataFreshness:
         assert ts, "ci_health.json has no generated_at"
         _check_freshness("ci_health.json", ts)
 
-    def test_parity_report_fresh(self):
-        _skip_if_local()
-        d = json.loads((DATA / "vllm" / "ci" / "parity_report.json").read_text())
-        ts = d.get("generated_at", "")
-        assert ts, "parity_report.json has no generated_at"
-        _check_freshness("parity_report.json", ts)
 
     def test_ci_health_has_amd_build(self):
         d = json.loads((DATA / "vllm" / "ci" / "ci_health.json").read_text())
+        assert "upstream" not in d, "Current health must not track non-MI runtime"
+        assert d["amd"].get("source_pipeline") == "ci"
+        assert d["amd"].get("hardware_scope") == "amd_mi_gpu"
         lb = d.get("amd", {}).get("latest_build", {})
         assert lb.get("total_tests", 0) > 0, "AMD latest_build has 0 tests"
 
-    def test_ci_health_has_upstream_build(self):
-        d = json.loads((DATA / "vllm" / "ci" / "ci_health.json").read_text())
-        lb = d.get("upstream", {}).get("latest_build", {})
-        assert lb.get("total_tests", 0) > 0, "Upstream latest_build has 0 tests"
 
     def test_amd_test_matrix_fresh(self):
         _skip_if_local()
@@ -197,20 +187,6 @@ class TestCIDataFreshness:
         assert query.get("end_exclusive") == ts
         assert query.get("bounded_slice") == "UTC day"
 
-    def test_parity_report_has_job_links(self):
-        """Verify parity report has job links (the bug we fixed)."""
-        d = json.loads((DATA / "vllm" / "ci" / "parity_report.json").read_text())
-        groups = d.get("job_groups", [])
-        assert len(groups) > 0, "No job groups"
-
-        groups_with_amd = [g for g in groups if g.get("amd")]
-        groups_with_amd_links = [
-            g for g in groups_with_amd
-            if any(l.get("side") == "amd" for l in g.get("job_links", []))
-        ]
-        pct = len(groups_with_amd_links) / max(len(groups_with_amd), 1) * 100
-        assert pct > 90, \
-            f"Only {pct:.0f}% of AMD groups have job links ({len(groups_with_amd_links)}/{len(groups_with_amd)})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

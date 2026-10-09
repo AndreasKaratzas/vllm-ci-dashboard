@@ -64,9 +64,9 @@ def test_latest_five_global_nightlies_never_backfill_missing_group():
     result = _comparison([old, *builds])
     assert [row["number"] for row in result["cohort"]["nightlies"]] == [1000, 999, 998, 997, 996]
     row = next(row for row in result["rows"] if row["id"] == "basic models (other)")
-    assert row["amd"]["sample_count"] == row["upstream"]["sample_count"] == 1
+    assert row["amd"]["sample_count"] == 1
+    assert "upstream" not in row and "ratio" not in row and "match_status" not in row
     assert row["amd"]["median_duration_mins"] == 10
-    assert row["ratio"] == 2
     assert row["amd"]["samples"][0]["build_number"] == 1000
     assert row["amd"]["interval"]["start"] == _iso(NOW - timedelta(hours=4))
 
@@ -80,8 +80,7 @@ def test_shards_contribute_one_maximum_per_nightly_before_median():
     row = result["rows"][0]
     assert row["amd"]["sample_count"] == 2
     assert row["amd"]["median_duration_mins"] == 45  # median(30, 60), not pooled shard median
-    assert row["upstream"]["median_duration_mins"] == 15
-    assert row["ratio"] == 3
+    assert "upstream" not in row
     assert len(row["amd"]["samples"][0]["jobs"]) == 2
     assert all("/ci/builds/" in job["url"] for sample in row["amd"]["samples"] for job in sample["jobs"])
 
@@ -95,9 +94,7 @@ def test_cpu_legacy_and_superseded_jobs_cannot_enter_current_comparison():
     result = _comparison([_build(1000, [amd, superseded, cpu])])
     row = result["rows"][0]
     assert row["amd"]["median_duration_mins"] == 5
-    assert row["upstream"]["sample_count"] == 0
-    assert row["match_status"] == "unmatched"
-    assert row["match_reason"]
+    assert "upstream" not in row
 
 
 def test_incomplete_shard_excludes_the_whole_group_nightly_sample():
@@ -129,23 +126,17 @@ def test_observed_agent_queue_takes_priority_over_requested_hardware():
     job["agent"] = {"meta_data": ["queue=amd_mi300_1"]}
     result = _comparison([_build(1000, [job])])
     assert result["rows"][0]["amd"]["samples"][0]["jobs"][0]["queue"] == "amd_mi300_1"
-    assert result["rows"][0]["upstream"]["sample_count"] == 0
+    assert "upstream" not in result["rows"][0]
 
 
 def test_named_shards_need_a_shared_exact_step_key_to_join():
-    first = _job(1000, "cuda", 10, group="Basic Models (Extra Initialization) Shard 1")
-    last = _job(1000, "cuda", 40, group="Basic Models (Extra Initialization) Shard 2")
+    first = _job(1000, "amd", 10, group="Basic Models (Extra Initialization) Shard 1")
+    last = _job(1000, "amd", 40, group="Basic Models (Extra Initialization) Shard 2")
     first["step"] = last["step"] = {"key": "basic-extra"}
-    amd = _job(1000, "amd", 20, group="Basic Models (Extra Initialization)")
-    row = _comparison([_build(1000, [first, last, amd])])["rows"][0]
-    assert row["match_status"] == "matched"
-    assert row["upstream"]["sample_count"] == 1
-    assert row["upstream"]["median_duration_mins"] == 40
-    assert len(row["upstream"]["samples"][0]["jobs"]) == 2
-    # Similar numeric labels from independent steps remain separate groups.
-    last["step"] = {"key": "different-step"}
-    row = _comparison([_build(1000, [first, last, amd])])["rows"][0]
-    assert row["match_status"] == "unmatched"
+    row = _comparison([_build(1000, [first, last])])["rows"][0]
+    assert row["amd"]["sample_count"] == 1
+    assert row["amd"]["median_duration_mins"] == 40
+    assert len(row["amd"]["samples"][0]["jobs"]) == 2
 
 
 def test_full_225_group_five_nightly_eight_shard_evidence_fits_losslessly():
@@ -167,7 +158,7 @@ def test_full_225_group_five_nightly_eight_shard_evidence_fits_losslessly():
     limit = 7 * 1024 * 1024
     def size(payload):
         return len((json.dumps({"latency": payload}, separators=(",", ":"), ensure_ascii=True) + "\n").encode())
-    assert size(private) > limit
+    limit = min(limit, size(private) - 1)
     public = project_public_nightly_latency(private, max_bytes=limit)
     assert size(public) <= limit
     assert public["job_columns"] == list(JOB_COLUMNS)
@@ -176,7 +167,7 @@ def test_full_225_group_five_nightly_eight_shard_evidence_fits_losslessly():
     expanded = deepcopy(public)
     expanded.pop("job_columns")
     for row in expanded["rows"]:
-        for side in ("amd", "upstream"):
+        for side in ("amd",):
             assert row[side]["sample_count"] == len(row[side]["samples"]) == 5
             for sample in row[side]["samples"]:
                 assert len(sample["jobs"]) == 8
@@ -196,16 +187,15 @@ def test_small_latency_keeps_readable_job_evidence_and_oversized_fails_closed():
     assert private == retained
 
 
-def test_native_amd_execution_wrapper_matches_current_cuda_latency_group():
+def test_native_amd_execution_wrapper_ignores_cuda_runtime_counterpart():
     native = _job(1000, "amd", 20)
     raw_name = "AMD: :amd: (MI355 DPX) FP8 MoE Kernels (mi355_dpx)"
     native.update(name=raw_name, agent_query_rules=["queue=amd_mi355_dpx"])
     result = _comparison([_build(1000, [native, _job(1000, "cuda", 10, group="FP8 MoE Kernels")])])
     row = result["rows"][0]
     assert row["id"] == "fp8 moe kernels"
-    assert row["match_status"] == "matched"
-    assert row["amd"]["sample_count"] == row["upstream"]["sample_count"] == 1
-    assert row["ratio"] == 2
+    assert row["amd"]["sample_count"] == 1
+    assert "upstream" not in row and "ratio" not in row and "match_status" not in row
     job = row["amd"]["samples"][0]["jobs"][0]
     assert job["raw_name"] == raw_name
     assert job["queue"] == "amd_mi355_dpx"

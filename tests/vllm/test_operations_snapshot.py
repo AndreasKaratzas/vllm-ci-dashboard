@@ -27,9 +27,19 @@ def _write_json(path: Path, payload: dict) -> None:
             for build in block.get("builds") or []:
                 build.setdefault("branch", "main")
                 build.setdefault("web_url", f"https://buildkite.com/vllm/ci/builds/{build['number']}")
+    if path.name == "analytics.json":
+        for block in payload.values():
+            collector = block.get("all_main_reliability") or {}
+            collector.setdefault("hardware_scope", "amd_mi_gpu")
+            collector.setdefault("job_scope", "amd_gpu")
+    if path.name == "workload_mapping.json":
+        payload.setdefault("hardware_scope", "amd_mi_gpu")
     if path.name == "ci_health.json":
         for side in ("amd", "upstream"):
             block = payload.get(side) or {}
+            if side == "amd":
+                block.setdefault("hardware_scope", "amd_mi_gpu")
+                block.setdefault("job_scope", "amd_gpu")
             references = [*(block.get("builds") or [])]
             references.extend(block.get(key) for key in ("latest_build", "latest_pipeline_build", "latest_test_signal_build"))
             for build in references:
@@ -85,7 +95,7 @@ def _retarget_build(build: dict, pipeline: str) -> dict:
             "key": job.get("step_key") or job_id,
         }
         job["test_duration_mins"] = job.get("dur")
-        job["q"] = "gpu_1_queue"
+        job["q"] = "amd_mi300_1"
     return row
 
 
@@ -181,7 +191,6 @@ def _fixture_data(tmp_path: Path) -> Path:
             "cohort_build_numbers": [101, 102, 103],
         },
     }
-    amd_main_builds = [latest, previous, oldest]
     upstream_main_builds = [
         _retarget_build(latest, "ci"),
         _retarget_build(previous, "ci"),
@@ -205,7 +214,7 @@ def _fixture_data(tmp_path: Path) -> Path:
         "ci": {
             "display_name": "Upstream CI",
             "generated_at": "2026-04-22T10:00:00Z",
-            "builds": [{**build, "jobs": [*amd_main_builds[index]["jobs"], *build["jobs"]]} for index, build in enumerate(upstream_main_builds)],
+            "builds": upstream_main_builds,
             "all_main_reliability": upstream_reliability,
             "main_retry_analysis": retry_analysis,
             "retry_analysis": retry_analysis,
@@ -329,7 +338,7 @@ def _fixture_data(tmp_path: Path) -> Path:
             "excluded_queue_classes": ["perf_eval"],
             "workload_pipelines": {
                 "omni": ["vllm-omni-amd-ci"],
-                "main": ["ci", "ci", "amd-distributed-inference-ci"],
+                "main": ["ci"],
             },
         },
         "totals": {
@@ -437,10 +446,12 @@ def test_current_ci_snapshot_rejects_legacy_amd_evidence_and_latency_fallback(tm
     payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
     assert payload["nightly"]["primary_pipeline"] == "ci"
     assert payload["nightly"]["primary_cohort"] == "ci-amd"
-    assert {row["cohort_id"] for row in payload["nightly"]["pipelines"]} == {"ci-amd", "ci-cuda"}
+    assert {row["cohort_id"] for row in payload["nightly"]["pipelines"]} == {"ci-amd"}
     assert all(row["source_pipeline"] == "ci" for row in payload["nightly"]["pipelines"])
     assert payload["amd_test_health"]["source_pipeline"] == "ci"
     assert payload["amd_test_health"]["job_scope"] == "amd_gpu"
+    assert payload["amd_test_health"]["hardware_scope"] == "amd_mi_gpu"
+    assert payload["amd_test_health"]["provenance"]["nightly_metadata"]["source_key"] == "ci.builds"
     assert payload["amd_test_health"]["available"] is False
     assert payload["amd_test_health"]["group_catalog"] == []
     assert payload["latency"]["available"] is False
@@ -450,7 +461,7 @@ def test_current_ci_snapshot_rejects_legacy_amd_evidence_and_latency_fallback(tm
 
 def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tmp_path):
     alpha = "mi300_1: Alpha tests"
-    beta = "mi355b_2: Beta tests"
+    beta = "mi355_2: Beta tests"
     unknown = "mi325_4: Unknown tests"
     stable = "mi300_2: Stable tests"
     latest_only = "mi250_1: Latest only"
@@ -720,13 +731,13 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
         "mixed_outcome_group_count": 1,
         "stable_passing_group_count": 1,
         "persistent_incident_group_count": 2,
-        "hardware_counts": {"mi250": 1, "mi300": 2, "mi325": 1, "mi355b": 1},
+        "hardware_counts": {"mi250": 1, "mi300": 2, "mi325": 1, "mi355": 1},
         "hardware_variant_counts": {
             "mi250_1": 1,
             "mi300_1": 1,
             "mi300_2": 1,
             "mi325_4": 1,
-            "mi355b_2": 1,
+            "mi355_2": 1,
         },
         "latest_hardware_counts": {"mi250": 1, "mi300": 2},
     }
@@ -775,8 +786,8 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
     assert beta_group["soft_failed"] == 0
     assert beta_group["hard_failed"] == 1
     assert beta_group["latest_url"].endswith("?jid=beta-hard-300&tab=output")
-    assert beta_group["hardware"] == "mi355b"
-    assert beta_group["hardware_variant"] == "mi355b_2"
+    assert beta_group["hardware"] == "mi355"
+    assert beta_group["hardware_variant"] == "mi355_2"
     assert beta_group["pass_rate_pct"] == 0.0
 
     unknown_group = groups[unknown]
@@ -900,6 +911,7 @@ def test_amd_test_health_preserves_named_pool_with_current_ci_metadata(
         "name": "test_attention",
         "status": "passed",
         "job_name": exact_name,
+        "queue": "amd_mi355_dpx",
         "build_number": 400,
         "pipeline": "ci",
         "date": "2026-04-22",
@@ -1290,9 +1302,6 @@ def test_ci_health_publication_retention_is_propagated_to_nightly(tmp_path):
     amd_retention = payload["nightly"]["canonical_history"][
         "ci_health_publication_retention"
     ]
-    upstream_retention = payload["nightly"]["upstream_parity"][
-        "ci_health_publication_retention"
-    ]
     assert amd_retention["complete_relative_to_source"] is False
     assert amd_retention["aggregate_scalars_complete"] is True
     assert amd_retention["builds"] == {
@@ -1301,7 +1310,7 @@ def test_ci_health_publication_retention_is_propagated_to_nightly(tmp_path):
         "omitted": 6,
         "complete": False,
     }
-    assert upstream_retention["complete_relative_to_source"] is True
+    assert "upstream_parity" not in payload["nightly"]
 
 
 def test_nightly_pipeline_projects_newer_core_references_over_analytics_lkg():
@@ -1540,7 +1549,7 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
 
     assert payload["schema_version"] == 2
     assert payload["generated_at"] == GENERATED_AT
-    assert payload["nightly"]["pipeline_order"] == ["ci-amd", "ci-cuda"]
+    assert payload["nightly"]["pipeline_order"] == ["ci-amd"]
     assert payload["nightly"]["transition_policy_id"] == "confirmed-incidents-v1"
     assert (
         payload["nightly"]["failure_movement_policy_id"]
@@ -1586,8 +1595,8 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         len(latest["failed_groups"]) + len(latest["soft_failed_groups"])
     )
     new_hard = next(row for row in latest["transitions"]["new"] if row["name"] == "New hard")
-    assert new_hard["url"].endswith("/steps/new-hard")
-    assert latest["transitions"]["fixed"][0]["url"].endswith("/builds/102/steps/fixed")
+    assert new_hard["url"].endswith("/steps/canvas?jid=new-hard&tab=output")
+    assert latest["transitions"]["fixed"][0]["url"].endswith("/builds/102/steps/canvas?jid=fixed&tab=output")
     assert "soft failures confirm after two distinct eligible completed builds" in (
         payload["nightly"]["transition_basis"]
     )
@@ -1749,9 +1758,10 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
         {"healthy": 1, "trigger": 3},
         {},
         {
+            "hardware_scope": "amd_mi_gpu",
             "scope": {
                 "queues": ["amd_mi300_1"],
-                "workload_pipelines": {"omni": ["vllm-omni-amd-ci"]},
+                "workload_pipelines": {"omni": ["vllm-omni-amd-ci"], "main": ["ci"]},
             },
         },
         {},
@@ -1791,9 +1801,10 @@ def test_omni_uses_job_ledger_when_workload_aggregate_is_unavailable():
         {},
         {},
         {
+            "hardware_scope": "amd_mi_gpu",
             "scope": {
                 "queues": ["amd_mi300_1"],
-                "workload_pipelines": {"omni": ["vllm-omni-amd-ci"]},
+                "workload_pipelines": {"omni": ["vllm-omni-amd-ci"], "main": ["ci"]},
             },
         },
         {},
@@ -1945,7 +1956,7 @@ def test_upstream_reliability_rejects_untrusted_legacy_main_builds():
 
 def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
     reliability = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)["reliability"]
-    candidates = {row["name"]: row for row in reliability["group_catalog"]}
+    candidates = {row["name"]: row for row in reliability["group_catalog"] if row["observation_count"] > 0}
 
     hard = candidates["Mixed hard"]
     assert hard["observation_count"] == hard["runs"] == 3
@@ -1962,7 +1973,7 @@ def test_group_catalog_retains_linked_terminal_main_observations(tmp_path):
     assert failed["job_url"].endswith("?jid=mixed-hard-failed&tab=output")
     assert failed["observed_at"] == "2026-04-22T10:00:00Z"
     assert failed["duration_mins"] == 33
-    assert failed["queue"] == "gpu_1_queue"
+    assert failed["queue"] == "amd_mi300_1"
     assert failed["tests"] == 12
     assert failed["failed_tests"] == 12
     assert failed["retry_evidence"] == {
@@ -2087,7 +2098,7 @@ def test_normalized_reliability_produces_identical_popup_catalog_to_legacy():
                     job_id="popup-attempt",
                     step_id="popup-step",
                     step_key="popup-parity",
-                    q="gpu_1_queue",
+                    q="amd_mi300_1",
                 )
             ],
             pipeline="ci",
@@ -2451,8 +2462,8 @@ def test_snapshot_prefers_collector_all_main_variant_catalog(tmp_path):
             "name": "Non-nightly main group (4 GPUs)",
             "raw_name": "mi300_4: Non-nightly main group (4 GPUs)",
             "step_key": "strict-step",
-            "hardware": "h100",
-            "queue": "gpu_4_queue",
+            "hardware": "mi300",
+            "queue": "amd_mi300_4",
             "denominator": 2,
             "passed": 1,
             "failed": 1,
@@ -2523,8 +2534,8 @@ def test_snapshot_prefers_collector_all_main_variant_catalog(tmp_path):
     group = reliability["group_catalog"][0]
     assert group["id"] == "strict-variant-id"
     assert group["group_ids"] == ["strict-variant-id"]
-    assert group["hardware"] == "h100"
-    assert group["queues"] == ["gpu_4_queue"]
+    assert group["hardware"] == "mi300"
+    assert group["queues"] == ["amd_mi300_4"]
     assert group["duration_basis"] == "job_wall"
     assert group["max_wall_mins"] == 16.0
     assert group["max_test_mins"] == 9.0
@@ -2543,7 +2554,7 @@ def test_snapshot_prefers_collector_all_main_variant_catalog(tmp_path):
     }
 
 
-def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp_path):
+def test_snapshot_retains_thirty_amd_nightlies_without_foreign_runtime_groups(tmp_path):
     data_dir = _fixture_data(tmp_path)
     analytics_payload = json.loads((data_dir / "analytics.json").read_text())
     start = datetime(2026, 3, 1)
@@ -2554,15 +2565,6 @@ def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp
             [_job(f"Group {index}", "passed", f"https://buildkite.com/vllm/ci/builds/{1000 + index}")],
         )
         for index in range(35)
-    ]
-    upstream_builds = [
-        _build(
-            2000 + index,
-            (start + timedelta(days=index)).strftime("%Y-%m-%d"),
-            [],
-            pipeline="ci",
-        )
-        for index in range(4)
     ]
     for index, build in enumerate(amd_builds):
         if index >= 31:
@@ -2581,11 +2583,10 @@ def test_snapshot_retains_thirty_amd_nightlies_and_separates_upstream_parity(tmp
     assert canonical["builds"][-1]["number"] == 1005
     assert nightly["pipelines"][0]["builds"] == canonical["builds"]
 
-    parity = nightly["upstream_parity"]
-    assert parity["pipeline"] == "ci"
-    assert parity["role"] == "upstream_cuda_nightly"
-    assert len(parity["builds"]) == 30
-    assert len([build for build in parity["builds"] if build["total_groups"]]) == 4
+    assert "upstream_parity" not in nightly
+    assert nightly["pipeline_order"] == ["ci-amd"]
+    assert all(build["total_groups"] == 1 for build in canonical["builds"])
+    assert "CUDA group" not in json.dumps(canonical)
 
 
 def test_retry_analysis_retains_all_attempts_recoveries_and_exact_urls():
@@ -2620,6 +2621,7 @@ def test_retry_analysis_retains_all_attempts_recoveries_and_exact_urls():
     ]
     analytics_payload = {
         "all_main_reliability": {
+            "hardware_scope": "amd_mi_gpu", "job_scope": "amd_gpu",
             "cohort": {
                 "id": "ci-main-completed-pass-fail",
                 "pipeline": "ci",
@@ -2863,7 +2865,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     )["nightly"]
     assert "canonical_history" not in nightly
     assert "upstream_parity" not in nightly
-    assert {row["cohort_id"] for row in nightly["pipelines"]} == {"ci-amd", "ci-cuda"}
+    assert {row["cohort_id"] for row in nightly["pipelines"]} == {"ci-amd"}
 
     queue = json.loads(
         (output.parent / manifest["sections"]["queue"]["path"]).read_text()
@@ -3492,3 +3494,57 @@ def test_operations_collection_sections_compact_every_legal_growing_catalog() ->
         retention = sections[name][name]["operations_publication_retention"]
         assert retention["complete_relative_to_source"] is False
         assert retention["aggregate_summaries_complete"] is True
+
+
+def test_snapshot_amd_scope_rejects_mixed_aggregates_and_recounts_raw_queues(tmp_path):
+    data_dir = _fixture_data(tmp_path)
+    analytics_path = data_dir / "analytics.json"
+    source = json.loads(analytics_path.read_text())
+    strict = source["ci"]["all_main_reliability"]
+    assert ops._reliability(source["ci"], "ci")["available"] is True
+    for hardware_scope in (None, "all_ci_gpu", "cuda_gpu"):
+        mixed = json.loads(json.dumps(source["ci"]))
+        mixed["all_main_reliability"]["hardware_scope"] = hardware_scope
+        assert ops._reliability(mixed, "ci")["available"] is False
+    foreign = json.loads(json.dumps(strict))
+    foreign["groups"][0]["queue"] = "gpu_1_queue"
+    assert ops._collector_main_is_strict(foreign, "ci") is False
+    foreign["groups"][0]["queue"] = "amd_mi300_1"
+    foreign["groups"][0]["hardware"] = "b200"
+    assert ops._collector_main_is_strict(foreign, "ci") is False
+    cpu = json.loads(json.dumps(strict))
+    cpu["groups"][0]["no_gpu"] = True
+    assert ops._collector_main_is_strict(cpu, "ci") is False
+    queues = ops._filter_queue_snapshot({
+        "queues": {name: {"waiting": count, "running": count * 2, "count_source": "cluster_metrics"}
+                   for name, count in (("amd_mi300_1", 2), ("amd-cpu", 100), ("B200", 100), ("intel-gpu", 100))},
+        "scope_totals": {"all": {"waiting": 302, "running": 604}},
+    })
+    assert set(queues["queues"]) == {"amd_mi300_1"}
+    assert queues["total_waiting"] == 2
+    assert queues["total_running"] == 4
+    assert queues["scope_totals"]["all"]["waiting"] == 2
+    jobs = ops._filter_queue_jobs({"pending": [
+        {"queue": "amd_mi300_1", "name": "CPU Offload with CUDA model preset"},
+        {"queue": "amd_mi300_1", "name": ":computer: (CPU) Torch ABI"},
+        {"queue": "amd_mi300_1", "no_gpu": True},
+        {"queue": "H200"},
+    ]})
+    assert len(jobs["pending"]) == 1
+    assert jobs["pending"][0]["name"] == "CPU Offload with CUDA model preset"
+
+
+def test_amd_result_routing_uses_job_label_or_exact_mi_roster_and_excludes_cpu(tmp_path):
+    rows = [
+        {"name": "test_gpu", "job_name": "amd_mi300_1: CPU Offload", "job_id": "gpu", "pipeline": "ci", "build_number": 7, "status": "passed"},
+        {"name": "test_native", "job_name": ":amd: (MI355 DPX) Native test", "job_id": "native", "pipeline": "ci", "build_number": 7, "status": "passed"},
+        {"name": "test_unverified", "job_name": ":amd: (MI355) Unverified", "pipeline": "ci", "build_number": 7, "status": "passed"},
+        {"name": "test_cpu", "job_name": "amd_mi300_1: :computer: (CPU) Torch ABI", "pipeline": "ci", "build_number": 7, "status": "passed"},
+        {"name": "test_no_gpu", "job_name": "amd_mi300_1: Explicit CPU route", "no_gpu": True, "pipeline": "ci", "build_number": 7, "status": "passed"},
+        {"name": "test_cuda", "job_name": "gpu_1: :nvidia: (H100) CUDA test", "pipeline": "ci", "build_number": 7, "status": "passed"},
+    ]
+    _write_jsonl(tmp_path / "test_results" / "2026-04-22_amd.jsonl", rows)
+    roster = {7: {"jobs": [{"job_id": "native", "q": "amd_mi355_dpx", "raw_name": rows[1]["job_name"]}]}}
+    grouped, stats = ops._load_amd_test_result_groups(tmp_path, roster)
+    assert {name for _, name in grouped} == {rows[0]["job_name"], rows[1]["job_name"]}
+    assert stats["ignored_rows"] == 4

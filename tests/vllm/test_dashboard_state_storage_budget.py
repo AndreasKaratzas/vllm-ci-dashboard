@@ -61,7 +61,6 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
     )
     assert (
         writers["ci_health"].max_bytes
-        + writers["ci_parity_pair"].max_bytes
         + writers["failure_trends"].max_bytes
         + writers["flaky_tests"].max_bytes
         <= groups["ci_derived"].max_bytes
@@ -234,7 +233,6 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         == writers["workload_mapping"].max_bytes
     )
     assert reporter.CI_HEALTH_MAX_BYTES == writers["ci_health"].max_bytes
-    assert reporter.CI_PARITY_PAIR_MAX_BYTES == writers["ci_parity_pair"].max_bytes
     assert reporter.FAILURE_TRENDS_MAX_BYTES == writers["failure_trends"].max_bytes
     assert reporter.FLAKY_TESTS_MAX_BYTES == writers["flaky_tests"].max_bytes
     assert (
@@ -304,6 +302,18 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         "project_items": writers["github_home_project_items"].max_bytes,
         "releases": writers["github_home_releases"].max_bytes,
     }
+
+
+def test_retired_runtime_parity_keeps_its_exact_historical_storage_envelope() -> None:
+    budget = load_storage_budget()
+    assert "ci_parity_pair" not in budget.writer_limits
+    limit = budget.groups["ci_derived"].max_bytes
+    assert limit == 7 * 1024 * 1024
+    for size, expected in ((limit, []), (limit + 1, [f"storage group ci_derived is {limit + 1} bytes (max {limit})"])):
+        summary = summarize([TrackedBlob(path="data/vllm/ci/parity_report.json", size=size,
+                                         object_id="a" * 40)], budget)
+        assert violations(summary, budget) == expected
+    assert budget.matching_groups("data/vllm/parity_report.json") == ("ci_derived",)
 
 
 def test_group_and_unmanaged_overflow_are_reported_exactly() -> None:

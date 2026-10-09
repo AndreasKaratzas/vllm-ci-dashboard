@@ -68,7 +68,7 @@ jobs:
             pyproject.toml
 
       - name: Install dependencies
-        run: pip install -c constraints.txt requests cryptography
+        run: pip install -c constraints.txt requests cryptography pyyaml
 
       - name: Prepare private DNS classification cache key
         id: dns-classification-cache-key
@@ -95,6 +95,13 @@ jobs:
             ${{ steps.dns-classification-cache-key.outputs.current_day_prefix }}
             ${{ steps.dns-classification-cache-key.outputs.prior_day_prefix }}
             ${{ steps.dns-classification-cache-key.outputs.namespace_prefix }}
+
+      - name: Restore immutable runtime source indexes
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: runtime-source-indexes-v1-${{ runner.os }}-dns-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: runtime-source-indexes-v1-${{ runner.os }}-
 
       - name: Preflight DNS-only validator
         run: |
@@ -192,6 +199,7 @@ jobs:
         if: steps.dns-request-budget.outputs.request_mode != 'capacity_gated'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           ARGS=(
@@ -222,6 +230,33 @@ jobs:
             --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
             --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate immutable DNS source checkpoint
+        id: runtime-source-cache-decision
+        if: always() && steps.dns-request-budget.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+          cache = Path("data/vllm/ci/.cache/runtime-source-indexes-v1")
+          if (cache / "index.json").is_file():
+              indexes = read_runtime_source_indexes(cache)
+              print(f"Validated {len(indexes)} immutable DNS source indexes")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("runtime_source_cache_save=true\n")
+          PY
+
+      - name: Save immutable DNS source checkpoint
+        if: >-
+          always() && steps.dns-request-budget.outputs.request_mode == 'reserved' &&
+          steps.runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: runtime-source-indexes-v1-${{ runner.os }}-dns-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Validate bounded DNS artifacts
         if: >-

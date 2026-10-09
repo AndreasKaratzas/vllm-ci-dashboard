@@ -100,6 +100,7 @@ class BuildSummary:
     test_groups_partial: int = 0     # groups that differ across hardware
     by_hardware: dict = field(default_factory=dict)  # per-hardware breakdown
     delta_vs_previous: dict = field(default_factory=dict)
+    source_state: str = ""       # whole CI parent state, separate from MI outcomes
 
     @property
     def test_pass_rate_pct(self) -> float:
@@ -129,6 +130,7 @@ class BuildSummary:
             "commit": self.commit,
             "created_at": self.created_at,
             "state": self.state,
+            **({"source_state": self.source_state} if self.source_state else {}),
             "total_tests": self.total_tests,
             "passed": self.passed,
             "failed": self.failed,
@@ -193,21 +195,4 @@ class TestHealth:
             "history": self.history,
             "module": self.module,
             "mean_duration": round(self.mean_duration, 3),
-        }
-
-
-@dataclass
-class ParityEntry:
-    """One test in the parity comparison."""
-    test_id: str
-    amd_status: str        # passed, failed, skipped, missing
-    upstream_status: str   # passed, failed, skipped, missing
-    category: str          # both_pass, both_fail, amd_regression, amd_advantage, amd_only, upstream_only
-
-    def to_dict(self) -> dict:
-        return {
-            "test_id": self.test_id,
-            "amd_status": self.amd_status,
-            "upstream_status": self.upstream_status,
-            "category": self.category,
         }

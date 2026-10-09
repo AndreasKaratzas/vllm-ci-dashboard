@@ -38,6 +38,17 @@ import pytest
 
 
 SCRIPTS = Path(__file__).resolve().parent.parent.parent / "scripts"
+
+
+@pytest.fixture(autouse=True)
+def offline_runtime_definition_pins(monkeypatch):
+    import vllm.main_ci_definitions as definitions
+    import collect_ci
+    monkeypatch.setattr(collect_ci, "_SOURCE_SCOPE_INDEXES", {})
+    monkeypatch.setattr(collect_ci, "_SOURCE_SCOPE_CACHE_DIR", None)
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", lambda build, **kwargs: {
+        **build, "source_scope_commit": build.get("commit"), "source_definition_tree_sha": "a" * 40,
+    })
 sys.path.insert(0, str(SCRIPTS))
 
 from collect_ci import (  # noqa: E402
@@ -58,6 +69,7 @@ from collect_ci import (  # noqa: E402
     _is_parity_excluded_group,
     _should_verify_cache_coverage,
     _current_scope_results,
+    _purge_unproved_result_scope,
     _scope_nightly_build,
     _fetch_build_detail_with_routing_diagnostics,
     _log_ci_routing_conflicts,
@@ -79,6 +91,7 @@ def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
         "name": name,
         "state": state,
         "soft_failed": soft_failed,
+        "agent_query_rules": ["queue=gpu_1" if ":nvidia:" in name else "queue=amd_mi300_1"],
     }
 
 
@@ -108,7 +121,7 @@ def _record(job_name: str, build_num: int = 7791, job_id: str = "") -> dict:
 
 
 def test_same_ci_cache_is_scoped_before_coverage_and_denominators(tmp_path):
-    amd_name, cuda_name = ":amd: (MI300) Current group", ":nvidia: (H100) Current group"
+    amd_name, cuda_name = "amd_mi300_1: :amd: (MI300) Current group", ":nvidia: (H100) Current group"
     records = [_record(amd_name, job_id="amd-job"), _record(cuda_name, job_id="cuda-job")]
     path = tmp_path / "2026-04-18_amd.jsonl"
     _write_jsonl(path, records)
@@ -134,8 +147,54 @@ def test_legacy_amd_ci_cache_cannot_satisfy_current_ci_roster(tmp_path):
     assert _current_scope_results(_load_cached_results(path), "amd") == []
 
 
+def test_current_mi_purge_and_checkpoint_drop_cpu_foreign_and_unproved_history(tmp_path, monkeypatch):
+    import collect_ci
+    monkeypatch.setattr(collect_ci.cfg, "HISTORY_DAYS", 1000)
+    results = tmp_path / "test_results"
+    private = tmp_path / "checkpoint"
+    amd = results / "2026-04-18_amd.jsonl"
+    cuda = results / "2026-04-18_upstream.jsonl"
+    mi_name = "amd_mi300_1: :amd: (MI300) GPU test"
+    cpu_name = "amd_mi300_1: :amd: (MI250) CPU-only pinned route"
+    rows = [_record(mi_name, job_id="mi"), _record(cpu_name, job_id="cpu"),
+            _record(mi_name, job_id="foreign"), _record(mi_name, build_num=7790, job_id="old-unproved")]
+    _write_jsonl(amd, rows[:3])
+    checkpoint_module.record_complete_shard(private, amd)
+    _write_jsonl(amd, rows)
+    _write_jsonl(cuda, [_record(":nvidia: (H100) CUDA", job_id="cuda")])
+    checkpoint_module.record_complete_shard(private, cuda)
+    reporter_module.prune_old_results(results, max_days=1000, allow_generation_change=True)
+    build = {"number": 7791, "_ci_job_routes": {
+        "mi": {"queue": "amd_mi300_1", "amd": True},
+        "cpu": {"queue": "amd_mi300_1", "amd": False},
+    }}
+    _purge_unproved_result_scope(results, [build])
+    assert [row.job_id for row in _load_cached_results(amd)] == ["mi"]
+    assert not cuda.exists()
+    checkpoint_module.synchronize_current_mi_shards(private, results)
+    assert checkpoint_module.validate(private)["shards"] == 1
+    assert (private / "test_results" / amd.name).read_bytes() == amd.read_bytes()
+    assert not (private / "test_results" / cuda.name).exists()
+
+
+def test_mi_checkpoint_sync_failure_preserves_previous_generation(tmp_path, monkeypatch):
+    results = tmp_path / "test_results"
+    private = tmp_path / "checkpoint"
+    shard = results / "2026-04-18_amd.jsonl"
+    _write_jsonl(shard, [_record("amd_mi300_1: GPU test", job_id="mi")])
+    checkpoint_module.record_complete_shard(private, shard)
+    before = {path.relative_to(private): path.read_bytes() for path in private.rglob("*") if path.is_file()}
+    def fail(*args, **kwargs):
+        raise OSError("simulated staged write failure")
+    monkeypatch.setattr(checkpoint_module, "record_complete_shard", fail)
+    with pytest.raises(OSError, match="staged write failure"):
+        checkpoint_module.synchronize_current_mi_shards(private, results)
+    after = {path.relative_to(private): path.read_bytes() for path in private.rglob("*") if path.is_file()}
+    assert after == before
+
+
 def test_shared_historical_ci_rows_are_not_double_counted_across_role_shards():
-    row = TestResult(**_record(":amd: (MI300) Current group", job_id="amd-job"))
+    row = TestResult(**_record("amd_mi300_1: :amd: (MI300) Current group", job_id="amd-job"))
     cuda = TestResult(**_record(":nvidia: (H100) Current group", job_id="cuda-job"))
     entries = [(7791, "2026-04-18", [row]), (7791, "2026-04-18", [row, cuda])]
     assert _scoped_result_entries(entries, "amd") == [(7791, "2026-04-18", [row])]
@@ -143,7 +202,7 @@ def test_shared_historical_ci_rows_are_not_double_counted_across_role_shards():
 
 
 def test_new_amd_role_reuses_verified_ci_shard_without_refetching_logs(tmp_path):
-    amd_name, cuda_name = ":amd: (MI300) Current group", ":nvidia: (H100) Current group"
+    amd_name, cuda_name = "amd_mi300_1: :amd: (MI300) Current group", ":nvidia: (H100) Current group"
     results_dir = tmp_path / "test_results"
     _write_jsonl(results_dir / "2026-04-18_upstream.jsonl", [
         _record(amd_name, job_id="amd-job"), _record(cuda_name, job_id="cuda-job"),
@@ -178,7 +237,7 @@ def test_new_amd_role_reuses_verified_ci_shard_without_refetching_logs(tmp_path)
 def test_warm_mixed_ci_cache_is_persisted_as_exact_role_without_log_refetch(
     tmp_path, historical, side, expected_job,
 ):
-    names = {"amd-job": ":amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group",
+    names = {"amd-job": "amd_mi300_1: :amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group",
              "cpu-job": ":computer: (CPU) CPU tests"}
     records = [_record(name, job_id=job_id) for job_id, name in names.items()]
     # Repeated test observations in one exact attempt must survive projection.
@@ -216,7 +275,7 @@ def test_warm_mixed_ci_cache_is_persisted_as_exact_role_without_log_refetch(
 
 @pytest.mark.parametrize("side,expected_job", [("amd", "amd-job"), ("upstream", "cuda-job")])
 def test_shared_ci_build_logs_are_collected_for_one_hardware_side(tmp_path, side, expected_job):
-    names = {"amd-job": ":amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group", "cpu-job": ":computer: (CPU) CPU tests"}
+    names = {"amd-job": "amd_mi300_1: :amd: (MI300) Current group", "cuda-job": ":nvidia: (H100) Current group", "cpu-job": ":computer: (CPU) CPU tests"}
     build = {"number": 7791, "state": "passed", "branch": "main", "created_at": "2026-04-18T06:00:00Z",
              "jobs": [{**_job(name), "id": job_id, "raw_log_url": "https://example.invalid/log"} for job_id, name in names.items()]}
     def parse(job, number, pipeline, date):
@@ -554,7 +613,7 @@ def test_unrecognized_observed_queue_cannot_invent_a_runtime_hardware_prefix(tmp
         _, results = collect_pipeline("amd", 8, tmp_path,
                                      now=datetime(2026, 4, 19, tzinfo=timezone.utc))
     parser.assert_not_called()
-    assert [row.job_name for row in results[7791]] == [name]
+    assert results == {}
 
 
 def test_observed_route_change_replaces_old_prefix_and_is_idempotent():
@@ -997,7 +1056,7 @@ class TestCacheCoversAllJobs:
                 summary_only_build, jsonl, "amd", 7791
             ) is False
             m.assert_called_once_with("amd", 7791)
-        assert summary_only_build == {**full_detail, "job_scope": "amd_gpu", "source_pipeline": "ci"}
+        assert summary_only_build == {**full_detail, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "source_pipeline": "ci"}
 
     def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
         # If Buildkite is flaky we must not make collection fail outright
@@ -1580,6 +1639,7 @@ def _warm_old_queue_roster(tmp_path):
     }
     clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
     cache_dir = tmp_path / ".cache"
+    old["jobs"][0].pop("agent_query_rules", None)
     bk.write_nightly_build_cache("amd", [old, latest], cache_dir, now=clock)
     cached = bk._load_nightly_build_cache("amd", cache_dir, now=clock)
     assert "agent_queue" not in cached[7791]["jobs"][0]
@@ -1733,3 +1793,17 @@ def test_routing_diagnostic_ignores_invalid_ids_and_unambiguous_or_cache_only_jo
         "agent_queue": "amd_mi300_1", "agent_query_rules": [f"queue={requested}"],
     }]}, "amd")
     assert "CI routing ambiguity" not in caplog.text
+
+
+
+def test_current_mi_health_pass_ignores_skipped_optional_but_preserves_parent_state():
+    name = "amd_mi300_1: GPU test"
+    build = {"number": 7791, "hardware_scope": "amd_mi_gpu", "job_scope": "amd_gpu",
+             "state": "failed", "jobs": [
+                 {**_job(name), "id": "gpu", "state": "passed"},
+                 {**_job("amd_mi300_1: Optional GPU test"), "id": "optional", "state": "skipped"},
+             ]}
+    summary = compute_build_summary(build, [TestResult(**_record(name, job_id="gpu"))], "amd")
+    assert summary.state == "passed"
+    assert summary.source_state == "failed"
+    assert summary.passed == summary.total_tests == 1

@@ -1,6 +1,6 @@
 # Dashboard view retirement and current CI authority
 
-The dashboard measures current AMD and CUDA GPU workloads in Buildkite `ci`.
+The dashboard measures only current AMD MI GPU workloads in Buildkite `ci`.
 Legacy `amd-ci` runs are excluded from current health, parity percentages, and
 latency. Physical node and DNS history remain independent infrastructure evidence.
 
@@ -11,6 +11,8 @@ latency. Physical node and DNS history remain independent infrastructure evidenc
 | CI Workload Trajectory | `collect_hotness.py`, `collect_group_changes.py`, trajectory renderers and snapshot projections, unused matrix hotness fallback/index-merge helpers | `hotness.json`, `group_changes.json`, `operations_v2/trajectory.json` |
 | Target Health | `collect_gating_targets.py`, `collect_gating_target_candidates.py`, `collect_gating_proposals.py`, `write_gating_nightlies`, target renderers and joins | `vllm_amd_gating_targets.json`, `gating_targets.json`, `gating_target_candidates.json`, `gating_proposals.json`, `gating_nightlies.json`, `operations_v2/gating.json` |
 | Flake / Retry Comparison | comparison tables, historical comparison projections, retry-only comparison helpers | `operations_v2/comparison_retry_evidence.json` |
+| CUDA execution comparison | CUDA nightly cohort/selector, counterpart matching, ratios/deltas, comparison charts/drawers, the uncalled generic history browser, and legacy utils parity/link/overlay graph | Raw runtime `parity_report.json` and its mirrored root file are not public inputs |
+| Duplicate AMD main alert | Duplicate scheduled reconciliation and state projection; shared retry and issue-state helpers remain in use by the canonical MI CI watcher | `open_amd_main_failure_issues.json` |
 | Queue Monitor page | queue page renderer, page-only helpers, navigation, controls, CSS, and the obsolete `test_dashboard_trends_data.py` chart contracts | No independent collector retirement: shared observations still serve Omni and infrastructure automation |
 
 Exclusive tests, workflow steps, public manifest entries, storage allocations,
@@ -26,10 +28,10 @@ flake/retry comparison limits and their exclusive live-data checks are removed.
 | --- | --- |
 | Command Center and Upstream parity | Immutable current upstream `main` CI configuration; classification policy contains explicit unsupported groups, never frozen coverage totals |
 | AMD mirrors | Inline and native AMD routes from the same current-main source pin; required, optional, and soft-fail source flags stay distinct |
-| Runtime AMD health and hardware | AMD GPU jobs in `ci`; definitions pinned to the exact observed nightly commit; any-hardware and all-hardware logical counts are explicit |
-| Latency Comparison | Global latest five completed `ci` / `main` nightlies; maximum complete parallel-shard wall minutes per nightly, then median; sample count, dates, and exact jobs shown; no older backfill |
-| Reliability / retry drilldowns | Current `ci` cohorts and exact retained attempt evidence; these are still used by incident investigation |
-| Omni and infrastructure automation | Shared current queue, capacity, workload, lifecycle, physical agent health, and DNS evidence; retained independently of removed pages |
+| Runtime AMD health and hardware | AMD MI GPU jobs in `ci`; definitions pinned to the exact observed nightly commit; any-hardware and all-hardware logical counts are explicit |
+| AMD nightly latency | Global latest five completed relevant `ci` / `main` nightlies; AMD MI jobs only; maximum complete parallel-shard wall minutes per nightly, then median; sample count, dates, and exact jobs shown; no older backfill |
+| Reliability / retry drilldowns | Current AMD MI `ci` cohorts and exact retained attempt evidence; these are still used by incident investigation |
+| Omni and infrastructure automation | Shared current AMD MI queue, capacity, workload, lifecycle, physical agent health, and DNS evidence; retained independently of removed pages |
 
 ## Publication and Actions stability
 
@@ -40,7 +42,7 @@ before removing retired domains and their clocks. Canonical Actions purge retire
 artifacts only after validated selection; the public allowlist also forbids them.
 
 Current source parity refreshes without a Buildkite token. Runtime collection
-fetches `ci` once and splits by GPU platform. Private roster caches are invalidated
+fetches `ci` once and retains only MI GPU execution. Private roster caches are invalidated
 by the schema-v3 current-CI handoff. Request guards, durable attempt budgets,
 resumable caches, exact source pins, atomic bounded writes, live audits, browser
 checks, publication verification, and synthetic site probes remain enforced.
@@ -76,9 +78,10 @@ interval with an exact coverage boundary; omitted older history is fetched
 before publishing the full window. Older GPU rosters without queue metadata
 refresh once before their cached results are reused.
 
-Current runtime validation recognizes the hardware names emitted by the CI
-analyzer, including H200 MIG profiles, DGX, and GPU-count prefixes. Physical
-AMD node-health percentages also use `ci` by default. Mixed legacy rollups are
+Current runtime validation requires concrete MI GPU queue routing and excludes
+CPU-only source steps, including those scheduled on an MI queue. Hardware
+labels come from verified MI execution. Physical AMD MI node-health percentages
+also use `ci` by default. Mixed legacy rollups are
 replaced by the freshly collected CI window when their pipeline scope cannot
 be separated; subsequent CI-only generations retain their scoped history.
 
@@ -130,5 +133,28 @@ and the complete retained public bundle.
 
 The latency projection retains exact job evidence in a declared column format
 when needed to fit its 7 MiB public allocation. A 225-group, five-nightly,
-two-platform, eight-shard stress case preserves every sample and round-trips
+MI-only, eight-shard stress case preserves every sample and round-trips
 the evidence exactly; the whole eager bundle still fits its 32 MiB envelope.
+
+
+## Immutable runtime source verification
+
+`ci/analytics_cache.py` retains `runtime-source-indexes-v1` separately from
+runtime build metadata. Each compact index binds a full observed commit to its
+verified Git definition tree and CPU-only routes. `main_ci_definitions.py`
+verifies Git tree/blob identities before deriving or reusing the index; a cached
+source flag is reapplied to the exact job roster rather than treated as routing
+proof on its own. The private checkpoint is bounded to 8 MiB and 4,096 pins and
+is never part of the public projection. It carries no runtime freshness:
+collection timestamps and complete runtime source windows still determine what
+may publish.
+
+The manual [Runtime Source Verification workflow](../.github/workflows/runtime-source-warmup.yml)
+restores authenticated private CI metadata and this immutable checkpoint, then
+runs `collect_analytics.py --prewarm-source-indexes`. It verifies only exact
+historical commits already present in the private inventory, makes no Buildkite
+requests, and writes no public data. Proved pins are checkpointed independently
+as progress is made; an incomplete pass fails visibly while retaining that
+bounded progress. Rerun the helper until its completeness output is true before
+a cold full refresh. A successful warmup does not advance dashboard clocks or
+establish current agent-health coverage.

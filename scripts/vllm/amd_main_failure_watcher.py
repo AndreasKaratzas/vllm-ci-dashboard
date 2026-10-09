@@ -48,22 +48,13 @@ log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 ANALYTICS = ROOT / "data" / "vllm" / "ci" / "analytics.json"
-STATE = ROOT / "data" / "vllm" / "ci" / "open_amd_main_failure_issues.json"
+STATE = ROOT / "data" / "vllm" / "ci" / "open_ci_main_failure_issues.json"
 
 PIPELINE = "ci"
 MAX_DATA_AGE = timedelta(hours=3)
 MAX_ISSUE_ROWS = 50
 MAX_BISECT_COMMANDS = 12
 ISSUE_BODY_SCHEMA_VERSION = 2
-OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:amd-main-failure:v1 -->"
-LABEL_SPECS = [
-    ("amd-main-failure", "d73a49", "Unresolved AMD test-group failure on origin/main"),
-    ("automated", "6f42c1", "Managed by dashboard automation"),
-    ("workstream:dev", "1d76db", "AMD CI test-area development"),
-]
-DASHBOARD_URL = (
-    "https://andreaskaratzas.github.io/vllm-ci-dashboard/?ops_analytics_view=groups#ci-analytics"
-)
 UPSTREAM_REPO_URL = "https://github.com/vllm-project/vllm"
 COMMIT_RE = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 
@@ -84,18 +75,6 @@ class WatcherConfig:
     job_scope: str = ""
 
 
-AMD_CONFIG = WatcherConfig(
-    pipeline=PIPELINE,
-    state=STATE,
-    ownership_marker=OWNERSHIP_MARKER,
-    label_specs=tuple(LABEL_SPECS),
-    dashboard_url=DASHBOARD_URL,
-    title_prefix="AMD main",
-    heading="AMD origin/main test-group alert",
-    scope_name="AMD",
-    script_name="amd_main_failure_watcher.py",
-    job_scope="amd_gpu",
-)
 
 
 def _parse_ts(value: Any) -> datetime | None:
@@ -225,7 +204,7 @@ def _write_state(
     state: dict,
     path: Path = STATE,
     *,
-    state_filename: str = "open_amd_main_failure_issues.json",
+    state_filename: str = "open_ci_main_failure_issues.json",
 ) -> None:
     write_watcher_state(path, state, state_filename=state_filename)
 
@@ -353,6 +332,8 @@ def _build_source_rank(build: dict) -> tuple[str, int, str]:
 
 def _readable_state_copy(state: dict) -> dict:
     normalized = normalize_managed_state(state)
+    if state.get("hardware_scope") == "amd_mi_gpu":
+        normalized["hardware_scope"] = "amd_mi_gpu"
     source_schema_version = state.get("schema_version")
     if not isinstance(source_schema_version, int) or isinstance(source_schema_version, bool):
         source_schema_version = 1
@@ -762,16 +743,15 @@ def _peak_severity(row: dict) -> str:
 
 
 def _issue_title_for(active: dict[str, dict], config: WatcherConfig) -> str:
+    if config.job_scope == "amd_gpu":
+        from vllm.pipelines import is_amd_ci_job
+        active = {identity: row for identity, row in active.items() if is_amd_ci_job(row)}
     hard = sum(_peak_severity(row) == "hard" for row in active.values())
     soft = sum(_peak_severity(row) == "soft" for row in active.values())
     return (
         f"{config.title_prefix}: {len(active)} confirmed test-group failures "
         f"({hard} peak hard, {soft} soft)"
     )
-
-
-def _issue_title(active: dict[str, dict]) -> str:
-    return _issue_title_for(active, AMD_CONFIG)
 
 
 def _commit_link(value: Any) -> str:
@@ -786,6 +766,9 @@ def _issue_body_for(
     owner: str,
     config: WatcherConfig,
 ) -> str:
+    if config.job_scope == "amd_gpu":
+        from vllm.pipelines import is_amd_ci_job
+        active = {identity: row for identity, row in active.items() if is_amd_ci_job(row)}
     hard = sum(_peak_severity(row) == "hard" for row in active.values())
     soft = sum(_peak_severity(row) == "soft" for row in active.values())
     generated_at = str(reliability.get("generated_at") or "unknown")
@@ -903,8 +886,38 @@ def _issue_body_for(
     return "\n".join(lines) + "\n"
 
 
-def _issue_body(active: dict[str, dict], reliability: dict, run_url: str, owner: str) -> str:
-    return _issue_body_for(active, reliability, run_url, owner, AMD_CONFIG)
+def mi_scoped_reliability(reliability: dict) -> dict:
+    """Select exact MI route identities before replaying incident history."""
+    from vllm.pipelines import is_amd_ci_job
+    return {**reliability, "groups": [
+        group for group in reliability.get("groups") or []
+        if isinstance(group, dict) and is_amd_ci_job(group)
+    ]}
+
+
+def mi_scoped_state(state: dict, reliability: dict) -> dict:
+    """Purge non-MI incidents and their ordering fences, retaining issue ownership."""
+    from vllm.pipelines import is_amd_ci_job
+    updated = _readable_state_copy(state)
+    source_groups = mi_scoped_reliability(reliability)["groups"]
+    proven_groups = {str(group.get("group_id")) for group in source_groups}
+    migrating = state.get("hardware_scope") != "amd_mi_gpu"
+    retained = set()
+    for key in ("active", "pending_soft"):
+        updated[key] = {
+            identity: row for identity, row in (updated.get(key) or {}).items()
+            if is_amd_ci_job(row) and (not migrating or identity in proven_groups) and "/vllm/ci/builds/" in str(
+                row.get("job_url") or row.get("build_url") or row.get("latest_job_url") or row.get("latest_build_url") or ""
+            )
+        }
+        retained.update(updated[key])
+    retained.update(proven_groups)
+    updated["group_watermarks"] = {
+        identity: row for identity, row in (updated.get("group_watermarks") or {}).items()
+        if identity in retained
+    }
+    updated["hardware_scope"] = "amd_mi_gpu"
+    return updated
 
 
 def run_watcher(config: WatcherConfig) -> int:
@@ -937,16 +950,14 @@ def run_watcher(config: WatcherConfig) -> int:
         return 0
 
     if config.job_scope == "amd_gpu":
-        from vllm.pipelines import is_amd_ci_job
-        reliability = {**reliability, "groups": [
-            group for group in reliability.get("groups") or [] if is_amd_ci_job(group)
-        ]}
+        if reliability.get("hardware_scope") != "amd_mi_gpu":
+            log.error("MI-only reliability is unavailable; refusing issue mutations")
+            return 0
+        reliability = mi_scoped_reliability(reliability)
 
     restored_state = _read_state(config.state)
     if config.job_scope == "amd_gpu":
-        for key in ("active", "pending_soft"):
-            restored_state[key] = {group_id: row for group_id, row in (restored_state.get(key) or {}).items()
-                                   if is_amd_ci_job(row) and "/vllm/ci/builds/" in str(row.get("job_url") or row.get("build_url") or row.get("latest_job_url") or row.get("latest_build_url") or "")}
+        restored_state = mi_scoped_state(restored_state, reliability)
     state = advance_incidents(
         reliability,
         restored_state,
@@ -980,6 +991,8 @@ def run_watcher(config: WatcherConfig) -> int:
         recovery_labels=("automated", "workstream:dev"),
     )
     reconciled["schema_version"] = 2
+    if config.job_scope == "amd_gpu":
+        reconciled["hardware_scope"] = "amd_mi_gpu"
     reconciled["signal_fingerprint_version"] = 2
     _write_state(
         reconciled,
@@ -998,11 +1011,3 @@ def run_watcher(config: WatcherConfig) -> int:
         reconciled.get("suppressed"),
     )
     return 0
-
-
-def run() -> int:
-    return run_watcher(AMD_CONFIG)
-
-
-if __name__ == "__main__":
-    sys.exit(run())

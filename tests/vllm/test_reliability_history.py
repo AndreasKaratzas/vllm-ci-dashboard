@@ -163,7 +163,7 @@ def test_group_identity_keeps_gpu_hardware_queue_and_shard_variants_distinct():
     assert {row["queue"] for row in groups} == {"amd_mi300_4"}
 
 
-def test_upstream_identity_reports_explicit_and_generic_hardware_without_conflation():
+def test_current_ci_reliability_excludes_all_foreign_hardware():
     jobs = [
         _job("h100", "Kernel test (H100)", queue="gpu_4_queue", step_key="kernel"),
         _job("generic", "Generic GPU test", queue="gpu_4_queue", step_key="generic"),
@@ -173,8 +173,7 @@ def test_upstream_identity_reports_explicit_and_generic_hardware_without_conflat
 
     groups = _dataset([_build(202, jobs)], pipeline_slug="ci")["groups"]
 
-    assert {row["hardware"] for row in groups} == {"h100", "gpu", "b200", "cpu"}
-    assert len({row["group_id"] for row in groups}) == 4
+    assert groups == []
 
 
 def test_upstream_amd_mirrors_keep_amd_hardware_identity():

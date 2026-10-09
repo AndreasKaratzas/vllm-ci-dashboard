@@ -689,7 +689,7 @@ class TestHistoryPrune:
                     "waiting_by_workload": {"vllm": 3, "omni": 0},
                     "running_by_workload": {"vllm": 4, "omni": 0},
                 },
-                "gpu_1_queue": {"waiting": 5, "running": 6},
+                "gpu_1_queue": {"waiting": 5, "running": 2},
                 "AMD_MI355b_8": {"waiting": 100, "running": 100},
             },
             "total_waiting": 109,
@@ -715,21 +715,21 @@ class TestHistoryPrune:
         }
         assert row["running_by_workload"] == {"omni": 0, "vllm": 1}
         assert row["running_by_workload_provenance"]["status"] == "partial"
-        assert migrated["total_waiting"] == 9
-        assert migrated["total_running"] == 12
+        assert migrated["total_waiting"] == 1
+        assert migrated["total_running"] == 2
         assert migrated["scope_totals"]["all"] == {
-            "waiting": 9,
-            "running": 12,
+            "waiting": 1,
+            "running": 2,
             "count_source": "historical_counts",
             "count_sources": ["historical_counts"],
-            "queue_count": 3,
+            "queue_count": 1,
         }
         assert migrated["scope_totals"]["amd"] == {
-            "waiting": 4,
-            "running": 6,
+            "waiting": 1,
+            "running": 2,
             "count_source": "historical_counts",
             "count_sources": ["historical_counts"],
-            "queue_count": 2,
+            "queue_count": 1,
         }
         assert "no remainder is assigned" in migrated["sources"]["workload_split_fields"]["rule"]
 
@@ -1770,8 +1770,8 @@ class TestCollectSnapshot:
         assert scope["gpu_widths"] == [1, 2, 4, 8]
         assert scope["all_rows_present"] is True
         assert snap["scope_totals"]["target"]["queue_count"] == 12
-        assert "gpu_1_queue" in snap["queues"]
-        assert "wait_sample_reconciliation" not in snap["queues"]["gpu_1_queue"]
+        assert "amd_mi325_1" in snap["queues"]
+        assert "wait_sample_reconciliation" not in snap["queues"]["amd_mi325_1"]
         assert cqs.normalize_history_snapshot(snap) == snap
 
     def test_official_max_never_becomes_p99_or_sample_only_metrics(self, monkeypatch, tmp_path):
@@ -2047,7 +2047,7 @@ class TestCollectSnapshot:
             cqs,
             "fetch_active_cluster_jobs",
             lambda token, queue_ids_by_key=None: [
-                _active_job("intel-gpu-omni", "SCHEDULED", runnable_at="2026-04-18T11:59:00Z"),
+                _active_job("amd_mi300_1-omni", "SCHEDULED", runnable_at="2026-04-18T11:59:00Z"),
             ],
         )
 
@@ -2057,7 +2057,7 @@ class TestCollectSnapshot:
             dt_mock.now.return_value = datetime(2026, 4, 18, 12, 0, 0, tzinfo=timezone.utc)
             dt_mock.fromisoformat = datetime.fromisoformat
             snap = cqs.collect_snapshot("fake-token")
-        row = snap["queues"]["intel-gpu-omni"]
+        row = snap["queues"]["amd_mi300_1-omni"]
         assert row["waiting_by_workload"] == {"vllm": 0, "omni": 1}
 
     def test_workload_split_from_omni_branch(self, monkeypatch, tmp_path):
@@ -2198,13 +2198,14 @@ class TestJobsJsonSideEffect:
     def test_jobs_file_compacts_whole_rows_with_truthful_counts(self):
         source = {
             "ts": "2026-04-18T12:00:00Z",
+            "hardware_scope": "amd_mi_gpu",
             "details_observed_at": "2026-04-18T12:00:00Z",
             "pending": [
-                {"id": index, "wait_min": 100 - index, "padding": "p" * 500}
+                {"queue": "amd_mi300_1", "id": index, "wait_min": 100 - index, "padding": "p" * 500}
                 for index in range(50)
             ],
             "running": [
-                {"id": index, "padding": "r" * 500}
+                {"queue": "amd_mi300_1", "id": index, "padding": "r" * 500}
                 for index in range(50)
             ],
         }
@@ -2233,10 +2234,37 @@ class TestJobsJsonSideEffect:
                 path,
                 {
                     "ts": "2026-04-18T12:00:00Z",
-                    "details_observed_at": "2026-04-18T12:00:00Z",
+                    "hardware_scope": "amd_mi_gpu",
+            "details_observed_at": "2026-04-18T12:00:00Z",
                     "pending": [],
                     "running": [],
                 },
             )
 
         assert path.read_bytes() == b"last-known-good\n"
+
+
+def test_physical_mi_scope_excludes_foreign_dynamic_and_cpu_job_routes():
+    assert cqs.TRACKED_QUEUES
+    assert all(cqs.amd_gpu_hardware(queue) for queue in cqs.TRACKED_QUEUES)
+    def node(queue, label="GPU workload"):
+        return {"clusterQueue": {"key": queue}, "label": label, "state": "RUNNING"}
+    assert cqs._graphql_job_record(node("amd_mi300_1", "CPU Offload with CUDA model preset")) is not None
+    for queue in ("B200", "H200", "gpu_1_queue", "intel-gpu", "amd-cpu", "amd_mi355b_1"):
+        assert cqs._graphql_job_record(node(queue)) is None
+    assert cqs._graphql_job_record(node("amd_mi300_1", ":computer: (CPU) Torch ABI")) is None
+    assert cqs._graphql_job_record({**node("amd_mi300_1"), "no_gpu": True}) is None
+
+
+def test_retained_queue_overlay_requires_explicit_mi_scope_and_routing(tmp_path):
+    path = tmp_path / "queue_jobs.json"
+    payload = {"ts": "2026-04-18T12:00:00Z", "pending": [{"queue": "amd_mi300_1"}], "running": []}
+    path.write_text(json.dumps(payload))
+    assert cqs._load_complete_job_overlay(path) is None
+    payload["hardware_scope"] = "amd_mi_gpu"
+    path.write_text(json.dumps(payload))
+    assert cqs._load_complete_job_overlay(path)["details_observed_at"] == payload["ts"]
+    for job in ({"queue": "B200"}, {"queue": "amd_mi300_1", "no_gpu": True}):
+        payload["pending"] = [job]
+        path.write_text(json.dumps(payload))
+        assert cqs._load_complete_job_overlay(path) is None

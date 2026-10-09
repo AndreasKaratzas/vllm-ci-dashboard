@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# cspell:ignore reproject
 """Collect per-build, per-job analytics from Buildkite for the rich CI dashboard.
 
 Produces:
@@ -37,7 +38,12 @@ install_from_environment_or_exit()
 
 from vllm.constants import BK_API_BASE, BK_ORG  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.ci.analytics_cache import (  # noqa: E402
+from vllm.ci.analytics_cache import (
+    RUNTIME_SOURCE_CACHE_DIR_NAME,
+    cached_runtime_source_commits,
+    load_source_scope_indexes,
+    retain_runtime_source_indexes,
+    write_runtime_source_indexes,  # noqa: E402
     CACHE_DIR_NAME,
     CACHE_SCHEMA_VERSION,
     builds_needing_refresh,
@@ -71,7 +77,7 @@ from vllm.ci.reliability_history import (  # noqa: E402
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
-from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG, _job_queue  # noqa: E402
+from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG, _job_queue, is_amd_ci_job  # noqa: E402
 from vllm.ci.nightly_latency import build_current_nightly_latency  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
@@ -79,7 +85,7 @@ log = logging.getLogger(__name__)
 
 PIPELINES = {"amd-ci": "Legacy AMD CI history", "ci": "Main CI"}
 ANALYTICS_WINDOWS_DAYS = (1, 3, 7, 14, 30)
-BUILD_PASS_RATE_BASIS = "terminal_build_state_all_green"
+BUILD_PASS_RATE_BASIS = "terminal_mi_job_attempts_all_green"
 TERMINAL_BUILD_STATES = frozenset({
     "passed",
     "failed",
@@ -133,7 +139,7 @@ ANALYTICS_CACHE_SUSPICIOUS_GROWTH_MIN_BYTES = 8 * 1024 * 1024
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT = ROOT / "data" / "vllm" / "ci"
 
-RESULT_SUFFIX = {"amd-ci": "amd", "ci": "upstream"}
+RESULT_SUFFIX = {"amd-ci": "amd", "ci": "amd"}
 # Current vLLM nightly slots in UTC. Actual Buildkite ``created_at`` values win
 # whenever they are available; these hours are only for JSONL-only fallbacks.
 FALLBACK_CREATED_HOUR_UTC = {"amd-ci": 9, "ci": 6}
@@ -541,6 +547,8 @@ def load_test_result_builds(
             if not build_number:
                 continue
             raw_job_name = str(row.get("job_name") or row.get("classname") or "unknown").strip()
+            if pipeline_slug == "ci" and not is_amd_ci_job({"job_name": raw_job_name}):
+                continue
             job_name = normalize_job(raw_job_name)
             if not raw_job_name or not job_name:
                 continue
@@ -1229,6 +1237,42 @@ def _cache_compatibility_message(build: dict, pipeline_slug: str) -> str:
     return ""
 
 
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+
+
+def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes: dict | None = None) -> list[dict]:
+    """Recompute authenticated source rosters using their exact CPU/GPU definition pin."""
+    if pipeline_slug != "ci":
+        return builds
+    from vllm.main_ci_definitions import annotate_runtime_source_scope, validate_runtime_scope_index
+    scoped = []
+    for build in builds:
+        commit = str(build.get("commit") or "").casefold()
+        index = (scope_indexes or {}).get(commit) or _SOURCE_SCOPE_INDEXES.get(commit)
+        if build.get("hardware_scope") == "amd_mi_gpu" and build.get("source_scope_index") is not None:
+            index = validate_runtime_scope_index(build["source_scope_index"], expected_commit=commit)
+            if (build.get("source_scope_commit") != commit
+                    or build.get("source_definition_tree_sha") != index["definition_tree_sha"]):
+                raise ValueError("cached MI source scope does not match its immutable index")
+        # Rejoin even authenticated cached source indexes against this roster.
+        # Restored per-job annotations never authorize current execution scope.
+        build = annotate_runtime_source_scope(build, **({"scope_index": index} if index is not None else {}))
+        if isinstance(build.get("source_scope_index"), dict):
+            new_index = build["source_scope_index"]
+            if _SOURCE_SCOPE_INDEXES.get(commit) != new_index:
+                candidates = {**_SOURCE_SCOPE_INDEXES, commit: new_index}
+                retained = retain_runtime_source_indexes(candidates, preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES])
+                _SOURCE_SCOPE_INDEXES.clear()
+                _SOURCE_SCOPE_INDEXES.update(retained)
+                if _SOURCE_SCOPE_CACHE_DIR is not None:
+                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, _SOURCE_SCOPE_INDEXES)
+        scoped.append({**build, "hardware_scope": "amd_mi_gpu", "jobs": [
+            job for job in build.get("jobs") or [] if is_amd_ci_job(job)
+        ]})
+    return scoped
+
+
 def _full_cached_fetch(
     pipeline_slug: str,
     token: str,
@@ -1279,7 +1323,8 @@ def _full_cached_fetch(
             provenance,
         )
 
-    builds = merge_builds([], rows, cutoff=cutoff)
+    indexes = {build.get("commit"): build["source_scope_index"] for build in cache.builds if build.get("source_scope_index")}
+    builds = _current_mi_builds(merge_builds([], rows, cutoff=cutoff), pipeline_slug, scope_indexes=indexes)
     storage = {}
     diagnostics["storage"] = storage
     try:
@@ -1460,6 +1505,8 @@ def _incremental_cached_fetch(
             # existing one-shot exhaustive fallback and only then replaces the
             # validated cache.
             return None, diagnostics
+        indexes = {build.get("commit"): build["source_scope_index"] for build in cache.builds if build.get("source_scope_index")}
+        builds = _current_mi_builds(builds, pipeline_slug, scope_indexes=indexes)
         cache_written = True
         storage = {}
         diagnostics["storage"] = storage
@@ -1662,7 +1709,8 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
         message = raw_message[:100]
         author = (b.get("creator") or {}).get("name", "") or (b.get("author") or {}).get("name", "")
 
-        jobs = [j for j in b.get("jobs", []) if j.get("type") == "script"]
+        jobs = [j for j in b.get("jobs", []) if j.get("type") == "script"
+                and (pipeline_slug != "ci" or is_amd_ci_job(j))]
 
         job_summaries = []
         passed = failed = soft = 0
@@ -1721,9 +1769,23 @@ def summarize_pipeline_builds(pipeline_slug, builds_raw, nightly_only=False, nam
             if queue: job_entry["q"] = queue
             job_summaries.append(job_entry)
 
+        if pipeline_slug == "ci":
+            current_attempts = [j for j in jobs if not j.get("retried_in_job_id")
+                                and j.get("state") not in {"skipped", "not_run"}]
+            if not current_attempts:
+                continue
+            if build_state in TERMINAL_BUILD_STATES:
+                build_state = "failed" if any(j.get("state") in {"failed", "timed_out", "broken"}
+                                               and j.get("soft_failed") is not True
+                                               for j in current_attempts) else (
+                    "passed" if all(j.get("state") == "passed" or j.get("soft_failed") is True
+                                     for j in current_attempts) else "canceled"
+                )
         builds.append({
             "number": build_num,
             "state": build_state,
+            **({"source_state": b.get("state"), "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"}
+               if pipeline_slug == "ci" else {}),
             "created_at": created,
             "finished_at": finished,
             "date": nightly_date(created),
@@ -2420,17 +2482,132 @@ def write_analytics(out_path: Path, payload: dict) -> dict[str, Any]:
     return diagnostics
 
 
+def reproject_current_mi_analytics(
+    payload: dict, raw_builds: list[dict], *, window_days: int,
+    collection_provenance: dict,
+    canonical_nightlies_only: bool = False,
+) -> dict:
+    """Recompute an offline seed from authenticated raw evidence at its source clock.
+
+    Callers must supply the genuinely exhaustive available raw-cache interval;
+    capped historical aggregate observations cannot stand in for raw attempts.
+    No Buildkite transports are made by this projection.
+    """
+    previous = payload.get("ci") or {}
+    generated = str(previous.get("generated_at") or "")
+    clock = _as_utc_datetime(generated)
+    if clock is None or type(window_days) is not int or window_days <= 0 or (
+        not canonical_nightlies_only and collection_provenance.get("exhaustive") is not True
+    ):
+        raise ValueError("MI seed requires an original source clock and exhaustive raw interval")
+    cutoff = clock - timedelta(days=window_days)
+    proven_from = _as_utc_datetime(collection_provenance.get("created_from"))
+    if not canonical_nightlies_only and (proven_from is None or proven_from > cutoff):
+        raise ValueError("MI seed raw interval does not cover its declared window")
+    scoped = _current_mi_builds([
+        build for build in raw_builds
+        if (created := _as_utc_datetime(build.get("created_at"))) is not None and cutoff <= created <= clock
+        and ((finished := _as_utc_datetime(build.get("finished_at"))) is None or finished <= clock)
+    ], "ci")
+    builds = summarize_pipeline_builds("ci", scoped, True, NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"])
+    rankings = compute_job_rankings(builds)
+    windows = compute_window_blocks(builds, window_days, now=clock)
+    default = max(windows, key=lambda key: int(key[:-1]))
+    result = {
+        "pipeline": "ci", "display_name": "AMD MI main CI", "days": window_days,
+        "generated_at": generated, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
+        "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
+        "transition_policy_id": INCIDENT_TRANSITION_POLICY_ID,
+        "cohort": {"name": "canonical message-matched MI main CI nightlies", "pipeline": "ci", "branch": "main",
+                   "window_days": window_days, "build_count": len(builds), "name_pattern": NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"],
+                   "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"},
+        "summary": compute_summary(builds, rankings), "daily_stats": compute_daily_stats(builds),
+        "builds": builds[:ANALYTICS_BUILD_LIMIT],
+        "nightly_builds": [chart_build_summary(build) for build in builds[:ANALYTICS_NIGHTLY_LIMIT]],
+        "failure_ranking": [job for job in rankings if job["failed"] or job["soft_failed"]],
+        "duration_ranking": sorted(rankings, key=lambda job: job.get("median_dur") or 0, reverse=True),
+        "queue_stats": compute_queue_stats(rankings), "default_window": default, "windows": windows,
+        "nightly_change_history": compute_nightly_change_history(builds, pipeline_slug="ci"),
+        "current_nightly_latency": build_current_nightly_latency(builds, generated_at=generated, source_available=True),
+    }
+    if canonical_nightlies_only:
+        result["seed_provenance"] = {**collection_provenance, "exhaustive": False,
+                                     "basis": "captured_canonical_nightly_job_rosters", "source_generated_at": generated}
+        result["all_main_reliability"] = {"available": False, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
+                                          "unavailable_reason": "captured_nightlies_do_not_prove_all_main_attempts"}
+        result["main_retry_analysis"] = {"available": False, "hardware_scope": "amd_mi_gpu",
+                                        "unavailable_reason": "captured_nightlies_do_not_prove_all_main_attempts"}
+        return {"ci": result}
+    reliability = build_all_main_reliability(
+        scoped, pipeline_slug="ci", window_days=window_days, generated_at=generated,
+        nightly_pattern=NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"], collection_provenance=collection_provenance,
+    )
+    attach_main_reliability(result, reliability, retry_builds=summarize_pipeline_builds("ci", filter_reliability_builds(scoped)))
+    return {"ci": result}
+
+
+def prewarm_runtime_source_indexes(analytics_cache_dir: Path, source_cache_dir: Path) -> dict:
+    """Persist each proved source pin without Buildkite calls or public outputs."""
+    from vllm.main_ci_definitions import annotate_runtime_source_scope, prewarm_runtime_snapshots, runtime_source_request_stats
+    indexes = load_source_scope_indexes(analytics_cache_dir)
+    commits = cached_runtime_source_commits(analytics_cache_dir)
+    needed = set(commits)
+    # The authenticated active raw-cache inventory defines bounded reuse needs;
+    # dropping an unused immutable index cannot change runtime source coverage.
+    indexes = {commit: index for commit, index in indexes.items() if commit in needed}
+    write_runtime_source_indexes(source_cache_dir, indexes)
+    resolved = 0
+    failed = False
+    missing = [commit for commit in commits if commit not in indexes]
+    for offset in range(0, len(missing), 50):
+        batch = missing[offset:offset + 50]
+        try:
+            prewarm_runtime_snapshots(batch)
+            for commit in batch:
+                annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
+                indexes[commit] = annotated["source_scope_index"]
+                write_runtime_source_indexes(source_cache_dir, indexes)
+                resolved += 1
+        except (OSError, ValueError, requests.RequestException):
+            failed = True
+            break
+    return {"inventory_pins": len(commits), "retained_indexes": len(indexes),
+            "resolved_new_pins": resolved, "remaining_pins": len(needed - indexes.keys()),
+            "complete": not failed and needed <= indexes.keys(), "cache_save": True,
+            **runtime_source_request_stats()}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Collect CI analytics for rich dashboard")
     parser.add_argument("--days", type=int, default=90, help="Days of history (default: 90)")
     parser.add_argument("--pipeline", choices=["amd-ci", "ci", "both"], default="ci")
     parser.add_argument("--output", type=str, default=str(OUTPUT))
+    parser.add_argument("--prewarm-source-indexes", action="store_true",
+                        help="Only checkpoint exact immutable Git source indexes from the restored private CI cache.")
     parser.add_argument(
         "--github-output",
         type=Path,
         help="append the private-cache save decision to this GitHub output file",
     )
     args = parser.parse_args()
+    output = Path(args.output)
+    source_cache_dir = output / ".cache" / RUNTIME_SOURCE_CACHE_DIR_NAME
+    if args.prewarm_source_indexes:
+        try:
+            diagnostics = prewarm_runtime_source_indexes(output / ".cache" / CACHE_DIR_NAME, source_cache_dir)
+        except (OSError, ValueError, requests.RequestException):
+            diagnostics = {"complete": False, "cache_save": False, "reason_class": "source-cache-invalid"}
+        log.info("Immutable runtime source prewarm: %s", _compact_json(diagnostics))
+        output_file = args.github_output or (Path(os.environ["GITHUB_OUTPUT"]) if os.environ.get("GITHUB_OUTPUT") else None)
+        if output_file is not None:
+            with output_file.open("a", encoding="utf-8") as handle:
+                handle.write(f"runtime_source_cache_save={'true' if diagnostics['cache_save'] else 'false'}\n")
+                handle.write(f"runtime_source_indexes_complete={'true' if diagnostics['complete'] else 'false'}\n")
+        return 0 if diagnostics["complete"] else 3
+    global _SOURCE_SCOPE_CACHE_DIR
+    _SOURCE_SCOPE_CACHE_DIR = source_cache_dir
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(load_source_scope_indexes(output / ".cache" / CACHE_DIR_NAME))
 
     token = os.getenv("BUILDKITE_TOKEN")
     if not token:
@@ -2459,9 +2636,11 @@ def main():
     for slug in pipelines:
         log.info("=== %s ===", PIPELINES.get(slug, slug))
 
-        # Fetch current branch=main once for both hardware roles, preserving
-        # exact job scope for nightly health and shared reliability evidence.
+        # Fetch current branch=main once, retaining only exact MI execution
+        # evidence for nightly health and shared reliability.
         previous_pipeline_data = previous_data.get(slug) or {}
+        if slug == "ci" and previous_pipeline_data.get("hardware_scope") != "amd_mi_gpu":
+            previous_pipeline_data = {}
         previous_builds = previous_pipeline_data.get("builds") or []
         previous_all_main = previous_pipeline_data.get("all_main_reliability")
         previous_retry = previous_pipeline_data.get("main_retry_analysis")
@@ -2490,6 +2669,8 @@ def main():
             slug,
             previous_all_main,
         )
+        if slug == "ci":
+            reliability_raw_builds = _current_mi_builds(reliability_raw_builds, slug)
         buildkite_builds = (
             collect_pipeline(
                 slug,
@@ -2531,6 +2712,7 @@ def main():
         )
         all_data[slug] = {
             "pipeline": slug,
+            **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if slug == "ci" else {}),
             "display_name": PIPELINES.get(slug, slug),
             "days": args.days,
             "generated_at": generated_at,
@@ -2539,6 +2721,7 @@ def main():
             "cohort": {
                 "name": "canonical message-matched nightlies",
                 "pipeline": slug,
+                **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if slug == "ci" else {}),
                 "branch": "main",
                 "window_days": args.days,
                 "build_count": len(builds),
@@ -2642,4 +2825,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

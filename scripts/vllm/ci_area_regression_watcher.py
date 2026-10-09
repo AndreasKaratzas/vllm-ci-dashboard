@@ -86,7 +86,7 @@ DASHBOARD_URL = (
 UPSTREAM_PARITY_EXAMPLE = "https://github.com/vllm-project/vllm/pull/49340"
 COMMIT_IN_YAML_URL_RE = re.compile(
     r"raw\.githubusercontent\.com/vllm-project/vllm/"
-    r"(?P<commit>[0-9a-f]{40})/\.buildkite/test-amd\.yaml",
+    r"(?P<commit>[0-9a-f]{40})/\.buildkite/ci_config\.yaml",
     re.IGNORECASE,
 )
 
@@ -125,9 +125,13 @@ def _timestamp_is_fresh(
 
 
 def _matrix_commit(matrix: dict) -> str:
-    yaml_url = str((matrix.get("source") or {}).get("yaml_url") or "")
+    source = matrix.get("source") or {}
+    if source.get("pipeline") != "ci" or matrix.get("hardware_scope") != "amd_mi_gpu":
+        return ""
+    commit = str(source.get("runtime_source_commit_sha") or source.get("commit_sha") or "").lower()
+    yaml_url = str(source.get("yaml_url") or "")
     match = COMMIT_IN_YAML_URL_RE.search(yaml_url)
-    return match.group("commit").lower() if match else ""
+    return commit if match and match.group("commit").lower() == commit else ""
 
 
 def _source_validation_error(
@@ -264,6 +268,8 @@ def _read_state() -> dict:
             if isinstance(value, dict)
         }
     state["last_run"] = str(raw.get("last_run") or "")
+    if raw.get("hardware_scope") == "amd_mi_gpu":
+        state["hardware_scope"] = "amd_mi_gpu"
     return state
 
 
@@ -884,8 +890,21 @@ def _checkpoint_state(areas: dict[str, dict], observed_at: str) -> None:
             "schema_version": 1,
             "areas": areas,
             "last_run": observed_at,
+            "hardware_scope": "amd_mi_gpu",
         },
     )
+
+
+def _mi_scoped_area_history(state: dict, matrix_targets: list[dict]) -> dict:
+    """Purge unproved legacy signals while preserving exact owned issue bindings."""
+    if state.get("hardware_scope") == "amd_mi_gpu":
+        return state
+    allowed = {str(target.get("id") or "") for target in matrix_targets if target.get("id")}
+    return {**state, "hardware_scope": "amd_mi_gpu", "areas": {
+        area: {**value, "signals": {signal: row for signal, row in (value.get("signals") or {}).items()
+                                   if signal in allowed}}
+        for area, value in (state.get("areas") or {}).items() if isinstance(value, dict)
+    }}
 
 
 def _state_with_signals(managed: dict, signals: dict[str, dict]) -> dict:
@@ -1091,7 +1110,7 @@ def run() -> int:
         log.error("CI area evidence is incomplete; refusing issue mutations or retirement progress")
         _mark_unavailable_status(now, "ci_area_evidence_incomplete")
         return 0
-    state = _read_state()
+    state = _mi_scoped_area_history(_read_state(), matrix_targets)
     prior_areas = state.get("areas") or {}
     next_signals = apply_incident_hysteresis(status, prior_areas)
 

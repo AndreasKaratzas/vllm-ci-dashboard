@@ -1,3 +1,4 @@
+# cspell:ignore reproject
 """Unit tests for ``scripts/vllm/collect_analytics.py`` window handling."""
 
 from __future__ import annotations
@@ -11,9 +12,26 @@ import pytest
 
 from vllm import collect_analytics as ca
 from vllm.ci.analytics_cache import CacheValidationError
+from vllm.main_ci_definitions import annotate_runtime_source_scope as exact_source_join
 
 
 NOW = datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def offline_runtime_definition_pins(monkeypatch):
+    # Source joins and Git object integrity have their own pure source tests.
+    # Collection tests exercise scoped cache reuse without network access.
+    import vllm.main_ci_definitions as definitions
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_INDEXES", {})
+    monkeypatch.setattr(ca, "_SOURCE_SCOPE_CACHE_DIR", None)
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda _pins: {}, raising=False)
+    def annotate(build, **kwargs):
+        return {**build, "source_scope_commit": build.get("commit"),
+                "source_definition_tree_sha": "a" * 40,
+                "source_scope_index": {"version": 1, "commit_sha": build.get("commit"),
+                                       "definition_tree_sha": "a" * 40, "cpu_routes": []}}
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
 
 
 @pytest.mark.parametrize("prefix", ["", "mi355_dpx: "])
@@ -352,7 +370,7 @@ def _raw_api_build(
         "number": number,
         "branch": "main",
         "state": state,
-        "commit": f"commit-{number}-{marker}",
+        "commit": (f"{number:040x}" if marker == "cached" else __import__("hashlib").sha1(f"{number}-{marker}".encode()).hexdigest()),
         "message": f"Full CI run - nightly ({marker})",
         "created_at": created.isoformat(),
         "started_at": (created + timedelta(minutes=1)).isoformat(),
@@ -373,7 +391,7 @@ def _raw_api_build(
                     if job_finished
                     else None
                 ),
-                "agent_query_rules": ["queue=gpu_1_queue"],
+                "agent_query_rules": ["queue=amd_mi300_1"],
                 "step": {"id": f"step-{number}", "key": f"job-{number}"},
             }
         ],
@@ -426,6 +444,27 @@ def _legacy_reliability_payload(observation_count: int = 1) -> dict:
         for _ in range(observation_count)
     ]
     return legacy
+
+
+def test_mi_only_seed_recomputes_parent_failure_and_all_mixed_aggregates():
+    raw = _raw_api_build(93523, created_at=NOW - timedelta(days=1), state="failed")
+    mi = raw["jobs"][0]
+    cuda = {**mi, "id": "cuda", "name": "B200 GPU test", "state": "failed", "agent_query_rules": ["queue=gpu_1"]}
+    cpu = {**mi, "id": "cpu", "name": "ABI audit", "source_no_gpu": True}
+    raw["jobs"] = [mi, cuda, cpu]
+    generated = _iso(NOW)
+    original = {"ci": {"generated_at": generated, "days": 90, "summary": {"total_jobs_tracked": 999}}}
+    seed = ca.reproject_current_mi_analytics(original, [raw], window_days=3,
+        collection_provenance={"created_from": _iso(NOW - timedelta(days=3)), "exhaustive": True})["ci"]
+    assert seed["generated_at"] == generated and seed["days"] == 3
+    assert seed["hardware_scope"] == "amd_mi_gpu"
+    assert seed["summary"]["total_jobs_tracked"] == seed["summary"]["passed"] == 1
+    build = seed["builds"][0]
+    assert build["state"] == "passed" and build["source_state"] == "failed"
+    assert [job["job_id"] for job in build["jobs"]] == [mi["id"]]
+    assert all(group["queue"] == "amd_mi300_1" for group in seed["all_main_reliability"]["groups"])
+    assert seed["current_nightly_latency"]["rows"][0]["amd"]["sample_count"] == 1
+    assert "upstream" not in seed["current_nightly_latency"]["rows"][0]
 
 
 def test_oversized_preserved_v1_reliability_migrates_losslessly_before_budget(
@@ -808,7 +847,7 @@ class TestWindowedAnalytics:
         cached.pop("message")
         cached["canonical_nightly"] = True
         cached["jobs"][0].pop("agent_query_rules")
-        cached["jobs"][0]["q"] = "gpu_1_queue"
+        cached["jobs"][0]["q"] = "amd_mi300_1"
 
         builds = ca.summarize_pipeline_builds(
             "ci",
@@ -826,7 +865,7 @@ class TestWindowedAnalytics:
         )
         expected_build_url = "https://buildkite.com/vllm/ci/builds/42"
         assert builds[0]["web_url"] == expected_build_url
-        assert builds[0]["jobs"][0]["q"] == "gpu_1_queue"
+        assert builds[0]["jobs"][0]["q"] == "amd_mi300_1"
         reliability = ca.build_all_main_reliability(
             ca._reliability_builds_with_cache_aliases([cached], "ci"),
             pipeline_slug="ci",
@@ -889,14 +928,14 @@ class TestIncrementalAnalyticsCache:
             "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW,
         )
 
-        assert builds == [current]
+        assert builds == ca._current_mi_builds([current], "ci")
         assert len(calls) == 1
         assert provenance["cache"]["cache_written"] is True
         assert provenance["cache"]["storage"]["retired_bytes_removed"] == legacy_bytes
         assert not (cache_dir / "amd-ci.json").exists()
         assert ca.load_build_cache(
             cache_dir, "ci", cutoff=NOW - timedelta(days=30), window_days=30, ref_now=NOW,
-        ).builds == ca.sanitize_builds([current], "ci")
+        ).builds == ca.sanitize_builds(ca._current_mi_builds([current], "ci"), "ci")
 
     def test_bounded_recent_cache_reuses_evidence_and_fetches_exact_missing_history(
         self, monkeypatch, tmp_path
@@ -916,7 +955,7 @@ class TestIncrementalAnalyticsCache:
             "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=NOW,
         )
         storage = first_provenance["cache"]["storage"]
-        assert first == all_builds
+        assert first == ca._current_mi_builds(all_builds, "ci")
         assert first_provenance["cache"]["cache_written"] is True
         assert 0 < storage["retained_builds"] < len(all_builds)
         retained_from = datetime.fromisoformat(storage["complete_from"])
@@ -941,7 +980,7 @@ class TestIncrementalAnalyticsCache:
             "ci", "fake-token", 30, cache_dir=cache_dir, ref_now=later,
         )
 
-        assert ca.sanitize_builds(second, "ci") == ca.sanitize_builds(all_builds, "ci")
+        assert ca.sanitize_builds(second, "ci") == ca.sanitize_builds(ca._current_mi_builds(all_builds, "ci"), "ci")
         assert provenance["exhaustive"] is True
         assert provenance["fetch_mode"] == "incremental"
         assert provenance["created_from"] == (later - timedelta(days=30)).isoformat()
@@ -968,7 +1007,7 @@ class TestIncrementalAnalyticsCache:
         cache_dir = tmp_path / ca.CACHE_DIR_NAME
         storage = {}
         ca.write_build_cache(
-            cache_dir, "ci", builds=builds, watermark=NOW, window_days=30,
+            cache_dir, "ci", builds=ca._current_mi_builds(builds, "ci"), watermark=NOW, window_days=30,
             last_full_at=NOW, updated_at=NOW, current_only=True, diagnostics=storage,
         )
         retained_from = datetime.fromisoformat(storage["complete_from"])
@@ -1005,10 +1044,10 @@ class TestIncrementalAnalyticsCache:
         )
         by_number = {build["number"]: build for build in fetched}
 
-        assert by_number[10] == retried_old
+        assert by_number[10] == ca._current_mi_builds([retried_old], "ci")[0]
         assert by_number[10]["state"] == "passed"
         assert by_number[10]["jobs"][-1]["id"] == "job-10-retry"
-        assert by_number[1] == direct_recent
+        assert by_number[1] == ca._current_mi_builds([direct_recent], "ci")[0]
         assert provenance["exhaustive"] is True
         assert provenance["fetch_mode"] == "incremental"
         assert len(calls) == 4
@@ -1030,7 +1069,7 @@ class TestIncrementalAnalyticsCache:
             build["jobs"][0]["name"] += "x" * 900
         cache_dir = tmp_path / ca.CACHE_DIR_NAME
         ca.write_build_cache(
-            cache_dir, "ci", builds=all_builds, watermark=NOW, window_days=30,
+            cache_dir, "ci", builds=ca._current_mi_builds(all_builds, "ci"), watermark=NOW, window_days=30,
             last_full_at=NOW, updated_at=NOW, current_only=True,
         )
         before = {path.relative_to(cache_dir): path.read_bytes() for path in cache_dir.rglob("*") if path.is_file()}
@@ -1249,7 +1288,7 @@ class TestIncrementalAnalyticsCache:
 
         assert builds[0]["state"] == "passed"
         assert builds[0]["jobs"][0]["state"] == "passed"
-        assert builds[0]["commit"].endswith("-complete")
+        assert builds[0]["commit"] == completed["commit"]
         assert provenance["fetch_mode"] == "incremental"
         assert provenance["cache"]["refresh_build_numbers"] == [7]
         individual = next(call for call in calls if call[0].endswith("/builds/7"))
@@ -1299,7 +1338,7 @@ class TestIncrementalAnalyticsCache:
         )
 
         recovered = next(build for build in builds if build["number"] == 9)
-        assert recovered["commit"].endswith("-late-finished")
+        assert recovered["commit"] == late["commit"]
         assert provenance["cache"]["finished_builds"] == 1
 
     def test_duplicate_builds_merge_with_freshest_leg_winning(
@@ -1326,7 +1365,7 @@ class TestIncrementalAnalyticsCache:
         )
 
         assert len(builds) == 1
-        assert builds[0]["commit"].endswith("-finished-leg")
+        assert builds[0]["commit"] == finished["commit"]
 
     @pytest.mark.parametrize("cache_case", ["missing", "malformed", "tampered", "expanded"])
     def test_cache_miss_invalid_tamper_or_window_expansion_forces_full_fetch(
@@ -1753,7 +1792,7 @@ class TestWindowedAnalyticsMain:
                 "number": number,
                 "branch": "main",
                 "state": "passed",
-                "commit": f"commit-{number}",
+                "commit": f"{number:040x}",
                 "message": messages[pipeline_slug],
                 "created_at": "2026-07-12T09:00:00Z",
                 "started_at": "2026-07-12T09:01:00Z",
@@ -1769,7 +1808,7 @@ class TestWindowedAnalyticsMain:
                         "runnable_at": "2026-07-12T09:01:00Z",
                         "started_at": "2026-07-12T09:02:00Z",
                         "finished_at": "2026-07-12T09:03:00Z",
-                        "agent_query_rules": ["queue=gpu_1_queue"],
+                        "agent_query_rules": ["queue=amd_mi300_1"],
                         "step": {"id": f"step-{number}", "key": "retry-group"},
                     },
                     {
@@ -1781,7 +1820,7 @@ class TestWindowedAnalyticsMain:
                         "runnable_at": "2026-07-12T09:03:00Z",
                         "started_at": "2026-07-12T09:04:00Z",
                         "finished_at": "2026-07-12T09:05:00Z",
-                        "agent_query_rules": ["queue=gpu_1_queue"],
+                        "agent_query_rules": ["queue=amd_mi300_1"],
                         "step": {"id": f"step-{number}", "key": "retry-group"},
                     },
                 ],
@@ -1873,7 +1912,8 @@ class TestWindowedAnalyticsMain:
         }
         (tmp_path / "analytics.json").write_text(json.dumps({
             "ci": {
-                "display_name": "Upstream CI",
+                "display_name": "AMD MI main CI",
+                "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
                 "builds": [previous_build],
                 "all_main_reliability": reliability,
                 "main_retry_analysis": preserved_retry,
@@ -1996,7 +2036,7 @@ class TestWindowedAnalyticsMain:
         assert summary["jobs_with_hard_failures"] == 0
         assert summary["jobs_with_soft_failures"] == 1
         assert summary["build_pass_rate_pct"] == 100.0
-        assert summary["build_pass_rate_basis"] == "terminal_build_state_all_green"
+        assert summary["build_pass_rate_basis"] == "terminal_mi_job_attempts_all_green"
         assert summary["pass_rate"] == summary["build_pass_rate_pct"]
 
     def test_build_pass_rate_excludes_nonterminal_builds_from_denominator(self):
@@ -2017,7 +2057,7 @@ class TestWindowedAnalyticsMain:
         assert summary["passed"] == 1
         assert summary["failed"] == 4
         assert summary["build_pass_rate_pct"] == 20.0
-        assert summary["build_pass_rate_basis"] == "terminal_build_state_all_green"
+        assert summary["build_pass_rate_basis"] == "terminal_mi_job_attempts_all_green"
         assert summary["pass_rate"] == 20.0
 
 
@@ -2125,7 +2165,7 @@ class TestParsedResultFallback:
                 "name": "__passed__ (7)",
                 "status": "passed",
                 "duration_secs": 120.0,
-                "job_name": "AMD: Passing Group (mi325_1)",
+                "job_name": "amd_mi325_1: AMD: Passing Group (mi325_1)",
                 "job_id": "019ed951-af8e-4dc8-9590-72a47f9fed96",
                 "step_id": "019ed951-ad41-4cc1-8942-051077910be7",
                 "build_number": 72843,
@@ -2133,7 +2173,7 @@ class TestParsedResultFallback:
                 "date": result_date,
             },
         ]
-        (results_dir / f"{result_date}_upstream.jsonl").write_text(
+        (results_dir / f"{result_date}_amd.jsonl").write_text(
             "\n".join(json.dumps(row) for row in rows) + "\n"
         )
 
@@ -2157,13 +2197,13 @@ class TestParsedResultFallback:
                 "name": "__passed__ (7)",
                 "status": "passed",
                 "duration_secs": 120.0,
-                "job_name": "AMD: Passing Group (mi325_1)",
+                "job_name": "amd_mi325_1: AMD: Passing Group (mi325_1)",
                 "build_number": 72843,
                 "pipeline": "ci",
                 "date": result_date,
             },
         ]
-        (results_dir / f"{result_date}_upstream.jsonl").write_text(
+        (results_dir / f"{result_date}_amd.jsonl").write_text(
             "\n".join(json.dumps(row) for row in rows) + "\n"
         )
         buildkite_builds = [
@@ -2176,7 +2216,7 @@ class TestParsedResultFallback:
                         "name": "Passing Group",
                         "raw_name": "AMD: Passing Group (mi325_1)",
                         "state": "passed",
-                        "q": "gpu_1_queue",
+                        "q": "amd_mi300_1",
                         "job_id": "019ed951-af8e-4dc8-9590-72a47f9fed96",
                         "step_id": "019ed951-ad41-4cc1-8942-051077910be7",
                     }
@@ -2363,13 +2403,13 @@ class TestParsedResultFallback:
                 "name": "__unidentified_failures__ (6)",
                 "status": "failed",
                 "duration_secs": 0.0,
-                "job_name": "Intel GPU Test",
+                "job_name": "amd_mi300_1: Soft Group",
                 "build_number": 65324,
                 "pipeline": "ci",
                 "date": result_date,
             },
         ]
-        (results_dir / f"{result_date}_upstream.jsonl").write_text(
+        (results_dir / f"{result_date}_amd.jsonl").write_text(
             "\n".join(json.dumps(row) for row in rows) + "\n"
         )
 
@@ -2379,12 +2419,12 @@ class TestParsedResultFallback:
                 0.5,
                 [
                     {
-                        "name": "Intel GPU Test",
-                        "raw_name": "Intel GPU Test",
+                        "name": "Soft Group",
+                        "raw_name": "amd_mi300_1: Soft Group",
                         "state": "soft_fail",
                         "dur": 4.6,
                         "wait": 0.0,
-                        "q": "intel-gpu",
+                        "q": "amd_mi300_1",
                     }
                 ],
                 state="running",
@@ -2398,7 +2438,7 @@ class TestParsedResultFallback:
         assert build["failed"] == 0
         assert build["soft_failed"] == 1
         assert build["jobs"][0]["state"] == "soft_fail"
-        assert build["jobs"][0]["q"] == "intel-gpu"
+        assert build["jobs"][0]["q"] == "amd_mi300_1"
 
     def test_choose_analytics_builds_preserves_previous_on_empty_collection(self):
         previous = [_build(42, 1.0, [_job("Known Good", 10)])]
@@ -2406,3 +2446,90 @@ class TestParsedResultFallback:
         chosen = ca.choose_analytics_builds([], [], previous, "amd-ci")
 
         assert chosen == previous
+
+
+
+def test_cached_source_index_rejoins_current_job_roster_without_fetch(monkeypatch):
+    import vllm.main_ci_definitions as definitions
+    build = _raw_api_build(93523, marker="fresh")
+    cpu = {**build["jobs"][0], "id": "cpu-new-id", "step_key": "cpu-audit",
+           "agent_queue": "amd_mi300_1"}
+    gpu = {**build["jobs"][0], "id": "gpu-new-id", "step_key": "gpu-tests",
+           "agent_queue": "amd_mi300_1", "source_no_gpu": True}
+    build["jobs"] = [cpu, gpu]
+    index = {"version": 1, "commit_sha": build["commit"], "definition_tree_sha": "a" * 40,
+             "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}]}
+    # Restore the pure join; its validated index must avoid source HTTP.
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", exact_source_join)
+    monkeypatch.setattr(definitions, "runtime_snapshot", lambda *_: pytest.fail("immutable index must avoid source HTTP"))
+    rows = ca._current_mi_builds([build], "ci", scope_indexes={build["commit"]: index})
+    assert [job["id"] for job in rows[0]["jobs"]] == ["gpu-new-id"]
+    assert "source_no_gpu" not in rows[0]["jobs"][0]
+    assert rows[0]["source_scope_index"] == index
+
+
+def test_canonical_nightly_seed_never_claims_all_main_exhaustiveness():
+    build = _raw_api_build(93523, marker="seed")
+    build.update(message="Full CI run - nightly", branch="main", state="passed")
+    seed = ca.reproject_current_mi_analytics(
+        {"ci": {"generated_at": NOW.isoformat()}}, [build], window_days=30,
+        collection_provenance={"captured_state_sha": "b" * 40}, canonical_nightlies_only=True,
+    )["ci"]
+    assert seed["seed_provenance"]["exhaustive"] is False
+    assert seed["all_main_reliability"]["available"] is False
+    assert seed["main_retry_analysis"]["available"] is False
+    assert seed["hardware_scope"] == "amd_mi_gpu"
+    assert seed["generated_at"] == NOW.isoformat()
+
+
+def test_mi_pass_state_ignores_optional_skipped_execution():
+    build = _raw_api_build(93523, marker="skip")
+    build["jobs"].append({**build["jobs"][0], "id": "optional", "state": "skipped", "started_at": None, "finished_at": None})
+    summary = ca.summarize_pipeline_builds("ci", [build])[0]
+    assert summary["state"] == "passed"
+    assert summary["source_state"] == "passed"
+    assert sum(job["state"] == "skipped" for job in summary["jobs"]) == 1
+
+
+
+def test_source_only_prewarm_resumes_each_proved_pin_without_buildkite_or_freshness(tmp_path, monkeypatch):
+    from vllm.ci import analytics_cache as cache
+    import vllm.main_ci_definitions as definitions
+    analytics = _write_test_build_cache(tmp_path, builds=[_raw_api_build(101), _raw_api_build(102)])
+    source = analytics.parent / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
+    monkeypatch.setattr(ca, "bk_get", lambda *_args, **_kwargs: pytest.fail("prewarm cannot request Buildkite"))
+    calls = []
+    def limited(build):
+        calls.append(build["commit"])
+        if len(calls) == 2:
+            raise ValueError("source bound reached")
+        return {"source_scope_index": {"version": 1, "commit_sha": build["commit"],
+                 "definition_tree_sha": "a" * 40, "cpu_routes": []}}
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", limited)
+    initial = ca.prewarm_runtime_source_indexes(analytics, source)
+    assert initial["complete"] is False and initial["cache_save"] is True
+    assert initial["resolved_new_pins"] == initial["remaining_pins"] == 1
+    persisted = cache.read_runtime_source_indexes(source)
+    assert set(persisted) == {calls[0]}
+    def complete(build):
+        assert build["jobs"] == []
+        assert build["commit"] not in persisted
+        return {"source_scope_index": {"version": 1, "commit_sha": build["commit"],
+                 "definition_tree_sha": "a" * 40, "cpu_routes": []}}
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", complete)
+    final = ca.prewarm_runtime_source_indexes(analytics, source)
+    assert final["complete"] is True and final["remaining_pins"] == 0
+    assert final["resolved_new_pins"] == 1
+    assert len(cache.read_runtime_source_indexes(source)) == 2
+    assert not (tmp_path / "analytics.json").exists()
+    assert not (tmp_path / "publication_state.json").exists()
+
+
+def test_source_only_prewarm_cli_emits_safe_partial_save_before_nonzero_exit(tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setattr(sys, "argv", ["collect_analytics.py", "--output", str(tmp_path),
+                                     "--prewarm-source-indexes", "--github-output", str(tmp_path / "outputs")])
+    monkeypatch.setattr(ca, "prewarm_runtime_source_indexes", lambda *_: {"complete": False, "cache_save": True})
+    monkeypatch.setattr(ca, "fetch_pipeline_builds", lambda *_args, **_kwargs: pytest.fail("prewarm cannot collect runtime"))
+    assert ca.main() == 3
+    assert (tmp_path / "outputs").read_text() == "runtime_source_cache_save=true\nruntime_source_indexes_complete=false\n"

@@ -23,7 +23,7 @@ def _config() -> dict:
         "scope": {"excluded_queue_classes": ["perf_eval"]},
         "workload_pipelines": {
             "omni": ["vllm-omni-amd-ci"],
-            "main": ["amd-ci"],
+            "main": ["ci"],
         },
         "queues": [
             {
@@ -309,9 +309,9 @@ def test_collect_has_exact_repository_labels_and_both_dimensions() -> None:
                 ],
             )
         ],
-        "amd-ci": [
+        "ci": [
             _build(
-                "amd-ci",
+                "ci",
                 [
                     _job("main-1", "amd_mi250_1"),
                     _job("main-2", "amd_mi325_8"),
@@ -378,7 +378,7 @@ def test_open_hour_is_partial_but_not_a_collection_failure() -> None:
 def test_missing_job_uuid_marks_only_affected_bucket_as_lower_bound() -> None:
     responses = {
         "vllm-omni-amd-ci": [_build("vllm-omni-amd-ci", [_job(None, "amd_mi250_1")])],
-        "amd-ci": [_build("amd-ci", [_job("main-1", "amd_mi250_1")])],
+        "ci": [_build("ci", [_job("main-1", "amd_mi250_1")])],
     }
     payload = cwm.collect_workload_mapping(
         "token",
@@ -409,7 +409,7 @@ def test_incremental_refresh_preserves_old_daily_and_backfills_hourly() -> None:
         },
     }
     existing = {
-        "schema_version": 2,
+        "schema_version": 2, "hardware_scope": "amd_mi_gpu",
         "daily": [old_day],
         # Explicitly no hourly collection: it must be backfilled.
     }
@@ -427,9 +427,9 @@ def test_incremental_refresh_preserves_old_daily_and_backfills_hourly() -> None:
                 created_at="2026-07-28T09:59:00Z",
             )
         ],
-        "amd-ci": [
+        "ci": [
             _build(
-                "amd-ci",
+                "ci",
                 [
                     _job(
                         "main-fresh",
@@ -491,7 +491,7 @@ def test_incremental_without_force_fills_an_old_hourly_gap() -> None:
         "token",
         _config(),
         existing={
-            "schema_version": 2,
+            "schema_version": 2, "hardware_scope": "amd_mi_gpu",
             "hourly": existing_hours,
             "daily": existing_daily,
         },
@@ -555,7 +555,7 @@ def test_fetch_uses_independent_bounded_slices_and_reports_local_truncation() ->
 
     builds, source = cwm.fetch_pipeline_builds(
         "token",
-        "amd-ci",
+        "ci",
         datetime(2026, 7, 27, 12, tzinfo=timezone.utc),
         datetime(2026, 7, 29, 18, tzinfo=timezone.utc),
         max_pages=1,
@@ -593,7 +593,7 @@ def test_slice_fetches_are_concurrent_bounded_and_keep_exact_params() -> None:
     yielded = list(
         cwm._iter_pipeline_build_slices(
             "token",
-            "amd-ci",
+            "ci",
             datetime(2026, 7, 25, tzinfo=timezone.utc),
             datetime(2026, 7, 30, tzinfo=timezone.utc),
             page_fetcher=fetcher,
@@ -673,7 +673,7 @@ def test_slice_generator_retains_at_most_the_worker_cap(monkeypatch) -> None:
 
     for rows, _source in cwm._iter_pipeline_build_slices(
         "token",
-        "amd-ci",
+        "ci",
         datetime(2026, 7, 20, tzinfo=timezone.utc),
         datetime(2026, 7, 30, tzinfo=timezone.utc),
     ):
@@ -689,7 +689,7 @@ def test_global_uuid_dedup_survives_pipeline_and_slice_streaming() -> None:
         "vllm-omni-amd-ci": [
             _build("vllm-omni-amd-ci", [_job(shared_id, "amd_mi250_1")])
         ],
-        "amd-ci": [_build("amd-ci", [_job(shared_id, "amd_mi250_1")])],
+        "ci": [_build("ci", [_job(shared_id, "amd_mi250_1")])],
     }
 
     payload = cwm.collect_workload_mapping(
@@ -719,7 +719,7 @@ def test_workload_completeness_is_reported_separately(monkeypatch) -> None:
     base_fetcher = _slice_aware_fetcher(responses)
 
     def fetcher(path, token, params):
-        if "/pipelines/amd-ci/" in path:
+        if "/pipelines/ci/" in path:
             raise requests.Timeout("main pipeline unavailable")
         return base_fetcher(path, token, params)
 
@@ -776,7 +776,7 @@ def test_retention_cannot_expand_the_bounded_publication_window() -> None:
 
 def test_workload_mapping_compaction_drops_oldest_whole_buckets() -> None:
     source = {
-        "schema_version": 2,
+        "schema_version": 2, "hardware_scope": "amd_mi_gpu",
         "generated_at": "2026-09-01T00:00:00Z",
         "retention": {"hourly_days": 7, "daily_days": 90},
         "totals": {"omni": {"mapped_jobs": 99}, "main": {"mapped_jobs": 88}},
@@ -895,3 +895,34 @@ def test_published_payload_contains_no_job_ids_or_raw_jobs() -> None:
     assert "secret-job-uuid" not in serialized
     assert '"jobs"' not in serialized
     assert '"builds"' not in serialized
+
+
+def test_mi_scope_filters_foreign_queues_and_explicit_cpu_without_filtering_suite_names():
+    config = _config()
+    for name in ("gpu_1_queue", "B200", "amd-cpu", "intel-gpu"):
+        config["queues"].append({"id": name, "monitored": True, "gpus_per_job": 1})
+    catalog = cwm.monitored_queues(config)
+    assert all(cwm.amd_gpu_hardware(name) for name in catalog)
+    jobs = [_job(str(index), "amd_mi250_1") for index in range(4)]
+    jobs[0]["name"] = "CPU Offload with CUDA model preset"
+    jobs[1]["name"] = ":computer: (CPU) Torch ABI"
+    jobs[2]["no_gpu"] = True
+    jobs[3]["agent_query_rules"] = ["queue=B200"]
+    events, _ = cwm._events_from_builds(
+        [_build("ci", jobs)], pipeline="ci", workload="main", queue_catalog=catalog,
+        start=NOW - timedelta(days=1), end=NOW,
+    )
+    assert len(events) == 1
+    assert events[0]["job_id"] == "0"
+
+
+def test_legacy_mapping_aggregates_cannot_extend_new_mi_scope_history():
+    old_day = cwm._empty_day("2026-07-20")
+    old_day["workloads"]["main"]["mapped_jobs"] = 999
+    payload = cwm.collect_workload_mapping(
+        "token", _config(), existing={"schema_version": 2, "daily": [old_day]},
+        now=NOW, force_days=1, page_fetcher=_slice_aware_fetcher({}),
+    )
+    assert payload["hardware_scope"] == "amd_mi_gpu"
+    assert payload["scope"]["workload_pipelines"]["main"] == ["ci"]
+    assert not any(row["workloads"]["main"]["mapped_jobs"] == 999 for row in payload["daily"])

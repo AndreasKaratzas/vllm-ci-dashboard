@@ -4,9 +4,9 @@ Collects nightly CI test data from Buildkite, analyzes test health, and produces
 
 ## What It Does
 
-1. **Fetches nightly builds** from Buildkite `ci`, then separates AMD GPU and
-   CUDA GPU jobs by their observed agent routing. Both platform roles use the
-   same "Full CI run - nightly" cohort and exact build commit.
+1. **Fetches nightly builds** from Buildkite `ci`, retaining only AMD MI GPU
+   execution proved by concrete queue routing and exact source definitions.
+   CPU-only steps and non-MI execution are excluded from runtime metrics.
 
 2. **Parses pytest output** from job logs to extract test results (pass/fail/skip/error counts + individual failure names from the `short test summary info` section)
 
@@ -15,9 +15,9 @@ Collects nightly CI test data from Buildkite, analyzes test health, and produces
    - Detects flaky tests (20-80% pass rate over 10-build window)
    - Tracks failure streaks and mean time to fix
 
-4. **Compares AMD vs upstream** (parity analysis):
-   - Tests passing on both, failing on both, AMD-only failures, upstream-only, etc.
-   - Per-module parity breakdown
+4. **Measures configured AMD coverage** against immutable upstream GPU YAML:
+   - Mirrors and required, optional, or soft-fail source routes stay distinct.
+   - The source benchmark does not track non-MI execution or runtime percentages.
 
 5. **Generates dashboard JSON** files consumed by the frontend
 
@@ -79,7 +79,6 @@ All files are written to `data/vllm/ci/`:
 | File | Description |
 |------|-------------|
 | `ci_health.json` | Overall health metrics, build summaries, pass rate trends |
-| `parity_report.json` | AMD vs upstream test-by-test comparison |
 | `flaky_tests.json` | Registry of flaky tests with pass rates and history |
 | `failure_trends.json` | Top offenders, new failures, recently fixed, MTTF |
 | `dns_failures.json` | Bounded 30-day DNS job-attempt counts and safe Buildkite coordinates |
@@ -88,13 +87,13 @@ All files are written to `data/vllm/ci/`:
 
 ### Current CI health and latency
 
-`ci` is the current runtime source for both AMD and CUDA GPU cohorts; CPU jobs
-and the legacy `amd-ci` pipeline are excluded. The immutable main CI definitions
-produce the current parity and mirror inventory. Observed AMD health uses the
+`ci` is the current runtime source for AMD MI GPU execution only; CPU jobs,
+non-MI hardware, and the legacy `amd-ci` pipeline are excluded. Immutable current
+main CI definitions provide a separate configured coverage and mirror benchmark. Observed AMD health uses the
 actual nightly logical groups with explicit any-hardware/all-hardware policies.
 
-The latency shard uses only the global latest five completed main CI nightlies.
-Each platform/group has zero to five samples with exact build/job links and an
+The latency shard uses the global latest five completed main CI nightlies with
+MI execution. Each AMD group has zero to five samples with exact build/job links and an
 explicit date interval. Complete parallel shards contribute their maximum wall
 time once per nightly; displayed latency is the median of those samples. No
 older build is fetched to replace a missing group. A stale cohort is unavailable.
@@ -900,19 +899,19 @@ ciphertext has been replaced successfully.
 
 ### Managed Alert Issues
 
-The unified two-hour Data Collection workflow also reconciles four bounded
+The unified two-hour Data Collection workflow also reconciles three bounded
 umbrella issues in this repository:
 
-- AMD main test-group failures use the AMD GPU jobs in the exhaustive `ci`
-  branch=main reliability cohort. The latest retry attempt in a build wins; a later pass resolves the
-  same strict label + step + hardware + queue identity. Hard failures confirm
-  immediately. Soft failures remain visible as pending observations and require
-  two distinct eligible completed builds before becoming incidents. Missing or
-  indeterminate observations neither advance nor resolve the signal.
-- Upstream CI main test-group failures use the CUDA GPU jobs in the exhaustive
-  `ci` branch=main reliability cohort and the same strict retry-aware identity. Each active
-  incident retains the last known passing commit and first failing commit as a
-  candidate range for later ancestry validation and automated git bisection.
+- Current main CI test-group failures use AMD MI GPU jobs in the exhaustive
+  `ci` branch=main reliability cohort. The latest retry attempt in a build wins;
+  a later pass resolves the same strict label + step + hardware + queue identity.
+  Hard failures confirm immediately. Soft failures remain visible as pending
+  observations and require two distinct eligible completed builds before becoming
+  incidents. Missing or indeterminate observations neither advance nor resolve
+  the signal. Each active incident retains the last known passing commit and
+  first failing commit as a candidate range for later ancestry validation and
+  automated git bisection. The duplicate AMD main watcher is retired; its shared
+  retry and issue-state helpers remain in use by the canonical CI watcher.
 - AMD main duration regressions compare the median wall completion time of the
   latest three successful final attempts with the preceding six to twelve runs.
   Queue wait is excluded. A 15% increase opens the alert, and the baseline stays
@@ -922,8 +921,7 @@ umbrella issues in this repository:
   contains a three-hour co-failure cluster with at least three logical failures
   across at least two groups on one physical AMD node.
 
-State lives in `open_amd_main_failure_issues.json`,
-`open_ci_main_failure_issues.json`, `open_amd_duration_regression_issues.json`,
+State lives in `open_ci_main_failure_issues.json`, `open_amd_duration_regression_issues.json`,
 `open_agent_health_issues.json`, `open_ci_area_regression_issues.json`,
 `open_omni_surge_issues.json`, `open_queue_issues.json`, and
 `open_queue_zombie_issues.json`. Fixed per-ledger producer limits sum exactly to
@@ -944,11 +942,11 @@ scripts/
   collect_ci.py              # Entry point / orchestrator
   ci/
     config.py                # Constants, thresholds, pipeline definitions
-    models.py                # Dataclasses: TestResult, BuildSummary, TestHealth, ParityEntry
+    models.py                # Dataclasses: TestResult, BuildSummary, TestHealth
     buildkite_client.py      # Buildkite REST API client
     log_parser.py            # Pytest log output parser (extracts test results from job logs)
     junit_parser.py          # JUnit XML parser (fallback if artifacts are available)
-    analyzer.py              # Health labeling, parity, trends, quarantine
+    analyzer.py              # Health labeling, MI grouping, trends, quarantine
     reporter.py              # JSON/JSONL output generation
     webhook.py               # Standalone Buildkite webhook receiver
 ```

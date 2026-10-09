@@ -9,6 +9,7 @@ These catch the class of bugs where:
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -61,26 +62,6 @@ class TestProjectsTab:
             assert "prs" in d or "items" in d, f"{name}/prs.json missing 'prs' key"
 
 
-class TestTestParityTab:
-    """Tests for the Test Parity tab (renderParityView)."""
-
-    def test_at_least_one_project_has_test_results(self, projects):
-        has_data = False
-        for name in projects:
-            for f in ["test_results.json", "parity_report.json"]:
-                if (DATA / name / f).exists():
-                    has_data = True
-                    break
-        assert has_data, "No project has test_results.json or parity_report.json"
-
-    def test_test_results_have_platform_data(self):
-        """test_results.json must have rocm and/or cuda sections."""
-        for path in DATA.glob("*/test_results.json"):
-            d = json.loads(path.read_text())
-            has_platform = d.get("rocm") or d.get("cuda")
-            # Allow empty/stub files
-            if d.get("collected_at"):
-                assert has_platform, f"{path} has collected_at but no rocm/cuda data"
 
 
 class TestVLLMCIData:
@@ -98,17 +79,14 @@ class TestVLLMCIData:
         if not path.exists():
             pytest.skip("no ci_health data")
         d = json.loads(path.read_text())
+        assert "upstream" not in d
+        assert d["amd"].get("source_pipeline") == "ci"
+        assert d["amd"].get("hardware_scope") == "amd_mi_gpu"
         lb = d["amd"]["latest_build"]
         for field in ["build_number", "passed", "failed", "pass_rate", "by_hardware"]:
             assert field in lb, f"latest_build missing '{field}'"
+        assert all(re.fullmatch(r"mi\d{3,4}", str(hardware).lower()) for hardware in lb["by_hardware"])
 
-    def test_parity_report_synced_to_project_root(self):
-        """collect_ci.py should sync parity_report.json to data/vllm/."""
-        ci = DATA / "vllm" / "ci" / "parity_report.json"
-        proj = DATA / "vllm" / "parity_report.json"
-        if not ci.exists():
-            pytest.skip("no CI parity data")
-        assert proj.exists(), "parity_report.json not synced to data/vllm/"
 
     def test_test_results_synced_to_project_root(self):
         """collect_ci.py should generate data/vllm/test_results.json."""
@@ -130,23 +108,13 @@ class TestJSRenderingSafety:
     are actually numbers, not null/undefined. Catches the class of bug where
     the JS renderer crashes because a numeric field is missing."""
 
-    def test_parity_report_parity_pct_is_number(self):
-        """buildTestSection accesses parity_pct — must be a number or absent."""
-        for path in DATA.glob("*/parity_report.json"):
-            d = json.loads(path.read_text())
-            # parity_pct can be at root or inside summary
-            pct = d.get("parity_pct") or (d.get("summary", {}) or {}).get("parity_pct")
-            if pct is not None:
-                assert isinstance(pct, (int, float)), (
-                    f"{path}: parity_pct is {type(pct).__name__}, expected number"
-                )
 
     def test_pass_rate_is_number_in_ci_health(self):
         path = DATA / "vllm" / "ci" / "ci_health.json"
         if not path.exists():
             pytest.skip("no ci_health")
         d = json.loads(path.read_text())
-        for section in ["amd", "upstream"]:
+        for section in ["amd"]:
             lb = (d.get(section) or {}).get("latest_build")
             if not lb:
                 continue
@@ -158,10 +126,10 @@ class TestJSRenderingSafety:
                 assert isinstance(hpr, (int, float)), f"{section}.by_hardware.{hw}.pass_rate is {type(hpr)}"
 
     def test_test_results_pass_rate_is_number(self):
-        """buildTestSection calls pass_rate.toFixed() — must be number or null-checked."""
+        """The retained ROCm compatibility summary has numeric assertion rates."""
         for path in DATA.glob("*/test_results.json"):
             d = json.loads(path.read_text())
-            for platform in ["rocm", "cuda"]:
+            for platform in ["rocm"]:
                 pd = d.get(platform)
                 if not pd or not pd.get("summary"):
                     continue
@@ -172,12 +140,12 @@ class TestJSRenderingSafety:
                     )
 
     def test_ci_health_builds_have_group_rate_fields(self):
-        """Trend chart uses unique_test_groups and test_groups_passing_or."""
+        """Current AMD cards use typed logical group rates."""
         path = DATA / "vllm" / "ci" / "ci_health.json"
         if not path.exists():
             pytest.skip("no ci_health")
         d = json.loads(path.read_text())
-        for section in ["amd", "upstream"]:
+        for section in ["amd"]:
             builds = (d.get(section) or {}).get("builds", [])
             for b in builds:
                 utg = b.get("unique_test_groups")
@@ -193,7 +161,7 @@ class TestJSRenderingSafety:
         if not path.exists():
             pytest.skip("no ci_health")
         d = json.loads(path.read_text())
-        for section in ["amd", "upstream"]:
+        for section in ["amd"]:
             builds = (d.get(section) or {}).get("builds", [])
             for b in builds:
                 total = b.get("unique_test_groups") or 0
@@ -207,47 +175,6 @@ class TestJSRenderingSafety:
                     f"{section} build #{b.get('build_number')} passing groups out of range"
                 )
 
-    def test_latest_amd_group_count_matches_its_aligned_identity_source(self):
-        """Use source identities when definitions and runtime are commit-aligned."""
-        health_path = DATA / "vllm" / "ci" / "ci_health.json"
-        parity_path = DATA / "vllm" / "ci" / "parity_report.json"
-        definitions_path = DATA / "vllm" / "ci" / "config_parity.json"
-        if not health_path.exists() or not parity_path.exists():
-            pytest.skip("no CI parity data")
-        health = json.loads(health_path.read_text())
-        parity = json.loads(parity_path.read_text())
-        latest_amd = (health.get("amd") or {}).get("latest_build") or {}
-        amd_total = latest_amd.get("unique_test_groups")
-        if amd_total is None:
-            pytest.skip("latest AMD build has no unique group count")
-
-        if definitions_path.exists():
-            definitions = json.loads(definitions_path.read_text())
-            definition_commit = str(
-                (definitions.get("source") or {}).get("commit_sha") or ""
-            )
-            runtime_commit = str(latest_amd.get("commit") or "")
-            if definition_commit and runtime_commit and (
-                definition_commit.startswith(runtime_commit)
-                or runtime_commit.startswith(definition_commit)
-            ):
-                source_total = (definitions.get("summary") or {}).get(
-                    "amd_identity_families"
-                )
-                assert amd_total == source_total, (
-                    f"commit-aligned AMD runtime has {amd_total} unique groups "
-                    f"but the source inventory has {source_total} identity families"
-                )
-                return
-
-        # Legacy or commit-unaligned snapshots use normalized runtime labels.
-        groups = parity.get("job_groups") or []
-        common = sum(1 for g in groups if g.get("amd") and g.get("upstream"))
-        amd_only = sum(1 for g in groups if g.get("amd") and not g.get("upstream"))
-        assert common + amd_only == amd_total, (
-            f"runtime parity common+AMD-only ({common}+{amd_only}) must equal "
-            f"latest AMD unique test groups ({amd_total})"
-        )
 
 
 class TestNoJobStateMismatch:
@@ -258,8 +185,7 @@ class TestNoJobStateMismatch:
         as failed in test results. This catches the bug where the log parser
         extracted pytest failures from embedded subprocess output."""
         ci_health = DATA / "vllm" / "ci" / "ci_health.json"
-        parity = DATA / "vllm" / "ci" / "parity_report.json"
-        if not ci_health.exists() or not parity.exists():
+        if not ci_health.exists():
             pytest.skip("no CI data")
 
         # Load ci_health to get job states

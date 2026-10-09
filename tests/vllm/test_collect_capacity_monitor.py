@@ -226,7 +226,7 @@ def test_capacity_config_has_exact_standard_queue_scope_and_quotas() -> None:
     }
     assert config["workload_pipelines"] == {
         "omni": ["vllm-omni-amd-ci"],
-        "main": ["ci", "amd-ci", "amd-distributed-inference-ci"],
+        "main": ["ci"],
     }
     assert config["scope"]["excluded_queue_classes"] == ["perf_eval"]
     assert config["scope"]["non_gating_queues"] == [

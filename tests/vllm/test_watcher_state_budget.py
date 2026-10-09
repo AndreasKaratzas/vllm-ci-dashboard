@@ -94,7 +94,9 @@ def _managed_issue(number: int) -> dict:
 
 
 def test_suballocations_compose_exactly_to_the_shared_three_mib_budget() -> None:
-    assert len(WATCHER_STATE_WRITERS) == 8
+    assert len(WATCHER_STATE_WRITERS) == 7
+    assert "open_amd_main_failure_issues.json" not in WATCHER_STATE_WRITERS
+    assert watcher_state_max_bytes("open_amd_main_failure_issues.json") > 0
     assert watcher_state_allocated_bytes() == 3 * 1024 * 1024
     assert watcher_state_allocated_bytes() == group_max_bytes("watcher_state")
 
@@ -125,10 +127,13 @@ def test_every_watcher_routes_state_through_the_shared_writer(module_path: str) 
 def test_main_state_drops_only_inactive_cache_and_preserves_all_actionable_rows() -> None:
     path = Path("open_ci_main_failure_issues.json")
     source = _managed_issue(991)
+    source.update(hardware_scope="amd_mi_gpu", job_scope="amd_gpu")
     published, encoded = bounded_watcher_state(path, source)
 
     assert len(encoded) <= watcher_state_max_bytes(path)
     assert published["issue"] == source["issue"]
+    assert published["hardware_scope"] == "amd_mi_gpu"
+    assert published["job_scope"] == "amd_gpu"
     assert set(published["active"]) == {"live-group"}
     assert set(published["pending_soft"]) == {"pending-group"}
     assert published["active"]["live-group"]["transition"] == source["active"][
@@ -184,6 +189,18 @@ def test_main_state_bounds_a_large_active_catalog_without_losing_an_identity() -
         "omitted": 0,
     }
     assert published[RETENTION_KEY]["collections"]["detail_fields"]["omitted"] > 0
+
+
+def test_duration_compaction_preserves_current_execution_scope() -> None:
+    source = _managed_issue(994)
+    source.update(hardware_scope="amd_mi_gpu", job_scope="amd_gpu")
+    path = Path("open_amd_duration_regression_issues.json")
+    published, encoded = bounded_watcher_state(path, source)
+    assert len(encoded) <= watcher_state_max_bytes(path)
+    assert published["hardware_scope"] == "amd_mi_gpu"
+    assert published["job_scope"] == "amd_gpu"
+    assert set(published["active"]) == {"live-group"}
+    assert published["issue"] == source["issue"]
 
 
 def test_processed_build_suffix_can_compact_behind_the_global_ordering_fence() -> None:
@@ -268,6 +285,8 @@ def test_area_state_prunes_clear_cache_but_keeps_open_and_pending_mappings() -> 
     }
     source = {
         "schema_version": 1,
+        "hardware_scope": "amd_mi_gpu",
+        "job_scope": "amd_gpu",
         "last_run": "2026-09-01T00:00:00Z",
         "areas": {
             "active-area": {
@@ -292,6 +311,8 @@ def test_area_state_prunes_clear_cache_but_keeps_open_and_pending_mappings() -> 
     published, encoded = bounded_watcher_state(path, source)
 
     assert len(encoded) <= watcher_state_max_bytes(path)
+    assert published["hardware_scope"] == "amd_mi_gpu"
+    assert published["job_scope"] == "amd_gpu"
     assert published["areas"]["active-area"]["issue"]["number"] == 812
     assert set(published["areas"]["active-area"]["signals"]) == {"live"}
     assert "retired-cache" not in published["areas"]

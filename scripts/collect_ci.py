@@ -40,6 +40,14 @@ from vllm.ci.backfill_checkpoint import (
     find_complete_shard,
     record_complete_shard,
     restore_complete_shards,
+    synchronize_current_mi_shards,
+)
+from vllm.ci.analytics_cache import (
+    CACHE_DIR_NAME as ANALYTICS_CACHE_DIR_NAME,
+    RUNTIME_SOURCE_CACHE_DIR_NAME,
+    load_source_scope_indexes,
+    retain_runtime_source_indexes,
+    write_runtime_source_indexes,
 )
 from vllm.ci.log_parser import parse_job_results
 from vllm.buildkite_request_guard import BuildkiteRequestGuardError
@@ -63,7 +71,6 @@ from vllm.ci.analyzer import (
     apply_quarantine,
     compute_all_test_health,
     compute_build_summary,
-    compute_parity,
     compute_trends,
     load_quarantine,
 )
@@ -74,7 +81,6 @@ from vllm.ci.reporter import (
     write_ci_health,
     write_failure_trends,
     write_flaky_tests,
-    write_parity_report,
     write_quarantine_report,
     write_test_results,
 )
@@ -403,8 +409,27 @@ def _should_verify_cache_coverage(
     return build_num in {latest_build_num, latest_terminal_build_num}
 
 
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+
+
 def _scope_nightly_build(build: dict, pipeline_key: str) -> dict:
     """Keep the current hardware roster separate within the shared CI build."""
+    if pipeline_key == "amd" and re.fullmatch(r"[0-9a-fA-F]{40}", str(build.get("commit") or "")):
+        from vllm.main_ci_definitions import annotate_runtime_source_scope
+        commit = str(build["commit"]).casefold()
+        index = _SOURCE_SCOPE_INDEXES.get(commit)
+        scoped_source = annotate_runtime_source_scope(build, **({"scope_index": index} if index is not None else {}))
+        build.update(scoped_source)
+        if isinstance(scoped_source.get("source_scope_index"), dict):
+            new_index = scoped_source["source_scope_index"]
+            if _SOURCE_SCOPE_INDEXES.get(commit) != new_index:
+                candidates = {**_SOURCE_SCOPE_INDEXES, commit: new_index}
+                retained = retain_runtime_source_indexes(candidates, preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES])
+                _SOURCE_SCOPE_INDEXES.clear()
+                _SOURCE_SCOPE_INDEXES.update(retained)
+                if _SOURCE_SCOPE_CACHE_DIR is not None:
+                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, _SOURCE_SCOPE_INDEXES)
     if isinstance(build.get("jobs"), list):
         # Remember observed routing before the role filter removes CPU/other
         # hardware jobs. Exact cached attempt IDs can then be rejected or
@@ -422,6 +447,8 @@ def _scope_nightly_build(build: dict, pipeline_key: str) -> dict:
             build["_ci_job_routes"] = routes
         build["jobs"] = [job for job in build["jobs"] if pipeline_job_matches_scope(job, pipeline_key)]
     build["job_scope"] = cfg.PIPELINES[pipeline_key].get("job_scope")
+    if pipeline_key == "amd":
+        build["hardware_scope"] = "amd_mi_gpu"
     build["source_pipeline"] = cfg.PIPELINES[pipeline_key]["slug"]
     return build
 
@@ -498,6 +525,28 @@ def _persist_scoped_cached_results(
     log.info("  Persisted %s-only cached CI evidence for %s (%d/%d rows)",
              pipeline_key, date, len(scoped), len(cached))
     return True
+
+
+def _purge_unproved_result_scope(results_dir: Path, builds: list[dict]) -> None:
+    """Retain only parsed MI evidence verified against this collection's roster."""
+    validate_result_retention(results_dir)
+    by_number = {build.get("number"): build for build in builds}
+    for path in sorted(results_dir.glob("*.jsonl")):
+        if not path.name.endswith("_amd.jsonl"):
+            path.unlink()
+            prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS, allow_generation_change=True)
+            continue
+        rows = _load_cached_results(path)
+        proven = []
+        for row in rows:
+            build = by_number.get(row.build_number)
+            if build is not None and row.job_id in (build.get("_ci_job_routes") or {}):
+                proven.extend(_current_scope_results([row], "amd", build))
+        if not proven:
+            path.unlink()
+            prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS, allow_generation_change=True)
+        elif proven != rows:
+            write_test_results(proven, path.name.rsplit("_", 1)[0], "amd", results_dir)
 
 
 def _scoped_result_entries(entries: list[tuple[int, str, list[TestResult]]], pipeline_key: str) -> list[tuple[int, str, list[TestResult]]]:
@@ -1015,7 +1064,7 @@ def collect_pipeline(
         # before using their display labels to split hardware or reuse logs;
         # the updated roster makes this a one-time migration per old build.
         queue_incomplete = slug == "ci" and any(
-            pipeline_job_matches_scope(job, pipeline_key) and not _job_queue(job)
+            job.get("type", "script") == "script" and not _job_queue(job)
             for job in build.get("jobs") or []
         )
         _scope_nightly_build(build, pipeline_key)
@@ -1448,6 +1497,7 @@ def _project_test_results_payload(
         "collected_at": collected_at
         or datetime.now(timezone.utc).isoformat()[:19] + "Z",
         "source": "buildkite",
+        "source_pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
         "rocm": {
             "workflow_name": "AMD Nightly (Buildkite)",
             "run_url": latest_amd.build_url,
@@ -1458,16 +1508,6 @@ def _project_test_results_payload(
             "summary": _project_test_result_summary(latest_amd),
         },
     }
-    if latest_upstream:
-        payload["cuda"] = {
-            "workflow_name": "Upstream Nightly (Buildkite)",
-            "run_url": latest_upstream.build_url,
-            "run_date": latest_upstream.created_at,
-            "conclusion": (
-                "success" if latest_upstream.pass_rate >= 0.95 else "failure"
-            ),
-            "summary": _project_test_result_summary(latest_upstream),
-        }
     return payload
 
 
@@ -1541,7 +1581,7 @@ def main():
     parser = argparse.ArgumentParser(description="Collect vLLM CI test data from Buildkite")
     parser.add_argument("--days", type=int, default=8, help="Days of history (8 = covers collection lag and retries)")
     parser.add_argument("--output", type=str, default=str(DEFAULT_OUTPUT), help="Output directory")
-    parser.add_argument("--pipeline", choices=["amd", "upstream", "both"], default="both",
+    parser.add_argument("--pipeline", choices=["amd", "both"], default="amd",
                         help="Which pipeline(s) to collect")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be fetched")
     parser.add_argument("--skip-analysis", action="store_true",
@@ -1564,6 +1604,10 @@ def main():
     results_dir = output_dir / "test_results"
     cache_dir = output_dir / ".cache"
     backfill_checkpoint_dir = cache_dir / "ci-backfill-v1"
+    global _SOURCE_SCOPE_CACHE_DIR
+    _SOURCE_SCOPE_CACHE_DIR = cache_dir / RUNTIME_SOURCE_CACHE_DIR_NAME
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(load_source_scope_indexes(cache_dir / ANALYTICS_CACHE_DIR_NAME))
     if not args.dry_run:
         # Authenticate the public shard generation before a private checkpoint
         # is allowed to change it.  Otherwise compaction could launder a stale
@@ -1603,7 +1647,7 @@ def main():
             "Discarded invalid private DNS classification cache; continuing with cache misses"
         )
 
-    pipelines = ["amd", "upstream"] if args.pipeline == "both" else [args.pipeline]
+    pipelines = ["amd"]
 
     # Phase 1: Collect data from Buildkite
     all_builds: dict[str, list[dict]] = {}
@@ -1843,6 +1887,15 @@ def main():
     prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS)
 
     # Phase 2: Load all results (existing + new) for analysis
+    # Authenticate old shards before retiring their out-of-scope runtime
+    # evidence. Only MI rows may be retained by the current generation.
+    _purge_unproved_result_scope(results_dir, all_builds.get("amd", []))
+    try:
+        synchronize_current_mi_shards(backfill_checkpoint_dir, results_dir)
+    except (OSError, BackfillCheckpointError):
+        if args.github_output:
+            _append_private_cache_outputs(args.github_output, roster_cache_save=False, dns_cache_save=dns_cache_save)
+        raise
     log.info("=== Running analysis ===")
 
     # For each pipeline, build results_by_build tuples sorted oldest-first
@@ -1932,15 +1985,6 @@ def main():
                 "incomplete matrix handoff"
             )
 
-    latest_upstream: list[TestResult] = []
-    up_date = ""
-    up_build_num = 0
-    up_backfilled: set[str] = set()
-    if "upstream" in pipelines:
-        latest_upstream, up_date, up_build_num, up_backfilled = _merge_with_previous(
-            upstream_by_build
-        )
-
     # Compute health for AMD tests (primary focus)
     amd_health = []
     amd_summaries = []
@@ -1952,15 +1996,7 @@ def main():
             "amd", amd_by_build, all_builds.get("amd", []),
         )
 
-    upstream_health = []
     upstream_summaries = []
-    if "upstream" in pipelines:
-        if upstream_by_build:
-            upstream_health = compute_all_test_health(upstream_by_build)
-            log.info("Computed health for %d upstream tests", len(upstream_health))
-        upstream_summaries = _compute_pipeline_summaries(
-            "upstream", upstream_by_build, all_builds.get("upstream", []),
-        )
 
     # Apply quarantine
     quarantine_config = load_quarantine(str(QUARANTINE_PATH))
@@ -1973,266 +2009,6 @@ def main():
 
     # CI Health
     write_ci_health(amd_summaries, upstream_summaries, amd_health, output_dir)
-
-    # Parity (if both pipelines collected)
-    if "amd" in pipelines and "upstream" in pipelines:
-        # Use the most recent build, but backfill missing job groups from
-        # the previous build. This handles jobs still running in the latest
-        # build (e.g., Transformers Nightly Models which runs for hours).
-        if latest_amd and latest_upstream:
-            # Only pass CURRENT-build results to compute_parity.
-            # Backfilled results have stale failure data from previous builds
-            # and should NOT inflate AMD regression counts.
-            current_amd = [r for r in latest_amd if r.job_name not in amd_backfilled]
-            current_upstream = [r for r in latest_upstream if r.job_name not in up_backfilled]
-            parity = compute_parity(current_amd, current_upstream)
-            # Tag backfilled groups so the frontend can show PENDING status.
-            # Track per-HW: a group is only fully backfilled if ALL its
-            # results came from previous builds. Per-HW pending is tracked
-            # in hw_backfilled so the frontend can show per-HW status.
-            from vllm.ci.analyzer import _normalize_job_name, _extract_hardware, _parity_key, _parity_family_name
-            amd_current_norms = set()
-            amd_current_hw: dict[str, set] = {}  # norm -> set of HW with current data
-            amd_backfilled_hw: dict[str, set] = {}  # norm -> set of HW only from backfill
-            for r in latest_amd:
-                norm = _normalize_job_name(r.job_name)
-                hw = _extract_hardware(r.job_name)
-                if r.job_name in amd_backfilled:
-                    amd_backfilled_hw.setdefault(norm, set()).add(hw)
-                else:
-                    amd_current_norms.add(norm)
-                    amd_current_hw.setdefault(norm, set()).add(hw)
-            up_backfilled_norms = {_normalize_job_name(j) for j in up_backfilled}
-            up_current_norms = {
-                _normalize_job_name(r.job_name) for r in latest_upstream
-                if r.job_name not in up_backfilled
-            }
-            for g in parity.get("job_groups", []):
-                name = g["name"]
-                # Group is fully backfilled only if the AMD side has NO current-build results.
-                # Upstream pending should NOT make the AMD hardware overlay show PENDING.
-                amd_fully_bf = name in amd_backfilled_hw and name not in amd_current_norms
-                g["backfilled"] = amd_fully_bf
-                # Per-HW backfill: which HW only have backfilled (previous build) data
-                bf_hw = amd_backfilled_hw.get(name, set()) - amd_current_hw.get(name, set())
-                if bf_hw:
-                    g["hw_backfilled"] = {hw: True for hw in bf_hw}
-            # Phase 3b: Add pending groups for scheduled/waiting jobs
-            # that have no test results yet (never completed in any build).
-            # This ensures all groups from the current nightly appear in the
-            # parity report, even if their jobs haven't started running.
-            amd_latest_build = next(
-                (b for b in all_builds.get("amd", []) if b.get("number") == amd_build_num),
-                None,
-            )
-            # The selected build was hydrated and frozen above. Reuse that
-            # exact response so parity and the matrix share one job roster.
-            if amd_latest_build and not amd_latest_build.get("jobs"):
-                log.warning(
-                    "Frozen AMD build #%s has no job roster; pending parity "
-                    "groups will remain unavailable until the next collection",
-                    amd_build_num,
-                )
-            if amd_latest_build:
-                all_script_jobs = [
-                    j for j in amd_latest_build.get("jobs", [])
-                    if j.get("type") == "script"
-                    and not any(skip in j.get("name", "").lower() for skip in SKIP_JOB_PATTERNS)
-                ]
-                # Find jobs that are NOT terminal (scheduled, waiting, running, etc.)
-                non_terminal_jobs = [
-                    j for j in all_script_jobs
-                    if j.get("state") not in cfg.TERMINAL_STATES
-                ]
-                # Normalized names already present in the parity report.
-                # Check both exact names AND parity keys to avoid creating
-                # phantom groups (e.g., "lm eval large models (h200)" when
-                # the parity report already has "lm eval large models (h200-mi325)")
-
-                existing_groups = {g["name"] for g in parity.get("job_groups", [])}
-                existing_parity_keys = {_parity_key(g["name"]) for g in parity.get("job_groups", [])}
-                existing_hw = {}
-                for g in parity.get("job_groups", []):
-                    existing_hw[g["name"]] = set(g.get("hardware") or [])
-
-                scheduled_groups: dict[str, set] = {}  # norm -> set of HW
-                for j in non_terminal_jobs:
-                    norm = _normalize_job_name(j.get("name", ""))
-                    if _is_parity_excluded_group(norm):
-                        continue
-                    hw = _extract_hardware(j.get("name", ""))
-                    scheduled_groups.setdefault(norm, set()).add(hw)
-
-                # Add entirely new groups that don't exist in parity yet.
-                # A group "exists" if its exact name OR its parity key matches.
-                for norm, hw_set in scheduled_groups.items():
-                    pk = _parity_key(norm)
-                    family_name = _parity_family_name(norm)
-                    if norm not in existing_groups and pk not in existing_parity_keys:
-                        parity["job_groups"].append({
-                            "name": norm,
-                            "family_key": pk,
-                            "family_name": family_name,
-                            "amd_job_name": None,
-                            "upstream_job_name": None,
-                            "amd": None,
-                            "upstream": None,
-                            "amd_hardware": sorted(hw_set),
-                            "upstream_hardware": [],
-                            "hardware": sorted(hw_set),
-                            "amd_hw_failures": {},
-                            "upstream_hw_failures": {},
-                            "hw_failures": None,
-                            "amd_hw_canceled": {},
-                            "upstream_hw_canceled": {},
-                            "hw_canceled": None,
-                            "failure_tests": [],
-                            "job_links": [],
-                            "delta": None,
-                            "status": "amd_only",
-                            "backfilled": True,
-                            "hw_backfilled": {hw: True for hw in hw_set},
-                        })
-                    else:
-                        # Group exists but may be missing some HW — add scheduled HW as pending.
-                        # Match by exact name first, then fall back to parity key so that
-                        # multi-HW-tagged groups like (B200-MI355) find their sibling
-                        # (B200-MI325) when the exact name doesn't exist.
-                        target = None
-                        for g in parity["job_groups"]:
-                            if g["name"] == norm:
-                                target = g
-                                break
-                        if target is None:
-                            for g in parity["job_groups"]:
-                                if _parity_key(g["name"]) == pk:
-                                    target = g
-                                    break
-                        if target is not None:
-                            current_hw = set(target.get("hardware") or [])
-                            new_hw = _extend_parity_side_hardware(
-                                target, "amd", hw_set
-                            )
-                            target["hardware"] = sorted(current_hw | hw_set)
-                            if new_hw:
-                                hw_bf = target.get("hw_backfilled") or {}
-                                for hw in new_hw:
-                                    hw_bf[hw] = True
-                                target["hw_backfilled"] = hw_bf
-
-                if non_terminal_jobs:
-                    log.info("  Added %d scheduled groups (%d new, %d extended) from %d non-terminal jobs",
-                             len(scheduled_groups),
-                             len(scheduled_groups) - len(scheduled_groups.keys() & existing_groups),
-                             len(scheduled_groups.keys() & existing_groups),
-                             len(non_terminal_jobs))
-
-            # Also do the same for upstream
-            up_latest_build = next(
-                (b for b in all_builds.get("upstream", []) if b.get("number") == up_build_num),
-                None,
-            )
-            if up_latest_build and not up_latest_build.get("jobs"):
-                try:
-                    up_latest_build = _fetch_build_detail_with_routing_diagnostics("upstream", up_build_num)
-                except BuildkiteRequestGuardError:
-                    raise
-                except Exception:
-                    pass
-            if up_latest_build:
-                up_all_script_jobs = [
-                    j for j in up_latest_build.get("jobs", [])
-                    if j.get("type") == "script"
-                    and not any(skip in j.get("name", "").lower() for skip in SKIP_JOB_PATTERNS)
-                ]
-                up_non_terminal = [
-                    j for j in up_all_script_jobs
-                    if j.get("state") not in cfg.TERMINAL_STATES
-                ]
-                existing_groups = {g["name"] for g in parity.get("job_groups", [])}
-                existing_pks = {_parity_key(g["name"]) for g in parity.get("job_groups", [])}
-                for j in up_non_terminal:
-                    norm = _normalize_job_name(j.get("name", ""))
-                    if _is_parity_excluded_group(norm):
-                        continue
-                    hw = _extract_hardware(j.get("name", ""))
-                    pk = _parity_key(norm)
-                    family_name = _parity_family_name(norm)
-                    if norm not in existing_groups and pk not in existing_pks:
-                        parity["job_groups"].append({
-                            "name": norm,
-                            "family_key": pk,
-                            "family_name": family_name,
-                            "amd_job_name": None,
-                            "upstream_job_name": None,
-                            "amd": None,
-                            "upstream": None,
-                            "amd_hardware": [],
-                            "upstream_hardware": [hw],
-                            "hardware": [hw],
-                            "amd_hw_failures": {},
-                            "upstream_hw_failures": {},
-                            "hw_failures": None,
-                            "amd_hw_canceled": {},
-                            "upstream_hw_canceled": {},
-                            "hw_canceled": None,
-                            "failure_tests": [],
-                            "job_links": [],
-                            "delta": None,
-                            "status": "upstream_only",
-                            "backfilled": True,
-                        })
-                        existing_groups.add(norm)
-                    else:
-                        target = None
-                        for g in parity["job_groups"]:
-                            if g["name"] == norm:
-                                target = g
-                                break
-                        if target is None:
-                            for g in parity["job_groups"]:
-                                if _parity_key(g["name"]) == pk:
-                                    target = g
-                                    break
-                        if target is not None:
-                            current_hw = set(target.get("hardware") or [])
-                            _extend_parity_side_hardware(
-                                target, "upstream", {hw}
-                            )
-                            target["hardware"] = sorted(current_hw | {hw})
-
-            parity["amd_build"] = amd_build_num
-            parity["upstream_build"] = up_build_num
-
-            # ── Validation: verify no false merges ──
-            # Multiple hardware variants are expected to share one normalized
-            # name. Only multiple raw names on the same hardware can indicate
-            # an accidental merge, and only current-build rows participate in
-            # the parity payload being validated here.
-            false_merges = _find_false_normalization_merges(current_amd)
-            if false_merges:
-                log.warning(
-                    "  VALIDATION: %d possible false merges detected! "
-                    "These same-hardware groups absorb multiple raw jobs but "
-                    "are NOT shard bases:",
-                    len(false_merges),
-                )
-                for hw, norm, raws in false_merges[:5]:
-                    log.warning("    [%s] '%s' <- %s", hw, norm, sorted(raws))
-
-            # ── Validation: verify parity key doesn't drop groups ──
-            from vllm.ci.analyzer import _parity_key
-            lost = _find_missing_parity_groups(current_amd, parity)
-            if lost:
-                log.warning(
-                    "  VALIDATION: %d AMD groups lost in parity matching! "
-                    "Parity key collision may be dropping groups:",
-                    len(lost),
-                )
-                for n in lost[:5]:
-                    log.warning("    '%s' (parity_key='%s')", n, _parity_key(n))
-
-            write_parity_report(parity, amd_date, up_date, output_dir)
 
     # Flaky tests
     if amd_health:
@@ -2281,7 +2057,6 @@ def main():
             log.warning("Config parity failed: %s", config_parity["error"])
 
     # Sync CI data to standard project-level files for compatibility
-    # (CONTRIBUTING.md expects data/vllm/test_results.json and data/vllm/parity_report.json)
     project_dir = output_dir.parent  # data/vllm/
     latest_amd_signal = _latest_signal_summary(amd_summaries)
     if latest_amd_signal:
@@ -2303,12 +2078,9 @@ def main():
             tr_path,
         )
 
-    # Copy parity_report.json to project root for compatibility
-    ci_parity = output_dir / "parity_report.json"
-    proj_parity = project_dir / "parity_report.json"
-    if ci_parity.exists():
-        atomic_write_bytes(proj_parity, ci_parity.read_bytes())
-        log.info("Synced parity_report.json to %s", proj_parity)
+    # Retire the former mixed-runtime comparison after source validation.
+    for retired in (output_dir / "parity_report.json", project_dir / "parity_report.json"):
+        retired.unlink(missing_ok=True)
 
     # Print summary
     _print_summary(amd_summaries, upstream_summaries, amd_health)

@@ -508,69 +508,10 @@ class TestFrontendFiles:
                     f"Time window filtering requires job-to-queue mapping."
                 )
 
-    def test_shard_merge_preserves_parens(self):
-        """mergeShardedGroups must not merge groups with digits inside parens."""
-        js = (DOCS / "assets" / "js" / "utils.js").read_text()
-        # The old regex that incorrectly stripped digits before closing paren
-        assert r"\s+\d+\)$" not in js, (
-            "utils.js still has the paren-digit stripping regex that incorrectly "
-            "merges distinct groups like 'api server 1' and 'api server 2'"
-        )
 
 
-class TestFrontendPendingGroups:
-    """Validate that the frontend doesn't filter out pending/backfilled groups."""
 
 
-    @pytest.mark.live_data
-    def test_parity_report_pending_groups_have_correct_count(self):
-        """The number of groups per HW in parity_report (including backfilled)
-        must match what the frontend would display."""
-        parity_path = ROOT / "data" / "vllm" / "ci" / "parity_report.json"
-        if not parity_path.exists():
-            pytest.skip("no parity_report.json")
-        parity = json.loads(parity_path.read_text())
-
-        for g in parity.get("job_groups", []):
-            if g.get("backfilled") and not g.get("amd") and not g.get("upstream"):
-                # This group has no data but is backfilled — it MUST have hardware
-                assert g.get("hardware"), (
-                    f"Backfilled group '{g['name']}' has no hardware list. "
-                    "It will be invisible on the dashboard."
-                )
-
-
-class TestShardMerging:
-    def _base(self, name):
-        n = re.sub(r'\s+\d+$', '', name)
-        n = re.sub(r'\s+\d+\s*:.*$', '', n)
-        return n
-
-    def test_trailing_digit(self):
-        assert self._base("lora 1") == "lora"
-
-    def test_digit_colon(self):
-        assert self._base("mm (standard) 1: qwen2") == "mm (standard)"
-
-    def test_digit_inside_parens_preserved(self):
-        """Digits inside parens are part of the name, not shard numbers."""
-        assert self._base("entrypoints integration (api server 1)") == "entrypoints integration (api server 1)"
-        assert self._base("entrypoints integration (api server 2)") == "entrypoints integration (api server 2)"
-        assert self._base("multi-modal models (extended generation 1)") == "multi-modal models (extended generation 1)"
-
-    def test_preserved(self):
-        assert self._base("distributed tests (2 gpus)") == "distributed tests (2 gpus)"
-        assert self._base("basic correctness") == "basic correctness"
-
-    @pytest.mark.live_data
-    def test_reduces_real_data(self):
-        """Frontend merge should produce <= groups (backend may already merge)."""
-        path = DATA / "vllm" / "ci" / "parity_report.json"
-        if not path.exists():
-            pytest.skip("no parity data")
-        groups = json.loads(path.read_text())["job_groups"]
-        merged = {self._base(g["name"]) for g in groups}
-        assert len(merged) <= len(groups)
 
 
 @pytest.mark.live_data

@@ -21,6 +21,43 @@ from vllm.ci import dns_failures as dns
 
 
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
+FIXTURE_PIN = "b" * 40
+
+
+@pytest.fixture(autouse=True)
+def _immutable_fixture_source(monkeypatch):
+    """Attest the synthetic roster against an exact deterministic source tree."""
+    from vllm import main_ci_definitions as definitions
+
+    annotate = definitions.annotate_runtime_source_scope
+    collector._SOURCE_SCOPE_INDEXES.clear()
+    monkeypatch.setattr(collector, "_SOURCE_SCOPE_CACHE_DIR", None)
+
+    def fixture_annotate(build, **kwargs):
+        if build.get("commit") == FIXTURE_PIN and "scope_index" not in kwargs:
+            kwargs["scope_index"] = {
+                "version": 1, "commit_sha": FIXTURE_PIN,
+                "definition_tree_sha": "c" * 40, "cpu_routes": [],
+            }
+        return annotate(build, **kwargs)
+
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", fixture_annotate)
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda pins: {})
+
+
+def _proof(classification: str = "amd_mi_gpu") -> dict:
+    return {
+        "version": 1, "source_commit": FIXTURE_PIN, "definition_tree": "c" * 40,
+        "classification": classification,
+    }
+
+
+def _scoped_discovery(start: datetime, end: datetime, *, complete: bool = True) -> dict:
+    return {
+        "version": 1, "hardware_scope": "amd_mi_gpu", "pipelines": ["ci"],
+        "start": dns.iso_timestamp(start), "end_exclusive": dns.iso_timestamp(end),
+        "complete": complete,
+    }
 
 
 def test_private_state_budget_stays_below_encrypted_git_blob_ceiling():
@@ -63,14 +100,14 @@ def _uuid(index: int) -> str:
 def _metadata(
     index: int,
     *,
-    pipeline: str = "amd-ci",
+    pipeline: str = "ci",
     finished_hours: float = -0.5,
     started_hours: float | None = None,
     state: str = "passed",
     queue: str = "amd_mi355_1",
     node: str = "crsuse2-m2m-295",
 ) -> dict:
-    return {
+    metadata = {
         "pipeline": pipeline,
         "build_number": 12000 + index,
         "job_id": _uuid(index),
@@ -83,6 +120,9 @@ def _metadata(
         ),
         "finished_at": _timestamp(hours=finished_hours),
     }
+    if pipeline == "ci":
+        metadata["execution_proof"] = _proof()
+    return metadata
 
 
 def _classification(
@@ -133,6 +173,9 @@ def _negative_record(index: int, *, finished_hours: float = -0.5) -> dict:
 
 def _state(rows: list[dict], *, discovery_hours: float = 720) -> dict:
     payload = dns.empty_state(NOW, NOW - timedelta(hours=discovery_hours))
+    payload["scoped_discovery"] = _scoped_discovery(
+        NOW - timedelta(hours=discovery_hours), NOW,
+    )
     payload["jobs"] = dns.sort_state_jobs(rows)
     return dns.validate_state(payload)
 
@@ -166,7 +209,7 @@ def _build(number: int, jobs: list[dict]) -> dict:
     return {
         "number": number,
         "branch": "private-contributor-branch",
-        "commit": "deadbeef",
+        "commit": FIXTURE_PIN,
         "author": {"email": "private@example.com"},
         "jobs": jobs,
     }
@@ -303,7 +346,7 @@ def test_discovery_includes_passed_soft_hard_and_distinct_retry_uuids():
     ]
 
     rows = collector.discover_job_metadata(
-        {"amd-ci": [_build(12112, jobs)], "ci": []}
+        {"ci": [_build(12112, jobs)]}
     )
 
     assert {row["job_id"] for row in rows} == {_uuid(i) for i in range(1, 6)}
@@ -313,13 +356,321 @@ def test_discovery_includes_passed_soft_hard_and_distinct_retry_uuids():
     assert all("raw_log_url" not in row and "env" not in row for row in rows)
 
 
+def test_current_dns_scope_excludes_legacy_pipeline_and_cpu_jobs_on_mi_agents():
+    gpu = _job(101)
+    cpu = {**_job(102), "no_gpu": True}
+    cpu_offload = {**_job(103), "name": "GPU CPU offload integration"}
+    rows = collector.discover_job_metadata(
+        {
+            "ci": [_build(50000, [gpu, cpu, cpu_offload])],
+            "amd-ci": [_build(14000, [_job(104)])],
+        }
+    )
+    assert {row["job_id"] for row in rows
+            if row["execution_proof"]["classification"] == "amd_mi_gpu"} == {_uuid(101), _uuid(103)}
+    assert next(row for row in rows if row["job_id"] == _uuid(102))["execution_proof"] == _proof("excluded_cpu")
+    assert {row["pipeline"] for row in rows} == {"ci"}
+
+
+def test_legacy_dns_state_remains_readable_but_current_totals_are_ci_only():
+    old = _negative_record(101)
+    old["pipeline"] = "amd-ci"
+    old.pop("execution_proof")
+    current = _negative_record(102)
+    private = _state([old, current])
+    private["discovery"]["pipelines"] = ["amd-ci", "ci"]
+    restored = dns.state_from_bytes(dns.state_bytes(private))
+    public = dns.build_public_output(restored)
+    assert len(restored["jobs"]) == 2
+    assert public["generated_at"] == private["generated_at"]
+    assert public["scope"]["pipelines"] == ["ci"]
+    assert public["scope"]["hardware_scope"] == "amd_mi_gpu"
+    assert public["coverage"]["eligible_jobs"] == 1
+    assert public["windows"]["24h"]["coverage"]["eligible_jobs"] == 1
+    assert dns.validate_state(restored) == private
+
+
+def test_unproved_legacy_dns_classifications_and_interval_never_promote_current_scope():
+    legacy = _state([_positive_record(1), _negative_record(2)])
+    legacy.pop("scoped_discovery")
+    for row in legacy["jobs"]:
+        row.pop("execution_proof")
+        row["build_number"] = 12001
+    restored = dns.state_from_bytes(dns.state_bytes(legacy))
+    public = dns.build_public_output(restored)
+    assert restored == legacy
+    assert public["generated_at"] == legacy["generated_at"]
+    assert public["coverage"]["eligible_jobs"] == 0
+    assert public["evidence"]["items"] == []
+    assert all(not item["coverage"]["discovery_complete"] for item in public["windows"].values())
+    assert public["coverage"]["discovery_start"] == _timestamp(seconds=-1)
+
+
+def test_fresh_exact_metadata_revalidates_cached_gpu_and_cpu_without_reading_logs(tmp_path):
+    state_path = tmp_path / "scan_state.json.gz"
+    legacy = _state([_positive_record(1), _positive_record(2)])
+    legacy.pop("scoped_discovery")
+    for row in legacy["jobs"]:
+        row.pop("execution_proof")
+        row["build_number"] = 12001
+    dns.write_state(state_path, legacy)
+
+    class Client:
+        def discover_builds(self, pipeline, **kwargs):
+            assert pipeline == "ci"
+            return [_build(12001, [
+                _job(1, finished_hours=-0.1),
+                {**_job(2, finished_hours=-0.1), "no_gpu": True},
+            ])]
+
+        def fetch_job_log(self, *args, **kwargs):
+            raise AssertionError("cached final classifications must not reread logs")
+
+    public = collector.collect(
+        client=Client(), state_path=state_path, output_path=tmp_path / "dns.json",
+        now=NOW + timedelta(hours=1),
+    )
+    refreshed = dns.load_state(state_path)
+    assert refreshed is not None
+    assert public["coverage"]["eligible_jobs"] == 1
+    assert public["windows"]["24h"]["totals"]["affected_jobs"] == 1
+    assert public["windows"]["1h"]["coverage"]["discovery_complete"] is True
+    assert public["windows"]["24h"]["coverage"]["discovery_complete"] is False
+    assert refreshed["discovery"]["start"] == _timestamp(hours=-719)
+    assert refreshed["scoped_discovery"]["start"] == _timestamp(hours=-2)
+    assert {row["execution_proof"]["classification"] for row in refreshed["jobs"]} == {
+        "amd_mi_gpu", "excluded_cpu",
+    }
+    for row in refreshed["jobs"]:
+        old = next(item for item in legacy["jobs"] if item["job_id"] == row["job_id"])
+        assert row["status"] == old["status"]
+        assert row["last_attempt_at"] == old["last_attempt_at"]
+        assert row["attempts"] == old["attempts"]
+    assert "execution_proof" not in json.dumps(public)
+    assert FIXTURE_PIN not in json.dumps(public)
+
+
+def test_missing_full_commit_retains_observation_without_scan_or_scope_completeness(tmp_path):
+    class Client:
+        def discover_builds(self, pipeline, **kwargs):
+            return [{**_build(12001, [_job(1)]), "commit": "deadbeef"}]
+
+        def fetch_job_log(self, *args, **kwargs):
+            raise AssertionError("unproved execution scope must not authorize a log read")
+
+    path = tmp_path / "scan_state.json.gz"
+    public = collector.collect(
+        client=Client(), state_path=path, output_path=tmp_path / "dns.json", now=NOW,
+    )
+    state = dns.load_state(path)
+    assert state is not None
+    assert len(state["jobs"]) == 1 and state["jobs"][0]["status"] == "pending"
+    assert "execution_proof" not in state["jobs"][0]
+    assert state["discovery"]["complete"] is True
+    assert state["scoped_discovery"]["complete"] is False
+    assert public["coverage"]["eligible_jobs"] == 0
+    assert all(not item["coverage"]["discovery_complete"] for item in public["windows"].values())
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", True), ("version", 2), ("source_commit", "deadbeef"),
+    ("source_commit", "B" * 40), ("definition_tree", "token=privatevalue"),
+    ("classification", "gpu"), ("private_log", "arbitrary private text"),
+])
+def test_execution_proof_rejects_malformed_or_private_fields(field, value):
+    state = _state([_negative_record(1)])
+    state["jobs"][0]["execution_proof"][field] = value
+    with pytest.raises(dns.StateValidationError, match="execution_proof"):
+        dns.state_bytes(state)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", True), ("pipelines", ["amd-ci", "ci"]),
+    ("hardware_scope", "all_gpu"), ("complete", 1),
+    ("start", "2026-08-17T12:00:00Z"), ("end_exclusive", "2026-08-17T11:00:00Z"),
+    ("raw_response", "private text"),
+])
+def test_scoped_discovery_rejects_malformed_or_private_fields(field, value):
+    state = _state([])
+    state["scoped_discovery"][field] = value
+    with pytest.raises(dns.StateValidationError, match="scoped_discovery"):
+        dns.state_bytes(state)
+
+
+def test_merge_keeps_exact_proof_without_replacing_final_dns_classification():
+    final = _positive_record(1)
+    final.pop("execution_proof")
+    observed = dns.pending_record(_metadata(1))
+    merged = dns.merge_state_jobs([final], [observed])
+    assert merged[0] == {**final, "execution_proof": _proof()}
+    conflict = {**observed, "execution_proof": _proof("excluded_cpu")}
+    with pytest.raises(dns.StateValidationError, match="conflicting exact"):
+        dns.merge_state_jobs(merged, [conflict])
+
+
+def test_scanner_skips_unproved_and_exactly_excluded_cpu_backlog():
+    unproved = dns.pending_record(_metadata(1))
+    unproved.pop("execution_proof")
+    excluded = dns.pending_record({**_metadata(2), "execution_proof": _proof("excluded_cpu")})
+    client = _LogClient({})
+    rows = collector.scan_records(
+        [unproved, excluded], client=client, attempted_at=_timestamp(), max_logs=100,
+    )
+    assert client.calls == []
+    assert {row["status"] for row in rows} == {"pending"}
+
+
+def test_nonterminal_mi_jobs_never_start_immutable_source_lookup(monkeypatch):
+    from vllm import main_ci_definitions as definitions
+
+    def reject_source(*args, **kwargs):
+        raise AssertionError("nonterminal jobs must not spend source requests")
+
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", reject_source)
+    assert collector.job_metadata("ci", _build(12001, []), _job(1, state="running")) is None
+
+
+def test_dns_reuses_authenticated_exact_source_indexes_without_git_transport(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as definitions
+    from vllm.ci.analytics_cache import read_runtime_source_indexes, write_runtime_source_indexes
+
+    index = {
+        "version": 1, "commit_sha": FIXTURE_PIN, "definition_tree_sha": "c" * 40,
+        "cpu_routes": [{"key": "cpu-abi", "agent_pool": "mi355_1", "label": "torch abi"}],
+    }
+    cache_path = tmp_path / "runtime-source-indexes-v1"
+    write_runtime_source_indexes(cache_path, {FIXTURE_PIN: index})
+    collector._SOURCE_SCOPE_INDEXES.update(read_runtime_source_indexes(cache_path))
+    monkeypatch.setattr(collector, "_SOURCE_SCOPE_CACHE_DIR", cache_path)
+
+    def reject_source(*args, **kwargs):
+        raise AssertionError("the authenticated immutable index must suppress Git requests")
+
+    monkeypatch.setattr(definitions, "runtime_snapshot", reject_source)
+    job = {**_job(1), "step": {"key": "cpu-abi"}}
+    metadata = collector.job_metadata("ci", _build(12001, []), job)
+    assert metadata is not None and metadata["execution_proof"] == _proof("excluded_cpu")
+    assert read_runtime_source_indexes(cache_path) == {FIXTURE_PIN: index}
+
+
+def test_dns_source_priming_batches_only_missing_terminal_mi_pins_and_checkpoints(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as definitions
+    from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+    cache_path = tmp_path / "runtime-source-indexes-v1"
+    monkeypatch.setattr(collector, "_SOURCE_SCOPE_CACHE_DIR", cache_path)
+    batches = []
+    monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda pins: batches.append(pins))
+
+    def annotate(build, **kwargs):
+        pin = build["commit"]
+        return {**build, "source_scope_index": {
+            "version": 1, "commit_sha": pin, "definition_tree_sha": "c" * 40,
+            "cpu_routes": [],
+        }}
+
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+    pins = [f"{index:040x}" for index in range(1, 54)]
+    builds = [{**_build(index, [_job(index)]), "commit": pin}
+              for index, pin in enumerate(pins, 1)]
+    builds += [
+        {**_build(100, [_job(100, state="running")]), "commit": "d" * 40},
+        {**_build(101, [_job(101, queue="nvidia_b200")]), "commit": "e" * 40},
+        {**_build(102, [_job(102)]), "commit": "deadbeef"},
+    ]
+    collector._prime_source_builds(builds)
+    assert [len(batch) for batch in batches] == [50, 3]
+    assert [pin for batch in batches for pin in batch] == pins
+    assert set(read_runtime_source_indexes(cache_path)) == set(pins)
+    collector._prime_source_builds(builds)
+    assert len(batches) == 2
+
+
+def test_source_priming_failure_keeps_proven_checkpoint_and_never_advances_dns_clock(monkeypatch, tmp_path):
+    from vllm import main_ci_definitions as definitions
+    from vllm.ci.analytics_cache import read_runtime_source_indexes
+
+    cache_path = tmp_path / "runtime-source-indexes-v1"
+    monkeypatch.setattr(collector, "_SOURCE_SCOPE_CACHE_DIR", cache_path)
+    state_path = tmp_path / "scan_state.json.gz"
+    prior = _state([])
+    dns.write_state(state_path, prior)
+    original = state_path.read_bytes()
+    pins = ["a" * 40, "d" * 40]
+
+    def annotate(build, **kwargs):
+        pin = build["commit"]
+        if pin == pins[1]:
+            raise ValueError("bounded source acquisition failed")
+        return {**build, "source_scope_index": {
+            "version": 1, "commit_sha": pin, "definition_tree_sha": "c" * 40,
+            "cpu_routes": [],
+        }}
+
+    monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
+
+    class Client:
+        def discover_builds(self, pipeline, **kwargs):
+            return [{**_build(index, [_job(index)]), "commit": pin}
+                    for index, pin in enumerate(pins, 1)]
+
+    output_path = tmp_path / "dns.json"
+    with pytest.raises(ValueError, match="bounded source acquisition failed"):
+        collector.collect(
+            client=Client(), state_path=state_path, output_path=output_path,
+            now=NOW + timedelta(hours=1),
+        )
+    assert state_path.read_bytes() == original
+    assert not output_path.exists()
+    assert set(read_runtime_source_indexes(cache_path)) == {pins[0]}
+
+
+def test_dns_pinned_cpu_definition_overrides_mi_queue_and_misleading_label(monkeypatch):
+    from vllm import main_ci_definitions as definitions
+
+    pin = "a" * 40
+    snapshot = definitions.MainCISnapshot(
+        pin,
+        {
+            definitions.CI_CONFIG: {"job_dirs": [".buildkite/test_areas"]},
+            ".buildkite/test_areas/models.yaml": {
+                "steps": [
+                    {
+                        "key": "cpu-abi",
+                        "label": ":amd: (MI250) Torch Stable ABI",
+                        "device": "mi300_1",
+                        "num_devices": 1,
+                        "no_gpu": True,
+                    },
+                    {
+                        "key": "gpu-offload",
+                        "label": ":amd: (MI300) GPU CPU offload",
+                        "device": "mi300_1",
+                        "num_devices": 1,
+                    },
+                ]
+            },
+        },
+        _timestamp(),
+        definition_tree_sha="d" * 40,
+    )
+    monkeypatch.setattr(definitions, "runtime_snapshot", lambda commit: snapshot)
+    cpu = {**_job(101, queue="amd_mi300_1"), "step": {"key": "cpu-abi"}}
+    gpu = {**_job(102, queue="amd_mi300_1"), "step": {"key": "gpu-offload"}}
+    build = {**_build(50000, [cpu, gpu]), "commit": pin}
+    rows = collector.discover_job_metadata({"ci": [build]})
+    assert [row["job_id"] for row in rows
+            if row["execution_proof"]["classification"] == "amd_mi_gpu"] == [_uuid(102)]
+    assert next(row for row in rows if row["job_id"] == _uuid(101))["execution_proof"]["classification"] == "excluded_cpu"
+
+
 def test_discovery_normalizes_fractional_job_timestamps_to_whole_seconds():
     job = _job(1, state="passed")
     job["started_at"] = "2026-08-16T22:00:00.987654Z"
     job["finished_at"] = "2026-08-16T23:00:00.123456Z"
 
     [row] = collector.discover_job_metadata(
-        {"amd-ci": [_build(12112, [job])], "ci": []}
+        {"ci": [_build(12112, [job])]}
     )
 
     assert row["started_at"] == "2026-08-16T22:00:00Z"
@@ -328,12 +679,12 @@ def test_discovery_normalizes_fractional_job_timestamps_to_whole_seconds():
 
 def test_discovery_fails_closed_when_build_job_inventory_is_malformed():
     with pytest.raises(collector.CollectionError, match="invalid_response"):
-        collector.discover_job_metadata({"amd-ci": [{"number": 1}], "ci": []})
+        collector.discover_job_metadata({"ci": [{"number": 1}]})
     malformed_job = _job(1)
     malformed_job["id"] = "not-a-buildkite-uuid"
     with pytest.raises(collector.CollectionError, match="invalid_response"):
         collector.discover_job_metadata(
-            {"amd-ci": [_build(1, [malformed_job])], "ci": []}
+            {"ci": [_build(1, [malformed_job])]}
         )
 
 
@@ -348,7 +699,7 @@ def test_arbitrary_job_names_never_enter_state_or_public_evidence():
     )
     job = _job(1, name=unsafe)
     [metadata] = collector.discover_job_metadata(
-        {"amd-ci": [_build(12112, [job])], "ci": []}
+        {"ci": [_build(12112, [job])]}
     )
     assert "job_name" not in metadata
     pending = dns.pending_record(metadata)
@@ -953,7 +1304,7 @@ def test_later_discovery_does_not_erase_log_recovered_node(tmp_path: Path):
             active_created_to: str | None = None,
             deadline: float | None = None,
         ):
-            return [_build(12112, [job])] if pipeline == "amd-ci" else []
+            return [_build(12112, [job])] if pipeline == "ci" else []
 
         def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
             self.log_calls += 1
@@ -1241,7 +1592,7 @@ def test_build_discovery_is_all_branch_and_includes_retried_jobs():
     session = _FakeSession([_FakeResponse(200, json_payload=[])])
     client = collector.BuildkiteClient("memory-only-token", session=session, sleep=lambda _: None)
     assert client.build_page(
-        "amd-ci",
+        "ci",
         filters={"finished_from": _timestamp(hours=-24)},
         page=1,
     ) == []
@@ -1269,7 +1620,7 @@ def test_hard_request_cap_counts_retries_before_the_network_start():
 
     with pytest.raises(collector.RequestBudgetExhausted):
         client.build_page(
-            "amd-ci",
+            "ci",
             filters={"finished_from": _timestamp(hours=-1)},
             page=1,
         )
@@ -1313,7 +1664,7 @@ def test_hard_request_cap_is_shared_across_rest_graphql_and_logs():
     )
 
     assert client.build_page(
-        "amd-ci",
+        "ci",
         filters={"finished_from": _timestamp(hours=-1)},
         page=1,
     ) == []
@@ -1380,7 +1731,7 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
         *,
         passed: bool,
         soft_failed: bool,
-        pipeline: str = "amd-ci",
+        pipeline: str = "ci",
     ) -> dict:
         return {
             "uuid": _uuid(index),
@@ -1493,7 +1844,7 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
         _uuid(4): "hard",
         _uuid(5): "hard",
     }
-    queue_call, jobs_call, jobs_page_2_call, amd_rest_call, ci_rest_call = session.calls
+    queue_call, jobs_call, jobs_page_2_call, ci_rest_call = session.calls
     assert queue_call["method"] == jobs_call["method"] == "POST"
     assert queue_call["url"] == jobs_call["url"] == collector.BUILDKITE_GRAPHQL_API
     assert "$org: ID!" in queue_call["json"]["query"]
@@ -1506,10 +1857,9 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
     assert "createdAtFrom: $from" in jobs_call["json"]["query"]
     assert "clusterQueue: $queues" in jobs_call["json"]["query"]
     assert "FINISHED, TIMED_OUT, BROKEN, EXPIRED" in jobs_call["json"]["query"]
-    assert amd_rest_call["params"]["finished_from"] == _timestamp(hours=-2)
     assert ci_rest_call["params"]["finished_from"] == _timestamp(hours=-2)
     assert client.request_starts() == {
-        "build_page": 2,
+        "build_page": 1,
         "graphql": 3,
         "job_log": 0,
     }
@@ -1537,7 +1887,7 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
         sleep=lambda _: None,
     )
     builds = client.discover_builds(
-        "amd-ci",
+        "ci",
         finished_from=_timestamp(hours=-2),
         active_created_from=_timestamp(hours=-24),
         active_created_to=_timestamp(),
@@ -1554,7 +1904,7 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     assert "created_from" not in finished_params
     assert all(params["include_retried_jobs"] == "true" for params in (active_params, finished_params))
 
-    rows = collector.discover_job_metadata({"amd-ci": builds, "ci": []})
+    rows = collector.discover_job_metadata({"ci": builds})
     assert {row["job_id"] for row in rows} == {_uuid(1), _uuid(2)}
 
 
@@ -1612,7 +1962,7 @@ def test_active_discovery_uses_bounded_slices_and_deterministic_dedupe():
 
     client = SlicedClient()
     builds = client.discover_builds(
-        "amd-ci",
+        "ci",
         finished_from=_timestamp(hours=-2),
         active_created_from=_timestamp(hours=-(slice_hours * 3 + 1)),
         active_created_to=_timestamp(),
@@ -1827,7 +2177,7 @@ def test_active_discovery_slice_failure_starts_no_fourth_slice():
     client = FailingClient()
     with pytest.raises(collector.CollectionError, match="network_error"):
         client.discover_builds(
-            "amd-ci",
+            "ci",
             finished_from=_timestamp(hours=-2),
             active_created_from=_timestamp(hours=-(slice_hours * 3 + 1)),
             active_created_to=_timestamp(),
@@ -2110,7 +2460,7 @@ def test_new_utc_day_discovers_recent_jobs_before_full_active_reconciliation(tmp
         now=NOW,
     )
 
-    assert client.calls == ["recent-jobs", "amd-ci", "ci"]
+    assert client.calls == ["recent-jobs", "ci"]
 
 
 @pytest.mark.parametrize("exhaustion", [collector.BudgetExhausted, collector.RequestBudgetExhausted])
@@ -2189,7 +2539,7 @@ def test_recent_graphql_page_checkpoint_reserves_transport_starts_for_logs(tmp_p
         "state": "FINISHED", "passed": True, "softFailed": False,
         "agent": {"metaData": [f"queue={queue}", "k8s:node=crsuse2-m2m-295"]},
         "clusterQueue": {"id": queue_id, "key": queue},
-        "build": {"number": 13000 + index, "pipeline": {"slug": "amd-ci"}},
+        "build": {"number": 13000 + index, "commit": FIXTURE_PIN, "pipeline": {"slug": "ci"}},
     } for index in (1, 2)]
     jobs_payload = {"data": {"organization": {"jobs": {
         "edges": [{"node": node} for node in nodes],
@@ -2382,7 +2732,6 @@ def test_missing_state_bootstraps_one_exhaustive_day_and_reports_partial_30d(
 
     bootstrap_start = _timestamp(hours=-collector.BOOTSTRAP_DISCOVERY_HOURS)
     assert client.discovery_calls == [
-        ("amd-ci", bootstrap_start, _timestamp(hours=-720), _timestamp()),
         ("ci", bootstrap_start, _timestamp(hours=-720), _timestamp()),
     ]
     state = dns.load_state(state_path)
@@ -2415,7 +2764,6 @@ def test_incremental_discovery_overlaps_prior_end_and_carries_contiguous_start(
         - timedelta(hours=collector.INCREMENTAL_DISCOVERY_OVERLAP_HOURS)
     )
     assert client.discovery_calls == [
-        ("amd-ci", overlap_start, _timestamp(hours=-720), _timestamp()),
         ("ci", overlap_start, _timestamp(hours=-720), _timestamp()),
     ]
     state = dns.load_state(state_path)
@@ -2535,7 +2883,7 @@ def test_time_budget_persists_progress_and_honest_pending_coverage(tmp_path: Pat
             active_created_to: str | None = None,
             deadline: float | None = None,
         ):
-            return [_build(12112, jobs)] if pipeline == "amd-ci" else []
+            return [_build(12112, jobs)] if pipeline == "ci" else []
 
         def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
             self.calls.append(metadata["job_id"])

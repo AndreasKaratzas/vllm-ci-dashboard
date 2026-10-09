@@ -365,14 +365,11 @@ def test_dns_deep_link_preloads_only_its_same_origin_fallback():
     assert "data/vllm/ci/dns_failures.json?_=" in INDEX
 
 
-def test_shard_data_waits_for_first_render_without_a_legacy_parity_fetch():
-    utils = (ROOT / "docs" / "assets" / "js" / "utils.js").read_text()
-    assert "function afterOpsV2FirstRender(task)" in utils
-    assert "window.addEventListener('ops-v2:first-render', function() { schedule(1500); }" in utils
-    assert "afterOpsV2FirstRender(function() {\n  LinkRegistry.onReady" not in utils
-    shard_start = utils.index("var _shardBasesReady")
-    shard_end = utils.index("function _stripShardIndex", shard_start)
-    assert "afterOpsV2FirstRender(function()" in utils[shard_start:shard_end]
+def test_navigation_utils_has_no_retired_comparison_data_graph():
+    assert "var DashboardTabs" in UTILS_JS
+    assert "function registerCISection" in UTILS_JS
+    for retired in ("LinkRegistry", "BK_UP_BUILD", "BK_GROUP_DATA", "mergeParityGroups", "mergeShardedGroups", "showGroupOverlay", "parity_report.json"):
+        assert retired not in UTILS_JS
 
 
 def test_operations_data_is_lazy_loaded_with_bounded_first_render_payloads():
@@ -525,7 +522,6 @@ def test_reliability_evidence_is_drillable_and_honestly_named():
 
 
 def test_pass_rate_copy_names_each_observation_denominator():
-    assert "MEDIAN RETAINED-RUN PASS RATE" in OPS_JS
     assert "RETAINED-RUN PASS RATE" in OPS_JS
     assert "Retained-run pass rate" in OPS_JS
     assert "job_variant_pass_rate" in OPS_JS
@@ -534,54 +530,6 @@ def test_pass_rate_copy_names_each_observation_denominator():
     assert "details: {observed_job_variants:" in OPS_JS
 
 
-def test_test_group_history_switches_cohorts_with_clickable_outcome_evidence():
-    for contract in (
-        "function isNightlyObservation",
-        "function observationHistoryPoint",
-        "function historyOutcomeTone",
-        "function historyRunCell",
-        "function historyIncidentRow",
-        "All main",
-        "Nightly only",
-        "Test-group history cohort",
-        "Test-group reliability",
-        "Select test group for historical analysis",
-        "Outcome timeline",
-        "Failures to inspect",
-        "RETAINED-RUN PASS RATE",
-        "CURRENT SIGNAL",
-        "LAST FAILURE",
-        "TYPICAL COMPLETION",
-        "Outcome trend",
-        "function trailingPassStats",
-        "Trailing 10-run pass rate",
-        "Current trailing 10:",
-        "bar color is the exact result",
-        "stepped: 'after'",
-        "Completion and queue wait",
-        "Historical outcomes, latency, and exact Buildkite evidence",
-    ):
-        assert contract in OPS_JS
-    assert "observation.build_kind" in OPS_JS
-    assert "exactPipelineEvidenceUrl(observation, sourcePipeline)" in OPS_JS
-    assert "analytics_group" in OPS_JS
-    assert "analytics_cohort" in OPS_JS
-    assert "The source retains up to 60 exact observations" in OPS_JS
-    assert "Pass and incident history" not in OPS_JS
-    assert "Rolling reliability" not in OPS_JS
-
-    for contract in (
-        ".ops-page .ops-history-snapshot",
-        ".ops-page .ops-history-detail-grid",
-        ".ops-page .ops-history-batches",
-        ".ops-page .ops-run-cell",
-        ".ops-page .ops-incident-row",
-        ".ops-v2:has(#main-content > .ops-page.active) > footer",
-    ):
-        assert contract in OPS_CSS
-    assert ".ops-v2:has(#main-content > .ops-page.active) footer {" not in OPS_CSS
-    assert "body > footer {" in DASHBOARD_CSS
-    assert "\nfooter {" not in DASHBOARD_CSS
 
 
 @pytest.mark.live_data
@@ -749,12 +697,6 @@ def test_architecture_and_test_group_history_show_exact_counts_at_a_glance():
         "passing",
         "incident",
         "unobserved",
-        "Complete test-group history",
-        "Latest 30 exact runs - oldest to newest",
-        "Explore all groups",
-        "MEDIAN RETAINED-RUN PASS RATE",
-        "Outcome timeline",
-        "--ops-history-track-width",
     ):
         assert contract in OPS_JS
     for contract in (
@@ -1060,7 +1002,7 @@ def test_amd_logical_inventory_accepts_reconciled_unaligned_identity_fallback():
 const assert = require('assert');
 {inventory_helper}
 const reconciled = {{
-  source_pipeline: 'ci', job_scope: 'amd_gpu',
+  source_pipeline: 'ci', job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu',
   summary: {{latest_test_group_counts: {{available: true, build_number: 123, total: 1}}}},
   latest_logical_test_groups: {{
     available: true,
@@ -1701,7 +1643,7 @@ def test_analytics_dns_view_is_fast_visual_drillable_and_coverage_honest():
     ):
         assert label in OPS_JS
 
-    assert "new Set(['amd-ci', 'ci'])" in OPS_JS
+    assert "const QUEUE_DNS_PIPELINES = new Set(['ci'])" in OPS_JS
     assert "QUEUE_DNS_JOB_ID_RE" in OPS_JS
     assert "'/list?jid='" in OPS_JS
     assert "{id: 'canonical', label: 'Canonical AMD (12)'}" in OPS_JS
@@ -1821,7 +1763,7 @@ const livePayload = {
   default_window: '24h',
   window_options: canonicalWindowOptions,
   count_basis: 'distinct_buildkite_job_attempts_with_strong_dns_evidence',
-  scope: {pipelines: ['amd-ci', 'ci'], queue_scope: 'active_amd_gpu'},
+  scope: {hardware_scope: 'amd_mi_gpu', pipelines: ['ci'], queue_scope: 'active_amd_gpu'},
   classifier: {id: 'dns-v1', target_categories: ['huggingface_hub', 'unknown']},
   coverage: Object.assign({}, completeCoverage, {
     discovery_start: '2026-07-18T10:00:00Z',
@@ -1836,14 +1778,14 @@ const livePayload = {
     truncated: true,
     items: [{
       id: 'a'.repeat(64), first_at: '2026-08-17T08:00:00Z', last_at: '2026-08-17T08:00:05Z',
-      time_basis: 'job_finished_at', pipeline: 'amd-ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
+      time_basis: 'job_finished_at', pipeline: 'ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
       build_number: 12112, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'hard', episodes: 3, match_count: 9,
       signature_ids: ['temporary_name_resolution'], target_categories: ['huggingface_hub'], window_ids: recentWindowIds,
       window_metrics: repeatedWindowMetrics(recentWindowIds, firstRecentMetric),
       url: 'https://attacker.example/log',
     }, {
       id: 'a'.repeat(64), first_at: '2026-08-17T08:00:00Z', last_at: '2026-08-17T08:01:00Z',
-      time_basis: 'job_finished_at', pipeline: 'amd-ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
+      time_basis: 'job_finished_at', pipeline: 'ci', queue: 'amd_mi300_1', node: 'node-a', hardware: 'MI300',
       build_number: 12112, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'hard', episodes: 3, match_count: 10,
       signature_ids: ['temporary_name_resolution'], target_categories: ['huggingface_hub'], window_ids: recentWindowIds,
       window_metrics: repeatedWindowMetrics(recentWindowIds, secondRecentMetric),
@@ -2122,7 +2064,7 @@ const allRouteQueueRows = helpers.queueDnsQueueRows(livePayload.windows['3h'], '
 ]);
 assert.equal(JSON.stringify(allRouteQueueRows), JSON.stringify(queueRows));
 
-const expectedUrl = 'https://buildkite.com/vllm/amd-ci/builds/12112/list?jid=' + validJobId + '&tab=output';
+const expectedUrl = 'https://buildkite.com/vllm/ci/builds/12112/list?jid=' + validJobId + '&tab=output';
 assert.equal(helpers.queueDnsEvidenceUrl(livePayload.evidence.items[0]), expectedUrl);
 assert.equal(helpers.queueDnsEvidenceUrl(Object.assign({}, livePayload.evidence.items[0], {pipeline: 'evil'})), '');
 assert.equal(helpers.queueDnsEvidenceUrl(Object.assign({}, livePayload.evidence.items[0], {build_number: 0})), '');
@@ -2158,7 +2100,7 @@ const longJobMetrics = Object.fromEntries(longJobWindowIds.map(function (windowI
 }));
 const longJob = {
   id: 'c'.repeat(64), first_at: retainedLongJobMetric.first_at, last_at: retainedLongJobMetric.last_at,
-  time_basis: 'log_timestamp', pipeline: 'amd-ci', queue: 'amd_mi300_1', node: 'node-long', hardware: 'MI300',
+  time_basis: 'log_timestamp', pipeline: 'ci', queue: 'amd_mi300_1', node: 'node-long', hardware: 'MI300',
   build_number: 12113, job_id: validJobId, job_name: 'MUST NOT RENDER xoxb-secret', state: 'hard',
   episodes: retainedLongJobMetric.episodes, match_count: retainedLongJobMetric.match_count,
   signature_ids: retainedLongJobMetric.signature_ids.slice(), target_categories: retainedLongJobMetric.target_categories.slice(),
@@ -2288,7 +2230,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=35' in INDEX
+    assert 'assets/js/ops-v2.js?v=36' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
@@ -2325,7 +2267,7 @@ def test_retired_mi355b_queues_are_excluded_on_every_frontend_path():
 
 
 def test_omni_mapping_controls_remain_scoped_after_queue_page_removal():
-    assert "const mapping = omni.mapping_history || {}" in OPS_JS
+    assert "const mappingSource = omni.mapping_history || {}" in OPS_JS
     assert "Object.keys(omniByQueue).concat(Object.keys(mainByQueue))" in OPS_JS
     assert "INCOMING OMNI JOBS" in OPS_JS
     assert "OBSERVED OMNI MAPPINGS" in OPS_JS
@@ -2333,15 +2275,19 @@ def test_omni_mapping_controls_remain_scoped_after_queue_page_removal():
 
 
 def test_main_ci_analytics_preserves_health_nightlies_and_recent_latency():
-    for contract in ("canonicalReliability(ops)", "return reliabilityForPipeline(ops, 'ci')", "{id: 'groups', label: 'AMD test health'}", "{id: 'latency', label: 'Latency comparison'}", "Current main CI AMD health", "will not substitute unmatched hardware or a different pipeline"):
+    for contract in ("canonicalReliability(ops)", "return reliabilityForPipeline(ops, 'ci')", "{id: 'groups', label: 'AMD test health'}", "{id: 'latency', label: 'AMD nightly latency'}", "Current main CI AMD MI health", "Recent AMD MI timing data is required"):
         assert contract in OPS_JS
     assert "{id: 'flakes'" not in OPS_JS
     assert "{id: 'retries'" not in OPS_JS
 
 
-def test_nightly_main_ci_hardware_selector_defaults_amd_and_is_route_backed():
-    for contract in ("analyticsPipeline: 'ci-amd'", "['analyticsPipeline', 'analytics_pipeline', ['ci-amd', 'ci-cuda']]", "nightlyForCohort(ops, state.analyticsPipeline)", "{id: 'ci-amd', label: 'AMD gating jobs'}", "{id: 'ci-cuda', label: 'CUDA gating jobs'}", "Main CI nightly hardware cohort", "nightly.upstream_parity", "nightly.canonical_history"):
-        assert contract in OPS_JS
+def test_nightly_main_ci_scope_is_amd_mi_only_and_legacy_query_is_pruned():
+    assert "nightlyForCohort(ops, 'ci-amd')" in OPS_JS
+    assert "candidate.hardware_scope === 'amd_mi_gpu'" in OPS_JS
+    assert "ops_analytics_pipeline" not in OPS_JS
+    assert "ci-cuda" not in OPS_JS
+    assert "nightly.upstream_parity" not in OPS_JS
+    assert "nightly.canonical_history" in OPS_JS
 
 
 def test_recent_latency_uses_exact_main_ci_evidence():
@@ -2549,145 +2495,9 @@ assert.equal(helpers.groupPublicationHistoryComplete({
     )
     assert result.returncode == 0, result.stderr
 
-    assert "Published test-group history" in OPS_JS
-    assert "Complete test-group history" in OPS_JS
+    assert "publicationHistoryComplete" in OPS_JS
 
 
-def test_bounded_group_history_dom_fails_closed():
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node is not available")
-    script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-
-class TextNode {
-  constructor(text) {
-    this.nodeType = 3;
-    this.textContent = String(text);
-    this.parentNode = null;
-  }
-}
-
-class Element {
-  constructor(tagName) {
-    this.nodeType = 1;
-    this.tagName = String(tagName).toUpperCase();
-    this.className = '';
-    this.childNodes = [];
-    this.parentNode = null;
-    this.attributes = {};
-    this.dataset = {};
-    this.style = {setProperty: function () {}};
-    this._text = '';
-    this.classList = {
-      add: (...names) => {
-        const existing = this.className.split(/\s+/).filter(Boolean);
-        names.forEach(function (name) { if (name && !existing.includes(name)) existing.push(name); });
-        this.className = existing.join(' ');
-      },
-    };
-  }
-  append(...children) {
-    children.forEach((child) => {
-      const node = child && child.nodeType ? child : new TextNode(child);
-      node.parentNode = this;
-      this.childNodes.push(node);
-    });
-  }
-  appendChild(child) { this.append(child); return child; }
-  removeChild(child) {
-    const index = this.childNodes.indexOf(child);
-    if (index >= 0) this.childNodes.splice(index, 1);
-    child.parentNode = null;
-    return child;
-  }
-  setAttribute(name, value) { this.attributes[name] = String(value); }
-  getAttribute(name) { return this.attributes[name]; }
-  addEventListener() {}
-  focus() {}
-  get firstChild() { return this.childNodes[0] || null; }
-  get lastChild() { return this.childNodes[this.childNodes.length - 1] || null; }
-  get textContent() {
-    return this._text + this.childNodes.map(function (child) { return child.textContent; }).join('');
-  }
-  set textContent(value) {
-    this._text = String(value);
-    this.childNodes = [];
-  }
-}
-
-const document = {
-  createElement: function (tagName) { return new Element(tagName); },
-  createTextNode: function (text) { return new TextNode(text); },
-  addEventListener: function () {},
-};
-const sandbox = {
-  window: {
-    __OPS_V2_TEST__: true,
-    innerWidth: 1280,
-    location: {href: 'https://example.test/#ci-analytics'},
-  },
-  document: document,
-  console: console,
-  URL: URL,
-  requestAnimationFrame: function () {},
-};
-vm.createContext(sandbox);
-vm.runInContext(source, sandbox, {filename: process.argv[1]});
-const helpers = sandbox.window.OpsV2Test;
-
-const partialGroup = {
-  id: 'partial',
-  name: 'Partial group',
-  source_pipeline: 'ci',
-  publication_history_complete: false,
-  observations: [{
-    source_pipeline: 'ci',
-    build_kind: 'main',
-    build_number: 10,
-    state: 'passed',
-    observed_at: '2026-09-01T11:00:00Z',
-    job_url: 'https://buildkite.com/vllm/ci/builds/10/steps/job-10',
-  }],
-};
-const reliability = {
-  group_catalog: [partialGroup],
-  publication_retention: {
-    groups: {source: 1, published: 1, omitted: 0},
-    observations: {source: 5, published: 1, omitted: 4},
-  },
-};
-
-sandbox.window.OpsV2.state.analyticsGroupCohort = 'main';
-const historyHost = document.createElement('div');
-helpers.renderGroupHistoryExplorer(historyHost, [partialGroup], {}, reliability);
-const historyText = historyHost.textContent;
-assert.ok(historyText.includes('LATEST PUBLISHED FAILURE'));
-assert.ok(historyText.includes('None published'));
-assert.ok(historyText.includes('Omitted rows may contain failures'));
-assert.ok(historyText.includes('Passing streak unavailable'));
-assert.ok(historyText.includes('published map'));
-assert.equal(historyText.includes('No failures in this cohort'), false);
-assert.equal(historyText.includes('-run current passing streak'), false);
-assert.equal(historyText.includes('complete map'), false);
-
-sandbox.window.OpsV2.state.analyticsGroupCohort = 'nightly';
-const emptyNightlyHost = document.createElement('div');
-helpers.renderGroupHistoryExplorer(emptyNightlyHost, [partialGroup], {}, reliability);
-assert.ok(emptyNightlyHost.textContent.includes('bounded published history'));
-assert.equal(emptyNightlyHost.textContent.includes('complete retained history'), false);
-
-"""
-    result = subprocess.run(
-        [node, "-e", script, str(ROOT / "docs" / "assets" / "js" / "ops-v2.js")],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
 
 
 
@@ -2712,7 +2522,9 @@ def test_pipeline_evidence_links_fail_closed_in_the_renderer():
     assert "parsed.protocol !== 'https:'" in OPS_JS
     assert "suffix[0] !== 'steps'" in OPS_JS
     assert "exactPipelineEvidenceUrl(row, sourcePipeline)" in OPS_JS
-    assert "exactPipelineEvidenceUrl(observation, 'ci')" in OPS_JS
+    retained_run_cell = OPS_JS[OPS_JS.index("function historyRunCell"):OPS_JS.index("function historyBatch")]
+    assert "pipeline = pipeline || 'ci'" in retained_run_cell
+    assert "exactPipelineEvidenceUrl(observation, pipeline)" in retained_run_cell
     assert "row.build_url || buildUrl(pipeline, row.build_number)" not in OPS_JS
     assert "(ops || {}).amd_reliability" not in OPS_JS
 
@@ -2907,79 +2719,47 @@ def test_table_headers_and_cells_share_explicit_alignment_contract():
     assert "margin-left: auto" in OPS_CSS
 
 
-def test_recent_latency_rejects_legacy_sources_and_older_group_backfill():
+def test_recent_latency_is_mi_only_and_rejects_legacy_foreign_or_malformed_evidence():
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not available")
     script = r"""
-const assert = require('assert');
-const fs = require('fs');
-const vm = require('vm');
-const sandbox = {window: {__OPS_V2_TEST__: true}, document: {addEventListener() {}}, URL, console};
-vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), sandbox);
-const helpers = sandbox.window.OpsV2Test;
-const nightlies = [105,104,103,102,101].map(number => ({number,created_at:'2026-10-08T00:00:00Z'}));
-const metric = (number, mins) => ({build_number:number,duration_mins:mins});
-const side = (samples, median) => ({samples,sample_count:samples.length,median_duration_mins:median});
-const base = {schema_version:1,source_pipeline:'ci',branch:'main',build_limit:5,available:true,
- statistic:'median_of_per_nightly_group_wall_minutes',cohort:{nightlies},
- rows:[{id:'group',label:'Current group',match_status:'matched',amd:side([metric(105,20),metric(103,30)],25),upstream:side([metric(105,10)],10)}]};
-let result = helpers.latencyComparison({latency:base});
-assert.equal(result.available,true);
-assert.equal(result.rows[0].amd.sample_count,2);
-assert.equal(result.rows[0].ratio,2.5);
-assert.equal(result.rows[0].delta_mins,15);
-const legacy = JSON.parse(JSON.stringify(base)); legacy.source_pipeline='amd-ci';
-assert.equal(helpers.latencyComparison({latency:legacy}).available,false);
-assert.equal(helpers.latencyComparison({reliability:{platform_comparison:base}}).available,false);
-const backfill = JSON.parse(JSON.stringify(base)); backfill.rows[0].amd=side([metric(100,999)],999);
-result=helpers.latencyComparison({latency:backfill});
-assert.equal(result.available,true); assert.equal(result.rows[0].amd,null); assert.equal(result.rows[0].ratio,null);
-const duplicate = JSON.parse(JSON.stringify(base)); duplicate.rows[0].amd=side([metric(105,20),metric(105,30)],25);
-assert.equal(helpers.latencyComparison({latency:duplicate}).rows[0].amd,null);
-const missing = JSON.parse(JSON.stringify(base)); missing.rows[0].upstream=null;
-assert.equal(helpers.latencyComparison({latency:missing}).rows[0].delta_mins,null);
-const untimed = JSON.parse(JSON.stringify(base)); untimed.rows[0].amd.median_duration_mins=null;
-assert.equal(helpers.latencyComparison({latency:untimed}).rows[0].amd,null);
-assert.equal(helpers.latencyMetric(null),null); assert.equal(helpers.latencyMetric(''),null);
-assert.equal(helpers.latencyMetric(-1),null); assert.equal(helpers.latencyMetric(0),0);
+const assert=require('assert'),fs=require('fs'),vm=require('vm');
+const sandbox={window:{__OPS_V2_TEST__:true},document:{addEventListener(){}},URL,console};
+vm.createContext(sandbox);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),sandbox);
+const helpers=sandbox.window.OpsV2Test;
+const scope={source_pipeline:'ci',job_scope:'amd_gpu',hardware_scope:'amd_mi_gpu'};
+const nightlies=[105,104,103,102,101].map(number=>({number,created_at:'2026-10-08T00:00:00Z'}));
+const sample=(number,mins)=>({build_number:number,duration_mins:mins,jobs:[{job_id:'job-'+number,step_id:'step',url:'https://buildkite.com/vllm/ci/builds/'+number+'#job-'+number,queue:'amd_mi300_1',hardware:'mi300',raw_name:'Current group',started_at:'2026-10-08T00:00:00Z',finished_at:'2026-10-08T00:20:00Z',duration_mins:mins}]});
+const side=(samples,median)=>({...scope,samples,sample_count:samples.length,median_duration_mins:median});
+const base={...scope,schema_version:2,branch:'main',build_limit:5,available:true,statistic:'median_of_per_nightly_group_wall_minutes',cohort:{nightlies},rows:[{id:'group',label:'Current group',amd:side([sample(105,20),sample(103,30)],25)}]};
+const select=payload=>helpers.latencyComparison({latency:payload});
+let result=select(base);assert.equal(result.available,true);assert.equal(result.rows[0].amd.sample_count,2);assert.equal(result.rows[0].amd.median_duration_mins,25);
+assert.deepEqual(Object.keys(result.rows[0]).sort(),['amd','id','label']);
+for(const [key,value] of [['schema_version',1],['source_pipeline','amd-ci'],['hardware_scope',undefined],['job_scope','cuda_gpu']]) {
+ const invalid={...base,[key]:value};assert.equal(select(invalid).available,false);
+}
+for(const alter of [
+ row=>row.amd.samples[0].jobs[0].queue='gpu_h100',
+ row=>row.amd.samples[0].jobs[0].hardware='h100',
+ row=>row.amd.samples[0].jobs[0].no_gpu=true,
+ row=>row.amd.samples[0].jobs[0].raw_name=':computer: (CPU) Torch ABI',
+ row=>row.amd.samples[0].build_number=100,
+ row=>row.amd.samples[1].build_number=105,
+ row=>row.amd.median_duration_mins=null,
+ row=>row.amd.samples[0].jobs[0].url='https://buildkite.com/vllm/ci/builds/106#job-105',
+]) { const invalid=JSON.parse(JSON.stringify(base));alter(invalid.rows[0]);assert.equal(select(invalid).rows[0].amd,null); }
+const names=JSON.parse(JSON.stringify(base));names.rows[0].amd.samples[0].jobs[0].raw_name='CPU Offload with CUDA model preset';assert.equal(select(names).rows[0].amd.sample_count,2);
 const columns=['job_id','step_id','url','queue','hardware','raw_name','started_at','finished_at','duration_mins'];
-const packed=JSON.parse(JSON.stringify(base)); packed.job_columns=columns;
-for(const source of [packed.rows[0].amd,packed.rows[0].upstream]) {
- for(const sample of source.samples) {
-  sample.jobs=[['job-'+sample.build_number,'step','https://buildkite.com/vllm/ci/builds/'+sample.build_number+'/steps/job-'+sample.build_number,'amd_mi300_1','mi300','Current group','2026-10-08T00:00:00Z','2026-10-08T00:20:00Z',sample.duration_mins]];
- }
-}
-result=helpers.latencyComparison({latency:packed});
-assert.equal(result.rows[0].amd.samples[0].jobs[0].job_id,'job-105');
-assert.equal(result.rows[0].amd.samples[0].jobs[0].duration_mins,20);
-assert.equal(result.rows[0].ratio,2.5);
-assert.equal(Array.isArray(packed.rows[0].amd.samples[0].jobs[0]),true);
-const dictionaries=JSON.parse(JSON.stringify(packed)); delete dictionaries.job_columns;
-for(const source of [dictionaries.rows[0].amd,dictionaries.rows[0].upstream]) {
- for(const sample of source.samples) sample.jobs=sample.jobs.map(values=>Object.fromEntries(columns.map((column,index)=>[column,values[index]])));
-}
-result=helpers.latencyComparison({latency:dictionaries});
-assert.equal(result.rows[0].amd.samples[0].jobs[0].job_id,'job-105');
-const unknown=JSON.parse(JSON.stringify(packed)); unknown.job_columns[0]='unknown';
-assert.equal(helpers.latencyComparison({latency:unknown}).available,false);
-const reordered=JSON.parse(JSON.stringify(packed)); reordered.job_columns.reverse();
-assert.equal(helpers.latencyComparison({latency:reordered}).available,false);
-const undeclared=JSON.parse(JSON.stringify(packed)); delete undeclared.job_columns;
-assert.equal(helpers.latencyComparison({latency:undeclared}).rows[0].amd,null);
-const short=JSON.parse(JSON.stringify(packed)); short.rows[0].amd.samples[0].jobs[0].pop();
-assert.equal(helpers.latencyComparison({latency:short}).rows[0].amd,null);
-for(const bad of [null,true,'20',-1,Infinity,NaN]) {
- const invalid=JSON.parse(JSON.stringify(packed)); invalid.rows[0].amd.samples[0].jobs[0][8]=bad;
- assert.equal(helpers.latencyComparison({latency:invalid}).rows[0].amd,null);
-}
-const invalidTime=JSON.parse(JSON.stringify(packed)); invalidTime.rows[0].amd.samples[0].jobs[0][6]='not-a-time';
-assert.equal(helpers.latencyComparison({latency:invalidTime}).rows[0].amd,null);
-const invalidString=JSON.parse(JSON.stringify(packed)); invalidString.rows[0].amd.samples[0].jobs[0][3]=null;
-assert.equal(helpers.latencyComparison({latency:invalidString}).rows[0].amd,null);
+const packed=JSON.parse(JSON.stringify(base));packed.job_columns=columns;for(const observation of packed.rows[0].amd.samples) observation.jobs=observation.jobs.map(job=>columns.map(column=>job[column]));
+assert.equal(select(packed).rows[0].amd.samples[0].jobs[0].job_id,'job-105');
+const undeclared=JSON.parse(JSON.stringify(packed));delete undeclared.job_columns;assert.equal(select(undeclared).rows[0].amd,null);
+const unknown=JSON.parse(JSON.stringify(packed));unknown.job_columns[0]='unknown';assert.equal(select(unknown).available,false);
+const short=JSON.parse(JSON.stringify(packed));short.rows[0].amd.samples[0].jobs[0].pop();assert.equal(select(short).rows[0].amd,null);
+for(const bad of [null,true,'20',-1,Infinity,NaN]) {const invalid=JSON.parse(JSON.stringify(packed));invalid.rows[0].amd.samples[0].jobs[0][8]=bad;assert.equal(select(invalid).rows[0].amd,null);}
+assert.equal(helpers.latencyMetric(null),null);assert.equal(helpers.latencyMetric(''),null);assert.equal(helpers.latencyMetric(-1),null);assert.equal(helpers.latencyMetric(0),0);
 """
-    result = subprocess.run([node, "-e", script, str(OPS_JS_PATH)], text=True, capture_output=True, check=False)
+    result=subprocess.run([node,"-e",script,str(OPS_JS_PATH)],text=True,capture_output=True,check=False)
     assert result.returncode == 0, result.stderr
 
 
@@ -3004,12 +2784,13 @@ const assert=require('assert'),fs=require('fs'),vm=require('vm');
 const context={window:{__OPS_V2_TEST__:true},document:{addEventListener(){}},URL,console};
 vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
 const select=context.window.OpsV2Test.nightlyForCohort;
-const amd={source_pipeline:'ci',cohort_id:'ci-amd',job_scope:'amd_gpu',builds:[{number:30005}]};
+const amd={source_pipeline:'ci',cohort_id:'ci-amd',job_scope:'amd_gpu',hardware_scope:'amd_mi_gpu',builds:[{number:30005}]};
 const cuda={source_pipeline:'ci',cohort_id:'ci-cuda',job_scope:'cuda_gpu',builds:[{number:30004}]};
 assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-amd').builds[0].number,30005);
-assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-cuda').builds[0].number,30004);
+assert.equal(select({nightly:{pipelines:[amd,cuda]}},'ci-cuda').builds.length,0);
 assert.equal(select({nightly:{canonical_history:amd}},'ci-amd').builds[0].number,30005);
-assert.equal(select({nightly:{upstream_parity:cuda}},'ci-cuda').builds[0].number,30004);
+assert.equal(select({nightly:{upstream_parity:cuda}},'ci-cuda').builds.length,0);
+assert.equal(select({nightly:{canonical_history:{...amd,hardware_scope:undefined}}},'ci-amd').builds.length,0);
 assert.equal(select({nightly:{pipelines:[amd,{...amd}],canonical_history:amd}},'ci-amd').builds.length,0);
 assert.equal(select({nightly:{canonical_history:{...amd,source_pipeline:'amd-ci'}}},'ci-amd').builds.length,0);
 assert.equal(select({nightly:{canonical_history:{...amd,job_scope:'cuda_gpu'}}},'ci-amd').builds.length,0);

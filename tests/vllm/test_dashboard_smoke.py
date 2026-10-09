@@ -103,8 +103,8 @@ class TestIndexHtml:
     def test_current_operations_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "index.html").read_text()
         assert 'assets/css/ops-v2.css?v=17' in html
-        assert 'assets/js/ops-v2.js?v=35' in html
-        assert 'assets/js/utils.js?v=63' in html
+        assert 'assets/js/ops-v2.js?v=36' in html
+        assert 'assets/js/utils.js?v=64' in html
         assert 'assets/js/dashboard-nav.js?v=5' in html
         source = (JS / "ops-v2.js").read_text()
         assert "assets/js/amd-mirror-inventory.js?v=3" in source
@@ -175,68 +175,15 @@ for (const file of process.argv.slice(1)) {
             pytest.skip("node acorn parser is not available")
         assert result.returncode == 0, result.stderr
 
-    def test_test_assertion_rate_helper_scales_legacy_values(self):
-        if not shutil.which("node"):
-            pytest.skip("node is not available")
-        script = r"""
-const fs = require('fs');
-const source = fs.readFileSync(process.argv[1], 'utf8');
-const match = source.match(/function testAssertionPassRatePct\(summary, legacyScale\) \{[\s\S]*?\n\}/);
-if (!match) throw new Error('testAssertionPassRatePct helper not found');
-eval(match[0]);
-const cases = [
-  [{test_pass_rate_pct: 98.5, pass_rate: 0.1}, 'fraction', 98.5],
-  [{pass_rate: 0.875}, 'fraction', 87.5],
-  [{pass_rate: 87.5}, 'percent', 87.5],
-];
-for (const [summary, scale, expected] of cases) {
-  const actual = testAssertionPassRatePct(summary, scale);
-  if (actual !== expected) {
-    throw new Error(`${JSON.stringify(summary)} (${scale}) produced ${actual}, expected ${expected}`);
-  }
-}
-if (testAssertionPassRatePct({}, 'percent') !== null) {
-  throw new Error('missing rate should stay unavailable');
-}
-"""
-        result = subprocess.run(
-            ["node", "-e", script, str(JS / "utils.js")],
-            check=False,
-            text=True,
-            capture_output=True,
-        )
-        assert result.returncode == 0, result.stderr
-
-
-
-    def test_utils_exposes_parity_family_merge_helper(self):
-        text = (JS / "utils.js").read_text()
-        assert "function mergeParityGroups" in text, (
-            "utils.js should expose a canonical parity-family merge helper for shared dashboard views"
-        )
-        assert "family_name" in text and "family_key" in text, (
-            "mergeParityGroups should understand canonical family metadata from parity_report.json"
-        )
 
 
 
 
 
 
-    def test_fetchjson_catches_rejected_fetches(self):
-        text = (JS / "utils.js").read_text()
-        m = re.search(
-            r"async function fetchJSON\(url, opts\) \{(.*?)\n\}\n\n// ── Shared element factory",
-            text,
-            re.DOTALL,
-        )
-        assert m, "utils.js should define fetchJSON(url)"
-        assert "catch" in m.group(1), (
-            "fetchJSON should catch network/file-origin failures instead of rejecting and aborting boot"
-        )
-        assert "AbortController" in m.group(1), (
-            "fetchJSON should enforce a timeout so a hanging request cannot stall the whole dashboard forever"
-        )
+
+
+
 
 
     def test_index_has_boot_fallback_guard(self):
@@ -327,20 +274,3 @@ class TestDataFetchContract:
                 "Either the file needs to be generated, the path is typo'd, or add it to "
                 "OPTIONAL_DATA_FILES in this test."
             )
-
-
-class TestSharedHelperRegression:
-    """Phase 1 extracted the per-file ``h()`` factories into shared ``el()``.
-
-    Each module now aliases ``const h = el;`` instead of redefining h().
-    This test locks that invariant in so nobody accidentally re-introduces
-    a divergent local h().
-    """
-
-
-    def test_utils_exposes_el_factory(self):
-        text = (JS / "utils.js").read_text()
-        # The factory should be defined at module scope as a function or arrow.
-        assert re.search(r'\bfunction\s+el\s*\(', text) or re.search(r'\bel\s*=\s*(function|\()', text), (
-            "utils.js must define the shared el() factory"
-        )

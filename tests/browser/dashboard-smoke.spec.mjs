@@ -4,14 +4,14 @@ import { createHash } from 'node:crypto';
 // cspell:ignore NVFP pypi
 
 const DNS_JOB_ID = '01a00c92-9cab-4dd2-9a75-32210e739d02';
-const DNS_LOG_URL = `https://buildkite.com/vllm/amd-ci/builds/12112/list?jid=${DNS_JOB_ID}&tab=output`;
+const DNS_LOG_URL = `https://buildkite.com/vllm/ci/builds/12112/list?jid=${DNS_JOB_ID}&tab=output`;
 const DNS_EVIDENCE_ID = createHash('sha256')
-  .update(`dns-evidence-v1\0amd-ci\0${DNS_JOB_ID}`)
+  .update(`dns-evidence-v1\0ci\0${DNS_JOB_ID}`)
   .digest('hex');
 const DNS_LONG_JOB_ID = '11a00c92-9cab-4dd2-9a75-32210e739d02';
-const DNS_LONG_LOG_URL = `https://buildkite.com/vllm/amd-ci/builds/12113/list?jid=${DNS_LONG_JOB_ID}&tab=output`;
+const DNS_LONG_LOG_URL = `https://buildkite.com/vllm/ci/builds/12113/list?jid=${DNS_LONG_JOB_ID}&tab=output`;
 const DNS_LONG_EVIDENCE_ID = createHash('sha256')
-  .update(`dns-evidence-v1\0amd-ci\0${DNS_LONG_JOB_ID}`)
+  .update(`dns-evidence-v1\0ci\0${DNS_LONG_JOB_ID}`)
   .digest('hex');
 const DNS_GENERATED_AT = '2026-08-16T10:00:00Z';
 const DNS_WINDOW_OPTIONS = [
@@ -161,7 +161,7 @@ const DNS_FIXTURE = {
   count_basis: 'distinct_buildkite_job_attempts_with_strong_dns_evidence',
   scope: {
     organization: 'vllm',
-    pipelines: ['amd-ci', 'ci'],
+    hardware_scope: 'amd_mi_gpu', pipelines: ['ci'],
     branches: 'all',
     job_types: ['script'],
     states: ['passed', 'soft', 'hard'],
@@ -197,7 +197,7 @@ const DNS_FIXTURE = {
       first_at: '2026-08-16T09:30:00Z',
       last_at: '2026-08-16T09:30:00Z',
       time_basis: 'job_finished_at',
-      pipeline: 'amd-ci',
+      pipeline: 'ci',
       queue: 'amd_mi300_1',
       node: 'node-a',
       hardware: 'MI300',
@@ -218,7 +218,7 @@ const DNS_FIXTURE = {
       first_at: DNS_LONG_RETAINED_METRIC.first_at,
       last_at: DNS_LONG_RETAINED_METRIC.last_at,
       time_basis: 'log_timestamp',
-      pipeline: 'amd-ci',
+      pipeline: 'ci',
       queue: 'amd_mi300_1',
       node: 'node-long',
       hardware: 'MI300',
@@ -359,7 +359,7 @@ async function routeAgentHistoryScope(page, scope, delayedEvidence = false) {
     const packet = await response.json();
     const agent = packet.amd_agent_health;
     Object.assign(agent, {
-      pipelines: ['ci'], generated_at: '2026-10-08T20:00:00Z', max_window_days: 60,
+      pipelines: ['ci'], hardware_scope: 'amd_mi_gpu', generated_at: '2026-10-08T20:00:00Z', max_window_days: 60,
       node_days: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', a: [10, 0, 1, 0], n: [10, 0, 1, 0]}],
       failing_runs: [],
       failure_accounting: [{d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', s: 'hard', i: 1, ng: 1, bc: 0, c: 1}],
@@ -839,13 +839,13 @@ test('nightly failure alerts exclude fixed groups while build movement retains t
     ];
     payload.shell.attention = attention;
     payload.shell.home.attention = attention;
-    const amdCohort = {pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', cohort_id: 'ci-amd', builds: [build]};
+    const amdCohort = {pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu', cohort_id: 'ci-amd', builds: [build]};
     payload.shell.nightly.canonical_history = amdCohort;
     payload.shell.nightly.pipelines = [amdCohort,...(payload.shell.nightly.pipelines || []).filter(row=>row.cohort_id!=='ci-amd')];
     await route.fulfill({ response, json: payload });
   });
   await page.route('**/operations_v2/nightly.json*', route => route.fulfill({
-    json: { nightly: {pipelines: [{pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', cohort_id: 'ci-amd', builds: [build]}]}  },
+    json: { nightly: {pipelines: [{pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu', cohort_id: 'ci-amd', builds: [build]}]}  },
   }));
   await page.goto('/#projects', { waitUntil: 'domcontentloaded' });
   const home = page.locator('#tab-projects');
@@ -1178,12 +1178,12 @@ test(`latency comparison uses five current main CI nightlies and exact ${evidenc
     ['host',jobUrl.replace('buildkite.com','buildkite.com.example.org')],
     ['step-only',`${nightlies[0].web_url}/steps/canvas?sid=${jobId}&tab=output`],
   ].map(([kind,url])=>({...job,url,queue:`invalid-${kind}`}));
-  const sample={build_number:30005,build_url:nightlies[0].web_url,created_at:nightlies[0].created_at,finished_at:nightlies[0].finished_at,duration_mins:20,jobs:[job,...invalidJobs]};
-  const side={median_duration_mins:20,sample_count:1,samples:[sample]};
-  const latency={schema_version:1,source_pipeline:'ci',branch:'main',build_limit:5,statistic:'median_of_per_nightly_group_wall_minutes',available:true,cohort:{nightlies},rows:[{id:'current-test',label:'Current gating test',match_status:'matched',amd:side,upstream:{...side,median_duration_mins:10,samples:[{...sample,duration_mins:10,jobs:[{...sample.jobs[0],queue:'gpu_h100',hardware:'h100',duration_mins:10}]}]}},{id:'missing-current-test',label:'Missing recent test',match_status:'unmatched',match_reason:'No exact CUDA counterpart',amd:null,upstream:null}]};
+  const sample={build_number:30005,build_url:nightlies[0].web_url,created_at:nightlies[0].created_at,finished_at:nightlies[0].finished_at,duration_mins:20,jobs:[job]};
+  const side={source_pipeline:'ci',job_scope:'amd_gpu',hardware_scope:'amd_mi_gpu',median_duration_mins:20,sample_count:1,samples:[sample]};
+  const latency={schema_version:2,source_pipeline:'ci',job_scope:'amd_gpu',hardware_scope:'amd_mi_gpu',branch:'main',build_limit:5,statistic:'median_of_per_nightly_group_wall_minutes',available:true,cohort:{nightlies},rows:[{id:'current-test',label:'Current gating test',amd:side},{id:'missing-current-test',label:'Missing recent test',amd:null},...invalidJobs.map((invalid,index)=>({id:'invalid-'+index,label:'Rejected evidence '+index,amd:{...side,samples:[{...sample,jobs:[invalid]}]}}))]};
   if(evidenceFormat==='compact') {
     latency.job_columns=['job_id','step_id','url','queue','hardware','raw_name','started_at','finished_at','duration_mins'];
-    for(const row of latency.rows) for(const source of [row.amd,row.upstream]) if(source) for(const observation of source.samples) observation.jobs=observation.jobs.map(job=>latency.job_columns.map(column=>job[column]));
+    for(const row of latency.rows) for(const source of [row.amd]) if(source) for(const observation of source.samples) observation.jobs=observation.jobs.map(job=>latency.job_columns.map(column=>job[column]));
   }
   await page.route('**/operations_v2/comparison.json*',route=>route.fulfill({json:{latency}}));
   await page.goto('/?ops_analytics_view=latency#ci-analytics',{waitUntil:'domcontentloaded'});
@@ -1191,13 +1191,14 @@ test(`latency comparison uses five current main CI nightlies and exact ${evidenc
   await expect(panel).toContainText('Latest five completed main CI nightlies');
   await expect(panel).toContainText('#30005 · #30004 · #30003 · #30002 · #30001');
   await expect(panel).toContainText('older builds are not substituted');
-  await expect(panel).toContainText('2.00×');
+  await expect(panel).not.toContainText('CUDA median');
+  await expect(panel).not.toContainText('2.00×');
   await expect(panel.getByRole('button',{name:'Missing recent test',exact:true})).toBeVisible();
   await panel.getByRole('button',{name:'Current gating test',exact:true}).click();
   const evidence=page.getByRole('dialog').last();
   await expect(evidence).toContainText('longest wall completion time');
-  await expect(evidence.locator('tbody tr')).toHaveCount(10);
-  await expect(evidence.getByText('Not observed',{exact:true})).toHaveCount(8);
+  await expect(evidence.locator('tbody tr')).toHaveCount(5);
+  await expect(evidence.getByText('Not observed',{exact:true})).toHaveCount(4);
   await expect(evidence.getByRole('link',{name:/^amd_mi300_1 · 20m/})).toHaveAttribute('href',jobUrl);
   await expect(evidence.getByRole('link',{name:/^invalid-/})).toHaveCount(0);
   expect(await evidence.locator('a[href*="buildkite.com"]').evaluateAll(links=>links.every(link=>link.href.includes('/vllm/ci/builds/')))).toBe(true);
@@ -1235,16 +1236,57 @@ test('offline fixture preserves exact current-CI source and five-nightly evidenc
   expect(latency.cohort.nightlies.map(row=>row.number)).toEqual([30005,30004,30003,30002,30001]);
   expect(latency.cohort.nightlies.map(row=>row.created_at.slice(0,10))).toEqual(['2026-10-08','2026-10-07','2026-10-06','2026-10-05','2026-10-04']);
   const basic=latency.rows.find(row=>row.id==='basic models (other)');
-  expect(basic.amd.median_duration_mins).toBe(22);expect(basic.upstream.median_duration_mins).toBe(12);
-  for(const source of [basic.amd,basic.upstream]) {
+  expect(basic.amd.median_duration_mins).toBe(22);expect(basic.upstream).toBeUndefined();
+  expect(latency.schema_version).toBe(2);expect(latency.hardware_scope).toBe('amd_mi_gpu');
+  for(const source of [basic.amd]) {
     expect(source.sample_count).toBe(5);
     for(const sample of source.samples) for(const job of sample.jobs) expect(job.url).toContain(`/vllm/ci/builds/${sample.build_number}/`);
   }
-  expect(nightly.pipelines.map(row=>[row.cohort_id,row.source_pipeline,row.job_scope])).toEqual([['ci-amd','ci','amd_gpu'],['ci-cuda','ci','cuda_gpu']]);
-  await page.goto('/?ops_analytics_view=nightlies#ci-analytics',{waitUntil:'domcontentloaded'});
+  expect(nightly.pipelines.map(row=>[row.cohort_id,row.source_pipeline,row.job_scope])).toEqual([['ci-amd','ci','amd_gpu']]);
+  await page.goto('/?ops_analytics_view=nightlies&ops_analytics_pipeline=ci-cuda#ci-analytics',{waitUntil:'domcontentloaded'});
   const panel=page.locator('#tab-ci-analytics');
   await expect(panel).toContainText('#30005');
-  await panel.getByRole('button',{name:'CUDA gating jobs',exact:true}).click();
-  await expect(panel).toContainText('#30005');
-  await expect(page).toHaveURL(/ops_analytics_pipeline=ci-cuda/);
+  await expect(panel.getByRole('button',{name:'CUDA gating jobs',exact:true})).toHaveCount(0);
+  await expect(page).not.toHaveURL(/ops_analytics_pipeline=/);
+  for(const build of nightly.pipelines[0].builds) expect(JSON.stringify(build)).not.toMatch(/cuda-basic|gpu_1|h100/i);
 });
+
+for (const foreign of ['legacy', 'cuda', 'cpu']) {
+  test(`AMD health rejects ${foreign} runtime scope instead of displaying mixed percentages`, async ({page}) => {
+    await page.route('**/operations_v2/amd_test_health.json*', async route => {
+      const response = await route.fetch();
+      const packet = await response.json();
+      const health = packet.amd_test_health;
+      if (foreign === 'legacy') delete health.hardware_scope;
+      if (foreign === 'cuda') Object.assign(health.group_catalog[0], {hardware: 'b200', queue: 'B200'});
+      if (foreign === 'cpu') health.group_catalog[0].no_gpu = true;
+      await route.fulfill({response, json: packet});
+    });
+    await page.goto('/?ops_analytics_view=groups#ci-analytics', {waitUntil: 'domcontentloaded'});
+    const panel = page.locator('#tab-ci-analytics');
+    await expect(panel).toContainText('AMD job-variant history is unavailable');
+    await expect(panel.locator('.ops-amd-scorecard')).toHaveCount(0);
+    await expect(panel).not.toContainText('B200');
+  });
+}
+
+for (const foreign of ['pipeline', 'queue', 'cpu']) {
+  test(`MI agent health rejects a foreign ${foreign} execution row`, async ({page}) => {
+    await page.route('**/operations_v2/amd_agent_health.json*', async route => {
+      const response = await route.fetch();
+      const packet = await response.json();
+      const agent = packet.amd_agent_health;
+      const row = {h: 'MI300', p: 'ci', q: 'amd_mi300_1', g: 'Basic Models'};
+      if (foreign === 'pipeline') row.p = 'amd-ci';
+      if (foreign === 'queue') row.q = 'B200';
+      if (foreign === 'cpu') row.g = ':computer: (CPU) Torch ABI';
+      agent.failing_runs = [row];
+      await route.fulfill({response, json: packet});
+    });
+    await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+    const panel = page.locator('#tab-ci-analytics');
+    await expect(panel).toContainText('Current CI MI GPU observations are required');
+    await expect(panel.locator('.ops-agent-table')).toHaveCount(0);
+    await expect(panel).not.toContainText('B200');
+  });
+}

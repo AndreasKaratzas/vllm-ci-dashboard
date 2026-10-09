@@ -156,7 +156,7 @@ def test_native_main_ci_matrix_infers_exact_pool_without_queue_metadata():
         {
             "number": 93523,
             "jobs": [
-                {"type": "script", "id": "native-job", "name": name, "state": "passed"},
+                {"type": "script", "id": "native-job", "name": name, "state": "passed", "agent_queue": "amd_mi355_dpx"},
             ],
         },
         [],

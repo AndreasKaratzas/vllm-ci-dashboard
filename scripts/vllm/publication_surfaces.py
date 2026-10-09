@@ -15,8 +15,12 @@ from typing import Any, Iterable
 
 PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION = 4
 PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION = 5
-SURFACE_CONTRACT_VERSION = 6
+PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION = 6
+SURFACE_CONTRACT_VERSION = 7
 RETIRED_SURFACES = frozenset({"ci_gating", "ci_changes", "ci_hotness"})
+RETIRED_RUNTIME_PARITY_PATHS = frozenset({
+    "data/vllm/ci/parity_report.json", "data/vllm/parity_report.json",
+})
 
 
 @dataclass(frozen=True)
@@ -189,6 +193,16 @@ PRE_VIEW_RETIREMENT_SURFACE_SPECS = dict(SURFACE_SPECS)
 SURFACE_SPECS = {
     name: spec for name, spec in SURFACE_SPECS.items() if name not in RETIRED_SURFACES
 }
+PRE_RUNTIME_PARITY_SURFACE_SPECS = dict(SURFACE_SPECS)
+# Historical proof inventories retain both runtime parity files. Current
+# source configuration parity remains a separate, supported benchmark.
+CI_CORE_SURFACE_SPEC = SurfaceSpec(
+    required_paths=tuple(path for path in CI_CORE_SURFACE_SPEC.required_paths
+                         if path not in RETIRED_RUNTIME_PARITY_PATHS),
+    optional_paths=CI_CORE_SURFACE_SPEC.optional_paths,
+    globs=CI_CORE_SURFACE_SPEC.globs,
+)
+SURFACE_SPECS = {**SURFACE_SPECS, "ci_core": CI_CORE_SURFACE_SPEC}
 
 
 # Schema-v1 publication state used one monolithic ``ci`` transaction.  Keep
