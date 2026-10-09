@@ -93,6 +93,7 @@ def _job(job_id, name, state, queue, node, start, end, soft=False):
         agent_meta.append("k8s:node=" + node)
     return {
         "id": job_id,
+        "type": "script",
         "name": name,
         "state": state,
         "soft_failed": soft,
@@ -726,15 +727,198 @@ def test_started_terminal_timestamp_ambiguity_refuses_exact_generation(field, va
         ah._observe_in_window("ci", build, job, None, NOW - timedelta(days=3), NOW)
 
 
+@pytest.mark.parametrize("kind", ["script", None, "unknown-job-type"])
 @pytest.mark.parametrize("state", ["passed", "failed", "timed_out", "soft_failed"])
 def test_missing_started_execution_without_agent_preserves_prior_generation(
-    monkeypatch, tmp_path, state,
+    monkeypatch, tmp_path, state, kind,
 ):
     _seed_scoped_history(tmp_path, ["ci"])
     paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
     before = {path: path.read_bytes() for path in paths}
     build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state, start=None)
     build["jobs"][0]["agent"] = None
+    if kind is None:
+        del build["jobs"][0]["type"]
+    else:
+        build["jobs"][0]["type"] = kind
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+
+    with pytest.raises(RuntimeError, match="invalid started_at"):
+        _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations)
+
+    assert {path: path.read_bytes() for path in paths} == before
+
+
+@pytest.mark.parametrize("kind", ["waiter", "manual", "trigger"])
+@pytest.mark.parametrize("start", [None, "invalid"])
+def test_control_jobs_with_gpu_routing_do_not_enter_physical_run_denominator(
+    monkeypatch, tmp_path, kind, start,
+):
+    build = _window_build(1, "2026-07-14T08:00:00Z")
+    control = _job("control", "control job", "passed", "amd_mi300_1", "", start, None)
+    control["type"] = kind
+    control["agent"] = None
+    control["exit_status"] = None
+    build["jobs"].append(control)
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+    )
+
+    assert payload["total_runs"] == 1
+    assert sum(row["a"][0] for row in payload["node_days"]) == 1
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
+    # The direct historical observation helper follows the same physical scope,
+    # even when a control response happens to carry agent and timestamp fields.
+    control["agent"] = {"meta_data": ["queue=amd_mi300_1", "k8s:node=control-node"]}
+    control["started_at"] = "2026-07-14T09:00:00Z"
+    assert ah._observe("ci", build, control, None) is None
+
+
+@pytest.mark.parametrize("kind,expected_kind", [
+    ("script", "script"), (None, "missing"), ("private-type-" + "x" * 10_000, "unknown"),
+])
+@pytest.mark.parametrize("number,expected_number", [
+    (93523, 93523), (True, None), (10 ** 1000, None),
+])
+def test_terminal_timestamp_diagnostics_are_bounded_operational_metadata_only(
+    kind, expected_kind, number, expected_number,
+):
+    private_value = "private-raw-value-" + "x" * 10_000
+    build = _window_build(number, "2026-07-14T08:00:00Z")
+    build["env"] = {"SECRET": private_value}
+    job = build["jobs"][0]
+    job.update({
+        "type": kind, "id": private_value, "name": private_value,
+        "started_at": private_value, "finished_at": private_value,
+        "signal_reason": private_value, "exit_status": private_value,
+        "agent": {"id": private_value, "hostname": private_value,
+                  "meta_data": ["k8s:node=" + private_value]},
+    })
+
+    with pytest.raises(RuntimeError, match="invalid started_at") as error:
+        ah._observe_in_window("ci", build, job, None, NOW - timedelta(days=3), NOW)
+
+    message = str(error.value)
+    assert len(message) < 400
+    assert "private" not in message
+    diagnostic = json.loads(message.split("; ", 1)[1])
+    assert diagnostic == {
+        "job_type": expected_kind, "state": "passed", "build_number": expected_number,
+        "signal_reason": "unknown", "exit_status": None,
+        "hardware": "MI300", "started_at_present": True, "finished_at_present": True,
+        "parent_finished_at_present": False, "agent_present": True,
+    }
+
+
+@pytest.mark.parametrize("reason,expected", [
+    ("agent_stop", "agent_stop"), ("cancel", "cancel"),
+    ("process_run_error", "process_run_error"), ("agent_refused", "agent_refused"),
+    ("signature_rejected", "signature_rejected"), ("stack_error", "stack_error"),
+    ("agent_incompatible", "agent_incompatible"), (None, None),
+    ("private-raw-value-" + "x" * 10_000, "unknown"),
+    ({"private": "value"}, "unknown"), (True, "unknown"),
+])
+def test_script_failure_diagnostic_allowlists_signal_reason_without_relaxing_start_proof(
+    reason, expected,
+):
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed", start="invalid")
+    job = build["jobs"][0]
+    job["agent"] = None
+    job["signal_reason"] = reason
+
+    with pytest.raises(RuntimeError, match="invalid started_at") as error:
+        ah._observe_in_window("ci", build, job, None, NOW - timedelta(days=3), NOW)
+
+    message = str(error.value)
+    assert len(message) < 400 and "private" not in message
+    assert json.loads(message.split("; ", 1)[1])["signal_reason"] == expected
+
+
+@pytest.mark.parametrize("status,expected", [
+    (-1, -1), (0, 0), (255, 255), (None, None),
+    (True, None), (False, None), (-2, None), (256, None),
+    (10 ** 1000, None), ("1", None), ("private-raw-value-" + "x" * 10_000, None),
+])
+def test_terminal_diagnostic_exit_status_retains_only_documented_bounded_integers(status, expected):
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed", start=None)
+    job = build["jobs"][0]
+    job["exit_status"] = status
+
+    with pytest.raises(RuntimeError, match="invalid started_at") as error:
+        ah._observe_in_window("ci", build, job, None, NOW - timedelta(days=3), NOW)
+
+    message = str(error.value)
+    assert len(message) < 400 and "private" not in message
+    assert json.loads(message.split("; ", 1)[1])["exit_status"] == expected
+
+
+@pytest.mark.parametrize("reason", ["signature_rejected", "agent_incompatible", "stack_error"])
+@pytest.mark.parametrize("start", [None, ""])
+def test_documented_unexecuted_script_failures_do_not_enter_physical_denominator(
+    monkeypatch, tmp_path, reason, start,
+):
+    build = _window_build(1, "2026-07-14T08:00:00Z")
+    unexecuted = _job("unexecuted", "rejected job", "failed", "amd_mi300_1",
+                      "assigned-node", start, "2026-07-14T09:05:00Z")
+    unexecuted["signal_reason"] = reason
+    build["jobs"].append(unexecuted)
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+    )
+
+    assert payload["total_runs"] == sum(row["a"][0] for row in payload["node_days"]) == 1
+    assert payload["failing_runs"] == []
+    assert payload["retention"]["pipeline_scope"] == _expected_job_scope()
+    assert ah._observe("ci", build, unexecuted, None) is None
+
+
+@pytest.mark.parametrize("reason", ["signature_rejected", "agent_incompatible", "stack_error"])
+def test_started_script_failure_remains_a_physical_run_despite_preexecution_reason(
+    monkeypatch, tmp_path, reason,
+):
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
+    build["jobs"][0]["signal_reason"] = reason
+    monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
+
+    _, payload = _run_scoped_collection(
+        monkeypatch, tmp_path, fetch_fn=ah._fetch_pipeline_observations,
+    )
+
+    assert payload["total_runs"] == 1 and len(payload["failing_runs"]) == 1
+    assert sum(row["a"][2] for row in payload["node_days"]) == 1
+    assert ah._observe("ci", build, build["jobs"][0], None)["state"] == "hard"
+
+
+@pytest.mark.parametrize("kind,state,start,reason", [
+    *[("script", "failed", start, reason)
+      for reason in ("signature_rejected", "agent_incompatible", "stack_error")
+      for start in ("invalid", " ", "2026-07-14T09:00:00")],
+    *[(kind, "failed", None, reason)
+      for reason in ("signature_rejected", "agent_incompatible", "stack_error")
+      for kind in (None, "unknown")],
+    *[("script", "passed", None, reason)
+      for reason in ("signature_rejected", "agent_incompatible", "stack_error")],
+    *[("script", "failed", None, reason)
+      for reason in (None, "unknown", "process_run_error", "agent_refused", "cancel", "agent_stop")],
+])
+def test_ambiguous_or_contradictory_preexecution_failures_preserve_prior_generation(
+    monkeypatch, tmp_path, kind, state, start, reason,
+):
+    _seed_scoped_history(tmp_path, ["ci"])
+    paths = [tmp_path / ah.OUTPUT_JSON, *sorted((tmp_path / ah.STORE_SUBDIR).iterdir())]
+    before = {path: path.read_bytes() for path in paths}
+    build = _window_build(1, "2026-07-14T08:00:00Z", job_state=state, start=start)
+    job = build["jobs"][0]
+    job["agent"] = None
+    job["signal_reason"] = reason
+    if kind is None:
+        del job["type"]
+    else:
+        job["type"] = kind
     monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
 
     with pytest.raises(RuntimeError, match="invalid started_at"):

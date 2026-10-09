@@ -712,12 +712,14 @@ def _upstream_retry_identity(observation: Mapping[str, Any]) -> str:
     return hashlib.sha256(source.encode()).hexdigest()[:20]
 
 
-def _audit_active_retry_candidate_transaction(audit: DashboardAudit) -> None:
+def _audit_active_retry_candidate_transaction(audit: DashboardAudit) -> bool:
     """Audit retry-owned source semantics before either surface is restored."""
     findings = audit.report.findings
     initial_count = len(findings)
     for method_name in UPSTREAM_RETRY_CANDIDATE_AUDITS:
         getattr(audit, method_name)()
+    prove_completed = getattr(audit, "audit_current_completed_ci_transaction", None)
+    completed_proof = prove_completed() if callable(prove_completed) else False
 
     existing = {
         (
@@ -747,6 +749,12 @@ def _audit_active_retry_candidate_transaction(audit: DashboardAudit) -> None:
             "publication_phase": UPSTREAM_RETRY_CANDIDATE_PHASE,
         }
         findings.append(finding)
+    return completed_proof is True and not any(
+        finding.severity == "error" and (
+            not finding_surfaces(finding)
+            or finding_surfaces(finding) & UPSTREAM_RETRY_TRANSACTION_SURFACES
+        ) for finding in findings
+    )
 
 
 def _upstream_retry_incident_policy(
@@ -2500,6 +2508,7 @@ def select_publication(
         forced | retry_surfaces
     )
     restored: dict[str, list[str]] = {}
+    admitted_completed_retry = False
     previous: dict | None = None
     state = {
         "schema_version": 2,
@@ -2738,10 +2747,16 @@ def select_publication(
         )
         source_audit.audit_publication_surface_files()
         if retry_observations:
-            # CI core and analytics will be restored together below. Audit the
-            # complete source transaction first so genuine candidate defects
-            # cannot be erased or mislabeled as ordinary retry reconciliation.
-            _audit_active_retry_candidate_transaction(source_audit)
+            # A retry can invalidate an already published head while the fresh
+            # collectors prove a coherent older completed transaction. Admit
+            # that generation only after its exact completed roster, results,
+            # runtime commit and source semantics pass; the full derived audit
+            # still runs before publication. Otherwise preserve strict recovery.
+            if _audit_active_retry_candidate_transaction(source_audit):
+                admitted_completed_retry = True
+                fallback.difference_update(retry_surfaces - forced)
+                candidate_errors[:] = [record for record in candidate_errors if record.get("code") != UPSTREAM_RETRY_FINDING_CODE]
+                print("Active CI retry: validating the fresh coherent completed CI cohort instead of restoring the previous pipeline head.")
         unrouted = []
         for finding in source_audit.report.errors:
             surfaces = finding_surfaces(finding)
@@ -2793,6 +2808,8 @@ def select_publication(
             candidate_errors.append(record)
             if surfaces:
                 fallback.update(surfaces)
+                if admitted_completed_retry and surfaces & UPSTREAM_RETRY_TRANSACTION_SURFACES:
+                    fallback.update(retry_surfaces)
             else:
                 unrouted.append(record)
         for finding in getattr(candidate, "degradations", []):
