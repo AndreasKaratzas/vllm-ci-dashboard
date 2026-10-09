@@ -346,8 +346,14 @@ const agentStartedScope = {
   attempt_policy: 'latest_attempt_per_step', terminal_time_policy: 'finished_at_or_terminal_build_bound_for_canceled',
   complete_window: false,
 };
+const agentCreatedScope = {
+  ...agentStartedScope, version: 2, basis: 'terminal_jobs_by_build_created_at',
+  eligible_completion: 'current_ci_build_creation_cohort_with_provable_completion',
+  day_basis: 'build_created_at_utc', discovery_legs: {created: true},
+};
+delete agentCreatedScope.active_build_states;
 
-async function routeAgentHistoryScope(page, scope) {
+async function routeAgentHistoryScope(page, scope, delayedEvidence = false) {
   await page.route('**/operations_v2/amd_agent_health.json*', async route => {
     const response = await route.fetch();
     const packet = await response.json();
@@ -367,6 +373,22 @@ async function routeAgentHistoryScope(page, scope) {
         failure_evidence: {source: 0, published: 0, complete: true},
       },
     });
+    if (delayedEvidence) {
+      agent.node_days.push({...agent.node_days[0], d: '2026-10-06'});
+      agent.failure_accounting.push({...agent.failure_accounting[0], d: '2026-10-06'});
+      agent.failing_runs = [
+        {d: '2026-10-07', nd: 'fixture-ci-node', h: 'MI300', p: 'ci', q: 'amd_mi300_1',
+          g: 'Created-window morning job', s: 'hard', i: 1, ng: 1, bc: 0, b: 30005,
+          j: '10000000-0000-0000-0000-000000000001', t: '2026-10-07T01:00:00Z', e: '2026-10-07T01:10:00Z'},
+        {d: '2026-10-06', nd: 'fixture-ci-node', h: 'MI300', p: 'ci', q: 'amd_mi300_1',
+          g: 'Older-build recently started job', s: 'hard', i: 1, ng: 1, bc: 0, b: 30004,
+          j: '10000000-0000-0000-0000-000000000002', t: '2026-10-08T10:00:00Z', e: '2026-10-08T10:10:00Z'},
+      ];
+      agent.retention.original_day_count = agent.retention.retained_day_count = 2;
+      agent.operations_publication_retention.node_days = {source: 2, published: 2, complete: true};
+      agent.operations_publication_retention.failure_accounting = {source: 2, published: 2, complete: true};
+      agent.operations_publication_retention.failure_evidence = {source: 2, published: 2, complete: true};
+    }
     await route.fulfill({json: packet});
   });
 }
@@ -399,10 +421,64 @@ test('CI agent health discloses fresh started-job scope and keeps covered one-da
   await expect(panel.locator('.ops-error')).toHaveCount(0);
 });
 
+test('CI agent health labels the build creation cohort and keeps exact covered default-week rates', async ({ page }) => {
+  const scope = {...agentCreatedScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
+  await routeAgentHistoryScope(page, scope);
+  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.locator('.ops-loading')).toHaveCount(0);
+  const completion = panel.locator('.ops-agent-completion-scope');
+  await expect(completion).toContainText('Terminal runs from CI builds created in the selected UTC window');
+  await expect(completion).toContainText('Runs require a recorded or bounded completion time');
+  await expect(completion).toContainText('the ci pipeline');
+  await expect(completion).toContainText(scope.collected_from);
+  await expect(completion).toContainText(scope.collected_to);
+  const notice = panel.locator('.ops-evidence-note.is-warning');
+  await expect(notice).toContainText('the full 60-day window is not yet complete');
+  const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
+  await expect(row).toContainText('10.0%');
+  await expect(panel).not.toContainText('rollup of every build');
+  for (const window of ['1d', '3d', '7d']) {
+    await panel.locator('.ops-agent-controls').getByRole('button', {name: window, exact: true}).click();
+    await expect(row).toContainText('10.0%');
+    await expect(row).not.toContainText('Unavailable');
+  }
+  await panel.locator('.ops-agent-controls').getByRole('button', {name: '60d', exact: true}).click();
+  await expect(row).toContainText('Unavailable');
+  await expect(notice).toContainText('the full 60-day window is not yet complete');
+  await expect(completion).toBeVisible();
+  await expect(panel.locator('.ops-error')).toHaveCount(0);
+});
+
+test('CI agent health selects evidence by build creation day while retaining actual job times', async ({ page }) => {
+  const scope = {...agentCreatedScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
+  await routeAgentHistoryScope(page, scope, true);
+  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  const panel = page.locator('#tab-ci-analytics');
+  await expect(panel.locator('.ops-loading')).toHaveCount(0);
+  const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
+  await expect(row.locator('td').nth(2)).toHaveText('20');
+  await expect(row.locator('td').nth(6)).toHaveText('2');
+  await panel.locator('.ops-agent-controls').getByRole('button', {name: '1d', exact: true}).click();
+  await expect(row.locator('td').nth(2)).toHaveText('10');
+  await expect(row.locator('td').nth(6)).toHaveText('1');
+  await expect(row).toContainText('10.0%');
+  await row.getByRole('button', {name: /^Open retained infra-suspect failing runs/}).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Created-window morning job');
+  await expect(dialog).not.toContainText('Older-build recently started job');
+  await expect(dialog.getByRole('link', {name: /^Created-window morning job/})).toHaveAttribute('href',
+    'https://buildkite.com/vllm/ci/builds/30005/steps/canvas?jid=10000000-0000-0000-0000-000000000001&tab=output');
+  await expect(dialog).toContainText('Oct 7, 01:00 AM');
+});
+
 for (const [name, scope] of [
   ['legacy creation-only', {collected_from: '2026-08-01T00:00:00Z', complete_window: true}],
   ['stale started-job', {...agentStartedScope, collected_to: '2026-10-08T19:00:00Z'}],
   ['malformed started-job', {...agentStartedScope, discovery_legs: {...agentStartedScope.discovery_legs, older_active: false}}],
+  ['incomplete build-created cohort', {...agentCreatedScope, discovery_legs: {created: false}}],
+  ['missing build-created eligibility', {...agentCreatedScope, eligible_completion: undefined}],
+  ['mixed build-created authority', {...agentCreatedScope, active_build_states: agentStartedScope.active_build_states}],
 ]) {
   test(`CI agent health keeps observed counts and hides rates for ${name} coverage`, async ({ page }) => {
     await routeAgentHistoryScope(page, scope);
@@ -417,6 +493,7 @@ for (const [name, scope] of [
     await expect(row.locator('td').nth(2)).toHaveText('≥10');
     await expect(row).toContainText('Unavailable');
     await expect(row).not.toContainText('10.0%');
+    await expect(panel.locator('.ops-agent-completion-scope')).toHaveCount(0);
     await expect(panel.locator('.ops-error')).toHaveCount(0);
   });
 }

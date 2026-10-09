@@ -70,6 +70,7 @@ from vllm.ci.models import TEST_RESULT_PARSER_VERSION, TestResult  # noqa: E402
 from vllm.ci import reporter as reporter_module  # noqa: E402
 from vllm.ci.reporter import prune_old_results  # noqa: E402
 from vllm.ci.analyzer import compute_build_summary  # noqa: E402
+from vllm.ci import backfill_checkpoint as checkpoint_module  # noqa: E402
 
 
 def _job(name: str, state: str = "passed", soft_failed: bool = False) -> dict:
@@ -228,6 +229,155 @@ def test_shared_ci_build_logs_are_collected_for_one_hardware_side(tmp_path, side
     assert [row.job_id for row in results[7791]] == [expected_job]
     assert [job["id"] for job in builds[0]["jobs"]] == [expected_job]
     assert all(row.pipeline == "ci" for row in results[7791])
+
+
+@pytest.mark.parametrize("side,job_count", [("amd", 293), ("upstream", 317)])
+def test_failed_publication_checkpoint_reuses_exact_current_retry_roster(
+    tmp_path, side, job_count,
+):
+    prefix = ":amd: (MI300)" if side == "amd" else ":nvidia: (H100)"
+    queue = "amd_mi300_1" if side == "amd" else "nvidia_h100"
+    records = [_record(f"{prefix} Group {index}", job_id=f"current-{index}")
+               for index in range(job_count)]
+    previous = [{**row, "job_id": f"old-{index}"} for index, row in enumerate(records)]
+    results_dir = tmp_path / "test_results"
+    path = results_dir / f"2026-04-18_{side}.jsonl"
+    _write_jsonl(path, previous)
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    prune_old_results(results_dir, max_days=90, now=clock)
+    old_bytes = path.read_bytes()
+    private = tmp_path / "checkpoint"
+    source = tmp_path / "parsed" / path.name
+    _write_jsonl(source, records)
+    checkpoint_module.record_complete_shard(private, source)
+    # Restore must preserve the current public generation until job identities
+    # have been checked against a freshly fetched Buildkite roster.
+    assert checkpoint_module.restore_complete_shards(private, results_dir) == 0
+    assert path.read_bytes() == old_bytes
+    build = {
+        "number": 7791, "state": "passed", "branch": "main",
+        "created_at": "2026-04-18T06:00:00Z", "commit": "a" * 40,
+        "jobs": [{**_job(row["job_name"]), "id": row["job_id"], "agent_queue": queue}
+                 for row in records],
+    }
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(build))]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))) as detail,
+        patch("collect_ci.parse_job_results", side_effect=AssertionError("logs must be reused")) as parser,
+    ):
+        _, collected = collect_pipeline(side, 8, tmp_path, now=clock,
+                                        backfill_checkpoint_dir=private)
+    detail.assert_called_once_with(side, 7791)
+    parser.assert_not_called()
+    expected_ids = {row["job_id"] for row in records}
+    assert {row.job_id for row in collected[7791]} == expected_ids
+    assert {row.job_id for row in _load_cached_results(path)} == expected_ids
+    assert path.read_bytes() != old_bytes
+    reporter_module.validate_result_retention(results_dir)
+    assert checkpoint_module.validate(private)["shards"] == 1
+    assert (private / checkpoint_module.SHARD_DIR / path.name).read_bytes() == path.read_bytes()
+
+
+@pytest.mark.parametrize("mismatch", ["attempt", "parser", "build", "checksum", "missing_id"])
+def test_private_checkpoint_mismatch_refetches_instead_of_promoting(tmp_path, mismatch):
+    name = ":amd: (MI300) Engine tests"
+    old = _record(name, job_id="old-attempt")
+    current = _record(name, job_id="current-attempt")
+    results_dir = tmp_path / "test_results"
+    path = results_dir / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, [old])
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    prune_old_results(results_dir, max_days=90, now=clock)
+    candidate = dict(current)
+    if mismatch == "attempt":
+        candidate["job_id"] = "stale-private-attempt"
+    elif mismatch == "parser":
+        candidate["parser_version"] = TEST_RESULT_PARSER_VERSION - 1
+    elif mismatch == "build":
+        candidate["build_number"] -= 1
+    elif mismatch == "missing_id":
+        candidate["job_id"] = ""
+    private = tmp_path / "checkpoint"
+    source = tmp_path / "parsed" / path.name
+    _write_jsonl(source, [candidate])
+    checkpoint_module.record_complete_shard(private, source)
+    if mismatch == "checksum":
+        cached = private / checkpoint_module.SHARD_DIR / path.name
+        cached.write_bytes(cached.read_bytes() + b"\n")
+    build = {
+        "number": 7791, "state": "passed", "branch": "main",
+        "created_at": "2026-04-18T06:00:00Z",
+        "jobs": [{**_job(name), "id": "current-attempt", "agent_queue": "amd_mi300_1"}],
+    }
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(build))]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))),
+        patch("collect_ci.parse_job_results", return_value=[TestResult(**current)]) as parser,
+    ):
+        _, collected = collect_pipeline("amd", 8, tmp_path, now=clock,
+                                        backfill_checkpoint_dir=private)
+    parser.assert_called_once()
+    assert [row.job_id for row in collected[7791]] == ["current-attempt"]
+    assert [row.job_id for row in _load_cached_results(path)] == ["current-attempt"]
+    reporter_module.validate_result_retention(results_dir)
+
+
+def test_private_checkpoint_requires_fresh_roster_before_superseding_public_attempts(tmp_path):
+    name = "amd_mi300_1: :amd: (MI300) Engine tests"
+    old = _record(name, job_id="old-attempt")
+    path = tmp_path / "test_results" / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, [old])
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    prune_old_results(path.parent, max_days=90, now=clock)
+    private = tmp_path / "checkpoint"
+    source = tmp_path / "parsed" / path.name
+    _write_jsonl(source, [{**old, "job_id": "private-attempt"}])
+    checkpoint_module.record_complete_shard(private, source)
+    private_bytes = (private / checkpoint_module.SHARD_DIR / path.name).read_bytes()
+    # A populated restored metadata roster alone cannot authorize replacing
+    # the published attempt with a different private parsed generation.
+    build = {"number": 7791, "state": "passed", "branch": "main",
+             "created_at": "2026-04-18T06:00:00Z", "jobs": [
+                 {**_job(name), "id": "old-attempt", "agent_queue": "amd_mi300_1"},
+             ]}
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(build))]),
+        patch("collect_ci.fetch_build_detail", side_effect=RuntimeError("metadata unavailable")),
+        patch("collect_ci.parse_job_results") as parser,
+    ):
+        _, collected = collect_pipeline("amd", 8, tmp_path, now=clock,
+                                        backfill_checkpoint_dir=private)
+    parser.assert_not_called()
+    assert [row.job_id for row in collected[7791]] == ["old-attempt"]
+    assert [row.job_id for row in _load_cached_results(path)] == ["old-attempt"]
+    assert (private / checkpoint_module.SHARD_DIR / path.name).read_bytes() == private_bytes
+
+
+def test_private_completed_checkpoint_cannot_promote_current_running_retry(tmp_path):
+    name = ":amd: (MI300) Engine tests"
+    records = [_record(name, job_id="old-attempt")]
+    path = tmp_path / "test_results" / "2026-04-18_amd.jsonl"
+    _write_jsonl(path, records)
+    clock = datetime(2026, 4, 20, tzinfo=timezone.utc)
+    prune_old_results(path.parent, max_days=90, now=clock)
+    private = tmp_path / "checkpoint"
+    checkpoint_module.record_complete_shard(private, path)
+    previous_private = (private / checkpoint_module.SHARD_DIR / path.name).read_bytes()
+    build = {"number": 7791, "state": "running", "branch": "main",
+             "created_at": "2026-04-18T06:00:00Z", "jobs": [
+                 {**_job(name, state="running"), "id": "running-retry", "agent_queue": "amd_mi300_1"},
+             ]}
+    with (
+        patch("collect_ci.fetch_nightly_builds", return_value=[json.loads(json.dumps(build))]),
+        patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))),
+        patch("collect_ci.parse_job_results") as parser,
+    ):
+        _, collected = collect_pipeline("amd", 8, tmp_path, now=clock,
+                                        backfill_checkpoint_dir=private)
+    assert collected == {}
+    parser.assert_not_called()
+    assert not path.exists()
+    assert (private / checkpoint_module.SHARD_DIR / path.name).read_bytes() == previous_private
 
 
 @pytest.mark.parametrize("warm", [False, True])

@@ -5,7 +5,11 @@ Unlike ``scripts/collect_ci.py`` — which tracks only main-branch *nightly*
 builds for the dashboard's headline CI health — this collector walks **every**
 build in the current ``ci`` pipeline: all branches, all triggers (PRs, release
 branches, scheduled). For each job that ran on a physical AMD **GPU** node it
-observes one run. Physical node identity comes from the Buildkite agent's
+observes one terminal run. Normal Actions use an explicit seven-day build
+creation cohort across every branch; node-day membership follows the parent's
+UTC creation day while execution timestamps remain intact. Manual start-day
+collection can additionally discover recent executions in older parents.
+Physical node identity comes from the Buildkite agent's
 ``k8s:node`` tag, which the build *list* endpoint already returns inline, so no
 per-build detail fetch or log download is needed.
 
@@ -37,7 +41,7 @@ with the two-file ledger):
 
 Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/vllm/collect_agent_health.py --days 60 --output data/vllm/ci/  # backfill
-    python scripts/vllm/collect_agent_health.py --days 7                           # incremental
+    python scripts/vllm/collect_agent_health.py --days 7 --day-basis build-created  # normal
     python scripts/vllm/collect_agent_health.py --dry-run --days 7
 """
 
@@ -129,6 +133,8 @@ AGENT_HEALTH_SLUGS = ("amd-ci", "ci")
 # https://buildkite.com/docs/apis/rest-api/builds
 ACTIVE_BUILD_STATES = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
 TERMINAL_TIME_POLICY = "finished_at_or_terminal_build_bound_for_canceled"
+CREATED_DAY_BASIS = "build_created_at_utc"
+CREATED_ELIGIBILITY = "current_ci_build_creation_cohort_with_provable_completion"
 # Control jobs do not execute commands on physical agents, even if their
 # embedded roster inherits agent routing rules. A completed waiter may pass
 # without ever running: https://buildkite.com/docs/apis/rest-api/builds
@@ -482,6 +488,7 @@ def _fetch_pipeline_builds(
     *,
     incremental_per_page: int = 100,
     project: Callable[[dict], dict] | None = None,
+    bound_created_to: bool = False,
 ) -> list[dict]:
     """Fetch one pipeline's build/job payloads with bounded incremental fan-out.
 
@@ -502,7 +509,10 @@ def _fetch_pipeline_builds(
 
     if days > MAX_INCREMENTAL_SLICE_DAYS:
         return fetch_slice(
-            {**base_params, "created_from": created_from.isoformat()},
+            {
+                **base_params, "created_from": created_from.isoformat(),
+                **({"created_to": created_to.isoformat()} if bound_created_to else {}),
+            },
         )
 
     incremental_params = {
@@ -557,7 +567,12 @@ def _fetch_pipeline_observations(
     days: int,
     *,
     query_time: datetime | None = None,
+    day_basis: str = "started",
 ) -> list[dict]:
+    if day_basis not in ("started", "build-created"):
+        raise ValueError("agent-health day basis is invalid")
+    if day_basis == "build-created" and slug != "ci":
+        raise ValueError("build-created cohort requires the current ci pipeline")
     query_time = query_time or datetime.now(timezone.utc)
     created_from = _job_window_start(query_time, days)
     url = f"{cfg.BK_API_BASE}/organizations/{cfg.BK_ORG}/pipelines/{slug}/builds"
@@ -573,9 +588,21 @@ def _fetch_pipeline_observations(
 
     def project(build: dict) -> dict:
         observations = []
+        build_created = _aware_timestamp(build.get("created_at"))
+        if day_basis == "build-created" and (
+            build_created is None or not created_from <= build_created < query_time
+        ):
+            raise RuntimeError("agent-health created cohort returned invalid creation bounds")
         for job in build["jobs"]:
+            if day_basis == "build-created" and amd_gpu_hardware(_queue_of(job)):
+                started = _aware_timestamp(job.get("started_at"))
+                if started is not None and build_created is not None and started < build_created:
+                    raise RuntimeError("agent-health cohort execution precedes build creation")
             row = _observe_in_window(slug, build, job, nightly_re, created_from, query_time)
             if row is not None:
+                if day_basis == "build-created":
+                    assert build_created is not None
+                    row["day"] = build_created.strftime("%Y-%m-%d")
                 observations.append(row)
         return {"number": build["number"], "created_at": build["created_at"], "observations": observations}
 
@@ -588,7 +615,15 @@ def _fetch_pipeline_observations(
             UPSTREAM_INCREMENTAL_PER_PAGE if slug == "ci" else 100
         ),
         project=project,
+        **({"bound_created_to": True} if day_basis == "build-created" else {}),
     )
+    if day_basis == "build-created":
+        # This is an explicit build-creation cohort, not a proof about jobs
+        # started in older builds. Its finite creation interval is exhausted
+        # completely, and every day/rate uses the parent's UTC creation day.
+        obs = [row for build in builds for row in build["observations"]]
+        log.info("Pipeline %s creation cohort: %d builds -> %d AMD GPU observations", slug, len(builds), len(obs))
+        return obs
     # Created-time discovery alone omits recent jobs belonging to older builds.
     # Fetch only that disjoint older cohort, keeping jobs embedded and all
     # existing same-origin pagination, safety caps, and request guards intact.
@@ -788,6 +823,8 @@ def _merge_by_day(stored: list[dict], fresh: list[dict], earliest_day: str, cuto
 def _scoped_retained_history(
     output_dir: Path,
     pipelines: tuple[str, ...],
+    *,
+    day_basis: str = "started",
 ) -> tuple[list[dict], list[dict]]:
     """Reuse rollups only when their paired generation proves the same scope.
 
@@ -808,16 +845,24 @@ def _scoped_retained_history(
         if not isinstance(summary, dict):
             raise RuntimeError("retained agent-health scope summary is not an object")
     declared = summary.get("pipelines")
+    retention = summary.get("retention")
+    scope = retention.get("pipeline_scope") if isinstance(retention, dict) else None
+    stored_created_basis = isinstance(scope, dict) and (
+        scope.get("version") == 2
+        and scope.get("basis") == "terminal_jobs_by_build_created_at"
+        and scope.get("day_basis") == CREATED_DAY_BASIS
+    )
     if (
         not isinstance(declared, list)
         or not all(isinstance(slug, str) for slug in declared)
         or set(declared) != set(pipelines)
+        or stored_created_basis != (day_basis == "build-created")
     ):
         if node_days or failing:
             log.info(
-                "Replacing agent-health history outside selected pipeline scope %s "
+                "Replacing agent-health history outside selected pipeline/day scope %s/%s "
                 "(%d node-days, %d failure rows)",
-                list(pipelines), len(node_days), len(failing),
+                list(pipelines), day_basis, len(node_days), len(failing),
             )
         return [], []
 
@@ -1193,8 +1238,15 @@ def main() -> int:
         "--pipeline", choices=("amd-ci", "ci", "both"), default="ci",
         help="Pipeline scope (default: current ci; legacy collection is explicit).",
     )
+    parser.add_argument(
+        "--day-basis", choices=("started", "build-created"), default="started",
+        help="Group terminal runs by start day or by their current-CI build creation cohort.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Fetch + report, but do not write.")
     args = parser.parse_args()
+
+    if args.day_basis == "build-created" and args.pipeline != "ci":
+        parser.error("Build-created cohort requires --pipeline ci")
 
     if not cfg.BK_TOKEN:
         log.error("BUILDKITE_TOKEN not set.")
@@ -1206,8 +1258,12 @@ def main() -> int:
 
     obs: list[dict] = []
     for slug in slugs:
+        source_options = (
+            {"day_basis": "build-created"}
+            if args.day_basis == "build-created" else {}
+        )
         obs.extend(
-            row for row in _fetch_pipeline_observations(slug, days, query_time=now)
+            row for row in _fetch_pipeline_observations(slug, days, query_time=now, **source_options)
             if row.get("pipeline") in slugs
         )
     _mark_infra_suspect(obs)
@@ -1235,7 +1291,7 @@ def main() -> int:
     earliest_day = query_from.strftime("%Y-%m-%d")
     cutoff_day = (now - timedelta(days=MAX_WINDOW_DAYS)).strftime("%Y-%m-%d")
     stored_node_days, stored_failing = _scoped_retained_history(
-        args.output, slugs,
+        args.output, slugs, day_basis=args.day_basis,
     )
 
     node_days = _merge_by_day(
@@ -1247,17 +1303,30 @@ def main() -> int:
         key=lambda r: r["j"],
     )
 
+    source_scope = (
+        {
+            "version": 2,
+            "basis": "terminal_jobs_by_build_created_at",
+            "eligible_completion": CREATED_ELIGIBILITY,
+            "day_basis": CREATED_DAY_BASIS,
+            "discovery_legs": {"created": True},
+        }
+        if args.day_basis == "build-created" else
+        {
+            "version": 1,
+            "basis": "terminal_jobs_by_started_at",
+            "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
+            "active_build_states": list(ACTIVE_BUILD_STATES),
+        }
+    )
     generation = _prepare_generation(
         node_days, failing, now, pipelines=slugs,
         pipeline_scope={
-            "version": 1,
-            "basis": "terminal_jobs_by_started_at",
+            **source_scope,
             "collected_from": query_from.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "collected_to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "requested_days": days,
             "exhaustive": True,
-            "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
-            "active_build_states": list(ACTIVE_BUILD_STATES),
             "attempt_policy": "latest_attempt_per_step",
             "terminal_time_policy": TERMINAL_TIME_POLICY,
             "complete_window": query_from <= now - timedelta(days=MAX_WINDOW_DAYS),

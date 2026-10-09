@@ -398,6 +398,9 @@ jobs:
             ! grep -Fqx "$1" "$PUBLICATION_FAILED_SURFACES_FILE"
           }
 
+          read_surface_request_count() {
+            python -c 'import os; from pathlib import Path; from vllm.buildkite_request_guard import read_count; print(read_count(Path(os.environ["BUILDKITE_REQUEST_GUARD_FILE"]), attempt_id=os.environ["BUILDKITE_REQUEST_GUARD_ATTEMPT_ID"], allowance=int(os.environ["BUILDKITE_REQUEST_GUARD_ALLOWANCE"])))'
+          }
           run_surface_collector() {
             local surface="$1"
             local label="$2"
@@ -413,10 +416,19 @@ jobs:
             collector="${collector//[^A-Za-z0-9_.:\/-]/_}"
             local diagnostic_file
             diagnostic_file=$(mktemp "$RUNNER_TEMP/publication-collector-XXXXXX.log")
+            local request_count_before=""
+            if [ -n "${BUILDKITE_REQUEST_GUARD_FILE:-}" ]; then
+              request_count_before=$(read_surface_request_count)
+            fi
             set +e
             "$@" 2>&1 | tee "$diagnostic_file"
             local status=${PIPESTATUS[0]}
             set -e
+            if [ -n "$request_count_before" ]; then
+              local request_count_after
+              request_count_after=$(read_surface_request_count)
+              echo "Collector $surface guarded request starts: $((request_count_after - request_count_before)); cumulative $request_count_after / $BUILDKITE_REQUEST_GUARD_ALLOWANCE."
+            fi
             if [ "$status" -ne 0 ]; then
               record_surface_failure \
                 "$surface" "$label" "$status" "$diagnostic_file" "$collector"
@@ -1795,16 +1807,18 @@ jobs:
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved'
-        # Walks every ci build on AMD GPU hardware (not just main nightlies) and
-        # Refresh whole UTC job days across the default seven-day view. Older
-        # retained runs remain observed evidence within the 60-day store.
+        # Refresh the explicit current-ci build-creation cohort across whole
+        # UTC days. Terminal executions retain their actual start/finish times,
+        # while node-day rates use their parent's creation day. Version-two
+        # proof and UI labels describe this bounded cohort; they do not claim
+        # coverage of recent executions belonging to older builds.
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector agent_health "AMD agent health" \
             python scripts/vllm/collect_agent_health.py \
-            --days 7 --pipeline ci --output data/vllm/ci/
+            --days 7 --pipeline ci --day-basis build-created --output data/vllm/ci/
 
       - name: Validate private perf-eval event store
         if: >-

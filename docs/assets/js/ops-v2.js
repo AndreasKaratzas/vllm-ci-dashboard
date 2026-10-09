@@ -1511,30 +1511,40 @@
       && aggregateCountMatches;
   }
 
-  function agentStartedJobCoverage(agentHealth) {
+  function agentSourceCoverage(agentHealth) {
     if (!agentHealth || !Array.isArray(agentHealth.pipelines)
       || agentHealth.pipelines.length !== 1 || agentHealth.pipelines[0] !== 'ci'
       || agentHealth.max_window_days !== 60) return null;
     const retention = agentHealth.retention || {};
     const scope = retention.pipeline_scope || {};
     const states = ['creating', 'scheduled', 'running', 'failing', 'blocked', 'canceling'];
-    const legs = ['created', 'older_finished', 'older_active'];
+    const isVersion2 = scope.version === 2;
+    const legs = isVersion2 ? ['created'] : ['created', 'older_finished', 'older_active'];
     const dayCounts = [retention.original_day_count, retention.retained_day_count, retention.dropped_oldest_day_count];
     if (retention.configured_days !== 60 || typeof retention.byte_limited !== 'boolean'
       || dayCounts.some(function (count) { return !Number.isSafeInteger(count) || count < 0; })
       || retention.original_day_count !== retention.retained_day_count + retention.dropped_oldest_day_count) return null;
-    if (scope.version !== 1 || !Number.isInteger(scope.requested_days)
+    if ((scope.version !== 1 && !isVersion2) || !Number.isInteger(scope.requested_days)
       || scope.requested_days < 1 || scope.requested_days > 60
-      || scope.basis !== 'terminal_jobs_by_started_at' || scope.exhaustive !== true
+      || scope.basis !== (isVersion2 ? 'terminal_jobs_by_build_created_at' : 'terminal_jobs_by_started_at')
+      || scope.exhaustive !== true
       || scope.attempt_policy !== 'latest_attempt_per_step'
       || scope.terminal_time_policy !== 'finished_at_or_terminal_build_bound_for_canceled'
       || typeof scope.complete_window !== 'boolean'
       || !scope.discovery_legs || typeof scope.discovery_legs !== 'object' || Array.isArray(scope.discovery_legs)
       || Object.keys(scope.discovery_legs).length !== legs.length
-      || legs.some(function (leg) { return scope.discovery_legs[leg] !== true; })
-      || !Array.isArray(scope.active_build_states) || scope.active_build_states.length !== states.length
+      || legs.some(function (leg) { return scope.discovery_legs[leg] !== true; })) return null;
+    if (isVersion2) {
+      if (scope.eligible_completion !== 'current_ci_build_creation_cohort_with_provable_completion'
+        || scope.day_basis !== 'build_created_at_utc'
+        || Object.prototype.hasOwnProperty.call(scope, 'finished_job_source')
+        || Object.prototype.hasOwnProperty.call(scope, 'active_build_states')) return null;
+    } else if (!Array.isArray(scope.active_build_states) || scope.active_build_states.length !== states.length
       || new Set(scope.active_build_states).size !== states.length
-      || states.some(function (status) { return !scope.active_build_states.includes(status); })) return null;
+      || states.some(function (status) { return !scope.active_build_states.includes(status); })
+      || Object.prototype.hasOwnProperty.call(scope, 'eligible_completion')
+      || Object.prototype.hasOwnProperty.call(scope, 'day_basis')
+      || Object.prototype.hasOwnProperty.call(scope, 'finished_job_source')) return null;
     function utcClock(raw) {
       if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$/.test(raw)) return NaN;
       const instant = Date.parse(raw);
@@ -1554,7 +1564,7 @@
   function agentSourceHistoryComplete(agentHealth, startDay) {
     const retention = ((agentHealth || {}).retention) || {};
     const scope = retention.pipeline_scope || {};
-    const coverage = agentStartedJobCoverage(agentHealth);
+    const coverage = agentSourceCoverage(agentHealth);
     const start = typeof startDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(startDay)
       ? Date.parse(startDay + 'T00:00:00Z') : NaN;
     const scopeComplete = coverage && (startDay === undefined ? scope.complete_window
@@ -5051,8 +5061,11 @@
     const operationsAccountingRetention = operationsRetention.failure_accounting || {};
     const sourceRetention = (agentHealth || {}).retention || {};
     const sourcePipelineScope = sourceRetention.pipeline_scope || {};
-    const startedJobCoverage = agentStartedJobCoverage(agentHealth);
-    const pipelineHistoryIncomplete = !startedJobCoverage || sourcePipelineScope.complete_window === false;
+    const sourceCoverage = agentSourceCoverage(agentHealth);
+    const buildCreatedCohort = sourcePipelineScope.version === 2
+      && sourcePipelineScope.basis === 'terminal_jobs_by_build_created_at'
+      && sourcePipelineScope.day_basis === 'build_created_at_utc';
+    const pipelineHistoryIncomplete = !sourceCoverage || sourcePipelineScope.complete_window === false;
     let sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth);
     let nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
     let failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
@@ -5081,6 +5094,7 @@
         build_number: r.b,
         url: buildkiteJobUrl(r.p, r.b, r.j),
         started_at: r.t,
+        day: r.d,
         _start: Number.isFinite(start) ? start : null,
         _end: Number.isFinite(end) ? end : null,
       };
@@ -5105,11 +5119,17 @@
     function eventKey(e) { return e.node_raw + '@' + e._startMs; }
 
     add(host, pageHeaderNote());
+    if (sourceCoverage && buildCreatedCohort) {
+      add(host, n('div', 'ops-evidence-note is-info ops-agent-completion-scope',
+        'Terminal runs from CI builds created in the selected UTC window. Runs require a recorded or bounded completion time. Fresh build creation coverage for '
+        + agentPipelineScopeLabel(agentHealth) + ', from ' + value(sourcePipelineScope.collected_from)
+        + ' through ' + value(sourcePipelineScope.collected_to) + ' UTC.'));
+    }
     if (evidenceIncomplete || nodeDetailIncomplete || failureDetailIncomplete) {
       const retentionNote = n('div', 'ops-evidence-note is-warning');
       add(retentionNote, [
-        n('strong', '', !startedJobCoverage ? 'Complete agent-health history is unavailable. ' : pipelineHistoryIncomplete ? 'Agent-health pipeline history is incomplete. ' : 'Agent-health drill-down evidence is storage-bounded. '),
-        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (!startedJobCoverage ? 'Retained counts describe observed runs; node-specific failure rates are unavailable. ' : pipelineHistoryIncomplete ? 'Complete fresh UTC history for ' + agentPipelineScopeLabel(agentHealth) + ' begins ' + value(sourcePipelineScope.collected_from) + ' and ends ' + value(sourcePipelineScope.collected_to) + '; the full ' + integer(agentHealth.max_window_days || 60) + '-day window is not yet complete. Older retained history describes observed runs. ' : sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + (pipelineHistoryIncomplete ? 'For selections outside the complete fresh UTC interval or with omitted rows, ' : 'When node detail or source history is incomplete, ') + 'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
+        n('strong', '', !sourceCoverage ? 'Complete agent-health history is unavailable. ' : pipelineHistoryIncomplete ? 'Agent-health pipeline history is incomplete. ' : 'Agent-health drill-down evidence is storage-bounded. '),
+        n('span', '', integer(evidenceRetention.published) + ' of ' + integer(evidenceRetention.source) + ' failing-run links and ' + integer(operationsNodeRetention.published) + ' of ' + integer(operationsNodeRetention.source) + ' node-day rows are published in Operations. ' + (!sourceCoverage ? 'Retained counts describe observed runs; node-specific failure rates are unavailable. ' : pipelineHistoryIncomplete ? 'Complete fresh UTC history for ' + agentPipelineScopeLabel(agentHealth) + ' begins ' + value(sourcePipelineScope.collected_from) + ' and ends ' + value(sourcePipelineScope.collected_to) + '; the full ' + integer(agentHealth.max_window_days || 60) + '-day window is not yet complete. Older retained history describes observed runs. ' : sourceHistoryIncomplete ? 'The source ledger dropped ' + integer(sourceRetention.dropped_oldest_day_count) + ' oldest UTC days and begins ' + value(sourceRetention.retained_start) + '; compact accounting is exact only for that retained suffix. ' : 'Exact date/hardware ledger totals remain available through compact accounting. ') + (pipelineHistoryIncomplete ? 'For selections outside the complete fresh UTC interval or with omitted rows, ' : 'When node detail or source history is incomplete, ') + 'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.'),
       ]);
       host.append(retentionNote);
     }
@@ -5170,7 +5190,7 @@
 
     function pageHeaderNote() {
       const note = n('div', 'ops-evidence-note is-info');
-      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', 'Every build on AMD GPU hardware — all branches and PRs across ' + agentPipelineScopeLabel(agentHealth) + ' — is attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering run on the Failure signal you pick below: "infra-suspect" (the default — anomalous, node-attributable failures, since most PR failures are code bugs), all hard failures, or all failures. Toggle the signal, build scope, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
+      add(note, [n('strong', '', 'AMD physical CI agent health. '), n('span', '', (buildCreatedCohort ? 'Terminal runs from CI builds created in the selected UTC window on AMD GPU hardware' : 'Every build on AMD GPU hardware') + ' — all branches and PRs across ' + agentPipelineScopeLabel(agentHealth) + ' — ' + (buildCreatedCohort ? 'are' : 'is') + ' attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering run on the Failure signal you pick below: "infra-suspect" (the default — anomalous, node-attributable failures, since most PR failures are code bugs), all hard failures, or all failures. Toggle the signal, build scope, cancelled-job handling, and co-failure window; click any node or event to load its timeline.')]);
       return note;
     }
 
@@ -5181,7 +5201,7 @@
       const note = n('div', 'ops-evidence-note is-neutral ops-agent-criteria');
       add(note, [
         n('strong', '', 'What counts as an anomalous (infra-suspect) failure? '),
-        n('span', '', 'When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same day, both: '),
+        n('span', '', 'When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same ' + (buildCreatedCohort ? 'UTC build creation day' : 'day') + ', both: '),
       ]);
       const list = n('ol', 'ops-criteria-list');
       add(list, [
@@ -5282,6 +5302,14 @@
       const days = AGENT_WINDOW_DAYS[windowId] || 7;
       const startMs = endMs - days * 86400000;
       const startDay = new Date(startMs).toISOString().slice(0, 10);
+      function runInWindow(run) {
+        if (run._start === null || run._start > endMs) return false;
+        if (!buildCreatedCohort) return run._start >= startMs;
+        const day = typeof run.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(run.day)
+          ? Date.parse(run.day + 'T00:00:00Z') : NaN;
+        return Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === run.day
+          && run.day >= startDay && day <= endMs;
+      }
       sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth, startDay);
       nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete;
       failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete;
@@ -5332,7 +5360,7 @@
 
       const fRuns = failing.filter(function (r) {
         if (!signalMatch(r)) return false;
-        if (r._start === null || r._start < startMs || r._start > endMs) return false;
+        if (!runInWindow(r)) return false;
         if (nightlyOnly && !r.nightly) return false;
         if (excludeCancelled && r.build_canceled) return false;
         return matchesFilter(r.hardware, r.node_raw);
@@ -5357,7 +5385,7 @@
         });
       } else {
         failing.forEach(function (r) {
-          if (r._start === null || r._start < startMs || r._start > endMs) return;
+          if (!runInWindow(r)) return;
           if (nightlyOnly && !r.nightly) return;
           if (excludeCancelled && r.build_canceled) return;
           if (!matchesFilter(r.hardware, r.node_raw)) return;
@@ -5495,7 +5523,7 @@
         ? 'Only available source history is shown. Compact accounting covers that retained interval; node counts and node-specific Fail % are unavailable, and displayed counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
         : nodeDetailIncomplete || failureDetailIncomplete
         ? 'Operations retained only a bounded suffix of node-granular rows. Exact date/hardware run and failure totals remain in compact accounting, but node counts and node-specific Fail % are unavailable; displayed node counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
-        : 'Runs come from the node_days rollup of every build. Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown.';
+        : (buildCreatedCohort ? 'Terminal runs from CI builds created in the selected UTC window form the run and failure-rate denominator. Actual job timestamps remain in timelines. ' : 'Runs come from the node_days rollup of every build. ') + 'Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown.';
       if (signal === 'infra') {
         return count + ', sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. ' + base + ' Click a node (or Evidence) to load its timeline; sort by any column.';
       }

@@ -1637,6 +1637,10 @@ class TestHourlyMasterWorkflow:
 
         helper = baseline["run"]
         assert "run_surface_collector()" in helper
+        assert "read_surface_request_count()" in helper
+        assert 'request_count_before=$(read_surface_request_count)' in helper
+        assert 'request_count_after=$(read_surface_request_count)' in helper
+        assert 'request_count_after - request_count_before' in helper
         assert '"$surface" "$label" "$status" "$diagnostic_file" "$collector"' in helper
         assert 'sort -u -o "$PUBLICATION_FAILED_SURFACES_FILE"' in helper
         assert '"reason_class": reason_class' in helper
@@ -5030,7 +5034,7 @@ class TestAlertAutomationWorkflow:
         )
         command = collector["run"]
         assert "python scripts/vllm/collect_agent_health.py" in command
-        assert "--days 7 --pipeline ci --output data/vllm/ci/" in command
+        assert "--days 7 --pipeline ci --day-basis build-created --output data/vllm/ci/" in command
         assert "--pipeline both" not in command
         assert "--pipeline amd-ci" not in command
         assert "run_surface_collector agent_health" in command

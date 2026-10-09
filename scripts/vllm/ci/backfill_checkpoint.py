@@ -254,6 +254,34 @@ def restore_complete_shards(root: Path, results_dir: Path) -> int:
     return restored
 
 
+def find_complete_shard(
+    root: Path, name: str, *, build_number: int,
+) -> Path | None:
+    """Return an integrity-validated candidate for exact roster verification.
+
+    A same-build, same-parser checkpoint may contain newer retry attempts than
+    the published shard. This lookup leaves both generations untouched; the
+    caller must verify its job identities against the current frozen roster
+    before promoting any parsed results.
+    """
+    if (
+        SHARD_RE.fullmatch(name) is None
+        or isinstance(build_number, bool)
+        or not isinstance(build_number, int)
+        or build_number <= 0
+    ):
+        raise BackfillCheckpointError("checkpoint lookup identity is invalid")
+    if root.is_symlink():
+        raise BackfillCheckpointError("checkpoint lookup root is unsafe")
+    if not root.exists():
+        return None
+    manifest = _load_manifest(root)
+    descriptor = manifest["shards"].get(name)
+    if descriptor is None or descriptor["build_number"] != build_number:
+        return None
+    return root / SHARD_DIR / name
+
+
 def record_complete_shard(root: Path, shard: Path) -> dict[str, Any]:
     root = root.resolve()
     manifest = load_or_reset(root)

@@ -73,6 +73,45 @@ def test_progress_never_regresses_and_corrupt_restore_is_reset(tmp_path: Path) -
     assert checkpoint.validate(root) == {"shards": 0, "bytes": 0}
 
 
+def test_candidate_lookup_exposes_new_attempts_without_replacing_public_baseline(tmp_path):
+    root = tmp_path / "checkpoint"
+    source = tmp_path / "parsed" / "2026-09-01_amd.jsonl"
+    write_shard(source, build_number=200, parser_version=1)
+    checkpoint.record_complete_shard(root, source)
+    public = tmp_path / "public"
+    destination = public / source.name
+    write_shard(destination, build_number=200, parser_version=1, rows=1)
+    previous = destination.read_bytes()
+
+    assert checkpoint.restore_complete_shards(root, public) == 0
+    candidate = checkpoint.find_complete_shard(root, source.name, build_number=200)
+    assert candidate == root / checkpoint.SHARD_DIR / source.name
+    assert candidate.read_bytes() == source.read_bytes()
+    assert destination.read_bytes() == previous
+    assert checkpoint.find_complete_shard(root, source.name, build_number=201) is None
+
+    candidate.write_bytes(candidate.read_bytes() + b"\n")
+    with pytest.raises(checkpoint.BackfillCheckpointError):
+        checkpoint.find_complete_shard(root, source.name, build_number=200)
+    assert destination.read_bytes() == previous
+
+
+def test_candidate_lookup_is_read_only_and_rejects_unsafe_identity(tmp_path):
+    root = tmp_path / "missing"
+    assert checkpoint.find_complete_shard(
+        root, "2026-09-01_amd.jsonl", build_number=1,
+    ) is None
+    assert not root.exists()
+    for name, number in [("../2026-09-01_amd.jsonl", 1), ("2026-09-01_amd.jsonl", True)]:
+        with pytest.raises(checkpoint.BackfillCheckpointError, match="identity"):
+            checkpoint.find_complete_shard(root, name, build_number=number)
+    target = tmp_path / "target"
+    checkpoint.load_or_reset(target)
+    root.symlink_to(target, target_is_directory=True)
+    with pytest.raises(checkpoint.BackfillCheckpointError, match="unsafe"):
+        checkpoint.find_complete_shard(root, "2026-09-01_amd.jsonl", build_number=1)
+
+
 @pytest.mark.parametrize(
     ("existing_build", "existing_parser", "checkpoint_parser", "restored"),
     [

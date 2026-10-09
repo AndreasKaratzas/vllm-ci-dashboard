@@ -49,6 +49,9 @@ its cross-process request guard still stops Buildkite sends fifty minutes from
 before durable reservation. Slow ledger handoffs consume that request window.
 This preserves the existing 25-hour ledger, sixteen-attempt limit, 800-start
 allowance, and retry backoff while leaving time for final validation and deploy.
+Collector logs record exact guarded transport starts per surface and the running
+total, so quota regressions can be traced to a producer without exposing source
+requests or identities.
 
 Historical attempt-ledger evidence retains its exact known retired surface names
 so immutable request accounting remains readable. New evidence and retry requests
@@ -79,15 +82,26 @@ AMD node-health percentages also use `ci` by default. Mixed legacy rollups are
 replaced by the freshly collected CI window when their pipeline scope cannot
 be separated; subsequent CI-only generations retain their scoped history.
 
-Physical node-health days follow job start time. Collection refreshes whole UTC
-days and discovers jobs through recently created builds, older builds finished
-within the refresh window, and older active builds. Every search must paginate
-completely before publication; a failed search preserves the previous generation.
-Exact failure percentages require a current started-job coverage proof for the
+Normal physical node health measures terminal AMD runs from current `ci` builds
+created in the selected UTC window. Whole UTC creation-day slices exhaust this
+finite cohort across every branch and trigger. Version-two proof explicitly
+names its build-creation eligibility and day basis. Both rollups and failure
+membership use the parent's creation day; actual start/finish timestamps remain
+unchanged for timelines and co-failure analysis. Pending/running executions do
+not enter this terminal denominator. A canceled run without its own finish
+still requires a final unblocked parent completion bound. The table names this
+cohort and shows the exact interval; it does not claim to cover recent jobs
+belonging to older builds. Both private ledgers reset when their pipeline or
+day basis changes, so old start-day buckets cannot become creation-day counts.
+Every search must paginate completely before publication; invalid timestamps,
+incomplete pages, or request failures preserve the previous generation.
+Exact failure percentages require a current cohort coverage proof for the
 selected days. Normal Actions refresh the default seven-day view in bounded
 daily slices. Retained observations from earlier refreshes remain available,
 but cannot establish an exhaustive sixty-day denominator on their own.
-Historical active builds are searched separately for each supported state,
+Explicit start-day REST collection remains available with strict version-one
+started-job proof: older finished and active builds are
+searched separately for each supported state,
 through overlapping creation-time partitions with no oldest-age cutoff.
 Every page retains the original filters and immediately projects compact
 observations. Equal-time boundaries overlap, and invalid filters, ambiguous
@@ -99,7 +113,15 @@ Failed command jobs explicitly reported as never run (`signature_rejected`,
 `agent_incompatible`, or `stack_error`) with no start timestamp also stay outside
 that started-job denominator. A supplied start timestamp still requires validation.
 Ambiguous command execution timestamps still block the source proof and retain
-the prior generation; failure diagnostics contain bounded operational metadata.
+the prior generation when returned by a queried cohort; failure diagnostics
+contain bounded operational metadata.
+
+Private resumable CI result shards survive failed publication. After hydrating
+the current frozen job roster, collection reuses a private shard only when its
+declared integrity, parser, source, and exact current job identities validate.
+This prevents an older published shard for the same build and parser from
+forcing hundreds of repeat log downloads after job retries. Cache size limits,
+public source audits, and canonical publication selection remain unchanged.
 
 Regressions cover CPU/legacy exclusion, global cohort selection, missing-group
 and incomplete-shard behavior, exact five-nightly links, observed agent routing,
