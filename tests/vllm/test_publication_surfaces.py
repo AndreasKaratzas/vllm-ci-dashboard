@@ -1035,6 +1035,154 @@ def test_refresh_only_candidate_code_ref_still_anchors_generated_data(
         )
 
 
+def _refresh_only_authored_guide_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, str, str]:
+    repo, _, _, dns_relative = _refresh_only_candidate_repo(tmp_path)
+    guide_paths = sorted(selector_module.AUTHORED_DASHBOARD_GUIDE_PATHS)
+    (repo / "dashboards").mkdir()
+    for relative in guide_paths:
+        (repo / relative).write_text(f"baseline authored guide: {relative}\n")
+    (repo / "dashboards/ci-generated.md").write_text("baseline generated report\n")
+    _git(repo, "add", "dashboards")
+    _git(repo, "commit", "-m", "old validated state with authored guides")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    for relative in guide_paths:
+        (repo / relative).write_text(f"current authored guide: {relative}\n")
+    _git(repo, "add", "dashboards")
+    _git(repo, "commit", "-m", "new immutable authored guides")
+    candidate = _git(repo, "rev-parse", "HEAD")
+    # Model a queued stale checkout and hydrated state. The real workflow then
+    # restores code-owned guides into the worktree without changing its index.
+    _git(repo, "checkout", "--detach", baseline)
+    _git(repo, "restore", f"--source={candidate}", "--worktree", "--", *guide_paths)
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {
+            "dns_health": SurfaceSpec(required_paths=(dns_relative,)),
+            "queue": SurfaceSpec(required_paths=("data/queue_lifecycle.json",)),
+        },
+    )
+    return repo, baseline, candidate
+
+
+@pytest.mark.parametrize("surface", ["queue", "dns_health"])
+def test_refresh_only_restored_authored_guides_use_exact_candidate_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+) -> None:
+    repo, baseline, candidate = _refresh_only_authored_guide_repo(tmp_path, monkeypatch)
+    target = selector_module.SURFACE_SPECS[surface].required_paths[0]
+    (repo / target).write_text('{"generation":"candidate"}\n')
+
+    selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
+
+    assert _git(repo, "rev-parse", "HEAD") == baseline
+    for relative in selector_module.AUTHORED_DASHBOARD_GUIDE_PATHS:
+        assert (repo / relative).read_text() == f"current authored guide: {relative}\n"
+        assert _git(repo, "show", f":{relative}") == f"baseline authored guide: {relative}"
+
+
+@pytest.mark.parametrize("relative", sorted(selector_module.AUTHORED_DASHBOARD_GUIDE_PATHS))
+@pytest.mark.parametrize("mutation", ["edited", "baseline", "deleted", "symlink", "directory", "executable"])
+def test_refresh_only_authored_guide_must_match_candidate_bytes_type_and_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative: str,
+    mutation: str,
+) -> None:
+    repo, baseline, candidate = _refresh_only_authored_guide_repo(tmp_path, monkeypatch)
+    guide = repo / relative
+    if mutation == "edited":
+        guide.write_text("arbitrary guide edit\n")
+    elif mutation == "baseline":
+        guide.write_text(f"baseline authored guide: {relative}\n")
+    elif mutation == "deleted":
+        guide.unlink()
+    elif mutation == "symlink":
+        outside = tmp_path / "outside-guide.md"
+        outside.write_bytes(guide.read_bytes())
+        guide.unlink()
+        guide.symlink_to(outside)
+    elif mutation == "directory":
+        guide.unlink()
+        guide.mkdir()
+    else:
+        guide.chmod(0o755)
+
+    with pytest.raises(RuntimeError, match=relative):
+        selector_module._validate_refresh_only_candidate(
+            repo, baseline, "queue", candidate,
+        )
+
+
+def test_refresh_only_authored_guide_check_does_not_trust_index_change_hints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, candidate = _refresh_only_authored_guide_repo(tmp_path, monkeypatch)
+    relative = "dashboards/dashboard-cleanup.md"
+    _git(repo, "add", relative)
+    _git(repo, "update-index", "--assume-unchanged", "--", relative)
+    (repo / relative).write_text("hidden worktree guide change\n")
+    assert relative not in selector_module._changed_worktree_paths(repo, candidate)
+
+    with pytest.raises(RuntimeError, match=relative):
+        selector_module._validate_refresh_only_candidate(
+            repo, baseline, "queue", candidate,
+        )
+
+
+@pytest.mark.parametrize("committed_to_candidate", [False, True])
+def test_refresh_only_authored_exception_keeps_other_generated_markdown_anchored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    committed_to_candidate: bool,
+) -> None:
+    repo, baseline, candidate = _refresh_only_authored_guide_repo(tmp_path, monkeypatch)
+    (repo / "dashboards/ci-generated.md").write_text("unrelated generated report changed\n")
+    if committed_to_candidate:
+        _git(repo, "add", "dashboards")
+        _git(repo, "commit", "-m", "candidate also changed an unrelated generated report")
+        candidate = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(RuntimeError, match="dashboards/ci-generated.md"):
+        selector_module._validate_refresh_only_candidate(
+            repo, baseline, "dns_health", candidate,
+        )
+
+
+def test_refresh_only_authored_guide_exception_requires_candidate_code_ref(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, _ = _refresh_only_authored_guide_repo(tmp_path, monkeypatch)
+
+    with pytest.raises(RuntimeError, match="dashboards/dashboard-cleanup.md"):
+        selector_module._validate_refresh_only_candidate(repo, baseline, "queue")
+
+
+def test_authored_guide_inventory_matches_immutable_workflow_restoration() -> None:
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/hourly-master.yml").read_text())
+    restore_step = next(
+        step for step in workflow["jobs"]["collect-and-deploy"]["steps"]
+        if step.get("name") == "Restore authored dashboard documentation from immutable code"
+    )
+    guide_loop = next(
+        line.strip() for line in restore_step["run"].splitlines()
+        if line.strip().startswith("for GUIDE in ")
+    )
+    restored_guides = frozenset(
+        guide_loop.removeprefix("for GUIDE in ").removesuffix("; do").split()
+    )
+    assert restored_guides == selector_module.AUTHORED_DASHBOARD_GUIDE_PATHS
+
+
 def test_refresh_only_without_candidate_code_ref_keeps_legacy_comparison(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
