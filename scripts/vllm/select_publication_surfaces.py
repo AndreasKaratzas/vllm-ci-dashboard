@@ -57,6 +57,12 @@ from vllm.publication_surfaces import (  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STATE = Path("data/vllm/ci/publication_state.json")
+# State snapshots retain the whole dashboards root, but the workflow restores
+# these authored guides from immutable code after materializing generated data.
+AUTHORED_DASHBOARD_GUIDE_PATHS = frozenset({
+    "dashboards/dashboard-audit.md",
+    "dashboards/dashboard-cleanup.md",
+})
 PUBLICATION_STATE_MAX_BYTES = writer_max_bytes("publication_state")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 FALLBACK_MAX_AGE_HOURS = 36
@@ -978,7 +984,7 @@ def _is_generated_path(relative: str, generated_roots: tuple[str, ...]) -> bool:
 
 
 def _worktree_path_matches_ref(root: Path, ref: str, relative: str) -> bool:
-    """Compare one generated path to a ref, including untracked state files."""
+    """Compare one worktree path to a ref, including untracked state files."""
     raw_entry = _run_git(root, "ls-tree", "-z", ref, "--", relative)
     path = root / relative
     if not raw_entry:
@@ -1018,10 +1024,18 @@ def _validate_refresh_only_candidate(
         generated_roots = _candidate_generated_roots(root, candidate_code_ref)
         baseline_changes = _changed_worktree_paths(root, baseline_ref)
         candidate_changes = _changed_worktree_paths(root, candidate_code_ref)
-        changed = sorted({
+        # Only these exact authored paths use code authority inside a generated
+        # root. Compare their actual content and Git type/mode, even when an old
+        # state index or checkout reports a different set of changed paths.
+        authored_guide_changes = {
+            relative
+            for relative in AUTHORED_DASHBOARD_GUIDE_PATHS
+            if not _worktree_path_matches_ref(root, candidate_code_ref, relative)
+        }
+        changed = sorted(authored_guide_changes | {
             relative
             for relative in baseline_changes | candidate_changes
-            if (
+            if relative not in AUTHORED_DASHBOARD_GUIDE_PATHS and ((
                 _is_generated_path(relative, generated_roots)
                 and relative in baseline_changes
                 and not _worktree_path_matches_ref(root, baseline_ref, relative)
@@ -1029,7 +1043,7 @@ def _validate_refresh_only_candidate(
             or (
                 not _is_generated_path(relative, generated_roots)
                 and relative in candidate_changes
-            )
+            ))
         })
     unexpected = []
     for relative in changed:
