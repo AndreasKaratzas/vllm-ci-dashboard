@@ -376,7 +376,7 @@ class TestWorkflowYAML:
                         f"{workflow.name}:{job_name}: github-script must use github.rest"
                     )
 
-        assert observed == 11
+        assert observed == 15
 
     def test_dependency_contracts_are_exact_and_covered_by_lock(self):
         constraint_lines = [

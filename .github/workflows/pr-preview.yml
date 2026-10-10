@@ -41,7 +41,60 @@ jobs:
     env:
       TRUSTED_PYTHONPATH: ${{ github.workspace }}/trusted-base/scripts
     steps:
+      # Waiting for the Pages lease can outlive the PR. Check live eligibility
+      # before checkout, then again at each publication boundary.
+      - name: Check current pull request after Pages lease
+        id: preview-start
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            core.setOutput('eligible', 'false');
+            const expected = context.payload.pull_request;
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const fullSha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+            if (!expected || !Number.isSafeInteger(expected.number) || expected.number <= 0 ||
+                !fullSha(expected.head?.sha) || !fullSha(expected.base?.sha) ||
+                expected.head?.repo?.full_name !== repository ||
+                expected.base?.repo?.full_name !== repository ||
+                !trustedAssociations.has(expected.author_association)) {
+              throw new Error('Captured pull request eligibility is invalid');
+            }
+            let response;
+            try {
+              response = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: expected.number
+              });
+            } catch {
+              throw new Error('Current pull request eligibility could not be established');
+            }
+            const current = response?.data;
+            if (response?.status !== 200 || !current || current.number !== expected.number ||
+                !['open', 'closed'].includes(current.state) || typeof current.merged !== 'boolean') {
+              throw new Error('Current pull request eligibility response is invalid');
+            }
+            if (current.state === 'closed' || current.merged) {
+              core.info('Skipping an obsolete preview: pull request is closed or merged');
+              return;
+            }
+            if (!fullSha(current.head?.sha) || !fullSha(current.base?.sha) ||
+                typeof current.head?.repo?.full_name !== 'string' ||
+                typeof current.base?.repo?.full_name !== 'string' ||
+                typeof current.author_association !== 'string') {
+              throw new Error('Current pull request source identity is incomplete');
+            }
+            if (current.head.repo.full_name !== repository ||
+                current.base.repo.full_name !== repository ||
+                !trustedAssociations.has(current.author_association) ||
+                current.head.sha !== expected.head.sha || current.base.sha !== expected.base.sha) {
+              core.info('Skipping an obsolete preview: pull request source or trust changed');
+              return;
+            }
+            core.setOutput('eligible', 'true');
+
       - name: Checkout immutable trusted base
+        if: steps.preview-start.outputs.eligible == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -56,13 +109,15 @@ jobs:
       # This checkout is data-only. No command in this privileged job executes
       # a script, action, dependency, or configuration from this directory.
       - name: Checkout pull request as static input
+        if: steps.preview-start.outputs.eligible == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          ref: ${{ github.event.pull_request.head.sha }}
           path: pr-input
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - if: steps.preview-start.outputs.eligible == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.12.13'
           cache: 'pip'
@@ -71,10 +126,12 @@ jobs:
             trusted-base/pyproject.toml
 
       - name: Install dependencies
+        if: steps.preview-start.outputs.eligible == 'true'
         run: pip install -c constraints.txt requests pyyaml
         working-directory: trusted-base
 
       - name: Validate and copy static pull-request inputs
+        if: steps.preview-start.outputs.eligible == 'true'
         run: |
           set -euo pipefail
           if [ ! -d pr-input/docs ] || [ ! -d pr-input/data ] || \
@@ -114,6 +171,7 @@ jobs:
           cp -a pr-input/data trusted-base/data
 
       - name: Rebuild v2 operations snapshot
+        if: steps.preview-start.outputs.eligible == 'true'
         run: >-
           PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
           trusted-base/scripts/vllm/build_operations_snapshot.py
@@ -121,16 +179,70 @@ jobs:
           --output trusted-base/data/vllm/ci/operations_v2.json.gz
 
       - name: Generate site data
+        if: steps.preview-start.outputs.eligible == 'true'
         run: >-
           PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
           trusted-base/scripts/render.py
 
       - name: Assemble site
+        if: steps.preview-start.outputs.eligible == 'true'
         run: >-
           PYTHONPATH="$TRUSTED_PYTHONPATH" python -P
           trusted-base/scripts/build_site.py --cache-bust-index
 
+      - name: Recheck pull request before composing Pages
+        id: preview-compose-current
+        if: steps.preview-start.outputs.eligible == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            core.setOutput('eligible', 'false');
+            const expected = context.payload.pull_request;
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const fullSha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+            if (!expected || !Number.isSafeInteger(expected.number) || expected.number <= 0 ||
+                !fullSha(expected.head?.sha) || !fullSha(expected.base?.sha) ||
+                expected.head?.repo?.full_name !== repository ||
+                expected.base?.repo?.full_name !== repository ||
+                !trustedAssociations.has(expected.author_association)) {
+              throw new Error('Captured pull request eligibility is invalid');
+            }
+            let response;
+            try {
+              response = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: expected.number
+              });
+            } catch {
+              throw new Error('Current pull request eligibility could not be established');
+            }
+            const current = response?.data;
+            if (response?.status !== 200 || !current || current.number !== expected.number ||
+                !['open', 'closed'].includes(current.state) || typeof current.merged !== 'boolean') {
+              throw new Error('Current pull request eligibility response is invalid');
+            }
+            if (current.state === 'closed' || current.merged) {
+              core.info('Skipping an obsolete preview: pull request is closed or merged');
+              return;
+            }
+            if (!fullSha(current.head?.sha) || !fullSha(current.base?.sha) ||
+                typeof current.head?.repo?.full_name !== 'string' ||
+                typeof current.base?.repo?.full_name !== 'string' ||
+                typeof current.author_association !== 'string') {
+              throw new Error('Current pull request source identity is incomplete');
+            }
+            if (current.head.repo.full_name !== repository ||
+                current.base.repo.full_name !== repository ||
+                !trustedAssociations.has(current.author_association) ||
+                current.head.sha !== expected.head.sha || current.base.sha !== expected.base.sha) {
+              core.info('Skipping an obsolete preview: pull request source or trust changed');
+              return;
+            }
+            core.setOutput('eligible', 'true');
+
       - name: Compose exact bounded Pages tree
+        if: steps.preview-start.outputs.eligible == 'true' && steps.preview-compose-current.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
@@ -170,7 +282,60 @@ jobs:
             --protect-preview "$PREVIEW_NAME"
           mv "$PAGES_NEXT" trusted-base/_pages_publish
 
-      - uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+      - name: Recheck pull request before publishing Pages
+        id: preview-publish-current
+        if: steps.preview-start.outputs.eligible == 'true' && steps.preview-compose-current.outputs.eligible == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            core.setOutput('eligible', 'false');
+            const expected = context.payload.pull_request;
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const fullSha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+            if (!expected || !Number.isSafeInteger(expected.number) || expected.number <= 0 ||
+                !fullSha(expected.head?.sha) || !fullSha(expected.base?.sha) ||
+                expected.head?.repo?.full_name !== repository ||
+                expected.base?.repo?.full_name !== repository ||
+                !trustedAssociations.has(expected.author_association)) {
+              throw new Error('Captured pull request eligibility is invalid');
+            }
+            let response;
+            try {
+              response = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: expected.number
+              });
+            } catch {
+              throw new Error('Current pull request eligibility could not be established');
+            }
+            const current = response?.data;
+            if (response?.status !== 200 || !current || current.number !== expected.number ||
+                !['open', 'closed'].includes(current.state) || typeof current.merged !== 'boolean') {
+              throw new Error('Current pull request eligibility response is invalid');
+            }
+            if (current.state === 'closed' || current.merged) {
+              core.info('Skipping an obsolete preview: pull request is closed or merged');
+              return;
+            }
+            if (!fullSha(current.head?.sha) || !fullSha(current.base?.sha) ||
+                typeof current.head?.repo?.full_name !== 'string' ||
+                typeof current.base?.repo?.full_name !== 'string' ||
+                typeof current.author_association !== 'string') {
+              throw new Error('Current pull request source identity is incomplete');
+            }
+            if (current.head.repo.full_name !== repository ||
+                current.base.repo.full_name !== repository ||
+                !trustedAssociations.has(current.author_association) ||
+                current.head.sha !== expected.head.sha || current.base.sha !== expected.base.sha) {
+              core.info('Skipping an obsolete preview: pull request source or trust changed');
+              return;
+            }
+            core.setOutput('eligible', 'true');
+
+      - id: preview-publish
+        if: steps.preview-start.outputs.eligible == 'true' && steps.preview-compose-current.outputs.eligible == 'true' && steps.preview-publish-current.outputs.eligible == 'true'
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./trusted-base/_pages_publish
@@ -178,7 +343,59 @@ jobs:
           keep_files: false
           force_orphan: true
 
+      - name: Recheck pull request before commenting
+        id: preview-comment-current
+        if: steps.preview-start.outputs.eligible == 'true' && steps.preview-compose-current.outputs.eligible == 'true' && steps.preview-publish-current.outputs.eligible == 'true' && steps.preview-publish.outcome == 'success'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            core.setOutput('eligible', 'false');
+            const expected = context.payload.pull_request;
+            const repository = `${context.repo.owner}/${context.repo.repo}`;
+            const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const fullSha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
+            if (!expected || !Number.isSafeInteger(expected.number) || expected.number <= 0 ||
+                !fullSha(expected.head?.sha) || !fullSha(expected.base?.sha) ||
+                expected.head?.repo?.full_name !== repository ||
+                expected.base?.repo?.full_name !== repository ||
+                !trustedAssociations.has(expected.author_association)) {
+              throw new Error('Captured pull request eligibility is invalid');
+            }
+            let response;
+            try {
+              response = await github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo,
+                pull_number: expected.number
+              });
+            } catch {
+              throw new Error('Current pull request eligibility could not be established');
+            }
+            const current = response?.data;
+            if (response?.status !== 200 || !current || current.number !== expected.number ||
+                !['open', 'closed'].includes(current.state) || typeof current.merged !== 'boolean') {
+              throw new Error('Current pull request eligibility response is invalid');
+            }
+            if (current.state === 'closed' || current.merged) {
+              core.info('Skipping an obsolete preview: pull request is closed or merged');
+              return;
+            }
+            if (!fullSha(current.head?.sha) || !fullSha(current.base?.sha) ||
+                typeof current.head?.repo?.full_name !== 'string' ||
+                typeof current.base?.repo?.full_name !== 'string' ||
+                typeof current.author_association !== 'string') {
+              throw new Error('Current pull request source identity is incomplete');
+            }
+            if (current.head.repo.full_name !== repository ||
+                current.base.repo.full_name !== repository ||
+                !trustedAssociations.has(current.author_association) ||
+                current.head.sha !== expected.head.sha || current.base.sha !== expected.base.sha) {
+              core.info('Skipping an obsolete preview: pull request source or trust changed');
+              return;
+            }
+            core.setOutput('eligible', 'true');
+
       - name: Comment preview URL
+        if: steps.preview-start.outputs.eligible == 'true' && steps.preview-compose-current.outputs.eligible == 'true' && steps.preview-publish-current.outputs.eligible == 'true' && steps.preview-publish.outcome == 'success' && steps.preview-comment-current.outputs.eligible == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
