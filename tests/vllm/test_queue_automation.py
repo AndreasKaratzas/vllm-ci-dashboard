@@ -232,7 +232,7 @@ class TestQueueMonitorWorkflow:
         """Queue evidence must not depend on the large dashboard workflow succeeding."""
         triggers = workflow.get(True, {})
         crons = [row.get("cron") for row in triggers.get("schedule", [])]
-        assert "2,12,22,32,42,52 * * * *" in crons
+        assert "3,13,23,33,43,53 * * * *" in crons
 
     def test_watchdog_wakeup_cannot_form_an_indirect_failed_data_cycle(
         self, workflow
@@ -845,7 +845,7 @@ class TestQueueLifecycleWorkflow:
     ):
         triggers = workflow.get(True, {})
         crons = [row.get("cron") for row in triggers.get("schedule", [])]
-        assert crons == ["17,47 * * * *"]
+        assert crons == ["18,48 * * * *"]
         assert workflow["concurrency"]["group"] == "queue-lifecycle-data-publish"
         assert workflow["concurrency"]["cancel-in-progress"] is False
 

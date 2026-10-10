@@ -6,7 +6,7 @@ on:
     # metrics. Check the durable gate every 30 minutes so a bounded private
     # checkpoint can resume promptly. Successful attempts remain hard-gated
     # to one per two hours, so the extra schedules make zero Buildkite calls.
-    - cron: '17,47 * * * *'
+    - cron: '18,48 * * * *'
   repository_dispatch:
     # Optional external wake-up; the durable attempt ledger still enforces the
     # success/retry cadences and rolling Buildkite request ceiling.

@@ -203,7 +203,24 @@ function setRecoveryProgress(body, stateSha, codeSha) {
   return `${banner}\n${source}`;
 }
 
-function validateSiteHealthEvidence(evidence, stateSha, codeSha) {
+const SITE_HEALTH_EVIDENCE_MAX_AGE_MS = 15 * 60 * 1000;
+const PUBLICATION_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+const FUTURE_SKEW_MS = 5 * 60 * 1000;
+
+function canonicalUtcTimestamp(value) {
+  if (typeof value !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value)) {
+    return NaN;
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) ||
+      new Date(parsed).toISOString().slice(0, 19) !== value.slice(0, 19)) {
+    return NaN;
+  }
+  return parsed;
+}
+
+function validateSiteHealthEvidence(evidence, stateSha, codeSha, nowMs = Date.now()) {
   const row = evidence && typeof evidence === 'object' ? evidence : {};
   const valid = (
     row.normalized === true &&
@@ -240,6 +257,18 @@ function validateSiteHealthEvidence(evidence, stateSha, codeSha) {
       'site-health recovery requires normalized healthy/current 2-of-3 ' +
       'evidence for the exact publication identity',
     );
+  }
+  const checkedAt = canonicalUtcTimestamp(row.checkedAt);
+  const generatedAt = canonicalUtcTimestamp(row.generatedAt);
+  const coreSucceededAt = canonicalUtcTimestamp(row.durableCoreSucceededAt);
+  if (!Number.isFinite(nowMs) ||
+      ![checkedAt, generatedAt, coreSucceededAt].every(Number.isFinite) ||
+      [checkedAt, generatedAt, coreSucceededAt].some(time => time > nowMs + FUTURE_SKEW_MS) ||
+      nowMs - checkedAt > SITE_HEALTH_EVIDENCE_MAX_AGE_MS ||
+      nowMs - generatedAt > PUBLICATION_MAX_AGE_MS ||
+      // Match the normalizer's existing five-minute durable-core skew grace.
+      nowMs - coreSucceededAt > PUBLICATION_MAX_AGE_MS + FUTURE_SKEW_MS) {
+    throw new Error('site-health recovery evidence is expired or has invalid freshness clocks');
   }
   return true;
 }
@@ -408,7 +437,7 @@ async function findCanonicalIncident({github, context, includeClosed = true}) {
   });
 }
 
-async function ensureOwnerLabel({github, context}) {
+async function ensureOwnerLabel({github, context, beforeMutation = () => {}}) {
   try {
     await github.rest.issues.getLabel({
       owner: context.repo.owner,
@@ -418,6 +447,7 @@ async function ensureOwnerLabel({github, context}) {
   } catch (error) {
     if (error.status !== 404) throw error;
     try {
+      beforeMutation();
       await github.rest.issues.createLabel({
         owner: context.repo.owner,
         repo: context.repo.repo,
@@ -431,9 +461,10 @@ async function ensureOwnerLabel({github, context}) {
   }
 }
 
-async function retireOwnerLabel({github, context, issue}) {
+async function retireOwnerLabel({github, context, issue, beforeMutation = () => {}}) {
   if (!issueHasLabel(issue, HOURLY_OWNER_LABEL)) return false;
   try {
+    beforeMutation();
     await github.rest.issues.removeLabel({
       owner: context.repo.owner,
       repo: context.repo.repo,
@@ -478,13 +509,23 @@ async function closeHourlyIncident({
     throw new Error('eligible recovery requires an exact dashboard state SHA');
   }
   const siteHealthRecovery = validationSource === 'site-health';
-  if (siteHealthRecovery) {
-    validateSiteHealthEvidence(
-      validationEvidence,
-      validationStateSha,
-      validationCodeSha,
-    );
-  } else {
+  const beforeMutation = () => {
+    if (siteHealthRecovery) {
+      // Issue reads, label setup and a transient close retry can consume the
+      // proof's remaining lifetime even after the deployment lease is acquired.
+      validateSiteHealthEvidence(
+        validationEvidence,
+        validationStateSha,
+        validationCodeSha,
+      );
+    }
+  };
+  const writeIssue = (method, parameters) => {
+    beforeMutation();
+    return github.rest.issues[method](parameters);
+  };
+  beforeMutation();
+  if (!siteHealthRecovery) {
     await ensureOwnerLabel({github, context});
   }
   const {issue: currentIssue, ownedIssues} = await findCanonicalIncident({
@@ -521,10 +562,10 @@ async function closeHourlyIncident({
     }
     // The independent monitor may be the first caller after repository setup.
     // Do not mutate labels until its exact pending publication identity is proven.
-    await ensureOwnerLabel({github, context});
+    await ensureOwnerLabel({github, context, beforeMutation});
   }
   if (!issueHasLabel(currentIssue, HOURLY_OWNER_LABEL)) {
-    await github.rest.issues.addLabels({
+    await writeIssue('addLabels', {
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: currentIssue.number,
@@ -560,7 +601,7 @@ async function closeHourlyIncident({
     return Object.freeze({action: 'scope-mismatch', issue: currentIssue.number});
   }
 
-  await github.rest.issues.addLabels({
+  await writeIssue('addLabels', {
     owner: context.repo.owner,
     repo: context.repo.repo,
     issue_number: currentIssue.number,
@@ -590,7 +631,7 @@ async function closeHourlyIncident({
             `Reconciliation run: ${runUrl}`,
           ].join('\n');
         }
-        await github.rest.issues.update({
+        await writeIssue('update', {
           owner: context.repo.owner,
           repo: context.repo.repo,
           issue_number: issue.number,
@@ -598,7 +639,7 @@ async function closeHourlyIncident({
           state: 'closed',
         });
       }
-      await retireOwnerLabel({github, context, issue});
+      await retireOwnerLabel({github, context, issue, beforeMutation});
     }
   };
   await supersedeOtherIssues(currentIssue.number);
@@ -618,7 +659,7 @@ async function closeHourlyIncident({
   }
   if (currentIssue.state === 'closed' && hasExactMarker(currentBody, RECOVERED_MARKER)) {
     if (currentBody !== originalBody) {
-      await github.rest.issues.update({
+      await writeIssue('update', {
         owner: context.repo.owner,
         repo: context.repo.repo,
         issue_number: currentIssue.number,
@@ -653,7 +694,7 @@ async function closeHourlyIncident({
       validationCodeSha,
     );
     if (pendingBody !== originalBody) {
-      await github.rest.issues.update({
+      await writeIssue('update', {
         owner: context.repo.owner,
         repo: context.repo.repo,
         issue_number: currentIssue.number,
@@ -680,7 +721,7 @@ async function closeHourlyIncident({
     ? completedBody
     : `${RECOVERED_MARKER}\n${completedBody}`;
   if (currentIssue.state === 'closed') {
-    await github.rest.issues.update({
+    await writeIssue('update', {
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: currentIssue.number,
@@ -707,7 +748,7 @@ async function closeHourlyIncident({
   let closeError = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      await github.rest.issues.update(closePayload);
+      await writeIssue('update', closePayload);
       closeError = null;
       break;
     } catch (error) {
@@ -755,7 +796,7 @@ async function closeHourlyIncident({
     ? 'Site Health run'
     : 'Publication run';
   try {
-    await github.rest.issues.createComment({
+    await writeIssue('createComment', {
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: currentIssue.number,

@@ -1,10 +1,11 @@
 name: Publication Recovery Watchdog
 
 on:
-  # A 15-minute opportunity bounds detection delay after the 95-minute
-  # publication-age trigger; repository_dispatch remains an independent tick.
+  # Begin proactive detection at 75 minutes. Scheduler delays, proof runtime,
+  # writer queues and durable admission can still exceed the three-hour limit.
+  # repository_dispatch provides an independent tick when schedules are missed.
   schedule:
-    - cron: '10,25,40,55 * * * *'
+    - cron: '11,26,41,56 * * * *'
   repository_dispatch:
     types: [publication_watchdog_tick]
   workflow_dispatch:
@@ -511,13 +512,30 @@ jobs:
               --markdown-output "$HEALTH_DETAILS"; then
               echo "A fresh 2-of-3 synthetic quorum is healthy; the triggering failure was not a confirmed Pages outage."
             else
-              if python scripts/vllm/validate_watchdog_health_report.py \
-                --input "$HEALTH_REPORT"; then
+              if HEALTH_TARGET=$(python scripts/vllm/validate_watchdog_health_report.py \
+                --input "$HEALTH_REPORT" --print-recovery-target); then
+                case "$HEALTH_TARGET" in
+                  collector)
+                    # Preserve the exact observed generation for coalescing.
+                    GIT_NO_LAZY_FETCH=1 git show \
+                      origin/gh-pages:data/vllm/ci/publication_status.json \
+                      > "$STATUS_PATH"
+                    HEALTH_REASON=site-health-stale
+                    echo "Confirmed age-only failure needs guarded collection; redeployment cannot refresh its source clock."
+                    ;;
+                  deploy-pages)
+                    HEALTH_REASON=site-health-failed
+                    echo "A fresh bounded quorum confirmed a projection or availability failure; selecting deploy-only recovery."
+                    ;;
+                  *)
+                    echo "::error::Confirmed Site Health report returned an invalid recovery target."
+                    exit 1
+                    ;;
+                esac
                 {
-                  echo "target=deploy-pages"
-                  echo "force_reason=site-health-failed"
+                  echo "target=$HEALTH_TARGET"
+                  echo "force_reason=$HEALTH_REASON"
                 } >> "$GITHUB_OUTPUT"
-                echo "A fresh 2-of-3 synthetic quorum confirmed a Pages outage; scheduling deduplicated deploy-only recovery."
                 exit 0
               fi
               echo "::error::The failed Site Health run could not be confirmed by a fresh bounded quorum; refusing speculative deployment."
@@ -632,7 +650,7 @@ jobs:
             --status "$RUNNER_TEMP/publication-status.json"
             --workflow-runs "$RUNNER_TEMP/selected-recovery-runs.json"
             --recovery-target "$RECOVERY_TARGET"
-            --max-age-minutes 95
+            --max-age-minutes 75
             --active-run-max-age-minutes 75
             --github-output "$GITHUB_OUTPUT"
           )

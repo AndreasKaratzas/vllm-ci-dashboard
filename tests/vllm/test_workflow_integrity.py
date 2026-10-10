@@ -3049,8 +3049,8 @@ class TestHourlyMasterWorkflow:
         assert "The active hourly publication incident was absent" in helper_script
         assert "distinct eligible healthy publication states" in helper_script
         assert "validationSource === 'separate-ci'" in helper_script
-        close_update = helper_script.index("await github.rest.issues.update(closePayload)")
-        close_comment = helper_script.index("await github.rest.issues.createComment({")
+        close_update = helper_script.index("await writeIssue('update', closePayload)")
+        close_comment = helper_script.index("await writeIssue('createComment', {")
         assert close_update < close_comment
         assert "retrying once" in helper_script
         assert "readback.data.state !== 'closed'" in helper_script
@@ -3342,7 +3342,7 @@ class TestHourlyMasterWorkflow:
         triggers = data.get(True, data.get("on", {}))
         schedules = triggers.get("schedule", []) if isinstance(triggers, dict) else []
         crons = [s.get("cron", "") for s in schedules]
-        assert crons == ["13 */2 * * *"], (
+        assert crons == ["14 */2 * * *"], (
             "The full refresh takes about 25 minutes and must not be queued "
             f"more than once every two hours; found {crons}"
         )
@@ -3419,7 +3419,7 @@ class TestSchedulerActivityKeepalive:
     def test_keepalive_is_bounded_tokenless_and_main_only(self):
         workflow = _load_workflow("scheduler-activity.yml")
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "23 4 * * 3"}]
+        assert triggers["schedule"] == [{"cron": "24 4 * * 3"}]
         assert workflow["permissions"] == {"contents": "write"}
         job = workflow["jobs"]["keep-active"]
         assert job["timeout-minutes"] == 5
@@ -3446,7 +3446,7 @@ class TestPublicationWatchdogWorkflow:
     def test_has_redundant_trusted_triggers_and_minimal_permissions(self):
         workflow, _ = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "10,25,40,55 * * * *"}]
+        assert triggers["schedule"] == [{"cron": "11,26,41,56 * * * *"}]
         assert triggers["repository_dispatch"] == {
             "types": ["publication_watchdog_tick"]
         }
@@ -3568,7 +3568,9 @@ class TestPublicationWatchdogWorkflow:
         )[1].split("}", 1)[0]
         assert 'target=dns-health' in route_script
         assert 'force_reason=dns-only-degraded' in route_script
-        assert 'force_reason=site-health-failed' in route_script
+        assert 'HEALTH_REASON=site-health-failed' in route_script
+        assert 'HEALTH_REASON=site-health-stale' in route_script
+        assert 'force_reason=$HEALTH_REASON' in route_script
         assert 'github.event.workflow_run.name' in route_script
         assert '"Site Health Check"' in route_script
         assert 'github.event.workflow_run.conclusion' in route_script
@@ -3589,7 +3591,7 @@ class TestPublicationWatchdogWorkflow:
         assert "plan_publication_watchdog.py" in plan["run"]
         assert "--workflow-runs" in plan["run"]
         assert '--recovery-target "$RECOVERY_TARGET"' in plan["run"]
-        assert "--max-age-minutes 95" in plan["run"]
+        assert "--max-age-minutes 75" in plan["run"]
         assert "--retry-cooldown-minutes 15" in plan["run"]
         assert "--retry-cooldown-minutes 70" in plan["run"]
         assert "--force-recovery-reason" in plan["run"]
@@ -3649,7 +3651,7 @@ class TestDnsHealthWorkflow:
     def test_is_hourly_isolated_and_minimally_privileged(self):
         workflow, _ = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "37 * * * *"}]
+        assert triggers["schedule"] == [{"cron": "38 * * * *"}]
         assert triggers["repository_dispatch"] == {"types": ["dns_health_tick"]}
         assert triggers["workflow_dispatch"] == {
             "inputs": {
@@ -3700,7 +3702,7 @@ class TestDnsHealthWorkflow:
         workflow, steps = self._workflow()
         triggers = workflow.get(True, workflow.get("on", {}))
         cron = triggers["schedule"][0]["cron"]
-        assert cron.split() == ["37", "*", "*", "*", "*"]
+        assert cron.split() == ["38", "*", "*", "*", "*"]
 
         names = [step.get("name") for step in steps]
         reserve = steps[names.index("Reserve durable rolling DNS request budget")]
@@ -3936,7 +3938,7 @@ class TestSiteHealthWorkflow:
     def test_is_hourly_offset_manual_and_read_only_for_pages(self):
         workflow, _ = self._steps()
         triggers = workflow.get(True, workflow.get("on", {}))
-        assert triggers["schedule"] == [{"cron": "57 * * * *"}]
+        assert triggers["schedule"] == [{"cron": "58 * * * *"}]
         assert "workflow_dispatch" in triggers
         assert workflow["permissions"] == {
             "contents": "read",
@@ -4227,7 +4229,8 @@ class TestSiteHealthWorkflow:
             'required[output_key] != expected_output',
             'f"report {label} disagreed with checker output"',
             "datetime.fromisoformat",
-            "parsed_generated_at.tzinfo is None",
+            "parsed_generated_at = canonical_utc_timestamp(report_generated_at)",
+            "parsed.tzinfo is None",
             "not is_finite_number(report_age)",
             "not math.isfinite(output_age)",
             'required["age_hours"] != str(report_age)',

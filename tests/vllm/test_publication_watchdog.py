@@ -1,9 +1,15 @@
 """Tests for proactive, deduplicated canonical publication recovery."""
 
 import json
+import os
+import re
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+import yaml
 
 from vllm import plan_publication_watchdog as watchdog
 
@@ -82,7 +88,7 @@ def _key(status, *, target="collector"):
 
 
 def test_current_publication_does_not_dispatch() -> None:
-    decision = _decision(_status(age_minutes=94.99))
+    decision = _decision(_status(age_minutes=74.99))
 
     assert decision.required is False
     assert decision.reason == "canonical-current"
@@ -166,12 +172,12 @@ def test_malformed_or_non_degraded_dns_status_is_not_targetable(overrides) -> No
     assert watchdog.is_dns_only_degraded(payload, now=NOW) is False
 
 
-def test_95_minute_boundary_dispatches_with_canonical_generation() -> None:
-    decision = _decision(_status(age_minutes=95))
+def test_75_minute_boundary_dispatches_with_canonical_generation() -> None:
+    decision = _decision(_status(age_minutes=75))
 
     assert decision.required is True
     assert decision.reason == "publication-stale"
-    assert decision.observed_generation == "2026-08-30T03:25:00Z"
+    assert decision.observed_generation == "2026-08-30T03:45:00Z"
 
 
 @pytest.mark.parametrize("run_status", sorted(watchdog.QUEUED_RUN_STATUSES))
@@ -619,26 +625,115 @@ def test_dns_success_with_same_key_is_cooled_down_to_avoid_gate_loop() -> None:
     assert decision.reason == "recent-recovery-attempt"
 
 
-def test_two_hour_cadence_and_recovery_budget_precede_three_hour_ui_slo() -> None:
-    assert watchdog.AUTOMATED_COLLECTION_CADENCE_MINUTES == 120
-    assert watchdog.DEFAULT_MAX_PUBLICATION_AGE_MINUTES == 95
-    assert watchdog.WATCHDOG_OBSERVATION_INTERVAL_MINUTES == 15
-    assert watchdog.DEFAULT_RETRY_COOLDOWN_MINUTES == 15
+def test_actual_recovery_limits_do_not_claim_an_unconditional_three_hour_guarantee() -> None:
+    """Read the real bounds, including the watchdog's own proof runtime."""
+    root = Path(__file__).resolve().parents[2]
+    hourly = yaml.safe_load((root / ".github/workflows/hourly-master.yml").read_text())
+    recovery = yaml.safe_load((root / ".github/workflows/publication-watchdog.yml").read_text())
+    policy = json.loads((root / "config/data_collection_attempt_budget.json").read_text())
+    collector_timeout = hourly["jobs"]["collect-and-deploy"]["timeout-minutes"]
+    watchdog_timeout = recovery["jobs"]["recover"]["timeout-minutes"]
+    assert collector_timeout == 75
+    assert watchdog_timeout == 35
+    assert policy["failed_retry_interval_minutes"] == 30
+    assert policy["success_interval_minutes"] == 120
 
-    first_attempt_bound = (
-        watchdog.DEFAULT_MAX_PUBLICATION_AGE_MINUTES
-        + watchdog.WATCHDOG_OBSERVATION_INTERVAL_MINUTES
-        + watchdog.COLLECTION_TIMEOUT_MINUTES
+    # PyYAML's YAML 1.1 loader parses the unquoted GitHub Actions `on` as True.
+    events = recovery.get("on", recovery.get(True))
+    cron = events["schedule"][0]["cron"]
+    minutes, hours, *_ = cron.split()
+    assert hours == "*"
+    ticks = sorted(int(value) for value in minutes.split(","))
+    tick_intervals = [end - start for start, end in zip(ticks, ticks[1:] + [ticks[0] + 60])]
+    assert set(tick_intervals) == {15}
+    observation_interval = max(tick_intervals)
+    steps = recovery["jobs"]["recover"]["steps"]
+    plan = next(step for step in steps if step.get("id") == "recovery-plan")
+    trigger = float(re.search(r"--max-age-minutes (\d+)", plan["run"]).group(1))
+    assert trigger == watchdog.DEFAULT_MAX_PUBLICATION_AGE_MINUTES == 75
+
+    from vllm.check_site_health import DEFAULT_MAX_PUBLICATION_AGE_HOURS
+
+    freshness_limit = DEFAULT_MAX_PUBLICATION_AGE_HOURS * 60
+    detection_and_collection = trigger + observation_interval + collector_timeout
+    assert freshness_limit - detection_and_collection >= 15
+    complete_first_attempt_bound = detection_and_collection + watchdog_timeout
+    assert complete_first_attempt_bound == 200
+    assert complete_first_attempt_bound > freshness_limit
+    # Retry eligibility is start-to-start. A timed-out first attempt already
+    # outlasts the 30-minute durable cooldown; even then, a second full timeout
+    # cannot be guaranteed within the freshness limit. Caps remain authoritative.
+    retry_bound = (
+        trigger + observation_interval + watchdog_timeout
+        + max(collector_timeout, policy["failed_retry_interval_minutes"])
+        + collector_timeout
     )
-    normal_retry_bound = (
-        watchdog.DEFAULT_MAX_PUBLICATION_AGE_MINUTES
-        + watchdog.WATCHDOG_OBSERVATION_INTERVAL_MINUTES
-        + watchdog.NORMAL_COLLECTION_RUNTIME_MINUTES
-        + watchdog.DEFAULT_RETRY_COOLDOWN_MINUTES
-        + watchdog.NORMAL_COLLECTION_RUNTIME_MINUTES
+    assert retry_bound > freshness_limit
+
+
+@pytest.mark.parametrize("failure", ["stale", "projection", "malformed"])
+def test_actual_health_recovery_step_dispatches_the_validated_lane(tmp_path, failure) -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/publication-watchdog.yml").read_text())
+    step = next(
+        step for step in workflow["jobs"]["recover"]["steps"]
+        if step.get("id") == "recovery-route"
+    )["run"]
+    start = step.index("if HEALTH_TARGET=")
+    end = step.index('echo "::error::The failed Site Health run', start)
+    full = failure != "projection"
+    code = "publication-stale" if full else "projection-file-digest"
+    report = {
+        "healthy": False, "overall_status": "confirmed_unhealthy",
+        "reasons": [
+            {"code": code, "message": "Source-shaped health failure."},
+            {"code": "confirmation-quorum", "message": "Zero healthy probes."},
+            {"code": "projection-generation-quorum" if full else "complete-projection-required",
+             "message": "The required healthy projection quorum failed."},
+        ],
+        "confirmation": {
+            "confirmed": True, "strategy": "2-of-3-quorum",
+            "max_attempts": 3, "attempted": 3, "required_healthy": 2,
+            "healthy_count": 0, "unhealthy_count": 3,
+            "complete_projection_verified": full,
+            "complete_projection_attempt": 1 if full else None,
+            "matching_projection_healthy_count": 0,
+            "required_matching_projection_healthy": 2,
+            "probes": [
+                {"healthy": False, "complete_projection": full and index == 0,
+                 "matches_complete_projection": full, "reason_codes": [code]}
+                for index in range(3)
+            ],
+        },
+    }
+    if failure == "malformed":
+        report["confirmation"]["healthy_count"] = True
+    health_path = tmp_path / "health.json"
+    health_path.write_text(json.dumps(report))
+    output_path = tmp_path / "outputs"
+    status_path = tmp_path / "status.json"
+    # Execute the actual workflow branch and validator; the only Git read is
+    # replaced by the exact observed status. No GitHub or Buildkite call runs.
+    script = (
+        'git() { [ "$*" = "show origin/gh-pages:data/vllm/ci/publication_status.json" ] '
+        '|| return 97; printf "%s" "$TEST_OBSERVED_STATUS"; }\n'
+        + step[start:end] + "exit 1\n"
     )
-    assert first_attempt_bound == 170
-    assert normal_retry_bound == 175
-    assert normal_retry_bound < first_attempt_bound + 10
-    assert first_attempt_bound < watchdog.SITE_HEALTH_FRESHNESS_LIMIT_MINUTES
-    assert normal_retry_bound < watchdog.SITE_HEALTH_FRESHNESS_LIMIT_MINUTES
+    env = dict(os.environ, HEALTH_REPORT=str(health_path), GITHUB_OUTPUT=str(output_path),
+               STATUS_PATH=str(status_path), TEST_OBSERVED_STATUS=json.dumps(_status(age_minutes=190)))
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
+    result = subprocess.run(["bash", "-euo", "pipefail", "-c", script],
+                            cwd=root, env=env, capture_output=True, text=True)
+    if failure == "malformed":
+        assert result.returncode == 1
+        assert not output_path.exists()
+        assert not status_path.exists()
+    else:
+        assert result.returncode == 0, result.stderr
+        assert output_path.read_text().splitlines() == (
+            ["target=collector", "force_reason=site-health-stale"] if failure == "stale"
+            else ["target=deploy-pages", "force_reason=site-health-failed"]
+        )
+        assert status_path.exists() is (failure == "stale")
+        if failure == "stale":
+            assert json.loads(status_path.read_text()) == _status(age_minutes=190)

@@ -13,6 +13,8 @@ from pathlib import Path
 # Support direct execution as ``python scripts/vllm/normalize_site_health_evidence.py``.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+RECOVERY_EVIDENCE_MAX_AGE_SECONDS = 15 * 60
+
 
 def normalize_health_evidence() -> None:
     import base64
@@ -22,6 +24,7 @@ def normalize_health_evidence() -> None:
     import os
     from datetime import datetime, timedelta, timezone
     from pathlib import Path
+    from typing import TypeGuard
 
     from vllm.check_site_health import (
         CANARY_FETCH_TIMEOUT_SECONDS,
@@ -168,16 +171,31 @@ def normalize_health_evidence() -> None:
             return None
         return value
 
-    def is_nonnegative_int(value):
+    def is_nonnegative_int(value: object) -> TypeGuard[int]:
         return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
-    def is_finite_number(value):
+    def is_finite_number(value: object) -> TypeGuard[int | float]:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False
         try:
             return math.isfinite(value)
         except OverflowError:
             return False
+
+    def canonical_utc_timestamp(value):
+        if not isinstance(value, str) or not value or len(value) > 64:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (OverflowError, ValueError):
+            return None
+        if (
+            parsed.tzinfo is None
+            or parsed.utcoffset() != timedelta(0)
+            or parsed.isoformat().replace("+00:00", "Z") != value
+        ):
+            return None
+        return parsed
 
     checker_healthy = None
     if required["healthy"] in {"true", "false"}:
@@ -204,6 +222,16 @@ def normalize_health_evidence() -> None:
         contract_errors.append("checker confirmation output was not boolean")
 
     if report_syntax_valid:
+        observation_now = datetime.now(timezone.utc)
+        report_checked_at = canonical_utc_timestamp(report.get("checked_at"))
+        if report_checked_at is None:
+            contract_errors.append("report checked_at was not canonical UTC")
+        elif report_checked_at > observation_now + FUTURE_SKEW:
+            contract_errors.append("report checked_at was in the future")
+        elif observation_now - report_checked_at > timedelta(
+            seconds=RECOVERY_EVIDENCE_MAX_AGE_SECONDS
+        ):
+            contract_errors.append("report health evidence expired before normalization")
         reasons = report.get("reasons")
         report_healthy = report.get("healthy")
         site = report.get("site")
@@ -480,16 +508,11 @@ def normalize_health_evidence() -> None:
                 contract_errors.append(f"report {label} disagreed with checker output")
 
         report_generated_at = publication.get("generated_at")
+        parsed_generated_at = canonical_utc_timestamp(report_generated_at)
         if isinstance(report_generated_at, str) and report_generated_at:
-            try:
-                parsed_generated_at = datetime.fromisoformat(
-                    report_generated_at.replace("Z", "+00:00")
-                )
-                if parsed_generated_at.tzinfo is None:
-                    raise ValueError
-            except ValueError:
+            if parsed_generated_at is None:
                 contract_errors.append(
-                    "report publication timestamp was not timezone-aware ISO-8601"
+                    "report publication timestamp was not canonical UTC"
                 )
 
         report_age = publication.get("age_hours")
@@ -564,6 +587,10 @@ def normalize_health_evidence() -> None:
                 not is_finite_number(report_age)
                 or report_age < -(FUTURE_SKEW.total_seconds() / 3600)
                 or report_age > DEFAULT_MAX_PUBLICATION_AGE_HOURS
+                or parsed_generated_at is None
+                or parsed_generated_at > observation_now + FUTURE_SKEW
+                or observation_now - parsed_generated_at
+                > timedelta(hours=DEFAULT_MAX_PUBLICATION_AGE_HOURS)
             ):
                 contract_errors.append("healthy report had an invalid publication age")
             projection_mode = projection.get("mode")
@@ -928,6 +955,10 @@ def normalize_health_evidence() -> None:
                 "fresh_degraded_surface_count"
             ),
             "generatedAt": publication.get("generated_at"),
+            # Retain the actual final probe and durable collection clocks;
+            # normalization cannot renew evidence queued behind a publisher.
+            "checkedAt": report.get("checked_at"),
+            "durableCoreSucceededAt": core_latest_succeeded_at,
             "confirmationStrategy": confirmation.get("strategy"),
             "probeAttempts": confirmation.get("attempted"),
             "healthyProbeCount": confirmation.get("healthy_count"),

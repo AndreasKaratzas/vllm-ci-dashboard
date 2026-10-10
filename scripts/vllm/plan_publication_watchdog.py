@@ -24,14 +24,9 @@ from vllm.plan_dns_publication_reconcile import (  # noqa: E402
 )
 
 
-DEFAULT_MAX_PUBLICATION_AGE_MINUTES = 95.0
+DEFAULT_MAX_PUBLICATION_AGE_MINUTES = 75.0
 DEFAULT_RETRY_COOLDOWN_MINUTES = 15.0
 DEFAULT_ACTIVE_RUN_MAX_AGE_MINUTES = 75.0
-AUTOMATED_COLLECTION_CADENCE_MINUTES = 120.0
-WATCHDOG_OBSERVATION_INTERVAL_MINUTES = 15.0
-NORMAL_COLLECTION_RUNTIME_MINUTES = 25.0
-COLLECTION_TIMEOUT_MINUTES = 60.0
-SITE_HEALTH_FRESHNESS_LIMIT_MINUTES = 180.0
 WORKFLOW_RUNS_MAX_BYTES = 2 * 1024 * 1024
 UNAVAILABLE_GENERATION = "unavailable"
 RECOVERY_TARGETS = frozenset({"collector", "deploy-pages", "dns-health"})
@@ -65,6 +60,7 @@ FORCED_RECOVERY_REASONS = frozenset(
         "collection-retry-due",
         "dns-only-degraded",
         "site-health-failed",
+        "site-health-stale",
         "state-slot-repair",
         "state-pages-mismatch",
         "state-uninitialized",
@@ -311,8 +307,8 @@ def watchdog_decision(
     active_cutoff = now - timedelta(minutes=active_run_max_age_minutes)
     for run in workflow_runs:
         # Bound queued and running suppression so an orphaned API state cannot
-        # disable recovery forever. The 75-minute default is the collector's
-        # 60-minute timeout plus scheduling and status-propagation grace.
+        # disable recovery forever. The 75-minute default matches the full
+        # collector job's timeout; older orphaned states cannot block a retry.
         if run.status in QUEUED_RUN_STATUSES:
             if run.created_at >= active_cutoff:
                 return RecoveryDecision(

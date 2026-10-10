@@ -2,9 +2,9 @@ name: Site Health Check
 
 on:
   schedule:
-    # Run after the :13 canonical collection/deploy window. Probes stay outside
+    # Run after the :14 canonical collection/deploy window. Probes stay outside
     # the Pages lease; only the optional hourly-incident mutation is serialized.
-    - cron: '57 * * * *'
+    - cron: '58 * * * *'
   repository_dispatch:
     types: [site_health_tick]
   workflow_dispatch:
@@ -370,6 +370,9 @@ jobs:
             } = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
             );
+            // The probes ran before this job acquired the publication lease.
+            // Their checkedAt, publication and durable-core clocks must still
+            // authorize recovery now; matching identity alone cannot renew them.
             validateSiteHealthEvidence(
               validationEvidence,
               validationStateSha,
@@ -467,6 +470,13 @@ jobs:
               );
               return;
             }
+            // Recheck after the canonical reads. The helper also checks the
+            // wall clock immediately before every authorized issue mutation.
+            validateSiteHealthEvidence(
+              validationEvidence,
+              validationStateSha,
+              validationCodeSha,
+            );
             await closeHourlyIncident({
               github,
               context,

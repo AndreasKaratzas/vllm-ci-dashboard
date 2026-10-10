@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import shutil
+import json
 import subprocess
 import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -66,6 +68,175 @@ def _run_node(program: str) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+def _site_health_evidence() -> dict:
+    return {
+        "normalized": True, "reportValid": True, "confirmed": True,
+        "healthy": True, "overallStatus": "healthy",
+        "publicationMode": "current", "publicationStatus": "healthy",
+        "degradedSince": None, "publicationBlocked": False, "usesFallback": False,
+        "affectedSurfaces": [], "affectedSurfaceCount": 0,
+        "fallbackSurfaceCount": 0, "freshDegradedSurfaceCount": 0,
+        "confirmationStrategy": "2-of-3-quorum", "probeAttempts": 3,
+        "healthyProbeCount": 3, "requiredHealthyProbes": 2,
+        "completeProjectionVerified": True, "matchingProjectionHealthyCount": 3,
+        "requiredMatchingProjectionHealthy": 2,
+        "checkedAt": "2026-10-10T11:55:00Z", "generatedAt": "2026-10-10T10:00:00Z",
+        "durableCoreSucceededAt": "2026-10-10T10:00:00Z",
+        "stateSha": "a" * 40, "codeSha": "b" * 40, "stateTree": "c" * 40,
+        "generationId": "hourly-12345-1", "manifestSha256": "d" * 64,
+        "fileCount": 46, "totalBytes": 100000,
+    }
+
+
+def test_site_health_recovery_checks_source_clocks_and_expiry_boundaries() -> None:
+    _run_node("const evidence = " + json.dumps(_site_health_evidence()) + ";\n" + r"""
+      const assert = require('node:assert/strict');
+      const recovery = require(process.argv[1]);
+      const now = Date.parse('2026-10-10T12:00:00Z');
+      const validate = (value, clock = now) => recovery.validateSiteHealthEvidence(
+        value, evidence.stateSha, evidence.codeSha, clock,
+      );
+      assert.equal(validate(evidence), true);
+      assert.equal(validate({...evidence, checkedAt: '2026-10-10T11:45:00Z'}), true);
+      assert.equal(validate({...evidence, generatedAt: '2026-10-10T09:00:00Z'}), true);
+      assert.equal(validate({...evidence, durableCoreSucceededAt: '2026-10-10T08:55:00Z'}), true);
+      for (const field of ['checkedAt', 'generatedAt', 'durableCoreSucceededAt']) {
+        for (const value of [undefined, 'not-a-time', '2026-10-10T11:55:00', '2026-10-10T12:06:00Z']) {
+          assert.throws(() => validate({...evidence, [field]: value}), /expired|freshness clocks/);
+        }
+      }
+      for (const patch of [
+        {checkedAt: '2026-10-10T11:44:59.999Z'},
+        {generatedAt: '2026-10-10T08:59:59.999Z'},
+        {durableCoreSucceededAt: '2026-10-10T08:54:59.999Z'},
+      ]) assert.throws(() => validate({...evidence, ...patch}), /expired/);
+      assert.throws(() => validate(evidence, NaN), /freshness clocks/);
+      // Date.parse normalizes February 30 to March 2. A malformed calendar
+      // date must not masquerade as a fresh five-minute-old probe.
+      assert.throws(() => validate({
+        ...evidence, checkedAt: '2026-02-30T11:55:00Z',
+        generatedAt: '2026-03-02T11:00:00Z',
+        durableCoreSucceededAt: '2026-03-02T11:00:00Z',
+      }, Date.parse('2026-03-02T12:00:00Z')), /freshness clocks/);
+    """)
+
+
+def test_site_health_cannot_mutate_after_reads_or_retries_exhaust_freshness() -> None:
+    _run_node("const evidence = " + json.dumps(_site_health_evidence()) + ";\n" + r"""
+      const assert = require('node:assert/strict');
+      const recovery = require(process.argv[1]);
+      const originalNow = Date.now;
+      const context = {repo: {owner: 'o', repo: 'r'}, serverUrl: 'https://github.test', runId: 99};
+      (async () => {
+        for (const scenario of ['scan-proof', 'scan-publication', 'scan-core', 'label-proof', 'retry-proof']) {
+          let now = Date.parse('2026-10-10T12:00:00Z');
+          Date.now = () => now;
+          const proof = {...evidence};
+          if (scenario === 'scan-publication') proof.generatedAt = '2026-10-10T09:01:00Z';
+          if (scenario === 'scan-core') proof.durableCoreSucceededAt = '2026-10-10T08:56:00Z';
+          if (scenario === 'retry-proof') proof.checkedAt = '2026-10-10T11:45:10Z';
+          const issue = {number: 568, state: 'open', labels: [{name: recovery.HOURLY_OWNER_LABEL}],
+            body: [recovery.OWNERSHIP_MARKER, recovery.CURRENT_INCIDENT_MARKER,
+              recovery.recoveryMarker(1), recovery.recoveryCreditMarker(proof.stateSha),
+              recovery.recoveryIdentityCreditMarker(proof.stateSha, proof.codeSha)].join('\n')};
+          const originalBody = issue.body;
+          let reads = 0, labels = 0, closeAttempts = 0, otherWrites = 0;
+          const github = {rest: {issues: {
+            listForRepo: async parameters => {
+              if (++reads === 1 && scenario.startsWith('scan-')) {
+                now += (scenario === 'scan-proof' ? 11 : 2) * 60000;
+              }
+              return {data: parameters.state === 'open' ? [issue] : []};
+            },
+            getLabel: async () => ({data: {}}),
+            createLabel: async () => {otherWrites++; return {data: {}};},
+            addLabels: async () => {
+              labels++;
+              if (scenario === 'label-proof') now += 11 * 60000;
+              return {data: issue};
+            },
+            update: async parameters => {
+              if (parameters.state === 'closed') {
+                closeAttempts++;
+                if (scenario === 'retry-proof') {
+                  now += 11000;
+                  throw Object.assign(new Error('temporary close failure'), {status: 503});
+                }
+              }
+              otherWrites++;
+              return {data: issue};
+            },
+            get: async () => ({data: issue}),
+            removeLabel: async () => {otherWrites++; return {data: {}};},
+            createComment: async () => {otherWrites++; return {data: {}};},
+          }}};
+          await assert.rejects(recovery.closeHourlyIncident({
+            github, context, core: {warning() {}}, validationSource: 'site-health',
+            validationCodeSha: proof.codeSha, validationStateSha: proof.stateSha,
+            validationEvidence: proof,
+          }), /expired/);
+          assert.equal(issue.state, 'open');
+          assert.equal(issue.body, originalBody);
+          assert.equal(labels, scenario.startsWith('scan-') ? 0 : 1);
+          assert.equal(closeAttempts, scenario === 'retry-proof' ? 1 : 0);
+          assert.equal(otherWrites, 0);
+        }
+      })().catch(error => {console.error(error); process.exitCode = 1;})
+        .finally(() => {Date.now = originalNow;});
+    """)
+
+
+@pytest.mark.parametrize("read_delay_ms", [0, 120000])
+def test_serialized_health_workflow_rechecks_age_after_canonical_reads(read_delay_ms: int) -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/health-check.yml").read_text())
+    steps = workflow["jobs"]["confirm-hourly-recovery"]["steps"]
+    script = next(step["with"]["script"] for step in steps if "RECOVERY_EVIDENCE" in step.get("env", {}))
+    proof = _site_health_evidence()
+    proof["generatedAt"] = "2026-10-10T09:01:00Z"
+    prefix = (
+        "const evidence = " + json.dumps(proof) + ";\n"
+        + "const workflowSource = " + json.dumps(script) + ";\n"
+        + f"const readDelay = {read_delay_ms};\n"
+    )
+    _run_node(prefix + r"""
+      const assert = require('node:assert/strict');
+      const recovery = require(process.argv[1]);
+      let now = Date.parse('2026-10-10T12:00:00Z'), closed = 0, reads = 0;
+      const originalNow = Date.now;
+      Date.now = () => now;
+      const marker = {schema_version: 2, generation_id: evidence.generationId,
+        generated_at: evidence.generatedAt, state_sha: evidence.stateSha,
+        state_tree: evidence.stateTree, code_sha: evidence.codeSha,
+        public_projection: {schema_version: 1, manifest_path: 'publication_manifest.json',
+          manifest_sha256: evidence.manifestSha256, file_count: evidence.fileCount,
+          total_bytes: evidence.totalBytes}};
+      const status = {schema_version: 1, status: 'healthy', mode: 'current',
+        generated_at: evidence.generatedAt, degraded_since: null, uses_fallback: false,
+        publication_blocked: false, affected_surfaces: [], affected_surface_count: 0,
+        fallback_surface_count: 0, fresh_degraded_surface_count: 0};
+      const github = {rest: {repos: {getContent: async parameters => {
+        assert.equal(parameters.ref, 'gh-pages');
+        reads++;
+        const raw = Buffer.from(JSON.stringify(parameters.path === 'publication_generation.json' ? marker : status));
+        if (parameters.path !== 'publication_generation.json') now += readDelay;
+        return {data: {type: 'file', encoding: 'base64', size: raw.length, content: raw.toString('base64')}};
+      }}}};
+      const execute = new (Object.getPrototypeOf(async function() {}).constructor)(
+        'require', 'github', 'context', 'core', 'process', workflowSource,
+      );
+      const promise = execute(() => ({...recovery, closeHourlyIncident: async () => {closed++;}}),
+        github, {repo: {owner: 'o', repo: 'r'}}, {info() {}},
+        {env: {RECOVERY_EVIDENCE: Buffer.from(JSON.stringify(evidence)).toString('base64'), GITHUB_WORKSPACE: '/fixture'}});
+      (async () => {
+        if (readDelay) await assert.rejects(promise, /expired/);
+        else await promise;
+        assert.equal(reads, 2);
+        assert.equal(closed, readDelay ? 0 : 1);
+      })().catch(error => {console.error(error); process.exitCode = 1;})
+        .finally(() => {Date.now = originalNow;});
+    """)
 
 
 def test_commonjs_source_contract_is_dependency_free_and_exports_wiring_api():
@@ -614,6 +785,12 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           affectedSurfaceCount: 0,
           fallbackSurfaceCount: 0,
           freshDegradedSurfaceCount: 0,
+          checkedAt: new Date(Math.floor(Date.now() / 1000) * 1000)
+            .toISOString().replace('.000Z', 'Z'),
+          generatedAt: new Date(Math.floor(Date.now() / 1000) * 1000 - 3600000)
+            .toISOString().replace('.000Z', 'Z'),
+          durableCoreSucceededAt: new Date(Math.floor(Date.now() / 1000) * 1000 - 3600000)
+            .toISOString().replace('.000Z', 'Z'),
           confirmationStrategy: '2-of-3-quorum',
           probeAttempts: 3,
           healthyProbeCount: 3,
