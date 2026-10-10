@@ -211,10 +211,10 @@ Seven workflows divide canonical publication from focused manual/event collector
 | `hourly-master.yml` | Every two hours + coalesced Buildkite nightly-completion webhooks | Full collection, validation, atomic dashboard-state rotation, and the only scheduled root-site deployment |
 | `daily-update.yml` | Manual | Compatibility handoff to the canonical collector; never writes generated data to `main` |
 | `ci-collect.yml` | Manual | Tokenless compatibility dispatch into the canonical guarded collector; it cannot run an independent Buildkite refresh |
-| `queue-monitor.yml` | Queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
-| `queue-lifecycle.yml` | 30-minute recovery checks, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
+| `queue-monitor.yml` | Ten-minute recovery checks + external tick + queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
+| `queue-lifecycle.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
-| `publication-watchdog.yml` | Queue Monitor, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
+| `publication-watchdog.yml` | Data Collection, Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
 
@@ -782,8 +782,8 @@ takes the same strict degradation or fail-closed publication path.
 GitHub Actions schedules are best-effort and may be delayed or dropped. The
 DNS workflow therefore accepts `dns_health_tick`, while the dedicated
 publication watchdog accepts `publication_watchdog_tick` from a scheduler
-outside GitHub Actions. The watchdog also runs after the trusted Queue Monitor,
-Queue Lifecycle Monitor, DNS Health Monitor, or Site Health Check completes,
+outside GitHub Actions. The watchdog also runs after trusted Data Collection,
+Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, or Site Health Check completes,
 regardless of its conclusion, and has a 15-minute cron as one more
 best-effort opportunity. It first validates the parentless current state and
 its exact code tree, then compares the state identity with the public Pages
@@ -793,9 +793,26 @@ degradation routes to the DNS collector; and other stale/blocked publication
 state routes to canonical collection. Ambiguous discovery or an invalid
 established state fails closed instead of dispatching speculative recovery.
 The canonical collector is due every 120 minutes, while proactive recovery
-starts at 95 minutes of publication age. Active-run suppression prevents a
+considers recovery at 75 minutes of publication age. Active-run suppression prevents a
 duplicate when the normal two-hour run is already queued or running, and a
-15-minute retry cooldown bounds repeated failed attempts.
+15-minute dispatch cooldown bounds repeated recovery wake-ups. Actual full
+collection admission retains its separate 30-minute failed-attempt cooldown and
+25-hour attempt cap. The watchdog itself permits 35 minutes for proof and
+routing, and full collection permits 75 minutes. Even before writer queues,
+the worst first-attempt path is `75 + 15 + 35 + 75 = 200` minutes. The earlier
+trigger improves normal recovery but cannot guarantee the unchanged three-hour
+freshness limit under maximum runtime or failed admission. Age-only synthetic failures request guarded collection;
+projection or transport failures request an exact-state redeployment.
+
+The [independent recovery clock](../../../deploy/recovery-tick/README.md) can be
+installed on an always-on Linux host to dispatch fixed main-branch workflow profiles. It
+wakes the watchdog and queue monitor every ten minutes, lifecycle every thirty
+minutes, DNS and site health hourly, deployment retention daily, and scheduler
+keepalive weekly. It uses only a repository-scoped Actions token. It never
+contacts Buildkite or changes collection budgets. GitHub cron and completion events
+remain additional triggers, but they cannot detect an outage of their own
+scheduler. The stale-data warning remains truthful while a failed or
+quota-gated collection cannot establish fresh data.
 
 A watchdog dispatch carries the exact generation it observed. The
 three workflow groups independently retain only one pending routine, targeted
@@ -812,34 +829,19 @@ DNS keeps
 its stronger generation acknowledgement: a targeted run is skipped only once
 Pages contains that DNS generation, its full contract validates, DNS is no
 longer affected, and publication remains fresh. The canonical collector has a
-75-minute timeout so a hung run cannot retain the lock indefinitely. Excluding
-time already held by another bounded Pages writer, the first-attempt bound is
-`95 + 15 + 75 = 185` minutes (trigger age, detection interval, timeout), five
-minutes beyond the unchanged three-hour site-health freshness limit. A slow or
-failed refresh can therefore still produce a truthful stale warning. Buildkite
+75-minute timeout so a hung run cannot retain the lock indefinitely. A slow or
+failed refresh can still produce a truthful stale warning. Buildkite
 request starts remain separately limited to fifty minutes from before the
-durable reservation. GitHub schedules remain best-effort; an independent
-external 15-minute tick remains necessary to detect a delayed or dropped cron.
+durable reservation. GitHub schedules remain best-effort; the independent
+external clock detects delayed or dropped cron events.
 
-Declaring a `repository_dispatch` trigger is not an independent scheduler. To
-make publication recovery enforceable independently of GitHub's scheduler,
-configure a scheduler outside GitHub Actions to POST the following event every
-15 minutes (the recovery timing contract assumes no longer interval):
-
-```http
-POST https://api.github.com/repos/AndreasKaratzas/vllm-ci-dashboard/dispatches
-Accept: application/vnd.github+json
-Authorization: Bearer <external-heartbeat-token>
-
-{"event_type":"publication_watchdog_tick"}
-```
-
-Use a dedicated fine-grained token restricted to this repository with
-**Contents: write**, store it only in the external scheduler, and rotate it
-normally. Monitor the `Publication Recovery Watchdog` run history and alert if
-no `repository_dispatch` event arrives for 30 minutes. In-repository cron and
-`workflow_run` triggers materially improve recovery odds but cannot guarantee
-recovery from their own scheduler failure domain.
+Declaring a dispatch trigger is not an independent scheduler. Install and
+activate the [external timers](../../../deploy/recovery-tick/README.md) on a
+host outside GitHub Actions. Their token needs **Actions: write** for this
+repository and no contents-write scope. Monitor timer failures and the
+`Publication Recovery Watchdog` run history, and alert if no externally
+dispatched run arrives for thirty minutes. The setup is effective only after
+the host's timers are active; checked-in units alone do not supply a clock.
 
 Each eligible run gives collection a 20-minute budget with a separate
 finalization reserve. Unvisited log work remains pending for a later sample

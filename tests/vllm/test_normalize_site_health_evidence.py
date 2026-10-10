@@ -302,6 +302,9 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
     assert recovery_evidence["affectedSurfaceCount"] == 0
     assert recovery_evidence["fallbackSurfaceCount"] == 0
     assert recovery_evidence["freshDegradedSurfaceCount"] == 0
+    assert recovery_evidence["checkedAt"] == report["checked_at"]
+    assert recovery_evidence["generatedAt"] == report["publication"]["generated_at"]
+    assert recovery_evidence["durableCoreSucceededAt"] == environment["CORE_LATEST_SUCCEEDED_AT"]
     assert recovery_evidence["confirmationStrategy"] == "2-of-3-quorum"
     assert recovery_evidence["probeAttempts"] == 3
     assert recovery_evidence["healthyProbeCount"] == 3
@@ -340,6 +343,8 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
         "synthetic_quorum_confirmed": True,
         "durable_core_observation_valid": True,
     }
+
+
     body = Path(environment["BODY_PATH"]).read_text()
     assert body == "\n".join(
         (
@@ -375,6 +380,49 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
             "",
         )
     )
+
+
+@pytest.mark.parametrize("invalid_clock", ["missing", "without-timezone", "future", "expired"])
+def test_normalizer_cannot_renew_expired_or_invalid_probe_evidence(
+    tmp_path: Path, invalid_clock: str,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _healthy_report(now)
+    report["checked_at"] = {
+        "missing": None,
+        "without-timezone": now.isoformat().removesuffix("+00:00"),
+        "future": _iso_utc(now + timedelta(minutes=6)),
+        "expired": _iso_utc(now - timedelta(minutes=16)),
+    }[invalid_clock]
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["report_valid"] == "false"
+    assert outputs["healthy"] == "false"
+    assert outputs["hourly_recovery_evidence"] == ""
+
+
+def test_normalizer_rechecks_real_publication_age_instead_of_saved_age(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _healthy_report(now)
+    # A once-valid saved age is insufficient when the actual publication clock
+    # has expired, even if the report and durable core clocks are current.
+    report["publication"]["generated_at"] = _iso_utc(now - timedelta(hours=4))
+    assert report["publication"]["age_hours"] == 1.0
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["report_valid"] == "false"
+    assert outputs["healthy"] == "false"
+    assert outputs["hourly_recovery_evidence"] == ""
 
 
 @pytest.mark.parametrize("mode", ["degraded", "fallback"])

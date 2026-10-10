@@ -12,7 +12,7 @@ on:
     # hours; the 15-minute watchdog recovers a delayed or missed generation
     # with bounded headroom before the three-hour site-health limit.
     # Lightweight queue monitoring remains on its separate 10-minute cadence.
-    - cron: '13 */2 * * *'
+    - cron: '14 */2 * * *'
   repository_dispatch:
     types: [buildkite_build_finished, perf_eval_build_finished]
   workflow_dispatch:

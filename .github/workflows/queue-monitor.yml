@@ -6,7 +6,7 @@ on:
     # parentless ledger coalesces all triggers to one two-start metrics allowance
     # per ten minutes and one additional twelve-start detail allowance per hour.
     # With a 25-hour hold, at most 650 reserved starts can be outstanding.
-    - cron: '2,12,22,32,42,52 * * * *'
+    - cron: '3,13,23,33,43,53 * * * *'
   repository_dispatch:
     # This is only a wake-up. It cannot bypass the durable cadence or budget.
     types: [buildkite_queue_changed]

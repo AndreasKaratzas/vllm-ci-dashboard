@@ -405,7 +405,7 @@ def test_journal_cannot_overwrite_or_follow_symlink(tmp_path):
 def test_workflow_has_main_only_daily_serial_bounded_minimal_authority():
     workflow = yaml.safe_load((ROOT / ".github/workflows/deployment-retention.yml").read_text())
     trigger = workflow.get("on", workflow.get(True))
-    assert trigger["schedule"] == [{"cron": "47 4 * * *"}]
+    assert trigger["schedule"] == [{"cron": "48 4 * * *"}]
     assert trigger["workflow_dispatch"]["inputs"]["dry_run"]["default"] is True
     assert trigger["workflow_dispatch"]["inputs"]["dry_run"]["type"] == "boolean"
     assert workflow["permissions"] == {"contents": "read", "deployments": "write"}

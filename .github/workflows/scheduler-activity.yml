@@ -6,7 +6,7 @@ name: Scheduler Activity Keepalive
 # without putting collector output back into repository history.
 on:
   schedule:
-    - cron: '23 4 * * 3'
+    - cron: '24 4 * * 3'
   repository_dispatch:
     types: [scheduler_activity_tick]
   workflow_dispatch:

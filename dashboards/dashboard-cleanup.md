@@ -32,6 +32,7 @@ flake/retry comparison limits and their exclusive live-data checks are removed.
 | AMD nightly latency | Global latest five completed relevant `ci` / `main` nightlies; AMD MI jobs only; maximum complete parallel-shard wall minutes per nightly, then median; sample count, dates, and exact jobs shown; no older backfill |
 | Reliability / retry drilldowns | Current AMD MI `ci` cohorts and exact retained attempt evidence; these are still used by incident investigation |
 | Omni and infrastructure automation | Shared current AMD MI queue, capacity, workload, lifecycle, physical agent health, and DNS evidence; retained independently of removed pages |
+| Independent recovery clock | `external_recovery_tick.py` and the template units under `deploy/recovery-tick/`; fixed main-branch workflow profiles and bounded private dispatch state; requires activation on an always-on host outside GitHub Actions |
 
 ## Publication and Actions stability
 
@@ -55,7 +56,7 @@ its cross-process request guard still stops Buildkite sends fifty minutes from
 before durable reservation. Slow ledger handoffs consume that request window.
 This preserves the existing 25-hour ledger, sixteen-attempt limit, 800-start
 allowance, and retry backoff while leaving time for final validation and deploy.
-The normal full schedule runs every two hours (`13 */2 * * *`), so a healthy
+The normal full schedule runs every two hours (`14 */2 * * *`), so a healthy
 25-hour window contains at most thirteen full reservations and leaves at least
 three retry slots within the same sixteen-attempt cap. Targeted queue and DNS
 publication uses zero Buildkite requests and consumes no full collection
