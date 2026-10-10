@@ -10,6 +10,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import yaml
+import requests
+
+from github_cli import github_cli_json
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "config" / "projects.yaml"
@@ -29,45 +32,210 @@ WORKFLOW_IDS = {
         "rocm": 158326442,
         "cuda": 158326443,
     },
+    "xla": {
+        "rocm": 203835682,
+        "cuda": 140570787,
+    },
 }
 
+REST_PAGE_SIZE = 100
+MAX_ACTIVITY_PAGES = 5
 
-def gh_api(endpoint, method="GET"):
-    """Call GitHub API via gh CLI."""
+
+class GitHubAPIError(RuntimeError):
+    """A GitHub failure that must not be represented as an empty population."""
+
+
+_SOURCE_QUERY_COVERAGE = []
+_WORKFLOW_RUNS_CACHE = {}
+
+
+def gh_api(endpoint, method="GET", *, fail_closed=False):
+    """Call GitHub through the shared bounded retry and cooldown transport."""
     cmd = ["gh", "api", endpoint, "--method", method]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return json.loads(result.stdout) if result.stdout.strip() else {}
-    except subprocess.CalledProcessError as e:
-        print(
-            f"  WARNING: gh api {endpoint} failed: {e.stderr.strip()}", file=sys.stderr
-        )
-        return {}
-    except json.JSONDecodeError:
-        print(f"  WARNING: could not parse response for {endpoint}", file=sys.stderr)
+        return github_cli_json(cmd, endpoint=endpoint, runner=subprocess.run)
+    except requests.RequestException as exc:
+        print(f"  WARNING: gh api {endpoint} failed: {exc}", file=sys.stderr)
+        if fail_closed:
+            raise GitHubAPIError(f"GitHub API request failed: {endpoint}: {exc}") from exc
         return {}
 
 
-def gh_api_list(endpoint):
-    """Call GitHub API and handle paginated list responses."""
-    cmd = ["gh", "api", endpoint, "--method", "GET", "--paginate"]
+def _reset_source_coverage():
+    _SOURCE_QUERY_COVERAGE.clear()
+    _WORKFLOW_RUNS_CACHE.clear()
+
+
+def _page_endpoint(endpoint, page):
+    if "?page=" in endpoint or "&page=" in endpoint:
+        raise ValueError("bounded GitHub endpoint must not supply its own page")
+    if "per_page=" not in endpoint:
+        endpoint += ("&" if "?" in endpoint else "?") + "per_page=100"
+    return endpoint + f"&page={page}"
+
+
+def gh_api_list(
+    endpoint,
+    *,
+    query_name,
+    scope,
+    max_pages,
+    stop_when=None,
+    allow_partial=False,
+):
+    """Fetch a finite list, proving time-window completion where possible."""
+    if not isinstance(max_pages, int) or max_pages <= 0:
+        raise ValueError("max_pages must be a positive integer")
+
+    items = []
+    complete = False
+    pages_fetched = 0
+    completion_reason = "page_cap"
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        raw = result.stdout.strip()
-        if not raw:
-            return []
-        # --paginate can return concatenated JSON arrays
-        if raw.startswith("[") and "][" in raw:
-            raw = raw.replace("][", ",")
-        return json.loads(raw)
-    except subprocess.CalledProcessError as e:
-        print(
-            f"  WARNING: gh api {endpoint} failed: {e.stderr.strip()}", file=sys.stderr
+        for page in range(1, max_pages + 1):
+            page_items = gh_api(
+                _page_endpoint(endpoint, page),
+                fail_closed=True,
+            )
+            pages_fetched += 1
+            if not isinstance(page_items, list):
+                raise GitHubAPIError(
+                    f"GitHub {query_name} response was not a list"
+                )
+            items.extend(page_items)
+            if stop_when is not None and any(stop_when(item) for item in page_items):
+                complete = True
+                completion_reason = "scope_boundary"
+                break
+            if len(page_items) < REST_PAGE_SIZE:
+                complete = True
+                completion_reason = "short_page"
+                break
+    except GitHubAPIError:
+        _SOURCE_QUERY_COVERAGE.append(
+            {
+                "name": query_name,
+                "scope": scope,
+                "complete": False,
+                "truncated": False,
+                "error": True,
+                "pages_fetched": pages_fetched,
+                "max_pages": max_pages,
+                "page_size": REST_PAGE_SIZE,
+                "items_observed": len(items),
+                "completion_reason": "api_error",
+            }
         )
-        return []
-    except json.JSONDecodeError:
-        print(f"  WARNING: could not parse response for {endpoint}", file=sys.stderr)
-        return []
+        raise
+
+    _SOURCE_QUERY_COVERAGE.append(
+        {
+            "name": query_name,
+            "scope": scope,
+            "complete": complete,
+            "truncated": not complete,
+            "error": False,
+            "pages_fetched": pages_fetched,
+            "max_pages": max_pages,
+            "page_size": REST_PAGE_SIZE,
+            "items_observed": len(items),
+            "completion_reason": completion_reason,
+        }
+    )
+    if not complete and not allow_partial:
+        raise GitHubAPIError(
+            f"GitHub {query_name} reached its authoritative {max_pages}-page cap"
+        )
+    return items
+
+
+def _input_coverage():
+    inputs = {}
+    for name in ("prs", "issues"):
+        path = DATA / _current_project_name / f"{name}.json"
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            inputs[name] = {
+                "complete": False,
+                "truncated": False,
+                "reason": "input_missing_or_invalid",
+            }
+            continue
+        coverage = payload.get("source_coverage")
+        if isinstance(coverage, dict):
+            inputs[name] = coverage
+        else:
+            inputs[name] = {
+                "complete": False,
+                "truncated": False,
+                "reason": "input_coverage_missing",
+            }
+    return inputs
+
+
+def _source_coverage_snapshot():
+    queries = [dict(query) for query in _SOURCE_QUERY_COVERAGE]
+    inputs = _input_coverage()
+    inputs_complete = all(
+        coverage.get("authoritative_complete", coverage.get("complete")) is True
+        for coverage in inputs.values()
+    )
+    complete = all(query.get("complete") is True for query in queries) and inputs_complete
+    return {
+        "complete": complete,
+        "authoritative_complete": complete,
+        "population_semantics": "complete" if complete else "lower_bound",
+        "truncated": any(query.get("truncated") is True for query in queries)
+        or any(coverage.get("truncated") is True for coverage in inputs.values()),
+        "queries": queries,
+        "inputs": inputs,
+    }
+
+
+def _search_total_count(endpoint, *, query_name, scope):
+    """Return GitHub Search's count without hiding an incomplete response."""
+    response = gh_api(endpoint, fail_closed=True)
+    if (
+        not isinstance(response, dict)
+        or not isinstance(response.get("total_count"), int)
+        or response["total_count"] < 0
+        or type(response.get("incomplete_results")) is not bool
+    ):
+        _SOURCE_QUERY_COVERAGE.append(
+            {
+                "name": query_name,
+                "scope": scope,
+                "complete": False,
+                "truncated": False,
+                "error": True,
+                "pages_fetched": 1,
+                "max_pages": 1,
+                "page_size": 1,
+                "items_observed": 0,
+                "completion_reason": "invalid_shape",
+            }
+        )
+        raise GitHubAPIError(f"GitHub {query_name} response had an invalid shape")
+    incomplete = response["incomplete_results"]
+    _SOURCE_QUERY_COVERAGE.append(
+        {
+            "name": query_name,
+            "scope": scope,
+            "complete": not incomplete,
+            "truncated": incomplete,
+            "error": False,
+            "pages_fetched": 1,
+            "max_pages": 1,
+            "page_size": 1,
+            "items_observed": response["total_count"],
+            "completion_reason": (
+                "provider_incomplete" if incomplete else "reported_total"
+            ),
+        }
+    )
+    return response["total_count"]
 
 
 def now_iso():
@@ -112,7 +280,15 @@ def collect_pr_velocity(repo, role, is_filtered=True):
     if role == "active_dev":
         # Recently updated PRs (covers opened, merged, closed in last 2 weeks)
         prs = gh_api_list(
-            f"/repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100"
+            f"/repos/{repo}/pulls?state=all&sort=updated&direction=desc&per_page=100",
+            query_name="recent_pr_velocity",
+            scope="PRs updated within the last 14 days",
+            max_pages=MAX_ACTIVITY_PAGES,
+            stop_when=lambda pr: (
+                (updated := parse_iso(pr.get("updated_at"))) is not None
+                and updated < two_weeks_ago
+            ),
+            allow_partial=True,
         )
         # Filter to those updated in last 2 weeks
         recent_prs = []
@@ -191,7 +367,15 @@ def collect_pr_velocity(repo, role, is_filtered=True):
     # Stale PRs: open PRs with no update in 30 days
     if role == "active_dev":
         open_prs = gh_api_list(
-            f"/repos/{repo}/pulls?state=open&sort=updated&direction=asc&per_page=100"
+            f"/repos/{repo}/pulls?state=open&sort=updated&direction=asc&per_page=100",
+            query_name="stale_open_prs",
+            scope="open PRs last updated more than 30 days ago",
+            max_pages=MAX_ACTIVITY_PAGES,
+            stop_when=lambda pr: (
+                (updated := parse_iso(pr.get("updated_at"))) is not None
+                and updated >= thirty_days_ago
+            ),
+            allow_partial=True,
         )
         for pr in open_prs:
             updated = parse_iso(pr.get("updated_at"))
@@ -252,7 +436,13 @@ def collect_contributors(repo, role):
     if role == "active_dev":
         # Get recent commits for contributor analysis
         since = month_ago.strftime("%Y-%m-%dT%H:%M:%SZ")
-        commits = gh_api_list(f"/repos/{repo}/commits?since={since}&per_page=100")
+        commits = gh_api_list(
+            f"/repos/{repo}/commits?since={since}&per_page=100",
+            query_name="recent_contributor_commits",
+            scope="commits authored within the last 30 days",
+            max_pages=MAX_ACTIVITY_PAGES,
+            allow_partial=True,
+        )
     else:
         commits = []
 
@@ -379,10 +569,11 @@ def collect_issue_health(repo, role):
 
     # Closed issues this week — search API
     week_ago_str = week_ago.strftime("%Y-%m-%d")
-    closed_search = gh_api(
-        f"/search/issues?q=repo:{repo}+is:issue+is:closed+closed:>{week_ago_str}&per_page=1"
+    closed_this_week = _search_total_count(
+        f"/search/issues?q=repo:{repo}+is:issue+is:closed+closed:>{week_ago_str}&per_page=1",
+        query_name="issues_closed_this_week",
+        scope=f"issues in {repo} closed since {week_ago_str}",
     )
-    closed_this_week = closed_search.get("total_count", 0)
 
     return {
         "total_open": total_open,
@@ -397,6 +588,23 @@ def collect_issue_health(repo, role):
 # ---------------------------------------------------------------------------
 
 
+def _completed_workflow_runs(repo, workflow_id):
+    key = (repo, int(workflow_id))
+    if key not in _WORKFLOW_RUNS_CACHE:
+        data = gh_api(
+            f"/repos/{repo}/actions/workflows/{workflow_id}/runs?per_page=20&status=completed",
+            fail_closed=True,
+        )
+        if not isinstance(data, dict) or not isinstance(
+            data.get("workflow_runs"), list
+        ):
+            raise GitHubAPIError(
+                f"GitHub workflow-runs response had an invalid shape: {workflow_id}"
+            )
+        _WORKFLOW_RUNS_CACHE[key] = data["workflow_runs"]
+    return _WORKFLOW_RUNS_CACHE[key]
+
+
 def collect_ci_health(repo, project_name):
     """Collect CI build success rate from recent workflow runs."""
     if project_name not in WORKFLOW_IDS:
@@ -404,10 +612,7 @@ def collect_ci_health(repo, project_name):
 
     results = {}
     for platform, wf_id in WORKFLOW_IDS[project_name].items():
-        data = gh_api(
-            f"/repos/{repo}/actions/workflows/{wf_id}/runs?per_page=20&status=completed"
-        )
-        runs = data.get("workflow_runs", [])
+        runs = _completed_workflow_runs(repo, wf_id)
         if not runs:
             results[platform] = None
             continue
@@ -440,10 +645,7 @@ def collect_ci_signal_time(repo, project_name):
 
     results = {}
     for platform, wf_id in WORKFLOW_IDS[project_name].items():
-        data = gh_api(
-            f"/repos/{repo}/actions/workflows/{wf_id}/runs?per_page=20&status=completed"
-        )
-        runs = data.get("workflow_runs", [])
+        runs = _completed_workflow_runs(repo, wf_id)
         if not runs:
             results[platform] = None
             continue
@@ -477,6 +679,176 @@ def collect_ci_signal_time(repo, project_name):
         }
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# vLLM Buildkite CI helpers (GitHub Actions not used for vLLM CI)
+# ---------------------------------------------------------------------------
+
+
+def _load_vllm_builds():
+    """Load vLLM build data from analytics.json (more history than ci_health.json)."""
+    analytics_path = DATA / "vllm" / "ci" / "analytics.json"
+    if analytics_path.exists():
+        try:
+            return json.loads(analytics_path.read_text())
+        except Exception:
+            pass
+    # Fallback to ci_health.json
+    ci_path = DATA / "vllm" / "ci" / "ci_health.json"
+    if ci_path.exists():
+        try:
+            data = json.loads(ci_path.read_text())
+            # Reshape to analytics format
+            return {
+                "amd-ci": {"builds": data.get("amd", {}).get("builds", [])},
+                "ci": {"builds": data.get("upstream", {}).get("builds", [])},
+            }
+        except Exception:
+            pass
+    return None
+
+
+def _is_bad_nightly(build: dict) -> bool:
+    """Detect bad nightlies: bootstrap-only, docker build failure, etc.
+
+    A build with fewer than 50 test jobs is considered a bad nightly
+    (e.g., only bootstrap ran, or docker build failed and nothing else ran).
+    These are filtered out from health metrics to avoid skewing averages.
+    """
+    jobs = build.get("jobs", [])
+    total_jobs = len(jobs)
+
+    # Fewer than 50 jobs means most tests didn't run
+    if total_jobs < 50:
+        return True
+
+    # Docker build failed — rest of the nightly is unreliable
+    docker_jobs = [j for j in jobs if "docker" in j.get("name", "").lower()]
+    if docker_jobs and all(j.get("state") in ("failed", "timed_out") for j in docker_jobs):
+        return True
+
+    return False
+
+
+def _vllm_ci_health_from_buildkite():
+    """Derive CI health for vLLM from Buildkite nightly builds.
+
+    Uses test group pass/fail ratios (passing_groups / total_groups)
+    averaged across recent good nightlies (filtering out bad nightlies
+    like bootstrap-only or docker build failures).
+
+    Uses ci_health.json for group-level stats (test_groups_passing_or)
+    and analytics.json for bad nightly detection (job counts).
+    """
+    ci_path = DATA / "vllm" / "ci" / "ci_health.json"
+    if not ci_path.exists():
+        return None
+    try:
+        ci_data = json.loads(ci_path.read_text())
+    except Exception:
+        return None
+
+    # Load analytics for bad nightly detection
+    analytics_data = _load_vllm_builds() or {}
+
+    results = {}
+    for ci_key, bk_key, platform in [
+        ("amd", "amd-ci", "rocm"),
+        ("upstream", "ci", "cuda"),
+    ]:
+        ci_builds = ci_data.get(ci_key, {}).get("builds", [])
+        analytics_builds = analytics_data.get(bk_key, {}).get("builds", [])
+
+        # Index analytics builds by number for bad nightly check
+        analytics_by_num = {}
+        for b in analytics_builds:
+            bn = b.get("number")
+            if bn and bn not in analytics_by_num:
+                analytics_by_num[bn] = b
+
+        # Collect group pass rates from good nightlies
+        seen = set()
+        passing_counts = []
+        total_counts = []
+        for b in ci_builds:
+            bn = b.get("build_number")
+            if bn in seen:
+                continue
+            seen.add(bn)
+
+            # Filter out bad nightlies
+            ab = analytics_by_num.get(bn)
+            if ab and _is_bad_nightly(ab):
+                continue
+
+            passing = b.get("test_groups_passing_or", 0)
+            total = b.get("unique_test_groups", 0)
+            if total > 0:
+                passing_counts.append(passing)
+                total_counts.append(total)
+
+            if len(passing_counts) >= 20:
+                break
+
+        if not passing_counts:
+            results[platform] = None
+            continue
+
+        # Use the latest good nightly's group counts for display
+        # (avg across builds would show cumulative totals which is confusing)
+        latest_passing = passing_counts[0]
+        latest_total = total_counts[0]
+        avg_rate = round(
+            sum(p / t for p, t in zip(passing_counts, total_counts))
+            / len(passing_counts) * 100, 1
+        ) if passing_counts else 0
+
+        results[platform] = {
+            "total_runs": latest_total,
+            "succeeded": latest_passing,
+            "failed": latest_total - latest_passing,
+            "success_rate": avg_rate,
+        }
+
+    return results if results else None
+
+
+def _vllm_ci_signal_from_buildkite():
+    """Derive CI signal time for vLLM from Buildkite data."""
+    data = _load_vllm_builds()
+    if not data:
+        return None
+
+    results = {}
+    for bk_key, platform in [("amd-ci", "rocm"), ("ci", "cuda")]:
+        builds = data.get(bk_key, {}).get("builds", [])
+        seen = set()
+        durations = []
+        for b in builds:
+            bn = b.get("number") or b.get("build_number")
+            if bn in seen:
+                continue
+            seen.add(bn)
+            # analytics.json uses wall_mins; ci_health.json uses wall_clock_secs
+            wc_min = b.get("wall_mins") or (b.get("wall_clock_secs", 0) / 60 if b.get("wall_clock_secs") else 0)
+            state = b.get("state", "")
+            if state in ("passed", "failed", "canceled", "timed_out", "broken") and wc_min > 0:
+                durations.append(round(wc_min, 1))
+        durations = sorted(durations[:20])
+        if not durations:
+            results[platform] = None
+            continue
+        mid = len(durations) // 2
+        median = round((durations[mid - 1] + durations[mid]) / 2, 1) if len(durations) % 2 == 0 and len(durations) > 1 else durations[mid]
+        results[platform] = {
+            "sample_size": len(durations),
+            "median_minutes": median,
+            "p90_minutes": durations[int(len(durations) * 0.9)],
+            "min_minutes": durations[0],
+            "max_minutes": durations[-1],
+        }
+    return results if results else None
 
 
 # ---------------------------------------------------------------------------
@@ -536,6 +908,7 @@ def collect_project_activity(name, cfg):
     """Collect all activity metrics for a single project."""
     global _current_project_name
     _current_project_name = name
+    _reset_source_coverage()
 
     repo = cfg["repo"]
     role = cfg.get("role", "upstream_watch")
@@ -559,16 +932,27 @@ def collect_project_activity(name, cfg):
     # CI Health
     print(f"  CI health...")
     ci_health = collect_ci_health(repo, name)
+    if ci_health is None and name == "vllm":
+        ci_health = _vllm_ci_health_from_buildkite()
     activity["ci_health"] = ci_health
 
     # Time to CI Signal
     print(f"  CI signal time...")
     ci_signal = collect_ci_signal_time(repo, name)
+    if ci_signal is None and name == "vllm":
+        ci_signal = _vllm_ci_signal_from_buildkite()
     activity["ci_signal_time"] = ci_signal
 
     # Release Cadence
     print(f"  Release cadence...")
     activity["release_cadence"] = collect_release_cadence(repo)
+
+    # Consumers can distinguish exact metrics from lower bounds when a finite
+    # GitHub working-set cap was reached in this collector or its PR/issue
+    # inputs.  Existing UI fields remain backward compatible.
+    source_coverage = _source_coverage_snapshot()
+    activity["source_coverage"] = source_coverage
+    activity["count_semantics"] = source_coverage["population_semantics"]
 
     return activity
 
@@ -577,7 +961,11 @@ def main():
     with open(CONFIG) as f:
         config = yaml.safe_load(f)
 
+    failed_projects = []
     for name, cfg in config["projects"].items():
+        if name != "vllm":
+            print(f"Skipping {name} (test-parity only)")
+            continue
         try:
             activity = collect_project_activity(name, cfg)
             out_dir = DATA / name
@@ -594,11 +982,16 @@ def main():
                 f"Stale: {pv.get('stale_prs', 0)}"
             )
         except Exception as e:
+            failed_projects.append(name)
             print(f"  ERROR collecting activity for {name}: {e}", file=sys.stderr)
             import traceback
 
             traceback.print_exc()
 
+    if failed_projects:
+        raise SystemExit(
+            "Activity collection failed closed for: " + ", ".join(failed_projects)
+        )
     print("Activity collection complete.")
 
 

@@ -1,169 +1,163 @@
-/**
- * Utility functions for the project dashboard.
- */
-
-async function fetchJSON(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) return null;
-  return resp.json();
-}
-
-function formatDate(iso) {
-  if (!iso) return "-";
-  return iso.slice(0, 10);
-}
-
-function relativeTime(iso) {
-  if (!iso) return "";
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  const diffMs = now - then;
-  const diffMin = Math.floor(diffMs / 60000);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHr / 24);
-
-  if (diffDay > 30) return formatDate(iso);
-  if (diffDay > 0) return diffDay + "d ago";
-  if (diffHr > 0) return diffHr + "h ago";
-  if (diffMin > 0) return diffMin + "m ago";
-  return "just now";
-}
-
-function statusBadge(pr) {
-  if (pr.merged) return '<span class="badge badge-merged">merged</span>';
-  if (pr.state === "closed") return '<span class="badge badge-closed">closed</span>';
-  if (pr.draft) return '<span class="badge badge-draft">draft</span>';
-  return '<span class="badge badge-open">open</span>';
-}
-
-function roleBadge(role) {
-  if (role === "active_dev") return '<span class="badge badge-dev">dev</span>';
-  return '<span class="badge badge-watch">watch</span>';
-}
-
-function escapeHtml(str) {
-  const d = document.createElement("div");
-  d.textContent = str;
-  return d.innerHTML;
-}
-
-function isThisWeek(iso) {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < 7 * 86400000;
-}
-
-function getWeeklyStats(prs, issues, releases) {
-  const prsOpened = prs.filter((p) => isThisWeek(p.created_at)).length;
-  const prsMerged = prs.filter((p) => p.merged && isThisWeek(p.updated_at)).length;
-  const issuesOpened = issues.filter((i) => isThisWeek(i.created_at)).length;
-  const newReleases = releases.filter((r) => isThisWeek(r.published_at)).length;
-  return { prsOpened, prsMerged, issuesOpened, newReleases };
-}
-
-function isBot(author) {
-  if (!author) return true;
-  var a = author.toLowerCase();
-  return a.includes("bot") || a.includes("copybara");
-}
-
-function suiteBadge(suite) {
-  // If suite has test counts, show "passed/total"
-  if (suite.tests != null) {
-    var cls = suite.failed > 0 ? "suite-conclusion-failure" : "suite-conclusion-success";
-    return '<span class="suite-conclusion ' + cls + '">' + suite.passed + "/" + suite.tests + "</span>";
+// ═══════════════════════ TAB REGISTRY ═══════════════════════
+// One source of truth for the public dashboard shell. Navigation and tests
+// read this metadata instead of hard-coding parallel lists.
+var DashboardTabs = (function() {
+  var _tabs = [
+    { id: 'projects', label: 'Home', section: 'core', family: 'static' },
+    { id: 'ci-health', label: 'CI Health', section: 'vLLM', family: 'ci' },
+    { id: 'ci-analytics', label: 'CI Analytics', section: 'vLLM', family: 'ci' },
+    {
+      id: 'ci-perf-eval',
+      label: 'Perf Eval',
+      section: 'vLLM',
+      family: 'ci',
+      description: 'AMD nightly performance + accuracy from the vllm/perf-eval pipeline',
+    },
+    { id: 'ci-omni', label: 'Omni CI', section: 'vLLM', family: 'ci' },
+  ];
+  var _byId = {};
+  for (var i = 0; i < _tabs.length; i++) {
+    _byId[_tabs[i].id] = _tabs[i];
   }
-  // Otherwise show conclusion text
-  var conclusion = suite.conclusion || "unknown";
-  var cls = "suite-conclusion-" + (conclusion === "success" ? "success" : conclusion === "failure" ? "failure" : "skipped");
-  return '<span class="suite-conclusion ' + cls + '">' + escapeHtml(conclusion) + "</span>";
+
+  function _clone(tab) {
+    return tab ? Object.assign({}, tab) : null;
+  }
+
+  function list() {
+    return _tabs.map(_clone);
+  }
+
+  function get(id) {
+    return _clone(_byId[id]);
+  }
+
+  function getSectionTabs(section, family) {
+    return _tabs.filter(function(tab) {
+      return tab.section === section && (!family || tab.family === family);
+    }).map(_clone);
+  }
+
+  return {
+    list: list,
+    get: get,
+    getSectionTabs: getSectionTabs,
+  };
+})();
+window.__dashboardTabs = DashboardTabs;
+
+var _ciSections = [];
+
+function setCISectionExpanded(section, expanded) {
+  if (!section) return;
+  section.expanded = Boolean(expanded);
+  section.container.style.maxHeight = section.expanded ? (section.tabs.length * 40 + 10) + 'px' : '0';
+  section.container.style.opacity = section.expanded ? '1' : '0';
+  section.header.classList.toggle('ci-fw-expanded', section.expanded);
+  section.header.setAttribute('aria-expanded', section.expanded ? 'true' : 'false');
 }
 
-function buildPassRateBar(label, summary, runUrl) {
-  if (!summary) return "";
-  var rate = summary.pass_rate != null ? summary.pass_rate : 0;
-  var colorClass = rate >= 95 ? "rate-good" : rate >= 80 ? "rate-warn" : "rate-bad";
-  var pctText = rate.toFixed(1) + "%";
-  var labelHtml = runUrl
-    ? '<a href="' + runUrl + '" target="_blank">' + escapeHtml(label) + "</a>"
-    : escapeHtml(label);
-  return (
-    '<div class="pass-rate-row">' +
-    '<span class="pass-rate-label">' + labelHtml + "</span>" +
-    '<div class="pass-rate-bar-bg"><div class="pass-rate-bar-fill ' + colorClass + '" style="width:' + rate + '%"></div></div>' +
-    '<span class="pass-rate-pct">' + pctText + "</span>" +
-    "</div>"
-  );
-}
+function registerCISection(frameworkName, tabs) {
+  var nav = document.querySelector('#sidebar-nav') || document.querySelector('nav');
+  if (!nav) return;
 
-function buildParityBar(parity) {
-  if (!parity) return "";
-  var ratio = parity.ratio;
-  var barWidth = Math.min(ratio, 100);
-  var colorClass = ratio >= 90 ? "rate-good" : ratio >= 50 ? "rate-warn" : "rate-bad";
-  var levelLabel = parity.level === "test" ? "tests" : "jobs";
-  var detail = parity.rocm_count + " / " + parity.cuda_count + " " + levelLabel;
-  return (
-    '<div class="pass-rate-row">' +
-    '<span class="pass-rate-label">Parity</span>' +
-    '<div class="pass-rate-bar-bg"><div class="pass-rate-bar-fill ' + colorClass + '" style="width:' + barWidth + '%"></div></div>' +
-    '<span class="pass-rate-pct">' + ratio.toFixed(1) + '%</span>' +
-    '<span class="parity-detail">' + detail + '</span>' +
-    '</div>'
-  );
-}
-
-function deltaArrow(current, previous) {
-  if (previous == null || current == null) return "";
-  var diff = current - previous;
-  if (diff > 0) return ' <span class="delta delta-up">+' + diff + '</span>';
-  if (diff < 0) return ' <span class="delta delta-down">' + diff + '</span>';
-  return ' <span class="delta delta-flat">0</span>';
-}
-
-function formatMinutes(min) {
-  if (min == null) return "N/A";
-  if (min < 60) return Math.round(min) + "m";
-  if (min < 1440) return (min / 60).toFixed(1) + "h";
-  return (min / 1440).toFixed(1) + "d";
-}
-
-function formatHours(hours) {
-  if (hours == null) return "N/A";
-  if (hours < 1) return Math.round(hours * 60) + "m";
-  if (hours < 24) return hours.toFixed(1) + "h";
-  return (hours / 24).toFixed(1) + "d";
-}
-
-function formatSeconds(secs) {
-  if (secs == null) return "N/A";
-  if (secs < 60) return Math.round(secs) + "s";
-  if (secs < 3600) return (secs / 60).toFixed(1) + "m";
-  return (secs / 3600).toFixed(1) + "h";
-}
-
-function ciHealthBadge(rate) {
-  if (rate == null) return '<span class="ci-badge ci-badge-unknown">N/A</span>';
-  var cls = rate >= 80 ? "ci-badge-good" : rate >= 50 ? "ci-badge-warn" : "ci-badge-bad";
-  return '<span class="ci-badge ' + cls + '">' + rate.toFixed(0) + '%</span>';
-}
-
-function buildMiniBar(value, max, colorClass) {
-  var pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-  return '<div class="mini-bar-bg"><div class="mini-bar-fill ' + colorClass + '" style="width:' + pct + '%"></div></div>';
-}
-
-function getProjectContributors(prs, limit) {
-  const map = new Map();
-  for (const pr of prs) {
-    if (isBot(pr.author)) continue;
-    if (!map.has(pr.author)) {
-      map.set(pr.author, { author: pr.author, submitted: 0, merged: 0 });
+  var toolsLabel = null;
+  var labels = nav.querySelectorAll('.nav-section-label');
+  for (var i = 0; i < labels.length; i++) {
+    if (labels[i].textContent.trim().toLowerCase() === 'tools') {
+      toolsLabel = labels[i];
+      break;
     }
-    const entry = map.get(pr.author);
-    entry.submitted++;
-    if (pr.merged) entry.merged++;
   }
-  return Array.from(map.values())
-    .sort((a, b) => b.submitted - a.submitted || b.merged - a.merged)
-    .slice(0, limit || 10);
+
+  // Create clickable framework header
+  var header = document.createElement('div');
+  header.className = 'ci-framework-header';
+  header.setAttribute('data-framework', frameworkName);
+  var hasTabs = tabs && tabs.length > 0;
+  var sectionId = 'ci-section-' + String(frameworkName || 'framework').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  if (hasTabs) {
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', 'false');
+    header.setAttribute('aria-controls', sectionId);
+  }
+  header.innerHTML = '<span class="ci-fw-name">' + frameworkName + ' CI</span>' +
+    (hasTabs ? '<span class="ci-fw-arrow">&#9656;</span>' : '<span class="ci-fw-empty">—</span>');
+  if (toolsLabel) nav.insertBefore(header, toolsLabel);
+  else nav.appendChild(header);
+
+  // Create tab container (hidden by default)
+  var tabContainer = document.createElement('div');
+  tabContainer.className = 'ci-tab-group';
+  tabContainer.id = sectionId;
+  tabContainer.style.maxHeight = '0';
+  tabContainer.style.overflow = 'hidden';
+  tabContainer.style.transition = 'max-height 0.3s ease, opacity 0.3s ease';
+  tabContainer.style.opacity = '0';
+  if (toolsLabel) nav.insertBefore(tabContainer, toolsLabel);
+  else nav.appendChild(tabContainer);
+
+  var sectionInfo = { name: frameworkName, header: header, container: tabContainer, tabs: tabs || [], expanded: false };
+  _ciSections.push(sectionInfo);
+
+  var main = document.getElementById('main-content');
+
+  if (hasTabs) {
+    for (var t = 0; t < tabs.length; t++) {
+      var tab = tabs[t];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'nav-btn ci-sub-btn';
+      btn.setAttribute('data-tab', tab.id);
+      if (tab.description) btn.setAttribute('data-tab-description', tab.description);
+      var label = document.createElement('span');
+      label.className = 'nav-btn-label';
+      label.textContent = tab.label;
+      btn.appendChild(label);
+      tabContainer.appendChild(btn);
+
+      // Create tab panel
+      var panel = document.createElement('div');
+      panel.id = 'tab-' + tab.id;
+      panel.className = 'tab-panel';
+      var section = document.createElement('section');
+      section.id = tab.id + '-view';
+      panel.appendChild(section);
+      if (main) main.appendChild(panel);
+    }
+  }
+
+  // Header click: expand this, collapse others
+  function toggleSection() {
+    if (!hasTabs) return;
+    var isExpanded = sectionInfo.expanded;
+    // Collapse all
+    for (var i = 0; i < _ciSections.length; i++) {
+      setCISectionExpanded(_ciSections[i], false);
+    }
+    // Toggle this one
+    if (!isExpanded) setCISectionExpanded(sectionInfo, true);
+  }
+  header.addEventListener('click', toggleSection);
+  header.addEventListener('keydown', function(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    toggleSection();
+  });
 }
+
+// Register all framework CI sections from the shared tab registry.
+registerCISection('vLLM', DashboardTabs.getSectionTabs('vLLM', 'ci'));
+// Other framework CI sections removed — vLLM only
+
+// Auto-expand vLLM on load (it has tabs)
+(function() {
+  for (var i = 0; i < _ciSections.length; i++) {
+    var s = _ciSections[i];
+    if (s.name === 'vLLM' && s.tabs.length) {
+      setCISectionExpanded(s, true);
+      break;
+    }
+  }
+})();
