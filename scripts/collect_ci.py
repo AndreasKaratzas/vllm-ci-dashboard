@@ -1,0 +1,2224 @@
+#!/usr/bin/env python3
+"""Collect CI test data from Buildkite and generate dashboard JSON files.
+
+Guarded workflow CLI form (a token without durable guard state exits 78):
+    python scripts/collect_ci.py --days 8 --output data/vllm/ci/
+    python scripts/collect_ci.py --days 1                    # daily incremental
+    python scripts/collect_ci.py --dry-run                   # preview what would be fetched
+    python scripts/collect_ci.py --pipeline amd --days 3     # single pipeline
+"""
+
+import argparse
+import json
+import logging
+import os
+import re
+import sys
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# Add scripts/ to path so ci/ package is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from vllm.buildkite_request_guard import install_from_environment_or_exit
+
+install_from_environment_or_exit()
+
+from vllm.ci import config as cfg
+from vllm.ci.buildkite_client import (
+    fetch_build_detail,
+    fetch_build_jobs,
+    fetch_nightly_builds,
+    prune_expired_nightly_roster_cache,
+    validate_nightly_roster_cache,
+    write_nightly_build_cache,
+)
+from vllm.ci.backfill_checkpoint import (
+    BackfillCheckpointError,
+    cached_result_parser_version,
+    find_complete_shard,
+    record_complete_shard,
+    restore_complete_shards,
+    synchronize_current_mi_shards,
+)
+from vllm.ci.analytics_cache import (
+    CACHE_DIR_NAME as ANALYTICS_CACHE_DIR_NAME,
+    RUNTIME_SOURCE_CACHE_DIR_NAME,
+    load_source_scope_indexes,
+    retain_runtime_source_indexes,
+    write_runtime_source_indexes,
+)
+from vllm.ci.log_parser import parse_job_results
+from vllm.buildkite_request_guard import BuildkiteRequestGuardError
+from vllm.amd_nightly_handoff import (
+    compact_amd_build_snapshot as _compact_amd_build_snapshot,
+    write_amd_nightly_snapshot,
+)
+from vllm.bounded_json import (
+    atomic_write_bytes,
+    pretty_json_bytes,
+    write_pretty_json_lkg,
+)
+from vllm.dashboard_storage_budget import writer_max_bytes
+from vllm.ci.dns_classification_cache import (
+    DnsClassificationCache,
+    load_optional_dns_classification_cache,
+)
+from vllm.ci.analyzer import (
+    _EXCLUDE_PATTERNS,
+    _JOB_PREFIX_RE,
+    _normalize_job_name,
+    _amd_declared_label_matches,
+    _amd_declared_label_signature,
+    _amd_declared_route_matches,
+    apply_quarantine,
+    compute_all_test_health,
+    compute_build_summary,
+    compute_trends,
+    load_quarantine,
+)
+from vllm.ci.reporter import (
+    prune_old_results,
+    retained_result_start,
+    validate_result_retention,
+    write_ci_health,
+    write_failure_trends,
+    write_flaky_tests,
+    write_quarantine_report,
+    write_test_results,
+)
+from vllm.ci.models import (
+    PASS_RATE_CONTRACT_VERSION,
+    TEST_RESULT_PARSER_VERSION,
+    BuildSummary,
+    TestResult,
+)
+from vllm.pipelines import (
+    PIPELINES as VLLM_PIPELINES, BK_ORG as VLLM_ORG, SKIP_JOB_PATTERNS,
+    _job_queue,
+    pipeline_job_matches_scope,
+)
+from vllm.constants import TRACKED_QUEUES
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
+ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci"
+QUARANTINE_PATH = ROOT / "config" / "quarantine.yaml"
+CONFIG_PARITY_MAX_BYTES = writer_max_bytes("config_parity_pair") // 2
+PROJECT_TEST_RESULTS_MAX_BYTES = writer_max_bytes("project_test_results")
+SHARD_BASE_CATALOG_MAX_BYTES = writer_max_bytes("shard_base_catalog")
+SHARD_BASES_MAX_BYTES = writer_max_bytes("shard_bases")
+DNS_CLASSIFICATION_CACHE = Path(".cache") / "dns-classifications-v1"
+COMPLETE_JOB_STATES = frozenset(
+    set(cfg.TERMINAL_STATES)
+    | set(cfg.BLOCKED_JOB_STATES)
+    | {"expired", "not_run", "skipped"}
+)
+FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+_ROUTING_JOB_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I
+)
+_ROUTING_DIAGNOSTIC_LIMIT = 8
+_ROUTING_QUEUE_LIST_LIMIT = 4
+_ROUTING_DIAGNOSTIC_QUEUES = frozenset(queue.casefold() for queue in TRACKED_QUEUES) | {
+    "amd-cpu", "amd_mi355_dpx", "h100", "h200_18gb", "h200_35gb",
+    "b200-k8s", "l4-k8s", "dgx-spark", "gpu_1", "gpu_4",
+    *(f"amd_mi355b_{width}" for width in (1, 2, 4, 8)),
+}
+
+# Configure CI framework with vLLM-specific settings
+cfg.configure(VLLM_ORG, VLLM_PIPELINES)
+
+
+def _routing_queue_values(tags: object) -> list[str]:
+    if not isinstance(tags, list):
+        return []
+    return [value.split("=", 1)[1].strip().casefold() for value in tags
+            if isinstance(value, str) and value.casefold().startswith("queue=")]
+
+
+def _safe_routing_queue(value: str) -> str:
+    normalized = value.strip().casefold()
+    return normalized if normalized in _ROUTING_DIAGNOSTIC_QUEUES else "unrecognized"
+
+
+def _log_ci_routing_conflicts(build: dict, pipeline_key: str) -> None:
+    """Log bounded routing facts, excluding agent identities and other tags."""
+    number = build.get("number") if isinstance(build, dict) else None
+    if (cfg.PIPELINES[pipeline_key]["slug"] != "ci" or isinstance(number, bool)
+            or not isinstance(number, int) or not 0 < number < 10**12):
+        return
+    emitted = 0
+    jobs = build.get("jobs")
+    for job in jobs if isinstance(jobs, list) else []:
+        if not isinstance(job, dict) or job.get("type") != "script":
+            continue
+        identity = job.get("id")
+        if not isinstance(identity, str) or _ROUTING_JOB_UUID_RE.fullmatch(identity) is None:
+            continue
+        agent = job.get("agent")
+        metadata = agent.get("meta_data") if isinstance(agent, dict) else None
+        assigned = _routing_queue_values(metadata)
+        mapping_queue = metadata.get("queue") if isinstance(metadata, dict) else None
+        if isinstance(mapping_queue, str) and mapping_queue.strip():
+            assigned = [mapping_queue.strip().casefold()]
+        requested = _routing_queue_values(job.get("agent_query_rules"))
+        conflict = bool(assigned and assigned[0] and requested and requested[0]
+                        and assigned[0] != requested[0])
+        if not conflict and len(assigned) < 2:
+            continue
+
+        explicit = job.get("agent_queue") or job.get("queue") or job.get("q")
+        if isinstance(explicit, str) and explicit.strip():
+            branch = next(key for key in ("agent_queue", "queue", "q") if job.get(key))
+        elif assigned:
+            branch = "agent.meta_data.mapping" if isinstance(metadata, dict) else "agent.meta_data.tags"
+        else:
+            branch = "agent_query_rules"
+        queues = list(dict.fromkeys(queue for queue in assigned
+                                    if queue in _ROUTING_DIAGNOSTIC_QUEUES))
+        diagnostic = {
+            "build_number": number,
+            "job_id": identity.casefold(),
+            "assigned_queue_tag_count": len(assigned),
+            "assigned_queues": queues[:_ROUTING_QUEUE_LIST_LIMIT],
+            "assigned_queue_list_truncated": len(queues) > _ROUTING_QUEUE_LIST_LIMIT,
+            "requested_queue": _safe_routing_queue(requested[0]) if requested else "unavailable",
+            "selected_queue": _safe_routing_queue(_job_queue(job)),
+            "selected_queue_source": branch,
+            "assigned_requested_conflict": conflict,
+        }
+        log.warning("CI routing ambiguity: %s", json.dumps(diagnostic, sort_keys=True))
+        emitted += 1
+        if emitted >= _ROUTING_DIAGNOSTIC_LIMIT:
+            break
+
+
+def _fetch_build_detail_with_routing_diagnostics(pipeline_key: str, build_number: int) -> dict:
+    build = fetch_build_detail(pipeline_key, build_number)
+    _log_ci_routing_conflicts(build, pipeline_key)
+    return build
+
+
+def _is_parity_excluded_group(norm: str) -> bool:
+    """Return whether a normalized job group should stay out of parity data."""
+    return bool(_EXCLUDE_PATTERNS.match(norm.strip()))
+
+
+def _find_false_normalization_merges(
+    results: list[TestResult],
+) -> list[tuple[str, str, set[str]]]:
+    """Return accidental same-hardware merges in one parity input cohort.
+
+    Identically named tests on different hardware are expected to normalize
+    together. Multiple raw names on one hardware are only valid when the name
+    is a configured ``%N`` shard base.
+    """
+    from vllm.ci.analyzer import (
+        _SHARD_BASES,
+        _extract_hardware,
+        _normalize_job_name,
+    )
+
+    hw_norm_to_raw: dict[tuple[str, str], set[str]] = {}
+    for result in results:
+        norm = _normalize_job_name(result.job_name)
+        hw = _extract_hardware(result.job_name)
+        hw_norm_to_raw.setdefault((hw, norm), set()).add(result.job_name)
+
+    false_merges = []
+    for (hw, norm), raw_names in hw_norm_to_raw.items():
+        if len(raw_names) <= 1:
+            continue
+        if not any(norm.startswith(base) for base in _SHARD_BASES):
+            false_merges.append((hw, norm, raw_names))
+    return sorted(false_merges, key=lambda row: (row[0], row[1]))
+
+
+def _find_missing_parity_groups(
+    current_results: list[TestResult],
+    parity: dict,
+) -> list[str]:
+    """Return current AMD groups absent from a computed parity payload."""
+    from vllm.ci.analyzer import _normalize_job_name
+
+    current_names = {_normalize_job_name(result.job_name) for result in current_results}
+    parity_names = {group["name"] for group in parity.get("job_groups", [])}
+    return sorted(
+        name
+        for name in current_names - parity_names
+        if not _is_parity_excluded_group(name)
+    )
+
+
+def nightly_date(iso_str: str) -> str:
+    """Convert UTC timestamp to 'nightly date' — the date the results represent.
+
+    The nightly cycle boundary is 12:00 UTC:
+    - Current runs before noon UTC (upstream at ~06:00, AMD at ~09:00) keep
+      the same calendar day.
+    - Older runs after noon UTC (for example the historical upstream 21:00
+      slot) map to the next calendar day.
+
+    This groups both pipelines into the same date column:
+      upstream 2026-05-08 06:00 UTC → '2026-05-08'
+      AMD      2026-05-08 09:00 UTC → '2026-05-08'
+    Both represent the same nightly cycle.
+    """
+    if not iso_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        if dt.hour >= 12:
+            dt += timedelta(days=1)
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return iso_str[:10] if iso_str else ""
+
+
+def load_existing_results(results_dir: Path) -> list[tuple[int, str, list[TestResult]]]:
+    """Load existing JSONL test results from disk.
+
+    Returns:
+        List of (build_number, date, results) tuples sorted oldest-first.
+    """
+    entries = []
+    if not results_dir.exists():
+        return entries
+
+    for jsonl_file in sorted(results_dir.glob("*.jsonl")):
+        results = []
+        # Parse filename: YYYY-MM-DD_pipeline.jsonl
+        stem = jsonl_file.stem
+        parts = stem.rsplit("_", 1)
+        if len(parts) != 2:
+            continue
+        date = parts[0]
+
+        with open(jsonl_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                d = json.loads(line)
+                d.setdefault("step_id", "")
+                d.setdefault("parser_version", 0)
+                results.append(TestResult(**d))
+
+        if results:
+            build_num = results[0].build_number
+            entries.append((build_num, date, results))
+
+    entries.sort(key=lambda x: x[1])  # sort by date
+    return entries
+
+
+def _load_cached_results(jsonl_path: Path) -> list[TestResult]:
+    """Load cached TestResult rows from one JSONL file."""
+    loaded = []
+    if not jsonl_path.exists():
+        return loaded
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                d = json.loads(line)
+                d.setdefault("step_id", "")
+                d.setdefault("parser_version", 0)
+                loaded.append(TestResult(**d))
+    return loaded
+
+
+def _cached_records(jsonl_path: Path) -> list[dict]:
+    """Return valid object rows from one cached JSONL file."""
+    if not jsonl_path.exists():
+        return []
+    records = []
+    with open(jsonl_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+    return records
+
+
+def _cached_build_numbers(jsonl_path: Path) -> set[int]:
+    """Return positive build numbers represented by a cached JSONL file."""
+    numbers = set()
+    for record in _cached_records(jsonl_path):
+        try:
+            number = int(record.get("build_number") or 0)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            numbers.add(number)
+    return numbers
+
+
+def _cached_job_names(jsonl_path: Path, build_num: int) -> set[str]:
+    """Return distinct ``job_name`` values already recorded for ``build_num``.
+
+    Reads the on-disk jsonl for the date+pipeline and collects the job_name
+    fields whose build_number matches. Used to decide whether a terminal
+    build's cache is complete enough to skip re-fetching — see
+    ``_cache_covers_all_jobs`` for the full contract.
+    """
+    names: set[str] = set()
+    for record in _cached_records(jsonl_path):
+        if record.get("build_number") != build_num:
+            # Defensive: multiple builds could in principle share a date.
+            # Only count jobs that belong to the build under consideration.
+            continue
+        name = record.get("job_name")
+        if name:
+            names.add(name)
+    return names
+
+
+def _cached_job_ids(jsonl_path: Path, build_num: int) -> set[str]:
+    """Return exact Buildkite job-attempt IDs cached for ``build_num``."""
+    return {
+        str(record.get("job_id") or "").strip()
+        for record in _cached_records(jsonl_path)
+        if record.get("build_number") == build_num
+        and str(record.get("job_id") or "").strip()
+    }
+
+
+def _should_verify_cache_coverage(
+    build_num: int,
+    latest_build_num: int,
+    latest_terminal_build_num: int = 0,
+) -> bool:
+    """Refresh the newest build and newest terminal candidate.
+
+    When today's nightly is still running, yesterday's terminal nightly is
+    the publication candidate and must still be checked for late soft-fail
+    jobs before its cached JSONL is trusted.
+    """
+    return build_num in {latest_build_num, latest_terminal_build_num}
+
+
+_SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
+_SOURCE_SCOPE_CACHE_DIR: Path | None = None
+
+
+def _scope_nightly_build(build: dict, pipeline_key: str) -> dict:
+    """Keep the current hardware roster separate within the shared CI build."""
+    if pipeline_key == "amd" and re.fullmatch(r"[0-9a-fA-F]{40}", str(build.get("commit") or "")):
+        from vllm.main_ci_definitions import annotate_runtime_source_scope
+        commit = str(build["commit"]).casefold()
+        index = _SOURCE_SCOPE_INDEXES.get(commit)
+        scoped_source = annotate_runtime_source_scope(build, **({"scope_index": index} if index is not None else {}))
+        build.update(scoped_source)
+        if isinstance(scoped_source.get("source_scope_index"), dict):
+            new_index = scoped_source["source_scope_index"]
+            if _SOURCE_SCOPE_INDEXES.get(commit) != new_index:
+                candidates = {**_SOURCE_SCOPE_INDEXES, commit: new_index}
+                retained = retain_runtime_source_indexes(candidates, preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES])
+                _SOURCE_SCOPE_INDEXES.clear()
+                _SOURCE_SCOPE_INDEXES.update(retained)
+                if _SOURCE_SCOPE_CACHE_DIR is not None:
+                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, _SOURCE_SCOPE_INDEXES)
+    if isinstance(build.get("jobs"), list):
+        # Remember observed routing before the role filter removes CPU/other
+        # hardware jobs. Exact cached attempt IDs can then be rejected or
+        # reclassified using this same frozen roster rather than old labels.
+        routes = build.get("_ci_job_routes") or {}
+        for job in build["jobs"]:
+            identity = str(job.get("id") or "").strip()
+            if identity:
+                routes[identity] = {
+                    "queue": _job_queue(job),
+                    "amd": pipeline_job_matches_scope(job, "amd"),
+                    "upstream": pipeline_job_matches_scope(job, "upstream"),
+                }
+        if routes:
+            build["_ci_job_routes"] = routes
+        build["jobs"] = [job for job in build["jobs"] if pipeline_job_matches_scope(job, pipeline_key)]
+    build["job_scope"] = cfg.PIPELINES[pipeline_key].get("job_scope")
+    if pipeline_key == "amd":
+        build["hardware_scope"] = "amd_mi_gpu"
+    build["source_pipeline"] = cfg.PIPELINES[pipeline_key]["slug"]
+    return build
+
+
+def _current_scope_results(
+    results: list[TestResult], pipeline_key: str, build: dict | None = None,
+) -> list[TestResult]:
+    """Apply exact observed roster routing before accepting current CI rows.
+
+    Unknown attempt IDs still constrain the cache-coverage check, including
+    retry invalidation. Only an exact roster match can remove an out-of-scope
+    attempt or add a concrete physical pool outside its preserved raw label.
+    """
+    slug = cfg.PIPELINES[pipeline_key]["slug"]
+    routes = (build or {}).get("_ci_job_routes") or {}
+    scoped = []
+    for row in results:
+        if row.pipeline != slug:
+            continue
+        route = routes.get(row.job_id) if (
+            row.job_id and build is not None and row.build_number == build.get("number")
+        ) else None
+        if route is not None:
+            if not route.get(pipeline_key):
+                continue
+            queue = str(route.get("queue") or "").strip().casefold()
+            if pipeline_key == "amd" and re.fullmatch(
+                r"(?:amd_)?mi\d+b?(?:_[a-z0-9][a-z0-9_-]*)?", queue,
+            ):
+                prefix = queue + ": "
+                if not row.job_name.casefold().startswith(prefix):
+                    raw_label = row.job_name
+                    while _JOB_PREFIX_RE.match(raw_label):
+                        raw_label = _JOB_PREFIX_RE.sub("", raw_label, count=1)
+                    row = replace(row, job_name=prefix + raw_label)
+            elif pipeline_key == "upstream" and not pipeline_job_matches_scope(
+                {"job_name": row.job_name}, pipeline_key,
+            ):
+                # GH200's native "GH200 Test" label has no architecture
+                # decorator. Preserve its exact frozen CUDA route in the
+                # serialized row so later consumers without a roster retain
+                # both its scope and its physical GH architecture.
+                gh_pool = re.fullmatch(r"(gh\d+)(?:[_-][a-z0-9][a-z0-9_-]*)?", queue)
+                if gh_pool:
+                    row = replace(
+                        row,
+                        job_name=f":nvidia: ({gh_pool.group(1).upper()}) {row.job_name}",
+                    )
+        if pipeline_job_matches_scope({"job_name": row.job_name}, pipeline_key):
+            scoped.append(row)
+    return scoped
+
+
+def _persist_scoped_cached_results(
+    cached: list[TestResult], scoped: list[TestResult], *, date: str,
+    pipeline_key: str, results_dir: Path, backfill_checkpoint_dir: Path | None,
+) -> bool:
+    """Normalize a reused mixed-hardware shard before publishing its role.
+
+    The normal atomic writer validates the previous retention proof, replaces
+    only the verified role rows and attests the new exact shard generation.
+    AMD collection runs first, so its verified rows can be copied from a shared
+    historical CI shard before upstream collection removes those rows.
+    """
+    if not scoped:
+        return False
+    if scoped == cached:
+        return True
+    result_path = write_test_results(scoped, date, pipeline_key, results_dir)
+    if result_path is None:
+        return False
+    if backfill_checkpoint_dir is not None:
+        record_complete_shard(backfill_checkpoint_dir, result_path)
+    log.info("  Persisted %s-only cached CI evidence for %s (%d/%d rows)",
+             pipeline_key, date, len(scoped), len(cached))
+    return True
+
+
+def _amd_source_definition_catalog(report: dict) -> tuple[str, dict[str, tuple[str, str, str, str]]]:
+    """Index physical definitions from one immutable runtime source report."""
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    commit, routes = extract_amd_runtime_group_key_map_from_report(report)
+    if not FULL_COMMIT_SHA_RE.fullmatch(commit):
+        raise ValueError("AMD definition catalog requires an exact source commit")
+    definitions = {}
+    for raw in report.get("amd_execution_definitions", []):
+        identity = raw.get("definition_id")
+        label = _normalize_job_name(str(raw.get("label") or "")).strip()
+        pool = str(raw.get("agent_pool") or "").strip().casefold()
+        family = routes.get((label, pool))
+        if not isinstance(identity, str) or "#" not in identity or not identity.rsplit("#", 1)[-1] or not family:
+            raise ValueError("AMD execution definition lacks a pinned family identity")
+        if identity in definitions:
+            raise ValueError("AMD execution definition identities are duplicated")
+        definitions[identity] = (label, pool, family, str(raw.get("label") or ""))
+    return commit, definitions
+
+
+def _attest_amd_source_results(
+    rows: list[TestResult], build: dict, commit: str,
+    definitions: dict[str, tuple[str, str, str, str]],
+) -> list[TestResult]:
+    """Join exact attempts to source steps, preserving observed queue routing.
+
+    A provider may execute a declared DPX step on an MI355_1 physical queue.
+    Its step key and immutable source commit establish configuration identity;
+    the observed queue continues to establish the hardware denominator.
+    Cached result annotations never authorize this join.
+    """
+    if build.get("commit") != commit:
+        raise ValueError("AMD source identity must match the exact runtime commit")
+    jobs = {}
+    for job in build.get("jobs") or []:
+        identity = job.get("id")
+        if identity:
+            if identity in jobs:
+                raise ValueError("AMD frozen roster contains duplicate attempt identities")
+            jobs[identity] = job
+    by_step: dict[str, list[str]] = {}
+    routes = {}
+    for identity, (label, pool, family, _source_label) in definitions.items():
+        by_step.setdefault(identity.rsplit("#", 1)[-1], []).append(identity)
+        routes[(label, pool)] = family
+    attested = []
+    for row in rows:
+        job = jobs.get(row.job_id)
+        if row.pipeline != "ci" or row.build_number != build.get("number") or job is None:
+            raise ValueError("AMD result is absent from the exact runtime roster")
+        label = _normalize_job_name(row.job_name).strip()
+        if label != _normalize_job_name(str(job.get("name") or "")).strip():
+            raise ValueError("AMD result label disagrees with its exact runtime attempt")
+        if _amd_declared_label_signature(row.job_name) != _amd_declared_label_signature(str(job.get("name") or "")):
+            raise ValueError("AMD result declaration disagrees with its exact runtime attempt")
+        raw_step = job.get("step") or {}
+        if not isinstance(raw_step, dict):
+            raise ValueError("AMD runtime step identity is malformed")
+        if row.step_id and row.step_id != raw_step.get("id"):
+            raise ValueError("AMD result step UUID disagrees with its exact runtime attempt")
+        keys = ([job["step_key"]] if "step_key" in job else []) + ([raw_step["key"]] if "key" in raw_step else [])
+        if any(not isinstance(key, str) or not key or key != key.strip() for key in keys) or len(set(keys)) > 1:
+            raise ValueError("AMD runtime source step keys are malformed or disagree")
+        # Clear all restored assertions before deriving source authority.
+        clean = replace(row, source_definition_id="", source_agent_pool="",
+                        source_commit="", source_step_key="", source_binding_basis="")
+        if keys:
+            candidates = [identity for identity in by_step.get(keys[0], [])
+                          if definitions[identity][0] == label]
+            if len(candidates) != 1:
+                raise ValueError("AMD runtime step lacks an unambiguous pinned source definition")
+            identity = candidates[0]
+            if _amd_declared_label_signature(str(job.get("name") or ""))[1] and not _amd_declared_label_matches(str(job.get("name") or ""), definitions[identity]):
+                raise ValueError("AMD runtime source key contradicts its declared label")
+            clean = replace(clean, source_definition_id=identity,
+                            source_agent_pool=definitions[identity][1],
+                            source_commit=commit, source_step_key=keys[0],
+                            source_binding_basis="runtime_step_key")
+        else:
+            # Some REST rosters retain only an opaque step UUID. Their original
+            # explicit AMD declaration can bind one pinned source definition;
+            # a generic normalized label cannot authorize a rerouting alias.
+            pool = _job_queue(job).removeprefix("amd_")
+            candidates = [identity for identity, definition in definitions.items()
+                          if _amd_declared_route_matches(str(job.get("name") or ""), definition, _job_queue(job))]
+            if candidates:
+                if len(candidates) != 1 or not isinstance(raw_step.get("id"), str) or not raw_step["id"]:
+                    raise ValueError("AMD declared label lacks an unambiguous source step identity")
+                identity = candidates[0]
+                clean = replace(clean, source_definition_id=identity,
+                                source_agent_pool=definitions[identity][1], source_commit=commit,
+                                step_id=raw_step["id"], source_binding_basis="pinned_declared_label")
+            elif (label, pool) not in routes or _amd_declared_label_signature(str(job.get("name") or ""))[1]:
+                raise ValueError("AMD rerouted runtime attempt requires a pinned declared source identity")
+        attested.append(clean)
+    return attested
+
+
+def _attest_amd_source_shards(
+    results_dir: Path, build: dict, commit: str,
+    definitions: dict[str, tuple[str, str, str, str]],
+) -> dict[int, list[TestResult]]:
+    """Validate every same-build row before atomically writing its source proof."""
+    replacements = []
+    selected = {}
+    for path in sorted(results_dir.glob("*_amd.jsonl")):
+        rows = _load_cached_results(path)
+        if not any(row.build_number == build.get("number") for row in rows):
+            continue
+        if any(row.build_number != build.get("number") for row in rows):
+            raise ValueError("AMD result shard mixes runtime builds")
+        attested = _attest_amd_source_results(rows, build, commit, definitions)
+        replacements.append((path, rows, attested))
+        selected.setdefault(int(build["number"]), []).extend(attested)
+    for path, rows, attested in replacements:
+        if attested != rows:
+            if write_test_results(attested, path.name.rsplit("_", 1)[0], "amd", results_dir) is None:
+                raise ValueError("AMD source-attested result shard could not be retained")
+    return selected
+
+
+def _purge_unproved_result_scope(results_dir: Path, builds: list[dict]) -> None:
+    """Retain only parsed MI evidence verified against this collection's roster."""
+    validate_result_retention(results_dir)
+    by_number = {build.get("number"): build for build in builds}
+    for path in sorted(results_dir.glob("*.jsonl")):
+        if not path.name.endswith("_amd.jsonl"):
+            path.unlink()
+            prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS, allow_generation_change=True)
+            continue
+        rows = _load_cached_results(path)
+        proven = []
+        for row in rows:
+            build = by_number.get(row.build_number)
+            if build is not None and row.job_id in (build.get("_ci_job_routes") or {}):
+                proven.extend(_current_scope_results([row], "amd", build))
+        if not proven:
+            path.unlink()
+            prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS, allow_generation_change=True)
+        elif proven != rows:
+            write_test_results(proven, path.name.rsplit("_", 1)[0], "amd", results_dir)
+
+
+def _scoped_result_entries(entries: list[tuple[int, str, list[TestResult]]], pipeline_key: str) -> list[tuple[int, str, list[TestResult]]]:
+    """Merge current CI shards without counting shared historical rows twice."""
+    by_build: dict[int, tuple[str, list[TestResult]]] = {}
+    seen: dict[int, set[str]] = {}
+    for number, date, rows in entries:
+        scoped_rows = _current_scope_results(rows, pipeline_key)
+        if not scoped_rows:
+            continue
+        prior_keys = seen.setdefault(number, set())
+        keyed = [(json.dumps(row.to_dict(), sort_keys=True), row) for row in scoped_rows]
+        selected = [row for key, row in keyed if key not in prior_keys]
+        by_build.setdefault(number, (date, []))[1].extend(selected)
+        # Preserve repeated observations within a source shard, while removing
+        # the same source rows retained in both historical role-keyed files.
+        prior_keys.update(key for key, _row in keyed)
+    return [(number, date, rows) for number, (date, rows) in by_build.items()]
+
+
+def _nightly_test_jobs(build: dict) -> list[dict]:
+    """Return non-superseded test jobs from a Buildkite nightly roster."""
+    return [
+        job
+        for job in build.get("jobs") or []
+        if job.get("type") == "script"
+        and not job.get("retried_in_job_id")
+        and not any(
+            skip in str(job.get("name") or "").lower()
+            for skip in SKIP_JOB_PATTERNS
+        )
+    ]
+
+
+def _is_complete_nightly_build(build: dict) -> bool:
+    """Return whether a nightly has a terminal build and test-job roster."""
+    if build.get("state") not in cfg.TERMINAL_STATES:
+        return False
+    test_jobs = _nightly_test_jobs(build)
+    return bool(test_jobs) and all(
+        str(job.get("state") or "").casefold() in COMPLETE_JOB_STATES
+        for job in test_jobs
+    )
+
+
+def _select_latest_complete_evidence_build(
+    builds: list[dict],
+    results_by_build: dict[int, list[TestResult]],
+) -> dict | None:
+    """Select the newest verified-complete build with parsed test evidence."""
+    ordered = sorted(
+        builds,
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or 0),
+        ),
+        reverse=True,
+    )
+    return next(
+        (
+            build
+            for build in ordered
+            if results_by_build.get(int(build.get("number") or 0))
+            and _is_complete_nightly_build(build)
+        ),
+        None,
+    )
+
+
+def _select_shard_evidence_build(
+    builds: list[dict],
+    results_by_build: dict[int, list[TestResult]],
+) -> tuple[dict | None, bool]:
+    """Select complete shard evidence, or the newest provisional roster.
+
+    A narrow collection window can contain only today's still-running nightly.
+    The shard catalog still needs explicit evidence so its schema remains
+    publishable, while ``verified_complete=False`` tells the audit to skip
+    absence conclusions until a completed roster with parsed results exists.
+    """
+    complete = _select_latest_complete_evidence_build(builds, results_by_build)
+    if complete is not None:
+        return complete, True
+    provisional = max(
+        builds,
+        key=lambda build: (
+            str(build.get("created_at") or ""),
+            int(build.get("number") or 0),
+        ),
+        default=None,
+    )
+    return provisional, False
+
+
+def _shard_catalog_evidence(
+    build: dict | None,
+    *,
+    verified_complete: bool,
+) -> dict:
+    """Return the stable shard-catalog evidence object for any collection state."""
+    build = build or {}
+    evidence_date = nightly_date(str(build.get("created_at") or ""))
+    return {
+        "pipeline": "amd",
+        "build_number": int(build.get("number") or 0),
+        "build_commit": str(build.get("commit") or "").casefold(),
+        "build_state": str(build.get("state") or "unavailable"),
+        "roster_complete": verified_complete,
+        "result_file": (
+            f"{evidence_date}_amd.jsonl"
+            if verified_complete and evidence_date
+            else ""
+        ),
+        "job_names": sorted(
+            {
+                str(job.get("name") or "")
+                for job in _nightly_test_jobs(build)
+                if str(job.get("name") or "")
+            }
+        ),
+    }
+
+
+def bounded_shard_base_catalog(
+    catalog: dict,
+    *,
+    max_bytes: int = SHARD_BASE_CATALOG_MAX_BYTES,
+) -> dict:
+    """Bound refetchable catalog detail without inventing complete evidence.
+
+    Normalization bases and per-pipeline ownership are control inputs and are
+    never truncated. Under pressure, the exact job roster is withdrawn first
+    and the evidence is explicitly made provisional; only then are whole
+    definition-detail rows omitted. Consumers can still normalize safely but
+    must skip absence claims when either detail population is incomplete.
+    """
+    if max_bytes <= 0:
+        raise ValueError("shard-base catalog byte budget must be positive")
+    source_definitions = sorted(
+        (dict(row) for row in catalog.get("definitions") or [] if isinstance(row, dict)),
+        key=lambda row: (
+            str(row.get("pipeline") or ""),
+            str(row.get("base") or ""),
+            str(row.get("source_file") or ""),
+            str(row.get("definition_id") or ""),
+        ),
+    )
+    evidence = dict(catalog.get("evidence") or {})
+    source_job_names = sorted({
+        str(name) for name in evidence.get("job_names") or [] if str(name)
+    })
+    prioritized_definitions = sorted(
+        source_definitions,
+        key=lambda row: (
+            str(row.get("pipeline") or "") != "amd",
+            row.get("optional") is True,
+            str(row.get("base") or ""),
+            str(row.get("definition_id") or ""),
+        ),
+    )
+
+    def candidate(definition_count: int, *, retain_roster: bool) -> dict:
+        selected = {
+            (
+                str(row.get("pipeline") or ""),
+                str(row.get("base") or ""),
+                str(row.get("source_file") or ""),
+                str(row.get("definition_id") or ""),
+            )
+            for row in prioritized_definitions[:definition_count]
+        }
+        definitions = [
+            row
+            for row in source_definitions
+            if (
+                str(row.get("pipeline") or ""),
+                str(row.get("base") or ""),
+                str(row.get("source_file") or ""),
+                str(row.get("definition_id") or ""),
+            )
+            in selected
+        ]
+        published_evidence = dict(evidence)
+        if retain_roster:
+            published_job_names = source_job_names
+            published_evidence["job_names"] = published_job_names
+        else:
+            published_job_names = []
+            published_evidence["job_names"] = []
+            published_evidence["roster_complete"] = False
+            published_evidence["result_file"] = ""
+        definitions_complete = len(definitions) == len(source_definitions)
+        roster_complete = len(published_job_names) == len(source_job_names)
+        complete = definitions_complete and roster_complete
+        result = {
+            key: value
+            for key, value in catalog.items()
+            if key not in {"definitions", "evidence", "publication_retention"}
+        }
+        result["definitions"] = definitions
+        result["evidence"] = published_evidence
+        result["publication_retention"] = {
+            "policy": "exact_controls_then_roster_then_required_definition_rows_v1",
+            "max_bytes": max_bytes,
+            "complete_relative_to_source": complete,
+            "normalization_controls_complete": True,
+            "definitions": {
+                "source": len(source_definitions),
+                "published": len(definitions),
+                "omitted": len(source_definitions) - len(definitions),
+                "complete": definitions_complete,
+            },
+            "evidence_job_names": {
+                "source": len(source_job_names),
+                "published": len(published_job_names),
+                "omitted": len(source_job_names) - len(published_job_names),
+                "complete": roster_complete,
+            },
+        }
+        return result
+
+    complete = candidate(len(source_definitions), retain_roster=True)
+    if len(pretty_json_bytes(complete)) <= max_bytes:
+        return complete
+
+    without_roster = candidate(len(source_definitions), retain_roster=False)
+    if len(pretty_json_bytes(without_roster)) <= max_bytes:
+        return without_roster
+
+    low, high = 0, len(source_definitions)
+    best = None
+    while low <= high:
+        keep = (low + high) // 2
+        attempt = candidate(keep, retain_roster=False)
+        if len(pretty_json_bytes(attempt)) <= max_bytes:
+            best = attempt
+            low = keep + 1
+        else:
+            high = keep - 1
+    if best is None:
+        raise RuntimeError(
+            "shard-base catalog control metadata exceeds its byte budget; "
+            "preserving the last-known-good files"
+        )
+    return best
+
+
+def write_definition_controls(
+    output_dir: Path,
+    *,
+    shard_bases: list,
+    shard_catalog: dict,
+    shard_bases_max_bytes: int = SHARD_BASES_MAX_BYTES,
+    catalog_max_bytes: int = SHARD_BASE_CATALOG_MAX_BYTES,
+) -> dict:
+    """Preflight the complete control set, then atomically replace each file."""
+    bounded_catalog = bounded_shard_base_catalog(
+        shard_catalog,
+        max_bytes=catalog_max_bytes,
+    )
+    control_outputs = (
+        (
+            output_dir / "shard_bases.json",
+            pretty_json_bytes(shard_bases),
+            shard_bases_max_bytes,
+            "shard-base normalization controls",
+        ),
+        (
+            output_dir / "shard_base_catalog.json",
+            pretty_json_bytes(bounded_catalog),
+            catalog_max_bytes,
+            "shard-base catalog",
+        ),
+    )
+    oversized_controls = [
+        f"{label}: {len(encoded)} > {maximum} bytes"
+        for _path, encoded, maximum, label in control_outputs
+        if len(encoded) > maximum
+    ]
+    if oversized_controls:
+        raise RuntimeError(
+            "definition controls exceed their composable byte budgets; "
+            "preserving the last-known-good files: "
+            + "; ".join(oversized_controls)
+        )
+    for path, encoded, _maximum, _label in control_outputs:
+        atomic_write_bytes(path, encoded)
+    return bounded_catalog
+
+
+def _completed_result_entries(
+    entries: list[tuple[int, str, list[TestResult]]],
+    fetched_builds: list[dict],
+) -> list[tuple[int, str, list[TestResult]]]:
+    """Exclude fetched nonterminal/incomplete builds from canonical analysis."""
+    builds_by_number = {
+        int(build.get("number") or 0): build
+        for build in fetched_builds
+        if build.get("number")
+    }
+    return [
+        entry
+        for entry in entries
+        if entry[0] not in builds_by_number
+        or _is_complete_nightly_build(builds_by_number[entry[0]])
+    ]
+
+
+def _cache_covers_all_jobs(
+    build: dict,
+    jsonl_path: Path,
+    pipeline_key: str,
+    build_num: int,
+) -> bool:
+    """True iff the cached jsonl has at least one record for every test job
+    currently visible in the build.
+
+    This is the guard that prevents the "soft-fail timeout bug": the AMD
+    nightly build can flip to ``passed`` while a ``soft_fail: true`` job is
+    still running (the build doesn't wait on soft-fail jobs to block it).
+    If a previous collector pass ran in that window and wrote a partial
+    jsonl, a naive cache-skip would permanently omit that job's results —
+    which then shows up as ``amd=None`` in the parity report and drops
+    the group from the "Failing Tests" UI count.
+
+    Implementation: compare exact active Buildkite job-attempt IDs against
+    the cached ``job_id`` values. A retry normally keeps the same job name but
+    receives a new ID, so name-only coverage can silently retain pre-retry
+    results. Jobs without an ID fall back to name matching for compatibility.
+    Every active completed roster attempt constrains cache identity, while
+    only states with parseable logs must have a cached row; superseded retry
+    attempts are excluded by ``_nightly_test_jobs``.
+    """
+    # Need the full build detail (with ``jobs`` populated) to enumerate
+    # current jobs. The metadata-only nightly list omits ``jobs``; an explicit
+    # empty list, however, is a complete roster whose cache coverage is
+    # vacuously satisfied and must not trigger a second detail request.
+    if "jobs" not in build or not isinstance(build.get("jobs"), list):
+        try:
+            detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
+            # Keep this exact response on the shared build object. Downstream
+            # summaries, parity, and the frozen AMD matrix roster must all see
+            # the same point-in-time job set used for this cache decision.
+            build.clear()
+            build.update(detail)
+            _scope_nightly_build(build, pipeline_key)
+        except BuildkiteRequestGuardError:
+            raise
+        except Exception as e:
+            # If the API is flaky at the moment, be conservative and trust
+            # the cache. Next cron tick will try again.
+            log.warning(
+                "  Build #%d: couldn't fetch detail to verify cache "
+                "coverage (%s) — retaining only current-parser cache",
+                build_num, e,
+            )
+            return cached_result_parser_version(jsonl_path) == TEST_RESULT_PARSER_VERSION
+
+    _scope_nightly_build(build, pipeline_key)
+    cached_results = _load_cached_results(jsonl_path)
+    if any(row.build_number != build_num or row.pipeline != cfg.PIPELINES[pipeline_key]["slug"] for row in cached_results):
+        return False
+    scoped_cached_results = _current_scope_results(cached_results, pipeline_key, build)
+    roster_jobs = _nightly_test_jobs(build)
+    if not roster_jobs:
+        return True
+
+    if not _is_complete_nightly_build(build):
+        log.info(
+            "  Build #%d: current roster is provisional; cache cannot be reused",
+            build_num,
+        )
+        return False
+
+    current_roster_ids = {
+        str(job.get("id") or "").strip()
+        for job in roster_jobs
+        if str(job.get("id") or "").strip()
+    }
+    # Only these states have logs/artifacts that the parser can turn into
+    # rows. Other complete states (for example ``expired``) still matter to
+    # roster identity: a retry ending there must evict its superseded rows,
+    # but its own ID is not expected to appear in the refreshed JSONL.
+    test_jobs = [
+        job
+        for job in roster_jobs
+        if str(job.get("state") or "").casefold() in cfg.TERMINAL_STATES
+        and str(job.get("state") or "").casefold() not in cfg.BLOCKED_JOB_STATES
+    ]
+    current_ids = {
+        str(job.get("id") or "").strip()
+        for job in test_jobs
+        if str(job.get("id") or "").strip()
+    }
+    current_names_without_ids = {
+        str(job.get("name") or "").strip()
+        for job in test_jobs
+        if not str(job.get("id") or "").strip()
+        and str(job.get("name") or "").strip()
+    }
+    cached_ids = {row.job_id for row in scoped_cached_results if row.job_id}
+    cached_names = {row.job_name for row in scoped_cached_results if row.job_name}
+    stale_ids = cached_ids - current_roster_ids
+    missing_ids = current_ids - cached_ids
+    missing_names = current_names_without_ids - cached_names
+    if stale_ids or missing_ids or missing_names:
+        # Log a sample so the operator can see why we re-fetched. The list
+        # can be long (50+) so cap at 3.
+        sample = [
+            *(f"stale_job_id={job_id!r}" for job_id in sorted(stale_ids)),
+            *(f"job_id={job_id!r}" for job_id in sorted(missing_ids)),
+            *(f"job_name={name!r}" for name in sorted(missing_names)),
+        ][:3]
+        log.info(
+            "  Build #%d: cache differs from active job attempts "
+            "(%d stale, %d missing; e.g. %s)",
+            build_num,
+            len(stale_ids),
+            len(missing_ids) + len(missing_names),
+            ", ".join(sample),
+        )
+        return False
+    if test_jobs and cached_result_parser_version(jsonl_path) != TEST_RESULT_PARSER_VERSION:
+        log.info("  Build #%d: cached results need the current log parser", build_num)
+        return False
+    return True
+
+
+def collect_pipeline(
+    pipeline_key: str,
+    days: int,
+    output_dir: Path,
+    dry_run: bool = False,
+    dns_classification_cache: DnsClassificationCache | None = None,
+    roster_cache_errors: list[str] | None = None,
+    backfill_checkpoint_dir: Path | None = None,
+    *,
+    now: datetime | None = None,
+) -> tuple[list[dict], dict[int, list[TestResult]]]:
+    """Collect test data for a single pipeline.
+
+    Returns:
+        Tuple of (nightly_builds, results_by_build_number)
+    """
+    log.info("=== Collecting %s pipeline ===", pipeline_key)
+
+    # Freeze discovery and restored-cache validation at the pipeline start.
+    # Production cache writes may advance only to a locally observed wall
+    # clock, allowing a build created while list pagination was in flight
+    # without trusting an API-provided future timestamp. Tests can inject one
+    # exact clock to keep every phase deterministic.
+    clock_was_supplied = now is not None
+    collection_clock = now or datetime.now(timezone.utc)
+    if not isinstance(collection_clock, datetime) or collection_clock.tzinfo is None:
+        raise ValueError("CI collection clock must be timezone-aware")
+    collection_clock = collection_clock.astimezone(timezone.utc)
+
+    cache_dir = output_dir / ".cache"
+    builds = fetch_nightly_builds(
+        pipeline_key,
+        days=days,
+        cache_dir=cache_dir,
+        cache_errors=roster_cache_errors,
+        now=collection_clock,
+        advance_cache_clock=not clock_was_supplied,
+    )
+
+    if not builds:
+        log.warning("No nightly builds found for %s in the last %d days", pipeline_key, days)
+        return [], {}
+
+    log.info("Found %d nightly builds for %s", len(builds), pipeline_key)
+
+    if dry_run:
+        for b in builds:
+            log.info(
+                "  Build #%d: %s — %s (%s)",
+                b.get("number", 0),
+                b.get("message", "")[:60],
+                b.get("state", ""),
+                b.get("created_at", "")[:10],
+            )
+        return builds, {}
+
+    # Check which builds we already have results for
+    results_dir = output_dir / "test_results"
+    existing_dates = set()
+    for f in results_dir.glob("*.jsonl"):
+        if f.stem.endswith(f"_{pipeline_key}"):
+            existing_dates.add(f.stem.rsplit("_", 1)[0])
+    retention_floor = retained_result_start(results_dir)
+
+    results_by_build: dict[int, list[TestResult]] = {}
+    slug = cfg.PIPELINES[pipeline_key]["slug"]
+    latest_build_num = max((b.get("number", 0) for b in builds), default=0)
+    latest_terminal_build_num = max(
+        (
+            int(build.get("number") or 0)
+            for build in builds
+            if build.get("state") in cfg.TERMINAL_STATES
+        ),
+        default=0,
+    )
+
+    for build in builds:
+        # Older valid v2 rosters predate retained routing queues. Refresh them
+        # before using their display labels to split hardware or reuse logs;
+        # the updated roster makes this a one-time migration per old build.
+        queue_incomplete = slug == "ci" and any(
+            job.get("type", "script") == "script" and not _job_queue(job)
+            for job in build.get("jobs") or []
+        )
+        _scope_nightly_build(build, pipeline_key)
+        build_num = build.get("number", 0)
+        created = build.get("created_at", "")
+        date = nightly_date(created)
+        state = build.get("state", "")
+        detail_hydrated_from_api = False
+
+        if retention_floor is not None and date < retention_floor:
+            log.info(
+                "  Build #%d (%s): older than byte-bounded retained suffix; skipping",
+                build_num,
+                date,
+            )
+            continue
+
+        verify_candidate = _should_verify_cache_coverage(
+            build_num,
+            latest_build_num,
+            latest_terminal_build_num,
+        )
+        # The discovery list intentionally excludes embedded jobs. A restored
+        # local roster can avoid this detail request, but clean GitHub runners
+        # still need every selected terminal nightly hydrated: downstream
+        # completeness checks must not discard otherwise valid historical
+        # JSONL evidence merely because its list summary had no ``jobs`` key.
+        roster_missing = not isinstance(build.get("jobs"), list) or not build["jobs"]
+        if state in cfg.TERMINAL_STATES and (
+            verify_candidate or roster_missing or queue_incomplete
+        ):
+            if queue_incomplete:
+                log.info(
+                    "  Build #%d: refreshing queue-incomplete current CI roster",
+                    build_num,
+                )
+            try:
+                detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
+                build.clear()
+                build.update(detail)
+                _scope_nightly_build(build, pipeline_key)
+                detail_hydrated_from_api = True
+                state = build.get("state", state)
+            except BuildkiteRequestGuardError:
+                raise
+            except Exception as exc:
+                if queue_incomplete:
+                    raise RuntimeError(
+                        f"Could not refresh queue-incomplete current CI roster "
+                        f"for build #{build_num}; refusing routing inferred from labels"
+                    ) from exc
+                log.warning(
+                    "  Build #%d: couldn't refresh terminal roster (%s); "
+                    "it will not be promoted unless the cached roster is complete",
+                    build_num,
+                    exc,
+                )
+
+        # Existing CI shards historically contained all hardware. Reuse their
+        # exact active attempts when introducing the separate AMD/CUDA roles;
+        # verified source rows should not require fetching their logs twice.
+        alternate_key = "upstream" if pipeline_key == "amd" else "amd"
+        alternate_path = results_dir / f"{date}_{alternate_key}.jsonl"
+        current_path = results_dir / f"{date}_{pipeline_key}.jsonl"
+        current_rows = _current_scope_results(_load_cached_results(current_path), pipeline_key, build)
+        if state in cfg.TERMINAL_STATES and not current_rows and alternate_path.exists():
+            shared_rows = _current_scope_results(_load_cached_results(alternate_path), pipeline_key, build)
+            if shared_rows and _cache_covers_all_jobs(build, alternate_path, pipeline_key, build_num):
+                shared_rows = _current_scope_results(_load_cached_results(alternate_path), pipeline_key, build)
+                result_path = write_test_results(shared_rows, date, pipeline_key, results_dir)
+                if result_path is not None:
+                    existing_dates.add(date)
+                    log.info("  Build #%d: reused exact CI %s job evidence", build_num, pipeline_key)
+
+        # Cache-skip eligibility: date is already on disk AND build is terminal.
+        # But "build terminal" is not enough on its own — a soft-fail job can
+        # finish HOURS after the build's overall state flips to ``passed``
+        # (the build only waits for non-soft-fail jobs to stop blocking it).
+        # If a previous collector run captured the partial jsonl while that
+        # job was still running, a naive cache-skip here would permanently
+        # omit the soft-fail result. Verify coverage before trusting cache.
+        if date in existing_dates and state in cfg.TERMINAL_STATES:
+            jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
+            cached = _load_cached_results(jsonl_path)
+            current_cache = [row for row in _current_scope_results(cached, pipeline_key, build)
+                             if row.build_number == build_num]
+            source_identity_matches = all(row.pipeline == slug and row.build_number == build_num for row in cached)
+            if not verify_candidate and current_cache and source_identity_matches:
+                if not _persist_scoped_cached_results(
+                    cached, current_cache, date=date, pipeline_key=pipeline_key,
+                    results_dir=results_dir, backfill_checkpoint_dir=backfill_checkpoint_dir,
+                ):
+                    continue
+                log.info("  Build #%d (%s): cached historical build, skipping", build_num, date)
+                loaded = current_cache
+                if loaded:
+                    results_by_build[build_num] = loaded
+                continue
+            if _cache_covers_all_jobs(build, jsonl_path, pipeline_key, build_num):
+                loaded = _current_scope_results(cached, pipeline_key, build)
+                if not _persist_scoped_cached_results(
+                    cached, loaded, date=date, pipeline_key=pipeline_key,
+                    results_dir=results_dir, backfill_checkpoint_dir=backfill_checkpoint_dir,
+                ):
+                    continue
+                log.info("  Build #%d (%s): cached, skipping", build_num, date)
+                if loaded:
+                    results_by_build[build_num] = loaded
+                continue
+            if backfill_checkpoint_dir is not None and detail_hydrated_from_api:
+                # Publication may have failed after this exact build's logs
+                # were parsed and privately checkpointed. Same-build/parser
+                # restore deliberately preserves the published baseline; use
+                # that alternate generation only after the fresh frozen
+                # roster proves every current job attempt and parser match.
+                try:
+                    checkpoint_path = find_complete_shard(
+                        backfill_checkpoint_dir, jsonl_path.name,
+                        build_number=build_num,
+                    )
+                except (OSError, BackfillCheckpointError):
+                    checkpoint_path = None
+                    log.warning(
+                        "  Build #%d: private parsed checkpoint failed "
+                        "validation; fetching current logs", build_num,
+                    )
+                if checkpoint_path is not None and _cache_covers_all_jobs(
+                    build, checkpoint_path, pipeline_key, build_num,
+                ):
+                    loaded = _current_scope_results(
+                        _load_cached_results(checkpoint_path), pipeline_key, build,
+                    )
+                    if loaded:
+                        result_path = write_test_results(
+                            loaded, date, pipeline_key, results_dir,
+                        )
+                        if result_path is None:
+                            continue
+                        record_complete_shard(backfill_checkpoint_dir, result_path)
+                        results_by_build[build_num] = loaded
+                        log.info(
+                            "  Build #%d (%s): reused exact %s parsed evidence "
+                            "from private checkpoint", build_num, date, pipeline_key,
+                        )
+                        continue
+            if build_num in _cached_build_numbers(jsonl_path):
+                jsonl_path.unlink()
+                # Keep the durable retention attestation on the exact same
+                # shard generation after deliberately invalidating stale
+                # canonical evidence.
+                prune_old_results(
+                    results_dir,
+                    max_days=cfg.HISTORY_DAYS,
+                    allow_generation_change=True,
+                )
+                existing_dates.discard(date)
+                log.warning(
+                    "  Build #%d (%s): invalidated cached canonical JSONL "
+                    "because job attempts or the log parser changed",
+                    build_num,
+                    date,
+                )
+            # Fall through to refresh. A complete build will overwrite the
+            # cache; a provisional build will invalidate its canonical file.
+            log.info(
+                "  Build #%d (%s): cache is not reusable — refreshing "
+                "canonical evidence",
+                build_num, date,
+            )
+
+        # Hydrate the roster before deciding whether this build is eligible for
+        # canonical test evidence.  Buildkite can expose hundreds of completed
+        # jobs while the nightly itself is still ``running``/``failing`` (and a
+        # terminal build can still have late soft-fail jobs in flight).  Writing
+        # those partial rows to the date-keyed JSONL would replace the previous
+        # complete cohort even though analysis correctly excludes the build.
+        # Keep provisional builds visible through build metadata, then retry
+        # their logs on the next collection pass.
+        is_running = state not in cfg.TERMINAL_STATES
+
+        log.info("  Build #%d (%s): fetching test results...%s",
+                 build_num, date, f" (build still {state})" if is_running else "")
+
+        # The persistent roster cache deliberately contains no log URLs,
+        # commands, agent metadata, or other execution details. It is enough
+        # to validate an existing canonical JSONL, but a build whose logs must
+        # be parsed needs a fresh detail response rather than using that
+        # privacy-minimized projection as if it were a complete API object.
+        needs_log_hydration = any(
+            job.get("type") == "script"
+            and not job.get("retried_in_job_id")
+            and str(job.get("state") or "").casefold() in cfg.TERMINAL_STATES
+            and str(job.get("state") or "").casefold() not in cfg.BLOCKED_JOB_STATES
+            and not job.get("raw_log_url")
+            for job in build.get("jobs") or []
+            if isinstance(job, dict)
+        )
+        # Fetch full build detail if jobs are absent, provisional, or only a
+        # persistent roster projection without the ephemeral log location.
+        if (
+            "jobs" not in build
+            or not build["jobs"]
+            or is_running
+            or (needs_log_hydration and not detail_hydrated_from_api)
+        ):
+            detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
+            # Keep the fetched detail in ``builds`` as well as this loop
+            # variable. Later reporting must be able to see blocked jobs even
+            # when there are no test-result rows for the build.
+            build.clear()
+            build.update(detail)
+            _scope_nightly_build(build, pipeline_key)
+            detail_hydrated_from_api = True
+
+        if not _is_complete_nightly_build(build):
+            jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
+            if build_num in _cached_build_numbers(jsonl_path):
+                jsonl_path.unlink()
+                prune_old_results(
+                    results_dir,
+                    max_days=cfg.HISTORY_DAYS,
+                    allow_generation_change=True,
+                )
+                existing_dates.discard(date)
+                log.warning(
+                    "  Build #%d (%s): invalidated cached canonical JSONL "
+                    "because the build returned to a provisional state",
+                    build_num,
+                    date,
+                )
+            log.info(
+                "  Build #%d (%s): provisional roster; skipping canonical "
+                "test-result publication",
+                build_num,
+                date,
+            )
+            continue
+
+        jobs = fetch_build_jobs(build)
+        # Filter to test jobs (skip bootstrap, docker build, etc.)
+        test_jobs = [
+            j for j in jobs
+            if not any(skip in j.get("name", "").lower() for skip in SKIP_JOB_PATTERNS)
+        ]
+        total_jobs = len([j for j in build.get("jobs", []) if j.get("type") == "script"])
+        log.info("    %d/%d jobs finished (%d test jobs)",
+                 len(jobs), total_jobs, len(test_jobs))
+
+        build_results = []
+        jobs_parsed = 0
+
+        # Parallelize log fetching — each job log is an independent HTTP request
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def _parse_one(job):
+            if dns_classification_cache is None:
+                return parse_job_results(job, build_num, slug, date)
+            return parse_job_results(
+                job,
+                build_num,
+                slug,
+                date,
+                dns_classification_sink=dns_classification_cache.observe_job_log,
+            )
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(_parse_one, job): job for job in test_jobs}
+            done = 0
+            for future in as_completed(futures):
+                done += 1
+                results = future.result()
+                build_results.extend(results)
+                if results:
+                    jobs_parsed += 1
+                if done % 50 == 0:
+                    log.info("    ... %d/%d jobs processed", done, len(test_jobs))
+
+        log.info(
+            "    %d jobs parsed, %d test results",
+            jobs_parsed, len(build_results),
+        )
+
+        build_results = _current_scope_results(build_results, pipeline_key, build)
+        if build_results:
+            result_path = write_test_results(
+                build_results, date, pipeline_key, results_dir
+            )
+            if result_path is None:
+                # The complete historical build is older than the bounded
+                # retained suffix. It is intentionally neither summarized nor
+                # checkpointed, and the retention marker prevents refetching
+                # it on subsequent runs.
+                continue
+            results_by_build[build_num] = build_results
+            if backfill_checkpoint_dir is not None:
+                # This call happens only after every selected job future for
+                # the build completed.  Guard exhaustion propagates before
+                # here, so a checkpoint shard can never describe a partial
+                # nightly roster.
+                record_complete_shard(backfill_checkpoint_dir, result_path)
+
+    # ``fetch_nightly_builds`` now performs a lightweight metadata-only list
+    # query. Persist the rosters hydrated above so historical nightly summaries
+    # keep their exact jobs without downloading them again on the next run.
+    final_cache_clock = collection_clock
+    if not clock_was_supplied:
+        observed_completion = datetime.now(timezone.utc)
+        if observed_completion > final_cache_clock:
+            final_cache_clock = observed_completion
+    try:
+        write_nightly_build_cache(
+            pipeline_key,
+            builds,
+            cache_dir,
+            now=final_cache_clock,
+        )
+    except (OSError, ValueError) as exc:
+        if roster_cache_errors is not None:
+            roster_cache_errors.append(f"write_{type(exc).__name__}")
+        log.warning(
+            "Could not finalize optional private nightly roster cache for %s (%s)",
+            pipeline_key,
+            type(exc).__name__,
+        )
+
+    return builds, results_by_build
+
+
+def _compute_pipeline_summaries(
+    pipeline_key: str,
+    pipeline_results: list[tuple[int, str, list[TestResult]]],
+    fetched_builds: list[dict],
+) -> list:
+    """Return newest-first summaries for every observed nightly build.
+
+    Result JSONL files remain the source of test health. Buildkite build
+    metadata is a separate source and may contain a terminal nightly where no
+    test command ever ran. Taking the union keeps that pipeline event visible
+    without inventing test outcomes for it.
+    """
+    results_by_number = {
+        int(build_number): (date, results)
+        for build_number, date, results in pipeline_results
+    }
+    builds_by_number = {
+        int(build.get("number") or 0): build
+        for build in fetched_builds
+        if build.get("number")
+    }
+    build_numbers = set(results_by_number) | set(builds_by_number)
+    slug = cfg.PIPELINES[pipeline_key]["slug"]
+
+    def _build_for(number: int) -> dict:
+        if number in builds_by_number:
+            return builds_by_number[number]
+        date, _ = results_by_number[number]
+        return {
+            "number": number,
+            "created_at": date,
+            "state": "unknown",
+            "branch": "main",
+            "jobs": [],
+            "web_url": f"https://buildkite.com/{cfg.BK_ORG}/{slug}/builds/{number}",
+        }
+
+    ordered = sorted(
+        build_numbers,
+        key=lambda number: (
+            str(_build_for(number).get("created_at") or results_by_number.get(number, ("", []))[0]),
+            number,
+        ),
+    )
+    summaries = []
+    previous_signal = None
+    for number in ordered:
+        _, results = results_by_number.get(number, ("", []))
+        summary = compute_build_summary(
+            _build_for(number),
+            results,
+            pipeline_key,
+            previous_signal if results else None,
+            skip_job_patterns=SKIP_JOB_PATTERNS,
+        )
+        summaries.append(summary)
+        if results:
+            previous_signal = summary
+    summaries.reverse()
+    return summaries
+
+
+def _latest_signal_summary(summaries: list):
+    """Return the newest summary backed by parsed test evidence."""
+    return next((summary for summary in summaries if summary.has_test_results), None)
+
+
+def _project_test_result_summary(summary: BuildSummary) -> dict:
+    """Return the legacy root summary plus explicit assertion-rate semantics."""
+    assertions_run = summary.passed + summary.failed
+    test_pass_rate_pct = (
+        round(summary.passed / assertions_run * 100, 1)
+        if assertions_run else 0.0
+    )
+    return {
+        "total_jobs": summary.job_count,
+        "passed": summary.jobs_passed,
+        "failed": summary.jobs_failed,
+        "skipped": 0,
+        # Legacy alias retained for one compatibility cycle. It has always
+        # represented parsed pytest assertions, not the adjacent job counts.
+        "pass_rate": test_pass_rate_pct,
+        "test_pass_rate_pct": test_pass_rate_pct,
+        "test_pass_rate_basis": summary.test_pass_rate_basis,
+        "test_assertions": {
+            "total": summary.total_tests,
+            "passed": summary.passed,
+            "failed": summary.failed,
+            "skipped": summary.skipped,
+        },
+    }
+
+
+def _project_test_results_payload(
+    latest_amd: BuildSummary,
+    *,
+    collected_at: str | None = None,
+) -> dict:
+    """Return the compatibility root payload with an explicit rate contract."""
+    payload = {
+        "pass_rate_contract_version": PASS_RATE_CONTRACT_VERSION,
+        "collected_at": collected_at
+        or datetime.now(timezone.utc).isoformat()[:19] + "Z",
+        "source": "buildkite",
+        "source_pipeline": "ci", "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu",
+        "rocm": {
+            "workflow_name": "AMD Nightly (Buildkite)",
+            "run_url": latest_amd.build_url,
+            "run_date": latest_amd.created_at,
+            "conclusion": (
+                "success" if latest_amd.pass_rate >= 0.95 else "failure"
+            ),
+            "summary": _project_test_result_summary(latest_amd),
+        },
+    }
+    return payload
+
+
+def _merge_with_previous(
+    by_build: list[tuple[int, str, list[TestResult]]],
+) -> tuple[list[TestResult], str, int, set[str]]:
+    """Select the latest result build and fill missing jobs from its predecessor."""
+    if len(by_build) < 2:
+        entry = max(by_build, key=lambda x: (x[1], len(x[2]))) if by_build else None
+        return (
+            entry[2] if entry else [],
+            entry[1] if entry else "",
+            entry[0] if entry else 0,
+            set(),
+        )
+
+    sorted_builds = sorted(by_build, key=lambda x: (x[1], len(x[2])), reverse=True)
+    latest = sorted_builds[0]
+    latest_jobs = {result.job_name for result in latest[2]}
+    merged = list(latest[2])
+    backfilled = set()
+    for previous in sorted_builds[1:]:
+        if previous[0] == latest[0]:
+            continue
+        for result in previous[2]:
+            if result.job_name not in latest_jobs:
+                merged.append(result)
+                latest_jobs.add(result.job_name)
+                backfilled.add(result.job_name)
+        break
+    return merged, latest[1], latest[0], backfilled
+
+
+def _append_private_cache_outputs(
+    path: Path,
+    *,
+    roster_cache_save: bool,
+    dns_cache_save: bool,
+) -> None:
+    """Emit fail-closed upload decisions for the two optional private caches."""
+    with Path(path).open("a", encoding="utf-8") as handle:
+        handle.write(
+            f"roster_cache_save={'true' if roster_cache_save else 'false'}\n"
+        )
+        handle.write(f"dns_cache_save={'true' if dns_cache_save else 'false'}\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Collect vLLM CI test data from Buildkite")
+    parser.add_argument("--days", type=int, default=8, help="Days of history (8 = covers collection lag and retries)")
+    parser.add_argument("--output", type=str, default=str(DEFAULT_OUTPUT), help="Output directory")
+    parser.add_argument("--pipeline", choices=["amd", "both"], default="amd",
+                        help="Which pipeline(s) to collect")
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be fetched")
+    parser.add_argument("--skip-analysis", action="store_true",
+                        help="Skip analysis, only collect raw data")
+    parser.add_argument("--skip-config-parity", action="store_true",
+                        help="Skip YAML config parity analysis")
+    parser.add_argument(
+        "--dns-classification-cache",
+        type=Path,
+        help="Private DNS classification shard directory (defaults under --output/.cache)",
+    )
+    parser.add_argument(
+        "--github-output",
+        type=Path,
+        help="append private-cache save decisions to this GitHub output file",
+    )
+    args = parser.parse_args()
+
+    output_dir = Path(args.output)
+    results_dir = output_dir / "test_results"
+    cache_dir = output_dir / ".cache"
+    backfill_checkpoint_dir = cache_dir / "ci-backfill-v1"
+    global _SOURCE_SCOPE_CACHE_DIR
+    _SOURCE_SCOPE_CACHE_DIR = cache_dir / RUNTIME_SOURCE_CACHE_DIR_NAME
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(load_source_scope_indexes(cache_dir / ANALYTICS_CACHE_DIR_NAME))
+    if not args.dry_run:
+        # Authenticate the public shard generation before a private checkpoint
+        # is allowed to change it.  Otherwise compaction could launder a stale
+        # or cross-generation retention floor into a fresh-looking marker.
+        validate_result_retention(results_dir)
+        try:
+            restored_backfill_shards = restore_complete_shards(
+                backfill_checkpoint_dir,
+                results_dir,
+            )
+        except (OSError, BackfillCheckpointError) as exc:
+            raise RuntimeError(
+                f"private CI backfill checkpoint could not be made safe: {exc}"
+            ) from exc
+        if restored_backfill_shards:
+            log.info(
+                "Restored %d complete CI backfill shards from private cache",
+                restored_backfill_shards,
+            )
+        # A private checkpoint may contain shards older than the public
+        # byte-bounded suffix. Compact it before deciding which Buildkite logs
+        # this run still needs, and persist the durable floor used below.
+        prune_old_results(
+            results_dir,
+            max_days=cfg.HISTORY_DAYS,
+            allow_generation_change=True,
+        )
+    dns_cache_path = args.dns_classification_cache or output_dir / DNS_CLASSIFICATION_CACHE
+    dns_classification_cache = None
+    cache_was_reset = False
+    if not args.dry_run:
+        dns_classification_cache, cache_was_reset = load_optional_dns_classification_cache(
+            dns_cache_path
+        )
+    if cache_was_reset:
+        log.warning(
+            "Discarded invalid private DNS classification cache; continuing with cache misses"
+        )
+
+    pipelines = ["amd"]
+
+    # Phase 1: Collect data from Buildkite
+    all_builds: dict[str, list[dict]] = {}
+    all_results: dict[str, dict[int, list[TestResult]]] = {}
+    roster_cache_errors: list[str] = []
+
+    for pk in pipelines:
+        builds, results = collect_pipeline(
+            pk,
+            args.days,
+            output_dir,
+            args.dry_run,
+            dns_classification_cache=dns_classification_cache,
+            roster_cache_errors=roster_cache_errors,
+            backfill_checkpoint_dir=(
+                backfill_checkpoint_dir if not args.dry_run else None
+            ),
+        )
+        all_builds[pk] = builds
+        all_results[pk] = results
+
+    roster_cache_save = not roster_cache_errors and not args.dry_run
+    if roster_cache_save:
+        # Expiry is a normal cache transition, so remove exact expired shards
+        # at one fresh upload-boundary clock before strict structural
+        # validation. Every other invalid entry remains a fail-closed error.
+        roster_validation_clock = datetime.now(timezone.utc)
+        try:
+            prune_expired_nightly_roster_cache(
+                cache_dir,
+                now=roster_validation_clock,
+            )
+            validate_nightly_roster_cache(
+                cache_dir,
+                now=roster_validation_clock,
+            )
+        except (OSError, ValueError):
+            roster_cache_save = False
+            log.warning(
+                "Private nightly roster cache failed final validation; "
+                "disabling its Actions upload"
+            )
+
+    dns_cache_save = False
+    if dns_classification_cache is not None:
+        # Freeze a fresh wall clock at the upload boundary. A long-running
+        # collection must not use its start time to legitimize future-dated
+        # restored rows, while observations made during the run remain valid.
+        cache_validation_clock = datetime.now(timezone.utc).replace(microsecond=0)
+        try:
+            cache_stats = dns_classification_cache.flush(now=cache_validation_clock)
+        except (OSError, ValueError):
+            log.warning(
+                "Could not write optional private DNS classification cache; "
+                "core CI collection is unaffected"
+            )
+        else:
+            log.info(
+                "Wrote private DNS classification cache: %d classifications in %d shards (%d bytes)",
+                cache_stats["classifications"],
+                cache_stats["shards"],
+                cache_stats["compressed_bytes"],
+            )
+            try:
+                DnsClassificationCache(
+                    dns_cache_path,
+                    now=cache_validation_clock,
+                )
+            except (OSError, ValueError):
+                log.warning(
+                    "Private DNS classification cache failed final validation; "
+                    "disabling its Actions upload"
+                )
+            else:
+                dns_cache_save = True
+
+    if args.github_output:
+        _append_private_cache_outputs(
+            args.github_output,
+            roster_cache_save=roster_cache_save,
+            dns_cache_save=dns_cache_save,
+        )
+
+    if args.dry_run:
+        log.info("Dry run complete.")
+        return
+
+    if args.skip_analysis:
+        log.info("Data collection complete (analysis skipped).")
+        return
+
+    # Publish the reviewed CUDA-to-ROCm logical test-group inventory on every
+    # complete analysis run. This source is deliberately independent of the
+    # runtime health and automatic YAML-link reports.
+    from vllm.build_test_group_parity import publish as publish_test_group_parity
+
+    parity_inventory_path, parity_inventory = publish_test_group_parity(
+        output_dir=output_dir,
+    )
+    log.info(
+        "Wrote %s (%d upstream logical groups; %d action groups)",
+        parity_inventory_path,
+        parity_inventory["summary"]["upstream_logical_groups"],
+        parity_inventory["summary"]["action_groups"],
+    )
+
+    evidence_build, evidence_verified_complete = _select_shard_evidence_build(
+        all_builds.get("amd", []),
+        all_results.get("amd", {}),
+    )
+    evidence_commit = str((evidence_build or {}).get("commit") or "").casefold()
+    if evidence_verified_complete and FULL_COMMIT_SHA_RE.fullmatch(evidence_commit):
+        os.environ["VLLM_CONFIG_SHA"] = evidence_commit
+        log.info(
+            "Pinned CI definitions to completed AMD build #%s commit %s",
+            evidence_build.get("number"),
+            evidence_commit,
+        )
+    elif evidence_verified_complete:
+        log.warning(
+            "Completed AMD evidence build #%s lacks a full commit SHA; "
+            "the publication audit will reject unaligned shard metadata",
+            evidence_build.get("number"),
+        )
+    elif evidence_build:
+        log.warning(
+            "No verified-complete AMD evidence build; publishing shard metadata "
+            "with provisional build #%s evidence",
+            evidence_build.get("number"),
+        )
+    else:
+        log.warning(
+            "No AMD evidence build is available; publishing shard metadata "
+            "with explicit unavailable evidence"
+        )
+
+    # Extract shard bases from upstream YAML (needed for correct group normalization)
+    runtime_config_parity = None
+    runtime_definitions = {}
+    if not args.skip_config_parity:
+        log.info("Extracting shard bases from upstream YAML...")
+        from vllm.config_parity import (
+            extract_amd_runtime_group_key_map,
+            extract_shard_base_catalog,
+        )
+        shard_catalog = extract_shard_base_catalog()
+        shard_catalog["evidence"] = _shard_catalog_evidence(
+            evidence_build,
+            verified_complete=evidence_verified_complete,
+        )
+        shard_bases = shard_catalog.get("normalization_bases", [])
+        # Install the newly fetched shard catalog before deriving any keys.
+        # Runtime route identities normalize labels through _normalize_job_name;
+        # using the previous on-disk catalog here could create stale route keys.
+        from vllm.ci.analyzer import (
+            set_amd_runtime_group_key_map,
+            set_shard_bases,
+        )
+        set_shard_bases(shard_bases)
+        from vllm.config_parity import build_config_parity
+        runtime_config_parity = build_config_parity()
+        if "error" not in runtime_config_parity:
+            runtime_definition_commit, runtime_definitions = _amd_source_definition_catalog(runtime_config_parity)
+        else:
+            runtime_definition_commit = ""
+        runtime_group_commit, runtime_group_keys = (
+            extract_amd_runtime_group_key_map()
+        )
+        # Update the analyzer's YAML-derived normalization knobs for this run.
+        set_amd_runtime_group_key_map(
+            runtime_group_commit,
+            runtime_group_keys,
+            runtime_definitions,
+        )
+        if runtime_definitions and runtime_definition_commit != runtime_group_commit:
+            raise ValueError("AMD runtime definition and family source commits disagree")
+        log.info(
+            "Installed %d AMD runtime group routes for config commit %s",
+            len(runtime_group_keys),
+            runtime_group_commit or "unavailable",
+        )
+        bounded_catalog = write_definition_controls(
+            output_dir,
+            shard_bases=shard_bases,
+            shard_catalog=shard_catalog,
+        )
+        log.info("Wrote shard_bases.json (%d bases: %s)", len(shard_bases), shard_bases)
+        log.info(
+            "Wrote shard_base_catalog.json (%d/%d definitions)",
+            len(bounded_catalog.get("definitions", [])),
+            len(shard_catalog.get("definitions", [])),
+        )
+    else:
+        # Reuse the last published, commit-tagged definition identities when a
+        # caller intentionally skips the network-backed config refresh. This
+        # prevents label-only analysis from collapsing topology-distinct AMD
+        # groups back together.
+        from vllm.ci.analyzer import (
+            set_amd_runtime_group_key_map,
+            set_shard_bases,
+        )
+        shard_path = output_dir / "shard_bases.json"
+        if shard_path.exists():
+            set_shard_bases(json.loads(shard_path.read_text()))
+        config_parity_path = output_dir / "config_parity.json"
+        if config_parity_path.exists():
+            from vllm.config_parity import (
+                extract_amd_runtime_group_key_map_from_report,
+            )
+            runtime_config_parity = json.loads(config_parity_path.read_text())
+            runtime_group_commit, runtime_group_keys = (
+                extract_amd_runtime_group_key_map_from_report(
+                    runtime_config_parity
+                )
+            )
+            _, runtime_definitions = _amd_source_definition_catalog(runtime_config_parity)
+            set_amd_runtime_group_key_map(
+                runtime_group_commit,
+                runtime_group_keys,
+                runtime_definitions,
+            )
+            log.info(
+                "Reused %d AMD runtime group routes for config commit %s",
+                len(runtime_group_keys),
+                runtime_group_commit or "unavailable",
+            )
+        else:
+            set_amd_runtime_group_key_map(None, None)
+            log.warning(
+                "Config parity refresh was skipped and no prior "
+                "config_parity.json is available; AMD group counts will use "
+                "normalized-label fallback semantics"
+            )
+
+    # Bound the durable shard set before loading it into derived summaries.
+    # The reporter removes only complete oldest UTC days, so every row used by
+    # this generation still has an exact retained source shard.
+    prune_old_results(results_dir, max_days=cfg.HISTORY_DAYS)
+
+    # Phase 2: Load all results (existing + new) for analysis
+    # Authenticate old shards before retiring their out-of-scope runtime
+    # evidence. Only MI rows may be retained by the current generation.
+    _purge_unproved_result_scope(results_dir, all_builds.get("amd", []))
+    if runtime_definitions and evidence_verified_complete and evidence_build.get("commit") == runtime_group_commit:
+        all_results.setdefault("amd", {}).update(_attest_amd_source_shards(
+            results_dir, evidence_build, runtime_group_commit, runtime_definitions,
+        ))
+    try:
+        synchronize_current_mi_shards(backfill_checkpoint_dir, results_dir)
+    except (OSError, BackfillCheckpointError):
+        if args.github_output:
+            _append_private_cache_outputs(args.github_output, roster_cache_save=False, dns_cache_save=dns_cache_save)
+        raise
+    log.info("=== Running analysis ===")
+
+    # For each pipeline, build results_by_build tuples sorted oldest-first
+    for pk in pipelines:
+        existing = load_existing_results(results_dir)
+        # Filter to this pipeline
+        pipeline_results = _scoped_result_entries(existing, pk)
+
+        # Merge with newly collected (avoid duplicates by build_number)
+        existing_build_nums = {bn for bn, _, _ in pipeline_results}
+        for bn, results in all_results.get(pk, {}).items():
+            if bn not in existing_build_nums and results:
+                date = results[0].date
+                if not (results_dir / f"{date}_{pk}.jsonl").exists():
+                    # Aggregate byte compaction may have removed an old
+                    # backfill day. Do not derive a summary from a source
+                    # shard that this generation will not publish.
+                    continue
+                pipeline_results.append((bn, date, results))
+
+        pipeline_results.sort(key=lambda x: x[1])
+        pipeline_results = _completed_result_entries(
+            pipeline_results,
+            all_builds.get(pk, []),
+        )
+
+        if pk == "amd":
+            amd_by_build = pipeline_results
+        else:
+            upstream_by_build = pipeline_results
+
+    latest_amd: list[TestResult] = []
+    amd_date = ""
+    amd_build_num = 0
+    amd_backfilled: set[str] = set()
+    if "amd" in pipelines:
+        latest_amd, amd_date, amd_build_num, amd_backfilled = _merge_with_previous(
+            amd_by_build
+        )
+
+        # Freeze the exact roster that this collection pass selected. The
+        # matrix collector consumes this file instead of making a later API
+        # request after more jobs may have finished.
+        amd_snapshot_build = next(
+            (
+                build
+                for build in all_builds.get("amd", [])
+                if build.get("number") == amd_build_num
+            ),
+            None,
+        )
+        if amd_build_num and amd_snapshot_build is None:
+            raise RuntimeError(
+                "Selected AMD nightly build "
+                f"#{amd_build_num} is absent from the hydrated build cohort; "
+                "refusing an incomplete matrix handoff"
+            )
+        if amd_snapshot_build and not amd_snapshot_build.get("jobs"):
+            try:
+                detail = _fetch_build_detail_with_routing_diagnostics("amd", amd_build_num)
+                amd_snapshot_build.clear()
+                amd_snapshot_build.update(detail)
+                _scope_nightly_build(amd_snapshot_build, "amd")
+            except BuildkiteRequestGuardError:
+                raise
+            except Exception as exc:
+                log.warning(
+                    "Could not hydrate frozen AMD build #%s roster: %s",
+                    amd_build_num,
+                    exc,
+                )
+        if amd_snapshot_build and amd_snapshot_build.get("jobs"):
+            snapshot_path = write_amd_nightly_snapshot(
+                amd_snapshot_build, output_dir
+            )
+            log.info(
+                "Wrote exhaustive frozen AMD nightly snapshot %s for build "
+                "#%s with %d jobs",
+                snapshot_path,
+                amd_snapshot_build.get("number"),
+                len(amd_snapshot_build["jobs"]),
+            )
+        elif amd_snapshot_build:
+            raise RuntimeError(
+                "AMD build "
+                f"#{amd_build_num} has no hydrated job roster; refusing an "
+                "incomplete matrix handoff"
+            )
+
+    # Compute health for AMD tests (primary focus)
+    amd_health = []
+    amd_summaries = []
+    if "amd" in pipelines:
+        if amd_by_build:
+            amd_health = compute_all_test_health(amd_by_build)
+            log.info("Computed health for %d AMD tests", len(amd_health))
+        amd_summaries = _compute_pipeline_summaries(
+            "amd", amd_by_build, all_builds.get("amd", []),
+        )
+
+    # Apply quarantine
+    quarantine_config = load_quarantine(str(QUARANTINE_PATH))
+    if amd_health:
+        amd_health, quarantine_report = apply_quarantine(amd_health, quarantine_config)
+        write_quarantine_report(quarantine_report, output_dir)
+
+    # Phase 3: Generate reports
+    log.info("=== Generating reports ===")
+
+    # CI Health
+    write_ci_health(amd_summaries, amd_health, output_dir)
+
+    # Flaky tests
+    if amd_health:
+        write_flaky_tests(amd_health, output_dir)
+
+    # Failure trends
+    if amd_health:
+        trends = compute_trends(
+            [summary for summary in amd_summaries if summary.has_test_results],
+            amd_health,
+        )
+        write_failure_trends(trends, output_dir)
+
+    # YAML config parity (fetches from upstream GitHub)
+    if not args.skip_config_parity:
+        log.info("Running YAML config parity analysis (fetching from upstream)...")
+        from vllm.collect_ownership_parity import bounded_config_parity_payload
+        config_parity = runtime_config_parity
+        if "error" not in config_parity:
+            config_parity = bounded_config_parity_payload(
+                config_parity,
+                max_bytes=CONFIG_PARITY_MAX_BYTES,
+            )
+            config_parity_path = output_dir / "config_parity.json"
+            write_pretty_json_lkg(
+                config_parity_path,
+                config_parity,
+                max_bytes=CONFIG_PARITY_MAX_BYTES,
+                label="configuration parity snapshot",
+            )
+            log.info(
+                "Wrote config_parity.json (family coverage: %.1f%%, "
+                "parity-node coverage: %.1f%%, avg similarity: %.1f%%)",
+                config_parity.get("summary", {}).get(
+                    "identity_family_coverage_rate_pct",
+                    0,
+                ),
+                config_parity.get("summary", {}).get("coverage_rate_pct", 0),
+                config_parity.get("summary", {}).get(
+                    "covered_avg_command_similarity_pct",
+                    0,
+                ),
+            )
+        else:
+            log.warning("Config parity failed: %s", config_parity["error"])
+
+    # Sync CI data to standard project-level files for compatibility
+    project_dir = output_dir.parent  # data/vllm/
+    latest_amd_signal = _latest_signal_summary(amd_summaries)
+    if latest_amd_signal:
+        test_results = _project_test_results_payload(
+            latest_amd_signal,
+        )
+        tr_path = project_dir / "test_results.json"
+        write_pretty_json_lkg(
+            tr_path,
+            test_results,
+            max_bytes=PROJECT_TEST_RESULTS_MAX_BYTES,
+            label="project test-result compatibility summary",
+        )
+        log.info(
+            "Wrote %s (synced from CI data; pass rate uses pytest assertions, "
+            "excluding skipped)",
+            tr_path,
+        )
+
+    # Retire the former mixed-runtime comparison after source validation.
+    for retired in (output_dir / "parity_report.json", project_dir / "parity_report.json"):
+        retired.unlink(missing_ok=True)
+
+    # Print summary
+    _print_summary(amd_summaries, amd_health)
+
+    log.info("=== Done ===")
+
+
+def _print_summary(
+    amd_summaries: list,
+    health_data: list,
+):
+    """Print a human-readable summary to stdout."""
+    print("\n" + "=" * 60)
+    print("CI DASHBOARD SUMMARY")
+    print("=" * 60)
+
+    if amd_summaries:
+        pipeline_latest = amd_summaries[0]
+        latest = _latest_signal_summary(amd_summaries) or pipeline_latest
+        if pipeline_latest.build_number != latest.build_number:
+            print(
+                f"\nAMD Latest Pipeline Build (#{pipeline_latest.build_number}): "
+                f"{pipeline_latest.state}; {pipeline_latest.test_jobs_blocked} "
+                "test steps blocked before execution"
+            )
+        print(f"\nAMD Latest (Build #{latest.build_number}):")
+        print(f"  Tests: {latest.total_tests} | Pass: {latest.passed} | Fail: {latest.failed} | Skip: {latest.skipped}")
+        print(f"  Test Pass Rate (pytest assertions, skipped excluded): {latest.pass_rate:.1%}")
+        print(f"  Jobs: {latest.job_count} ({latest.jobs_passed} passed, {latest.jobs_failed} failed)")
+        if latest.delta_vs_previous:
+            d = latest.delta_vs_previous
+            print(f"  Delta: tests {d.get('total', 0):+d}, pass rate {d.get('pass_rate', 0):+.2%}")
+
+    if health_data:
+        labels = {}
+        for h in health_data:
+            labels[h.label] = labels.get(h.label, 0) + 1
+        print(f"\nTest Health ({len(health_data)} unique tests):")
+        for label in ["passing", "failing", "new_failure", "fixed", "flaky", "skipped", "new_test", "quarantined", "allowlisted"]:
+            count = labels.get(label, 0)
+            if count > 0:
+                print(f"  {label}: {count}")
+
+    print("=" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    main()

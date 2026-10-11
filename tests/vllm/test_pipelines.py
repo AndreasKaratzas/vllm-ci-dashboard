@@ -1,0 +1,79 @@
+"""Both runtime populations use main ci with disjoint hardware scopes."""
+
+import pytest
+from vllm.pipelines import PIPELINES, _job_queue, is_amd_ci_job, is_upstream_cuda_ci_job
+
+
+@pytest.mark.parametrize(
+    "job,expected",
+    [
+        ({"agent_query_rules": ["queue=amd_mi355_dpx"], "name": ":amd: (MI355 DPX) Test"}, "amd"),
+        (
+            {
+                "agent": {"meta_data": ["queue=amd_mi300_1"]},
+                "agent_query_rules": ["queue=gpu_1"],
+                "name": ":nvidia: (H100) Test",
+            },
+            "amd",
+        ),
+        ({"q": "gpu_1", "name": "Undecorated test"}, "cuda"),
+        ({"q": "amd_mi355_dpx", "raw_name": ":amd: (MI355 DPX) Test", "name": "Test"}, "amd"),
+        ({"name": ":amd: (MI355) Test"}, "neither"),
+        ({"name": "mi300_1: Test"}, "amd"),
+        ({"name": ":nvidia: (B200) Test"}, "cuda"),
+        ({"q": "cpu", "name": ":nvidia: (H100) Conflicting label"}, "neither"),
+        ({"q": "amd_cpu", "name": ":amd: (CPU) Test"}, "neither"),
+        ({"q": "intel_gpu", "name": ":intel: (ARC) Test"}, "neither"),
+        ({"name": "Upload pipeline"}, "neither"),
+        ({"type": "trigger", "name": ":amd: (MI355) Trigger"}, "neither"),
+    ],
+)
+def test_job_scopes_are_disjoint_and_use_observed_queues_first(job, expected):
+    assert is_amd_ci_job(job) is (expected == "amd")
+    assert is_upstream_cuda_ci_job(job) is (expected == "cuda")
+
+
+def test_both_current_populations_have_the_same_authority_and_nightly_filter():
+    assert PIPELINES["amd"]["slug"] == PIPELINES["upstream"]["slug"] == "ci"
+    assert PIPELINES["amd"]["name_pattern"] == PIPELINES["upstream"]["name_pattern"]
+    assert _job_queue({"agent_queue": "amd_mi300_1", "q": "gpu_1"}) == "amd_mi300_1"
+
+
+@pytest.mark.parametrize("label,hardware", [
+    (":nvidia: (H200 MIG 18GB) Basic Correctness Models", "h200 mig 18gb"),
+    (":nvidia: (H200 MIG 35GB) E2E Core Large Memory", "h200 mig 35gb"),
+    (":nvidia: (DGX) Spark GPQA Eval (GPT-OSS)", "dgx"),
+    (":nvidia: (4xB200) Distributed workload", "4xb200"),
+])
+def test_normalized_current_cuda_hardware_retains_its_scope(label, hardware):
+    from vllm.ci.analyzer import _extract_hardware
+
+    assert _extract_hardware(label) == hardware
+    assert is_upstream_cuda_ci_job({"hardware": hardware})
+    assert not is_amd_ci_job({"hardware": hardware})
+
+
+@pytest.mark.parametrize("hardware", [
+    "cpu", "amd_cpu", "h200 cpu", "h200_cpu", "mi300", "mi355 dpx",
+    "unknown", "mystery_gpu", "h200 mig bogus", "0xb200", "dgx-unknown",
+])
+def test_normalized_cuda_hardware_rejects_cpu_amd_and_unknown_families(hardware):
+    assert not is_upstream_cuda_ci_job({"hardware": hardware})
+
+
+@pytest.mark.parametrize("job", [
+    {"q": "amd_generic", "name": ":amd: (MI300) Tests"},
+    {"q": "unknown", "name": "amd_mi300_1: Tests"},
+    {"hardware": "mi300", "name": ":amd: (MI300) Tests"},
+    {"q": "amd_mi300_1", "name": ":computer: (CPU) ABI audit"},
+    {"q": "amd_mi300_1", "name": "ABI audit", "source_no_gpu": True},
+    {"q": "amd_mi300_1", "name": "ABI audit", "step": {"no_gpu": True}},
+    {"q": "amd_mi300_1", "name": "ABI audit", "gpu_count": 0},
+])
+def test_mi_scope_rejects_unproven_routing_and_explicit_cpu_execution(job):
+    assert not is_amd_ci_job(job)
+
+
+def test_mi_scope_keeps_gpu_cpu_offload_tests_and_observed_route_authority():
+    assert is_amd_ci_job({"q": "amd_mi300_1", "name": "CPU Offload GPU Tests"})
+    assert not is_amd_ci_job({"agent_queue": "gpu_1", "agent_query_rules": ["queue=amd_mi300_1"]})
