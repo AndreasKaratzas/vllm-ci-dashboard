@@ -39,6 +39,7 @@ from vllm.ci.dns_failures import (  # noqa: E402
     CURRENT_PIPELINES as PIPELINES,
     RETENTION_HOURS,
     StateValidationError,
+    STATE_FAILURE_CODES,
     build_public_output,
     canonical_uuid,
     classify_dns_log,
@@ -46,6 +47,7 @@ from vllm.ci.dns_failures import (  # noqa: E402
     iso_timestamp,
     load_state,
     merge_state_jobs,
+    merge_execution_proofs,
     oversize_record,
     parse_timestamp,
     pending_record,
@@ -1274,7 +1276,7 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
         _remember_source_index(commit, annotated["source_scope_index"])
         scoped = annotated["jobs"][0]
         proof = {
-            "version": 1,
+            "version": 2,
             "source_commit": annotated["source_scope_commit"],
             "definition_tree": annotated["source_definition_tree_sha"],
             "classification": "amd_mi_gpu" if is_amd_ci_job(scoped) else "excluded_cpu",
@@ -1359,10 +1361,9 @@ def _refresh_record(record: dict, metadata: dict) -> dict:
             continue
         refreshed[key] = metadata[key]
     if "execution_proof" in metadata:
-        if ("execution_proof" in record
-                and record["execution_proof"] != metadata["execution_proof"]):
-            raise StateValidationError("conflicting exact execution proofs")
-        refreshed["execution_proof"] = dict(metadata["execution_proof"])
+        proof = merge_execution_proofs(record, metadata)
+        if proof is not None:
+            refreshed["execution_proof"] = proof
     return refreshed
 
 
@@ -1651,7 +1652,8 @@ def scan_records(
     cache_hits = 0
     if classification_cache is not None:
         for row in ordered:
-            if row.get("execution_proof", {}).get("classification") != "amd_mi_gpu":
+            if (row.get("execution_proof", {}).get("version") != 2
+                    or row.get("execution_proof", {}).get("classification") != "amd_mi_gpu"):
                 continue
             if row["status"] not in {"pending", "unavailable"}:
                 continue
@@ -1676,7 +1678,8 @@ def scan_records(
         ordered = sort_state_jobs(by_identity.values())
     log.info("DNS shared classification cache: hits=%d", cache_hits)
     scan_eligible = [row for row in ordered
-                     if row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
+                     if row.get("execution_proof", {}).get("version") == 2
+                     and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
     pending = _fair_pending_order(row for row in scan_eligible if row["status"] == "pending")
     unavailable = [row for row in scan_eligible if row["status"] == "unavailable"]
     candidates = (pending + unavailable)[:max_logs]
@@ -1995,7 +1998,8 @@ def collect(
             prior_states, query_start=query_start,
         ))),
         "end_exclusive": iso_timestamp(clock),
-        "complete": discovery_complete and all("execution_proof" in row for row in discovered),
+        "complete": discovery_complete and all(row.get("execution_proof", {}).get("version") == 2
+                                              for row in discovered),
     }
     state["jobs"] = prune_state_jobs(rows, retention_start, clock)
     state = validate_state(state)
@@ -2023,20 +2027,24 @@ def _record_runtime_source_failure(exc: RuntimeSourceError, path: Path | None) -
         for key in sorted(_RUNTIME_FAILURE_DIAGNOSTIC_KEYS)
         if key in exc.diagnostics
     }
+    _record_failure_diagnostics({
+        "schema_version": 1, "error_type": "RuntimeSourceError", "runtime_source": diagnostics,
+    }, "runtime_source", path)
+
+
+def _record_failure_diagnostics(payload: dict, reason: str, path: Path | None) -> None:
+    """Persist only caller-built fixed metadata through the same private bound."""
     try:
-        encoded = json.dumps({
-            "schema_version": 1,
-            "error_type": "RuntimeSourceError",
-            "runtime_source": diagnostics,
-        }, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        encoded = json.dumps(payload, allow_nan=False, sort_keys=True,
+                             separators=(",", ":")).encode("utf-8")
     except (TypeError, ValueError):
-        log.error("DNS health collection failed safely: reason=runtime_source diagnostics=invalid")
+        log.error("DNS health collection failed safely: reason=%s diagnostics=invalid", reason)
         return
     if len(encoded) + 1 > FAILURE_DIAGNOSTICS_MAX_BYTES:
-        log.error("DNS health collection failed safely: reason=runtime_source diagnostics=over_budget")
+        log.error("DNS health collection failed safely: reason=%s diagnostics=over_budget", reason)
         return
-    log.error("DNS health collection failed safely: reason=runtime_source diagnostics=%s",
-              encoded.decode("utf-8"))
+    log.error("DNS health collection failed safely: reason=%s diagnostics=%s",
+              reason, encoded.decode("utf-8"))
     if path is None:
         return
     temporary = None
@@ -2140,12 +2148,19 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeSourceError as exc:
         _record_runtime_source_failure(exc, args.failure_diagnostics)
         return 1
+    except StateValidationError as exc:
+        code = (exc.diagnostic_code if isinstance(exc.diagnostic_code, str)
+                and exc.diagnostic_code in STATE_FAILURE_CODES else "invalid_state")
+        _record_failure_diagnostics({
+            "schema_version": 1, "error_type": "StateValidationError", "diagnostic_code": code,
+        }, "invalid_state", args.failure_diagnostics)
+        return 1
     except CollectionError as exc:
         # Fail closed without interpolating response bodies, headers, URLs, or
         # arbitrary labels into CI logs.
         log.error("DNS health collection failed safely: reason=%s", exc.reason)
         return 1
-    except (StateValidationError, ValueError):
+    except ValueError:
         log.error("DNS health collection failed safely: reason=invalid_state")
         return 1
     log.info("DNS health collection complete: %s", _summary(payload))

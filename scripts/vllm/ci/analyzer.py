@@ -116,7 +116,7 @@ def _strip_known_shard_index(name: str, shard_bases: list[str]) -> str:
     return name
 
 
-def _normalize_job_name(name: str) -> str:
+def _normalize_job_name(name: str, *, shard_bases: list[str] | None = None) -> str:
     """Normalize a Buildkite job name for cross-pipeline matching.
 
     Strips:
@@ -156,7 +156,10 @@ def _normalize_job_name(name: str) -> str:
     s = re.sub(r'(\d)\.(\d)', r'\1-\2', s)
     s = re.sub(r'\s+', ' ', s).strip()
 
-    return _strip_known_shard_index(s, _SHARD_BASES).lower()
+    # Immutable source joins can supply their own complete normalization input
+    # instead of inheriting another producer's mutable shard configuration.
+    bases = _SHARD_BASES if shard_bases is None else [base.lower() for base in shard_bases]
+    return _strip_known_shard_index(s, bases).lower()
 
 
 # The latest AMD nightly is analyzed against the exact commit-pinned YAML that
@@ -314,7 +317,7 @@ def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
     return _AMD_RUNTIME_GROUP_KEYS.get((normalized, agent_pool), normalized)
 
 
-def _parity_key_base(name: str) -> str:
+def _parity_key_base(name: str, *, shard_bases: list[str] | None = None) -> str:
     """Normalize for cross-pipeline parity matching without YAML overrides.
 
     _normalize_job_name keeps multi-HW count tags like (4xH100-4xMI325)
@@ -327,7 +330,7 @@ def _parity_key_base(name: str) -> str:
 
     GPU counts (N GPUs) are KEPT because different counts = different tests.
     """
-    s = _normalize_job_name(name)
+    s = _normalize_job_name(name, shard_bases=shard_bases)
     # Convert multi-HW count tags to plain GPU count for parity matching:
     #   (4xh100-4xmi325) → (4 GPUs)  — matches upstream (4xH100) → (4 GPUs)
     #   (2xh100-2xmi355) → (2 GPUs)  — matches upstream (2xH100) → (2 GPUs)

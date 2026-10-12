@@ -35,7 +35,7 @@ def offline_runtime_definition_pins(monkeypatch):
             captured[build["commit"]] = copy.deepcopy(build)
         return {**build, "source_scope_commit": build.get("commit"),
                 "source_definition_tree_sha": "a" * 40,
-                "source_scope_index": {"version": 1, "commit_sha": build.get("commit"),
+                "source_scope_index": {"version": 2, "commit_sha": build.get("commit"),
                                        "definition_tree_sha": "a" * 40, "cpu_routes": []}}
     monkeypatch.setattr(definitions, "annotate_runtime_source_scope", annotate)
     def catalog(index, *, expected_commit):
@@ -2478,7 +2478,7 @@ def test_cached_source_index_rejoins_current_job_roster_without_fetch(monkeypatc
     gpu = {**build["jobs"][0], "id": "gpu-new-id", "step_key": "gpu-tests",
            "agent_queue": "amd_mi300_1", "source_no_gpu": True}
     build["jobs"] = [cpu, gpu]
-    index = {"version": 1, "commit_sha": build["commit"], "definition_tree_sha": "a" * 40,
+    index = {"version": 2, "commit_sha": build["commit"], "definition_tree_sha": "a" * 40,
              "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}]}
     # Restore the pure join; its validated index must avoid source HTTP.
     monkeypatch.setattr(definitions, "annotate_runtime_source_scope", exact_source_join)
@@ -2524,7 +2524,7 @@ def test_source_only_prewarm_resumes_each_proved_pin_without_buildkite_or_freshn
         calls.append(build["commit"])
         if len(calls) == 2:
             raise ValueError("source bound reached")
-        return {"source_scope_index": {"version": 1, "commit_sha": build["commit"],
+        return {"source_scope_index": {"version": 2, "commit_sha": build["commit"],
                  "definition_tree_sha": "a" * 40, "cpu_routes": []}}
     monkeypatch.setattr(definitions, "annotate_runtime_source_scope", limited)
     initial = ca.prewarm_runtime_source_indexes(analytics, source)
@@ -2535,7 +2535,7 @@ def test_source_only_prewarm_resumes_each_proved_pin_without_buildkite_or_freshn
     def complete(build):
         assert build["jobs"] == []
         assert build["commit"] not in persisted
-        return {"source_scope_index": {"version": 1, "commit_sha": build["commit"],
+        return {"source_scope_index": {"version": 2, "commit_sha": build["commit"],
                  "definition_tree_sha": "a" * 40, "cpu_routes": []}}
     monkeypatch.setattr(definitions, "annotate_runtime_source_scope", complete)
     final = ca.prewarm_runtime_source_indexes(analytics, source)
@@ -2557,7 +2557,7 @@ def test_source_only_prewarm_cli_emits_safe_partial_save_before_nonzero_exit(tmp
 
 
 def _review_source_index(commit):
-    return {"version": 1, "commit_sha": commit, "definition_tree_sha": "a" * 40,
+    return {"version": 2, "commit_sha": commit, "definition_tree_sha": "a" * 40,
             "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}]}
 
 

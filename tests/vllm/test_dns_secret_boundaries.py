@@ -50,7 +50,7 @@ def _metadata(now: datetime, *, node: str = "node-1") -> dict:
         "started_at": dns.iso_timestamp(now - timedelta(minutes=20)),
         "finished_at": dns.iso_timestamp(now - timedelta(minutes=10)),
         "execution_proof": {
-            "version": 1, "source_commit": "a" * 40, "definition_tree": "b" * 40,
+            "version": 2, "source_commit": "a" * 40, "definition_tree": "b" * 40,
             "classification": "amd_mi_gpu",
         },
     }

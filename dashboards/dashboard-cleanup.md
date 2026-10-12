@@ -234,3 +234,19 @@ an unambiguous label to its physical MI queue; it never invents an execution key
 Current parity inventories still require explicit stable keys. Present malformed
 parent or AMD mirror keys, missing CPU labels, and conflicting GPU routes remain
 strictly checked against the immutable definition tree.
+
+CPU scope index version 2 uses literal source labels and expansions of the
+source's own `%N` parallelism. Its CPU/GPU collision checks and runtime joins
+receive explicit normalization inputs, so another collector's shard list
+cannot change the classification of an immutable job. The existing cache
+envelope remains readable. When a requested pin has a version 1 index, only
+that pin is re-attested from its retained commit-to-tree association and
+Git-hash-verified definition files; other cached pins remain intact.
+
+DNS execution proof version 2 records this source contract. A fresh observation
+may migrate an older proof only when the source commit, tree, pipeline, build,
+job, physical queue, hardware, and finish timestamp agree. A changed legacy
+classification remains in the private proof's audit trail. Unobserved legacy
+records remain private evidence and cannot authorize new log requests or prove
+current public hardware coverage. Genuine identity conflicts still fail, with
+a fixed diagnostic code in the bounded failure artifact.

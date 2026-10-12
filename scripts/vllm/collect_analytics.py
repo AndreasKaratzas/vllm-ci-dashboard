@@ -1293,6 +1293,7 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
         RUNTIME_SOURCE_BATCH_SIZE,
         RuntimeSourceError,
         annotate_runtime_source_scope,
+        merge_runtime_scope_indexes,
         prewarm_runtime_snapshots,
         validate_runtime_scope_index,
     )
@@ -1320,26 +1321,45 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
                 sanitize_builds([build], pipeline_slug)
             provided = (scope_indexes or {}).get(commit)
             restored = _SOURCE_SCOPE_INDEXES.get(commit)
-            if provided is not None and restored is not None and provided != restored:
-                raise ValueError("conflicting exact source indexes")
-            index = provided if provided is not None else restored
+            index = (merge_runtime_scope_indexes(provided, restored, expected_commit=commit)
+                     if provided is not None and restored is not None
+                     else provided if provided is not None else restored)
             if "source_scope_index" in build:
                 embedded = validate_runtime_scope_index(build["source_scope_index"], expected_commit=commit)
                 if (build.get("source_scope_commit") != commit
-                        or build.get("source_definition_tree_sha") != embedded["definition_tree_sha"]
-                        or (index is not None and index != embedded)):
+                        or build.get("source_definition_tree_sha") != embedded["definition_tree_sha"]):
                     raise ValueError("cached MI source scope differs from its immutable index")
-                index = embedded
+                index = (merge_runtime_scope_indexes(index, embedded, expected_commit=commit)
+                         if index is not None else embedded)
             if index is not None:
                 index = validate_runtime_scope_index(index, expected_commit=commit)
-                if commit in indexes and indexes[commit] != index:
-                    raise ValueError("one commit has conflicting exact source indexes")
-                indexes[commit] = index
+                indexes[commit] = (merge_runtime_scope_indexes(indexes[commit], index, expected_commit=commit)
+                                   if commit in indexes else index)
         except ValueError:
             raise RuntimeSourceError(
                 "Cached runtime source proof is invalid",
                 reason_class="schema-drift", commit_sha=commit,
             ) from None
+
+    def checkpoint(commit: str, index: dict) -> None:
+        if _SOURCE_SCOPE_INDEXES.get(commit) == index:
+            indexes[commit] = index
+            return
+        try:
+            candidates = {**_SOURCE_SCOPE_INDEXES, **indexes, commit: index}
+            retained = retain_runtime_source_indexes(
+                candidates, preferred_commits=[commit, *indexes, *_SOURCE_SCOPE_INDEXES],
+            )
+            if _SOURCE_SCOPE_CACHE_DIR is not None:
+                write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+        except (OSError, ValueError):
+            raise RuntimeSourceError(
+                "Exact runtime source checkpoint could not be retained",
+                reason_class="command-error", commit_sha=commit,
+            ) from None
+        _SOURCE_SCOPE_INDEXES.clear()
+        _SOURCE_SCOPE_INDEXES.update(retained)
+        indexes[commit] = index
 
     missing = list(dict.fromkeys(commit for commit in commits
                                 if commit in source_required and commit not in indexes))
@@ -1355,21 +1375,7 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
                     "Discovered runtime source proof is invalid",
                     reason_class="schema-drift", commit_sha=commit,
                 ) from None
-            try:
-                candidates = {**_SOURCE_SCOPE_INDEXES, **indexes, commit: index}
-                retained = retain_runtime_source_indexes(
-                    candidates, preferred_commits=[commit, *indexes, *_SOURCE_SCOPE_INDEXES],
-                )
-                if _SOURCE_SCOPE_CACHE_DIR is not None:
-                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
-            except (OSError, ValueError):
-                raise RuntimeSourceError(
-                    "Exact runtime source checkpoint could not be retained",
-                    reason_class="command-error", commit_sha=commit,
-                ) from None
-            _SOURCE_SCOPE_INDEXES.clear()
-            _SOURCE_SCOPE_INDEXES.update(retained)
-            indexes[commit] = index
+            checkpoint(commit, index)
 
     scoped = []
     for build, commit in zip(builds, commits):
@@ -1381,6 +1387,16 @@ def _current_mi_builds(builds: list[dict], pipeline_slug: str, *, scope_indexes:
         # All pins are proved and checkpointed before joining current rosters.
         # Restored per-job annotations never authorize current execution scope.
         build = annotate_runtime_source_scope(build, scope_index=indexes[commit])
+        try:
+            upgraded = merge_runtime_scope_indexes(
+                indexes[commit], build["source_scope_index"], expected_commit=commit,
+            )
+        except ValueError:
+            raise RuntimeSourceError(
+                "Re-attested runtime source proof is invalid",
+                reason_class="schema-drift", commit_sha=commit,
+            ) from None
+        checkpoint(commit, upgraded)
         scoped.append({**build, "hardware_scope": "amd_mi_gpu", "jobs": [
             job for job in build.get("jobs") or [] if is_amd_ci_job(job)
         ]})

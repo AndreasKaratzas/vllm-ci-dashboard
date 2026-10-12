@@ -1621,7 +1621,7 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
                 "started_at": iso_timestamp(now - timedelta(hours=3)),
                 "finished_at": iso_timestamp(now - timedelta(minutes=10)),
                 "execution_proof": {
-                    "version": 1,
+                    "version": 2,
                     "source_commit": "a" * 40,
                     "definition_tree": "b" * 40,
                     "classification": "amd_mi_gpu",

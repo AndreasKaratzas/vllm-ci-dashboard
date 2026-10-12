@@ -226,6 +226,7 @@ def test_gpu_inventory_excludes_explicit_cpu_execution_even_on_mi_routes():
 
 def test_runtime_cpu_annotation_requires_exact_commit_step_and_physical_route():
     current = snapshot()
+    current = source.MainCISnapshot(SHA, current.files, GENERATED_AT, "c" * 40)
     current.files[FILE]["steps"].append({
         "key": "amd-torch-stable-abi-audit", "label": ":amd: (MI250) Torch Stable ABI Audit",
         "device": "mi300_1", "no_gpu": True,
@@ -247,6 +248,7 @@ def test_runtime_cpu_annotation_requires_exact_commit_step_and_physical_route():
 
 def test_runtime_annotation_never_trusts_a_retained_cpu_exclusion():
     current = snapshot()
+    current = source.MainCISnapshot(SHA, current.files, GENERATED_AT, "c" * 40)
     result = source.annotate_runtime_source_scope({"commit": SHA, "jobs": [{
         "step_key": "native", "agent_queue": "amd_mi355", "name": ":amd: (MI355) Native AMD",
         "source_no_gpu": True, "source_scope_commit": RUNTIME_SHA,

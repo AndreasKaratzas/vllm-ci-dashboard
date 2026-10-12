@@ -1489,6 +1489,8 @@ def load_source_scope_indexes(cache_dir: Path, *, ref_now: datetime | None = Non
     Runtime cache age/coverage cannot authorize old build observations. Only
     exact Git configuration proofs escape; source clocks/completeness do not.
     """
+    from vllm.main_ci_definitions import merge_runtime_scope_indexes
+
     indexes = read_runtime_source_indexes(Path(cache_dir).parent / RUNTIME_SOURCE_CACHE_DIR_NAME)
     cached = _cache_at_source_clock(cache_dir, ref_now=ref_now)
     if cached is None:
@@ -1498,7 +1500,10 @@ def load_source_scope_indexes(cache_dir: Path, *, ref_now: datetime | None = Non
         if not index:
             continue
         commit = str(build.get("commit") or "")
-        if commit in indexes and indexes[commit] != index:
-            raise CacheValidationError("query_mismatch", "source index checkpoints disagree on an exact immutable pin")
+        if commit in indexes:
+            try:
+                index = merge_runtime_scope_indexes(indexes[commit], index, expected_commit=commit)
+            except ValueError as exc:
+                raise CacheValidationError("query_mismatch", "source index checkpoints disagree on an exact immutable pin") from exc
         indexes[commit] = index
     return retain_runtime_source_indexes(indexes, preferred_commits=[build.get("commit") for build in cached.builds])

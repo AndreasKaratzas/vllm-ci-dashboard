@@ -622,6 +622,25 @@ jobs:
               ;;
           esac
 
+      - name: Observe bounded collector admission
+        id: collector-admission
+        if: >-
+          steps.recovery-route.outputs.target == 'collector' &&
+          steps.recovery-route.outputs.force_reason != 'state-uninitialized'
+        timeout-minutes: 6
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ADMISSION_MAX_WAIT_SECONDS: >-
+            ${{ github.event_name == 'workflow_run' &&
+                github.event.workflow_run.name == 'Site Health Check' && '0' || '300' }}
+        run: |
+          set -euo pipefail
+          python scripts/vllm/observe_watchdog_collection_admission.py \
+            --config config/data_collection_attempt_budget.json \
+            --max-wait-seconds "$ADMISSION_MAX_WAIT_SECONDS" \
+            --output "$RUNNER_TEMP/collector-admission.json" \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Read selected recovery workflow state
         env:
           GH_TOKEN: ${{ github.token }}
@@ -656,6 +675,10 @@ jobs:
           )
           if [ -n "$FORCE_REASON" ]; then
             ARGS+=(--force-recovery-reason "$FORCE_REASON")
+          fi
+          if [ "$RECOVERY_TARGET" = collector ] && \
+             [ "$FORCE_REASON" != state-uninitialized ]; then
+            ARGS+=(--collector-admission "$RUNNER_TEMP/collector-admission.json")
           fi
           if [ "$RECOVERY_TARGET" = dns-health ]; then
             ARGS+=(--retry-cooldown-minutes 70)

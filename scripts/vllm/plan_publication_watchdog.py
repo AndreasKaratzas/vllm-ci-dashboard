@@ -395,6 +395,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--expected-generation")
     mode.add_argument("--cadence-preflight", action="store_true")
     parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--collector-admission", type=Path)
     parser.add_argument("--recovery-target", choices=sorted(RECOVERY_TARGETS))
     parser.add_argument(
         "--max-age-minutes",
@@ -423,6 +424,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--force-recovery-reason requires --workflow-runs")
     if (args.workflow_runs is None) != (args.recovery_target is None):
         parser.error("--recovery-target is required exactly with --workflow-runs")
+    if args.collector_admission and (args.recovery_target != "collector" or args.force_recovery_reason == "state-uninitialized"):
+        parser.error("--collector-admission requires a non-bootstrap collector route")
 
     now = _parse_timestamp(args.now) if args.now else datetime.now(timezone.utc)
     if now is None:
@@ -450,6 +453,15 @@ def main(argv: list[str] | None = None) -> int:
                 retry_cooldown_minutes=args.retry_cooldown_minutes,
                 active_run_max_age_minutes=args.active_run_max_age_minutes,
             )
+            if args.collector_admission:
+                from vllm.observe_watchdog_collection_admission import load_admission
+
+                admission = load_admission(args.collector_admission, now=now)
+                if not admission.required:
+                    decision = RecoveryDecision(
+                        False, admission.reason, decision.observed_generation,
+                        decision.recovery_key,
+                    )
         elif args.expected_generation is not None:
             decision = generation_preflight_decision(
                 observation,
@@ -458,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             decision = cadence_preflight_decision(observation)
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
 
     print(

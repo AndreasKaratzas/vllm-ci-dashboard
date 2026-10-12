@@ -31,7 +31,7 @@ def immutable_source_fixture(monkeypatch):
 
     def annotate(build, **kwargs):
         index = kwargs.get("scope_index") or {
-            "version": 1, "commit_sha": build.get("commit"),
+            "version": 2, "commit_sha": build.get("commit"),
             "definition_tree_sha": "b" * 40, "cpu_routes": [],
         }
         return real_annotate(build, scope_index=index)
@@ -2305,7 +2305,7 @@ def _current_ci_node(*, commit=SOURCE_COMMIT, key="gpu-test", label="GPU workloa
 
 
 def _cpu_source_index(commit=SOURCE_COMMIT):
-    return {"version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+    return {"version": 2, "commit_sha": commit, "definition_tree_sha": "b" * 40,
             "cpu_routes": [{"key": "torch-abi", "label": "Torch ABI", "agent_pool": "mi300_1"}]}
 
 

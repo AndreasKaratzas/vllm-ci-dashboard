@@ -203,6 +203,7 @@ RUNTIME_SOURCE_MAX_REQUESTS = 2400
 RUNTIME_SOURCE_MAX_SECONDS = 600
 RUNTIME_SOURCE_BATCH_SIZE = 50
 RUNTIME_SOURCE_MAX_PINS = 4096
+RUNTIME_SCOPE_INDEX_VERSION = 2
 _RUNTIME_SOURCE_LOCK = threading.RLock()
 _RUNTIME_SOURCE_STARTS = 0
 _RUNTIME_SOURCE_STARTED_AT: float | None = None
@@ -646,6 +647,16 @@ def annotate_runtime_source_scope(
         raise ValueError("runtime execution scope requires an exact full commit SHA")
     if scope_index is not None:
         index = validate_runtime_scope_index(scope_index, expected_commit=commit)
+        if index["version"] == 1:
+            # The authenticated legacy cache binds this commit to an exact Git
+            # tree. Re-read only those hash-verified files: old normalized CPU
+            # labels cannot reveal the producer's former global shard context.
+            tree = index["definition_tree_sha"]
+            snapshot = MainCISnapshot(
+                commit, _runtime_definition_files(tree),
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), tree,
+            )
+            index = runtime_scope_index(snapshot)
     else:
         snapshot = snapshot or runtime_snapshot(commit)
         if snapshot.commit_sha != commit:
@@ -676,7 +687,7 @@ def annotate_runtime_source_scope(
         raw_step = job.get("step")
         step = raw_step if isinstance(raw_step, dict) else {}
         key = str(job.get("step_key") or step.get("key") or "").strip()
-        label_route = (_normalize_job_name(name), queue)
+        label_route = (_normalize_job_name(name, shard_bases=[]), queue)
         cpu_only = ((key, queue) in keyed if key else label_route in labeled) or label_route in keyless_labeled
         if cpu_only:
             job["source_no_gpu"] = True
@@ -694,32 +705,51 @@ def runtime_scope_index(snapshot: MainCISnapshot) -> dict[str, Any]:
     # proved by its unambiguous label and observed pool at this exact commit;
     # current configuration inventories retain their strict stable-key policy.
     routes = amd_source_steps(snapshot, include_cpu=True, require_keys=False)
+    def labels(route: dict[str, Any]) -> list[str]:
+        label = str(route.get("label") or "")
+        declared = [_normalize_job_name(label, shard_bases=[])]
+        if re.search(r"%N\b", label, flags=re.I):
+            parallelism = route.get("parallelism", 1)
+            if type(parallelism) is not int or not 1 <= parallelism <= 2048:
+                raise ValueError("runtime CPU label expansion requires bounded source parallelism")
+            declared.extend(
+                _normalize_job_name(re.sub(r"%N\b", str(index), label, flags=re.I), shard_bases=[])
+                for index in range(parallelism)
+            )
+        return sorted(set(declared))
+
     keys: dict[tuple[str, str], list[dict]] = {}
-    labels: dict[tuple[str, str], list[dict]] = {}
+    labeled_routes: dict[tuple[str, str], list[dict]] = {}
     for route in routes:
         queue = str(route.get("agent_pool") or "").strip().casefold().removeprefix("amd_")
         keys.setdefault((str(route.get("key") or ""), queue), []).append(route)
-        labels.setdefault((_normalize_job_name(str(route.get("label") or "")), queue), []).append(route)
+        for label in labels(route):
+            labeled_routes.setdefault((label, queue), []).append(route)
     exclusions = set()
     for route in routes:
         if not is_cpu_only_definition(route):
             continue
         queue = str(route.get("agent_pool") or "").strip().casefold().removeprefix("amd_")
-        key, label = str(route.get("key") or ""), _normalize_job_name(str(route.get("label") or ""))
-        if not key and not label:
-            raise ValueError("keyless runtime CPU route requires an execution label")
+        key = str(route.get("key") or "")
         key = key if all(is_cpu_only_definition(row) for row in keys[(key, queue)]) else ""
-        label = label if all(is_cpu_only_definition(row) for row in labels[(label, queue)]) else ""
-        if key or label:
-            exclusions.add((key, label, queue))
-    return {"version": 1, "commit_sha": snapshot.commit_sha,
-            "definition_tree_sha": snapshot.definition_tree_sha,
-            "cpu_routes": [{"key": key, "label": label, "agent_pool": queue} for key, label, queue in sorted(exclusions)]}
+        for label in labels(route):
+            if not key and not label:
+                raise ValueError("keyless runtime CPU route requires an execution label")
+            safe_label = label if all(is_cpu_only_definition(row) for row in labeled_routes[(label, queue)]) else ""
+            if key or safe_label:
+                exclusions.add((key, safe_label, queue))
+    return validate_runtime_scope_index(
+        {"version": RUNTIME_SCOPE_INDEX_VERSION, "commit_sha": snapshot.commit_sha,
+         "definition_tree_sha": snapshot.definition_tree_sha,
+         "cpu_routes": [{"key": key, "label": label, "agent_pool": queue}
+                        for key, label, queue in sorted(exclusions)]},
+        expected_commit=snapshot.commit_sha,
+    )
 
 
 def validate_runtime_scope_index(index: Any, *, expected_commit: str) -> dict[str, Any]:
     """Validate an immutable index from an already authenticated private cache."""
-    if not isinstance(index, dict) or set(index) != {"version", "commit_sha", "definition_tree_sha", "cpu_routes"} or type(index.get("version")) is not int or index["version"] != 1:
+    if not isinstance(index, dict) or set(index) != {"version", "commit_sha", "definition_tree_sha", "cpu_routes"} or type(index.get("version")) is not int or index["version"] not in {1, RUNTIME_SCOPE_INDEX_VERSION}:
         raise ValueError("runtime scope index has an invalid shape")
     if not FULL_SHA.fullmatch(expected_commit) or index.get("commit_sha") != expected_commit or not FULL_SHA.fullmatch(str(index.get("definition_tree_sha") or "")):
         raise ValueError("runtime scope index does not match its exact immutable commit/tree")
@@ -737,6 +767,26 @@ def validate_runtime_scope_index(index: Any, *, expected_commit: str) -> dict[st
     if rows != [{"key": key, "label": label, "agent_pool": queue} for key, label, queue in sorted(seen)]:
         raise ValueError("runtime scope index routes must be canonical and sorted")
     return {**index, "cpu_routes": [dict(row) for row in rows]}
+
+
+def merge_runtime_scope_indexes(
+    previous: Any, current: Any, *, expected_commit: str,
+) -> dict[str, Any]:
+    """Prefer the independently attested v2 contract for the same exact tree.
+
+    Legacy labels depend on an unavailable producer shard context, so they
+    cannot be compared semantically with v2 routes. Two claims under the same
+    contract must still match in full; a changed tree never authorizes migration.
+    """
+    old = validate_runtime_scope_index(previous, expected_commit=expected_commit)
+    new = validate_runtime_scope_index(current, expected_commit=expected_commit)
+    if old["definition_tree_sha"] != new["definition_tree_sha"]:
+        raise ValueError("runtime source indexes disagree on their exact immutable tree")
+    if old == new:
+        return new
+    if old["version"] == new["version"]:
+        raise ValueError("runtime source indexes disagree under the same immutable contract")
+    return new if new["version"] == RUNTIME_SCOPE_INDEX_VERSION else old
 
 
 def logical_title(step: dict[str, Any]) -> str:

@@ -63,7 +63,7 @@ def _metadata(
         "started_at": job["started_at"],
         "finished_at": job["finished_at"],
         "execution_proof": {
-            "version": 1, "source_commit": "a" * 40, "definition_tree": "b" * 40,
+            "version": 2, "source_commit": "a" * 40, "definition_tree": "b" * 40,
             "classification": "amd_mi_gpu",
         },
     }

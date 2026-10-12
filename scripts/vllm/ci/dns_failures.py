@@ -259,8 +259,72 @@ _CLASSIFICATION_KEYS = frozenset(
 _CLASSIFICATION_METRIC_KEYS = frozenset({"at", "match_count", "signature_ids", "target_categories"})
 
 
+STATE_FAILURE_CODES = frozenset({
+    "invalid_state", "execution_proof_conflict", "execution_proof_job_mismatch",
+    "execution_proof_contract",
+})
+
+
 class StateValidationError(ValueError):
     """The sanitized durable DNS scanner state violates its strict contract."""
+
+    def __init__(self, message: str, *, diagnostic_code: str = "invalid_state") -> None:
+        self.diagnostic_code = diagnostic_code if isinstance(diagnostic_code, str) and diagnostic_code in STATE_FAILURE_CODES else "invalid_state"
+        super().__init__(message)
+
+
+def validate_execution_proof(proof: object) -> dict:
+    """Read strict legacy proofs and the context-independent scope contract."""
+    if not isinstance(proof, dict):
+        raise StateValidationError("execution_proof must be an object", diagnostic_code="execution_proof_contract")
+    fields = {"version", "source_commit", "definition_tree", "classification"}
+    version = proof.get("version")
+    if type(version) is not int or version not in {1, 2}:
+        raise StateValidationError("execution_proof does not match the contract", diagnostic_code="execution_proof_contract")
+    if version == 2 and "legacy_classification" in proof:
+        fields.add("legacy_classification")
+    _validate_exact_keys(proof, frozenset(fields), "execution_proof")
+    if (
+        not isinstance(proof.get("classification"), str)
+        or proof["classification"] not in {"amd_mi_gpu", "excluded_cpu"}
+        or any(not isinstance(proof.get(key), str) or not _FULL_SHA_RE.fullmatch(proof[key])
+               for key in ("source_commit", "definition_tree"))
+        or ("legacy_classification" in proof and (
+            not isinstance(proof["legacy_classification"], str)
+            or proof["legacy_classification"] not in {"amd_mi_gpu", "excluded_cpu"}
+            or proof["legacy_classification"] == proof["classification"]
+        ))
+    ):
+        raise StateValidationError("execution_proof does not match the contract", diagnostic_code="execution_proof_contract")
+    return dict(proof)
+
+
+def merge_execution_proofs(previous: dict, current: dict) -> dict | None:
+    """Migrate the same job observed again, retaining its old classification proof."""
+    old = previous.get("execution_proof")
+    new = current.get("execution_proof")
+    if old is None and new is None:
+        return None
+    if old is None or new is None:
+        return validate_execution_proof(old if new is None else new)
+    old, new = validate_execution_proof(old), validate_execution_proof(new)
+    if old == new:
+        return old
+    if any(old[key] != new[key] for key in ("source_commit", "definition_tree")):
+        raise StateValidationError("conflicting exact execution proofs", diagnostic_code="execution_proof_conflict")
+    if old["version"] == new["version"]:
+        if old["version"] != 2 or old["classification"] != new["classification"]:
+            raise StateValidationError("conflicting exact execution proofs", diagnostic_code="execution_proof_conflict")
+        # A fresh v2 observation need not repeat the private migration trail.
+        return old if "legacy_classification" in old else new
+    if any(previous.get(key) != current.get(key)
+           for key in ("pipeline", "build_number", "job_id", "queue", "hardware", "finished_at")):
+        raise StateValidationError("scope migration changed the exact job observation", diagnostic_code="execution_proof_job_mismatch")
+    authoritative, legacy = (new, old) if new["version"] == 2 else (old, new)
+    authoritative = dict(authoritative)
+    if authoritative["classification"] != legacy["classification"]:
+        authoritative["legacy_classification"] = legacy["classification"]
+    return authoritative
 
 
 @dataclass(frozen=True)
@@ -957,18 +1021,8 @@ def validate_state(payload: object) -> dict:
         if queue_hardware(queue) != hardware:
             raise StateValidationError(f"jobs[{index}] queue/hardware mismatch")
         if "execution_proof" in raw:
-            proof = raw["execution_proof"]
-            if not isinstance(proof, dict):
-                raise StateValidationError("execution_proof must be an object")
-            _validate_exact_keys(proof, frozenset({
-                "version", "source_commit", "definition_tree", "classification",
-            }), "execution_proof")
-            if (type(proof.get("version")) is not int or proof["version"] != 1
-                    or pipeline not in CURRENT_PIPELINES
-                    or proof.get("classification") not in {"amd_mi_gpu", "excluded_cpu"}
-                    or any(not isinstance(proof.get(key), str)
-                           or not _FULL_SHA_RE.fullmatch(proof[key])
-                           for key in ("source_commit", "definition_tree"))):
+            validate_execution_proof(raw["execution_proof"])
+            if pipeline not in CURRENT_PIPELINES:
                 raise StateValidationError("execution_proof does not match the contract")
         node = raw.get("node")
         if node != "unidentified":
@@ -1229,12 +1283,9 @@ def merge_state_jobs(*collections: Iterable[dict]) -> list[dict]:
                 raise StateValidationError(f"conflicting final DNS scans for {identity}")
             if _record_rank(row) > _record_rank(previous):
                 merged[identity] = dict(row)
-            proofs = [item["execution_proof"] for item in (previous, row)
-                      if "execution_proof" in item]
-            if len(proofs) == 2 and proofs[0] != proofs[1]:
-                raise StateValidationError("conflicting exact execution proofs")
-            if proofs:
-                merged[identity]["execution_proof"] = dict(proofs[0])
+            proof = merge_execution_proofs(previous, row)
+            if proof is not None:
+                merged[identity]["execution_proof"] = proof
     return sort_state_jobs(merged.values())
 
 
@@ -1366,7 +1417,12 @@ def build_public_output(state: object) -> dict:
     end = parse_timestamp(payload["generated_at"], "generated_at")
     retention_start = end - timedelta(hours=RETENTION_HOURS)
     scoped = payload.get("scoped_discovery")
-    scope_complete = bool(scoped and scoped["complete"])
+    # Legacy records remain private evidence. Until the same jobs are freshly
+    # attested under literal source labels, they cannot prove hardware coverage.
+    scope_complete = bool(scoped and scoped["complete"] and all(
+        row.get("execution_proof", {}).get("version") == 2
+        for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
+    ))
     discovery_start = parse_timestamp(scoped["start"], "scoped_discovery.start") if scoped else end
     if not scope_complete:
         # Public v1 derives window completeness from these bounds. Retain the
@@ -1374,6 +1430,7 @@ def build_public_output(state: object) -> dict:
         # window when discovery stopped before proving exhaustive coverage.
         discovery_start = end - timedelta(seconds=1)
     jobs = [row for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
+            and row.get("execution_proof", {}).get("version") == 2
             and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
 
     windows: dict[str, dict] = {}
