@@ -1369,6 +1369,51 @@ def _latest_logical_amd_test_groups(
     observations: dict[str, dict],
     definition_parity: Any,
 ) -> dict:
+    """Use the retained build's shard declarations for its source identities.
+
+    The separately refreshed shard file can describe a newer main commit.
+    Removing or renaming a shard there must not invalidate an older nightly's
+    immutable family catalog. Keep the shared analyzer's state scoped to the
+    exact catalog while validating both the metadata and parsed result claims.
+    """
+    if "source_family_catalog" not in metadata:
+        return _latest_logical_amd_test_groups_at_source(
+            data_dir, latest_counts, metadata, grouped, observations,
+            definition_parity,
+        )
+    catalog = metadata["source_family_catalog"]
+    bases = catalog.get("shard_bases") if isinstance(catalog, dict) else None
+    if (
+        not isinstance(bases, list)
+        or len(bases) > 2048
+        or any(not isinstance(base, str) or not base or len(base) > 4096 for base in bases)
+        or bases != sorted(set(bases))
+    ):
+        raise ValueError("AMD source family catalog has malformed shard declarations")
+    previous = list(ci_analyzer._SHARD_BASES)
+    try:
+        ci_analyzer.set_shard_bases(bases)
+        from vllm.ci.runtime_families import validate_build_source_families
+
+        validate_build_source_families(metadata)
+        return _latest_logical_amd_test_groups_at_source(
+            data_dir, latest_counts, metadata, grouped, observations,
+            definition_parity, source_shard_bases=bases,
+        )
+    finally:
+        ci_analyzer.set_shard_bases(previous)
+
+
+def _latest_logical_amd_test_groups_at_source(
+    data_dir: Path,
+    latest_counts: dict,
+    metadata: dict,
+    grouped: dict[tuple[int, str], dict],
+    observations: dict[str, dict],
+    definition_parity: Any,
+    *,
+    source_shard_bases: list[str] | None = None,
+) -> dict:
     """Publish an exact, auditable inventory behind the latest group totals.
 
     Identity and per-hardware state intentionally use the same private analyzer
@@ -1414,7 +1459,11 @@ def _latest_logical_amd_test_groups(
             "test_results": AMD_TEST_RESULTS_GLOB,
             "metadata": SOURCE_FILES["analytics"],
             "definitions": SOURCE_FILES["config_parity"],
-            "shard_bases": "shard_bases.json",
+            "shard_bases": (
+                f"{SOURCE_FILES['analytics']}#ci.builds[].source_family_catalog.shard_bases"
+                if source_shard_bases is not None
+                else "shard_bases.json"
+            ),
             "identity_function": "vllm.ci.analyzer._amd_runtime_result_group_key",
             "hardware_function": "vllm.ci.analyzer._extract_hardware",
             "state_semantics": "vllm.ci.analyzer.compute_build_summary",
@@ -1423,7 +1472,11 @@ def _latest_logical_amd_test_groups(
     if latest_counts.get("available") is not True or build_number is None:
         return {**base, "reason": "latest_test_group_counts_unavailable"}
 
-    shard_bases = _amd_test_shard_bases(data_dir)
+    shard_bases = (
+        list(source_shard_bases)
+        if source_shard_bases is not None
+        else _amd_test_shard_bases(data_dir)
+    )
     definition_report = definition_parity if isinstance(definition_parity, dict) else {}
     try:
         definition_commit, route_map = (
@@ -4056,6 +4109,8 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "path": SOURCE_FILES["analytics"],
         "timestamp": (amd_test_health.get("summary") or {}).get("latest_observed_at"),
         "timestamp_source": "amd_test_health.summary.latest_observed_at",
+        "collected_at": sources["ci_health"]["timestamp"],
+        "collection_timestamp_source": "ci_health.generated_at",
         "published": True,
     }
 

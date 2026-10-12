@@ -1201,6 +1201,106 @@ def test_dns_only_entrypoint_runs_without_site_packages(tmp_path):
     assert "Errors: 0" in completed.stdout
 
 
+def _dns_candidate_with_changed_lifecycle(tmp_path):
+    """Model the full workflow importing lifecycle before validating DNS."""
+    now = datetime.now(timezone.utc)
+    dns_path = _write_dns_audit_payload(
+        tmp_path, _dns_audit_payload(now - timedelta(hours=13)),
+    )
+    lifecycle = tmp_path / "data/vllm/ci/queue_lifecycle.json"
+    lifecycle.write_text('{"generation":"previous"}\n')
+    entries = {
+        "dns_health": {"data/vllm/ci/dns_failures.json": _manifest_descriptor(dns_path)},
+        "queue_lifecycle": {"data/vllm/ci/queue_lifecycle.json": _manifest_descriptor(lifecycle)},
+    }
+    clock = _dns_iso(now)
+    state_path = _write_publication_state(tmp_path, {
+        "schema_version": 2,
+        "surface_contract_version": audit_module.SURFACE_CONTRACT_VERSION,
+        "generated_at": clock,
+        "baseline_ref": "0" * 40,
+        "mode": "fallback",
+        "degraded_surfaces": sorted(entries),
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": sorted(entries),
+        "degraded_since": {surface: clock for surface in entries},
+        "fallback_since": {surface: clock for surface in entries},
+        "fallback_max_age_hours": 36,
+        "restored_manifest": entries,
+        "restored_paths": {surface: sorted(paths) for surface, paths in entries.items()},
+    })
+    lifecycle.write_text('{"generation":"new independently validated candidate"}\n')
+    return dns_path, lifecycle, state_path
+
+
+def test_external_dns_candidate_keeps_stale_source_local_and_rejects_it(
+    tmp_path, monkeypatch, capsys,
+):
+    dns_path, _lifecycle, _state_path = _dns_candidate_with_changed_lifecycle(tmp_path)
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+
+    assert audit_module.main(["--dns-only", "--dns-path", str(dns_path), "--format", "json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["errors"] == []
+    assert [finding["code"] for finding in report["degradations"]] == ["dns-health-stale"]
+    assert "publication-fallback-manifest-mismatch" not in {
+        finding["code"] for finding in report["errors"]
+    }
+
+
+def test_external_dns_candidate_does_not_borrow_a_valid_baseline_age_waiver(
+    tmp_path, monkeypatch, capsys,
+):
+    dns_path, lifecycle, _state_path = _dns_candidate_with_changed_lifecycle(tmp_path)
+    lifecycle.write_text('{"generation":"previous"}\n')
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+
+    assert audit_module.main(["--dns-only", "--format", "json"]) == 0
+    canonical = json.loads(capsys.readouterr().out)
+    assert canonical["errors"] == [] and canonical["degradations"] == []
+    assert "dns-health-stale-fallback" in {finding["code"] for finding in canonical["warnings"]}
+
+    assert audit_module.main(["--dns-only", "--dns-path", str(dns_path), "--format", "json"]) == 1
+    candidate = json.loads(capsys.readouterr().out)
+    assert [finding["code"] for finding in candidate["degradations"]] == ["dns-health-stale"]
+    assert "dns-health-stale-fallback" not in {finding["code"] for finding in candidate["warnings"]}
+
+
+def test_external_dns_candidate_accepts_fresh_data_and_still_checks_its_schema(
+    tmp_path, monkeypatch, capsys,
+):
+    dns_path, _lifecycle, _state_path = _dns_candidate_with_changed_lifecycle(tmp_path)
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+    fresh = _dns_audit_payload()
+    dns_path.write_text(json.dumps(fresh))
+
+    assert audit_module.main(["--dns-only", "--dns-path", str(dns_path), "--format", "json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["errors"] == [] and report["degradations"] == []
+
+    fresh["schema_version"] = 999
+    dns_path.write_text(json.dumps(fresh))
+    assert audit_module.main(["--dns-only", "--dns-path", str(dns_path), "--format", "json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert "dns-health-schema-version" in {finding["code"] for finding in report["errors"]}
+
+
+def test_default_and_full_audits_still_verify_lifecycle_fallback_hashes(
+    tmp_path, monkeypatch, capsys,
+):
+    _dns_path, _lifecycle, _state_path = _dns_candidate_with_changed_lifecycle(tmp_path)
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+    assert audit_module.main(["--dns-only", "--format", "json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert "publication-fallback-manifest-mismatch" in {
+        finding["code"] for finding in report["errors"]
+    }
+    full = DashboardAudit(tmp_path).run()
+    assert "publication-fallback-manifest-mismatch" in {
+        finding.code for finding in full.errors
+    }
+
+
 def test_dns_audit_accepts_legacy_payload_with_outcome_warning(tmp_path):
     payload = _dns_audit_payload()
     payload.pop("outcome_contract")
@@ -2692,6 +2792,170 @@ def test_schema_v2_stale_source_waiver_applies_only_to_fallback(
     }
     assert "operations-stale-source-fallback" in {
         finding.code for finding in fallback.report.warnings
+    }
+
+
+def _amd_signal_collection_audit(tmp_path, monkeypatch, *, collection_at, explicit=True,
+                                 mutate_source=None, mutate_payload=None,
+                                 raw_collection_at=None):
+    """Audit a real CI observation whose last artifact-bearing nightly is old."""
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True, exist_ok=True)
+    (ci / "ci_health.json").write_text(json.dumps({
+        "generated_at": raw_collection_at or collection_at,
+    }))
+    source = {
+        "path": "analytics.json",
+        "timestamp": "2026-10-10T07:48:55Z",
+        "timestamp_source": "amd_test_health.summary.latest_observed_at",
+        "published": True,
+    }
+    if explicit:
+        source.update({
+            "collected_at": collection_at,
+            "collection_timestamp_source": "ci_health.generated_at",
+        })
+    payload = {
+        "schema_version": 2,
+        "hardware_scope": "amd_mi_gpu",
+        "generated_at": "2026-10-12T02:45:00Z",
+        "sources": {
+            "amd_test_signal": source,
+            "ci_health": {
+                "path": "ci_health.json",
+                "timestamp": collection_at,
+                "timestamp_source": "payload",
+            },
+        },
+        "amd_test_health": {
+            "hardware_scope": "amd_mi_gpu",
+            "job_scope": "amd_gpu",
+            "summary": {"latest_observed_at": source["timestamp"]},
+        },
+    }
+    if mutate_source is not None:
+        mutate_source(source)
+    if mutate_payload is not None:
+        mutate_payload(payload)
+    (ci / "operations_v2.json").write_text(json.dumps(payload))
+    monkeypatch.setattr(audit_module, "OPERATIONS_FRESH_SOURCE_KEYS",
+                        frozenset({"amd_test_signal"}))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_v2()
+    return audit, payload
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_completed_nightly_age_does_not_block_a_fresh_collection(
+    tmp_path, monkeypatch, explicit,
+):
+    audit, payload = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at="2026-10-12T02:35:00Z", explicit=explicit,
+    )
+    signal_findings = [finding for finding in audit.report.errors
+                       if finding.context.get("source") == "amd_test_signal"]
+    assert signal_findings == []
+    assert payload["sources"]["amd_test_signal"]["timestamp"] == "2026-10-10T07:48:55Z"
+    metrics = audit.report.metrics["operations_v2"]
+    assert metrics["source_age_hours"]["amd_test_signal"] == 0.17
+    assert metrics["result_age_hours"]["amd_test_signal"] == 42.93
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("collection_at,stale", [
+    ("2026-10-10T14:45:00Z", False),
+    ("2026-10-10T14:44:59Z", True),
+])
+def test_amd_signal_collection_retains_the_exact_36_hour_limit(
+    tmp_path, monkeypatch, explicit, collection_at, stale,
+):
+    audit, _ = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at=collection_at, explicit=explicit,
+    )
+    errors = [finding for finding in audit.report.errors
+              if finding.context.get("source") == "amd_test_signal"]
+    assert [finding.code for finding in errors] == (["operations-stale-source"] if stale else [])
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda source: source.pop("collected_at"),
+    lambda source: source.pop("collection_timestamp_source"),
+    lambda source: source.update(collected_at="2026-10-12T02:45:00Z"),
+    lambda source: source.update(collected_at="2026-10-12T02:35:00"),
+    lambda source: source.update(collection_timestamp_source="file_mtime"),
+    lambda source: source.update(collection_timestamp_source="generated_at"),
+    lambda source: source.update(timestamp="2026-10-12T02:35:00Z"),
+    lambda source: source.update(timestamp="2026-10-10T07:48:55"),
+    lambda source: source.update(timestamp_source="payload"),
+])
+def test_amd_signal_collection_rejects_restamped_or_incomplete_provenance(
+    tmp_path, monkeypatch, mutation,
+):
+    audit, _ = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at="2026-10-12T02:35:00Z",
+        mutate_source=mutation,
+    )
+    assert "operations-source-provenance" in {
+        finding.code for finding in audit.report.errors
+        if finding.context.get("source") == "amd_test_signal"
+    }
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_amd_signal_collection_rejects_embedded_clock_that_disagrees_with_raw_source(
+    tmp_path, monkeypatch, explicit,
+):
+    audit, _ = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at="2026-10-12T02:35:00Z", explicit=explicit,
+        raw_collection_at="2026-10-10T02:35:00Z",
+    )
+    assert "operations-source-provenance" in {
+        finding.code for finding in audit.report.errors
+        if finding.context.get("source") == "amd_test_signal"
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda payload: payload["sources"]["ci_health"].update(timestamp_source="file_mtime"),
+    lambda payload: payload["sources"]["ci_health"].update(path="analytics.json"),
+    lambda payload: payload["sources"]["ci_health"].update(timestamp=None),
+    lambda payload: payload["amd_test_health"]["summary"].update(latest_observed_at=None),
+])
+def test_legacy_amd_signal_collection_requires_actual_ci_payload_provenance(
+    tmp_path, monkeypatch, mutation,
+):
+    audit, _ = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at="2026-10-12T02:35:00Z", explicit=False,
+        mutate_payload=mutation,
+    )
+    assert "operations-source-provenance" in {
+        finding.code for finding in audit.report.errors
+        if finding.context.get("source") == "amd_test_signal"
+    }
+
+
+def test_amd_signal_collection_rejects_future_collection_observation(tmp_path, monkeypatch):
+    audit, _ = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at="2026-10-12T04:00:00Z",
+    )
+    assert "operations-source-from-future" in {
+        finding.code for finding in audit.report.errors
+        if finding.context.get("source") == "amd_test_signal"
+    }
+
+
+def test_amd_signal_collection_rejects_result_newer_than_its_collection(tmp_path, monkeypatch):
+    def future_result(payload):
+        payload["sources"]["amd_test_signal"]["timestamp"] = "2026-10-12T04:00:00Z"
+        payload["amd_test_health"]["summary"]["latest_observed_at"] = "2026-10-12T04:00:00Z"
+
+    audit, _ = _amd_signal_collection_audit(
+        tmp_path, monkeypatch, collection_at="2026-10-12T02:35:00Z",
+        mutate_payload=future_result,
+    )
+    assert "operations-source-provenance" in {
+        finding.code for finding in audit.report.errors
+        if finding.context.get("source") == "amd_test_signal"
     }
 
 

@@ -85,7 +85,8 @@ OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "project_items",
 })
 OPERATIONS_SOURCE_MAX_AGE_OVERRIDES = {
-    # AMD nightlies run daily; this is source observation age, not collector age.
+    # AMD results may remain unchanged across failed or artifact-free nightlies.
+    # Bound their verified collection observation, retaining the result clock.
     "amd_test_signal": 36,
     # Project #39 is refreshed with the hourly GitHub Home collection.
     "project_items": 36,
@@ -2385,6 +2386,68 @@ class DashboardAudit:
             ),
         }
 
+    def _amd_signal_collection_timestamp(
+        self, payload: dict, source: dict, result_at: datetime, relpath: str,
+    ) -> datetime | None:
+        """Verify collection freshness independently of the last test result.
+
+        The result clock belongs to a completed nightly and must never advance
+        merely because a collector checked it again. Older snapshot schemas
+        omitted the collection clock; derive it only from the same embedded
+        CI-health source and its actual payload, never the snapshot build time.
+        """
+        context = {"source": "amd_test_signal"}
+
+        def invalid(message: str) -> None:
+            self.error("operations-source-provenance", message, relpath, context=context)
+
+        def aware_timestamp(value: Any) -> datetime | None:
+            if not isinstance(value, str) or not value.strip():
+                return None
+            try:
+                parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
+
+        summary = _mapping(_mapping(payload.get("amd_test_health")).get("summary"))
+        if (
+            source.get("timestamp_source") != "amd_test_health.summary.latest_observed_at"
+            or aware_timestamp(source.get("timestamp")) != result_at
+            or aware_timestamp(summary.get("latest_observed_at")) != result_at
+        ):
+            invalid("AMD test signal result timestamp must match its original result observation")
+            return None
+
+        health_source = _mapping(_mapping(payload.get("sources")).get("ci_health"))
+        health_at = aware_timestamp(health_source.get("timestamp"))
+        health = _mapping(self.load_json("data/vllm/ci/ci_health.json", {}))
+        raw_health_at = aware_timestamp(health.get("generated_at"))
+        if (
+            health_at is None
+            or raw_health_at != health_at
+            or health_source.get("path") != "ci_health.json"
+            or health_source.get("timestamp_source") not in {"payload", "ci_health.generated_at"}
+        ):
+            invalid("AMD test signal collection must match the actual CI-health payload observation")
+            return None
+
+        has_collection = "collected_at" in source
+        has_provenance = "collection_timestamp_source" in source
+        if has_collection or has_provenance:
+            if (
+                not has_collection
+                or not has_provenance
+                or aware_timestamp(source.get("collected_at")) != health_at
+                or source.get("collection_timestamp_source") != "ci_health.generated_at"
+            ):
+                invalid("AMD test signal collection timestamp and provenance are inconsistent")
+                return None
+        if result_at > health_at + timedelta(hours=1):
+            invalid("AMD test signal result observation is newer than its collecting CI-health payload")
+            return None
+        return health_at
+
     def audit_operations_v2(self) -> None:
         relpath = "data/vllm/ci/operations_v2.json"
         payload = self.load_json(relpath, {})
@@ -2401,6 +2464,7 @@ class DashboardAudit:
 
         generated_at = _parse_timestamp(payload.get("generated_at"))
         source_ages: dict[str, float] = {}
+        result_ages: dict[str, float] = {}
         if generated_at is not None:
             sources = _mapping(payload.get("sources"))
             for source_name in sorted(OPERATIONS_FRESH_SOURCE_KEYS):
@@ -2430,6 +2494,16 @@ class DashboardAudit:
                         relpath,
                         context={"source": source_name},
                     )
+                if source_name == "amd_test_signal":
+                    result_ages[source_name] = round(
+                        (generated_at - source_at).total_seconds() / 3600, 2,
+                    )
+                    collection_at = self._amd_signal_collection_timestamp(
+                        payload, source, source_at, relpath,
+                    )
+                    if collection_at is None:
+                        continue
+                    source_at = collection_at
                 age_hours = (generated_at - source_at).total_seconds() / 3600
                 source_ages[source_name] = round(age_hours, 2)
                 if age_hours < -1:
@@ -3661,6 +3735,7 @@ class DashboardAudit:
             "retry_attempts": len(retry_attempts),
             "retry_recoveries": len(recoveries),
             "source_age_hours": source_ages,
+            "result_age_hours": result_ages,
         }
 
     def _normalize_current_latency_evidence(self, latency: dict, relpath: str) -> dict | None:
@@ -10802,7 +10877,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.dns_dependency_smoke:
         report = audit_dns_dependency_smoke()
     elif args.dns_only:
-        audit = DashboardAudit(ROOT)
+        # An explicitly supplied aggregate is a standalone candidate, not a
+        # member of the previously attested publication. Other sources may
+        # already have been refreshed; baseline fallback waivers do not apply.
+        audit = DashboardAudit(ROOT, allow_publication_fallback=args.dns_path is None)
         audit.audit_dns_failures(args.dns_path)
         report = audit.report
     elif args.queue_lifecycle_only:
@@ -10827,7 +10905,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(format_text(report))
 
-    if report.errors or (args.strict_warnings and report.warnings):
+    if (
+        report.errors
+        or (args.strict_warnings and report.warnings)
+        or (args.dns_only and args.dns_path is not None and report.degradations)
+    ):
         return 1
     return 0
 
