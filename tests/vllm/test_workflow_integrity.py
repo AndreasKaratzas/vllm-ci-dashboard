@@ -3689,6 +3689,8 @@ class TestDnsHealthWorkflow:
         }
         assert "^[0-9a-f]{64}$" in recovery_guard["run"]
         assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[1]["uses"])
+        assert steps[1]["with"]["ref"] == "${{ github.sha }}"
+        assert '"${GITHUB_REF:-}" != refs/heads/main' in recovery_guard["run"]
 
         reconcile = workflow["jobs"]["reconcile-publication"]
         assert reconcile["needs"] == "collect"
@@ -3738,6 +3740,7 @@ class TestDnsHealthWorkflow:
         assert reserve["id"] == "dns-request-budget"
         assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
         assert reserve["env"] == {
+            "GH_TOKEN": "${{ github.token }}",
             "ATTEMPT_ID": "dns-${{ github.run_id }}-${{ github.run_attempt }}"
         }
         assert "dns_request_budget.py reserve" in reserve["run"]
@@ -3805,7 +3808,8 @@ class TestDnsHealthWorkflow:
         )
         assert collect["id"] == "collect-dns"
         assert collect["if"] == (
-            "steps.dns-request-budget.outputs.request_mode != 'capacity_gated'"
+            "steps.dns-request-budget.outputs.request_mode != 'capacity_gated' && "
+            "steps.dns-request-budget.outputs.request_mode != 'retry_gated'"
         )
         assert "DNS_STATE_ENCRYPTION_KEY" not in collect.get("env", {})
         script = collect["run"]

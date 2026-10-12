@@ -50,6 +50,10 @@ jobs:
           RECOVERY_KEY: ${{ inputs.recovery_key || '' }}
         run: |
           set -euo pipefail
+          if [ "${GITHUB_REF:-}" != refs/heads/main ]; then
+            echo "DNS scans require a trusted main branch trigger." >&2
+            exit 1
+          fi
           if [[ -n "$RECOVERY_KEY" && ! "$RECOVERY_KEY" =~ ^[0-9a-f]{64}$ ]]; then
             echo "Invalid recovery_key: expected empty or 64 lowercase hex characters" >&2
             exit 1
@@ -57,7 +61,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          # Bind executed code to the exact head recorded on this Actions run.
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -153,7 +158,9 @@ jobs:
 
       - name: Reserve durable rolling DNS request budget
         id: dns-request-budget
+        timeout-minutes: 2
         env:
+          GH_TOKEN: ${{ github.token }}
           ATTEMPT_ID: dns-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
@@ -162,13 +169,14 @@ jobs:
           python scripts/vllm/dns_request_budget.py reserve \
             --state data/vllm/ci/dns_health/scan_state.json.gz \
             --minimum-interval-hours 3 \
+            --check-workflow-retries \
             --reservation-id "$ATTEMPT_ID" \
             --github-output "$OUTPUTS"
           REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
           ALLOWANCE=$(awk -F= '$1 == "reserved_request_starts" {print $2}' "$OUTPUTS")
-          if [[ ! "$REQUEST_MODE" =~ ^(reserved|interval_gated|capacity_gated)$ ]] || \
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|interval_gated|capacity_gated|retry_gated)$ ]] || \
              { [ "$REQUEST_MODE" = reserved ] && [ "$ALLOWANCE" != 110 ]; } || \
-             { [[ "$REQUEST_MODE" =~ ^(interval_gated|capacity_gated)$ ]] && \
+             { [[ "$REQUEST_MODE" =~ ^(interval_gated|capacity_gated|retry_gated)$ ]] && \
                [ "$ALLOWANCE" != 0 ]; }; then
             echo "::error::DNS request ledger returned malformed gate outputs."
             exit 1
@@ -195,9 +203,18 @@ jobs:
           rolling request budget is full; the next allowance is available at
           ${{ steps.dns-request-budget.outputs.available_at }}."
 
+      - name: Report retry-gated DNS request budget
+        if: steps.dns-request-budget.outputs.request_mode == 'retry_gated'
+        run: >-
+          echo "DNS Health made zero Buildkite requests because a recent
+          same-code scan failed; retry admission opens at
+          ${{ steps.dns-request-budget.outputs.available_at }}."
+
       - name: Collect DNS failure observations
         id: collect-dns
-        if: steps.dns-request-budget.outputs.request_mode != 'capacity_gated'
+        if: >-
+          steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.dns-request-budget.outputs.request_mode != 'retry_gated'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -272,6 +289,7 @@ jobs:
       - name: Validate bounded DNS artifacts
         if: >-
           steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.dns-request-budget.outputs.request_mode != 'retry_gated' &&
           steps.collect-dns.outcome == 'success' &&
           steps.dns-request-guard-report.outcome == 'success'
         run: |
@@ -286,6 +304,7 @@ jobs:
         id: dns-generation
         if: >-
           steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.dns-request-budget.outputs.request_mode != 'retry_gated' &&
           steps.collect-dns.outcome == 'success' &&
           steps.dns-request-guard-report.outcome == 'success'
         run: |
@@ -301,6 +320,7 @@ jobs:
       - name: Encrypt durable DNS scanner state
         if: >-
           steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.dns-request-budget.outputs.request_mode != 'retry_gated' &&
           steps.collect-dns.outcome == 'success' &&
           steps.dns-request-guard-report.outcome == 'success'
         env:
@@ -316,6 +336,7 @@ jobs:
       - name: Publish durable DNS evidence
         if: >-
           steps.dns-request-budget.outputs.request_mode != 'capacity_gated' &&
+          steps.dns-request-budget.outputs.request_mode != 'retry_gated' &&
           steps.collect-dns.outcome == 'success' &&
           steps.dns-request-guard-report.outcome == 'success'
         run: |
