@@ -237,6 +237,7 @@ def test_transient_dns_retry_api_failure_never_reserves_or_writes_outputs(monkey
     monkeypatch.setenv("GH_TOKEN", "fixture-only-token")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
     monkeypatch.setenv("GITHUB_SHA", DNS_CODE_SHA)
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
     output_path = tmp_path / "outputs"
     result = budget.main(["reserve", "--reservation-id", "dns-205-1", "--minimum-interval-hours", "3",
                           "--check-workflow-retries", "--github-output", str(output_path)])
@@ -315,12 +316,15 @@ def test_truncated_or_inconsistent_dns_first_page_fails_before_ledger_read(
     ("refs/heads/feature", DNS_CODE_SHA), ("refs/heads/main", "b" * 40),
     (None, DNS_CODE_SHA), ("refs/heads/main", None),
 ])
+@pytest.mark.parametrize("legacy", [False, True])
 def test_dns_retry_cli_rejects_trigger_checkout_mismatch_before_api_or_reservation(
-    monkeypatch, tmp_path, ref, trigger_sha,
+    monkeypatch, tmp_path, ref, trigger_sha, legacy,
 ):
     monkeypatch.setattr(budget, "_resolve_commit", lambda *a: DNS_CODE_SHA)
     monkeypatch.setattr(budget, "fetch_dns_workflow_runs", lambda *a: pytest.fail("untrusted checkout reached API"))
     monkeypatch.setattr(budget, "reserve_budget", lambda *a, **kw: pytest.fail("untrusted checkout reserved"))
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setenv("GITHUB_WORKFLOW", budget.DNS_WORKFLOW_NAME if legacy else "CI")
     for name, value in [("GITHUB_REF", ref), ("GITHUB_SHA", trigger_sha)]:
         if value is None:
             monkeypatch.delenv(name, raising=False)
@@ -328,8 +332,11 @@ def test_dns_retry_cli_rejects_trigger_checkout_mismatch_before_api_or_reservati
             monkeypatch.setenv(name, value)
     output_path = tmp_path / "outputs"
 
-    assert budget.main(["reserve", "--reservation-id", "dns-206-1", "--minimum-interval-hours", "3",
-                        "--check-workflow-retries", "--github-output", str(output_path)]) == 1
+    args = ["reserve", "--reservation-id", "dns-206-1", "--minimum-interval-hours", "3",
+            "--github-output", str(output_path)]
+    if not legacy:
+        args.append("--check-workflow-retries")
+    assert budget.main(args) == 1
     assert not output_path.exists()
 
 
@@ -343,6 +350,60 @@ def test_actual_dns_main_guard_precedes_immutable_checkout_and_all_reservations(
                             capture_output=True, text=True)
 
     assert result.returncode == expected
+
+
+@pytest.mark.parametrize("attempt", ["2", "0", "01", "invalid", None])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_reused_or_unknown_dns_run_attempt_fails_before_api_or_reservation(
+    monkeypatch, tmp_path, capsys, attempt, legacy,
+):
+    monkeypatch.setattr(budget, "fetch_dns_workflow_runs", lambda *a: pytest.fail("rerun reached API"))
+    monkeypatch.setattr(budget, "reserve_budget", lambda *a, **kw: pytest.fail("rerun reserved"))
+    monkeypatch.setenv("GITHUB_WORKFLOW", budget.DNS_WORKFLOW_NAME if legacy else "CI")
+    if attempt is None:
+        monkeypatch.delenv("GITHUB_RUN_ATTEMPT", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_RUN_ATTEMPT", attempt)
+    args = ["reserve", "--reservation-id", "dns-208-1", "--minimum-interval-hours", "3",
+            "--github-output", str(tmp_path / "outputs")]
+    if not legacy:
+        args.append("--check-workflow-retries")
+
+    assert budget.main(args) == 1
+    assert "Use a new main workflow dispatch" in capsys.readouterr().err
+    assert not (tmp_path / "outputs").exists()
+
+
+def test_legacy_dns_workflow_automatically_checks_admission_without_flag_or_credentials(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("GITHUB_WORKFLOW", budget.DNS_WORKFLOW_NAME)
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_SHA", DNS_CODE_SHA)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setattr(budget, "_resolve_commit", lambda *a: DNS_CODE_SHA)
+    monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: pytest.fail("missing credentials reached API"))
+    monkeypatch.setattr(budget, "reserve_budget", lambda *a, **kw: pytest.fail("legacy missing proof reserved"))
+
+    assert budget.main(["reserve", "--reservation-id", "dns-209-1", "--minimum-interval-hours", "3",
+                        "--github-output", str(tmp_path / "outputs")]) == 1
+    assert "valid GitHub token" in capsys.readouterr().err
+    assert not (tmp_path / "outputs").exists()
+
+
+def test_ordinary_non_dns_local_reserve_keeps_existing_no_flag_behavior(monkeypatch, tmp_path):
+    monkeypatch.setenv("GITHUB_WORKFLOW", "CI")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    monkeypatch.setattr(budget, "fetch_dns_workflow_runs", lambda *a: pytest.fail("local reserve reached API"))
+    monkeypatch.setattr(budget, "_resolve_commit", lambda *a: pytest.fail("local reserve read a workflow checkout"))
+    def reserve(*args, **kwargs):
+        assert kwargs["workflow_runs_payload"] is None
+        assert kwargs["current_code_sha"] is None
+        return {"request_mode": "capacity_gated", "reserved_request_starts": 0}
+    monkeypatch.setattr(budget, "reserve_budget", reserve)
+
+    assert budget.main(["reserve", "--reservation-id", "dns-210-1", "--minimum-interval-hours", "3",
+                        "--github-output", str(tmp_path / "outputs")]) == 0
+    assert "request_mode=capacity_gated" in (tmp_path / "outputs").read_text()
 
 
 def test_operator_initialization_records_bounded_legacy_debt_parentlessly(

@@ -39,6 +39,7 @@ SAFE_RESERVATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 RESERVATION_KINDS = frozenset({"legacy_seed", "scan"})
 DNS_REPOSITORY = "AndreasKaratzas/vllm-ci-dashboard"
 DNS_WORKFLOW_PATH = ".github/workflows/dns-health.yml"
+DNS_WORKFLOW_NAME = "DNS Health Monitor"
 DNS_FAILED_RETRY_MINUTES = 70
 DNS_RUNS_URL = (
     f"https://api.github.com/repos/{DNS_REPOSITORY}/actions/workflows/dns-health.yml/runs"
@@ -847,13 +848,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "reserve":
             # Fixed API endpoint, trusted checkout HEAD and a fresh clock. A
             # missing/invalid API proof fails before any ledger mutation.
-            current_code_sha = _resolve_commit(root, "HEAD") if args.check_workflow_retries else None
-            if args.check_workflow_retries and (
+            check_retries = args.check_workflow_retries or os.environ.get("GITHUB_WORKFLOW") == DNS_WORKFLOW_NAME
+            if check_retries and os.environ.get("GITHUB_RUN_ATTEMPT") != "1":
+                raise DnsRequestBudgetError(
+                    "Use a new main workflow dispatch so prior failure cooldown remains visible"
+                )
+            current_code_sha = _resolve_commit(root, "HEAD") if check_retries else None
+            if check_retries and (
                 os.environ.get("GITHUB_REF") != "refs/heads/main"
                 or os.environ.get("GITHUB_SHA") != current_code_sha
             ):
                 raise DnsRequestBudgetError("DNS retry admission requires the exact main trigger checkout")
-            runs = fetch_dns_workflow_runs(os.environ.get("GH_TOKEN", "")) if args.check_workflow_retries else None
+            runs = fetch_dns_workflow_runs(os.environ.get("GH_TOKEN", "")) if check_retries else None
             outputs = reserve_budget(
                 root,
                 policy,
