@@ -31,6 +31,7 @@ WORKFLOW_RUNS_MAX_BYTES = 2 * 1024 * 1024
 UNAVAILABLE_GENERATION = "unavailable"
 RECOVERY_TARGETS = frozenset({"collector", "deploy-pages", "dns-health"})
 RECOVERY_KEY_RE = re.compile(r"(?:^| )\[recovery:([0-9a-f]{64})\](?:$| )")
+COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 COMPLETED_CONCLUSIONS = frozenset(
     {
         "action_required",
@@ -127,6 +128,7 @@ class WorkflowRun:
     updated_at: datetime
     conclusion: str | None
     recovery_key: str | None
+    head_sha: str | None = None
 
 
 def recovery_key(*, target: str, reason: str, observed_generation: str) -> str:
@@ -229,6 +231,7 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
             raise ValueError("workflow run state contains a non-object row")
         run_id = row.get("id")
         head_branch = row.get("head_branch")
+        head_sha = row.get("head_sha")
         status = row.get("status")
         created_at = _parse_timestamp(row.get("created_at"))
         run_started_value = row.get("run_started_at")
@@ -243,6 +246,10 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
             type(run_id) is not int
             or run_id <= 0
             or head_branch != "main"
+            or (
+                head_sha is not None
+                and (not isinstance(head_sha, str) or COMMIT_SHA_RE.fullmatch(head_sha) is None)
+            )
             or not isinstance(status, str)
             or status not in RUN_STATUSES
             or created_at is None
@@ -268,6 +275,7 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
                 updated_at=updated_at,
                 conclusion=conclusion,
                 recovery_key=parsed_recovery_key,
+                head_sha=head_sha,
             )
         )
     return tuple(runs)
@@ -288,12 +296,20 @@ def watchdog_decision(
     recovery_target: str = "collector",
     retry_cooldown_minutes: float = DEFAULT_RETRY_COOLDOWN_MINUTES,
     active_run_max_age_minutes: float = DEFAULT_ACTIVE_RUN_MAX_AGE_MINUTES,
+    current_code_sha: str | None = None,
 ) -> RecoveryDecision:
     """Decide whether the watchdog should dispatch the canonical collector."""
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     _positive_finite(retry_cooldown_minutes, label="retry cooldown")
     _positive_finite(active_run_max_age_minutes, label="active run max age")
+    if recovery_target == "dns-health":
+        if not isinstance(current_code_sha, str) or COMMIT_SHA_RE.fullmatch(current_code_sha) is None:
+            raise ValueError("DNS recovery requires an exact current code SHA")
+        if any(run.head_sha is None for run in workflow_runs):
+            raise ValueError("DNS workflow run state is missing an exact head SHA")
+    elif current_code_sha is not None:
+        raise ValueError("current code SHA is supported only for DNS recovery")
     now = now.astimezone(timezone.utc)
     if observation.recovery_reason is None:
         return RecoveryDecision(False, "canonical-current", observation.generation)
@@ -325,10 +341,21 @@ def watchdog_decision(
     cooldown_conclusions = (
         COMPLETED_CONCLUSIONS if recovery_target == "dns-health" else FAILED_ATTEMPT_CONCLUSIONS
     )
+    # Normal DNS failures/cancellations consume the same quota as keyed
+    # recovery runs. Cool down that code even when publication generations
+    # change; a newly checked-out fix can recover without waiting on old code.
     if any(
         run.status == "completed"
         and run.updated_at >= cooldown_cutoff
-        and run.recovery_key == incident_key
+        and (
+            run.recovery_key == incident_key
+            or (
+                recovery_target == "dns-health"
+                and run.recovery_key is None
+                and run.conclusion in FAILED_ATTEMPT_CONCLUSIONS
+            )
+        )
+        and (recovery_target != "dns-health" or run.head_sha == current_code_sha)
         and run.conclusion in cooldown_conclusions
         for run in workflow_runs
     ):
@@ -398,6 +425,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--collector-admission", type=Path)
     parser.add_argument("--recovery-target", choices=sorted(RECOVERY_TARGETS))
     parser.add_argument(
+        "--current-code-sha",
+        help="Exact trusted checkout HEAD for DNS same-code retry suppression",
+    )
+    parser.add_argument(
         "--max-age-minutes",
         type=float,
         default=DEFAULT_MAX_PUBLICATION_AGE_MINUTES,
@@ -424,6 +455,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--force-recovery-reason requires --workflow-runs")
     if (args.workflow_runs is None) != (args.recovery_target is None):
         parser.error("--recovery-target is required exactly with --workflow-runs")
+    if (args.recovery_target == "dns-health") != (args.current_code_sha is not None):
+        parser.error("--current-code-sha is required exactly with DNS workflow recovery")
     if args.collector_admission and (args.recovery_target != "collector" or args.force_recovery_reason == "state-uninitialized"):
         parser.error("--collector-admission requires a non-bootstrap collector route")
 
@@ -452,6 +485,7 @@ def main(argv: list[str] | None = None) -> int:
                 recovery_target=args.recovery_target,
                 retry_cooldown_minutes=args.retry_cooldown_minutes,
                 active_run_max_age_minutes=args.active_run_max_age_minutes,
+                current_code_sha=args.current_code_sha,
             )
             if args.collector_admission:
                 from vllm.observe_watchdog_collection_admission import load_admission
