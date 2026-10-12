@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   lint:
@@ -58,6 +57,10 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -74,9 +77,31 @@ jobs:
 
       - name: Run tests
         id: run-tests
+        timeout-minutes: 7
         run: |
           set -o pipefail
-          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
+          pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt
+
+      - name: Stage bounded test diagnostics
+        if: always()
+        timeout-minutes: 1
+        run: |
+          mkdir -p test-diagnostics
+          if [ -f test-output.txt ]; then
+            tail -c 1048576 test-output.txt > test-diagnostics/test-output.txt
+          else
+            printf '%s\n' 'Pytest did not produce test-output.txt.' > test-diagnostics/test-output.txt
+          fi
+
+      - name: Upload bounded test diagnostics
+        if: always()
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-test-output
+          path: test-diagnostics/test-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Comment test results on PR
         if: github.event_name == 'pull_request' && always()

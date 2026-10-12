@@ -214,6 +214,7 @@ class TestWorkflowYAML:
         )
         required_locations = {
             ("ci.yml", "e2e-smoke", "Upload browser traces on failure"),
+            ("ci.yml", "test", "Upload bounded test diagnostics"),
             ("health-check.yml", "check", "Upload bounded site health report"),
             ("hourly-master.yml", "collect-and-deploy", "Upload current CI core validation diagnostics"),
             ("hourly-master.yml", "collect-and-deploy", "Upload publication selection diagnostics"),
@@ -655,14 +656,49 @@ class TestPrimaryCIWorkflow:
 
     def test_pytest_pipeline_propagates_the_pytest_exit_code(self):
         data = _load_workflow("ci.yml")
-        steps = data["jobs"]["test"]["steps"]
+        job = data["jobs"]["test"]
+        assert job["timeout-minutes"] == 15
+        assert data["permissions"] == {"contents": "read"}
+        assert job["permissions"] == {"contents": "read", "pull-requests": "write"}
+        steps = job["steps"]
         run_tests = next(step for step in steps if step.get("name") == "Run tests")
         assert run_tests.get("id") == "run-tests"
+        assert run_tests["timeout-minutes"] == 7
         assert "set -o pipefail" in run_tests.get("run", "")
         assert (
-            "pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt"
+            "pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt"
             in run_tests.get("run", "")
         )
+
+    @pytest.mark.parametrize(
+        "source_bytes",
+        [None, b"last test before timeout\n", b"x" * 1048576 + b"last test before timeout\n"],
+        ids=["missing", "complete", "oversized"],
+    )
+    def test_test_diagnostics_preserve_only_a_bounded_tail(self, tmp_path, source_bytes):
+        steps = _load_workflow("ci.yml")["jobs"]["test"]["steps"]
+        names = [step.get("name") for step in steps]
+        stage = steps[names.index("Stage bounded test diagnostics")]
+        upload = steps[names.index("Upload bounded test diagnostics")]
+        assert names.index("Run tests") < names.index(stage["name"]) < names.index(upload["name"]) < names.index("Comment test results on PR")
+        assert stage["if"] == upload["if"] == "always()"
+        assert stage["timeout-minutes"] == 1
+        assert upload["timeout-minutes"] == 2
+        assert "env" not in stage and "env" not in upload
+        assert upload["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
+        assert upload["with"] == {
+            "name": "ci-test-output",
+            "path": "test-diagnostics/test-output.txt",
+            "if-no-files-found": "ignore",
+            "retention-days": 7,
+        }
+        if source_bytes is not None:
+            (tmp_path / "test-output.txt").write_bytes(source_bytes)
+        staged = subprocess.run(["bash", "-e", "-c", stage["run"]], cwd=tmp_path, capture_output=True, timeout=5, check=True)
+        assert staged.stdout == staged.stderr == b""
+        output = (tmp_path / upload["with"]["path"]).read_bytes()
+        assert len(output) <= 1048576
+        assert output == (source_bytes[-1048576:] if source_bytes is not None else b"Pytest did not produce test-output.txt.\n")
 
     def test_pr_comment_uses_the_terminal_pytest_summary(self):
         data = _load_workflow("ci.yml")
