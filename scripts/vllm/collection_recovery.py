@@ -44,6 +44,9 @@ MANIFEST_PATH = "data/vllm/ci/dashboard_state.json"
 MAX_STATE_BYTES = writer_max_bytes("publication_state")
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+COLLECTION_EVIDENCE_VERSION = 2
+OPERATIONS_FAILURE_CODE = "publication-operations-build-failed"
+OPERATIONS_FAILURE_PHASE = "candidate source generation"
 
 
 class CollectionEvidenceError(ValueError):
@@ -69,8 +72,8 @@ def _timestamp(value: object) -> datetime:
     return parsed
 
 
-def retry_surfaces_from_state(payload: object) -> list[str]:
-    """Only typed failed collectors in fallback qualify, not general degradation."""
+def _state_retry_lanes(payload: object) -> tuple[set[str], set[str], set[str]]:
+    """Validate fallback lanes and collect exact typed collector failures."""
     if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int or payload["schema_version"] != 2:
         raise CollectionEvidenceError("unsupported publication state schema")
     if payload.get("mode") not in {"current", "degraded", "fallback", "mixed"}:
@@ -127,9 +130,53 @@ def retry_surfaces_from_state(payload: object) -> list[str]:
             or surface not in fallback
         ):
             raise CollectionEvidenceError("invalid collector failure record")
-        if surface in RETRY_SURFACES:
-            selected.add(surface)
-    return sorted(selected)
+        selected.add(surface)
+    return fallback, selected, set(allowed)
+
+
+def _publication_retry_surfaces(payload: dict, fallback: set[str], allowed: set[str]) -> set[str]:
+    """Only a failed candidate Operations build qualifies for validation retry.
+
+    Ordinary fallback, fresh degradation and unrelated audit findings retain
+    their existing cadence. The immutable state's typed error must describe
+    this exact derived build and a surface actually restored from baseline.
+    """
+    findings = payload.get("candidate_errors", [])
+    if not isinstance(findings, list) or len(findings) > 256:
+        raise CollectionEvidenceError("invalid publication validation findings")
+    selected: set[str] = set()
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise CollectionEvidenceError("invalid publication validation finding")
+        if finding.get("code") != OPERATIONS_FAILURE_CODE:
+            continue
+        context = finding.get("context")
+        surfaces = finding.get("surfaces")
+        if (
+            set(finding) != {"severity", "code", "message", "path", "context", "surfaces"}
+            or finding.get("severity") != "error"
+            or finding.get("path") != "data/vllm/ci/operations_v2.json.gz"
+            or finding.get("message") != "the Operations read model could not be rebuilt during " + OPERATIONS_FAILURE_PHASE
+            or not isinstance(context, dict)
+            or not {"phase", "exception_type"} <= set(context)
+            or set(context) - {"phase", "exception_type", "details"}
+            or context.get("phase") != OPERATIONS_FAILURE_PHASE
+            or context.get("exception_type") != "CalledProcessError"
+            or ("details" in context and (not isinstance(context["details"], str) or len(context["details"]) > 1000))
+            or not isinstance(surfaces, list) or not surfaces or len(surfaces) > len(allowed)
+            or any(not isinstance(surface, str) or surface not in allowed for surface in surfaces)
+            or surfaces != sorted(set(surfaces))
+        ):
+            raise CollectionEvidenceError("invalid Operations publication failure proof")
+        selected.update(set(surfaces) & fallback & RETRY_SURFACES)
+    return selected
+
+
+def retry_surfaces_from_state(payload: object) -> list[str]:
+    """Retry exact failed collectors or candidate builds, never general degradation."""
+    fallback, collectors, allowed = _state_retry_lanes(payload)
+    assert isinstance(payload, dict)
+    return sorted((collectors & RETRY_SURFACES) | _publication_retry_surfaces(payload, fallback, allowed))
 
 
 def _normalize_collection_evidence(
@@ -141,12 +188,13 @@ def _normalize_collection_evidence(
         raise CollectionEvidenceError("invalid collection evidence shape")
     surfaces = value.get("retry_surfaces")
     if (
-        type(value.get("schema_version")) is not int or value["schema_version"] != 1
+        type(value.get("schema_version")) is not int or value["schema_version"] not in {1, COLLECTION_EVIDENCE_VERSION}
         or value.get("durable_ref") != durable_ref
         or not isinstance(value.get("publication_state_oid"), str)
         or not SHA_RE.fullmatch(value["publication_state_oid"])
         or not isinstance(surfaces, list)
         or any(not isinstance(surface, str) or surface not in allowed_surfaces for surface in surfaces)
+        or (value["schema_version"] == COLLECTION_EVIDENCE_VERSION and any(surface not in RETRY_SURFACES for surface in surfaces))
         or surfaces != sorted(set(surfaces))
     ):
         raise CollectionEvidenceError("invalid collection evidence values")
@@ -220,7 +268,7 @@ def _blob(root: Path, ref: str, path: str, limit: int) -> tuple[str, bytes]:
 
 
 def _read_local_evidence(root: Path, *, durable_ref: str, reserved_at: str,
-                         succeeded_at: str) -> dict[str, Any]:
+                         succeeded_at: str, expected_evidence: dict | None = None) -> dict[str, Any]:
     if _git(root, "cat-file", "-t", durable_ref).strip() != b"commit":
         raise CollectionEvidenceError("durable collection identity is not a commit")
     commit_size = int(_git(root, "cat-file", "-s", durable_ref))
@@ -251,8 +299,19 @@ def _read_local_evidence(root: Path, *, durable_ref: str, reserved_at: str,
     state = _json(raw)
     if not _timestamp(reserved_at) <= _timestamp(state.get("generated_at")) <= _timestamp(succeeded_at):
         raise CollectionEvidenceError("publication state clock is outside its recorded attempt")
+    if expected_evidence is not None:
+        historical = normalize_historical_collection_evidence(expected_evidence, durable_ref=durable_ref)
+        if historical["publication_state_oid"] != oid:
+            raise CollectionEvidenceError("cached collection evidence names a different state object")
+        if historical["schema_version"] == 1:
+            _, collectors, _ = _state_retry_lanes(state)
+            original = historical["retry_surfaces"]
+            if original not in (sorted(collectors & RETRY_SURFACES), sorted(collectors & HISTORICAL_RETRY_SURFACES)):
+                raise CollectionEvidenceError("cached historical collection outcome disagrees with its exact state")
+        elif historical["retry_surfaces"] != retry_surfaces_from_state(state):
+            raise CollectionEvidenceError("cached collection outcome disagrees with its exact state")
     return {
-        "schema_version": 1,
+        "schema_version": COLLECTION_EVIDENCE_VERSION,
         "durable_ref": durable_ref,
         "publication_state_oid": oid,
         "retry_surfaces": retry_surfaces_from_state(state),
@@ -301,6 +360,7 @@ def _hydrate_remote_evidence(root: Path, *, durable_ref: str, remote: str) -> No
 
 def read_collection_evidence(
     root: Path, *, durable_ref: str, reserved_at: str, succeeded_at: str, remote: str,
+    expected_evidence: dict | None = None,
 ) -> dict[str, Any]:
     """Use immutable ledger evidence even after queue/DNS republish newer state."""
     if not isinstance(durable_ref, str) or not SHA_RE.fullmatch(durable_ref):
@@ -308,9 +368,11 @@ def read_collection_evidence(
     try:
         return _read_local_evidence(
             root, durable_ref=durable_ref, reserved_at=reserved_at, succeeded_at=succeeded_at,
+            expected_evidence=expected_evidence,
         )
     except CollectionEvidenceUnavailable:
         _hydrate_remote_evidence(root, durable_ref=durable_ref, remote=remote)
         return _read_local_evidence(
             root, durable_ref=durable_ref, reserved_at=reserved_at, succeeded_at=succeeded_at,
+            expected_evidence=expected_evidence,
         )

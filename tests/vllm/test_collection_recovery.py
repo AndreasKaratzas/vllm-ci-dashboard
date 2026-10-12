@@ -1,6 +1,7 @@
 """Fail-closed immutable publication proofs for bounded collection retries."""
 
 from types import SimpleNamespace
+from copy import deepcopy
 
 import pytest
 
@@ -171,3 +172,89 @@ def test_current_and_exact_previous_contracts_preserve_valid_ci_retry_evidence(v
                  "schema_version": 1, "surface": "ci_core", "collector": "collect_ci.py",
                  "step": "Current MI collection", "reason_class": "network", "exit_code": 1}]}
     assert recovery.retry_surfaces_from_state(state) == ["ci_core"]
+
+
+def operations_failure(surfaces=("ci_analytics", "ci_core")):
+    return {
+        "severity": "error", "code": "publication-operations-build-failed",
+        "message": "the Operations read model could not be rebuilt during candidate source generation",
+        "path": "data/vllm/ci/operations_v2.json.gz",
+        "context": {"phase": "candidate source generation", "exception_type": "CalledProcessError"},
+        "surfaces": list(surfaces),
+    }
+
+
+def publication_failure_state(*, fallback=("ci_analytics", "ci_core"), fresh=()):
+    return {
+        "schema_version": 2, "surface_contract_version": recovery.SURFACE_CONTRACT_VERSION,
+        "mode": "mixed" if fallback and fresh else "fallback" if fallback else "degraded" if fresh else "current",
+        "fallback_surfaces": sorted(fallback), "fresh_degraded_surfaces": sorted(fresh),
+        "degraded_surfaces": sorted(set(fallback) | set(fresh)), "collector_failures": [],
+        "candidate_errors": [operations_failure()],
+    }
+
+
+def test_exact_operations_failure_retries_only_affected_actual_fallbacks():
+    state = publication_failure_state(fallback=("ci_core", "dns_health"))
+    assert recovery.retry_surfaces_from_state(state) == ["ci_core"]
+    state["candidate_errors"][0]["context"]["details"] = "bounded redacted subprocess diagnostic"
+    assert recovery.retry_surfaces_from_state(state) == ["ci_core"]
+
+
+@pytest.mark.parametrize("fallback,fresh", [([], []), ([], ["ci_core"]), (["dns_health"], [])])
+def test_operations_failure_cannot_borrow_unaffected_or_fresh_degraded_lanes(fallback, fresh):
+    state = publication_failure_state(fallback=fallback, fresh=fresh)
+    assert recovery.retry_surfaces_from_state(state) == []
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda finding: finding.update(severity="warning"),
+    lambda finding: finding.update(path="data/vllm/ci/analytics.json"),
+    lambda finding: finding.update(message="an arbitrary failure"),
+    lambda finding: finding["context"].update(phase="final selection"),
+    lambda finding: finding["context"].update(exception_type="UnknownError"),
+    lambda finding: finding["context"].pop("phase"),
+    lambda finding: finding["context"].update(unreviewed=True),
+    lambda finding: finding["context"].update(details="x" * 1001),
+    lambda finding: finding.update(context=[]),
+    lambda finding: finding.update(surfaces=["ci_core", "ci_core"]),
+    lambda finding: finding.update(surfaces=["ci_core", "ci_analytics"]),
+    lambda finding: finding.update(surfaces=["unknown"]),
+    lambda finding: finding.update(surfaces=[True]),
+    lambda finding: finding.update(surfaces=[]),
+    lambda finding: finding.update(surfaces="ci_core"),
+    lambda finding: finding.update(extra="unreviewed"),
+])
+def test_malformed_operations_failure_never_proves_retry(mutation):
+    state = publication_failure_state()
+    mutation(state["candidate_errors"][0])
+    with pytest.raises(recovery.CollectionEvidenceError, match="Operations publication failure"):
+        recovery.retry_surfaces_from_state(state)
+
+
+def test_unrelated_validation_and_general_fallback_do_not_trigger_retry():
+    state = publication_failure_state()
+    state["candidate_errors"][0]["code"] = "an-unrelated-audit-finding"
+    assert recovery.retry_surfaces_from_state(state) == []
+    state["candidate_errors"] = []
+    assert recovery.retry_surfaces_from_state(state) == []
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_versioned_compact_proof_is_shape_strict_and_preserves_its_policy(version):
+    proof = {"schema_version": version, "durable_ref": "a" * 40,
+             "publication_state_oid": "b" * 40, "retry_surfaces": ["ci_core"]}
+    original = deepcopy(proof)
+    assert recovery.normalize_historical_collection_evidence(proof, durable_ref="a" * 40) == original
+    assert proof == original
+    proof["policy_override"] = "unreviewed"
+    with pytest.raises(recovery.CollectionEvidenceError, match="shape"):
+        recovery.normalize_historical_collection_evidence(proof, durable_ref="a" * 40)
+
+
+def test_new_policy_proof_cannot_persist_retired_retry_names():
+    with pytest.raises(recovery.CollectionEvidenceError, match="values"):
+        recovery.normalize_historical_collection_evidence({
+            "schema_version": 2, "durable_ref": "a" * 40,
+            "publication_state_oid": "b" * 40, "retry_surfaces": ["ci_gating"],
+        }, durable_ref="a" * 40)
