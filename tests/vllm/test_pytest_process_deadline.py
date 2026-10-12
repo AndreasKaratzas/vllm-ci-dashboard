@@ -3,11 +3,14 @@
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 import yaml
+
+from vllm import buildkite_request_guard as guard
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -66,12 +69,23 @@ time.sleep(60)
     executable.chmod(0o755)
     output = tmp_path / "github-output"
     pid_path = tmp_path / "child.pid"
-    env = {"PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "LANG": "C.UTF-8",
+    env = {"PATH": os.pathsep.join((str(tmp_path), str(Path(sys.executable).parent), os.environ["PATH"])),
+           "PYTHONPATH": str(REPO_ROOT / "scripts"), "LANG": "C.UTF-8",
            "PYTEST_PROCESS_CASE": case, "GITHUB_OUTPUT": str(output), "DESCENDANT_PID": str(pid_path)}
+    guard_path = tmp_path / "outer-buildkite-request-guard.json"
+    guard_attempt = "pytest-deadline-fixture"
     if workflow == "hourly-master.yml":
-        env.update({key: "synthetic-guard-value" for key in (
-            "BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN", "BUILDKITE_REQUEST_GUARD_FILE",
-            "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID", "BUILDKITE_REQUEST_GUARD_ALLOWANCE", "GITHUB_REQUEST_STATE_FILE")})
+        # The publisher's encoder retains its outer guard. Exercise real Python
+        # startup with a valid guard that cannot admit a Buildkite request.
+        guard.initialize(guard_path, attempt_id=guard_attempt, allowance=0)
+        env.update({
+            "BUILDKITE_TOKEN": "synthetic-credential-value",
+            "BUILDKITE_API_TOKEN": "synthetic-credential-value",
+            "BUILDKITE_REQUEST_GUARD_FILE": str(guard_path),
+            "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID": guard_attempt,
+            "BUILDKITE_REQUEST_GUARD_ALLOWANCE": "0",
+            "GITHUB_REQUEST_STATE_FILE": "synthetic-guard-value",
+        })
         env["VERIFY_ISOLATION"] = "1"
     started = time.monotonic()
     try:
@@ -83,6 +97,7 @@ time.sleep(60)
             assert result.returncode == expected
         else:
             assert result.returncode == 0  # Existing workflow defers failure to its validation gate.
+            assert guard.read_count(guard_path, attempt_id=guard_attempt, allowance=0) == 0
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             assert int(values["exit_code"]) == expected
             enforce = steps["Enforce publication validation results"]["run"]
@@ -110,7 +125,11 @@ def test_publisher_diagnostics_always_keep_only_bounded_test_tail(tmp_path, sour
     _, steps = _steps("hourly-master.yml")
     stage = steps["Stage bounded deterministic test diagnostics"]
     upload = steps["Upload bounded deterministic test diagnostics"]
-    assert stage["if"] == upload["if"] == "always() && steps.run-tests.outcome != 'skipped'"
+    assert stage["if"] == upload["if"]
+    assert "always() && steps.run-tests.outcome != 'skipped'" in stage["if"]
+    assert "inputs.dns_generation != ''" in stage["if"]
+    assert "inputs.queue_generation != ''" in stage["if"]
+    assert "steps.request-attempt.outputs.request_mode == 'reserved'" in stage["if"]
     assert stage["timeout-minutes"] == 1
     assert upload["timeout-minutes"] == 2
     assert upload["continue-on-error"] is True

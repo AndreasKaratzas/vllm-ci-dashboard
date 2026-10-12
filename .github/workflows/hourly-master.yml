@@ -2562,7 +2562,11 @@ jobs:
           PY
 
       - name: Stage bounded deterministic test diagnostics
-        if: always() && steps.run-tests.outcome != 'skipped'
+        if: >-
+          always() && steps.run-tests.outcome != 'skipped' &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
         timeout-minutes: 1
         run: |
           mkdir -p test-diagnostics
@@ -2573,7 +2577,11 @@ jobs:
           fi
 
       - name: Upload bounded deterministic test diagnostics
-        if: always() && steps.run-tests.outcome != 'skipped'
+        if: >-
+          always() && steps.run-tests.outcome != 'skipped' &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
         timeout-minutes: 2
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
