@@ -1571,6 +1571,76 @@ def test_snapshot_keeps_result_event_time_separate_from_collection(tmp_path):
     assert source["collection_timestamp_source"] == "ci_health.generated_at"
 
 
+@pytest.fixture
+def retained_key_inventory(rerouted_lm_eval_inventory):
+    from vllm.ci.runtime_families import annotate_build_source_families
+
+    metadata, parity, health, results = rerouted_lm_eval_inventory
+    for job, result in zip(metadata["jobs"], results):
+        job.pop("step_key")
+        result["source_step_key"] = result["source_definition_id"].rsplit("#", 1)[-1]
+        result["source_binding_basis"] = "runtime_step_key"
+    metadata = annotate_build_source_families(metadata, _lm_eval_family_catalog(metadata, parity))
+    return metadata, parity, health, results
+
+
+def test_retained_key_assertions_survive_optional_provider_key_omission(
+    tmp_path, retained_key_inventory,
+):
+    metadata, parity, health, results = retained_key_inventory
+    _write_jsonl(tmp_path / "test_results" / "2026-10-09_amd.jsonl", results)
+    original = json.loads(json.dumps(results))
+    inventory = ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)["latest_logical_test_groups"]
+    assert inventory["available"] is True
+    assert inventory["summary"]["total"] == inventory["summary"]["passing"] == 2
+    assert inventory["reconciliation"]["matches_latest_test_group_counts"] is True
+    variants = {variant["job_id"]: variant for row in inventory["rows"] for variant in row["job_variants"]}
+    for job, result in zip(metadata["jobs"], results):
+        assert job["source_binding_basis"] == "pinned_declared_label"
+        assert "step_key" not in job
+        assert variants[result["job_id"]]["source_binding_basis"] == "runtime_step_key"
+        assert variants[result["job_id"]]["source_step_key"] == result["source_step_key"]
+        assert variants[result["job_id"]]["step_id"] == job["step_id"]
+    assert results == original
+
+
+@pytest.mark.parametrize("change", [
+    "wrong_key", "null_key", "blank_key", "wrong_step", "missing_step",
+    "missing_result_step", "wrong_result_key", "wrong_definition",
+    "wrong_commit", "wrong_declaration", "ambiguous_declaration",
+])
+def test_key_omission_cannot_authorize_conflicting_or_unproved_results(
+    tmp_path, retained_key_inventory, change,
+):
+    metadata, parity, health, results = retained_key_inventory
+    job = metadata["jobs"][1]
+    row = results[1]
+    if change in {"wrong_key", "null_key", "blank_key"}:
+        job["step_key"] = {"wrong_key": "foreign-step", "null_key": None, "blank_key": ""}[change]
+    elif change == "wrong_step":
+        job["step_id"] = "00000000-0000-0000-0000-000000000001"
+    elif change == "missing_step":
+        job.pop("step_id")
+    elif change == "missing_result_step":
+        row.pop("step_id")
+    elif change == "wrong_result_key":
+        row["source_step_key"] = "foreign-step"
+    elif change == "wrong_definition":
+        row["source_definition_id"] = results[0]["source_definition_id"]
+    elif change == "wrong_commit":
+        row["source_commit"] = "c" * 40
+    elif change == "wrong_declaration":
+        job["raw_name"] = metadata["jobs"][0]["raw_name"]
+    else:
+        catalog = metadata["source_family_catalog"]
+        duplicate = dict(next(definition for definition in catalog["definitions"] if definition["definition_id"] == row["source_definition_id"]))
+        duplicate.update(definition_id=".buildkite/test_areas/duplicate.yaml#duplicate", step_key="duplicate")
+        catalog["definitions"] = sorted([*catalog["definitions"], duplicate], key=lambda definition: definition["definition_id"])
+    _write_jsonl(tmp_path / "test_results" / "2026-10-09_amd.jsonl", results)
+    with pytest.raises(ValueError, match="source|runtime"):
+        ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
+
+
 def test_reliability_catalog_retains_supplementary_families_without_regrouping(
     rerouted_lm_eval_inventory,
 ):

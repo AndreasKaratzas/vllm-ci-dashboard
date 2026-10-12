@@ -116,7 +116,8 @@ def remote_sha(root: Path, policy: budget.AttemptPolicy) -> str | None:
 
 
 def published_state(root: Path, *, failures=(), fallback=(), fresh=(), generated_at=None,
-                    corrupt_manifest=False, parent=None, surface_contract_version=None) -> str:
+                    corrupt_manifest=False, parent=None, surface_contract_version=None,
+                    candidate_errors=()) -> str:
     """A real parentless commit with manifest-bound recovery evidence."""
     fallback = sorted(set(fallback) | set(failures))
     payload = {
@@ -133,6 +134,7 @@ def published_state(root: Path, *, failures=(), fallback=(), fresh=(), generated
              "step": "Requested collector", "reason_class": "rate-limit", "exit_code": 1}
             for surface in failures
         ],
+        "candidate_errors": list(candidate_errors),
     }
     if surface_contract_version is not None:
         payload["surface_contract_version"] = surface_contract_version
@@ -155,6 +157,16 @@ def published_state(root: Path, *, failures=(), fallback=(), fresh=(), generated
     tree = git(root, "write-tree")
     parent_args = ["-p", parent] if parent else []
     return git(root, "commit-tree", tree, *parent_args, input_text="Publication evidence fixture\n")
+
+
+def operations_publication_error(surfaces=("ci_analytics", "ci_core")):
+    return {
+        "severity": "error", "code": "publication-operations-build-failed",
+        "message": "the Operations read model could not be rebuilt during candidate source generation",
+        "path": "data/vllm/ci/operations_v2.json.gz",
+        "context": {"phase": "candidate source generation", "exception_type": "CalledProcessError"},
+        "surfaces": list(surfaces),
+    }
 
 
 def record_publication(root, policy, *, state_sha, monkeypatch=None):
@@ -615,6 +627,7 @@ def test_exact_historical_retired_proof_survives_new_guarded_reservation_and_suc
     ledger = json.loads(json.dumps(current.ledger))
     historical_row = next(row for row in ledger["attempts"] if row["id"] == "data-2000-1")
     historical_row["collection_evidence"]["retry_surfaces"] = old_surfaces
+    historical_row["collection_evidence"]["schema_version"] = 1
     old_row = json.loads(json.dumps(historical_row))
     old_sha = _persist_raw_historical_ledger(checkout, policy, ledger)
     validated = budget.validate_ledger_ref(checkout, old_sha, policy)
@@ -678,3 +691,139 @@ def test_new_current_surface_proof_cannot_write_retired_retry_names(repo, policy
                             actual_request_starts=77, now=BASE + timedelta(minutes=10),
                             remote="origin", require_collection_evidence=True)
     assert remote_sha(checkout, policy) == before
+
+
+def _legacy_empty_cached_proof(checkout, policy, state_sha, *, mutate=None):
+    """Persist the exact version-one outcome written before validation retries."""
+    current = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy)
+    ledger = json.loads(json.dumps(current.ledger))
+    row = next(row for row in ledger["attempts"] if row["source"] == "runtime")
+    row["collection_evidence"] = {
+        "schema_version": 1, "durable_ref": state_sha,
+        "publication_state_oid": git(checkout, "rev-parse", f"{state_sha}:{recovery.STATE_PATH}"),
+        "retry_surfaces": [],
+    }
+    if mutate:
+        mutate(row)
+    sha = _persist_raw_historical_ledger(checkout, policy, ledger)
+    return sha, json.loads(json.dumps(row))
+
+
+@pytest.mark.parametrize("legacy_cached", [False, True])
+def test_operations_publication_failure_has_thirty_minute_gate_and_exact_leased_retry(
+    repo, policy, legacy_cached,
+):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    state = published_state(checkout, fallback=["ci_analytics", "ci_core"],
+                            candidate_errors=[operations_publication_error()])
+    record_publication(checkout, policy, state_sha=state)
+    if legacy_cached:
+        original_sha, original_row = _legacy_empty_cached_proof(checkout, policy, state)
+    else:
+        original_sha = remote_sha(checkout, policy)
+        original_row = budget.validate_ledger_ref(checkout, original_sha, policy).ledger["attempts"][-1]
+        assert original_row["collection_evidence"]["schema_version"] == 2
+    # The current state ref advancing must not substitute for the old state proof.
+    unrelated = published_state(checkout, generated_at=budget._iso(BASE + timedelta(minutes=20)))
+    git(checkout, "update-ref", "refs/heads/dashboard-state", unrelated)
+    early = budget.observe(checkout, policy, now=BASE + timedelta(minutes=29, seconds=59), remote="origin")
+    assert early["request_mode"] == "retry_gated"
+    assert early["available_at"] == budget._iso(BASE + timedelta(minutes=30))
+    assert early["retry_surfaces"] == "ci_analytics,ci_core"
+    assert early["latest_durable_ref"] == state
+    assert reserve(checkout, policy, 2001, BASE + timedelta(minutes=29))["request_mode"] == "retry_gated"
+    assert remote_sha(checkout, policy) == original_sha
+    due = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert due["required"] == "true" and due["collection_evidence_status"] == "incomplete"
+    assert remote_sha(checkout, policy) == original_sha
+    retried = reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))
+    assert retried["request_mode"] == "reserved" and retried["request_start_allowance"] == 800
+    assert retried["active_attempts"] == 3 and retried["rolling_reserved_request_starts"] == 1600
+    rows = budget.validate_ledger_ref(checkout, retried["budget_sha"], policy).ledger["attempts"]
+    assert next(row for row in rows if row["id"] == original_row["id"]) == original_row
+    proof = rows[-1]["pending_collection_evidence"]
+    assert proof["schema_version"] == 2 and proof["durable_ref"] == state
+    assert proof["publication_state_oid"] == original_row["collection_evidence"]["publication_state_oid"]
+    assert proof["retry_surfaces"] == ["ci_analytics", "ci_core"]
+    healthy = published_state(checkout, generated_at=budget._iso(BASE + timedelta(minutes=35)))
+    budget.mark_success(checkout, policy, attempt_id=retried["attempt_id"], durable_ref=healthy,
+                        actual_request_starts=77, now=BASE + timedelta(minutes=40), remote="origin",
+                        require_collection_evidence=True)
+    complete = budget.observe(checkout, policy, now=BASE + timedelta(minutes=60), remote="origin")
+    assert complete["request_mode"] == "success_gated" and complete["retry_surfaces"] == ""
+    assert complete["available_at"] == budget._iso(BASE + timedelta(minutes=150))
+
+
+@pytest.mark.parametrize("fallback,fresh,findings", [
+    ([], [], []), (["ci_core"], [], []), ([], ["ci_core"], [operations_publication_error()]),
+    (["dns_health"], [], [operations_publication_error()]),
+])
+def test_legacy_cached_current_and_general_degradations_keep_original_history_and_cadence(
+    repo, policy, fallback, fresh, findings,
+):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    state = published_state(checkout, fallback=fallback, fresh=fresh, candidate_errors=findings)
+    record_publication(checkout, policy, state_sha=state)
+    original_sha, original_row = _legacy_empty_cached_proof(checkout, policy, state)
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert observed["request_mode"] == "success_gated" and observed["retry_surfaces"] == ""
+    assert observed["available_at"] == budget._iso(BASE + timedelta(minutes=120))
+    assert remote_sha(checkout, policy) == original_sha
+    reserved = reserve(checkout, policy, 2001, BASE + timedelta(minutes=120))
+    assert reserved["request_mode"] == "reserved"
+    rows = budget.validate_ledger_ref(checkout, reserved["budget_sha"], policy).ledger["attempts"]
+    assert next(row for row in rows if row["id"] == original_row["id"]) == original_row
+    assert "pending_collection_evidence" not in rows[-1]
+
+
+@pytest.mark.parametrize("mutation", [
+    lambda row: row["collection_evidence"].update(publication_state_oid="0" * 40),
+    lambda row: row["collection_evidence"].update(durable_ref="0" * 40),
+    lambda row: row["collection_evidence"].update(schema_version=3),
+    lambda row: row["collection_evidence"].update(unreviewed="policy"),
+])
+def test_corrupt_legacy_cached_proof_cannot_authorize_any_new_reservation(repo, policy, mutation):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    state = published_state(checkout, fallback=["ci_core"], candidate_errors=[operations_publication_error()])
+    record_publication(checkout, policy, state_sha=state)
+    original_sha, _ = _legacy_empty_cached_proof(checkout, policy, state, mutate=mutation)
+    for now in [BASE + timedelta(minutes=30), BASE + timedelta(hours=3)]:
+        with pytest.raises(budget.AttemptBudgetError, match="collection evidence"):
+            budget.observe(checkout, policy, now=now, remote="origin")
+        with pytest.raises(budget.AttemptBudgetError, match="collection evidence"):
+            reserve(checkout, policy, 2001, now)
+        assert remote_sha(checkout, policy) == original_sha
+
+
+def test_cached_legacy_empty_outcome_must_match_actual_original_collector_failures(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    state = published_state(checkout, failures=["ci_core"])
+    record_publication(checkout, policy, state_sha=state)
+    original_sha, _ = _legacy_empty_cached_proof(checkout, policy, state)
+    with pytest.raises(budget.AttemptBudgetError, match="historical collection outcome"):
+        reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))
+    assert remote_sha(checkout, policy) == original_sha
+
+
+def test_publication_validation_retry_cannot_bypass_real_sixteen_attempt_ledger(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    state = published_state(checkout, fallback=["ci_core"], candidate_errors=[operations_publication_error()])
+    record_publication(checkout, policy, state_sha=state)
+    _legacy_empty_cached_proof(checkout, policy, state)
+    current = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy)
+    latest = current.ledger["attempts"][-1]
+    rows = [budget._attempt_row(attempt_id=f"data-{number}-1", reserved_at=BASE - timedelta(minutes=60 + number),
+                                policy=policy, source="runtime", bound_proven=True,
+                                workflow_run_id=str(number), workflow_run_attempt=1, event_name="schedule")
+            for number in range(100, 115)] + [latest]
+    ledger = budget._new_ledger(rows, now=BASE + timedelta(minutes=10), policy=policy)
+    original_sha = _persist_raw_historical_ledger(checkout, policy, ledger)
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=30), remote="origin")
+    assert observed["request_mode"] == "cap_gated" and observed["collection_retry_required"] == "true"
+    assert reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))["request_mode"] == "cap_gated"
+    assert remote_sha(checkout, policy) == original_sha

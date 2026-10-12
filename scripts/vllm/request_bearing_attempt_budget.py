@@ -716,7 +716,8 @@ def _attempt_row(
 
 
 def _request_mode(
-    attempts: list[dict[str, Any]], *, now: datetime, policy: AttemptPolicy
+    attempts: list[dict[str, Any]], *, now: datetime, policy: AttemptPolicy,
+    collection_retry_required: bool = False,
 ) -> tuple[str, datetime | None]:
     """Return the authoritative mode without mutating the durable ledger.
 
@@ -729,9 +730,9 @@ def _request_mode(
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
         collection_failed = bool(
             policy.producer == "data_collection"
-            and any(surface in RETRY_SURFACES for surface in (
+            and (collection_retry_required or any(surface in RETRY_SURFACES for surface in (
                 latest.get("collection_evidence") or latest.get("pending_collection_evidence") or {}
-            ).get("retry_surfaces", []))
+            ).get("retry_surfaces", [])))
         )
         complete = latest["succeeded_at"] is not None and not collection_failed
         interval = policy.success_interval_minutes if complete else policy.failed_retry_interval_minutes
@@ -815,13 +816,26 @@ def _collection_context(
         except CollectionEvidenceError:
             outputs["collection_evidence_status"] = "unavailable"
             return outputs, None
-    surfaces = [surface for surface in latest["collection_evidence"]["retry_surfaces"] if surface in RETRY_SURFACES]
+    evidence = latest["collection_evidence"]
+    if evidence["schema_version"] == 1 and not evidence["retry_surfaces"]:
+        # The old policy attested collector outcomes only. Reinterpret its same
+        # immutable state for typed publication failures; do not replace the
+        # original cached proof or its accounting and timestamps.
+        try:
+            evidence = normalize_collection_evidence(read_collection_evidence(
+                root, durable_ref=latest["durable_ref"],
+                reserved_at=latest["reserved_at"], succeeded_at=latest["succeeded_at"],
+                remote=_safe_remote(remote), expected_evidence=evidence,
+            ), durable_ref=latest["durable_ref"])
+        except CollectionEvidenceError as exc:
+            raise AttemptBudgetError(f"cached collection evidence could not be revalidated: {exc}") from exc
+    surfaces = [surface for surface in evidence["retry_surfaces"] if surface in RETRY_SURFACES]
     outputs.update({
         "retry_surfaces": ",".join(surfaces),
         "collection_retry_required": "true" if surfaces else "false",
         "collection_evidence_status": "incomplete" if surfaces else "complete",
     })
-    return outputs, {**latest["collection_evidence"], "retry_surfaces": surfaces}
+    return outputs, {**evidence, "retry_surfaces": surfaces}
 
 
 def initialize(
@@ -946,7 +960,10 @@ def reserve(
     }
     if any(row["id"] == attempt_id for row in attempts):
         raise AttemptBudgetError("attempt id already exists; refusing permit reuse")
-    request_mode, available = _request_mode(attempts, now=now, policy=policy)
+    request_mode, available = _request_mode(
+        attempts, now=now, policy=policy,
+        collection_retry_required=collection["collection_retry_required"] == "true",
+    )
     if request_mode != "reserved":
         return {
             **base,
@@ -1013,7 +1030,10 @@ def observe(
     collection, _ = _collection_context(
         root, policy, attempts, remote=remote, prior_attempts=established.ledger["attempts"],
     )
-    request_mode, available = _request_mode(attempts, now=now, policy=policy)
+    request_mode, available = _request_mode(
+        attempts, now=now, policy=policy,
+        collection_retry_required=collection["collection_retry_required"] == "true",
+    )
     successful = [row for row in attempts if row["succeeded_at"] is not None]
     latest_success = max(
         successful,
