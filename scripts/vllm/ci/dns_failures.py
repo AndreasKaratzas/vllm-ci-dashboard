@@ -285,11 +285,13 @@ def validate_execution_proof(proof: object) -> dict:
         fields.add("legacy_classification")
     _validate_exact_keys(proof, frozenset(fields), "execution_proof")
     if (
-        proof.get("classification") not in {"amd_mi_gpu", "excluded_cpu"}
+        not isinstance(proof.get("classification"), str)
+        or proof["classification"] not in {"amd_mi_gpu", "excluded_cpu"}
         or any(not isinstance(proof.get(key), str) or not _FULL_SHA_RE.fullmatch(proof[key])
                for key in ("source_commit", "definition_tree"))
         or ("legacy_classification" in proof and (
-            proof["legacy_classification"] not in {"amd_mi_gpu", "excluded_cpu"}
+            not isinstance(proof["legacy_classification"], str)
+            or proof["legacy_classification"] not in {"amd_mi_gpu", "excluded_cpu"}
             or proof["legacy_classification"] == proof["classification"]
         ))
     ):

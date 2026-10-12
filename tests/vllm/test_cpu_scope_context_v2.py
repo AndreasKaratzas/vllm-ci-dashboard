@@ -313,6 +313,8 @@ def test_legacy_proofs_remain_readable_but_cannot_authorize_current_scan_or_cove
 @pytest.mark.parametrize("mutation", [
     {"version": True}, {"version": 3}, {"legacy_classification": "gpu"},
     {"legacy_classification": "amd_mi_gpu"}, {"private_body": "secret"},
+    {"classification": []}, {"classification": {}},
+    {"legacy_classification": []}, {"legacy_classification": {}},
 ])
 def test_v2_proof_and_legacy_trail_contract_fail_closed(mutation):
     with pytest.raises(dns.StateValidationError):
