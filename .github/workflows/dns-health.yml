@@ -121,6 +121,19 @@ jobs:
           DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
+          DNS_BASELINE="$RUNNER_TEMP/dns-health-publication-baseline"
+          mkdir -p "$DNS_BASELINE"
+          chmod 0700 "$DNS_BASELINE"
+          rm -f "$DNS_BASELINE/scan_state.json.gz" \
+            "$DNS_BASELINE/scan_state.fernet" "$DNS_BASELINE/dns_failures.json"
+          cleanup_failed_restore() {
+            local restore_exit=$?
+            if [ "$restore_exit" -ne 0 ]; then
+              rm -f data/vllm/ci/dns_health/scan_state.json.gz \
+                "$DNS_BASELINE/scan_state.json.gz"
+            fi
+          }
+          trap cleanup_failed_restore EXIT
           if [ -z "${DNS_STATE_ENCRYPTION_KEY:-}" ]; then
             echo "::error::DNS state encryption key is unavailable; refusing to collect."
             exit 1
@@ -148,6 +161,15 @@ jobs:
               "$ENCRYPTED_STATE" \
               data/vllm/ci/dns_health/scan_state.json.gz
             gzip -t data/vllm/ci/dns_health/scan_state.json.gz
+            # Retain the authenticated ciphertext and exact compressed input
+            # privately so a cached success does not mint another large blob.
+            install -m 0600 "$ENCRYPTED_STATE" "$DNS_BASELINE/scan_state.fernet"
+            install -m 0600 data/vllm/ci/dns_health/scan_state.json.gz \
+              "$DNS_BASELINE/scan_state.json.gz"
+            if ! git show origin/dns-health-data:data/vllm/ci/dns_failures.json \
+              > "$DNS_BASELINE/dns_failures.json" 2>/dev/null; then
+              rm -f "$DNS_BASELINE/dns_failures.json"
+            fi
             rm -f "$ENCRYPTED_STATE"
           elif [ "$DNS_DATA_STATUS" -eq 2 ]; then
             echo "No dns-health-data branch exists; starting the first bounded bootstrap."
@@ -327,11 +349,24 @@ jobs:
           DNS_STATE_ENCRYPTION_KEY: ${{ secrets.DNS_STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
-          python scripts/vllm/ci/dns_state_crypto.py encrypt \
-            data/vllm/ci/dns_health/scan_state.json.gz \
-            "$RUNNER_TEMP/dns-health-scan-state.fernet"
+          DNS_BASELINE="$RUNNER_TEMP/dns-health-publication-baseline"
+          cleanup_private_plaintext() {
+            rm -f data/vllm/ci/dns_health/scan_state.json.gz \
+              "$DNS_BASELINE/scan_state.json.gz"
+          }
+          trap cleanup_private_plaintext EXIT
+          if [ -s "$DNS_BASELINE/scan_state.fernet" ] && \
+             cmp -s data/vllm/ci/dns_health/scan_state.json.gz \
+               "$DNS_BASELINE/scan_state.json.gz"; then
+            install -m 0600 "$DNS_BASELINE/scan_state.fernet" \
+              "$RUNNER_TEMP/dns-health-scan-state.fernet"
+            echo "Reusing authenticated DNS scanner state for an unchanged generation."
+          else
+            python scripts/vllm/ci/dns_state_crypto.py encrypt \
+              data/vllm/ci/dns_health/scan_state.json.gz \
+              "$RUNNER_TEMP/dns-health-scan-state.fernet"
+          fi
           test -s "$RUNNER_TEMP/dns-health-scan-state.fernet"
-          rm -f data/vllm/ci/dns_health/scan_state.json.gz
 
       - name: Publish durable DNS evidence
         if: >-
@@ -341,6 +376,13 @@ jobs:
           steps.dns-request-guard-report.outcome == 'success'
         run: |
           set -euo pipefail
+          DNS_BASELINE="$RUNNER_TEMP/dns-health-publication-baseline"
+          if cmp -s data/vllm/ci/dns_failures.json "$DNS_BASELINE/dns_failures.json" && \
+             cmp -s "$RUNNER_TEMP/dns-health-scan-state.fernet" \
+               "$DNS_BASELINE/scan_state.fernet"; then
+            echo "DNS aggregate and scanner state are unchanged; preserving the durable evidence commit."
+            exit 0
+          fi
           # The orphan branch is publicly readable. Retain only the bounded
           # aggregate and authenticated ciphertext on its single commit.
           LIVE_ROOT=$(mktemp -d)
@@ -364,6 +406,12 @@ jobs:
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "dns: health observations $(date -u +%Y-%m-%dT%H:%M)"
           git -C "$LIVE_ROOT" push --force origin HEAD:dns-health-data
+
+      - name: Remove private DNS plaintext
+        if: always()
+        run: |
+          rm -f data/vllm/ci/dns_health/scan_state.json.gz \
+            "$RUNNER_TEMP/dns-health-publication-baseline/scan_state.json.gz"
 
   reconcile-publication:
     needs: collect
