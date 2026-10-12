@@ -184,7 +184,7 @@ def _plan(tmp_path, proof, *, active=False, target='collector', force='site-heal
         'affected_surface_count':0,'fallback_surface_count':0,'fresh_degraded_surface_count':0,
     }))
     runs = tmp_path/'runs.json'; runs.write_text(json.dumps({'workflow_runs': [{
-        'id':1,'head_branch':'main','status':'in_progress','created_at':budget._iso(BASE),
+        'id':1,'head_branch':'main','head_sha':'c'*40,'status':'in_progress','created_at':budget._iso(BASE),
         'run_started_at':budget._iso(BASE),'updated_at':budget._iso(BASE),'conclusion':None,'display_title':'Data Collection',
     }] if active else []}))
     output = tmp_path/'outputs'; output.unlink(missing_ok=True)
@@ -192,6 +192,8 @@ def _plan(tmp_path, proof, *, active=False, target='collector', force='site-heal
             '--force-recovery-reason',force,'--now',budget._iso(BASE),'--github-output',str(output)]
     if proof is not None:
         argv += ['--collector-admission',str(proof)]
+    if target == 'dns-health':
+        argv += ['--current-code-sha','c'*40]
     assert watchdog.main(argv) == 0
     return dict(line.split('=',1) for line in output.read_text().splitlines())
 

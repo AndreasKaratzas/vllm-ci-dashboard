@@ -15,7 +15,7 @@ from vllm import collect_dns_failures as collector
 from vllm import main_ci_definitions as source
 from vllm.ci import dns_failures as dns
 
-MISSING = "04ab5f1abd404f867c7d5718e6b4e76b59eb8850"
+MISSING = "04ab5f1abd404f867c7d5718e6b4e76b59eb8850"  # Upstream Git commit SHA from the production failure.
 KNOWN = "b" * 40
 TREE = "c" * 40
 NOW = datetime(2026, 10, 12, 6, tzinfo=timezone.utc)
