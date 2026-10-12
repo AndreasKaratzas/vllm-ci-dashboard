@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -70,6 +71,7 @@ from vllm.ci.analytics_cache import (  # noqa: E402
 )
 from vllm.constants import BK_CLUSTER_UUID, TRACKED_QUEUES  # noqa: E402
 from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
+from vllm.main_ci_definitions import RuntimeSourceError  # noqa: E402
 
 _SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
 _SOURCE_SCOPE_CACHE_DIR: Path | None = None
@@ -81,6 +83,12 @@ DEFAULT_STATE = ROOT / "data" / "vllm" / "ci" / "dns_health" / "scan_state.json.
 DEFAULT_OUTPUT = ROOT / "data" / "vllm" / "ci" / "dns_failures.json"
 DEFAULT_CLASSIFICATION_CACHE = ROOT / "data" / "vllm" / "ci" / ".cache" / "dns-classifications-v1"
 STATE_GIT_PATH = "data/vllm/ci/dns_health/scan_state.json.gz"
+FAILURE_DIAGNOSTICS_MAX_BYTES = 4096
+_RUNTIME_FAILURE_DIAGNOSTIC_KEYS = frozenset({
+    "reason_class", "phase", "commit_sha", "http_status", "request_starts",
+    "max_request_starts", "active_source_seconds", "max_active_source_seconds",
+    "graphql_rest_fallbacks",
+})
 BUILDKITE_API = "https://api.buildkite.com/v2"
 BUILDKITE_GRAPHQL_API = "https://graphql.buildkite.com/v1"
 BUILDKITE_ORGANIZATION = "vllm"
@@ -2008,6 +2016,44 @@ def _summary(payload: dict) -> str:
     )
 
 
+def _record_runtime_source_failure(exc: RuntimeSourceError, path: Path | None) -> None:
+    """Keep the source verifier's bounded allowlist, never exception messages."""
+    diagnostics = {
+        key: exc.diagnostics[key]
+        for key in sorted(_RUNTIME_FAILURE_DIAGNOSTIC_KEYS)
+        if key in exc.diagnostics
+    }
+    try:
+        encoded = json.dumps({
+            "schema_version": 1,
+            "error_type": "RuntimeSourceError",
+            "runtime_source": diagnostics,
+        }, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError):
+        log.error("DNS health collection failed safely: reason=runtime_source diagnostics=invalid")
+        return
+    if len(encoded) + 1 > FAILURE_DIAGNOSTICS_MAX_BYTES:
+        log.error("DNS health collection failed safely: reason=runtime_source diagnostics=over_budget")
+        return
+    log.error("DNS health collection failed safely: reason=runtime_source diagnostics=%s",
+              encoded.decode("utf-8"))
+    if path is None:
+        return
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".dns-failure-",
+                                         delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(encoded + b"\n")
+        temporary.replace(path)
+    except OSError:
+        log.error("DNS failure diagnostics could not be persisted: reason=io_error")
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
@@ -2060,6 +2106,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Private daily DNS classifications produced by core CI log parsing.",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--failure-diagnostics", type=Path,
+        help="Private bounded diagnostics for immutable source failures; never raw state or responses.",
+    )
     args = parser.parse_args(argv)
     token = os.environ.get("BUILDKITE_TOKEN", "")
     if not token:
@@ -2087,6 +2137,9 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
             now=collection_now,
         )
+    except RuntimeSourceError as exc:
+        _record_runtime_source_failure(exc, args.failure_diagnostics)
+        return 1
     except CollectionError as exc:
         # Fail closed without interpolating response bodies, headers, URLs, or
         # arbitrary labels into CI logs.

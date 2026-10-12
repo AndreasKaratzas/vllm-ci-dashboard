@@ -52,6 +52,164 @@ def _proof(classification: str = "amd_mi_gpu") -> dict:
     }
 
 
+@pytest.mark.parametrize("reason,phase,status", [
+    ("schema-drift", "scope", None),
+    ("dependency-unavailable", "commit", 404),
+    ("timeout", "metadata", None),
+    ("rate-limit", "batch", 429),
+    ("transient-http", "blob", 503),
+])
+def test_cli_preserves_typed_source_failure_without_private_exception_details(
+    tmp_path, monkeypatch, caplog, reason, phase, status,
+):
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    private = "raw-private-response-secret-value"
+    failure = RuntimeSourceError(private, reason_class=reason, phase=phase,
+                                 commit_sha=FIXTURE_PIN, http_status=status)
+    failure.diagnostics["response_body"] = private
+
+    def fail_collection(**kwargs):
+        raise failure
+
+    monkeypatch.setenv("BUILDKITE_TOKEN", private)
+    monkeypatch.setattr(collector, "read_runtime_source_indexes", lambda path: {})
+    monkeypatch.setattr(collector, "collect", fail_collection)
+    path = tmp_path / "private" / "failure.json"
+
+    assert collector.main(["--failure-diagnostics", str(path)]) == 1
+    payload = json.loads(path.read_text())
+    assert set(payload) == {"schema_version", "error_type", "runtime_source"}
+    assert payload["schema_version"] == 1
+    assert payload["error_type"] == "RuntimeSourceError"
+    diagnostics = payload["runtime_source"]
+    assert diagnostics["reason_class"] == reason
+    assert diagnostics["phase"] == phase
+    assert diagnostics["commit_sha"] == FIXTURE_PIN
+    assert diagnostics["http_status"] == status
+    assert set(diagnostics) == collector._RUNTIME_FAILURE_DIAGNOSTIC_KEYS
+    assert diagnostics["max_request_starts"] == 2400
+    assert diagnostics["max_active_source_seconds"] == 600
+    assert path.stat().st_size <= collector.FAILURE_DIAGNOSTICS_MAX_BYTES
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert "reason=runtime_source" in caplog.text
+    assert "reason=invalid_state" not in caplog.text
+    assert private not in caplog.text + path.read_text()
+    assert not list(path.parent.glob(".dns-failure-*"))
+
+
+def test_source_failure_remains_safe_when_no_artifact_path_is_requested(monkeypatch, caplog):
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    def fail_collection(**kwargs):
+        raise RuntimeSourceError("private-source-response", reason_class="network", phase="tree")
+
+    monkeypatch.setenv("BUILDKITE_TOKEN", "memory-only-token")
+    monkeypatch.setattr(collector, "read_runtime_source_indexes", lambda path: {})
+    monkeypatch.setattr(collector, "collect", fail_collection)
+    assert collector.main([]) == 1
+    assert '"reason_class":"network"' in caplog.text
+    assert "private-source-response" not in caplog.text
+
+
+def test_successful_collection_does_not_create_a_failure_artifact(tmp_path, monkeypatch):
+    payload = {"coverage": {
+        "eligible_jobs": 0, "scanned_jobs": 0, "positive_jobs": 0,
+        "pending_jobs": 0, "unavailable_jobs": 0, "oversize_jobs": 0,
+        "status": "complete",
+    }}
+    monkeypatch.setenv("BUILDKITE_TOKEN", "memory-only-token")
+    monkeypatch.setattr(collector, "read_runtime_source_indexes", lambda path: {})
+    monkeypatch.setattr(collector, "collect", lambda **kwargs: payload)
+    path = tmp_path / "failure.json"
+    assert collector.main(["--failure-diagnostics", str(path)]) == 0
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("failure", [
+    dns.StateValidationError("private-scanner-state"),
+    ValueError("private-response-value"),
+    collector.CollectionError("invalid_response"),
+])
+def test_untyped_collection_failures_keep_existing_redaction_and_do_not_create_source_artifacts(
+    tmp_path, monkeypatch, caplog, failure,
+):
+    def fail_collection(**kwargs):
+        raise failure
+
+    monkeypatch.setenv("BUILDKITE_TOKEN", "memory-only-token")
+    monkeypatch.setattr(collector, "read_runtime_source_indexes", lambda path: {})
+    monkeypatch.setattr(collector, "collect", fail_collection)
+    path = tmp_path / "failure.json"
+    assert collector.main(["--failure-diagnostics", str(path)]) == 1
+    assert not path.exists()
+    assert "private-" not in caplog.text
+    assert "reason=runtime_source" not in caplog.text
+
+
+def test_source_failure_artifact_replaces_symlink_without_touching_its_target(tmp_path, caplog):
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    target = tmp_path / "other-private-state.json"
+    target.write_text("private-existing-state")
+    path = tmp_path / "failure.json"
+    path.symlink_to(target)
+    collector._record_runtime_source_failure(RuntimeSourceError(phase="definitions"), path)
+    assert not path.is_symlink()
+    assert json.loads(path.read_text())["runtime_source"]["phase"] == "definitions"
+    assert target.read_text() == "private-existing-state"
+    assert "private-existing-state" not in caplog.text
+
+
+def test_source_failure_uses_verifier_enums_instead_of_arbitrary_remote_fields(tmp_path, caplog):
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    private = "private-remote-body-token"
+    failure = RuntimeSourceError(private, reason_class=private, phase=private,
+                                 commit_sha=private, http_status=private)
+    path = tmp_path / "failure.json"
+    collector._record_runtime_source_failure(failure, path)
+    diagnostics = json.loads(path.read_text())["runtime_source"]
+    assert diagnostics["reason_class"] == "schema-drift"
+    assert diagnostics["phase"] == "scope"
+    assert diagnostics["commit_sha"] is None
+    assert diagnostics["http_status"] is None
+    assert private not in caplog.text + path.read_text()
+
+
+@pytest.mark.parametrize("bad_diagnostic", ["x" * 4096, float("nan"), object()])
+def test_source_failure_diagnostics_fail_closed_at_serialization_bound(
+    tmp_path, caplog, bad_diagnostic,
+):
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    failure = RuntimeSourceError(phase="scope")
+    failure.diagnostics["active_source_seconds"] = bad_diagnostic
+    path = tmp_path / "failure.json"
+    collector._record_runtime_source_failure(failure, path)
+    assert not path.exists()
+    assert "reason=runtime_source diagnostics=" in caplog.text
+    assert "x" * 4096 not in caplog.text
+
+
+def test_source_failure_artifact_io_error_keeps_the_collection_failed_and_private(
+    tmp_path, monkeypatch, caplog,
+):
+    from vllm.main_ci_definitions import RuntimeSourceError
+
+    def fail_collection(**kwargs):
+        raise RuntimeSourceError(reason_class="timeout", phase="blob")
+
+    monkeypatch.setenv("BUILDKITE_TOKEN", "memory-only-token")
+    monkeypatch.setattr(collector, "read_runtime_source_indexes", lambda path: {})
+    monkeypatch.setattr(collector, "collect", fail_collection)
+    parent = tmp_path / "private-blocked-file"
+    parent.write_text("private-filesystem-state")
+    assert collector.main(["--failure-diagnostics", str(parent / "failure.json")]) == 1
+    assert "reason=io_error" in caplog.text
+    assert "private-filesystem-state" not in caplog.text
+
+
 def _scoped_discovery(start: datetime, end: datetime, *, complete: bool = True) -> dict:
     return {
         "version": 1, "hardware_scope": "amd_mi_gpu", "pipelines": ["ci"],

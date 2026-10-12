@@ -1,5 +1,27 @@
 # Independent dashboard recovery clock
 
+<!-- cspell:ignore sudoedit journalctl -->
+
+The dashboard now has an owner-private
+[hosted recovery service](https://vllm-dashboard-recovery-clock.truejoy5.chatgpt.site)
+and an enabled hourly cloud task, **Keep the AMD CI dashboard fresh**. This
+independent backup runs while the development workspace is closed. GitHub's
+normal schedules remain the primary triggers. The hosted task provider permits
+one run per hour; the workflow profiles below still enforce their own minimum
+dispatch intervals and every producer retains its collection admission gates.
+
+The hosted service stores acknowledgements and an expiring concurrency lease in
+D1, and keeps its GitHub credential in a hosted secret. Its private `/status`
+endpoint reports the last tick, profile acknowledgements and failures; `/instructions`
+records the unattended update procedure. Successful dispatch is not proof of a
+successful collection. Check the linked workflow and the dashboard's real
+publication/core observation clocks before declaring recovery. Preserve the
+owner-private audience and rotate the hosted credential through Sites settings.
+
+The Linux client below provides a ten-minute clock when an always-on host is
+available. It can replace the hourly hosted backup without depending on GitHub
+scheduled events.
+
 GitHub can delay or drop scheduled workflow events. A collector, monitor and
 watchdog that all depend on that scheduler cannot guarantee fresh data when
 events stop arriving. The independent clock runs on an always-on Linux host and
