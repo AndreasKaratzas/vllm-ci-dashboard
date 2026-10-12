@@ -128,7 +128,7 @@ def _set(report, path, value):
         (("reasons", 0, "message"), False),
         (("reasons", 0, "message"), "  "),
         (("reasons", 0, "message"), "untrusted\nprovider text"),
-        (("reasons", 0, "message"), "x" * 2049),
+        pytest.param(("reasons", 0, "message"), "x" * 2049, id="oversize-message"),
         (("confirmation", "probes", 0, "reason_codes"), None),
         (("confirmation", "probes", 0, "reason_codes"), "publication-stale"),
         (("confirmation", "probes", 0, "reason_codes"), {"code": "publication-stale"}),
@@ -328,6 +328,7 @@ def test_cli_is_silent_by_default_and_prints_only_bounded_target(tmp_path, targe
         b"[" * 1100 + b"]" * 1100,
         b"[]",
     ],
+    ids=["empty", "oversize", "duplicate-keys", "nan", "infinity", "invalid-utf8", "excessive-depth", "array"],
 )
 def test_cli_and_path_reject_unbounded_or_non_strict_json_silently(tmp_path, raw):
     path = tmp_path / "health.json"

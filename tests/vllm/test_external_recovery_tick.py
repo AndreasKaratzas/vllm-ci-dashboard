@@ -136,7 +136,8 @@ def test_dispatch_refuses_cross_origin_redirect_without_forwarding_token():
         recovery.NoRedirects().redirect_request(None, None, 302, "", {}, "https://elsewhere/")
 
 
-@pytest.mark.parametrize("token", ["", "secret\nheader", " " * 2, "x" * 4097])
+@pytest.mark.parametrize("token", ["", "secret\nheader", " " * 2, "x" * 4097],
+                         ids=["empty", "newline", "whitespace", "oversize"])
 def test_bad_token_never_enters_http_transport(monkeypatch, token):
     monkeypatch.setattr(
         recovery.urllib.request, "build_opener", lambda *_: pytest.fail("no transport allowed")

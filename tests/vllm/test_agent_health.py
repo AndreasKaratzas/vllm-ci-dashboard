@@ -1355,10 +1355,10 @@ def test_control_jobs_with_gpu_routing_do_not_enter_physical_run_denominator(
 
 @pytest.mark.parametrize("kind,expected_kind", [
     ("script", "script"), (None, "missing"), ("private-type-" + "x" * 10_000, "unknown"),
-])
+], ids=["script", "missing", "oversize-type"])
 @pytest.mark.parametrize("number,expected_number", [
     (93523, 93523), (True, None), (10 ** 1000, None),
-])
+], ids=["valid-number", "boolean-number", "oversize-number"])
 def test_terminal_timestamp_diagnostics_are_bounded_operational_metadata_only(
     kind, expected_kind, number, expected_number,
 ):
@@ -1396,7 +1396,8 @@ def test_terminal_timestamp_diagnostics_are_bounded_operational_metadata_only(
     ("agent_incompatible", "agent_incompatible"), (None, None),
     ("private-raw-value-" + "x" * 10_000, "unknown"),
     ({"private": "value"}, "unknown"), (True, "unknown"),
-])
+], ids=["agent-stop", "cancel", "process-run-error", "agent-refused", "signature-rejected", "stack-error",
+        "agent-incompatible", "missing", "oversize-reason", "object-reason", "boolean-reason"])
 def test_script_failure_diagnostic_allowlists_signal_reason_without_relaxing_start_proof(
     reason, expected,
 ):
@@ -1417,7 +1418,8 @@ def test_script_failure_diagnostic_allowlists_signal_reason_without_relaxing_sta
     (-1, -1), (0, 0), (255, 255), (None, None),
     (True, None), (False, None), (-2, None), (256, None),
     (10 ** 1000, None), ("1", None), ("private-raw-value-" + "x" * 10_000, None),
-])
+], ids=["negative-one", "zero", "maximum", "missing", "true", "false", "below-range", "above-range",
+        "oversize-number", "string-number", "oversize-string"])
 def test_terminal_diagnostic_exit_status_retains_only_documented_bounded_integers(status, expected):
     build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed", start=None)
     job = build["jobs"][0]

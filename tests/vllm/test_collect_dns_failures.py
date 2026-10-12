@@ -176,7 +176,8 @@ def test_source_failure_uses_verifier_enums_instead_of_arbitrary_remote_fields(t
     assert private not in caplog.text + path.read_text()
 
 
-@pytest.mark.parametrize("bad_diagnostic", ["x" * 4096, float("nan"), object()])
+@pytest.mark.parametrize("bad_diagnostic", ["x" * 4096, float("nan"), object()],
+                         ids=["oversize-string", "nan", "object"])
 def test_source_failure_diagnostics_fail_closed_at_serialization_bound(
     tmp_path, caplog, bad_diagnostic,
 ):

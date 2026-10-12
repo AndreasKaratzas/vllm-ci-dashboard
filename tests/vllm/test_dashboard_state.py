@@ -444,6 +444,7 @@ def test_public_marker_cli_defaults_to_full_validation(
         ),
         (b" " * 4097, r"exceeds its (?:4096-)?byte limit"),
     ],
+    ids=["missing", "malformed", "noncanonical", "oversize"],
 )
 def test_state_validation_rejects_missing_malformed_or_unbounded_projection_attestation(
     tmp_path: Path,

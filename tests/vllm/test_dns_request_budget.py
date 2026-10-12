@@ -249,7 +249,8 @@ def test_transient_dns_retry_api_failure_never_reserves_or_writes_outputs(monkey
 
 @pytest.mark.parametrize("raw", [b"not-json", b"{}", b'{"total_count":1,"total_count":2}',
                                 b'{"ignored":NaN}', b'{"ignored":Infinity}',
-                                b"x" * (2 * 1024 * 1024 + 1)])
+                                b"x" * (2 * 1024 * 1024 + 1)],
+                         ids=["invalid-json", "invalid-shape", "duplicate-keys", "nan", "infinity", "oversize"])
 def test_bounded_dns_retry_api_never_admits_invalid_or_oversize_evidence(monkeypatch, raw):
     class Response:
         status = 200
@@ -291,7 +292,8 @@ def test_dns_retry_api_uses_only_fixed_get_identity_and_nonredirecting_token_bou
     assert budget.fetch_dns_workflow_runs("fixture-only-token") == dns_runs()
 
 
-@pytest.mark.parametrize("token", ["", "bad token", "bad\ntoken", "x" * 4097])
+@pytest.mark.parametrize("token", ["", "bad token", "bad\ntoken", "x" * 4097],
+                         ids=["empty", "whitespace", "newline", "oversize"])
 def test_dns_retry_api_rejects_bad_credentials_without_transport_or_token_echo(monkeypatch, token):
     monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: pytest.fail("bad token reached transport"))
     with pytest.raises(budget.DnsRequestBudgetError, match="valid GitHub token"):
