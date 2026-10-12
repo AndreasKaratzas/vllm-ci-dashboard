@@ -260,8 +260,18 @@ def _amd_runtime_result_group_key(
         step_keys = ([job["step_key"]] if "step_key" in job else []) + ([step["key"]] if "key" in step else [])
         key_binding = row.source_binding_basis == "runtime_step_key" and bool(row.source_step_key)
         label_binding = row.source_binding_basis == "pinned_declared_label" and row.source_step_key == ""
+        # A later provider response may omit an optional key that was present
+        # when these parsed results were attested. Absence is not a different
+        # execution: require the same step UUID and an independently unique
+        # pinned AMD declaration before accepting that retained key assertion.
+        omitted_current_key = key_binding and not step_keys
         label_candidates = [identity for identity, candidate in _AMD_RUNTIME_DEFINITIONS.items()
-                            if _amd_declared_route_matches(str(job.get("name") or ""), candidate, _job_queue(job))] if label_binding else []
+                            if _amd_declared_route_matches(str(job.get("name") or ""), candidate, _job_queue(job))] if label_binding or omitted_current_key else []
+        exact_keyless_step = (
+            not step_keys and isinstance(step.get("id"), str) and bool(step["id"])
+            and bool(row.step_id) and row.step_id == step["id"]
+            and label_candidates == [row.source_definition_id]
+        )
         if (
             not all(isinstance(value, str) and value for value in proof)
             or row.source_commit != commit
@@ -269,10 +279,9 @@ def _amd_runtime_result_group_key(
             or definition[:2] != (_normalize_job_name(row.job_name).strip(), row.source_agent_pool)
             or not (key_binding or label_binding)
             or (key_binding and (row.source_definition_id.rsplit("#", 1)[-1] != row.source_step_key
-                                 or not step_keys or any(key != row.source_step_key for key in step_keys)))
-            or (label_binding and (step_keys or not isinstance(step.get("id"), str)
-                                   or not step["id"] or row.step_id != step["id"]
-                                   or label_candidates != [row.source_definition_id]))
+                                 or (not step_keys and not exact_keyless_step)
+                                 or any(key != row.source_step_key for key in step_keys)))
+            or (label_binding and not exact_keyless_step)
             or _normalize_job_name(str(job.get("name") or "")).strip() != definition[0]
             or (_amd_declared_label_signature(str(job.get("name") or ""))[1]
                 and not _amd_declared_label_matches(str(job.get("name") or ""), definition))
