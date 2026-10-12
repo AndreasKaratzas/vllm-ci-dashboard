@@ -10,6 +10,17 @@ normal schedules remain the primary triggers. The hosted task provider permits
 one run per hour; the workflow profiles below still enforce their own minimum
 dispatch intervals and every producer retains its collection admission gates.
 
+The hosted hourly task admits DNS and health dispatches after 55 minutes. This
+five-minute allowance accommodates early scheduler arrivals, so a small timing
+change does not skip an entire hourly check. Durable acknowledgements retain
+their actual timestamps. The Linux client's one-hour intervals remain unchanged.
+
+DNS checks the recent workflow history before reserving provider requests. A
+failed or cancelled scan on the same code revision starts a 70-minute retry
+cooldown for both normal and watchdog triggers. A newer revision can retry an
+older failure, subject to the existing rolling request budget. Successful DNS
+generations still use the three-hour collection interval.
+
 The hosted service stores acknowledgements and an expiring concurrency lease in
 D1, and keeps its GitHub credential in a hosted secret. Its private `/status`
 endpoint reports the last tick, profile acknowledgements and failures; `/instructions`
