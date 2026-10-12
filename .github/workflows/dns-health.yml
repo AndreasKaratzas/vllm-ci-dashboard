@@ -50,6 +50,10 @@ jobs:
           RECOVERY_KEY: ${{ inputs.recovery_key || '' }}
         run: |
           set -euo pipefail
+          if [ "${GITHUB_REF:-}" != refs/heads/main ]; then
+            echo "DNS scans require a trusted main branch trigger." >&2
+            exit 1
+          fi
           if [[ -n "$RECOVERY_KEY" && ! "$RECOVERY_KEY" =~ ^[0-9a-f]{64}$ ]]; then
             echo "Invalid recovery_key: expected empty or 64 lowercase hex characters" >&2
             exit 1
@@ -57,7 +61,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: main
+          # Bind executed code to the exact head recorded on this Actions run.
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:

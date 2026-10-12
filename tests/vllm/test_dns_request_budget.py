@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import copy
 import urllib.error
+import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -234,6 +235,8 @@ def test_transient_dns_retry_api_failure_never_reserves_or_writes_outputs(monkey
     monkeypatch.setattr(budget, "_resolve_commit", lambda *a: DNS_CODE_SHA)
     monkeypatch.setattr(budget, "reserve_budget", lambda *a, **kw: pytest.fail("transient API failure reserved"))
     monkeypatch.setenv("GH_TOKEN", "fixture-only-token")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_SHA", DNS_CODE_SHA)
     output_path = tmp_path / "outputs"
     result = budget.main(["reserve", "--reservation-id", "dns-205-1", "--minimum-interval-hours", "3",
                           "--check-workflow-retries", "--github-output", str(output_path)])
@@ -244,6 +247,7 @@ def test_transient_dns_retry_api_failure_never_reserves_or_writes_outputs(monkey
 
 
 @pytest.mark.parametrize("raw", [b"not-json", b"{}", b'{"total_count":1,"total_count":2}',
+                                b'{"ignored":NaN}', b'{"ignored":Infinity}',
                                 b"x" * (2 * 1024 * 1024 + 1)])
 def test_bounded_dns_retry_api_never_admits_invalid_or_oversize_evidence(monkeypatch, raw):
     class Response:
@@ -291,6 +295,54 @@ def test_dns_retry_api_rejects_bad_credentials_without_transport_or_token_echo(m
     monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: pytest.fail("bad token reached transport"))
     with pytest.raises(budget.DnsRequestBudgetError, match="valid GitHub token"):
         budget.fetch_dns_workflow_runs(token)
+
+
+@pytest.mark.parametrize("total_count, row_count", [(1, 0), (100, 1), (101, 99), (False, 0), (-1, 0)])
+def test_truncated_or_inconsistent_dns_first_page_fails_before_ledger_read(
+    monkeypatch, tmp_path, policy, total_count, row_count,
+):
+    payload = {"total_count": total_count, "workflow_runs": [dns_runs()["workflow_runs"][0]] * row_count}
+    monkeypatch.setattr(budget, "_remote_ref_sha", lambda *a, **kw: pytest.fail("truncated proof reached ledger"))
+    with pytest.raises(budget.DnsRequestBudgetError, match="invalid run counts"):
+        budget.reserve_budget(
+            tmp_path, policy, state_path=tmp_path / "missing.gz", minimum_interval_hours=3,
+            reservation_id="dns-207-1", now=datetime(2026, 9, 1, 6, tzinfo=timezone.utc),
+            workflow_runs_payload=payload, current_code_sha=DNS_CODE_SHA,
+        )
+
+
+@pytest.mark.parametrize("ref, trigger_sha", [
+    ("refs/heads/feature", DNS_CODE_SHA), ("refs/heads/main", "b" * 40),
+    (None, DNS_CODE_SHA), ("refs/heads/main", None),
+])
+def test_dns_retry_cli_rejects_trigger_checkout_mismatch_before_api_or_reservation(
+    monkeypatch, tmp_path, ref, trigger_sha,
+):
+    monkeypatch.setattr(budget, "_resolve_commit", lambda *a: DNS_CODE_SHA)
+    monkeypatch.setattr(budget, "fetch_dns_workflow_runs", lambda *a: pytest.fail("untrusted checkout reached API"))
+    monkeypatch.setattr(budget, "reserve_budget", lambda *a, **kw: pytest.fail("untrusted checkout reserved"))
+    for name, value in [("GITHUB_REF", ref), ("GITHUB_SHA", trigger_sha)]:
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    output_path = tmp_path / "outputs"
+
+    assert budget.main(["reserve", "--reservation-id", "dns-206-1", "--minimum-interval-hours", "3",
+                        "--check-workflow-retries", "--github-output", str(output_path)]) == 1
+    assert not output_path.exists()
+
+
+@pytest.mark.parametrize("ref, expected", [("refs/heads/main", 0), ("refs/heads/feature", 1), ("", 1)])
+def test_actual_dns_main_guard_precedes_immutable_checkout_and_all_reservations(ref, expected):
+    workflow = yaml.safe_load((budget.ROOT / ".github/workflows/dns-health.yml").read_text())
+    steps = workflow["jobs"]["collect"]["steps"]
+    assert steps[1]["with"]["ref"] == "${{ github.sha }}"
+    result = subprocess.run(["bash", "-euo", "pipefail", "-c", steps[0]["run"]],
+                            env=dict(os.environ, GITHUB_REF=ref, RECOVERY_KEY=""),
+                            capture_output=True, text=True)
+
+    assert result.returncode == expected
 
 
 def test_operator_initialization_records_bounded_legacy_debt_parentlessly(

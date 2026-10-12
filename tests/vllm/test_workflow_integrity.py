@@ -3689,6 +3689,8 @@ class TestDnsHealthWorkflow:
         }
         assert "^[0-9a-f]{64}$" in recovery_guard["run"]
         assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", steps[1]["uses"])
+        assert steps[1]["with"]["ref"] == "${{ github.sha }}"
+        assert '"${GITHUB_REF:-}" != refs/heads/main' in recovery_guard["run"]
 
         reconcile = workflow["jobs"]["reconcile-publication"]
         assert reconcile["needs"] == "collect"

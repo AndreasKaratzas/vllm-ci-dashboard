@@ -86,7 +86,8 @@ def dns_retry_available_at(payload: object, *, current_code_sha: str, now: datet
     _full_sha(current_code_sha, label="current DNS code SHA")
     if (not isinstance(payload, dict) or type(payload.get("total_count")) is not int
             or not isinstance(payload.get("workflow_runs"), list)
-            or not 0 <= len(payload["workflow_runs"]) <= min(100, payload["total_count"])):
+            or payload["total_count"] < 0
+            or len(payload["workflow_runs"]) != min(100, payload["total_count"])):
         raise DnsRequestBudgetError("DNS retry observation has invalid run counts")
     for row in payload["workflow_runs"]:
         if (not isinstance(row, dict) or row.get("path") != DNS_WORKFLOW_PATH
@@ -138,9 +139,14 @@ def _decode_json(payload: bytes, *, label: str) -> Any:
         return json.loads(
             payload.decode("utf-8"),
             object_pairs_hook=_json_object_no_duplicates,
+            parse_constant=_reject_json_constant,
         )
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise DnsRequestBudgetError(f"{label} is not strict UTF-8 JSON: {exc}") from exc
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("non-finite JSON constants are invalid")
 
 
 def _positive_int(value: object, *, label: str) -> int:
@@ -842,6 +848,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             # Fixed API endpoint, trusted checkout HEAD and a fresh clock. A
             # missing/invalid API proof fails before any ledger mutation.
             current_code_sha = _resolve_commit(root, "HEAD") if args.check_workflow_retries else None
+            if args.check_workflow_retries and (
+                os.environ.get("GITHUB_REF") != "refs/heads/main"
+                or os.environ.get("GITHUB_SHA") != current_code_sha
+            ):
+                raise DnsRequestBudgetError("DNS retry admission requires the exact main trigger checkout")
             runs = fetch_dns_workflow_runs(os.environ.get("GH_TOKEN", "")) if args.check_workflow_retries else None
             outputs = reserve_budget(
                 root,
