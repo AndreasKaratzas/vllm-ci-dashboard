@@ -412,14 +412,23 @@ def prewarm_runtime_snapshots(fullpins: list[str]) -> dict[str, str]:
         pending = [pin for pin in pins if pin not in _RUNTIME_PRIMED_BUILDKITE_TREES]
     for offset in range(0, len(pending), RUNTIME_SOURCE_BATCH_SIZE):
         batch = pending[offset:offset + RUNTIME_SOURCE_BATCH_SIZE]
-        resolved, fallback_diagnostic = _runtime_batch_roots(batch)
-        # Admit the whole batch only after every requested object is proved.
-        with _RUNTIME_SOURCE_LOCK:
-            if len(set(resolved) | set(_RUNTIME_PRIMED_BUILDKITE_TREES)) > RUNTIME_SOURCE_MAX_PINS:
-                raise RuntimeSourceError(reason_class="payload-budget", phase="batch")
-            if any(pin in _RUNTIME_PRIMED_BUILDKITE_TREES and _RUNTIME_PRIMED_BUILDKITE_TREES[pin] != tree for pin, tree in resolved.items()):
-                raise RuntimeSourceError(phase="batch")
-            _RUNTIME_PRIMED_BUILDKITE_TREES.update(resolved)
+        try:
+            resolved, fallback_diagnostic = _runtime_batch_roots(batch)
+        except RuntimeSourceError as exc:
+            verified = getattr(exc, "_verified_batch_roots", None)
+            if verified is not None:
+                if (exc.reason_class != "dependency-unavailable" or exc.phase != "commit"
+                        or exc.http_status != 404 or exc.commit_sha not in batch
+                        or not isinstance(verified, dict) or len(verified) > RUNTIME_SOURCE_BATCH_SIZE
+                        or any(pin not in batch or pin == exc.commit_sha
+                               or not isinstance(tree, str) or not FULL_SHA.fullmatch(tree)
+                               for pin, tree in verified.items())):
+                    raise RuntimeSourceError(phase="batch") from None
+                # Only independently verified siblings of an exact commit404
+                # survive. Schema and transient failures cannot transfer roots.
+                _remember_runtime_batch_roots(verified)
+            raise
+        _remember_runtime_batch_roots(resolved)
         if fallback_diagnostic is not None:
             print("Runtime source REST fallback verified " + json.dumps(
                 {**fallback_diagnostic, **runtime_source_request_stats()},
@@ -427,6 +436,16 @@ def prewarm_runtime_snapshots(fullpins: list[str]) -> dict[str, str]:
             ), flush=True)
     with _RUNTIME_SOURCE_LOCK:
         return {pin: _RUNTIME_PRIMED_BUILDKITE_TREES[pin] for pin in pins}
+
+
+def _remember_runtime_batch_roots(resolved: dict[str, str]) -> None:
+    with _RUNTIME_SOURCE_LOCK:
+        if len(set(resolved) | set(_RUNTIME_PRIMED_BUILDKITE_TREES)) > RUNTIME_SOURCE_MAX_PINS:
+            raise RuntimeSourceError(reason_class="payload-budget", phase="batch")
+        if any(pin in _RUNTIME_PRIMED_BUILDKITE_TREES and _RUNTIME_PRIMED_BUILDKITE_TREES[pin] != tree
+               for pin, tree in resolved.items()):
+            raise RuntimeSourceError(phase="batch")
+        _RUNTIME_PRIMED_BUILDKITE_TREES.update(resolved)
 
 
 @_runtime_source_operation("batch")
@@ -481,9 +500,12 @@ def _runtime_batch_roots(batch: list[str]) -> tuple[dict[str, str], dict | None]
             or set(repository) != {"nameWithOwner", *aliases} or repository.get("nameWithOwner") != REPOSITORY):
         raise ValueError("runtime source batch repository or aliases do not match")
     resolved = {}
+    null_pins = [pin for alias, pin in aliases.items() if repository[alias] is None]
     for alias, pin in aliases.items():
         try:
             commit = repository[alias]
+            if commit is None:
+                continue
             if (not isinstance(commit, dict) or set(commit) != {"__typename", "oid", "tree"}
                     or commit.get("__typename") != "Commit" or commit.get("oid") != pin):
                 raise ValueError("runtime source batch commit identity does not match")
@@ -516,6 +538,22 @@ def _runtime_batch_roots(batch: list[str]) -> tuple[dict[str, str], dict | None]
             raise
         except (ValueError, TypeError, KeyError):
             raise RuntimeSourceError(commit_sha=pin, phase="batch") from None
+    if null_pins:
+        if getattr(response, "status_code", 200) != 200:
+            raise RuntimeSourceError(phase="batch")
+        with _RUNTIME_SOURCE_LOCK:
+            _RUNTIME_SOURCE_GRAPHQL_FALLBACKS += 1
+        for pin in null_pins:
+            try:
+                resolved[pin] = _runtime_rest_root(pin)
+            except RuntimeSourceError as exc:
+                if (exc.reason_class == "dependency-unavailable" and exc.phase == "commit"
+                        and exc.http_status == 404 and exc.commit_sha == pin):
+                    exc._verified_batch_roots = dict(resolved)
+                raise
+        return resolved, {"event": "runtime-source-rest-fallback", "phase": "batch",
+                          "graphql_error_types": ["NULL_OBJECT"], "failed_commit_shas": null_pins,
+                          "verified_pins": len(resolved)}
     return resolved, None
 
 
