@@ -73,11 +73,12 @@ from vllm.ci.analytics_cache import (  # noqa: E402
 )
 from vllm.constants import BK_CLUSTER_UUID, TRACKED_QUEUES  # noqa: E402
 from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
-from vllm.main_ci_definitions import RuntimeSourceError  # noqa: E402
+from vllm.main_ci_definitions import RUNTIME_SOURCE_MAX_PINS, RuntimeSourceError  # noqa: E402
 
 _SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
 _SOURCE_SCOPE_CACHE_DIR: Path | None = None
-_SOURCE_SCOPE_LOCK = threading.Lock()
+_SOURCE_SCOPE_LOCK = threading.RLock()
+_SOURCE_UNAVAILABLE_PINS: set[str] = set()
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -1238,15 +1239,40 @@ def _prime_source_builds(builds: Iterable[dict]) -> None:
                for job in build["jobs"]):
             pins.add(commit)
     with _SOURCE_SCOPE_LOCK:
-        missing = sorted(pins - _SOURCE_SCOPE_INDEXES.keys())
-    for offset in range(0, len(missing), 50):
-        batch = missing[offset:offset + 50]
-        prewarm_runtime_snapshots(batch)
-        # Save each completed pin before advancing. A source failure leaves the
-        # proven checkpoint intact and propagates; it cannot prove discovery.
-        for commit in batch:
-            annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
-            _remember_source_index(commit, annotated["source_scope_index"])
+        missing = sorted(pins - _SOURCE_SCOPE_INDEXES.keys() - _SOURCE_UNAVAILABLE_PINS)
+        for offset in range(0, len(missing), 50):
+            batch = missing[offset:offset + 50]
+            while batch:
+                try:
+                    prewarm_runtime_snapshots(batch)
+                    break
+                except RuntimeSourceError as exc:
+                    if not _remember_unavailable_source(exc, requested_pins=batch):
+                        raise
+                    batch = [pin for pin in batch if pin != exc.commit_sha]
+            # A missing historical commit does not invalidate verified sibling
+            # pins. Every other source error remains a hard failure.
+            for commit in batch:
+                annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
+                _remember_source_index(commit, annotated["source_scope_index"])
+
+
+def _remember_unavailable_source(exc: RuntimeSourceError, *, requested_pins: Iterable[str]) -> bool:
+    """Memoize only exact Git commit lookup 404s within this collection attempt."""
+    if (exc.reason_class != "dependency-unavailable" or exc.phase != "commit"
+            or type(exc.http_status) is not int or exc.http_status != 404
+            or not isinstance(exc.commit_sha, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", exc.commit_sha)
+            or exc.commit_sha not in requested_pins):
+        return False
+    with _SOURCE_SCOPE_LOCK:
+        if exc.commit_sha not in _SOURCE_UNAVAILABLE_PINS:
+            if len(_SOURCE_UNAVAILABLE_PINS) >= RUNTIME_SOURCE_MAX_PINS:
+                raise RuntimeSourceError(reason_class="payload-budget", phase="batch")
+            _SOURCE_UNAVAILABLE_PINS.add(exc.commit_sha)
+            log.info("DNS immutable source incomplete: reason=commit_not_found unavailable_pins=%d",
+                     len(_SOURCE_UNAVAILABLE_PINS))
+    return True
 
 
 def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
@@ -1269,18 +1295,24 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
         from vllm.main_ci_definitions import annotate_runtime_source_scope
 
         with _SOURCE_SCOPE_LOCK:
-            index = _SOURCE_SCOPE_INDEXES.get(commit)
-        annotated = annotate_runtime_source_scope(
-            {**build, "jobs": [job]}, **({"scope_index": index} if index is not None else {}),
-        )
-        _remember_source_index(commit, annotated["source_scope_index"])
-        scoped = annotated["jobs"][0]
-        proof = {
-            "version": 2,
-            "source_commit": annotated["source_scope_commit"],
-            "definition_tree": annotated["source_definition_tree_sha"],
-            "classification": "amd_mi_gpu" if is_amd_ci_job(scoped) else "excluded_cpu",
-        }
+            if commit not in _SOURCE_UNAVAILABLE_PINS:
+                index = _SOURCE_SCOPE_INDEXES.get(commit)
+                try:
+                    annotated = annotate_runtime_source_scope(
+                        {**build, "jobs": [job]}, **({"scope_index": index} if index is not None else {}),
+                    )
+                except RuntimeSourceError as exc:
+                    if not _remember_unavailable_source(exc, requested_pins=[commit]):
+                        raise
+                else:
+                    _remember_source_index(commit, annotated["source_scope_index"])
+                    scoped = annotated["jobs"][0]
+                    proof = {
+                        "version": 2,
+                        "source_commit": annotated["source_scope_commit"],
+                        "definition_tree": annotated["source_definition_tree_sha"],
+                        "classification": "amd_mi_gpu" if is_amd_ci_job(scoped) else "excluded_cpu",
+                    }
     if not _SAFE_COORD_RE.fullmatch(queue):
         raise CollectionError("invalid_response")
     build_number = build.get("number")
@@ -1308,6 +1340,8 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
     }
     if proof is not None:
         metadata["execution_proof"] = proof
+    elif commit in _SOURCE_UNAVAILABLE_PINS:
+        metadata["source_unavailable_commit"] = commit
     return metadata
 
 
@@ -1338,6 +1372,11 @@ def discover_job_metadata(builds_by_pipeline: dict[str, Iterable[dict]]) -> list
 
 
 def _refresh_record(record: dict, metadata: dict) -> dict:
+    if ("source_unavailable_commit" in record or "source_unavailable_commit" in metadata) and any(
+        record.get(key) != metadata.get(key)
+        for key in ("pipeline", "build_number", "job_id", "queue", "hardware", "finished_at")
+    ):
+        raise StateValidationError("unavailable source changed the exact job", diagnostic_code="execution_proof_job_mismatch")
     refreshed = dict(record)
     for key in (
         "pipeline",
@@ -1364,6 +1403,16 @@ def _refresh_record(record: dict, metadata: dict) -> dict:
         proof = merge_execution_proofs(record, metadata)
         if proof is not None:
             refreshed["execution_proof"] = proof
+        if ("source_unavailable_commit" in record
+                and record["source_unavailable_commit"] != metadata["execution_proof"]["source_commit"]):
+            raise StateValidationError("source recovery changed the exact commit", diagnostic_code="execution_proof_conflict")
+        refreshed.pop("source_unavailable_commit", None)
+    elif "source_unavailable_commit" in metadata:
+        commit = metadata["source_unavailable_commit"]
+        if ("execution_proof" in record and record["execution_proof"]["source_commit"] != commit
+                or "source_unavailable_commit" in record and record["source_unavailable_commit"] != commit):
+            raise StateValidationError("unavailable source changed the exact commit", diagnostic_code="execution_proof_conflict")
+        refreshed["source_unavailable_commit"] = commit
     return refreshed
 
 
@@ -1652,7 +1701,7 @@ def scan_records(
     cache_hits = 0
     if classification_cache is not None:
         for row in ordered:
-            if (row.get("execution_proof", {}).get("version") != 2
+            if ("source_unavailable_commit" in row or row.get("execution_proof", {}).get("version") != 2
                     or row.get("execution_proof", {}).get("classification") != "amd_mi_gpu"):
                 continue
             if row["status"] not in {"pending", "unavailable"}:
@@ -1677,8 +1726,8 @@ def scan_records(
             cache_hits += 1
         ordered = sort_state_jobs(by_identity.values())
     log.info("DNS shared classification cache: hits=%d", cache_hits)
-    scan_eligible = [row for row in ordered
-                     if row.get("execution_proof", {}).get("version") == 2
+    scan_eligible = [row for row in ordered if "source_unavailable_commit" not in row
+                     and row.get("execution_proof", {}).get("version") == 2
                      and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
     pending = _fair_pending_order(row for row in scan_eligible if row["status"] == "pending")
     unavailable = [row for row in scan_eligible if row["status"] == "unavailable"]
@@ -1784,6 +1833,8 @@ def collect(
         else None
     )
     clock = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
+    with _SOURCE_SCOPE_LOCK:
+        _SOURCE_UNAVAILABLE_PINS.clear()
     target_start = clock - timedelta(days=discover_days)
     retention_start = clock - timedelta(hours=RETENTION_HOURS)
 
@@ -1928,6 +1979,16 @@ def collect(
         if isinstance(client, BuildkiteClient)
         else requests_before_discovery
     )
+    usable_discovered = [row for row in discovered
+                         if retention_start <= parse_timestamp(row["finished_at"], "finished_at") < clock]
+    if (any("source_unavailable_commit" in row for row in usable_discovered)
+            and not any("source_unavailable_commit" not in row
+                        and row.get("execution_proof", {}).get("version") == 2
+                        and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"
+                        for row in usable_discovered)):
+        # Historical retained proofs cannot manufacture a new observation
+        # clock when every newly observed source is unavailable.
+        raise CollectionError("source_unavailable")
     log.info(
         "DNS collection phase complete: phase=discovery elapsed_seconds=%.3f "
         "mode=%s builds=%d eligible_job_rows=%d build_page_requests=%d "
@@ -1941,7 +2002,7 @@ def collect(
     )
     rows = _prepare_records(
         old_rows,
-        discovered,
+        usable_discovered,
         retention_start=retention_start,
         end_exclusive=clock,
     )
@@ -1998,7 +2059,8 @@ def collect(
             prior_states, query_start=query_start,
         ))),
         "end_exclusive": iso_timestamp(clock),
-        "complete": discovery_complete and all(row.get("execution_proof", {}).get("version") == 2
+        "complete": discovery_complete and all("source_unavailable_commit" not in row
+                                              and row.get("execution_proof", {}).get("version") == 2
                                               for row in discovered),
     }
     state["jobs"] = prune_state_jobs(rows, retention_start, clock)

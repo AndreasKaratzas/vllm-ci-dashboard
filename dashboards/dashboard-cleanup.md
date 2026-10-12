@@ -250,3 +250,12 @@ classification remains in the private proof's audit trail. Unobserved legacy
 records remain private evidence and cannot authorize new log requests or prove
 current public hardware coverage. Genuine identity conflicts still fail, with
 a fixed diagnostic code in the bounded failure artifact.
+
+An exact source commit lookup returning HTTP 404 makes that job's scope unknown.
+DNS collection retains the observation privately and continues with verified
+sibling commits. Its bounded missing-pin memo lasts for one collection attempt;
+later attempts retry normally. The private source marker also prevents a
+historical proof from authorizing cache reuse, log reads, or public counts.
+Mixed verified MI GPU and unknown observations produce explicit partial coverage.
+An attempt containing only unknown sources in its retained time window cannot
+advance the established source clock. Other source failures remain fatal.

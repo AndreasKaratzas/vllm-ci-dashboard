@@ -737,6 +737,8 @@ def pending_record(metadata: dict, *, previous_attempts: int = 0) -> dict:
     }
     if "execution_proof" in metadata:
         row["execution_proof"] = dict(metadata["execution_proof"])
+    if "source_unavailable_commit" in metadata:
+        row["source_unavailable_commit"] = metadata["source_unavailable_commit"]
     return row
 
 
@@ -1000,7 +1002,8 @@ def validate_state(payload: object) -> dict:
         _validate_exact_keys(
             raw,
             _STATE_BASE_JOB_KEYS | _STATE_STATUS_KEYS[status]
-            | ({"execution_proof"} if "execution_proof" in raw else set()),
+            | ({"execution_proof"} if "execution_proof" in raw else set())
+            | ({"source_unavailable_commit"} if "source_unavailable_commit" in raw else set()),
             f"jobs[{index}]",
         )
         pipeline = raw.get("pipeline")
@@ -1024,6 +1027,12 @@ def validate_state(payload: object) -> dict:
             validate_execution_proof(raw["execution_proof"])
             if pipeline not in CURRENT_PIPELINES:
                 raise StateValidationError("execution_proof does not match the contract")
+        if "source_unavailable_commit" in raw:
+            commit = raw["source_unavailable_commit"]
+            if (not isinstance(commit, str) or not _FULL_SHA_RE.fullmatch(commit)
+                    or pipeline not in CURRENT_PIPELINES
+                    or "execution_proof" in raw and raw["execution_proof"]["source_commit"] != commit):
+                raise StateValidationError("unavailable source does not match its exact commit", diagnostic_code="execution_proof_conflict")
         node = raw.get("node")
         if node != "unidentified":
             _validate_token(node, f"jobs[{index}].node")
@@ -1286,6 +1295,12 @@ def merge_state_jobs(*collections: Iterable[dict]) -> list[dict]:
             proof = merge_execution_proofs(previous, row)
             if proof is not None:
                 merged[identity]["execution_proof"] = proof
+            unavailable = {item["source_unavailable_commit"] for item in (previous, row)
+                           if "source_unavailable_commit" in item}
+            if unavailable:
+                if len(unavailable) != 1 or proof is not None and proof["source_commit"] not in unavailable:
+                    raise StateValidationError("unavailable source conflicts with retained identity", diagnostic_code="execution_proof_conflict")
+                merged[identity]["source_unavailable_commit"] = next(iter(unavailable))
     return sort_state_jobs(merged.values())
 
 
@@ -1420,7 +1435,7 @@ def build_public_output(state: object) -> dict:
     # Legacy records remain private evidence. Until the same jobs are freshly
     # attested under literal source labels, they cannot prove hardware coverage.
     scope_complete = bool(scoped and scoped["complete"] and all(
-        row.get("execution_proof", {}).get("version") == 2
+        "source_unavailable_commit" not in row and row.get("execution_proof", {}).get("version") == 2
         for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
     ))
     discovery_start = parse_timestamp(scoped["start"], "scoped_discovery.start") if scoped else end
@@ -1430,6 +1445,7 @@ def build_public_output(state: object) -> dict:
         # window when discovery stopped before proving exhaustive coverage.
         discovery_start = end - timedelta(seconds=1)
     jobs = [row for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
+            and "source_unavailable_commit" not in row
             and row.get("execution_proof", {}).get("version") == 2
             and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
 
