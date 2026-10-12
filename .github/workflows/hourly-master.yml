@@ -2501,6 +2501,7 @@ jobs:
            inputs.queue_generation != '' ||
            github.event.inputs.skip_tests != 'true')
         id: run-tests
+        timeout-minutes: 7
         env:
           CI: "1"
           MAX_DATA_AGE_HOURS: "36"
@@ -2518,7 +2519,8 @@ jobs:
             -u BUILDKITE_REQUEST_GUARD_ATTEMPT_ID \
             -u BUILDKITE_REQUEST_GUARD_ALLOWANCE \
             -u GITHUB_REQUEST_STATE_FILE \
-            pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
+            timeout --signal=TERM --kill-after=15s 6m \
+            pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
           # Transport bounded opaque values as one-line base64. Pytest output can
@@ -2558,6 +2560,28 @@ jobs:
               handle.write(f"failures={encoded(failures)}\n")
               handle.write(f"output={encoded(output)}\n")
           PY
+
+      - name: Stage bounded deterministic test diagnostics
+        if: always() && steps.run-tests.outcome != 'skipped'
+        timeout-minutes: 1
+        run: |
+          mkdir -p test-diagnostics
+          if [ -f test-output.txt ]; then
+            tail -c 1048576 test-output.txt > test-diagnostics/test-output.txt
+          else
+            printf '%s\n' 'Pytest did not produce test-output.txt.' > test-diagnostics/test-output.txt
+          fi
+
+      - name: Upload bounded deterministic test diagnostics
+        if: always() && steps.run-tests.outcome != 'skipped'
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deterministic-test-output
+          path: test-diagnostics/test-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Preserve exact prepared bytes only when validation fails. This private
       # diagnostic never substitutes for validation or grants publication credit.

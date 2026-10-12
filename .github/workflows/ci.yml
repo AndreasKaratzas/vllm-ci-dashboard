@@ -80,7 +80,8 @@ jobs:
         timeout-minutes: 7
         run: |
           set -o pipefail
-          pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt
+          timeout --signal=TERM --kill-after=15s 6m \
+            pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt
 
       - name: Stage bounded test diagnostics
         if: always()
