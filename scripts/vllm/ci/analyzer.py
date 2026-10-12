@@ -317,7 +317,7 @@ def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
     return _AMD_RUNTIME_GROUP_KEYS.get((normalized, agent_pool), normalized)
 
 
-def _parity_key_base(name: str) -> str:
+def _parity_key_base(name: str, *, shard_bases: list[str] | None = None) -> str:
     """Normalize for cross-pipeline parity matching without YAML overrides.
 
     _normalize_job_name keeps multi-HW count tags like (4xH100-4xMI325)
@@ -330,7 +330,7 @@ def _parity_key_base(name: str) -> str:
 
     GPU counts (N GPUs) are KEPT because different counts = different tests.
     """
-    s = _normalize_job_name(name)
+    s = _normalize_job_name(name, shard_bases=shard_bases)
     # Convert multi-HW count tags to plain GPU count for parity matching:
     #   (4xh100-4xmi325) → (4 GPUs)  — matches upstream (4xH100) → (4 GPUs)
     #   (2xh100-2xmi355) → (2 GPUs)  — matches upstream (2xH100) → (2 GPUs)

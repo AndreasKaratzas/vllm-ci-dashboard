@@ -504,7 +504,7 @@ def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit
             "step": {"id": mi_step_id if job_id == mi_job_id else job_id, "key": key},
         })
     index = {
-        "version": 1, "commit_sha": commit, "definition_tree_sha": "b" * 40,
+        "version": 2, "commit_sha": commit, "definition_tree_sha": "b" * 40,
         "cpu_routes": [{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}],
     }
     definition_id = ".buildkite/test_areas/fixture.yaml#gpu-tests"

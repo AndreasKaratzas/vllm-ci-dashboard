@@ -301,7 +301,7 @@ _CONFIG_IDENTITY_ALIASES = {
 }
 
 
-def _config_identity_key(label: str, num_gpus) -> str:
+def _config_identity_key(label: str, num_gpus, *, shard_bases: list[str] | None = None) -> str:
     """Canonical YAML identity for matching AMD and upstream steps.
 
     Runtime labels are not enough: upstream YAML often stores the GPU count in
@@ -309,10 +309,10 @@ def _config_identity_key(label: str, num_gpus) -> str:
     label.  Preserve the GPU count when it is metadata-only so static config
     matching and runtime parity matching agree.
     """
-    normalized = _normalize_job_name(label)
+    normalized = _normalize_job_name(label, shard_bases=shard_bases)
     if normalized in _CONFIG_IDENTITY_ALIASES:
         return _CONFIG_IDENTITY_ALIASES[normalized]
-    key = _parity_key_base(label)
+    key = _parity_key_base(label, shard_bases=shard_bases)
     n = _gpu_count(num_gpus)
     if n and not _has_gpu_count_suffix(key):
         key = f"{key} ({n} gpus)"
@@ -324,6 +324,7 @@ def _parse_step(
     source_file: str,
     group: str,
     yaml_index: int = 0,
+    *, shard_bases: list[str] | None = None,
 ) -> ConfigStep:
     """Parse a single step dictionary into a ConfigStep."""
     label = item.get('label', 'unknown')
@@ -338,8 +339,8 @@ def _parse_step(
 
     return ConfigStep(
         label=label,
-        normalized_label=_normalize_job_name(label),
-        identity_key=_config_identity_key(label, num_gpus),
+        normalized_label=_normalize_job_name(label, shard_bases=shard_bases),
+        identity_key=_config_identity_key(label, num_gpus, shard_bases=shard_bases),
         source_file=source_file,
         group=group,
         commands=cmds,
@@ -426,7 +427,7 @@ def extract_shard_bases() -> list[str]:
     return list(bases) if isinstance(bases, list) else []
 
 
-def _parse_amd_data(data: dict) -> list[ConfigStep]:
+def _parse_amd_data(data: dict, *, shard_bases: list[str] | None = None) -> list[ConfigStep]:
     """Parse expanded main CI AMD execution routes into ConfigStep rows."""
     if not data:
         return []
@@ -447,6 +448,7 @@ def _parse_amd_data(data: dict) -> list[ConfigStep]:
                 item.get('source_file') or '.buildkite/test_areas/unknown.yaml',
                 group,
                 yaml_index,
+                shard_bases=shard_bases,
             )
         )
     return steps

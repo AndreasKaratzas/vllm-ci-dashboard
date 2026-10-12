@@ -137,7 +137,18 @@ def _scope_ci_builds(builds: list[dict], pipeline: str = "") -> list[dict]:
                     {**job, "agent_queue": _execution_queue(job)} if isinstance(job, dict) else job
                     for job in build.get("jobs") or []
                 ]}
-                result.append(annotate_runtime_source_scope(prepared, scope_index=_SOURCE_SCOPE_INDEXES[commit]))
+                annotated = annotate_runtime_source_scope(prepared, scope_index=_SOURCE_SCOPE_INDEXES[commit])
+                index = annotated["source_scope_index"]
+                if index != _SOURCE_SCOPE_INDEXES[commit]:
+                    retained = retain_runtime_source_indexes(
+                        {**_SOURCE_SCOPE_INDEXES, commit: index},
+                        preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES],
+                    )
+                    if _SOURCE_SCOPE_CACHE_DIR is not None:
+                        write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+                    _SOURCE_SCOPE_INDEXES.clear()
+                    _SOURCE_SCOPE_INDEXES.update(retained)
+                result.append(annotated)
             else:
                 result.append(build)
         return result

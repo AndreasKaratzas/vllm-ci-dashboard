@@ -36,7 +36,7 @@ def _build(number=93775):
         "hardware_scope": "amd_mi_gpu", "source_scope_commit": COMMIT,
         "source_definition_tree_sha": "b" * 40,
         "source_scope_index": {
-            "version": 1, "commit_sha": COMMIT, "definition_tree_sha": "b" * 40,
+            "version": 2, "commit_sha": COMMIT, "definition_tree_sha": "b" * 40,
             "cpu_routes": [],
         },
         "jobs": [{

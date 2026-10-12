@@ -2017,7 +2017,7 @@ def test_agent_page_primes_only_new_mi_pins_and_rejoins_cpu_source_before_counts
     rows[4]["jobs"][0]["type"] = "waiter"
     rows[5]["jobs"][0]["agent_query_rules"] = ["queue=amd_unknown"]
     rows[5]["jobs"][0]["agent"]["meta_data"] = ["queue=amd_unknown"]
-    indexes = {pins[letter]: {"version": 1, "commit_sha": pins[letter], "definition_tree_sha": "f" * 40,
+    indexes = {pins[letter]: {"version": 2, "commit_sha": pins[letter], "definition_tree_sha": "f" * 40,
                              "cpu_routes": ([{"key": "cpu-audit", "label": "CPU audit", "agent_pool": "mi300_1"}]
                                             if letter == "b" else [])}
                for letter in "ab"}
@@ -2108,7 +2108,7 @@ def test_concurrent_agent_source_joins_persist_both_new_proofs_without_overlappi
     root = tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME
     monkeypatch.setattr(ah, "_SOURCE_SCOPE_CACHE_DIR", root)
     def annotate(build, **_kwargs):
-        index = {"version": 1, "commit_sha": build["commit"], "definition_tree_sha": "f" * 40, "cpu_routes": []}
+        index = {"version": 2, "commit_sha": build["commit"], "definition_tree_sha": "f" * 40, "cpu_routes": []}
         annotated = exact_source_join(build, scope_index=index)
         barrier.wait(timeout=5)
         local.annotated = True

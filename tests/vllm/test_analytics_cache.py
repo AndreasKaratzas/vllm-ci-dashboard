@@ -895,6 +895,46 @@ def test_immutable_source_index_reader_authenticates_entire_cache(tmp_path):
     assert cache.load_source_scope_indexes(_cache_dir(tmp_path), ref_now=NOW) == {}
 
 
+@pytest.mark.parametrize("standalone_version", [1, 2])
+def test_current_scope_checkpoint_reconciles_only_verified_contract_migration(tmp_path, standalone_version):
+    build = _mi_scope([_build()])[0]
+    embedded = build["source_scope_index"]
+    embedded["version"] = 3 - standalone_version
+    embedded["cpu_routes"] = [{"key": "", "label": "cpu audit 0", "agent_pool": "mi300_1"}]
+    cache.write_build_cache(
+        _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+        last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+        current_only=True,
+    )
+    standalone = {**embedded, "version": standalone_version,
+                  "cpu_routes": [{"key": "", "label": "cpu audit", "agent_pool": "mi300_1"}]}
+    cache.write_runtime_source_indexes(tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME,
+                                       {build["commit"]: standalone})
+    expected = standalone if standalone_version == 2 else embedded
+    assert cache.load_source_scope_indexes(_cache_dir(tmp_path), ref_now=NOW) == {build["commit"]: expected}
+    assert cache.read_runtime_source_indexes(tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME) == {
+        build["commit"]: standalone,
+    }
+
+
+@pytest.mark.parametrize("conflict", ["same_contract", "different_tree"])
+def test_scope_checkpoint_reconciliation_does_not_accept_conflicting_authority(tmp_path, conflict):
+    build = _mi_scope([_build()])[0]
+    embedded = build["source_scope_index"]
+    cache.write_build_cache(
+        _cache_dir(tmp_path), "ci", builds=[build], watermark=NOW, window_days=30,
+        last_full_at=NOW, updated_at=NOW, complete_from=NOW - timedelta(days=30),
+        current_only=True,
+    )
+    standalone = {**embedded, "cpu_routes": [{"key": "", "label": "cpu audit", "agent_pool": "mi300_1"}]}
+    if conflict == "different_tree":
+        standalone.update(version=2, definition_tree_sha="d" * 40)
+    cache.write_runtime_source_indexes(tmp_path / cache.RUNTIME_SOURCE_CACHE_DIR_NAME,
+                                       {build["commit"]: standalone})
+    with pytest.raises(cache.CacheValidationError, match="checkpoints disagree"):
+        cache.load_source_scope_indexes(_cache_dir(tmp_path), ref_now=NOW)
+
+
 @pytest.mark.parametrize("change", ["missing", "foreign_commit", "wrong_tree", "extra_field"])
 def test_current_mi_cache_requires_exact_bounded_source_index(tmp_path, change):
     build = _mi_scope([_build()])[0]

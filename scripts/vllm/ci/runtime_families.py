@@ -23,7 +23,7 @@ _DEFINITION_FIELDS = {"definition_id", "label", "agent_pool", "family_key", "sou
 
 
 def _label(name: str, bases: list[str]) -> str:
-    return analyzer._strip_known_shard_index(analyzer._normalize_job_name(name), bases)
+    return analyzer._normalize_job_name(name, shard_bases=bases)
 
 
 def validate_family_catalog(catalog: Any, *, expected_commit: str,
@@ -63,9 +63,9 @@ def family_catalog_from_snapshot(snapshot: MainCISnapshot) -> dict:
     config_parity = importlib.import_module("vllm.config_parity")
 
     raw = amd_source_steps(snapshot, require_keys=False)
-    steps = config_parity._parse_amd_data({"steps": raw})
+    steps = config_parity._parse_amd_data({"steps": raw}, shard_bases=[])
     _, families = config_parity._amd_identity_family_keys(config_parity._semantic_amd_steps(steps))
-    bases = sorted({analyzer._normalize_job_name(step.label.replace("%N", "").strip())
+    bases = sorted({analyzer._normalize_job_name(step.label.replace("%N", "").strip(), shard_bases=[])
                     for step in steps if step.parallelism and step.parallelism > 1 and "%N" in step.label})
     rows = [{"definition_id": step.definition_id, "label": _label(step.label, bases),
              "agent_pool": step.agent_pool.casefold(), "family_key": families[step.definition_id],

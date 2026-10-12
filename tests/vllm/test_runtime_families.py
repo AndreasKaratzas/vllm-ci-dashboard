@@ -89,6 +89,25 @@ def test_shards_use_their_own_pinned_bases_without_global_analyzer_state():
     assert len(latency["rows"][0]["amd"]["samples"][0]["jobs"]) == 2
 
 
+@pytest.mark.parametrize("global_bases", [["gpu audit"], ["renamed", "gpu audit"], ["lm eval small models"]])
+def test_family_source_labels_and_keys_ignore_unrelated_global_shards(monkeypatch, global_bases):
+    from vllm.ci import analyzer
+
+    pinned = snapshot()
+    pinned.files[".buildkite/test_areas/lm_eval.yaml"]["steps"][0]["label"] = ":amd: (MI300) GPU Audit 0"
+    pinned.files[".buildkite/test_areas/lm_eval.yaml"]["steps"][1].update(
+        label=":amd: (MI355 DPX) LM Eval Small Models %N", parallelism=2,
+    )
+    monkeypatch.setattr(analyzer, "_SHARD_BASES", [])
+    expected = rf.family_catalog_from_snapshot(pinned)
+    monkeypatch.setattr(analyzer, "_SHARD_BASES", global_bases)
+    actual = rf.family_catalog_from_snapshot(pinned)
+    assert actual == expected
+    assert rf.validate_family_catalog(expected, expected_commit=PIN, expected_tree=TREE) == expected
+    literal = next(row for row in actual["definitions"] if row["step_key"] == "mi300-lm")
+    assert literal["label"] == literal["family_key"] == "gpu audit 0"
+
+
 @pytest.mark.parametrize("change", ["commit", "tree", "family", "declaration", "step", "key", "null_key", "duplicate"])
 def test_runtime_family_claims_reject_contradictions(change):
     catalog = rf.family_catalog_from_snapshot(snapshot())

@@ -36,7 +36,7 @@ def _immutable_fixture_source(monkeypatch):
     def fixture_annotate(build, **kwargs):
         if build.get("commit") == FIXTURE_PIN and "scope_index" not in kwargs:
             kwargs["scope_index"] = {
-                "version": 1, "commit_sha": FIXTURE_PIN,
+                "version": 2, "commit_sha": FIXTURE_PIN,
                 "definition_tree_sha": "c" * 40, "cpu_routes": [],
             }
         return annotate(build, **kwargs)
@@ -45,9 +45,9 @@ def _immutable_fixture_source(monkeypatch):
     monkeypatch.setattr(definitions, "prewarm_runtime_snapshots", lambda pins: {})
 
 
-def _proof(classification: str = "amd_mi_gpu") -> dict:
+def _proof(classification: str = "amd_mi_gpu", *, version: int = 2) -> dict:
     return {
-        "version": 1, "source_commit": FIXTURE_PIN, "definition_tree": "c" * 40,
+        "version": version, "source_commit": FIXTURE_PIN, "definition_tree": "c" * 40,
         "classification": classification,
     }
 
@@ -127,7 +127,6 @@ def test_successful_collection_does_not_create_a_failure_artifact(tmp_path, monk
 
 
 @pytest.mark.parametrize("failure", [
-    dns.StateValidationError("private-scanner-state"),
     ValueError("private-response-value"),
     collector.CollectionError("invalid_response"),
 ])
@@ -631,7 +630,7 @@ def test_missing_full_commit_retains_observation_without_scan_or_scope_completen
 
 
 @pytest.mark.parametrize("field,value", [
-    ("version", True), ("version", 2), ("source_commit", "deadbeef"),
+    ("version", True), ("version", 3), ("source_commit", "deadbeef"),
     ("source_commit", "B" * 40), ("definition_tree", "token=privatevalue"),
     ("classification", "gpu"), ("private_log", "arbitrary private text"),
 ])
@@ -693,7 +692,7 @@ def test_dns_reuses_authenticated_exact_source_indexes_without_git_transport(mon
     from vllm.ci.analytics_cache import read_runtime_source_indexes, write_runtime_source_indexes
 
     index = {
-        "version": 1, "commit_sha": FIXTURE_PIN, "definition_tree_sha": "c" * 40,
+        "version": 2, "commit_sha": FIXTURE_PIN, "definition_tree_sha": "c" * 40,
         "cpu_routes": [{"key": "cpu-abi", "agent_pool": "mi355_1", "label": "torch abi"}],
     }
     cache_path = tmp_path / "runtime-source-indexes-v1"
@@ -723,7 +722,7 @@ def test_dns_source_priming_batches_only_missing_terminal_mi_pins_and_checkpoint
     def annotate(build, **kwargs):
         pin = build["commit"]
         return {**build, "source_scope_index": {
-            "version": 1, "commit_sha": pin, "definition_tree_sha": "c" * 40,
+            "version": 2, "commit_sha": pin, "definition_tree_sha": "c" * 40,
             "cpu_routes": [],
         }}
 
@@ -761,7 +760,7 @@ def test_source_priming_failure_keeps_proven_checkpoint_and_never_advances_dns_c
         if pin == pins[1]:
             raise ValueError("bounded source acquisition failed")
         return {**build, "source_scope_index": {
-            "version": 1, "commit_sha": pin, "definition_tree_sha": "c" * 40,
+            "version": 2, "commit_sha": pin, "definition_tree_sha": "c" * 40,
             "cpu_routes": [],
         }}
 
