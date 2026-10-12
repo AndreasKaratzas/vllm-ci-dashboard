@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import copy
+import urllib.error
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +22,18 @@ LEGACY_SEEDS = (
     "2026-09-01T05:20:34Z=10",
     "2026-09-01T05:33:17Z=110",
 )
+DNS_CODE_SHA = "a" * 40
+
+
+def dns_runs(*, head_sha=DNS_CODE_SHA, status="completed", conclusion="failure", keyed=False):
+    return {"total_count": 1, "workflow_runs": [{
+        "id": 123, "path": budget.DNS_WORKFLOW_PATH,
+        "repository": {"full_name": budget.DNS_REPOSITORY},
+        "head_branch": "main", "head_sha": head_sha, "status": status,
+        "created_at": "2026-09-01T05:40:00Z", "run_started_at": "2026-09-01T05:41:00Z",
+        "updated_at": "2026-09-01T05:50:00Z", "conclusion": conclusion,
+        "display_title": "DNS Health Monitor" + (" [recovery:" + "b" * 64 + "]" if keyed else ""),
+    }]}
 
 
 def git(root: Path, *args: str, input_text: str | None = None) -> str:
@@ -103,6 +117,180 @@ def test_repository_policy_is_the_exact_rolling_cap() -> None:
     assert policy.scan_reservation_request_starts == 110
     assert policy.max_reservations == 32
     assert policy.max_ledger_bytes == 64 * 1024
+
+
+@pytest.mark.parametrize("keyed", [False, True])
+@pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out"])
+def test_normal_and_keyed_failed_dns_retry_keeps_exact_remote_ledger_unchanged(repo, policy, tmp_path, keyed, conclusion):
+    checkout, _ = repo
+    now = datetime(2026, 9, 1, 6, tzinfo=timezone.utc)
+    before = budget.initialize_budget(checkout, policy, seeds=["2026-09-01T05:20:00Z=110"], now=INITIALIZED_AT)["budget_sha"]
+    outputs = budget.reserve_budget(
+        checkout, policy, state_path=tmp_path / "missing.gz", minimum_interval_hours=3,
+        reservation_id="dns-200-1", now=now,
+        workflow_runs_payload=dns_runs(keyed=keyed, conclusion=conclusion), current_code_sha=DNS_CODE_SHA,
+    )
+
+    assert outputs["request_mode"] == "retry_gated"
+    assert outputs["reserved_request_starts"] == 0
+    assert outputs["available_at"] == "2026-09-01T07:00:01Z"
+    assert outputs["rolling_reserved_starts"] == 110
+    assert remote_sha(checkout) == before
+    assert len(budget.validate_budget_ref(checkout, before, policy).ledger["reservations"]) == 1
+
+
+@pytest.mark.parametrize("runs", [
+    dns_runs(head_sha="c" * 40),
+    dns_runs(status="in_progress", conclusion=None),
+    dns_runs(conclusion="success"),
+])
+def test_new_code_current_running_self_or_success_does_not_block_normal_dns_admission(repo, policy, tmp_path, runs):
+    checkout, _ = repo
+    budget.initialize_budget(checkout, policy, seeds=["2026-09-01T05:20:00Z=110"], now=INITIALIZED_AT)
+    outputs = budget.reserve_budget(
+        checkout, policy, state_path=tmp_path / "missing.gz", minimum_interval_hours=3,
+        reservation_id="dns-201-1", now=datetime(2026, 9, 1, 6, tzinfo=timezone.utc),
+        workflow_runs_payload=runs, current_code_sha=DNS_CODE_SHA,
+    )
+
+    assert outputs["request_mode"] == "reserved"
+    assert outputs["reserved_request_starts"] == 110
+    assert len(budget.validate_budget_ref(checkout, str(outputs["budget_sha"]), policy).ledger["reservations"]) == 2
+
+
+@pytest.mark.parametrize("second, gated", [(0, True), (1, False)])
+def test_universal_dns_retry_preserves_watchdog_inclusive_boundary(second, gated):
+    now = datetime(2026, 9, 1, 7, 0, second, tzinfo=timezone.utc)
+    available = budget.dns_retry_available_at(dns_runs(), current_code_sha=DNS_CODE_SHA, now=now)
+
+    assert (available is not None) is gated
+
+
+@pytest.mark.parametrize("age_hours, expected_mode", [(1, "interval_gated"), (4, "retry_gated")])
+def test_universal_retry_preserves_actual_successful_generation_interval(repo, policy, tmp_path, age_hours, expected_mode):
+    checkout, _ = repo
+    now = datetime(2026, 9, 1, 6, tzinfo=timezone.utc)
+    before = budget.initialize_budget(checkout, policy, seeds=["2026-09-01T05:20:00Z=110"], now=INITIALIZED_AT)["budget_sha"]
+    state_path = tmp_path / "scanner.gz"
+    write_scanner_state(state_path, now - timedelta(hours=age_hours))
+    outputs = budget.reserve_budget(
+        checkout, policy, state_path=state_path, minimum_interval_hours=3,
+        reservation_id="dns-202-1", now=now,
+        workflow_runs_payload=dns_runs(), current_code_sha=DNS_CODE_SHA,
+    )
+
+    assert outputs["request_mode"] == expected_mode
+    assert outputs["reserved_request_starts"] == 0
+    assert remote_sha(checkout) == before
+    assert dns_failures.load_state(state_path)["generated_at"] == dns_failures.iso_timestamp(now - timedelta(hours=age_hours))
+
+
+@pytest.mark.parametrize("seed_at, available_at", [
+    ("2026-08-31T05:30:00Z", "2026-09-01T07:00:01Z"),
+    ("2026-08-31T10:00:00Z", "2026-09-01T11:00:00Z"),
+])
+def test_combined_dns_capacity_and_retry_gate_reports_later_actual_availability(repo, policy, tmp_path, seed_at, available_at):
+    checkout, _ = repo
+    before = budget.initialize_budget(checkout, policy, seeds=[f"{seed_at}=990"], now=INITIALIZED_AT)["budget_sha"]
+    outputs = budget.reserve_budget(
+        checkout, policy, state_path=tmp_path / "missing.gz", minimum_interval_hours=3,
+        reservation_id="dns-203-1", now=datetime(2026, 9, 1, 6, tzinfo=timezone.utc),
+        workflow_runs_payload=dns_runs(), current_code_sha=DNS_CODE_SHA,
+    )
+
+    assert outputs["request_mode"] == "capacity_gated"
+    assert outputs["available_at"] == available_at
+    assert outputs["reserved_request_starts"] == 0
+    assert remote_sha(checkout) == before
+
+
+@pytest.mark.parametrize("field, value", [
+    ("path", ".github/workflows/other.yml"),
+    ("repository", {"full_name": "someone/else"}),
+    ("head_branch", "feature"), ("head_sha", None), ("head_sha", "short"),
+    ("conclusion", "unknown"), ("updated_at", "2026-09-01T07:00:00Z"),
+])
+def test_unknown_dns_retry_identity_fails_before_remote_ledger_read_or_mutation(monkeypatch, field, value, tmp_path, policy):
+    payload = copy.deepcopy(dns_runs());payload["workflow_runs"][0][field] = value
+    monkeypatch.setattr(budget, "_remote_ref_sha", lambda *a, **kw: pytest.fail("unknown proof reached the ledger"))
+    with pytest.raises((budget.DnsRequestBudgetError, ValueError)):
+        budget.reserve_budget(
+            tmp_path, policy, state_path=tmp_path / "missing.gz", minimum_interval_hours=3,
+            reservation_id="dns-204-1", now=datetime(2026, 9, 1, 6, tzinfo=timezone.utc),
+            workflow_runs_payload=payload, current_code_sha=DNS_CODE_SHA,
+        )
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("private timeout"), urllib.error.URLError("private transport"),
+    urllib.error.HTTPError(budget.DNS_RUNS_URL, 503, "private response", {}, None)])
+def test_transient_dns_retry_api_failure_never_reserves_or_writes_outputs(monkeypatch, failure, tmp_path, capsys):
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == budget.DNS_RUNS_URL
+            assert request.get_method() == "GET"
+            assert timeout == budget.DNS_RUNS_TIMEOUT_SECONDS
+            raise failure
+    monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: Opener())
+    monkeypatch.setattr(budget, "_resolve_commit", lambda *a: DNS_CODE_SHA)
+    monkeypatch.setattr(budget, "reserve_budget", lambda *a, **kw: pytest.fail("transient API failure reserved"))
+    monkeypatch.setenv("GH_TOKEN", "fixture-only-token")
+    output_path = tmp_path / "outputs"
+    result = budget.main(["reserve", "--reservation-id", "dns-205-1", "--minimum-interval-hours", "3",
+                          "--check-workflow-retries", "--github-output", str(output_path)])
+
+    assert result == 1
+    assert not output_path.exists()
+    assert "private" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("raw", [b"not-json", b"{}", b'{"total_count":1,"total_count":2}',
+                                b"x" * (2 * 1024 * 1024 + 1)])
+def test_bounded_dns_retry_api_never_admits_invalid_or_oversize_evidence(monkeypatch, raw):
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, limit):
+            assert limit == budget.workflow_contract.WORKFLOW_RUNS_MAX_BYTES + 1
+            return raw[:limit]
+    class Opener:
+        def open(self, request, timeout): return Response()
+    monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: Opener())
+    with pytest.raises(budget.DnsRequestBudgetError):
+        payload = budget.fetch_dns_workflow_runs("fixture-only-token")
+        budget.dns_retry_available_at(payload, current_code_sha=DNS_CODE_SHA,
+                                      now=datetime(2026, 9, 1, 6, tzinfo=timezone.utc))
+
+
+def test_dns_retry_api_uses_only_fixed_get_identity_and_nonredirecting_token_boundary(monkeypatch):
+    raw = json.dumps(dns_runs()).encode()
+    class Response:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, limit): return raw
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == budget.DNS_RUNS_URL
+            assert request.get_method() == "GET"
+            assert request.get_header("Authorization") == "Bearer fixture-only-token"
+            assert request.get_header("Accept-encoding") == "identity"
+            assert timeout == 30
+            return Response()
+    def build_opener(handler):
+        assert isinstance(handler, budget._NoRedirect)
+        assert handler.redirect_request(None, None, 302, "redirect", {}, "https://example.invalid/") is None
+        return Opener()
+    monkeypatch.setattr(budget.urllib.request, "build_opener", build_opener)
+
+    assert budget.fetch_dns_workflow_runs("fixture-only-token") == dns_runs()
+
+
+@pytest.mark.parametrize("token", ["", "bad token", "bad\ntoken", "x" * 4097])
+def test_dns_retry_api_rejects_bad_credentials_without_transport_or_token_echo(monkeypatch, token):
+    monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: pytest.fail("bad token reached transport"))
+    with pytest.raises(budget.DnsRequestBudgetError, match="valid GitHub token"):
+        budget.fetch_dns_workflow_runs(token)
 
 
 def test_operator_initialization_records_bounded_legacy_debt_parentlessly(
@@ -377,13 +565,16 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
     assert "dns_request_budget.py reserve" in reserve["run"]
     assert reserve["env"] == {
+        "GH_TOKEN": "${{ github.token }}",
         "ATTEMPT_ID": "dns-${{ github.run_id }}-${{ github.run_attempt }}"
     }
     assert '--reservation-id "$ATTEMPT_ID"' in reserve["run"]
     assert "--minimum-interval-hours 3" in reserve["run"]
     assert "buildkite_request_guard.py initialize" in reserve["run"]
-    assert '^(reserved|interval_gated|capacity_gated)$' in reserve["run"]
-    assert '^(interval_gated|capacity_gated)$' in reserve["run"]
+    assert '^(reserved|interval_gated|capacity_gated|retry_gated)$' in reserve["run"]
+    assert '^(interval_gated|capacity_gated|retry_gated)$' in reserve["run"]
+    assert "--check-workflow-retries" in reserve["run"]
+    assert reserve["timeout-minutes"] == 2
     assert '[ "$ALLOWANCE" != 0 ]' in (
         reserve["run"]
     )
@@ -397,7 +588,8 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     }
     assert collect["id"] == "collect-dns"
     assert collect["if"] == (
-        "steps.dns-request-budget.outputs.request_mode != 'capacity_gated'"
+        "steps.dns-request-budget.outputs.request_mode != 'capacity_gated' && "
+        "steps.dns-request-budget.outputs.request_mode != 'retry_gated'"
     )
     assert capacity_report["if"] == (
         "steps.dns-request-budget.outputs.request_mode == 'capacity_gated'"
@@ -421,6 +613,7 @@ def test_workflow_reserves_before_buildkite_and_reuses_the_exact_decision_clock(
     ):
         condition = steps[names.index(step_name)]["if"]
         assert "request_mode != 'capacity_gated'" in condition
+        assert "request_mode != 'retry_gated'" in condition
         assert "steps.collect-dns.outcome == 'success'" in condition
         assert "steps.dns-request-guard-report.outcome == 'success'" in condition
     assert workflow["jobs"]["reconcile-publication"]["if"] == (

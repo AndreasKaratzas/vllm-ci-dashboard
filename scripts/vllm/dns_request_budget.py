@@ -15,6 +15,8 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,6 +26,7 @@ from typing import Any, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vllm.ci.dns_failures import StateValidationError, load_state, parse_timestamp  # noqa: E402
+from vllm import plan_publication_watchdog as workflow_contract  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -34,10 +37,72 @@ FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 SAFE_BRANCH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 SAFE_RESERVATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 RESERVATION_KINDS = frozenset({"legacy_seed", "scan"})
+DNS_REPOSITORY = "AndreasKaratzas/vllm-ci-dashboard"
+DNS_WORKFLOW_PATH = ".github/workflows/dns-health.yml"
+DNS_FAILED_RETRY_MINUTES = 70
+DNS_RUNS_URL = (
+    f"https://api.github.com/repos/{DNS_REPOSITORY}/actions/workflows/dns-health.yml/runs"
+    "?branch=main&per_page=100"
+)
+DNS_RUNS_TIMEOUT_SECONDS = 30
 
 
 class DnsRequestBudgetError(RuntimeError):
     """The durable request budget could not be established safely."""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def fetch_dns_workflow_runs(token: str) -> object:
+    """Read only this repository's main DNS history before any reservation."""
+    if not isinstance(token, str) or not token or len(token) > 4096 or any(char.isspace() for char in token):
+        raise DnsRequestBudgetError("DNS retry observation requires a valid GitHub token")
+    request = urllib.request.Request(DNS_RUNS_URL, headers={
+        "Accept": "application/vnd.github+json", "Accept-Encoding": "identity",
+        "Authorization": f"Bearer {token}", "User-Agent": "vllm-ci-dashboard-dns-admission",
+        "X-GitHub-Api-Version": "2026-03-10",
+    })
+    try:
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(request, timeout=DNS_RUNS_TIMEOUT_SECONDS) as response:
+            if response.status != 200:
+                raise DnsRequestBudgetError("DNS retry observation did not return HTTP 200")
+            raw = response.read(workflow_contract.WORKFLOW_RUNS_MAX_BYTES + 1)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        raise DnsRequestBudgetError("DNS retry observation transport failed") from None
+    if not raw or len(raw) > workflow_contract.WORKFLOW_RUNS_MAX_BYTES:
+        raise DnsRequestBudgetError("DNS retry observation exceeded its response bound")
+    try:
+        return _decode_json(raw, label="DNS retry observation")
+    except DnsRequestBudgetError:
+        raise DnsRequestBudgetError("DNS retry observation JSON is invalid") from None
+
+
+def dns_retry_available_at(payload: object, *, current_code_sha: str, now: datetime) -> datetime | None:
+    """Gate every same-code failed scan, independently of its recovery key."""
+    _full_sha(current_code_sha, label="current DNS code SHA")
+    if (not isinstance(payload, dict) or type(payload.get("total_count")) is not int
+            or not isinstance(payload.get("workflow_runs"), list)
+            or not 0 <= len(payload["workflow_runs"]) <= min(100, payload["total_count"])):
+        raise DnsRequestBudgetError("DNS retry observation has invalid run counts")
+    for row in payload["workflow_runs"]:
+        if (not isinstance(row, dict) or row.get("path") != DNS_WORKFLOW_PATH
+                or not isinstance(row.get("repository"), dict)
+                or row["repository"].get("full_name") != DNS_REPOSITORY):
+            raise DnsRequestBudgetError("DNS retry observation has an invalid workflow identity")
+    runs = workflow_contract.parse_workflow_runs(payload, now=now)
+    if any(run.head_sha is None for run in runs):
+        raise DnsRequestBudgetError("DNS retry observation lacks an exact run head SHA")
+    # Match the watchdog's inclusive 70-minute boundary. GitHub completion
+    # clocks and the reservation clock use whole seconds.
+    available = [run.updated_at + timedelta(minutes=DNS_FAILED_RETRY_MINUTES, seconds=1)
+                 for run in runs if run.status == "completed"
+                 and run.head_sha == current_code_sha
+                 and run.conclusion in workflow_contract.FAILED_ATTEMPT_CONCLUSIONS]
+    return max((value for value in available if value > now), default=None)
 
 
 @dataclass(frozen=True)
@@ -619,11 +684,19 @@ def reserve_budget(
     reservation_id: str,
     now: datetime,
     remote: str = "origin",
+    workflow_runs_payload: object | None = None,
+    current_code_sha: str | None = None,
 ) -> dict[str, object]:
     """Validate the durable ledger and reserve before a request-bearing scan."""
     root = root.resolve()
     if not SAFE_RESERVATION_ID_RE.fullmatch(reservation_id):
         raise DnsRequestBudgetError("reservation id is not a safe bounded identifier")
+    if (workflow_runs_payload is None) != (current_code_sha is None):
+        raise DnsRequestBudgetError("DNS retry observation and current code SHA must be supplied together")
+    retry_available = (
+        dns_retry_available_at(workflow_runs_payload, current_code_sha=current_code_sha, now=now)
+        if current_code_sha is not None else None
+    )
     observed_sha = _remote_ref_sha(root, remote, policy)
     if observed_sha is None:
         raise DnsRequestBudgetError(
@@ -653,6 +726,8 @@ def reserve_budget(
     new_total = used + policy.scan_reservation_request_starts
     if new_total > policy.max_request_starts:
         available_at = _next_available_at(rows, policy=policy)
+        if retry_available is not None:
+            available_at = max(available_at, retry_available)
         # A valid but full rolling ledger is an expected scheduling gate, not
         # a producer failure.  Leave the exact remote ledger untouched and
         # return a deny-all mode.  The workflow skips collection/publication in
@@ -662,6 +737,16 @@ def reserve_budget(
             "request_mode": "capacity_gated",
             "decision_at": decision_at,
             "available_at": _iso_timestamp(available_at),
+            "budget_sha": established.commit_sha,
+            "reserved_request_starts": 0,
+            "rolling_reserved_starts": used,
+            "remaining_request_starts": max(0, policy.max_request_starts - used),
+        }
+    if retry_available is not None:
+        return {
+            "request_mode": "retry_gated",
+            "decision_at": decision_at,
+            "available_at": _iso_timestamp(retry_available),
             "budget_sha": established.commit_sha,
             "reserved_request_starts": 0,
             "rolling_reserved_starts": used,
@@ -732,6 +817,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     reserve.add_argument("--now")
     reserve.add_argument("--remote", default="origin")
     reserve.add_argument("--github-output", type=Path)
+    reserve.add_argument("--check-workflow-retries", action="store_true")
 
     validate = subparsers.add_parser("validate-ref")
     validate.add_argument("--ref", required=True)
@@ -753,6 +839,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 remote=args.remote,
             )
         elif args.command == "reserve":
+            # Fixed API endpoint, trusted checkout HEAD and a fresh clock. A
+            # missing/invalid API proof fails before any ledger mutation.
+            current_code_sha = _resolve_commit(root, "HEAD") if args.check_workflow_retries else None
+            runs = fetch_dns_workflow_runs(os.environ.get("GH_TOKEN", "")) if args.check_workflow_retries else None
             outputs = reserve_budget(
                 root,
                 policy,
@@ -761,6 +851,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 reservation_id=args.reservation_id,
                 now=_clock(args.now),
                 remote=args.remote,
+                workflow_runs_payload=runs,
+                current_code_sha=current_code_sha,
             )
         elif args.command == "validate-ref":
             validated = validate_budget_ref(root, args.ref, policy)

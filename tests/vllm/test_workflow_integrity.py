@@ -3738,6 +3738,7 @@ class TestDnsHealthWorkflow:
         assert reserve["id"] == "dns-request-budget"
         assert "BUILDKITE_TOKEN" not in reserve.get("env", {})
         assert reserve["env"] == {
+            "GH_TOKEN": "${{ github.token }}",
             "ATTEMPT_ID": "dns-${{ github.run_id }}-${{ github.run_attempt }}"
         }
         assert "dns_request_budget.py reserve" in reserve["run"]
@@ -3805,7 +3806,8 @@ class TestDnsHealthWorkflow:
         )
         assert collect["id"] == "collect-dns"
         assert collect["if"] == (
-            "steps.dns-request-budget.outputs.request_mode != 'capacity_gated'"
+            "steps.dns-request-budget.outputs.request_mode != 'capacity_gated' && "
+            "steps.dns-request-budget.outputs.request_mode != 'retry_gated'"
         )
         assert "DNS_STATE_ENCRYPTION_KEY" not in collect.get("env", {})
         script = collect["run"]
