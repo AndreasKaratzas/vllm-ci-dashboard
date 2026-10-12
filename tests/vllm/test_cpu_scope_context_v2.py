@@ -163,7 +163,7 @@ def test_v1_bad_verified_tree_content_cannot_be_promoted(monkeypatch):
 
 
 @pytest.mark.parametrize("module", ["collect_queue_snapshot", "collect_workload_mapping"])
-def test_queue_and_workload_reproof_checkpoint_once_and_preserve_unrequested_pins(module, monkeypatch, tmp_path):
+def test_queue_and_workload_reproof_checkpoint_once_and_preserve_other_pins(module, monkeypatch, tmp_path):
     import importlib
 
     from vllm.ci.analytics_cache import read_runtime_source_indexes
@@ -303,7 +303,7 @@ def test_legacy_proofs_remain_readable_but_cannot_authorize_current_scan_or_cove
 
     class NoLogs:
         def fetch_job_log(self, *args, **kwargs):
-            pytest.fail("unreobserved v1 scope cannot spend log requests")
+            pytest.fail("v1 scope not observed again cannot spend log requests")
 
     rows = collector.scan_records(restored["jobs"], client=NoLogs(),
                                   attempted_at="2026-10-12T01:00:00Z", max_logs=1)

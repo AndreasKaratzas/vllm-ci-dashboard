@@ -298,7 +298,7 @@ def validate_execution_proof(proof: object) -> dict:
 
 
 def merge_execution_proofs(previous: dict, current: dict) -> dict | None:
-    """Migrate an exact reobserved job, retaining the old classification proof."""
+    """Migrate the same job observed again, retaining its old classification proof."""
     old = previous.get("execution_proof")
     new = current.get("execution_proof")
     if old is None and new is None:
