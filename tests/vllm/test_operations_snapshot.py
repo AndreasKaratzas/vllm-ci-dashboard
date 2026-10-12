@@ -1494,6 +1494,83 @@ def test_pinned_logical_inventory_requires_every_parsed_source_claim(
         ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
 
 
+@pytest.mark.parametrize("current_bases", [[], ["newly renamed model shard"], ["lm eval small models"]])
+def test_retained_nightly_uses_its_own_shard_catalog(
+    tmp_path, rerouted_lm_eval_inventory, current_bases, monkeypatch,
+):
+    from vllm.ci.runtime_families import annotate_build_source_families
+
+    metadata, parity, health, results = rerouted_lm_eval_inventory
+    for job, result, definition in zip(metadata["jobs"], results, parity["amd_execution_definitions"]):
+        job.pop("step_key")
+        definition["label"] += " %N"
+        job["raw_name"] += " 1"
+        result["job_name"] += " 1"
+    catalog = _lm_eval_family_catalog(metadata, parity)
+    catalog["shard_bases"] = ["lm eval small models"]
+    metadata = annotate_build_source_families(metadata, catalog)
+    _write_jsonl(tmp_path / "test_results" / "2026-10-09_amd.jsonl", results)
+    _write_json(tmp_path / "shard_bases.json", current_bases)
+    previous_bases = ["unrelated pre-existing shard"]
+    monkeypatch.setattr(ops.ci_analyzer, "_SHARD_BASES", previous_bases)
+
+    projected = ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
+    inventory = projected["latest_logical_test_groups"]
+    assert inventory["available"] is True
+    assert inventory["shard_base_count"] == 1
+    assert inventory["summary"]["total"] == inventory["summary"]["passing"] == 2
+    assert inventory["provenance"]["shard_bases"] == "analytics.json#ci.builds[].source_family_catalog.shard_bases"
+    assert inventory["reconciliation"]["matches_latest_test_group_counts"] is True
+    assert {row["logical_key"] for row in inventory["rows"]} == {
+        "lm eval small models", "lm eval small models (1 gpus)",
+    }
+    assert ops.ci_analyzer._SHARD_BASES == previous_bases
+
+
+@pytest.mark.parametrize("change", ["missing", "malformed", "contradictory"])
+def test_retained_nightly_cannot_borrow_current_shard_catalog(
+    tmp_path, rerouted_lm_eval_inventory, change, monkeypatch,
+):
+    from vllm.ci.runtime_families import annotate_build_source_families
+
+    metadata, parity, health, _ = rerouted_lm_eval_inventory
+    for job in metadata["jobs"]:
+        job.pop("step_key")
+    metadata = annotate_build_source_families(metadata, _lm_eval_family_catalog(metadata, parity))
+    if change == "missing":
+        metadata["source_family_catalog"].pop("shard_bases")
+    elif change == "malformed":
+        metadata["source_family_catalog"]["shard_bases"] = [True]
+    else:
+        metadata["source_family_catalog"]["definitions"][0]["label"] = "contradictory label"
+    _write_json(tmp_path / "shard_bases.json", ["lm eval small models"])
+    previous_bases = ["unrelated pre-existing shard"]
+    monkeypatch.setattr(ops.ci_analyzer, "_SHARD_BASES", previous_bases)
+    with pytest.raises(ValueError, match="catalog|definition"):
+        ops._amd_test_health(tmp_path, {"builds": [metadata]}, health, parity)
+    assert ops.ci_analyzer._SHARD_BASES == previous_bases
+
+
+def test_snapshot_keeps_result_event_time_separate_from_collection(tmp_path):
+    event_at = "2026-04-19T09:00:00Z"
+    collected_at = "2026-04-22T11:50:00Z"
+    build = _build(500, "2026-04-19", [
+        _job(":amd: (MI300) Attention", "passed", "https://buildkite.com/vllm/ci/builds/500?jid=job-one", job_id="job-one", finished_at=event_at),
+    ])
+    _write_json(tmp_path / "analytics.json", {"ci": {"builds": [build]}})
+    _write_json(tmp_path / "ci_health.json", {"generated_at": collected_at, "amd": {}})
+    _write_jsonl(tmp_path / "test_results" / "2026-04-19_amd.jsonl", [{
+        "job_name": "amd_mi300_1: :amd: (MI300) Attention", "job_id": "job-one",
+        "pipeline": "ci", "build_number": 500, "date": "2026-04-19",
+        "status": "passed", "name": "__passed__ (3)", "duration_secs": 20,
+    }])
+    source = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["sources"]["amd_test_signal"]
+    assert source["timestamp"] == event_at
+    assert source["timestamp_source"] == "amd_test_health.summary.latest_observed_at"
+    assert source["collected_at"] == collected_at
+    assert source["collection_timestamp_source"] == "ci_health.generated_at"
+
+
 def test_reliability_catalog_retains_supplementary_families_without_regrouping(
     rerouted_lm_eval_inventory,
 ):
