@@ -10,10 +10,12 @@ normal schedules remain the primary triggers. The hosted task provider permits
 one run per hour; the workflow profiles below still enforce their own minimum
 dispatch intervals and every producer retains its collection admission gates.
 
-The hosted hourly task admits DNS and health dispatches after 55 minutes. This
-five-minute allowance accommodates early scheduler arrivals, so a small timing
-change does not skip an entire hourly check. Durable acknowledgements retain
-their actual timestamps. The Linux client's one-hour intervals remain unchanged.
+The hosted task admits DNS and health once in each UTC hour, with at least ten
+minutes between acknowledged dispatches. A task arriving earlier than the prior
+hour's execution can still wake both profiles. Repeated requests within the same
+hour and unresolved acknowledgements remain gated. Durable acknowledgements
+retain their actual timestamps. The Linux client's one-hour intervals remain
+unchanged.
 
 DNS checks the recent workflow history before reserving provider requests. A
 failed or cancelled scan on the same code revision starts a 70-minute retry
