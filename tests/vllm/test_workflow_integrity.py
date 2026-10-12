@@ -675,7 +675,7 @@ class TestPrimaryCIWorkflow:
         [None, b"last test before timeout\n", b"x" * 1048576 + b"last test before timeout\n"],
         ids=["missing", "complete", "oversized"],
     )
-    def test_test_diagnostics_preserve_only_a_bounded_tail(self, tmp_path, source_bytes):
+    def test_test_diagnostics_preserve_only_a_bounded_tail(self, tmp_path, source_bytes, monkeypatch):
         steps = _load_workflow("ci.yml")["jobs"]["test"]["steps"]
         names = [step.get("name") for step in steps]
         stage = steps[names.index("Stage bounded test diagnostics")]
@@ -688,15 +688,21 @@ class TestPrimaryCIWorkflow:
         assert upload["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
         assert upload["with"] == {
             "name": "ci-test-output",
-            "path": "test-diagnostics/test-output.txt",
+            "path": "${{ runner.temp }}/dashboard-test-diagnostics/test-output.txt",
             "if-no-files-found": "ignore",
             "retention-days": 7,
         }
+        checkout = tmp_path / "checkout"
+        checkout.mkdir()
+        runner_temp = tmp_path / "runner-temp"
+        monkeypatch.setenv("RUNNER_TEMP", str(runner_temp))
         if source_bytes is not None:
-            (tmp_path / "test-output.txt").write_bytes(source_bytes)
-        staged = subprocess.run(["bash", "-e", "-c", stage["run"]], cwd=tmp_path, capture_output=True, timeout=5, check=True)
+            (checkout / "test-output.txt").write_bytes(source_bytes)
+        staged = subprocess.run(["bash", "-e", "-c", stage["run"]], cwd=checkout, capture_output=True, timeout=5, check=True)
         assert staged.stdout == staged.stderr == b""
-        output = (tmp_path / upload["with"]["path"]).read_bytes()
+        output = (runner_temp / "dashboard-test-diagnostics/test-output.txt").read_bytes()
+        assert not (checkout / "dashboard-test-diagnostics").exists()
+        assert not (checkout / "test-diagnostics").exists()
         assert len(output) <= 1048576
         assert output == (source_bytes[-1048576:] if source_bytes is not None else b"Pytest did not produce test-output.txt.\n")
 

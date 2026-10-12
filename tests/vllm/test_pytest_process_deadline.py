@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from vllm import dashboard_state as state
+
 from vllm import buildkite_request_guard as guard
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -121,7 +123,7 @@ time.sleep(60)
 
 @pytest.mark.parametrize("source", [None, b"last test before deadline\n", b"x" * 1048576 + b"last test before deadline\n"],
                          ids=["missing", "complete", "oversized"])
-def test_publisher_diagnostics_always_keep_only_bounded_test_tail(tmp_path, source):
+def test_publisher_diagnostics_preserve_clean_checkout_and_bounded_test_tail(tmp_path, source):
     _, steps = _steps("hourly-master.yml")
     stage = steps["Stage bounded deterministic test diagnostics"]
     upload = steps["Upload bounded deterministic test diagnostics"]
@@ -133,12 +135,34 @@ def test_publisher_diagnostics_always_keep_only_bounded_test_tail(tmp_path, sour
     assert stage["timeout-minutes"] == 1
     assert upload["timeout-minutes"] == 2
     assert upload["continue-on-error"] is True
-    assert upload["with"]["path"] == "test-diagnostics/test-output.txt"
+    assert upload["with"]["path"] == "${{ runner.temp }}/dashboard-test-diagnostics/test-output.txt"
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    runner_temp = tmp_path / "runner-temp"
+    env = {"PATH": os.environ["PATH"], "LANG": "C.UTF-8", "RUNNER_TEMP": str(runner_temp)}
+    (checkout / "tracked.txt").write_text("fixture\n")
     if source is not None:
-        (tmp_path / "test-output.txt").write_bytes(source)
-    result = subprocess.run(["bash", "-e", "-c", stage["run"]], cwd=tmp_path,
+        (checkout / "test-output.txt").write_bytes(source)
+    for args in (["git", "init"], ["git", "add", "."],
+                 ["git", "-c", "user.name=Diagnostic Test", "-c", "user.email=diagnostics@example.invalid",
+                  "-c", "commit.gpgsign=false", "commit", "-m", "Tracked diagnostic input"]):
+        subprocess.run(args, cwd=checkout, env=env, capture_output=True, timeout=5, check=True)
+    result = subprocess.run(["bash", "-e", "-c", stage["run"]], cwd=checkout, env=env,
                             capture_output=True, timeout=5, check=True)
     assert not result.stdout and not result.stderr
-    tail = (tmp_path / upload["with"]["path"]).read_bytes()
+    diagnostic = runner_temp / "dashboard-test-diagnostics/test-output.txt"
+    assert not diagnostic.is_relative_to(checkout)
+    tail = diagnostic.read_bytes()
     assert len(tail) <= 1048576
     assert tail == (source[-1048576:] if source is not None else b"Pytest did not produce test-output.txt.\n")
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=checkout, env=env,
+                            capture_output=True, timeout=5, check=True)
+    assert status.stdout == b""
+    policy = state.load_policy()
+    state._assert_generated_worktree_is_staged(checkout, policy)
+    # The former checkout-local directory remains forbidden by the real guard.
+    legacy = checkout / "test-diagnostics/test-output.txt"
+    legacy.parent.mkdir()
+    legacy.write_bytes(tail)
+    with pytest.raises(state.DashboardStateError, match="untracked non-artifact"):
+        state._assert_generated_worktree_is_staged(checkout, policy)
