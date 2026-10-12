@@ -216,8 +216,18 @@ jobs:
             # with explicit incomplete coverage, when the daily sweep is large.
             --time-budget-seconds 1200
             --classification-cache data/vllm/ci/.cache/dns-classifications-v1
+            --failure-diagnostics "$RUNNER_TEMP/dns-collection-failure.json"
           )
           python scripts/vllm/collect_dns_failures.py "${ARGS[@]}"
+
+      - name: Preserve bounded DNS collection failure diagnostics
+        if: always() && steps.collect-dns.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dns-collection-failure-diagnostics
+          path: ${{ runner.temp }}/dns-collection-failure.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Read exact guarded Buildkite request total
         id: dns-request-guard-report
