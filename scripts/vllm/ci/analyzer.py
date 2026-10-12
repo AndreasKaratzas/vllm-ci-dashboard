@@ -116,7 +116,7 @@ def _strip_known_shard_index(name: str, shard_bases: list[str]) -> str:
     return name
 
 
-def _normalize_job_name(name: str) -> str:
+def _normalize_job_name(name: str, *, shard_bases: list[str] | None = None) -> str:
     """Normalize a Buildkite job name for cross-pipeline matching.
 
     Strips:
@@ -156,7 +156,10 @@ def _normalize_job_name(name: str) -> str:
     s = re.sub(r'(\d)\.(\d)', r'\1-\2', s)
     s = re.sub(r'\s+', ' ', s).strip()
 
-    return _strip_known_shard_index(s, _SHARD_BASES).lower()
+    # Immutable source joins can supply their own complete normalization input
+    # instead of inheriting another producer's mutable shard configuration.
+    bases = _SHARD_BASES if shard_bases is None else [base.lower() for base in shard_bases]
+    return _strip_known_shard_index(s, bases).lower()
 
 
 # The latest AMD nightly is analyzed against the exact commit-pinned YAML that
