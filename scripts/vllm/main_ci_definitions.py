@@ -307,8 +307,12 @@ def _runtime_source_operation(phase: str, *, commit_argument: bool = False):
                     _check_runtime_source_time()
                     return result
             except RuntimeSourceError as exc:
-                if commit and not exc.commit_sha:
-                    raise RuntimeSourceError(reason_class=exc.reason_class, commit_sha=commit, phase=phase, http_status=exc.http_status) from None
+                operation_phase = phase if exc.phase == "metadata" else exc.phase
+                if (commit and not exc.commit_sha) or operation_phase != exc.phase:
+                    raise RuntimeSourceError(
+                        reason_class=exc.reason_class, commit_sha=exc.commit_sha or commit,
+                        phase=operation_phase, http_status=exc.http_status,
+                    ) from None
                 raise
             except requests.Timeout:
                 raise RuntimeSourceError(reason_class="timeout", commit_sha=commit, phase=phase) from None

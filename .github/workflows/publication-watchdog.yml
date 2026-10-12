@@ -681,7 +681,8 @@ jobs:
             ARGS+=(--collector-admission "$RUNNER_TEMP/collector-admission.json")
           fi
           if [ "$RECOVERY_TARGET" = dns-health ]; then
-            ARGS+=(--retry-cooldown-minutes 70)
+            CURRENT_CODE_SHA=$(git rev-parse --verify 'HEAD^{commit}')
+            ARGS+=(--retry-cooldown-minutes 70 --current-code-sha "$CURRENT_CODE_SHA")
           else
             ARGS+=(--retry-cooldown-minutes 15)
           fi

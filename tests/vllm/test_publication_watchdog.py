@@ -15,6 +15,8 @@ from vllm import plan_publication_watchdog as watchdog
 
 
 NOW = datetime(2026, 8, 30, 5, tzinfo=timezone.utc)
+CODE_SHA = "a" * 40
+OLD_CODE_SHA = "b" * 40
 
 
 def _status(*, age_minutes=30, **overrides):
@@ -46,6 +48,7 @@ def _run(
     recovery_key=None,
     display_title=None,
     head_branch="main",
+    head_sha=CODE_SHA,
 ):
     if status == "completed" and conclusion is None:
         conclusion = "failure"
@@ -56,6 +59,7 @@ def _run(
     row = {
         "id": run_id,
         "head_branch": head_branch,
+        "head_sha": head_sha,
         "status": status,
         "created_at": (NOW - timedelta(minutes=age_minutes)).isoformat(),
         "run_started_at": None,
@@ -71,10 +75,13 @@ def _run(
     return row
 
 
-def _decision(status, runs=(), *, target="collector"):
+def _decision(status, runs=(), *, target="collector", current_code_sha=None):
     observation = watchdog.observe_publication(status, now=NOW)
     parsed_runs = watchdog.parse_workflow_runs({"workflow_runs": list(runs)}, now=NOW)
-    return watchdog.watchdog_decision(observation, parsed_runs, now=NOW, recovery_target=target)
+    return watchdog.watchdog_decision(
+        observation, parsed_runs, now=NOW, recovery_target=target,
+        current_code_sha=current_code_sha,
+    )
 
 
 def _key(status, *, target="collector"):
@@ -523,6 +530,8 @@ def test_forced_target_reuses_active_and_cooldown_suppression(tmp_path) -> None:
                 str(runs_path),
                 "--recovery-target",
                 "dns-health",
+                "--current-code-sha",
+                CODE_SHA,
                 "--force-recovery-reason",
                 "dns-only-degraded",
                 "--now",
@@ -553,6 +562,8 @@ def test_forced_target_dispatches_after_selected_workflow_cooldown(tmp_path) -> 
                 str(runs_path),
                 "--recovery-target",
                 "dns-health",
+                "--current-code-sha",
+                CODE_SHA,
                 "--force-recovery-reason",
                 "dns-only-degraded",
                 "--retry-cooldown-minutes",
@@ -619,10 +630,182 @@ def test_dns_success_with_same_key_is_cooled_down_to_avoid_gate_loop() -> None:
         now=NOW,
         recovery_target="dns-health",
         retry_cooldown_minutes=70,
+        current_code_sha=CODE_SHA,
     )
 
     assert decision.required is False
     assert decision.reason == "recent-recovery-attempt"
+
+
+@pytest.mark.parametrize("conclusion", sorted(watchdog.FAILED_ATTEMPT_CONCLUSIONS))
+def test_normal_dns_failed_attempt_observes_same_code_cooldown(conclusion) -> None:
+    status = _status(age_minutes=160)
+    runs = watchdog.parse_workflow_runs(
+        {"workflow_runs": [_run(age_minutes=100, updated_age_minutes=5, conclusion=conclusion)]},
+        now=NOW,
+    )
+    decision = watchdog.watchdog_decision(
+        watchdog.observe_publication(status, now=NOW), runs, now=NOW,
+        recovery_target="dns-health", retry_cooldown_minutes=70, current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is False
+    assert decision.reason == "recent-recovery-attempt"
+
+
+@pytest.mark.parametrize("age_minutes, required", [(70, False), (70.001, True)])
+def test_normal_dns_failed_attempt_has_bounded_70_minute_cooldown(age_minutes, required) -> None:
+    runs = watchdog.parse_workflow_runs(
+        {"workflow_runs": [_run(age_minutes=age_minutes)]}, now=NOW,
+    )
+    decision = watchdog.watchdog_decision(
+        watchdog.observe_publication(_status(age_minutes=160), now=NOW), runs, now=NOW,
+        recovery_target="dns-health", retry_cooldown_minutes=70, current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is required
+
+
+@pytest.mark.parametrize("keyed", [False, True])
+def test_new_dns_code_can_recover_after_old_code_completed_attempt(keyed) -> None:
+    status = _status(age_minutes=160)
+    decision = _decision(
+        status,
+        [_run(age_minutes=5, head_sha=OLD_CODE_SHA,
+              recovery_key=_key(status, target="dns-health") if keyed else None)],
+        target="dns-health", current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is True
+    assert decision.reason == "publication-stale"
+
+
+@pytest.mark.parametrize("conclusion", ["success", "neutral", "skipped"])
+def test_normal_dns_nonfailure_does_not_hide_persistent_incident(conclusion) -> None:
+    decision = _decision(
+        _status(age_minutes=160), [_run(age_minutes=5, conclusion=conclusion)],
+        target="dns-health", current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is True
+
+
+def test_unrelated_keyed_dns_incident_keeps_incident_scoped_deduplication() -> None:
+    decision = _decision(
+        _status(age_minutes=160), [_run(age_minutes=5, recovery_key="1" * 64)],
+        target="dns-health", current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is True
+
+
+def test_new_dns_code_still_waits_for_keyed_old_code_active_run() -> None:
+    status = _status(age_minutes=160)
+    decision = _decision(
+        status,
+        [_run(age_minutes=5, status="in_progress", head_sha=OLD_CODE_SHA,
+              recovery_key=_key(status, target="dns-health"))],
+        target="dns-health", current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is False
+    assert decision.reason == "collection-active"
+
+
+@pytest.mark.parametrize("target", ["collector", "deploy-pages"])
+def test_normal_failure_does_not_extend_other_recovery_target_cooldowns(target) -> None:
+    decision = _decision(_status(age_minutes=160), [_run(age_minutes=5)], target=target)
+
+    assert decision.required is True
+
+
+@pytest.mark.parametrize("status", sorted(watchdog.QUEUED_RUN_STATUSES | {"in_progress"}))
+@pytest.mark.parametrize("age_minutes, required", [(75, False), (76, True)])
+def test_normal_dns_active_run_keeps_existing_age_bound_across_code_changes(
+    status, age_minutes, required,
+) -> None:
+    decision = _decision(
+        _status(age_minutes=160),
+        [_run(age_minutes=age_minutes, status=status, head_sha=OLD_CODE_SHA,
+              updated_age_minutes=1)],
+        target="dns-health", current_code_sha=CODE_SHA,
+    )
+
+    assert decision.required is required
+    if not required:
+        assert decision.reason == "collection-active"
+
+
+@pytest.mark.parametrize("current_code_sha", [None, "", "a" * 39, "a" * 41, "A" * 40, True])
+def test_dns_code_aware_recovery_requires_valid_current_code_identity(current_code_sha) -> None:
+    with pytest.raises(ValueError, match="exact current code SHA"):
+        _decision(_status(age_minutes=160), target="dns-health", current_code_sha=current_code_sha)
+
+
+def test_dns_code_aware_recovery_fails_closed_on_missing_run_code_identity() -> None:
+    row = _run(age_minutes=5)
+    row.pop("head_sha")
+
+    with pytest.raises(ValueError, match="missing an exact head SHA"):
+        _decision(_status(age_minutes=160), [row], target="dns-health", current_code_sha=CODE_SHA)
+
+
+@pytest.mark.parametrize("head_sha", ["", "a" * 39, "a" * 41, "A" * 40, True, []])
+def test_malformed_run_code_identity_fails_closed(head_sha) -> None:
+    with pytest.raises(ValueError, match="invalid row"):
+        watchdog.parse_workflow_runs(
+            {"workflow_runs": [_run(age_minutes=5, head_sha=head_sha)]}, now=NOW,
+        )
+
+
+@pytest.mark.parametrize("target, extra_args", [
+    ("dns-health", []),
+    ("collector", ["--current-code-sha", CODE_SHA]),
+    ("deploy-pages", ["--current-code-sha", CODE_SHA]),
+])
+def test_dns_code_cli_argument_is_required_only_for_dns_workflow_recovery(
+    tmp_path, target, extra_args,
+) -> None:
+    output_path = tmp_path / "outputs"
+    with pytest.raises(SystemExit) as error:
+        watchdog.main([
+            "--status", str(tmp_path / "status.json"),
+            "--workflow-runs", str(tmp_path / "runs.json"),
+            "--recovery-target", target, "--github-output", str(output_path),
+            *extra_args,
+        ])
+
+    assert error.value.code == 2
+    assert not output_path.exists()
+
+
+def test_actual_dns_watchdog_plan_uses_trusted_checkout_for_normal_attempt_cooldown(tmp_path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/publication-watchdog.yml").read_text())
+    steps = workflow["jobs"]["recover"]["steps"]
+    checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["ref"] == "main"
+    plan = next(step for step in steps if step.get("id") == "recovery-plan")["run"]
+    head_sha = subprocess.check_output(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=root, text=True,
+    ).strip()
+    (tmp_path / "publication-status.json").write_text(json.dumps(_status(age_minutes=10)))
+    (tmp_path / "selected-recovery-runs.json").write_text(json.dumps({"workflow_runs": [
+        _run(age_minutes=5, head_sha=head_sha, conclusion="cancelled"),
+    ]}))
+    output_path = tmp_path / "outputs"
+    env = dict(os.environ, RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(output_path),
+               RECOVERY_TARGET="dns-health", FORCE_REASON="dns-only-degraded",
+               TEST_PYTHON=sys.executable, TEST_NOW=NOW.isoformat())
+    script = 'python() { "$TEST_PYTHON" "$@" --now "$TEST_NOW"; }\n' + plan
+    result = subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script], cwd=root, env=env,
+        capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "required=false" in output_path.read_text().splitlines()
+    assert "reason=recent-recovery-attempt" in output_path.read_text().splitlines()
 
 
 def test_actual_recovery_limits_do_not_claim_an_unconditional_three_hour_guarantee() -> None:
