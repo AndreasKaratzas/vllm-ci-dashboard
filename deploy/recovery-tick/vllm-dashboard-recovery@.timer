@@ -1,0 +1,12 @@
+[Unit]
+Description=Check vLLM dashboard %i independently of GitHub cron
+
+[Timer]
+OnBootSec=90s
+OnUnitActiveSec=10min
+RandomizedDelaySec=30s
+AccuracySec=10s
+Unit=vllm-dashboard-recovery@%i.service
+
+[Install]
+WantedBy=timers.target

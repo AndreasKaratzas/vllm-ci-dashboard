@@ -1,0 +1,467 @@
+name: CI Build Eval
+
+# Runs every 3 hours to catch issues quickly.
+on:
+  workflow_dispatch:  # Manual trigger (hourly runs handled by hourly-master)
+    inputs:
+      max_data_age_hours:
+        description: 'Max allowed data age in hours (default 36)'
+        required: false
+        default: '36'
+
+concurrency:
+  group: nightly-ci
+  # Issue reconciliation is a bounded transaction.  Let an older run finish
+  # closing/migrating its durable incident slot before a newer run starts.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    outputs:
+      test_result: ${{ steps.run-tests.outcome }}
+      test_output_b64: ${{ steps.run-tests.outputs.test_output_b64 }}
+      summary_b64: ${{ steps.run-tests.outputs.summary_b64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt pyyaml requests pytest
+
+      - name: Run full test suite
+        id: run-tests
+        env:
+          CI: "1"
+          MAX_DATA_AGE_HOURS: ${{ github.event.inputs.max_data_age_hours || '36' }}
+        run: |
+          set +e
+          pytest tests/ -m 'not live_data' -v --tb=short 2>&1 | tee test-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # Transport bounded evidence as one-line base64url values. Test names
+          # can contain shell/output-delimiter syntax, so they must never be
+          # interpolated into a later JavaScript program.
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          scan_limit = 64 * 1024
+          output_limit = 16 * 1024
+          summary_limit = 1024
+          path = Path("test-output.txt")
+          with path.open("rb") as stream:
+              stream.seek(0, 2)
+              size = stream.tell()
+              stream.seek(max(0, size - scan_limit))
+              tail = stream.read(scan_limit)
+
+          lines = tail.splitlines()
+          output = b"\n".join(lines[-200:])[-output_limit:]
+          summary = (lines[-1] if lines else b"")[-summary_limit:]
+
+          def encoded(value: bytes) -> str:
+              return base64.urlsafe_b64encode(value).decode("ascii")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as sink:
+              sink.write(f"summary_b64={encoded(summary)}\n")
+              sink.write(f"test_output_b64={encoded(output)}\n")
+          PY
+
+          exit $EXIT_CODE
+
+  create-issue-on-failure:
+    needs: tests
+    if: failure()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Create or update GitHub issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SUMMARY_B64: ${{ needs.tests.outputs.summary_b64 }}
+          TEST_OUTPUT_B64: ${{ needs.tests.outputs.test_output_b64 }}
+        with:
+          script: |
+            const decodeBounded = (encoded, fallback, maxBytes) => {
+              if (!encoded) return fallback;
+              if (encoded.length > Math.ceil(maxBytes * 4 / 3) + 4 ||
+                  !/^[A-Za-z0-9_-]*={0,2}$/.test(encoded)) {
+                return fallback;
+              }
+              const decoded = Buffer.from(encoded, 'base64url');
+              if (decoded.length > maxBytes) return fallback;
+              return decoded.toString('utf8').replace(
+                /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g,
+                '�',
+              );
+            };
+            const summary = decodeBounded(process.env.SUMMARY_B64, 'Unknown', 1024);
+            const output = decodeBounded(
+              process.env.TEST_OUTPUT_B64,
+              'No output captured',
+              16 * 1024,
+            );
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const date = new Date().toISOString().slice(0, 10);
+            const ownershipMarker = '<!-- ci-failure-owner:nightly-ci -->';
+            const ownershipLabel = 'automation:nightly-ci';
+            const legacySignature = '*This issue was created automatically by the nightly CI workflow.*';
+
+            // Parse failure details
+            const lines = output.split('\n');
+            const failures = lines.filter(l => l.includes('FAILED'));
+            const errors = lines.filter(l => l.includes('ERROR'));
+
+            let failureList = '';
+            if (failures.length > 0) {
+              failureList = '### Failed Tests\n```\n' + failures.slice(0, 30).join('\n') + '\n```\n\n';
+            }
+            if (errors.length > 0) {
+              failureList += '### Errors\n```\n' + errors.slice(0, 10).join('\n') + '\n```\n\n';
+            }
+
+            const body = [
+              ownershipMarker,
+              '',
+              `## Nightly CI Failure — ${date}`,
+              '',
+              `**Summary:** \`${summary}\``,
+              `**Run:** ${runUrl}`,
+              '',
+              failureList,
+              '<details><summary>Full test output (last 200 lines)</summary>',
+              '',
+              '```',
+              output.slice(-4000),
+              '```',
+              '</details>',
+              '',
+              '---',
+              '*This issue was created automatically by the nightly CI workflow.*',
+              '*Fix the failing tests and close this issue.*',
+            ].join('\n');
+
+            const title = `Nightly CI failure — ${date}`;
+            const labels = [
+              'ci-failure',
+              'automated',
+              'workstream:dashboard-ci',
+              ownershipLabel,
+            ];
+
+            try {
+              await github.rest.issues.getLabel({
+                ...context.repo,
+                name: ownershipLabel,
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: ownershipLabel,
+                color: '5319e7',
+                description: 'Canonical incident owned by nightly CI automation',
+              });
+            }
+
+            // The exact ownership label is a single-entry durable index. One
+            // recent page performs bounded legacy adoption only when the index
+            // has no valid owner; historical duplicates never retain the
+            // ownership label.
+            const labeledResponse = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              labels: ownershipLabel,
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            });
+            const hasNextPage = response =>
+              /(?:^|,)\s*<[^>]+>;\s*rel="next"(?:\s*[,;]|$)/i.test(
+                String((response.headers || {}).link || ''),
+              );
+            if (hasNextPage(labeledResponse)) {
+              throw new Error('nightly CI ownership lookup reached its bounded ambiguity limit');
+            }
+            const recentRequest = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            };
+            const hasExactMarker = (body, marker) =>
+              String(body || '').split(/\r?\n/).includes(marker);
+            const isOwned = issue => {
+              if (issue.pull_request) return false;
+              const issueBody = issue.body || '';
+              return hasExactMarker(issueBody, ownershipMarker) ||
+                issueBody.includes(legacySignature);
+            };
+            const candidates = new Map();
+            for (const issue of labeledResponse.data) {
+              candidates.set(issue.number, issue);
+            }
+            if (![...candidates.values()].some(isOwned)) {
+              const recentResponse = await github.rest.issues.listForRepo(recentRequest);
+              for (const issue of recentResponse.data) {
+                candidates.set(issue.number, issue);
+              }
+              if (hasNextPage(recentResponse)) {
+                throw new Error('nightly CI legacy adoption reached its bounded ambiguity limit');
+              }
+            }
+            const ownedIssues = [...candidates.values()].filter(isOwned).sort((left, right) =>
+              Number(hasExactMarker(right.body, ownershipMarker)) -
+                Number(hasExactMarker(left.body, ownershipMarker)) ||
+              right.number - left.number,
+            );
+            const existing = ownedIssues[0] || null;
+            const labelName = label => typeof label === 'string' ? label : label.name;
+            let canonicalNumber = null;
+
+            if (existing) {
+              // Keep one re-openable canonical incident instead of creating a
+              // new issue for each failure/recovery cycle.
+              const issue = existing;
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                title,
+                body,
+                state: 'open',
+              });
+              for (const duplicate of ownedIssues.slice(1)) {
+                if (duplicate.state !== 'open') continue;
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: duplicate.number,
+                  state: 'closed',
+                });
+                try {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: duplicate.number,
+                    body: `Superseded by #${issue.number}, the canonical nightly CI incident. This duplicate is closed.\n\n**Run:** ${runUrl}`,
+                  });
+                } catch (error) {
+                  core.warning(`Closed duplicate #${duplicate.number} but could not comment.`);
+                }
+              }
+              // Establish the durable index only after every legacy duplicate
+              // is closed.  If this run dies earlier, the next run repeats the
+              // bounded migration instead of forgetting an unlabelled issue.
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels,
+              });
+              canonicalNumber = issue.number;
+              try {
+                await github.rest.issues.addAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  assignees: [context.repo.owner],
+                });
+              } catch (error) {
+                if (error.status !== 422) throw error;
+              }
+              const comment = [
+                `## New failure — ${date}`,
+                '',
+                `**Summary:** \`${summary}\``,
+                `**Run:** ${runUrl}`,
+                '',
+                failureList,
+              ].join('\n');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: comment,
+              });
+              console.log(`Updated existing issue #${issue.number}`);
+            } else {
+              // Create new issue
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `${body}\n\nGitHub assignee: ${context.repo.owner}.`,
+                labels,
+                assignees: [context.repo.owner],
+              });
+              canonicalNumber = created.data.number;
+              console.log(`Created issue #${created.data.number}`);
+            }
+            // Remove stale index labels last.  Every prior canonical candidate
+            // has already been closed, while canonicalNumber is discoverable.
+            for (const issue of labeledResponse.data) {
+              if (issue.number === canonicalNumber) continue;
+              const issueLabels = new Set((issue.labels || []).map(labelName));
+              if (!issueLabels.has(ownershipLabel)) continue;
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  name: ownershipLabel,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+  close-issue-on-success:
+    needs: tests
+    if: success()
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Close resolved ci-failure issues
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const ownershipMarker = '<!-- ci-failure-owner:nightly-ci -->';
+            const ownershipLabel = 'automation:nightly-ci';
+            const legacySignature = '*This issue was created automatically by the nightly CI workflow.*';
+
+            try {
+              await github.rest.issues.getLabel({
+                ...context.repo,
+                name: ownershipLabel,
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...context.repo,
+                name: ownershipLabel,
+                color: '5319e7',
+                description: 'Canonical incident owned by nightly CI automation',
+              });
+            }
+
+            const labeledResponse = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              labels: ownershipLabel,
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            });
+            const hasNextPage = response =>
+              /(?:^|,)\s*<[^>]+>;\s*rel="next"(?:\s*[,;]|$)/i.test(
+                String((response.headers || {}).link || ''),
+              );
+            if (hasNextPage(labeledResponse)) {
+              throw new Error('nightly CI ownership lookup reached its bounded ambiguity limit');
+            }
+            const recentRequest = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 100,
+              page: 1,
+            };
+
+            const hasExactMarker = (body, marker) =>
+              String(body || '').split(/\r?\n/).includes(marker);
+            const isOwned = issue => {
+              if (issue.pull_request) return false;
+              const body = issue.body || '';
+              return hasExactMarker(body, ownershipMarker) ||
+                body.includes(legacySignature);
+            };
+            const candidates = new Map();
+            for (const issue of labeledResponse.data) {
+              candidates.set(issue.number, issue);
+            }
+            if (![...candidates.values()].some(isOwned)) {
+              const recentResponse = await github.rest.issues.listForRepo(recentRequest);
+              for (const issue of recentResponse.data) {
+                candidates.set(issue.number, issue);
+              }
+              if (hasNextPage(recentResponse)) {
+                throw new Error('nightly CI legacy adoption reached its bounded ambiguity limit');
+              }
+            }
+            const ownedIssues = [...candidates.values()].filter(isOwned).sort((left, right) =>
+              Number(hasExactMarker(right.body, ownershipMarker)) -
+                Number(hasExactMarker(left.body, ownershipMarker)) ||
+              right.number - left.number,
+            );
+            const existing = ownedIssues[0] || null;
+            const labelName = label => typeof label === 'string' ? label : label.name;
+            for (const issue of ownedIssues) {
+              if (issue.state !== 'open') continue;
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `Nightly CI is passing again. Closed automatically.\n\n**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                });
+              } catch (error) {
+                core.warning(`Closed nightly CI issue #${issue.number} but could not comment.`);
+              }
+              console.log(`Closed issue #${issue.number}`);
+            }
+            // The canonical closed issue is the durable slot for the next
+            // failure.  Install its index only after legacy duplicates close.
+            if (existing) {
+              await github.rest.issues.addLabels({
+                ...context.repo,
+                issue_number: existing.number,
+                labels: [ownershipLabel],
+              });
+            }
+            for (const issue of labeledResponse.data) {
+              if (existing && issue.number === existing.number) continue;
+              const issueLabels = new Set((issue.labels || []).map(labelName));
+              if (!issueLabels.has(ownershipLabel)) continue;
+              try {
+                await github.rest.issues.removeLabel({
+                  ...context.repo,
+                  issue_number: issue.number,
+                  name: ownershipLabel,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
