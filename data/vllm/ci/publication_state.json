@@ -1,0 +1,267 @@
+{
+  "schema_version": 2,
+  "surface_contract_version": 8,
+  "generated_at": "2026-10-17T09:37:27Z",
+  "baseline_ref": "d15859b257ff04922686082963acfe7cf3b89ea6",
+  "mode": "fallback",
+  "degraded_surfaces": [
+    "ci_analytics",
+    "ci_core"
+  ],
+  "fresh_degraded_surfaces": [],
+  "fallback_surfaces": [
+    "ci_analytics",
+    "ci_core"
+  ],
+  "degraded_since": {
+    "ci_analytics": "2026-10-17T07:52:10Z",
+    "ci_core": "2026-10-17T07:52:10Z"
+  },
+  "fallback_since": {
+    "ci_analytics": "2026-10-17T07:52:10Z",
+    "ci_core": "2026-10-17T07:52:10Z"
+  },
+  "fallback_max_age_hours": 36,
+  "collector_failures": [
+    {
+      "schema_version": 1,
+      "surface": "ci_core",
+      "collector": "collect_ci.py",
+      "step": "CI data",
+      "reason_class": "command-error",
+      "exit_code": 1,
+      "details": {
+        "summary": "raise ValueError(\"AMD runtime step lacks an unambiguous pinned source definition\") | ValueError: AMD runtime step lacks an unambiguous pinned source definition"
+      },
+      "persistence_runs": 2,
+      "alertable": true
+    },
+    {
+      "schema_version": 1,
+      "surface": "ci_analytics",
+      "collector": "collect_analytics.py",
+      "step": "CI analytics",
+      "reason_class": "schema-drift",
+      "exit_code": 1,
+      "details": {
+        "summary": "raise RuntimeSourceError( | vllm.main_ci_definitions.RuntimeSourceError: RuntimeSourceError[reason_class=schema-drift, phase=scope, commit=074c83a09a0b872cec92e244d91adf2b3c55e41b] Immutable source evidence is incomplete or does not match its Git identity. {\"active_source_seconds\":23.676,\"commit_sha\":\"074c83a09a0b872cec92e244d91adf2b3c55e41b\",\"graphql_rest_fallbacks\":0,\"http_status\":null,\"max_active_source_seconds\":600,\"max_request_starts\":2400,\"phase\":\"scope\",\"reason_class\":\"schema-drift\",\"request_starts\":39}"
+      },
+      "persistence_runs": 2,
+      "alertable": true
+    }
+  ],
+  "collector_failure_streaks": {
+    "4d4fea18f12c2294850e": 2,
+    "dc9f3dde412af03877ee": 2
+  },
+  "collector_incident_policy": {
+    "alert": true,
+    "reason": "deterministic-or-unclassified-collector-failure",
+    "transient_persistence_runs_required": 2,
+    "max_observed_streak": 2
+  },
+  "incident_policy": {
+    "alert": true,
+    "reason": "deterministic-or-unclassified-collector-failure",
+    "transient_persistence_runs_required": 2,
+    "max_observed_streak": 2
+  },
+  "upstream_retry_observations": [],
+  "upstream_retry_streaks": {},
+  "restored_paths": {
+    "ci_analytics": [
+      "data/vllm/ci/analytics.json"
+    ],
+    "ci_core": [
+      "data/vllm/ci/amd_test_matrix.json",
+      "data/vllm/ci/ci_health.json",
+      "data/vllm/ci/ci_ownership.json",
+      "data/vllm/ci/config_parity.json",
+      "data/vllm/ci/failure_trends.json",
+      "data/vllm/ci/flaky_tests.json",
+      "data/vllm/ci/ownership_config_parity.json",
+      "data/vllm/ci/quarantine.json",
+      "data/vllm/ci/shard_base_catalog.json",
+      "data/vllm/ci/shard_bases.json",
+      "data/vllm/ci/test_group_parity.json",
+      "data/vllm/ci/test_results/2026-10-09_amd.jsonl",
+      "data/vllm/ci/test_results/2026-10-10_amd.jsonl",
+      "data/vllm/ci/test_results/2026-10-11_amd.jsonl",
+      "data/vllm/ci/test_results/2026-10-12_amd.jsonl",
+      "data/vllm/ci/test_results/2026-10-13_amd.jsonl",
+      "data/vllm/ci/test_results/2026-10-14_amd.jsonl",
+      "data/vllm/ci/test_results/2026-10-15_amd.jsonl",
+      "data/vllm/ci/test_results/retention.json",
+      "data/vllm/test_results.json"
+    ]
+  },
+  "restored_manifest": {
+    "ci_analytics": {
+      "data/vllm/ci/analytics.json": {
+        "bytes": 33744929,
+        "sha256": "d228af7a35948d4ac76905a76f9419af747624f14f387112ecc691667571365c"
+      }
+    },
+    "ci_core": {
+      "data/vllm/ci/amd_test_matrix.json": {
+        "bytes": 1606410,
+        "sha256": "e78274df068a52ff3481ad79bec044b629a5501888b07b43a5f2db951c162e28"
+      },
+      "data/vllm/ci/ci_health.json": {
+        "bytes": 28988,
+        "sha256": "31052fd3ef551f083a4e1814efe547e9ce54161d7c864735ba0ddc92c2c39f0d"
+      },
+      "data/vllm/ci/ci_ownership.json": {
+        "bytes": 252411,
+        "sha256": "c6ea3baf8dcbdd107df99cbc6e833671aa0f82e5e15a508ae57ba54b4f4dd4ce"
+      },
+      "data/vllm/ci/config_parity.json": {
+        "bytes": 932497,
+        "sha256": "f83c8ee06b8104cf40b93fe0bdd31a6945dbc846b2353d8d02f6072c949930d0"
+      },
+      "data/vllm/ci/failure_trends.json": {
+        "bytes": 2010,
+        "sha256": "9368cda53b23c7b464bb5e73a726697555c30de9827810b0ed17701b0e509b75"
+      },
+      "data/vllm/ci/flaky_tests.json": {
+        "bytes": 404,
+        "sha256": "58f96026b5344d13b1164e4c724f7213684e740feebfadadc86c315327982d85"
+      },
+      "data/vllm/ci/ownership_config_parity.json": {
+        "bytes": 932533,
+        "sha256": "3a6ea7392f2d2ceaa8ebb354f4c12968ea6fc0af5934c6992ff6ddecda1e91b5"
+      },
+      "data/vllm/ci/quarantine.json": {
+        "bytes": 639,
+        "sha256": "b139d7ec674d44e0aa9aeddb4059a479ada43b9546d008323090d6f181401d08"
+      },
+      "data/vllm/ci/shard_base_catalog.json": {
+        "bytes": 37722,
+        "sha256": "f2cb28219b5024e7897aaff55b17f1f61db7bb7c14b803ae255b72a4a18e365a"
+      },
+      "data/vllm/ci/shard_bases.json": {
+        "bytes": 893,
+        "sha256": "3601c14798a23d586ee076f43505eedd668c18e5cbb8c701262e295e4f91379d"
+      },
+      "data/vllm/ci/test_group_parity.json": {
+        "bytes": 419467,
+        "sha256": "27db8ba0b0a4a966fe551460e16964ac5bb4d6a85986b1bb9043ca7f9caf18ab"
+      },
+      "data/vllm/ci/test_results/2026-10-09_amd.jsonl": {
+        "bytes": 314779,
+        "sha256": "2aaa936387be1f32fec90338b52d6fcd71f14d3da8fb5e32ff23a318e0606ac5"
+      },
+      "data/vllm/ci/test_results/2026-10-10_amd.jsonl": {
+        "bytes": 318650,
+        "sha256": "8a21945ceb8f304715ea69c7261d363810a40c7c7b11b96b2d386d93aaabebdf"
+      },
+      "data/vllm/ci/test_results/2026-10-11_amd.jsonl": {
+        "bytes": 318786,
+        "sha256": "514931e4476a1988cdcdf9654ee3e50ca025809055e245ffa299c76ef5d2683e"
+      },
+      "data/vllm/ci/test_results/2026-10-12_amd.jsonl": {
+        "bytes": 317920,
+        "sha256": "2aabba97e44b70ac5744fda3c8b6bec32cb6d8348798c62e356ee01c2412d105"
+      },
+      "data/vllm/ci/test_results/2026-10-13_amd.jsonl": {
+        "bytes": 320120,
+        "sha256": "47c9e1cc6227f96c2f1d3b2dfcda4db5b4014ed5f4d72b985d27176241be3fc8"
+      },
+      "data/vllm/ci/test_results/2026-10-14_amd.jsonl": {
+        "bytes": 321978,
+        "sha256": "3bdf9a10290cb710377a7d03a92ec8685dc9a72e877293f24e79431756138ad1"
+      },
+      "data/vllm/ci/test_results/2026-10-15_amd.jsonl": {
+        "bytes": 319672,
+        "sha256": "03dfb294f7af9d39fc21c96caa865c22109a065e934a6984c285e183350747e4"
+      },
+      "data/vllm/ci/test_results/retention.json": {
+        "bytes": 315,
+        "sha256": "f2cfedd39f17528d7732fa392e24c84b7635b47d283243b9011b9a3ce3ac11e6"
+      },
+      "data/vllm/test_results.json": {
+        "bytes": 759,
+        "sha256": "eba77afae3b15f438d031cf2968dd3941dbf76a0eccbe80fc89b38ab963fd975"
+      }
+    }
+  },
+  "final_errors": [],
+  "candidate_errors": [
+    {
+      "severity": "error",
+      "code": "publication-collector-failed",
+      "message": "CI data (collect_ci.py) failed with command-error; ci_core will use its validated baseline",
+      "path": "",
+      "context": {
+        "surface": "ci_core",
+        "collector": "collect_ci.py",
+        "step": "CI data",
+        "reason_class": "command-error",
+        "exit_code": 1,
+        "details": {
+          "summary": "raise ValueError(\"AMD runtime step lacks an unambiguous pinned source definition\") | ValueError: AMD runtime step lacks an unambiguous pinned source definition"
+        },
+        "persistence_runs": 2,
+        "alertable": true
+      },
+      "surfaces": [
+        "ci_core"
+      ]
+    },
+    {
+      "severity": "error",
+      "code": "publication-collector-failed",
+      "message": "CI analytics (collect_analytics.py) failed with schema-drift; ci_analytics will use its validated baseline",
+      "path": "",
+      "context": {
+        "surface": "ci_analytics",
+        "collector": "collect_analytics.py",
+        "step": "CI analytics",
+        "reason_class": "schema-drift",
+        "exit_code": 1,
+        "details": {
+          "summary": "raise RuntimeSourceError( | vllm.main_ci_definitions.RuntimeSourceError: RuntimeSourceError[reason_class=schema-drift, phase=scope, commit=074c83a09a0b872cec92e244d91adf2b3c55e41b] Immutable source evidence is incomplete or does not match its Git identity. {\"active_source_seconds\":23.676,\"commit_sha\":\"074c83a09a0b872cec92e244d91adf2b3c55e41b\",\"graphql_rest_fallbacks\":0,\"http_status\":null,\"max_active_source_seconds\":600,\"max_request_starts\":2400,\"phase\":\"scope\",\"reason_class\":\"schema-drift\",\"request_starts\":39}"
+        },
+        "persistence_runs": 2,
+        "alertable": true
+      },
+      "surfaces": [
+        "ci_analytics"
+      ]
+    }
+  ],
+  "final_degradations": [],
+  "candidate_degradations": [],
+  "publication_retention": {
+    "policy": "exact_recovery_controls_then_priority_diagnostic_rows_v1",
+    "max_bytes": 65536,
+    "complete_relative_to_source": true,
+    "recovery_controls_complete": true,
+    "diagnostic_findings": {
+      "final_errors": {
+        "source": 0,
+        "published": 0,
+        "omitted": 0,
+        "complete": true
+      },
+      "candidate_errors": {
+        "source": 2,
+        "published": 2,
+        "omitted": 0,
+        "complete": true
+      },
+      "final_degradations": {
+        "source": 0,
+        "published": 0,
+        "omitted": 0,
+        "complete": true
+      },
+      "candidate_degradations": {
+        "source": 0,
+        "published": 0,
+        "omitted": 0,
+        "complete": true
+      }
+    }
+  }
+}
