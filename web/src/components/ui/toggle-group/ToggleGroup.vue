@@ -4,7 +4,7 @@ import type { ToggleGroupRootEmits, ToggleGroupRootProps } from "reka-ui"
 import type { HTMLAttributes } from "vue"
 import type { toggleVariants } from '@/components/ui/toggle'
 import { reactiveOmit } from "@vueuse/core"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { ToggleGroupRoot, useForwardPropsEmits } from "reka-ui"
 import { provide } from "vue"
 
