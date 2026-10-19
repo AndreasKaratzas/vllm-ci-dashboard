@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
-import { TriangleAlert } from 'lucide-vue-next'
+import { TriangleAlert } from '@lucide/vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { dataUrl } from '@/data/fetch'
