@@ -1,0 +1,1094 @@
+// CI Analytics "CI agent health": a port of renderAmdAgentHealth and its
+// helpers (docs/assets/js/ops-v2.js). Closure state in classic becomes explicit
+// options here; the computations keep the classic names and order.
+import { duration, integer, shortDate, value, type Rec, type Tone } from './format'
+import { isAmdMiHardware, isAmdRuntimeJob } from './health'
+
+export const AGENT_WINDOW_DAYS: Record<string, number> = { '1d': 1, '3d': 3, '7d': 7, '14d': 14, '30d': 30, '60d': 60 }
+export const AGENT_WINDOW_IDS = ['1d', '3d', '7d', '14d', '30d', '60d']
+export const AGENT_COFAIL_IDS = ['30', '60', '120', '180', '360', '720', '1440']
+export const AGENT_SIGNALS = ['infra', 'hard', 'all'] as const
+export type AgentSignal = (typeof AGENT_SIGNALS)[number]
+export const COFAIL_COMPACT_RUNS = 3
+export const AMD_AGENT_HEALTH_ASSET = 'data/vllm/ci/operations_v2/amd_agent_health.json'
+
+export function agentStateColor(stateName: unknown): string {
+  const s = String(stateName || '').toLowerCase()
+  if (s === 'pass' || s === 'passed') return '#35bb78'
+  if (s === 'soft') return '#e3a63a'
+  if (s === 'hard') return '#e06464'
+  if (s === 'canceled') return '#8a93a0'
+  return '#66717d'
+}
+
+export function agentTruncate(text: unknown, max: number): string {
+  const s = String(text || '')
+  return s.length > max ? s.slice(0, max - 1) + '…' : s
+}
+
+export function agentNodeLabel(raw: string, hardware: string): string {
+  if (!raw || !hardware) return raw
+  return raw + ' (' + hardware + ')'
+}
+
+export function agentCofailLabel(mins: unknown): string {
+  const m = Number(mins) || 0
+  return m % 60 === 0 ? m / 60 + 'h' : m + 'm'
+}
+
+export function buildkiteJobUrl(pipeline: unknown, build: unknown, jobId: unknown): string {
+  if (!pipeline || build === null || build === undefined) return ''
+  let url = 'https://buildkite.com/vllm/' + pipeline + '/builds/' + build
+  if (jobId) url += '/steps/canvas?jid=' + jobId + '&tab=output'
+  return url
+}
+
+export interface AgentRun {
+  node_raw: string
+  hardware: string
+  pipeline: string
+  queue: string
+  group: string
+  state: string
+  nightly: boolean
+  infra_suspect: boolean
+  build_canceled: boolean
+  build_number: unknown
+  url: string
+  started_at: string
+  day: unknown
+  _start: number | null
+  _end: number | null
+}
+
+export interface CofailEvent {
+  node: string
+  node_raw: string
+  hardware: string
+  pattern: 'concurrent' | 'sequential'
+  concurrent: boolean
+  started_at: string
+  _startMs: number
+  _endMs: number
+  span_mins: number
+  run_count: number
+  group_count: number
+  cross_pipeline: boolean
+  pipelines: string[]
+  hard_failed: number
+  soft_failed: number
+  runs: AgentRun[]
+}
+
+export function makeCofailEvent(node: string, nodeRaw: string, hardware: string, cluster: AgentRun[]): CofailEvent {
+  const starts = cluster.map((r) => r._start as number)
+  const ends = cluster.map((r) => (r._end !== null ? r._end : (r._start as number)))
+  const startMs = Math.min(...starts)
+  const endMs = Math.max(...ends)
+  const intervals = cluster
+    .map((r) => [r._start as number, r._end !== null ? r._end : (r._start as number)] as const)
+    .sort((a, b) => a[0] - b[0])
+  let concurrent = false
+  for (let i = 1; i < intervals.length; i++) {
+    if (intervals[i]![0] < intervals[i - 1]![1]) {
+      concurrent = true
+      break
+    }
+  }
+  const pipelines = Array.from(new Set(cluster.map((r) => r.pipeline))).sort()
+  return {
+    node,
+    node_raw: nodeRaw,
+    hardware,
+    pattern: concurrent ? 'concurrent' : 'sequential',
+    concurrent,
+    started_at: new Date(startMs).toISOString(),
+    _startMs: startMs,
+    _endMs: endMs,
+    span_mins: Math.round(((endMs - startMs) / 60000) * 100) / 100,
+    run_count: cluster.length,
+    group_count: new Set(cluster.map((r) => r.group)).size,
+    cross_pipeline: pipelines.length > 1,
+    pipelines,
+    hard_failed: cluster.filter((r) => r.state === 'hard').length,
+    soft_failed: cluster.filter((r) => r.state === 'soft').length,
+    runs: cluster.slice().sort((a, b) => (a._start as number) - (b._start as number)),
+  }
+}
+
+export function clusterNodeCofailures(node: string, nodeRaw: string, hardware: string, runs: AgentRun[], windowMins: number): CofailEvent[] {
+  const failing = runs.filter((r) => r._start !== null).sort((a, b) => (a._start as number) - (b._start as number))
+  const windowMs = windowMins * 60000
+  const events: CofailEvent[] = []
+  let cluster: AgentRun[] = []
+  let clusterEnd: number | null = null
+  function flush() {
+    const byKey = new Map<string, AgentRun>()
+    for (const r of cluster) {
+      const key = r.pipeline + '\u001f' + r.build_number + '\u001f' + r.group
+      const prev = byKey.get(key)
+      if (!prev || (r._start as number) > (prev._start as number)) byKey.set(key, r)
+    }
+    const distinct = Array.from(byKey.values())
+    if (distinct.length >= 2) events.push(makeCofailEvent(node, nodeRaw, hardware, distinct))
+    cluster = []
+  }
+  for (const r of failing) {
+    const start = r._start as number
+    const end = r._end !== null ? r._end : start
+    if (clusterEnd !== null && start - clusterEnd > windowMs) {
+      flush()
+      clusterEnd = null
+    }
+    cluster.push(r)
+    clusterEnd = clusterEnd === null ? end : Math.max(clusterEnd, end)
+  }
+  flush()
+  return events
+}
+
+interface AccountingOptions {
+  startDay?: string
+  hardware?: string
+  nightlyOnly?: boolean
+  excludeCancelled?: boolean
+  signal?: string
+}
+
+export function agentFailureAccountingCounts(rows: unknown, options: AccountingOptions) {
+  const totals = new Map<string, { hard: number; soft: number; signal: number }>()
+  for (const row of (Array.isArray(rows) ? rows : []) as Rec[]) {
+    if (String(row.d || '') < String(options.startDay || '')) continue
+    if (options.nightlyOnly && !row.ng) continue
+    if (options.excludeCancelled && row.bc) continue
+    const count = Math.max(0, Number(row.c) || 0)
+    if (!count || !row.nd || !['hard', 'soft'].includes(row.s)) continue
+    let entry = totals.get(row.nd)
+    if (!entry) {
+      entry = { hard: 0, soft: 0, signal: 0 }
+      totals.set(row.nd, entry)
+    }
+    entry[row.s as 'hard' | 'soft'] += count
+    if ((options.signal === 'infra' && row.i) || (options.signal === 'hard' && row.s === 'hard') || options.signal === 'all')
+      entry.signal += count
+  }
+  return totals
+}
+
+export function agentAggregateRunCounts(rows: unknown, options: AccountingOptions) {
+  const totals = { runs: 0, identifiedRuns: 0 }
+  for (const row of (Array.isArray(rows) ? rows : []) as Rec[]) {
+    if (String(row.d || '') < String(options.startDay || '')) continue
+    if (options.hardware && options.hardware !== 'all' && row.h !== options.hardware) continue
+    const bucket = options.nightlyOnly ? row.n : row.a
+    if (!Array.isArray(bucket) || !Number(bucket[0])) continue
+    totals.runs += Math.max(0, Number(bucket[0]) || 0)
+    if (row.id) totals.identifiedRuns += Math.max(0, Number(bucket[0]) || 0)
+  }
+  return totals
+}
+
+export function agentAggregateFailureCounts(rows: unknown, options: AccountingOptions) {
+  const totals = { hard: 0, soft: 0, signal: 0 }
+  for (const row of (Array.isArray(rows) ? rows : []) as Rec[]) {
+    if (String(row.d || '') < String(options.startDay || '')) continue
+    if (options.hardware && options.hardware !== 'all' && row.h !== options.hardware) continue
+    if (options.nightlyOnly && !row.ng) continue
+    if (options.excludeCancelled && row.bc) continue
+    const count = Math.max(0, Number(row.c) || 0)
+    if (!count || !['hard', 'soft'].includes(row.s)) continue
+    totals[row.s as 'hard' | 'soft'] += count
+    if ((options.signal === 'infra' && row.i) || (options.signal === 'hard' && row.s === 'hard') || options.signal === 'all')
+      totals.signal += count
+  }
+  return totals
+}
+
+function utcClock(raw: unknown): number {
+  if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)$/.test(raw)) return NaN
+  const instant = Date.parse(raw)
+  return Number.isFinite(instant) && new Date(instant).toISOString().replace('.000Z', 'Z') === raw.replace('+00:00', 'Z') ? instant : NaN
+}
+
+const hasOwn = (target: object, key: string) => Object.prototype.hasOwnProperty.call(target, key)
+
+export function agentSourceCoverage(agentHealth: Rec | null | undefined): { start: number; end: number } | null {
+  if (
+    !agentHealth ||
+    !Array.isArray(agentHealth.pipelines) ||
+    agentHealth.pipelines.length !== 1 ||
+    agentHealth.pipelines[0] !== 'ci' ||
+    agentHealth.max_window_days !== 60
+  )
+    return null
+  const retention = agentHealth.retention || {}
+  const scope = retention.pipeline_scope || {}
+  const states = ['creating', 'scheduled', 'running', 'failing', 'blocked', 'canceling']
+  const isCreatedCohort = scope.version === 2 || scope.version === 3
+  const isMainCohort = scope.version === 3
+  const legs = isCreatedCohort ? ['created'] : ['created', 'older_finished', 'older_active']
+  const dayCounts = [retention.original_day_count, retention.retained_day_count, retention.dropped_oldest_day_count]
+  if (
+    retention.configured_days !== 60 ||
+    typeof retention.byte_limited !== 'boolean' ||
+    dayCounts.some((count) => !Number.isSafeInteger(count) || count < 0) ||
+    retention.original_day_count !== retention.retained_day_count + retention.dropped_oldest_day_count
+  )
+    return null
+  if (
+    (scope.version !== 1 && !isCreatedCohort) ||
+    !Number.isInteger(scope.requested_days) ||
+    scope.requested_days < 1 ||
+    scope.requested_days > 60 ||
+    scope.basis !== (isCreatedCohort ? 'terminal_jobs_by_build_created_at' : 'terminal_jobs_by_started_at') ||
+    scope.exhaustive !== true ||
+    scope.attempt_policy !== 'latest_attempt_per_step' ||
+    scope.terminal_time_policy !== 'finished_at_or_terminal_build_bound_for_canceled' ||
+    typeof scope.complete_window !== 'boolean' ||
+    !scope.discovery_legs ||
+    typeof scope.discovery_legs !== 'object' ||
+    Array.isArray(scope.discovery_legs) ||
+    Object.keys(scope.discovery_legs).length !== legs.length ||
+    legs.some((leg) => scope.discovery_legs[leg] !== true)
+  )
+    return null
+  if (isCreatedCohort) {
+    if (
+      scope.eligible_completion !== 'current_ci_build_creation_cohort_with_provable_completion' ||
+      scope.day_basis !== 'build_created_at_utc' ||
+      hasOwn(scope, 'finished_job_source') ||
+      hasOwn(scope, 'active_build_states')
+    )
+      return null
+  } else if (
+    !Array.isArray(scope.active_build_states) ||
+    scope.active_build_states.length !== states.length ||
+    new Set(scope.active_build_states).size !== states.length ||
+    states.some((status) => !scope.active_build_states.includes(status)) ||
+    hasOwn(scope, 'eligible_completion') ||
+    hasOwn(scope, 'day_basis') ||
+    hasOwn(scope, 'finished_job_source')
+  )
+    return null
+  if (isMainCohort) {
+    if (
+      scope.branch !== 'main' ||
+      !Array.isArray(agentHealth.branches) ||
+      agentHealth.branches.length !== 1 ||
+      agentHealth.branches[0] !== 'main' ||
+      agentHealth.job_scope !== 'amd_gpu' ||
+      agentHealth.hardware_scope !== 'amd_mi_gpu'
+    )
+      return null
+  } else if (hasOwn(scope, 'branch') || hasOwn(agentHealth, 'branches')) return null
+  const start = utcClock(scope.collected_from)
+  const end = utcClock(scope.collected_to)
+  const clock = utcClock(agentHealth.generated_at)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end !== clock || start >= end) return null
+  const expectedStart = new Date(end - scope.requested_days * 86400000)
+  expectedStart.setUTCHours(0, 0, 0, 0)
+  const expectedComplete = scope.requested_days === 60 && retention.dropped_oldest_day_count === 0
+  if (start !== expectedStart.getTime() || scope.complete_window !== expectedComplete) return null
+  return { start, end }
+}
+
+export function agentSourceHistoryComplete(agentHealth: Rec | null | undefined, startDay?: string): boolean {
+  const retention = (agentHealth || {}).retention || {}
+  const scope = retention.pipeline_scope || {}
+  const coverage = agentSourceCoverage(agentHealth)
+  const start = typeof startDay === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(startDay) ? Date.parse(startDay + 'T00:00:00Z') : NaN
+  const scopeComplete =
+    coverage &&
+    (startDay === undefined
+      ? scope.complete_window
+      : Number.isFinite(start) && new Date(start).toISOString().slice(0, 10) === startDay && start >= coverage.start && start < coverage.end)
+  return (
+    Boolean(scopeComplete) &&
+    retention.byte_limited === false &&
+    retention.dropped_oldest_day_count === 0 &&
+    retention.original_day_count === retention.retained_day_count
+  )
+}
+
+export function agentPipelineScopeLabel(agentHealth: Rec | null | undefined): string {
+  if (
+    Array.isArray((agentHealth || {}).pipelines) &&
+    agentHealth!.pipelines.length === 1 &&
+    agentHealth!.pipelines[0] === 'ci' &&
+    Array.isArray(agentHealth!.branches) &&
+    agentHealth!.branches.length === 1 &&
+    agentHealth!.branches[0] === 'main'
+  ) {
+    return 'the ci pipeline on branch main'
+  }
+  const pipelines = Array.from(
+    new Set(
+      (Array.isArray((agentHealth || {}).pipelines) ? agentHealth!.pipelines : [])
+        .filter((pipeline: unknown) => typeof pipeline === 'string' && pipeline.trim())
+        .map((pipeline: string) => pipeline.trim()),
+    ),
+  )
+  return pipelines.length ? 'the ' + pipelines.join(' and ') + (pipelines.length === 1 ? ' pipeline' : ' pipelines') : 'the declared pipeline scope'
+}
+
+/** The classic gate: only the current ci/main AMD MI GPU cohort renders. */
+export function agentHealthScopeValid(agentHealth: Rec | null | undefined): boolean {
+  const health = agentHealth || {}
+  const scopeRows = ['node_days', 'failing_runs', 'failure_accounting', 'node_accounting_totals', 'failure_accounting_totals']
+  const declaredScope = (health.retention || {}).pipeline_scope || {}
+  return !(
+    health.hardware_scope !== 'amd_mi_gpu' ||
+    health.job_scope !== 'amd_gpu' ||
+    !Array.isArray(health.pipelines) ||
+    health.pipelines.length !== 1 ||
+    health.pipelines[0] !== 'ci' ||
+    !Array.isArray(health.branches) ||
+    health.branches.length !== 1 ||
+    health.branches[0] !== 'main' ||
+    declaredScope.version !== 3 ||
+    declaredScope.branch !== 'main' ||
+    scopeRows.some((key) => (health[key] || []).some((row: Rec) => !isAmdMiHardware(row.h))) ||
+    (health.failing_runs || []).some((row: Rec) => row.p !== 'ci' || !isAmdRuntimeJob({ queue: row.q, name: row.g }))
+  )
+}
+
+export const AGENT_UNAVAILABLE_TEXT = 'AMD MI agent-health data is unavailable. Current ci/main MI GPU cohort observations are required.'
+
+export interface AgentModel {
+  health: Rec
+  nodeDays: Rec[]
+  failureAccounting: Rec[]
+  nodeAccountingTotals: Rec[]
+  failureAccountingTotals: Rec[]
+  operationsNodeRetention: Rec
+  operationsAccountingRetention: Rec
+  sourceRetention: Rec
+  sourcePipelineScope: Rec
+  sourceCoverage: { start: number; end: number } | null
+  buildCreatedCohort: boolean
+  pipelineHistoryIncomplete: boolean
+  aggregateAccountingComplete: boolean
+  evidenceRetention: Rec
+  evidenceIncomplete: boolean
+  hardwareTypes: string[]
+  windowOptions: unknown[]
+  cofailOptions: unknown[]
+  endMs: number
+  failing: AgentRun[]
+  /** The page notes, computed once from the source-wide history state as classic does. */
+  completionScopeNote: string | null
+  retentionNote: { title: string; body: string } | null
+  criteria: { pct: string; samples: number; dayLabel: string }
+}
+
+export function agentHealthModel(agentHealth: Rec): AgentModel {
+  const nodeDays = Array.isArray(agentHealth.node_days) ? agentHealth.node_days : []
+  const failingRaw: Rec[] = Array.isArray(agentHealth.failing_runs) ? agentHealth.failing_runs : []
+  const failureAccounting = Array.isArray(agentHealth.failure_accounting) ? agentHealth.failure_accounting : []
+  const nodeAccountingTotals = Array.isArray(agentHealth.node_accounting_totals) ? agentHealth.node_accounting_totals : []
+  const failureAccountingTotals = Array.isArray(agentHealth.failure_accounting_totals) ? agentHealth.failure_accounting_totals : []
+  const operationsRetention = (agentHealth || {}).operations_publication_retention || {}
+  const operationsNodeRetention = operationsRetention.node_days || {}
+  const operationsAccountingRetention = operationsRetention.failure_accounting || {}
+  const sourceRetention = (agentHealth || {}).retention || {}
+  const sourcePipelineScope = sourceRetention.pipeline_scope || {}
+  const sourceCoverage = agentSourceCoverage(agentHealth)
+  const buildCreatedCohort =
+    sourcePipelineScope.version === 3 &&
+    sourcePipelineScope.basis === 'terminal_jobs_by_build_created_at' &&
+    sourcePipelineScope.day_basis === 'build_created_at_utc'
+  const pipelineHistoryIncomplete = !sourceCoverage || sourcePipelineScope.complete_window === false
+  const sourceHistoryIncomplete = !agentSourceHistoryComplete(agentHealth)
+  const nodeDetailIncomplete = operationsNodeRetention.complete === false || sourceHistoryIncomplete
+  const failureDetailIncomplete = operationsAccountingRetention.complete === false || sourceHistoryIncomplete
+  const aggregateAccountingComplete = operationsRetention.aggregate_accounting_complete === true
+  const evidenceRetention = ((agentHealth || {}).retention || {}).failure_evidence || {}
+  const evidenceIncomplete =
+    evidenceRetention.complete_relative_to_source === false || (operationsRetention.failure_evidence || {}).complete === false
+  const hardwareTypes: string[] = Array.isArray(agentHealth.hardware_types) ? agentHealth.hardware_types.filter(isAmdMiHardware) : []
+  const windowOptions = Array.isArray(agentHealth.window_options) ? agentHealth.window_options : [1, 3, 7, 14, 30, 60]
+  const cofailOptions = Array.isArray(agentHealth.cofailure_window_options)
+    ? agentHealth.cofailure_window_options
+    : [30, 60, 120, 180, 360, 720, 1440]
+  const endMs = new Date(agentHealth.generated_at || Date.now()).getTime()
+  const failing: AgentRun[] = failingRaw.map((r) => {
+    const start = Date.parse(r.t)
+    const end = Date.parse(r.e)
+    return {
+      node_raw: r.nd,
+      hardware: r.h,
+      pipeline: r.p,
+      queue: r.q,
+      group: r.g,
+      state: r.s,
+      nightly: !!r.ng,
+      infra_suspect: !!r.i,
+      build_canceled: !!r.bc,
+      build_number: r.b,
+      url: buildkiteJobUrl(r.p, r.b, r.j),
+      started_at: r.t,
+      day: r.d,
+      _start: Number.isFinite(start) ? start : null,
+      _end: Number.isFinite(end) ? end : null,
+    }
+  })
+
+  const scopeLabel = agentPipelineScopeLabel(agentHealth)
+  const completionScopeNote =
+    sourceCoverage && buildCreatedCohort
+      ? 'Terminal runs from CI main builds created in the selected UTC window. Runs require a recorded or bounded completion time. Fresh build creation coverage for ' +
+        scopeLabel +
+        ', from ' +
+        value(sourcePipelineScope.collected_from) +
+        ' through ' +
+        value(sourcePipelineScope.collected_to) +
+        ' UTC.'
+      : null
+  let retentionNote: AgentModel['retentionNote'] = null
+  if (evidenceIncomplete || nodeDetailIncomplete || failureDetailIncomplete) {
+    retentionNote = {
+      title: !sourceCoverage
+        ? 'Complete agent-health history is unavailable. '
+        : pipelineHistoryIncomplete
+          ? 'Agent-health pipeline history is incomplete. '
+          : 'Agent-health drill-down evidence is storage-bounded. ',
+      body:
+        integer(evidenceRetention.published) +
+        ' of ' +
+        integer(evidenceRetention.source) +
+        ' failing-run links and ' +
+        integer(operationsNodeRetention.published) +
+        ' of ' +
+        integer(operationsNodeRetention.source) +
+        ' node-day rows are published in Operations. ' +
+        (!sourceCoverage
+          ? 'Retained counts describe observed runs; node-specific failure rates are unavailable. '
+          : pipelineHistoryIncomplete
+            ? 'Complete fresh UTC history for ' +
+              scopeLabel +
+              ' begins ' +
+              value(sourcePipelineScope.collected_from) +
+              ' and ends ' +
+              value(sourcePipelineScope.collected_to) +
+              '; the full ' +
+              integer(agentHealth.max_window_days || 60) +
+              '-day window is not yet complete. Older retained history describes observed runs. '
+            : sourceHistoryIncomplete
+              ? 'The source ledger dropped ' +
+                integer(sourceRetention.dropped_oldest_day_count) +
+                ' oldest UTC days and begins ' +
+                value(sourceRetention.retained_start) +
+                '; compact accounting is exact only for that retained suffix. '
+              : 'Exact date/hardware ledger totals remain available through compact accounting. ') +
+        (pipelineHistoryIncomplete
+          ? 'For selections outside the complete fresh UTC interval or with omitted rows, '
+          : 'When node detail or source history is incomplete, ') +
+        'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.',
+    }
+  }
+  const rate = Number(agentHealth.infra_suspect_min_pass_rate)
+  return {
+    health: agentHealth,
+    nodeDays,
+    failureAccounting,
+    nodeAccountingTotals,
+    failureAccountingTotals,
+    operationsNodeRetention,
+    operationsAccountingRetention,
+    sourceRetention,
+    sourcePipelineScope,
+    sourceCoverage,
+    buildCreatedCohort,
+    pipelineHistoryIncomplete,
+    aggregateAccountingComplete,
+    evidenceRetention,
+    evidenceIncomplete,
+    hardwareTypes,
+    windowOptions,
+    cofailOptions,
+    endMs,
+    failing,
+    completionScopeNote,
+    retentionNote,
+    criteria: {
+      pct: Number.isFinite(rate) ? Math.round(rate * 100) + '%' : '50%',
+      samples: Number(agentHealth.infra_suspect_min_samples) || 3,
+      dayLabel: buildCreatedCohort ? 'UTC build creation day' : 'day',
+    },
+  }
+}
+
+/** The classic route state for agent health (?ops_agent_* / ?agent_*), after syncRouteState validation. */
+export interface AgentRouteState {
+  window?: string | null
+  gpu?: string | null
+  node?: string | null
+  cofail?: string | null
+  exclCancel?: string | null
+  nightly?: string | null
+  signal?: string | null
+}
+
+export interface AgentOptions {
+  windowId: string
+  gpu: string
+  search: string
+  selectedNode: string
+  cofailMins: number
+  excludeCancelled: boolean
+  nightlyOnly: boolean
+  signal: AgentSignal
+}
+
+function synced(raw: string | null | undefined, allowed: string[] | null, fallback: string): string {
+  return raw && (!allowed || allowed.includes(raw)) ? raw : fallback
+}
+
+export function agentOptions(model: AgentModel, route: AgentRouteState, search = ''): AgentOptions {
+  const health = model.health
+  const agentWindow = synced(route.window, AGENT_WINDOW_IDS, '7d')
+  const agentGpu = synced(route.gpu, null, 'all')
+  const agentCofail = synced(route.cofail, AGENT_COFAIL_IDS, '180')
+  const agentSignal = synced(route.signal, [...AGENT_SIGNALS], 'infra')
+  const m = parseInt(agentCofail, 10)
+  return {
+    windowId: AGENT_WINDOW_DAYS[agentWindow] ? agentWindow : (health.default_window_days || 7) + 'd',
+    gpu: agentGpu === 'all' || model.hardwareTypes.includes(agentGpu) ? agentGpu : 'all',
+    search,
+    selectedNode: synced(route.node, null, ''),
+    cofailMins: model.cofailOptions.includes(m) ? m : health.default_cofailure_window_mins || 180,
+    excludeCancelled: synced(route.exclCancel, ['0', '1'], '1') !== '0',
+    nightlyOnly: synced(route.nightly, ['0', '1'], '0') === '1',
+    signal: (AGENT_SIGNALS as readonly string[]).includes(agentSignal) ? (agentSignal as AgentSignal) : 'infra',
+  }
+}
+
+export interface AgentRow {
+  node: string
+  node_raw: string
+  hardware: string
+  identified: boolean
+  runs: number
+  failures: number
+  soft: number
+  hard: number
+  canceled: number
+  incident_rate: number
+  infra_suspect: number
+  distinct_groups: number
+  cofailure_event_count: number
+  _runs: AgentRun[]
+}
+
+export interface AgentView {
+  agents: AgentRow[]
+  events: CofailEvent[]
+  fRuns: AgentRun[]
+  totalRuns: number
+  identifiedRuns: number
+  aggregateFailures: { hard: number; soft: number; signal: number }
+  exactAggregateScope: boolean
+  nodeDetailComplete: boolean
+  failureDetailComplete: boolean
+  /** Window-scoped history flags (classic recomputes its closure variables here). */
+  sourceHistoryIncomplete: boolean
+  nodeDetailIncomplete: boolean
+  failureDetailIncomplete: boolean
+}
+
+export function matchesFilter(options: Pick<AgentOptions, 'gpu' | 'search'>, hardware: unknown, nodeRaw: unknown): boolean {
+  const term = options.search.toLowerCase()
+  if (options.gpu !== 'all' && hardware !== options.gpu) return false
+  if (term && String(nodeRaw || '').toLowerCase().indexOf(term) === -1 && String(hardware || '').toLowerCase().indexOf(term) === -1)
+    return false
+  return true
+}
+
+export function signalMatch(signal: AgentSignal, r: AgentRun): boolean {
+  if (signal === 'infra') return r.infra_suspect
+  if (signal === 'hard') return r.state === 'hard'
+  return true
+}
+
+export function signalTerm(signal: AgentSignal): string {
+  return signal === 'infra' ? 'infra-suspect' : signal === 'hard' ? 'hard' : 'all'
+}
+
+export function signalColumnLabel(signal: AgentSignal): string {
+  return signal === 'infra' ? 'Infra-suspect failures' : 'Hard failures'
+}
+
+export function defaultSortKey(signal: AgentSignal): string {
+  return signal === 'all' ? 'failures' : 'infra_suspect'
+}
+
+export function signalCaption(signal: AgentSignal): string {
+  if (signal === 'infra')
+    return 'Showing infra-suspect failures — anomalous, node-attributable (a group that otherwise passes that day, including on another node).'
+  if (signal === 'hard') return 'Showing every hard failure on the node — not just the infra-suspect subset.'
+  return 'Showing all failures (hard + soft) on the node.'
+}
+
+export function computeAgentView(model: AgentModel, options: AgentOptions): AgentView {
+  const { health, nodeDays, failing, failureAccounting, nodeAccountingTotals, failureAccountingTotals, endMs, buildCreatedCohort } = model
+  const { windowId, gpu, search, nightlyOnly, excludeCancelled, signal, cofailMins } = options
+  const days = AGENT_WINDOW_DAYS[windowId] || 7
+  const startMs = endMs - days * 86400000
+  const startDay = new Date(startMs).toISOString().slice(0, 10)
+  function runInWindow(run: AgentRun) {
+    if (run._start === null || run._start > endMs) return false
+    if (!buildCreatedCohort) return run._start >= startMs
+    const day = typeof run.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(run.day) ? Date.parse(run.day + 'T00:00:00Z') : NaN
+    return Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === run.day && (run.day as string) >= startDay && day <= endMs
+  }
+  const sourceHistoryIncomplete = !agentSourceHistoryComplete(health, startDay)
+  const nodeDetailIncomplete = model.operationsNodeRetention.complete === false || sourceHistoryIncomplete
+  const failureDetailIncomplete = model.operationsAccountingRetention.complete === false || sourceHistoryIncomplete
+  const filter = (hardware: unknown, nodeRaw: unknown) => matchesFilter(options, hardware, nodeRaw)
+
+  const byNode = new Map<string, { node_raw: string; hardware: string; runs: number; soft: number; hard: number; canceled: number }>()
+  let totalRuns = 0
+  let identifiedRuns = 0
+  for (const nd of nodeDays) {
+    if (String(nd.d) < startDay) continue
+    if (!filter(nd.h, nd.nd)) continue
+    const bucket = nightlyOnly ? nd.n : nd.a
+    if (!bucket || !bucket[0]) continue
+    const split = bucket.length >= 4
+    const soft = split ? bucket[1] || 0 : 0
+    const hard = split ? bucket[2] || 0 : bucket[1] || 0
+    const canceled = split ? bucket[3] || 0 : bucket[2] || 0
+    totalRuns += bucket[0]
+    if (nd.nd !== '(unidentified)') identifiedRuns += bucket[0]
+    let agg = byNode.get(nd.nd)
+    if (!agg) {
+      agg = { node_raw: nd.nd, hardware: nd.h, runs: 0, soft: 0, hard: 0, canceled: 0 }
+      byNode.set(nd.nd, agg)
+    }
+    agg.runs += bucket[0]
+    agg.soft += soft
+    agg.hard += hard
+    agg.canceled += canceled
+    if (nd.h) agg.hardware = nd.h
+  }
+  const aggregateRuns = agentAggregateRunCounts(nodeAccountingTotals, { startDay, hardware: gpu, nightlyOnly })
+  const aggregateFailures = agentAggregateFailureCounts(failureAccountingTotals, {
+    startDay,
+    hardware: gpu,
+    nightlyOnly,
+    excludeCancelled,
+    signal,
+  })
+  const exactAggregateScope =
+    model.aggregateAccountingComplete &&
+    !sourceHistoryIncomplete &&
+    nodeAccountingTotals.length > 0 &&
+    failureAccountingTotals.length > 0 &&
+    !search
+  if (nodeDetailIncomplete && exactAggregateScope) {
+    totalRuns = aggregateRuns.runs
+    identifiedRuns = aggregateRuns.identifiedRuns
+  }
+
+  const fRuns = failing.filter((r) => {
+    if (!signalMatch(signal, r)) return false
+    if (!runInWindow(r)) return false
+    if (nightlyOnly && !r.nightly) return false
+    if (excludeCancelled && r.build_canceled) return false
+    return filter(r.hardware, r.node_raw)
+  })
+  const runsByNode = new Map<string, AgentRun[]>()
+  for (const r of fRuns) {
+    if (!runsByNode.has(r.node_raw)) runsByNode.set(r.node_raw, [])
+    runsByNode.get(r.node_raw)!.push(r)
+  }
+  const accountingRows = failureAccounting.filter((row) => filter(row.h, row.nd))
+  const accountedByNode = agentFailureAccountingCounts(accountingRows, { startDay, nightlyOnly, excludeCancelled, signal })
+  const failByNode = new Map<string, { hard: number; soft: number }>()
+  const signalByNode: Record<string, number> = {}
+  if (failureAccounting.length) {
+    accountedByNode.forEach((entry, nodeRaw) => {
+      failByNode.set(nodeRaw, { hard: entry.hard, soft: entry.soft })
+      signalByNode[nodeRaw] = entry.signal
+    })
+  } else {
+    for (const r of failing) {
+      if (!runInWindow(r)) continue
+      if (nightlyOnly && !r.nightly) continue
+      if (excludeCancelled && r.build_canceled) continue
+      if (!filter(r.hardware, r.node_raw)) continue
+      let f = failByNode.get(r.node_raw)
+      if (!f) {
+        f = { hard: 0, soft: 0 }
+        failByNode.set(r.node_raw, f)
+      }
+      if (r.state === 'hard') f.hard += 1
+      else if (r.state === 'soft') f.soft += 1
+    }
+  }
+  const events: CofailEvent[] = []
+  const groupsByNode: Record<string, number> = {}
+  runsByNode.forEach((runs, nodeRaw) => {
+    const hardware = (byNode.get(nodeRaw) || ({} as Rec)).hardware || (runs[0] && runs[0].hardware) || ''
+    if (!failureAccounting.length) signalByNode[nodeRaw] = runs.length
+    groupsByNode[nodeRaw] = new Set(runs.map((x) => x.group)).size
+    for (const e of clusterNodeCofailures(agentNodeLabel(nodeRaw, hardware), nodeRaw, hardware, runs, cofailMins)) events.push(e)
+  })
+  const eventsByNode: Record<string, number> = {}
+  for (const e of events) eventsByNode[e.node_raw] = (eventsByNode[e.node_raw] || 0) + 1
+
+  const agents: AgentRow[] = []
+  byNode.forEach((agg, nodeRaw) => {
+    const identified = nodeRaw !== '(unidentified)'
+    const f = failByNode.get(nodeRaw) || { hard: 0, soft: 0 }
+    const failures = f.hard + f.soft
+    const denom = excludeCancelled ? Math.max(0, agg.runs - agg.canceled) : agg.runs
+    agents.push({
+      node: identified ? agentNodeLabel(nodeRaw, agg.hardware) : nodeRaw,
+      node_raw: nodeRaw,
+      hardware: agg.hardware,
+      identified,
+      runs: denom,
+      failures,
+      soft: f.soft,
+      hard: f.hard,
+      canceled: agg.canceled,
+      incident_rate: denom ? failures / denom : 0,
+      infra_suspect: signalByNode[nodeRaw] || 0,
+      distinct_groups: groupsByNode[nodeRaw] || 0,
+      cofailure_event_count: eventsByNode[nodeRaw] || 0,
+      _runs: runsByNode.get(nodeRaw) || [],
+    })
+  })
+
+  events.sort(
+    (a, b) =>
+      b.hard_failed - a.hard_failed ||
+      Number(b.cross_pipeline) - Number(a.cross_pipeline) ||
+      b.group_count - a.group_count ||
+      String(b.started_at).localeCompare(String(a.started_at)),
+  )
+  return {
+    agents,
+    events,
+    fRuns,
+    totalRuns,
+    identifiedRuns,
+    aggregateFailures,
+    exactAggregateScope,
+    nodeDetailComplete: !nodeDetailIncomplete,
+    failureDetailComplete: !failureDetailIncomplete,
+    sourceHistoryIncomplete,
+    nodeDetailIncomplete,
+    failureDetailIncomplete,
+  }
+}
+
+export interface AgentKpi {
+  id: string
+  label: string
+  value: string
+  meta: string
+  tone: Tone
+}
+
+export function agentKpis(model: AgentModel, view: AgentView, options: Pick<AgentOptions, 'windowId' | 'signal'>): AgentKpi[] {
+  const identifiedNodes = view.agents.filter((a) => a.identified).length
+  const unreliable = view.agents.filter((a) => a.identified && a.infra_suspect > 0).length
+  const coveragePct = view.totalRuns ? (100 * view.identifiedRuns) / view.totalRuns : 0
+  const concurrent = view.events.filter((e) => e.concurrent).length
+  const cross = view.events.filter((e) => e.cross_pipeline).length
+  const nodeMetricsAvailable = view.nodeDetailComplete
+  const coverageAvailable = view.nodeDetailComplete || view.exactAggregateScope
+  return [
+    {
+      id: 'agent-nodes',
+      label: 'IDENTIFIED AMD NODES',
+      value: nodeMetricsAvailable ? integer(identifiedNodes) : 'Unavailable',
+      meta: coverageAvailable ? integer(view.totalRuns) + ' exact runs in ' + options.windowId : 'node detail is incomplete',
+      tone: 'is-info',
+    },
+    {
+      id: 'agent-unreliable',
+      label: 'NODES WITH FAILURES',
+      value: nodeMetricsAvailable && view.failureDetailComplete ? integer(unreliable) : 'Unavailable',
+      meta: view.exactAggregateScope
+        ? integer(view.aggregateFailures.signal) + ' exact ' + signalTerm(options.signal) + ' failures in aggregate'
+        : 'node-specific accounting is incomplete',
+      tone: unreliable ? 'is-warning' : 'is-success',
+    },
+    {
+      id: 'agent-coverage',
+      label: 'NODE COVERAGE',
+      value: coverageAvailable ? coveragePct.toFixed(1) + '%' : 'Unavailable',
+      meta: coverageAvailable
+        ? integer(view.identifiedRuns) + ' / ' + integer(view.totalRuns) + ' exact runs identified'
+        : 'aggregate accounting unavailable',
+      tone: coverageAvailable && coveragePct >= 50 ? 'is-success' : coverageAvailable && coveragePct > 0 ? 'is-warning' : 'is-danger',
+    },
+    {
+      id: 'agent-cofail',
+      label: 'CO-FAILURE EVENTS',
+      value: (model.evidenceIncomplete ? '≥' : '') + integer(view.events.length),
+      meta: integer(concurrent) + ' retained concurrent · ' + integer(cross) + ' retained cross-pipeline',
+      tone: view.events.length ? 'is-danger' : 'is-success',
+    },
+  ]
+}
+
+export interface AgentSort {
+  key: string
+  dir: 'asc' | 'desc'
+}
+
+/** renderTable's sort normalization: the signal default until a header is clicked; no signal column under "all". */
+export function effectiveAgentSort(sort: AgentSort, sortExplicit: boolean, signal: AgentSignal): AgentSort {
+  let next = sortExplicit ? { ...sort } : { key: defaultSortKey(signal), dir: 'desc' as const }
+  if (signal === 'all' && next.key === 'infra_suspect') next = { ...next, key: 'failures' }
+  return next
+}
+
+/** onSort: toggle the active column, or start a new one (text columns ascending). */
+export function nextAgentSort(sort: AgentSort, key: string): AgentSort {
+  if (sort.key === key) return { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
+  return { key, dir: key === 'node' || key === 'hardware' ? 'asc' : 'desc' }
+}
+
+export function sortedAgents(agents: AgentRow[], sort: AgentSort): AgentRow[] {
+  const dir = sort.dir === 'asc' ? 1 : -1
+  return agents.slice().sort((a, b) => {
+    let x: unknown = (a as unknown as Rec)[sort.key]
+    let y: unknown = (b as unknown as Rec)[sort.key]
+    if (typeof x === 'number' || typeof y === 'number') return ((Number(x) || 0) - (Number(y) || 0)) * dir
+    x = String(x || '').toLowerCase()
+    y = String(y || '').toLowerCase()
+    return (x as string) < (y as string) ? -dir : (x as string) > (y as string) ? dir : 0
+  })
+}
+
+export interface AgentCells {
+  runs: string
+  failRate: string
+  failures: string
+  split: string | null
+  signal: string
+  groups: string
+  cofail: string
+}
+
+export function agentCells(model: AgentModel, view: AgentView, row: AgentRow): AgentCells {
+  return {
+    runs: (view.nodeDetailIncomplete ? '≥' : '') + integer(row.runs),
+    failRate: view.nodeDetailIncomplete || view.failureDetailIncomplete ? 'Unavailable' : (Number(row.incident_rate) * 100).toFixed(1) + '%',
+    failures: (view.failureDetailIncomplete ? '≥' : '') + integer(row.failures),
+    split: row.hard || row.soft ? integer(row.hard) + ' hard · ' + integer(row.soft) + ' soft' : null,
+    signal: (view.failureDetailIncomplete ? '≥' : '') + integer(row.infra_suspect),
+    groups: (model.evidenceIncomplete ? '≥' : '') + integer(row.distinct_groups),
+    cofail: (model.evidenceIncomplete ? '≥' : '') + integer(row.cofailure_event_count),
+  }
+}
+
+export function agentTableDescription(model: AgentModel, view: AgentView, options: Pick<AgentOptions, 'windowId' | 'signal'>): string {
+  const count = integer(view.agents.length) + ' node(s) in ' + options.windowId
+  const base = view.sourceHistoryIncomplete
+    ? 'Only available source history is shown. Compact accounting covers that retained interval; node counts and node-specific Fail % are unavailable, and displayed counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
+    : view.nodeDetailIncomplete || view.failureDetailIncomplete
+      ? 'Operations retained only a bounded suffix of node-granular rows. Exact date/hardware run and failure totals remain in compact accounting, but node counts and node-specific Fail % are unavailable; displayed node counts are lower bounds. Groups, Co-fail, timelines, and linked Evidence use retained exact rows.'
+      : (model.buildCreatedCohort
+          ? 'Terminal runs from CI builds created in the selected UTC window form the run and failure-rate denominator. Actual job timestamps remain in timelines. '
+          : 'Runs come from the node_days rollup of every build. ') +
+        'Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown.'
+  const tail = ' Click a node (or Evidence) to load its timeline; sort by any column.'
+  if (options.signal === 'infra') {
+    return (
+      count +
+      ', sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. ' +
+      base +
+      tail
+    )
+  }
+  if (options.signal === 'hard') {
+    return count + ', sorted by hard failures. The Hard failures column is the hard-only subset of Test group failures (soft failures excluded). ' + base + tail
+  }
+  return (
+    count +
+    ', sorted by Test group failures. With every failure counted, the total already carries the signal, so no separate signal column is shown. ' +
+    base +
+    tail
+  )
+}
+
+export function agentEmptyText(model: AgentModel, view: AgentView): string | null {
+  if (!model.nodeDays.length) return 'No AMD node data has been collected yet. It populates as collect_agent_health.py captures the Buildkite agent k8s:node tag.'
+  if (!view.agents.length) return 'No AMD runs match the current window and filter.'
+  return null
+}
+
+export function timelineAgents(view: AgentView): AgentRow[] {
+  return view.agents
+    .filter((agent) => agent.identified && agent._runs.length)
+    .sort((a, b) => b.cofailure_event_count - a.cofailure_event_count || b.infra_suspect - a.infra_suspect)
+}
+
+export function nodeOptionLabel(agent: AgentRow, signal: AgentSignal): string {
+  return agent.node + ' (' + agent.infra_suspect + ' ' + signalTerm(signal) + ', ' + agent.cofailure_event_count + ' co-failures)'
+}
+
+/** renderNodeSelect: keep the selected node if it has a timeline, else the first candidate. */
+export function resolveSelectedNode(view: AgentView, selectedNode: string): string {
+  const nodes = timelineAgents(view)
+  if (!nodes.some((agent) => agent.node_raw === selectedNode)) return nodes.length ? nodes[0]!.node_raw : ''
+  return selectedNode
+}
+
+export interface TimelineRow {
+  run: AgentRun
+  start: number
+  end: number
+  mins: number
+  label: string
+  color: string
+}
+
+export interface TimelineRange {
+  min: number
+  max: number
+}
+
+/** drawAgentTimeline's data: rows (filtered by an optional zoom range), x domain, and the full data bounds. */
+export function agentTimeline(nodeRuns: AgentRun[] | null | undefined, range: TimelineRange | null) {
+  const allRows = (nodeRuns || [])
+    .slice()
+    .filter((run) => run._start !== null)
+    .map((run) => {
+      const start = run._start as number
+      const end = run._end !== null && run._end > start ? run._end : start + 60000
+      return { run, start, end, mins: (end - start) / 60000 }
+    })
+    .sort((a, b) => a.start - b.start)
+  if (!allRows.length) return { rows: [] as TimelineRow[], xMin: null, xMax: null, bounds: null }
+  const dataMin = Math.min(...allRows.map((row) => row.start))
+  const dataMax = Math.max(...allRows.map((row) => row.end))
+  const rows = range ? allRows.filter((row) => row.end >= range.min && row.start <= range.max) : allRows
+  const pad = Math.max(60000, (dataMax - dataMin) * 0.02)
+  return {
+    rows: rows.map((row, index) => ({
+      ...row,
+      label: index + 1 + '. ' + agentTruncate(row.run.group, 34),
+      color: agentStateColor(row.run.state),
+    })),
+    xMin: range ? range.min : dataMin - pad,
+    xMax: range ? range.max : dataMax + pad,
+    bounds: { min: dataMin, max: dataMax } as TimelineRange,
+  }
+}
+
+export function clampTimelineRange(min: number, max: number, bounds: TimelineRange | null): TimelineRange {
+  if (max - min < 60000) {
+    const c = (min + max) / 2
+    min = c - 30000
+    max = c + 30000
+  }
+  if (bounds) {
+    const fpad = Math.max(60000, (bounds.max - bounds.min) * 0.02)
+    min = Math.max(min, bounds.min - fpad)
+    max = Math.min(max, bounds.max + fpad)
+  }
+  return { min, max }
+}
+
+export function zoomTimeline(range: TimelineRange | null, bounds: TimelineRange | null, factor: number): TimelineRange | null {
+  const r = range || (bounds ? { min: bounds.min, max: bounds.max } : null)
+  if (!r) return null
+  const center = (r.min + r.max) / 2
+  const half = ((r.max - r.min) / 2) * factor
+  return clampTimelineRange(center - half, center + half, bounds)
+}
+
+export function eventTimelineRange(event: CofailEvent): TimelineRange {
+  const pad = Math.max(60000, (event._endMs - event._startMs) * 0.15)
+  return { min: event._startMs - pad, max: event._endMs + pad }
+}
+
+export function eventKey(e: CofailEvent): string {
+  return e.node_raw + '@' + e._startMs
+}
+
+export function eventsSection(view: AgentView, options: Pick<AgentOptions, 'windowId' | 'signal' | 'cofailMins'>, eventNodeFilter: string) {
+  const filtered = eventNodeFilter ? view.events.filter((e) => e.node_raw === eventNodeFilter) : view.events
+  const scoped = !!eventNodeFilter
+  return {
+    scoped,
+    title: scoped ? 'Co-failure events · one node' : 'Co-failure events',
+    description: scoped
+      ? integer(filtered.length) +
+        ' event(s) on this node in ' +
+        options.windowId +
+        '. Click an event to expand it (full runs + per-run timing) and zoom the timeline to it.'
+      : integer(view.events.length) +
+        ' event(s) in ' +
+        options.windowId +
+        '. Two or more ' +
+        signalTerm(options.signal) +
+        ' failures on one node within ' +
+        agentCofailLabel(options.cofailMins) +
+        ' (retries of the same test group within a build count once): "concurrent" (overlapping) points to contention or an ephemeral fault; "sequential" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.',
+    empty: scoped ? 'No co-failure events on this node in the current window and filter.' : 'No co-failure events in this window and filter.',
+    events: filtered.slice(0, scoped ? 200 : 80),
+  }
+}
+
+export function cofailureCard(event: CofailEvent, selected: boolean) {
+  const concurrent = event.pattern === 'concurrent' || event.concurrent
+  const allRuns = event.runs || []
+  const shown = selected ? allRuns : allRuns.slice(0, COFAIL_COMPACT_RUNS)
+  return {
+    node: value(event.node),
+    meta: shortDate(event.started_at) + ' · ' + duration(event.span_mins) + ' span · ' + integer(event.group_count) + ' groups',
+    pattern: concurrent ? 'concurrent' : 'sequential',
+    patternTone: (concurrent ? 'is-warning' : 'is-info') as Tone,
+    cross: event.cross_pipeline,
+    detail: selected
+      ? integer(event.run_count) +
+        ' runs · ' +
+        integer(event.hard_failed) +
+        ' hard · ' +
+        integer(event.soft_failed) +
+        ' soft · pipelines: ' +
+        (event.pipelines || []).join(', ')
+      : null,
+    runs: shown.map((run) => ({
+      run,
+      color: agentStateColor(run.state),
+      meta: [run.pipeline, run.queue].filter(Boolean).join(' · '),
+      time: selected
+        ? shortDate(run.started_at) +
+          ' · ' +
+          run.state +
+          ' · ' +
+          duration(run._end !== null && run._start !== null ? (run._end - run._start) / 60000 : null)
+        : null,
+      link: '#' + value(run.build_number) + ' log ↗',
+    })),
+    more: !selected && allRuns.length > shown.length ? '+' + integer(allRuns.length - shown.length) + ' more · select to expand' : null,
+  }
+}
+
+/** openNodeEvidence: the retained runs on one node, newest first, as classic's history evidence table. */
+export function nodeEvidence(agent: AgentRow, options: Pick<AgentOptions, 'windowId' | 'signal'>) {
+  const points = (agent._runs || [])
+    .slice()
+    .sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)))
+    .map((run) => ({
+      label: run.group,
+      url: run.url,
+      timestamp: run.started_at,
+      valueSummary: run.state + ' · ' + run.pipeline,
+      run,
+    }))
+  return {
+    title: signalTerm(options.signal) + ' failures on ' + agent.node,
+    subtitle: signalTerm(options.signal) + ' failing runs on this node over ' + options.windowId + ', each linking to its BuildKite log',
+    rows: points.slice().reverse(),
+  }
+}
