@@ -125,3 +125,10 @@ test.describe('v2 is the root page and keeps old links working', () => {
     await expect(page.getByTestId('logical-ring')).toBeVisible();
   });
 });
+
+test('clickable controls show a pointer cursor', async ({ page }) => {
+  await page.goto('/#/health');
+  const cursor = (locator) => locator.evaluate((el) => getComputedStyle(el).cursor);
+  expect(await cursor(page.getByRole('tab', { name: 'Upstream parity' }))).toBe('pointer');
+  expect(await cursor(page.getByRole('button', { name: /theme/ }))).toBe('pointer');
+});

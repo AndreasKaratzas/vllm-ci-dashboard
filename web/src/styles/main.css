@@ -165,4 +165,16 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  /* Tailwind v4 no longer gives buttons a pointer cursor; every clickable
+     control should show one. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab']:not([aria-disabled='true']),
+  [role='menuitem'],
+  [role='option'],
+  summary,
+  select,
+  label[for] {
+    cursor: pointer;
+  }
 }
