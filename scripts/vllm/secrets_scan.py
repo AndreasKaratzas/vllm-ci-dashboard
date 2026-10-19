@@ -48,6 +48,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PATH_ALLOWLIST = (
     ".git/",
     "data/",  # generated CI data with commit SHAs
+    "web/tests/fixtures/",  # trimmed snapshots of published data/ for v2 parity tests
     "flake.lock",
     "node_modules/",
     "tests/browser/node_modules/",  # pinned third-party browser-test dependencies

@@ -29,8 +29,9 @@ const current = computed(() => VIEWS.find((v) => v.id === view.value)!)
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
     <h2 class="text-2xl font-semibold tracking-tight">CI Analytics</h2>
-    <Tabs v-model="view">
-      <TabsList>
+    <Tabs v-model="view" class="max-w-full">
+      <!-- Scroll instead of overflowing the page on narrow screens. -->
+      <TabsList class="max-w-full justify-start overflow-x-auto">
         <TabsTrigger v-for="v in VIEWS" :key="v.id" :value="v.id">{{ v.label }}</TabsTrigger>
       </TabsList>
     </Tabs>

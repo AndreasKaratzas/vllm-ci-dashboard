@@ -41,11 +41,6 @@ test.describe('v2 dashboard', () => {
     await page.getByRole('button', { name: 'Toggle Sidebar' }).first().click();
     await expect(page.locator('[data-collapsible="icon"]')).toHaveCount(1);
   });
-
-  test('unported views link to the classic dashboard', async ({ page }) => {
-    await page.goto('/#/perf');
-    await expect(page.getByRole('link', { name: 'Open Perf Eval on the classic dashboard' })).toHaveAttribute('href', 'classic.html#ci-perf-eval');
-  });
 });
 
 async function classicHealthText(page, query) {
@@ -106,20 +101,13 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
     await sheet.locator('tbody tr').first().getByRole('button').first().click();
     await expect(page.getByRole('dialog').last()).toContainText('AMD route mode');
   });
-
-  test('unported CI Health views link to the matching classic view', async ({ page }) => {
-    await page.goto('/#/health?view=mirrors');
-    await expect(page.getByRole('link', { name: 'Open AMD mirrors on the classic dashboard' })).toHaveAttribute(
-      'href',
-      'classic.html?ops_health_view=mirrors#ci-health',
-    );
-  });
 });
 
 test.describe('v2 is the root page and keeps old links working', () => {
-  test('legacy links to unported views open the classic page with their state', async ({ page }) => {
-    await page.goto('/?ops_analytics_view=latency#ci-analytics');
-    await expect(page).toHaveURL(/\/classic\.html\?ops_analytics_view=latency#ci-analytics$/);
+  test('legacy links to views only the classic page serves open it with their state', async ({ page }) => {
+    // The retired reliability view has no v2 counterpart.
+    await page.goto('/?ops_analytics_view=reliability#ci-analytics');
+    await expect(page).toHaveURL(/\/classic\.html\?ops_analytics_view=reliability#ci-analytics$/);
     await expect(page.locator('#ci-analytics-view[data-render-state="ready"]')).toBeVisible();
   });
 
