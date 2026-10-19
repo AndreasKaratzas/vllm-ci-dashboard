@@ -597,6 +597,14 @@ def test_failed_retry_backs_off_over_consecutive_unsuccessful_rows(policy, outco
     assert budget._request_mode(rows, now=after, policy=policy) == ("reserved", None)
 
 
+def test_queue_lifecycle_keeps_its_fixed_failed_retry_interval():
+    lifecycle = budget.load_policy(budget.ROOT / "config/queue_lifecycle_attempt_budget.json")
+    rows = [_row(number, BASE - timedelta(hours=3 - number), lifecycle, outcome="failed") for number in range(4)]
+    retry_at = BASE + timedelta(minutes=lifecycle.failed_retry_interval_minutes)
+    assert budget._request_mode(rows, now=BASE, policy=lifecycle) == ("retry_gated", retry_at)
+    assert budget._request_mode(rows, now=retry_at, policy=lifecycle) == ("reserved", None)
+
+
 def test_complete_row_resets_backoff_and_restores_success_floor(policy):
     failed = [_row(number, BASE - timedelta(hours=8 - number), policy, outcome="failed") for number in range(4)]
     recovered = failed + [_row(9, BASE, policy, outcome="complete")]

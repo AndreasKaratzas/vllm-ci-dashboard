@@ -5,26 +5,23 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import math
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Mapping
 
 # Support direct execution as ``python scripts/vllm/plan_publication_watchdog.py``.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from vllm.operations_bundle_contract import OPERATIONS_MANIFEST_MAX_BYTES  # noqa: E402
 from vllm.plan_dns_publication_reconcile import (  # noqa: E402
     FUTURE_SKEW,
     STATUS_MAX_BYTES,
     _has_valid_contract,
     _load_bounded_json,
     _parse_timestamp,
-    _reject_duplicate_keys,
 )
 
 
@@ -42,9 +39,6 @@ RECOVERY_KEY_RE = re.compile(r"[0-9a-f]{64}")
 RECONCILIATION_MODES = frozenset({"queue", "dns"})
 COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 FRESHNESS_TARGETS = Path(__file__).resolve().parents[2] / "config/data_freshness_targets.json"
-PAGES_DATA_ROOT = "data/vllm"
-OPERATIONS_MANIFEST = "ci/operations_v2_manifest.json"
-PAGES_JSON_MAX_BYTES = 16 * 1024 * 1024
 COMPLETED_CONCLUSIONS = frozenset(
     {
         "action_required",
@@ -147,11 +141,10 @@ class WorkflowRun:
 
 @dataclass(frozen=True)
 class CoreTargets:
-    """Core collector sources and their collection-age target."""
+    """Core sources clocked by the operations manifest and their age target."""
 
     sources: tuple[str, ...]
     target_minutes: float
-    own_files: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -407,55 +400,41 @@ def watchdog_decision(
 
 
 def load_core_targets(path: Path = FRESHNESS_TARGETS) -> CoreTargets:
-    """Read the core source list shared with Site Health and the web UI."""
+    """Read the core sources shared with Site Health and the web UI.
+
+    Sources published under their own ``path`` are not clocked by the
+    operations manifest and stay out of the watchdog's core age.
+    """
     loaded, payload = _load_bounded_json(path, max_bytes=STATUS_MAX_BYTES)
     try:
         if not loaded:
             raise TypeError
         core = payload["core"]
-        sources = tuple(core["sources"])
+        sources = tuple(key for key in core["sources"] if "path" not in payload["sources"][key])
         target_minutes = _positive_finite(float(core["target_minutes"]), label="core target")
-        own_files = {
-            key: payload["sources"][key]["path"]
-            for key in sources
-            if "path" in payload["sources"][key]
-        }
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("data freshness targets are invalid") from exc
-    if not sources or not all(isinstance(key, str) for key in sources) or not all(
-        isinstance(own, str) for own in own_files.values()
-    ):
+    if not sources or not all(isinstance(key, str) for key in sources):
         raise ValueError("data freshness targets are invalid")
-    return CoreTargets(sources, target_minutes, own_files)
+    return CoreTargets(sources, target_minutes)
 
 
-def core_data_age(
-    read_json: Callable[[str], object],
-    targets: CoreTargets,
-    *,
-    now: datetime,
-) -> CoreDataAge:
-    """Return the oldest core collection clock on the published site.
+def core_data_age(manifest_path: Path, targets: CoreTargets, *, now: datetime) -> CoreDataAge:
+    """Return the oldest core clock in a hydrated operations manifest.
 
-    Sources with their own published file use its ``generated_at``; the rest
-    use the operations manifest ``shell.sources`` timestamps. A missing or
-    unreadable clock counts as stale: the collector admission still bounds
-    every Buildkite request.
+    A missing or unreadable clock counts as stale: the collector admission
+    still bounds every Buildkite request.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     now = now.astimezone(timezone.utc)
-    manifest = read_json(OPERATIONS_MANIFEST)
+    _, manifest = _load_bounded_json(manifest_path, max_bytes=OPERATIONS_MANIFEST_MAX_BYTES)
     shell = manifest.get("shell") if isinstance(manifest, dict) else None
     published = shell.get("sources") if isinstance(shell, dict) else None
     oldest: tuple[str, datetime] | None = None
     for key in targets.sources:
-        if key in targets.own_files:
-            payload = read_json(targets.own_files[key])
-            raw = payload.get("generated_at") if isinstance(payload, dict) else None
-        else:
-            entry = published.get(key) if isinstance(published, dict) else None
-            raw = entry.get("timestamp") if isinstance(entry, dict) else None
+        entry = published.get(key) if isinstance(published, dict) else None
+        raw = entry.get("timestamp") if isinstance(entry, dict) else None
         collected_at = _parse_timestamp(raw)
         if collected_at is None or collected_at > now + FUTURE_SKEW:
             return CoreDataAge(key, None, True)
@@ -465,27 +444,6 @@ def core_data_age(
     source, collected_at = oldest
     stale = now - collected_at >= timedelta(minutes=targets.target_minutes)
     return CoreDataAge(source, collected_at, stale)
-
-
-def pages_json_reader(ref: str) -> Callable[[str], object]:
-    """Read bounded JSON below ``data/vllm`` from a proven Pages commit."""
-
-    def read(relative: str) -> object:
-        spec = f"{ref}:{PAGES_DATA_ROOT}/{relative}"
-        size = subprocess.run(["git", "cat-file", "-s", spec], capture_output=True, text=True)
-        if size.returncode != 0 or not size.stdout.strip().isdigit():
-            return None
-        if int(size.stdout) > PAGES_JSON_MAX_BYTES:
-            return None
-        blob = subprocess.run(["git", "cat-file", "blob", spec], capture_output=True)
-        if blob.returncode != 0:
-            return None
-        try:
-            return json.loads(blob.stdout.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
-        except (UnicodeError, ValueError, RecursionError):
-            return None
-
-    return read
 
 
 def admitted_observation(
@@ -501,6 +459,7 @@ def admitted_observation(
         return observation
     reason = "core-data-stale" if core_age.stale else "buildkite-collection-due"
     return PublicationObservation(reason, observation.generation, observation.generated_at)
+
 
 def _append_github_output(path: Path, decision: RecoveryDecision) -> None:
     with path.open("a", encoding="utf-8") as handle:
@@ -518,8 +477,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--collector-admission", type=Path)
     parser.add_argument(
-        "--pages-ref",
-        help="Proven Pages commit whose core source clocks label an admitted collection",
+        "--operations-manifest",
+        type=Path,
+        help="Hydrated Pages operations manifest whose core clocks label an admitted collection",
     )
     parser.add_argument(
         "--current-code-sha",
@@ -552,8 +512,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--current-code-sha is required exactly with DNS workflow recovery")
     if args.collector_admission and (args.recovery_target != "collector" or args.force_recovery_reason == "state-uninitialized"):
         parser.error("--collector-admission requires a non-bootstrap collector route")
-    if (args.collector_admission is None) != (args.pages_ref is None):
-        parser.error("--pages-ref is required exactly with --collector-admission")
+    if (args.collector_admission is None) != (args.operations_manifest is None):
+        parser.error("--operations-manifest is required exactly with --collector-admission")
 
     now = _parse_timestamp(args.now) if args.now else datetime.now(timezone.utc)
     if now is None:
@@ -576,9 +536,7 @@ def main(argv: list[str] | None = None) -> int:
 
             admission = load_admission(args.collector_admission, now=now)
             if admission.required:
-                core_age = core_data_age(
-                    pages_json_reader(args.pages_ref), load_core_targets(), now=now,
-                )
+                core_age = core_data_age(args.operations_manifest, load_core_targets(), now=now)
                 print(
                     f"Oldest core source: {core_age.source} collected at "
                     f"{_canonical_timestamp(core_age.collected_at) if core_age.collected_at else 'unknown'}"

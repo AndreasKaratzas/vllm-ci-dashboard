@@ -3,9 +3,9 @@ name: Data Collection
 # and DNS reconciliations; untagged runs are routine full collections.
 run-name: >-
   Data Collection${{
-    inputs.watchdog_generation != '' && format(' [full:{0}]', inputs.recovery_key) ||
+    inputs.dns_generation != '' && format(' [dns:{0}]', inputs.dns_generation) ||
     inputs.queue_generation != '' && format(' [queue:{0}]', inputs.recovery_key) ||
-    inputs.dns_generation != '' && format(' [dns:{0}]', inputs.dns_generation) || '' }}
+    inputs.watchdog_generation != '' && format(' [full:{0}]', inputs.recovery_key) || '' }}
 
 # Single unified cron job that runs all data collection, tests, and deploy.
 # Replaces the legacy CI collection/update schedules. The synthetic site

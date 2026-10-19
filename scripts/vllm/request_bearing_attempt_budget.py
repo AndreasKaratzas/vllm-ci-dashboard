@@ -736,9 +736,10 @@ def _request_mode(
     completion would add collection runtime to every interval (a 25-minute run
     on a two-hour cron would otherwise execute only every four hours).
 
-    Failed retries back off by the run of consecutive failed or incomplete
-    rows (30, 60, 120, 120 minutes with the shipped policy), so a persistent
-    collector bug leaves cap headroom for the first run after its fix.
+    Data Collection failed retries back off by the run of consecutive failed
+    or incomplete rows (30, 60, 120, 120 minutes with the shipped policy), so
+    a persistent collector bug leaves cap headroom for the first run after its
+    fix. Other producers retry at their fixed failed-retry interval.
     """
     newest_first = sorted(attempts, key=lambda row: (row["reserved_at"], row["id"]), reverse=True)
     if newest_first:
@@ -749,9 +750,11 @@ def _request_mode(
             interval = policy.success_interval_minutes
             gated_mode = "success_gated"
         else:
-            failures = 1 + sum(1 for _ in takewhile(
-                lambda row: not _attempt_complete(row, policy), newest_first[1:],
-            ))
+            failures = 1
+            if policy.producer == "data_collection":
+                failures += sum(1 for _ in takewhile(
+                    lambda row: not _attempt_complete(row, policy), newest_first[1:],
+                ))
             interval = min(
                 policy.success_interval_minutes,
                 policy.failed_retry_interval_minutes * 2 ** (failures - 1),

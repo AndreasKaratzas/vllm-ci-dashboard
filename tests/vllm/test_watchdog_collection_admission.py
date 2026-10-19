@@ -1,6 +1,6 @@
 """Real immutable-ledger gates compose with collector recovery planning."""
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 import json
 import subprocess
 import sys
@@ -13,7 +13,7 @@ from vllm import observe_watchdog_collection_admission as admission
 from vllm import plan_publication_watchdog as watchdog
 from vllm import request_bearing_attempt_budget as budget
 from tests.vllm import test_request_bearing_attempt_budget as ledger_fixtures
-from tests.vllm.test_publication_watchdog import commit_pages
+from tests.vllm.test_publication_watchdog import write_operations_manifest
 from tests.vllm.test_request_bearing_attempt_budget import BASE, initialize, seed, remote_sha
 
 repo = ledger_fixtures.repo
@@ -179,7 +179,7 @@ def test_planner_refuses_corrupt_future_or_expired_admission_proof(tmp_path, upd
         admission.load_admission(_proof(tmp_path, **updates), now=BASE)
 
 
-def _plan(tmp_path, monkeypatch, proof, *, now=BASE, active=False, target='collector', force='site-health-stale',
+def _plan(tmp_path, proof, *, now=BASE, active=False, target='collector', force='site-health-stale',
           publication_age=timedelta(hours=4), core_age=timedelta(minutes=110)):
     status = tmp_path/'status.json'; status.write_text(json.dumps({
         'schema_version': 1, 'mode':'current','status':'healthy','generated_at':budget._iso(now-publication_age),
@@ -196,18 +196,10 @@ def _plan(tmp_path, monkeypatch, proof, *, now=BASE, active=False, target='colle
     if force:
         argv += ['--force-recovery-reason',force]
     if proof is not None:
-        pages = tmp_path/'pages'
-        if not pages.exists():
-            pages.mkdir()
-            core = watchdog.load_core_targets()
-            clock = budget._iso(now - core_age)
-            commit_pages(pages, {
-                watchdog.OPERATIONS_MANIFEST: {'shell': {'sources': {
-                    key: {'timestamp': clock} for key in core.sources if key not in core.own_files}}},
-                **{path: {'generated_at': clock} for path in core.own_files.values()},
-            })
-        monkeypatch.chdir(pages)
-        argv += ['--collector-admission',str(proof),'--pages-ref','HEAD']
+        clock = budget._iso(now - core_age)
+        manifest = write_operations_manifest(
+            tmp_path/'operations.json', dict.fromkeys(watchdog.load_core_targets().sources, clock))
+        argv += ['--collector-admission',str(proof),'--operations-manifest',str(manifest)]
     if target == 'dns-health':
         argv += ['--current-code-sha','c'*40]
     assert watchdog.main(argv) == 0
@@ -218,18 +210,18 @@ def _write_proof(result, tmp_path):
     proof = tmp_path/'proof.json'; proof.write_text(json.dumps(asdict(result))); return proof
 
 
-def test_actual_gate_proof_blocks_stale_and_forced_collector_plan(repo, policy, tmp_path, monkeypatch):
+def test_actual_gate_proof_blocks_stale_and_forced_collector_plan(repo, policy, tmp_path):
     root, _ = repo
     initialize(root, policy, [seed(1, BASE-timedelta(minutes=90))])
-    decision = _plan(tmp_path, monkeypatch, _write_proof(observe(root, policy, Clock()), tmp_path))
+    decision = _plan(tmp_path, _write_proof(observe(root, policy, Clock()), tmp_path))
     assert decision['required'] == 'false' and decision['reason'] == 'collection-success-gated'
 
 
 @pytest.mark.parametrize('active', [False, True])
-def test_admitted_collector_still_uses_fresh_active_run_deduplication(repo, policy, tmp_path, monkeypatch, active):
+def test_admitted_collector_still_uses_fresh_active_run_deduplication(repo, policy, tmp_path, active):
     root, _ = repo
     initialize(root, policy, [seed(1, BASE-timedelta(minutes=121))])
-    decision = _plan(tmp_path, monkeypatch, _write_proof(observe(root, policy, Clock()), tmp_path), active=active)
+    decision = _plan(tmp_path, _write_proof(observe(root, policy, Clock()), tmp_path), active=active)
     assert decision['required'] == ('false' if active else 'true')
     assert decision['reason'] == ('collection-active' if active else 'site-health-stale')
 
@@ -237,19 +229,19 @@ def test_admitted_collector_still_uses_fresh_active_run_deduplication(repo, poli
 @pytest.mark.parametrize(('core_age', 'reason'), [
     (timedelta(minutes=110), 'buildkite-collection-due'), (timedelta(minutes=135), 'core-data-stale'),
 ])
-def test_near_gate_opening_promotes_a_current_publication(repo, policy, tmp_path, monkeypatch, core_age, reason):
+def test_near_gate_opening_promotes_a_current_publication(repo, policy, tmp_path, core_age, reason):
     root, _ = repo
     initialize(root, policy, [seed(1, BASE-timedelta(minutes=118))])
     clock = Clock()
     result = observe(root, policy, clock)
     assert result.required is True and sum(clock.sleeps) == 120
-    decision = _plan(tmp_path, monkeypatch, _write_proof(result, tmp_path), now=clock.now, force='',
+    decision = _plan(tmp_path, _write_proof(result, tmp_path), now=clock.now, force='',
                      publication_age=timedelta(minutes=10), core_age=core_age)
     assert decision['required'] == 'true' and decision['reason'] == reason
 
 
 @pytest.mark.parametrize(('gate_minutes', 'budget_minutes', 'required'), [(20, 30, True), (31, 30, False)])
-def test_gate_inside_run_budget_waits_then_dispatches(repo, policy, tmp_path, monkeypatch,
+def test_gate_inside_run_budget_waits_then_dispatches(repo, policy, tmp_path,
                                                      gate_minutes, budget_minutes, required):
     root, _ = repo
     initialize(root, policy, [seed(1, BASE-timedelta(minutes=120-gate_minutes))])
@@ -257,14 +249,14 @@ def test_gate_inside_run_budget_waits_then_dispatches(repo, policy, tmp_path, mo
     result = observe(root, policy, clock, max_wait_seconds=budget_minutes*60)
     assert result.required is required
     assert sum(clock.sleeps) == (gate_minutes*60 if required else 0)
-    decision = _plan(tmp_path, monkeypatch, _write_proof(result, tmp_path), now=clock.now, force='', publication_age=timedelta(minutes=5))
+    decision = _plan(tmp_path, _write_proof(result, tmp_path), now=clock.now, force='', publication_age=timedelta(minutes=5))
     assert decision['required'] == str(required).lower()
     assert decision['reason'] == ('buildkite-collection-due' if required else 'collection-success-gated')
 
 
 @pytest.mark.parametrize(('target','force'), [('deploy-pages','state-slot-repair'), ('dns-health','dns-only-degraded'), ('collector','state-uninitialized')])
-def test_pages_dns_and_bootstrap_plans_remain_independent_of_collector_admission(tmp_path, monkeypatch, target, force):
-    result = _plan(tmp_path, monkeypatch, None, target=target, force=force)
+def test_pages_dns_and_bootstrap_plans_remain_independent_of_collector_admission(tmp_path, target, force):
+    result = _plan(tmp_path, None, target=target, force=force)
     assert result['required'] == 'true' and result['reason'] == force
 
 
@@ -285,7 +277,22 @@ def test_workflow_waits_for_a_gate_inside_the_remaining_run_budget():
     assert '--max-wait-seconds "$ADMISSION_MAX_WAIT_SECONDS"' in gate['run']
     assert 'BUILDKITE_TOKEN' not in gate['env']
     planner = steps[names.index('Plan deduplicated targeted recovery')]
-    assert '--collector-admission' in planner['run'] and '--pages-ref origin/gh-pages' in planner['run']
+    assert '--collector-admission' in planner['run']
+    assert '--operations-manifest "$RUNNER_TEMP/pages-operations-manifest.json"' in planner['run']
+
+
+def test_workflow_hydrates_the_operations_manifest_from_its_projection_proof():
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root/'.github/workflows/publication-watchdog.yml').read_text())
+    route = next(step for step in workflow['jobs']['recover']['steps'] if step.get('id') == 'recovery-route')['run']
+    hydration = route[route.index('OPERATIONS_MANIFEST="$RUNNER_TEMP/pages-operations-manifest.json"'):]
+    hydration = hydration[:hydration.index('\nfi\n')]
+    assert route.index('public_projection.py verify-git') < route.index(hydration)
+    assert 'GIT_NO_LAZY_FETCH=1 git show \\\n     origin/gh-pages:publication_manifest.json' in hydration
+    assert '["files"]["data/vllm/ci/operations_v2_manifest.json"]' in hydration
+    assert f'hydrate_proven_blob "$OPERATIONS_OID" "$OPERATIONS_BYTES" \\\n     {watchdog.OPERATIONS_MANIFEST_MAX_BYTES} ' in hydration
+    assert 'GIT_NO_LAZY_FETCH=1 git cat-file blob "$OPERATIONS_OID" > "$OPERATIONS_MANIFEST"' in hydration
+    assert '::warning::' in hydration and 'exit' not in hydration
 
 
 def _subprocess_root(root, policy):
@@ -351,10 +358,10 @@ def test_gated_proof_must_match_actual_producer_mode_reason_and_horizon(tmp_path
         admission.load_admission(_proof(tmp_path, **updates), now=BASE)
 
 
-def test_malformed_or_duplicate_proof_json_fails_with_planner_error(tmp_path, monkeypatch):
+def test_malformed_or_duplicate_proof_json_fails_with_planner_error(tmp_path):
     proof = tmp_path/'proof.json'; proof.write_text('{"required":true,"required":false}')
     with pytest.raises(SystemExit) as error:
-        _plan(tmp_path, monkeypatch, proof)
+        _plan(tmp_path, proof)
     assert error.value.code == 2
 
 

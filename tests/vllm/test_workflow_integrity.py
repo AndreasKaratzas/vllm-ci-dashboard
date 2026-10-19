@@ -839,7 +839,9 @@ class TestHourlyMasterWorkflow:
             ("dns", "inputs.dns_generation"),
         ):
             assert f"format(' [{tag}:{{0}}]', {value})" in run_name
-        assert run_name.index("[full:") < run_name.index("[queue:") < run_name.index("[dns:")
+        group = workflow["concurrency"]["group"]
+        assert run_name.index("[dns:") < run_name.index("[queue:") < run_name.index("[full:")
+        assert group.index("inputs.dns_generation") < group.index("inputs.queue_generation")
         steps = workflow["jobs"]["collect-and-deploy"]["steps"]
         validate = next(
             step

@@ -450,84 +450,68 @@ def test_full_run_title_key_drives_collector_retry_cooldown() -> None:
     assert decision.reason == "recent-recovery-attempt"
 
 
-TARGETS = watchdog.CoreTargets(
-    ("analytics", "ci_health", "perf_eval"), 135, {"perf_eval": "perf_eval/perf_eval.json"},
-)
+TARGETS = watchdog.CoreTargets(("analytics", "ci_health", "amd_test_matrix"), 135)
 
 
-def _pages_files(ages: dict[str, float]) -> dict[str, object]:
-    """Published core clocks, ``ages`` in minutes before NOW (None = unreadable)."""
-    def stamp(minutes):
-        return None if minutes is None else watchdog._canonical_timestamp(NOW - timedelta(minutes=minutes))
+def write_operations_manifest(path: Path, clocks: dict[str, str | None]) -> Path:
+    """Write a hydrated operations manifest with these ``shell.sources`` clocks."""
+    path.write_text(json.dumps({"shell": {"sources": {
+        key: {"timestamp": clock} for key, clock in clocks.items()
+    }}}))
+    return path
 
-    return {
-        watchdog.OPERATIONS_MANIFEST: {"shell": {"sources": {
-            key: {"timestamp": stamp(age)} for key, age in ages.items() if key != "perf_eval"
-        }}},
-        "perf_eval/perf_eval.json": {"generated_at": stamp(ages.get("perf_eval"))},
-    }
+
+def _manifest(tmp_path: Path, ages: dict[str, float | None]) -> Path:
+    """Core clocks ``ages`` minutes before NOW (None = unreadable)."""
+    return write_operations_manifest(tmp_path / "operations.json", {
+        key: None if age is None else watchdog._canonical_timestamp(NOW - timedelta(minutes=age))
+        for key, age in ages.items()
+    })
 
 
 @pytest.mark.parametrize(("ages", "source", "stale"), [
-    ({"analytics": 30, "ci_health": 134.9, "perf_eval": 60, "queue_jobs": 900}, "ci_health", False),
-    ({"analytics": 30, "ci_health": 60, "perf_eval": 135}, "perf_eval", True),
-    ({"analytics": 300, "ci_health": 60, "perf_eval": 20}, "analytics", True),
+    ({"analytics": 30, "ci_health": 134.9, "amd_test_matrix": 60, "queue_jobs": 900}, "ci_health", False),
+    ({"analytics": 30, "ci_health": 60, "amd_test_matrix": 135}, "amd_test_matrix", True),
+    ({"analytics": 300, "ci_health": 60, "amd_test_matrix": 20}, "analytics", True),
 ])
-def test_core_age_is_the_oldest_core_source_clock(ages, source, stale) -> None:
-    age = watchdog.core_data_age(_pages_files(ages).get, TARGETS, now=NOW)
+def test_core_age_is_the_oldest_core_source_clock(tmp_path, ages, source, stale) -> None:
+    age = watchdog.core_data_age(_manifest(tmp_path, ages), TARGETS, now=NOW)
 
     assert age == watchdog.CoreDataAge(source, NOW - timedelta(minutes=ages[source]), stale)
 
 
 @pytest.mark.parametrize(("ages", "source"), [
-    ({"analytics": 30, "perf_eval": 20}, "ci_health"),
-    ({"analytics": 30, "ci_health": 30, "perf_eval": None}, "perf_eval"),
-    ({"analytics": -10, "ci_health": 30, "perf_eval": 20}, "analytics"),
+    ({"analytics": 30, "amd_test_matrix": 20}, "ci_health"),
+    ({"analytics": 30, "ci_health": 30, "amd_test_matrix": None}, "amd_test_matrix"),
+    ({"analytics": -10, "ci_health": 30, "amd_test_matrix": 20}, "analytics"),
 ])
-def test_missing_unreadable_or_future_core_clock_counts_as_stale(ages, source) -> None:
-    age = watchdog.core_data_age(_pages_files(ages).get, TARGETS, now=NOW)
+def test_missing_unreadable_or_future_core_clock_counts_as_stale(tmp_path, ages, source) -> None:
+    age = watchdog.core_data_age(_manifest(tmp_path, ages), TARGETS, now=NOW)
 
     assert age == watchdog.CoreDataAge(source, None, True)
 
 
-def test_repository_core_targets_follow_the_shared_freshness_config() -> None:
+def test_absent_duplicate_or_oversized_manifest_counts_as_stale(tmp_path, monkeypatch) -> None:
+    fresh = _manifest(tmp_path, dict.fromkeys(TARGETS.sources, 10))
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text('{"shell": {}, "shell": ' + json.dumps(json.loads(fresh.read_text())["shell"]) + "}")
+    unknown = watchdog.CoreDataAge("analytics", None, True)
+    assert watchdog.core_data_age(fresh, TARGETS, now=NOW).collected_at is not None
+    for path in (tmp_path / "absent.json", duplicate):
+        assert watchdog.core_data_age(path, TARGETS, now=NOW) == unknown
+    monkeypatch.setattr(watchdog, "OPERATIONS_MANIFEST_MAX_BYTES", fresh.stat().st_size - 1)
+    assert watchdog.core_data_age(fresh, TARGETS, now=NOW) == unknown
+
+
+def test_repository_core_targets_are_the_manifest_clocked_core_sources() -> None:
     config = json.loads(watchdog.FRESHNESS_TARGETS.read_text())
     targets = watchdog.load_core_targets()
 
-    assert targets.sources == tuple(config["core"]["sources"])
+    assert targets.sources == tuple(
+        key for key in config["core"]["sources"] if "path" not in config["sources"][key]
+    )
+    assert "perf_eval" in config["core"]["sources"] and "perf_eval" not in targets.sources
     assert targets.target_minutes == config["core"]["target_minutes"]
-    assert targets.own_files == {
-        key: config["sources"][key]["path"]
-        for key in targets.sources if "path" in config["sources"][key]
-    }
-
-
-def commit_pages(root: Path, files: dict[str, object]) -> None:
-    """Commit Pages data files below ``data/vllm`` in a fresh repository."""
-    for relative, payload in files.items():
-        path = root / watchdog.PAGES_DATA_ROOT / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(payload if isinstance(payload, str) else json.dumps(payload))
-    for args in (["init", "-q"], ["add", "-A"],
-                 ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
-                  "commit", "-qm", "pages"]):
-        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
-
-
-def test_pages_reader_returns_bounded_strict_json_only(tmp_path, monkeypatch) -> None:
-    commit_pages(tmp_path, {
-        watchdog.OPERATIONS_MANIFEST: {"shell": {"sources": {}}},
-        "duplicate.json": '{"a": 1, "a": 2}',
-        "large.json": {"pad": "x" * 64},
-    })
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(watchdog, "PAGES_JSON_MAX_BYTES", 32)
-    read = watchdog.pages_json_reader("HEAD")
-
-    assert read(watchdog.OPERATIONS_MANIFEST) == {"shell": {"sources": {}}}
-    assert read("duplicate.json") is None
-    assert read("large.json") is None
-    assert read("missing.json") is None
 
 
 @pytest.mark.parametrize(("stale", "reason"), [
