@@ -8,14 +8,16 @@ import { useOperationSections } from '@/composables/useOperations'
 import { age, shortDate, type Rec } from '@/domain/format'
 import { ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
+import HealthHardware from './health/HealthHardware.vue'
+import HealthMirrors from './health/HealthMirrors.vue'
 import HealthOverview from './health/HealthOverview.vue'
 import HealthParity from './health/HealthParity.vue'
 
 const VIEWS = [
-  { id: 'overview', label: 'Overview', classic: '' },
-  { id: 'parity', label: 'Upstream parity', classic: '' },
-  { id: 'coverage', label: 'AMD hardware', classic: 'coverage' },
-  { id: 'mirrors', label: 'AMD mirrors', classic: 'mirrors' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'parity', label: 'Upstream parity' },
+  { id: 'coverage', label: 'AMD hardware' },
+  { id: 'mirrors', label: 'AMD mirrors' },
 ] as const
 type ViewId = (typeof VIEWS)[number]['id']
 
@@ -32,7 +34,6 @@ const view = computed<ViewId>({
   get: () => (VIEWS.some((v) => v.id === route.query.view) ? (route.query.view as ViewId) : 'overview'),
   set: (id) => void router.replace({ query: { ...route.query, view: id === 'overview' ? undefined : id } }),
 })
-const current = computed(() => VIEWS.find((v) => v.id === view.value)!)
 
 const { data: ops, error, loading, retry } = useOperationSections(['nightly', 'amd_test_health', 'test_group_parity'])
 
@@ -80,10 +81,8 @@ const header = computed(() => {
     </Tabs>
     <p v-if="retentionMessage" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">{{ retentionMessage }}</p>
 
-    <div v-if="current.classic" class="flex flex-col items-start gap-3 rounded-lg border p-6">
-      <p class="text-sm text-muted-foreground">{{ current.label }} has not moved to the new dashboard yet.</p>
-      <Button as="a" :href="`classic.html?ops_health_view=${current.classic}#ci-health`">Open {{ current.label }} on the classic dashboard</Button>
-    </div>
+    <HealthHardware v-if="view === 'coverage'" />
+    <HealthMirrors v-else-if="view === 'mirrors'" />
     <ViewState v-else :loading="loading && !ops" :error="error" @retry="retry">
       <HealthOverview v-if="view === 'overview' && ops" :ops="ops" />
       <HealthParity v-else-if="view === 'parity' && ops" :ops="ops" />
