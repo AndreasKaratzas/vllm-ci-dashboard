@@ -2,7 +2,7 @@
 // CI Health "AMD mirrors" (classic ops_health_view=mirrors, amd-mirror-inventory.js render).
 import type { ColumnDef } from '@tanstack/vue-table'
 import { VisDonut, VisSingleContainer } from '@unovis/vue'
-import { ArrowRight, ChevronDown } from '@lucide/vue'
+import { ChevronDown } from '@lucide/vue'
 import { computed, h, ref } from 'vue'
 import BrowserSheet from '@/components/health/BrowserSheet.vue'
 import MirrorDetailSheet from '@/components/health/MirrorDetailSheet.vue'
@@ -129,7 +129,6 @@ const methodOpen = ref(false)
                   <span class="text-muted-foreground">{{ row.label }}</span>
                 </span>
               </div>
-              <a v-if="view.commitUrl" :href="view.commitUrl" target="_blank" rel="noopener" class="text-sm font-medium hover:underline">Open current main CI source ↗</a>
             </div>
           </CardContent>
         </Card>
@@ -164,7 +163,7 @@ const methodOpen = ref(false)
         <AlertDescription class="text-warning">{{ view.coverageNote }}</AlertDescription>
       </Alert>
 
-      <div class="grid items-start gap-4 md:gap-6 @4xl/main:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div class="grid gap-4 md:gap-6 @4xl/main:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <Card v-if="view.areaChart" data-testid="mirror-areas">
           <CardHeader>
             <CardTitle>Where the mirror groups live</CardTitle>
@@ -195,7 +194,7 @@ const methodOpen = ref(false)
                 </span>
               </span>
               <span class="flex items-baseline gap-2">
-                <span class="hidden text-xs text-muted-foreground sm:inline" aria-hidden="true" data-testid="mirror-area-breakdown">{{ mirrorAreaBreakdown(row) }}</span>
+                <span class="hidden font-mono text-xs forced-colors:inline" aria-hidden="true" data-testid="mirror-area-breakdown">{{ mirrorAreaBreakdown(row) }}</span>
                 <strong class="w-8 text-right tabular-nums" data-testid="mirror-area-count">{{ integer(row.count) }}</strong>
               </span>
             </component>
@@ -226,7 +225,7 @@ const methodOpen = ref(false)
                 <small class="truncate text-xs text-muted-foreground" data-testid="mirror-preview-meta">{{ mirrorPreviewMeta(row) }}</small>
               </span>
               <ToneBadge :tone="amdMirrorModeTone(row)" data-testid="mirror-preview-mode">{{ amdMirrorGateMode(row) }}</ToneBadge>
-              <ArrowRight class="size-4 text-muted-foreground" />
+              <span class="text-muted-foreground" aria-hidden="true">→</span>
             </button>
             <p v-if="!view.groups.length" class="py-6 text-center text-sm text-muted-foreground">No published AMD mirror groups are available.</p>
           </CardContent>

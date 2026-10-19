@@ -79,11 +79,11 @@ const table = useVueTable({
 <template>
   <Sheet v-model:open="open">
     <SheetContent class="w-full overflow-y-auto" :class="wide ? 'sm:max-w-6xl' : 'sm:max-w-4xl'">
-      <SheetHeader>
+      <SheetHeader class="px-6 pr-12">
         <SheetTitle>{{ title }}</SheetTitle>
         <SheetDescription v-if="subtitle">{{ subtitle }}</SheetDescription>
       </SheetHeader>
-      <div class="flex flex-col gap-3 px-4 pb-6">
+      <div class="flex flex-col gap-3 px-6 pb-6">
         <div class="flex flex-wrap items-center gap-2">
           <Input v-model="query" type="search" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" class="h-8 max-w-sm" />
           <Select v-for="(filter, index) in filters" :key="filter.label" v-model="selected[index]">

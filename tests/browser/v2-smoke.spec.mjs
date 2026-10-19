@@ -106,14 +106,6 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
     await sheet.locator('tbody tr').first().getByRole('button').first().click();
     await expect(page.getByRole('dialog').last()).toContainText('AMD route mode');
   });
-
-  test('unported CI Health views link to the matching classic view', async ({ page }) => {
-    await page.goto('/#/health?view=mirrors');
-    await expect(page.getByRole('link', { name: 'Open AMD mirrors on the classic dashboard' })).toHaveAttribute(
-      'href',
-      'classic.html?ops_health_view=mirrors#ci-health',
-    );
-  });
 });
 
 test.describe('v2 is the root page and keeps old links working', () => {

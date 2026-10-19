@@ -247,8 +247,12 @@ test.describe('v2 CI Health AMD mirrors matches the classic page', () => {
           t(n.querySelectorAll('.ops-badge')[1]),
         ]),
         browse: [...root.querySelectorAll('.ops-mirror-actions button')].map(t),
+        headerAction: [...root.querySelectorAll('.ops-page-header a')].map((a) => [t(a), a.getAttribute('href')]),
+        observed: t(root.querySelector('.ops-page-header .ops-panel-meta')).replace(/ - .*$/, ''),
       };
     });
+    expect(classic.headerAction).toHaveLength(1);
+    expect(classic.observed).toMatch(/^Observed \S/);
     expect(classic.total).toMatch(/^\d+$/);
     expect(classic.preview.length).toBeGreaterThan(0);
     expect(classic.areas.length).toBeGreaterThan(0);
@@ -277,6 +281,10 @@ test.describe('v2 CI Health AMD mirrors matches the classic page', () => {
 
     await page.goto('/#/health?view=mirrors');
     await expect(page.getByTestId('mirror-total')).toHaveText(classic.total);
+    const [[actionLabel, actionHref]] = classic.headerAction;
+    await expect(page.getByRole('link', { name: actionLabel })).toHaveAttribute('href', actionHref);
+    await expect(page.getByRole('link', { name: actionLabel })).toHaveCount(1);
+    await expect(page.getByText(`${classic.observed} ·`)).toBeVisible();
     await expect(page.getByTestId('mirror-hero-meta')).toHaveText(classic.meta);
     const legend = await page.getByTestId('mirror-hardware').evaluateAll((nodes) => nodes.map((n) => [...n.children].slice(1).map((c) => c.textContent.trim())));
     expect(legend).toEqual(classic.legend);
