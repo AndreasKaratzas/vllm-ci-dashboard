@@ -15,12 +15,14 @@ export const OPERATIONS_MANIFEST_PATH = `${CI}operations_v2_manifest.json`
  * - sources: one of these manifest `shell.sources` timestamps changed;
  * - publication: the manifest generation changed;
  * - poll: every poll, because a live candidate advances independently of the manifest;
+ * - interval: on a poll at least `minutes` after the last fetch, for files no manifest source tracks;
  * - manual: only on an explicit refresh.
  */
 export type RefreshPolicy =
   | { on: 'sources'; sources: readonly string[] }
   | { on: 'publication' }
   | { on: 'poll' }
+  | { on: 'interval'; minutes: number }
   | { on: 'manual' }
 
 /** ISO timestamp a payload was published at; arbitrates candidates (newest wins) and labels updatedAt. */
@@ -30,7 +32,7 @@ export type PublishedAt = (payload: Rec) => string | undefined
 export type DatasetLoad = (fresh: boolean, upgrade: (payload: Rec) => void) => Promise<Rec>
 
 export interface DatasetSource {
-  /** Candidates in priority order; ties on publishedAt go to the earlier one. */
+  /** Candidates in priority order, the published fallback last; ties on publishedAt go to the earlier one. */
   paths: readonly string[]
   refresh: RefreshPolicy
   publishedAt?: PublishedAt
@@ -63,6 +65,9 @@ function dnsLoader(paths: readonly string[]): DatasetLoad {
   }
 }
 
+// hourly-master rewrites these every two hours; the manifest records none of them.
+const COLLECTOR_RUN: RefreshPolicy = { on: 'interval', minutes: 60 }
+
 export const DATASETS = {
   publication_status: {
     paths: [`${CI}publication_status.json`],
@@ -77,17 +82,17 @@ export const DATASETS = {
   },
   prs: {
     paths: ['data/vllm/prs.json'],
-    refresh: { on: 'publication' },
+    refresh: COLLECTOR_RUN,
     publishedAt: (payload) => payload.collected_at,
   },
   issues: {
     paths: ['data/vllm/issues.json'],
-    refresh: { on: 'publication' },
+    refresh: COLLECTOR_RUN,
     publishedAt: (payload) => payload.collected_at,
   },
   perf_eval: {
     paths: ['data/vllm/perf_eval/perf_eval.json'],
-    refresh: { on: 'publication' },
+    refresh: COLLECTOR_RUN,
     publishedAt: generatedAt,
   },
   amd_test_matrix: {
@@ -111,44 +116,38 @@ export const DATASETS = {
 export type DatasetKey = keyof typeof DATASETS
 
 export interface SectionSource {
-  /** Published path; the manifest's descriptor path is authoritative when loading. */
+  /** Published path that views cite as the source; loading follows the manifest descriptor. */
   path: string
   refresh: RefreshPolicy
   /** A live candidate that competes with the published section (newest publishedAt wins). */
   live?: string
   publishedAt?: PublishedAt
-  timeoutMs?: number
 }
 
-const section = (name: string, refresh: RefreshPolicy, extra: Partial<SectionSource> = {}): SectionSource => ({
-  path: `${CI}operations_v2/${name}.json`,
-  refresh,
-  ...extra,
-})
+const inputs = (...keys: string[]): RefreshPolicy => ({ on: 'sources', sources: keys })
+const section = (name: string, refresh: RefreshPolicy): SectionSource => ({ path: `${CI}operations_v2/${name}.json`, refresh })
 
 // Section inputs mirror build_operations_snapshot.py: a section changes only when one of its
 // collector sources does, so an unchanged source set means the published section is unchanged.
 export const SECTIONS = {
-  nightly: section('nightly', { on: 'sources', sources: ['analytics', 'ci_health'] }),
-  amd_test_health: section('amd_test_health', {
-    on: 'sources',
-    sources: ['analytics', 'ci_health', 'config_parity', 'amd_test_matrix'],
-  }),
-  amd_agent_health: section('amd_agent_health', { on: 'sources', sources: ['agent_health'] }),
-  reliability: section('reliability', { on: 'manual' }, { timeoutMs: 120_000 }),
-  comparison: section('comparison', { on: 'sources', sources: ['analytics'] }),
-  definition_parity: section('definition_parity', { on: 'sources', sources: ['config_parity'] }),
-  test_group_parity: section('test_group_parity', { on: 'sources', sources: ['test_group_parity', 'config_parity'] }),
-  ownership: section('ownership', { on: 'sources', sources: ['ci_ownership'] }),
-  queue: section(
-    'queue',
-    { on: 'poll' },
-    { live: `${QUEUE_LIVE}operations_v2/queue.json`, publishedAt: (payload) => payload.queue?.snapshot?.ts },
+  nightly: section('nightly', inputs('analytics', 'ci_health')),
+  // amd_test_signal tracks the AMD test-result ledger, which no published source covers.
+  amd_test_health: section('amd_test_health', inputs('analytics', 'ci_health', 'config_parity', 'amd_test_matrix', 'amd_test_signal')),
+  amd_agent_health: section('amd_agent_health', inputs('agent_health')),
+  reliability: section('reliability', { on: 'manual' }),
+  comparison: section('comparison', inputs('analytics')),
+  definition_parity: section('definition_parity', inputs('config_parity')),
+  test_group_parity: section('test_group_parity', inputs('test_group_parity', 'config_parity')),
+  ownership: section('ownership', inputs('ci_ownership')),
+  queue: {
+    ...section('queue', { on: 'poll' }),
+    live: `${QUEUE_LIVE}operations_v2/queue.json`,
+    publishedAt: (payload) => payload.queue?.snapshot?.ts,
+  },
+  omni: section(
+    'omni',
+    inputs('queue_timeseries', 'queue_jobs', 'omni_heuristic', 'omni_issue_state', 'workload_mapping', 'capacity_monitor'),
   ),
-  omni: section('omni', {
-    on: 'sources',
-    sources: ['queue_timeseries', 'queue_jobs', 'omni_heuristic', 'omni_issue_state', 'workload_mapping', 'capacity_monitor'],
-  }),
   diagnostics: section('diagnostics', { on: 'publication' }),
 } as const satisfies Record<string, SectionSource>
 
@@ -176,21 +175,23 @@ export function newest(payloads: Rec[], publishedAt: PublishedAt | undefined): R
   return best
 }
 
-/** Fetch every candidate and keep the newest that loaded; fails only when none did. */
-export async function loadNewest(
-  paths: readonly string[],
-  publishedAt: PublishedAt | undefined,
-  options: FetchOptions = {},
-): Promise<Rec> {
-  if (paths.length === 1) return fetchJSON<Rec>(paths[0]!, options)
-  const results = await Promise.allSettled(paths.map((path) => fetchJSON<Rec>(path, options)))
-  const loaded = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-  const best = newest(loaded, publishedAt)
-  if (best === undefined) {
-    const reasons = results.flatMap((result) => (result.status === 'rejected' ? [String(result.reason?.message ?? result.reason)] : []))
-    throw new Error(`No candidate is available (${reasons.join('; ')})`)
-  }
+/** The newest payload the candidate requests resolved to; when none did, the published fallback's (last) error. */
+export async function newestOf(requests: readonly Promise<Rec>[], publishedAt: PublishedAt | undefined): Promise<Rec> {
+  const results = await Promise.allSettled(requests)
+  const best = newest(
+    results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : [])),
+    publishedAt,
+  )
+  if (best === undefined) throw (results.at(-1) as PromiseRejectedResult).reason
   return best
+}
+
+/** Fetch every candidate path and keep the newest that loaded. */
+export function loadNewest(paths: readonly string[], publishedAt: PublishedAt | undefined, options: FetchOptions = {}): Promise<Rec> {
+  return newestOf(
+    paths.map((path) => fetchJSON<Rec>(path, options)),
+    publishedAt,
+  )
 }
 
 /** The loader useDataset runs for a registered dataset. */

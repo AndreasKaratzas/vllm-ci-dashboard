@@ -175,6 +175,19 @@ describe('useDataset', () => {
     expect(sections.error.value).toBeNull()
   })
 
+  it('hides a failed section refresh from the wrappers while the last data is shown', async () => {
+    const sections = mount(() => wrappers.useOperationSections(['nightly']))
+    const raw = mount(() => datasets.useDataset({ sections: ['nightly'] }))
+    await flush()
+    server.set(sectionPath('nightly'), { status: 500 })
+    const refresh = raw.refresh()
+    await elapse(2000, 8)
+    await refresh
+    expect(raw.error.value).toBe(`${sectionPath('nightly')} returned HTTP 500`)
+    expect(sections.data.value?.nightly.label).toBe(`nightly@${G1}`)
+    expect(sections.error.value).toBeNull()
+  })
+
   it('reports a first-load failure through the wrappers and recovers on retry', async () => {
     server.set(sectionPath('nightly'), { status: 404 })
     const sections = mount(() => wrappers.useOperationSections(['nightly']))
@@ -218,6 +231,23 @@ describe('useDataset', () => {
     await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
     await flush()
     expect(matrix.data.value?.calls).toBe(2)
+  })
+
+  it('refetches a collector-run asset on a poll an hour after its last fetch, whatever the manifest', async () => {
+    let calls = 0
+    server.set('data/vllm/perf_eval/perf_eval.json', () => ({ generated_at: G1, calls: ++calls }))
+    const perf = mount(() => datasets.useDataset('perf_eval'))
+    await flush()
+    for (let poll = 1; poll <= 11; poll += 1) {
+      publish(server, { generatedAt: new Date(Date.now() + 1000).toISOString(), sources: SOURCES })
+      await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
+      await flush()
+    }
+    expect(server.count(MANIFEST)).toBe(11)
+    expect(perf.data.value?.calls).toBe(1)
+    await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
+    await flush()
+    expect(perf.data.value?.calls).toBe(2)
   })
 
   it('stops polling once every consumer is disposed and catches up when one returns', async () => {

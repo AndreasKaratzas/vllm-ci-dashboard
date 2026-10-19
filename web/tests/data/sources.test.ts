@@ -46,9 +46,10 @@ describe('newest-wins arbitration', () => {
     await expect(fallback).resolves.toEqual(at('2026-10-19T11:00:00Z'))
   })
 
-  it('fails with every reason when no candidate loads', async () => {
+  it("reports the published fallback's error when no candidate loads", async () => {
+    server.set('data/y.json', { status: 503 })
     const failed = sources.loadNewest(['data/x.json', 'data/y.json'], undefined, { attempts: 1 }).catch((error: Error) => error.message)
-    await expect(failed).resolves.toBe('No candidate is available (data/x.json returned HTTP 404; data/y.json returned HTTP 404)')
+    await expect(failed).resolves.toBe('data/y.json returned HTTP 503')
   })
 
   it('keeps the original error of a single-path dataset', async () => {

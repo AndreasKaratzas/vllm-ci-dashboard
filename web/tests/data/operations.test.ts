@@ -57,6 +57,34 @@ describe('loadOperations', () => {
   })
 })
 
+describe('section cache', () => {
+  it('downloads the manual reliability section once per page across publications', async () => {
+    publish(server, { generatedAt: G1, sources: SOURCES })
+    await operations.loadOperations(['reliability'])
+    publish(server, { generatedAt: G2, sources: { ...SOURCES, analytics: G2 } })
+    const manifest = await operations.fetchManifest(true)
+    const ops = await operations.loadOperations(['reliability'])
+    expect(ops.reliability.label).toBe(`reliability@${G1}`)
+    await operations.fetchSection(manifest, 'reliability')
+    expect(server.count(sectionPath('reliability'))).toBe(1)
+  })
+
+  it('replaces, rather than retains, a section whose inputs changed', async () => {
+    publish(server, { generatedAt: G1, sources: SOURCES })
+    const first = await operations.fetchManifest()
+    await operations.fetchSection(first, 'nightly')
+    publish(server, { generatedAt: G2, sources: { ...SOURCES, queue_jobs: G2 } })
+    const queueOnly = await operations.fetchManifest(true)
+    expect((await operations.fetchSection(queueOnly, 'nightly')).nightly.label).toBe(`nightly@${G1}`)
+    expect(server.count(sectionPath('nightly'))).toBe(1)
+    publish(server, { generatedAt: G2, sources: { ...SOURCES, analytics: G2 } })
+    const analytics = await operations.fetchManifest(true)
+    expect((await operations.fetchSection(analytics, 'nightly')).nightly.label).toBe(`nightly@${G2}`)
+    await operations.fetchSection(first, 'nightly')
+    expect(server.count(sectionPath('nightly'))).toBe(3)
+  })
+})
+
 describe('generation consistency', () => {
   it('retries a section that lags the manifest until it matches', async () => {
     publish(server, { generatedAt: G2, sources: SOURCES, descriptors: { nightly: { generation: 'g2' } } })
@@ -119,6 +147,8 @@ describe('section stamps', () => {
     expect(operations.sectionStamp(queueOnly, 'nightly')).toBe(operations.sectionStamp(base, 'nightly'))
     expect(operations.sectionStamp(analytics, 'nightly')).not.toBe(operations.sectionStamp(base, 'nightly'))
     expect(operations.sectionStamp(queueOnly, 'omni')).not.toBe(operations.sectionStamp(base, 'omni'))
+    const ingest = manifest({ ...SOURCES, amd_test_signal: G2 })
+    expect(operations.sectionStamp(ingest, 'amd_test_health')).not.toBe(operations.sectionStamp(base, 'amd_test_health'))
   })
 
   it('change when a section generation or sha256 changes', () => {

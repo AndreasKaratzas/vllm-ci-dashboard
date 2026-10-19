@@ -1,6 +1,6 @@
 import type { Rec } from '@/domain/format'
 import { fetchJSON } from './client'
-import { DATASETS, isPlainObject, newest, OPERATIONS_MANIFEST_PATH, SECTIONS, type RefreshPolicy, type SectionSource } from './sources'
+import { DATASETS, isPlainObject, newestOf, OPERATIONS_MANIFEST_PATH, SECTIONS, type RefreshPolicy, type SectionSource } from './sources'
 
 export interface SectionDescriptor {
   path: string
@@ -73,18 +73,12 @@ export async function fetchSection(manifest: OperationsManifest, name: string, f
   const path = MANIFEST_DIR + descriptor.path.replace(/^\/+/, '')
   const published = fetchJSON<Rec>(path, {
     uncached: fresh,
-    cacheKey: `${path}@${manifest.generated_at ?? ''}`,
-    timeoutMs: source.timeoutMs,
+    // A manual section's stamp never changes, so it is downloaded once per page as first loaded.
+    cacheVersion: sectionStamp(manifest, name) ?? String(manifest.generated_at ?? ''),
     validate: sectionValidator(name, descriptor),
   })
   if (!source.live) return published
-  const results = await Promise.allSettled([fetchJSON<Rec>(source.live, { uncached: fresh, timeoutMs: source.timeoutMs }), published])
-  const best = newest(
-    results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : [])),
-    source.publishedAt,
-  )
-  if (best === undefined) throw (results[1] as PromiseRejectedResult).reason
-  return best
+  return newestOf([fetchJSON<Rec>(source.live, { uncached: fresh }), published], source.publishedAt)
 }
 
 async function fetchSections(manifest: OperationsManifest, names: readonly string[], fresh: boolean) {
@@ -120,12 +114,13 @@ export async function loadOperations(names: readonly string[]): Promise<Rec> {
 
 /**
  * What a refresh policy depends on in a manifest: equal stamps mean nothing to refetch.
- * null means "always refetch" (poll) and '' means "never automatically" (manual).
+ * null means "always refetch" (poll) and '' means "never because of the manifest" (interval, manual).
  */
 export function policyStamp(policy: RefreshPolicy, manifest: OperationsManifest): string | null {
   switch (policy.on) {
     case 'poll':
       return null
+    case 'interval':
     case 'manual':
       return ''
     case 'publication':

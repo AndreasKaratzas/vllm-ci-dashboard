@@ -87,6 +87,7 @@ function createAssetEntry(key: DatasetKey): Entry {
   const load = datasetLoader(key)
   // undefined: loaded before any manifest was known, so the first manifest seen is adopted.
   let stamp: string | null | undefined
+  let fetchedAt = 0
   const state = createState(() => entry.load(true))
   const show = (payload: Rec) => {
     state.data.value = payload
@@ -102,13 +103,16 @@ function createAssetEntry(key: DatasetKey): Entry {
         async () => {
           const manifest = currentManifest()
           show(await load(fresh, show))
+          fetchedAt = Date.now()
           stamp = manifest ? policyStamp(source.refresh, manifest) : undefined
         },
         fresh,
       ),
     async sync(manifest, isPoll) {
-      if (source.refresh.on === 'poll') {
-        if (isPoll) await entry.load(true)
+      const { refresh } = source
+      if (refresh.on === 'poll' || refresh.on === 'interval') {
+        const due = refresh.on === 'poll' || Date.now() - fetchedAt >= refresh.minutes * 60_000
+        if (isPoll && due) await entry.load(true)
         return
       }
       if (!manifest || state.data.value === null) return

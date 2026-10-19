@@ -41,7 +41,9 @@ describe('fetchJSON', () => {
     expect(server.count('data/a.json')).toBe(1)
     await vi.advanceTimersByTimeAsync(1)
     expect(server.count('data/a.json')).toBe(2)
-    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(server.count('data/a.json')).toBe(2)
+    await vi.advanceTimersByTimeAsync(1)
     expect(server.count('data/a.json')).toBe(3)
     expect(((await result) as Error).message).toBe('data/a.json returned HTTP 503')
   })
@@ -61,6 +63,26 @@ describe('fetchJSON', () => {
     await vi.advanceTimersByTimeAsync(1000 + 250)
     await expect(result).resolves.toEqual({ ok: true })
     expect(server.requests[0]!.init?.signal?.aborted).toBe(true)
+  })
+
+  it('lets a body that arrives after the timeout finish downloading', async () => {
+    server.set('data/a.json', (init: RequestInit | undefined) => {
+      const body = new ReadableStream({
+        start(controller) {
+          // As in a browser, aborting the request errors a body still in flight.
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal!.reason))
+          setTimeout(() => {
+            controller.enqueue(new TextEncoder().encode('{"ok":true}'))
+            controller.close()
+          }, 500)
+        },
+      })
+      return new Response(body)
+    })
+    const result = client.fetchJSON('data/a.json', { timeoutMs: 100 })
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(result).resolves.toEqual({ ok: true })
+    expect(server.count('data/a.json')).toBe(1)
   })
 
   it('reports the timeout when every attempt times out', async () => {
@@ -113,6 +135,24 @@ describe('fetchJSON', () => {
     await expect(client.fetchJSON('data/a.json')).resolves.toEqual({ calls: 2 })
     await expect(client.fetchJSON('data/a.json')).resolves.toEqual({ calls: 2 })
     expect(server.count('data/a.json')).toBe(2)
+  })
+
+  it('never caches an abortable request', async () => {
+    let calls = 0
+    server.set('data/a.json', () => ({ calls: ++calls }))
+    const { signal } = new AbortController()
+    await expect(client.fetchJSON('data/a.json', { signal })).resolves.toEqual({ calls: 1 })
+    await expect(client.fetchJSON('data/a.json', { signal })).resolves.toEqual({ calls: 2 })
+    await expect(client.fetchJSON('data/a.json')).resolves.toEqual({ calls: 3 })
+  })
+
+  it('keeps one entry per key, replacing it when the cache version changes', async () => {
+    let calls = 0
+    server.set('data/a.json', () => ({ calls: ++calls }))
+    await expect(client.fetchJSON('data/a.json', { cacheVersion: 'g1' })).resolves.toEqual({ calls: 1 })
+    await expect(client.fetchJSON('data/a.json', { cacheVersion: 'g1' })).resolves.toEqual({ calls: 1 })
+    await expect(client.fetchJSON('data/a.json', { cacheVersion: 'g2' })).resolves.toEqual({ calls: 2 })
+    await expect(client.fetchJSON('data/a.json', { cacheVersion: 'g1' })).resolves.toEqual({ calls: 3 })
   })
 
   it('keys the cache by cacheKey, bypasses it when uncached, and clears one key or all', async () => {

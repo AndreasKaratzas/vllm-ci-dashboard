@@ -9,19 +9,22 @@ const BACKOFF_FACTOR = 4
 export interface FetchOptions {
   /** Total attempts, including the first (default 3). */
   attempts?: number
-  /** Per-attempt timeout (default 30 s). */
+  /** Per-attempt limit on waiting for the response headers (default 30 s); the body may take longer. */
   timeoutMs?: number
   /** Aborting the caller's signal stops the request and every pending retry. */
   signal?: AbortSignal
   /** Key of the page-wide promise cache (default: the path). */
   cacheKey?: string
+  /** Content identity of the cached request: a request with another version replaces it. */
+  cacheVersion?: string
   /** Bypass the page-wide cache: always request, never store. */
   uncached?: boolean
   /** Rejects a response (by throwing) so the attempt is retried, e.g. on a generation mismatch. */
   validate?: (payload: unknown, body: ArrayBuffer) => void | Promise<void>
 }
 
-const cache = new Map<string, Promise<unknown>>()
+// One entry per key, so superseded versions of a large file are released rather than retained.
+const cache = new Map<string, { version: string | undefined; request: Promise<unknown> }>()
 
 function dataUrl(path: string) {
   return /^https?:\/\//.test(path) ? path : DATA_BASE + path.replace(/^\/+/, '')
@@ -59,6 +62,7 @@ async function attempt(path: string, index: number, options: FetchOptions): Prom
       cache: 'no-store',
       signal: controller.signal,
     })
+    clearTimeout(timer)
     if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}`)
     const body = await response.arrayBuffer()
     const payload: unknown = JSON.parse(new TextDecoder().decode(body))
@@ -93,16 +97,14 @@ export function fetchJSON<T = unknown>(path: string, options: FetchOptions = {})
   // A shared promise cannot honour one caller's abort, so abortable requests are never cached.
   if (options.uncached || options.signal) return fetchWithRetry(path, options) as Promise<T>
   const key = options.cacheKey ?? path
-  let request = cache.get(key)
-  if (!request) {
-    const pending = fetchWithRetry(path, options)
-    cache.set(key, pending)
-    // A transient CDN or deployment race must not poison the page-wide cache.
-    pending.catch(() => {
-      if (cache.get(key) === pending) cache.delete(key)
-    })
-    request = pending
-  }
+  const cached = cache.get(key)
+  if (cached && cached.version === options.cacheVersion) return cached.request as Promise<T>
+  const request = fetchWithRetry(path, options)
+  cache.set(key, { version: options.cacheVersion, request })
+  // A transient CDN or deployment race must not poison the page-wide cache.
+  request.catch(() => {
+    if (cache.get(key)?.request === request) cache.delete(key)
+  })
   return request as Promise<T>
 }
 
