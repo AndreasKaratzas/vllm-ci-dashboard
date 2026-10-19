@@ -1,7 +1,5 @@
 // Differential parity: the v2 domain modules must reproduce the classic
 // renderer's (docs/assets/js/ops-v2.js) decisions on the same inputs.
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { populationSemantics, observedCountLabel, type Rec } from '@/domain/format'
 import { attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
@@ -14,9 +12,8 @@ import {
   nightlyFailureMovement,
 } from '@/domain/nightly'
 import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
+import { loadClassic, readFixture } from './classic'
 
-const CLASSIC = resolve(process.cwd(), '../docs/assets/js/ops-v2.js')
-const MANIFEST = resolve(process.cwd(), 'tests/fixtures/operations_v2_manifest.json')
 const EXPORTED = [
   'latestAmd',
   'amdNightlyPresentation',
@@ -33,20 +30,12 @@ const EXPORTED = [
   'observedCountLabel',
 ]
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let classic: Record<string, (...args: any[]) => any>
+let classic: ReturnType<typeof loadClassic>
 let shell: Rec
 
 beforeAll(() => {
-  const source = readFileSync(CLASSIC, 'utf8')
-  const end = source.lastIndexOf('})();')
-  expect(end).toBeGreaterThan(0)
-  const exposed = `${source.slice(0, end)}window.__classic = {${EXPORTED.join(',')}};\n${source.slice(end)}`
-  // The classic IIFE only wires listeners at load; keep it off the network.
-  globalThis.fetch = (() => new Promise(() => {})) as typeof fetch
-  new Function(exposed)()
-  classic = (window as unknown as { __classic: typeof classic }).__classic
-  shell = JSON.parse(readFileSync(MANIFEST, 'utf8')).shell
+  classic = loadClassic(EXPORTED)
+  shell = readFixture<Rec>('operations_v2_manifest.json').shell
 })
 
 // Deterministic PRNG so failures reproduce.
