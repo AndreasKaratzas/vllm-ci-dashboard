@@ -8,10 +8,11 @@ test.describe('v2 dashboard', () => {
 
     await page.goto('/v2/');
     await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Latest AMD nightly' })).toBeVisible();
+    await expect(page.getByTestId('kpi-nightly')).toContainText('Hard failures');
+    await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 4 pass - 0 soft - 2 hard');
+    await expect(page.getByText('AMD nightly trend')).toBeVisible();
 
     const rows = page.getByTestId('nightly-row');
-    await expect(rows.first()).toBeVisible();
     await expect(rows.first()).toContainText('#30005');
     await expect(rows.first().getByRole('link', { name: '#30005' })).toHaveAttribute(
       'href',
@@ -24,6 +25,21 @@ test.describe('v2 dashboard', () => {
     await expect(sheet).toContainText('Job variants observed');
 
     expect(errors).toEqual([]);
+  });
+
+  test('the command palette jumps between views', async ({ page }) => {
+    await page.goto('/v2/');
+    await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder(/Type a view/).fill('analytics');
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/#\/analytics$/);
+  });
+
+  test('the sidebar collapses to icons', async ({ page }) => {
+    await page.goto('/v2/');
+    await page.getByRole('button', { name: 'Toggle Sidebar' }).first().click();
+    await expect(page.locator('[data-collapsible="icon"]')).toHaveCount(1);
   });
 
   test('unported views link to the classic dashboard', async ({ page }) => {
