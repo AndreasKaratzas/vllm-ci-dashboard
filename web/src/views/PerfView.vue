@@ -19,6 +19,7 @@ import { age, integer, shortDate, type Rec } from '@/domain/format'
 import {
   PERF_SOURCE,
   accuracyBlock,
+  filterPerfModels,
   perfMetricDetail,
   perfModelDetail,
   perfModelFamilies,
@@ -26,6 +27,7 @@ import {
   perfModels,
   perfPage,
   perfPipelineUrl,
+  perfPointDetail,
   perfQuery,
   perfState,
   type PerfDetail,
@@ -41,8 +43,10 @@ const router = useRouter()
 const { ops } = useOperations()
 
 const state = computed(() => perfState(route.query))
-function setState(next: Partial<PerfState>) {
-  void router.replace({ query: perfQuery({ ...state.value, ...next }) })
+// classic: view and hardware segments push a history entry, model selection replaces it.
+function setState(next: Partial<PerfState>, push = false) {
+  const query = perfQuery({ ...state.value, ...next })
+  void (push ? router.push({ query }) : router.replace({ query }))
 }
 function selectModel(model: string, view?: PerfViewId) {
   setState(view ? { model, view } : { model })
@@ -68,17 +72,19 @@ void load()
 const page = computed(() => (perf.value ? perfPage(perf.value, state.value) : null))
 const observedAt = computed(() => perf.value?.generated_at || ops.value?.generated_at)
 const pipelineUrl = computed(() => (perf.value ? perfPipelineUrl(perf.value) : ''))
+// v2-only badges: count regressions/improvements over the models the filters select.
+const filtered = computed(() => state.value.model !== 'all' || state.value.device !== 'all')
 const totals = computed(() => {
-  const rows = perfModelRows(perfModels(perf.value))
+  const rows = perfModelRows(filterPerfModels(perfModels(perf.value), state.value))
   return { regressions: rows.reduce((sum, row) => sum + row.regressions, 0), improvements: rows.reduce((sum, row) => sum + row.improvements, 0) }
 })
 
-const viewTab = computed<PerfViewId>({ get: () => state.value.view, set: (view) => setState({ view }) })
+const viewTab = computed<PerfViewId>({ get: () => state.value.view, set: (view) => setState({ view }, true) })
 const modelSelect = computed<string>({ get: () => state.value.model, set: (model) => selectModel(String(model || 'all')) })
 const deviceToggle = computed<string>({
   get: () => state.value.device,
   // A single toggle group clears its value when the active item is pressed again; classic keeps it.
-  set: (device) => device && setState({ device: String(device) }),
+  set: (device) => device && setState({ device: String(device) }, true),
 })
 
 // Drill-downs
@@ -153,7 +159,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
             data-testid="kpi-perf-models"
             label="AMD models"
             :value="page.kpis.models"
-            :badge="`${integer(totals.regressions)} regressed`"
+            :badge="`${integer(totals.regressions)} regressed${filtered ? ' in filter' : ''}`"
             :badge-tone="totals.regressions ? 'is-danger' : 'is-success'"
             headline="Inspect model families"
             detail="nightly model families"
@@ -163,7 +169,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
             data-testid="kpi-perf-nightlies"
             label="Nightlies tracked"
             :value="page.kpis.nightlies"
-            :badge="`${integer(totals.improvements)} improved`"
+            :badge="`${integer(totals.improvements)} improved${filtered ? ' in filter' : ''}`"
             :badge-tone="totals.improvements ? 'is-success' : 'is-neutral'"
             headline="Open perf-eval pipeline"
             :href="pipelineUrl"
@@ -258,6 +264,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
           :sections="page.sections"
           @model="(model) => openDetail(perfModelDetail(model))"
           @history="openHistory"
+          @point="(point, unit) => openDetail(perfPointDetail(point, unit))"
         />
       </template>
     </ViewState>

@@ -363,6 +363,18 @@ export function perfSparkLabel(point: Rec): string {
   return String(point.vllm_commit || '').slice(0, 7) || shortDate(point.date)
 }
 
+/** classic drawChart inspectIndex for a drawPerfSpark point (tile sparkline and history chart). */
+export function perfPointDetail(point: Rec, unit: unknown): PerfDetail {
+  const label = point.build_number ? 'Build #' + point.build_number : shortDate(point.date)
+  const details: Rec = { value: perfValue(point.value, unit), vllm_commit: point.vllm_commit, image: point.image }
+  return {
+    title: label || (point.date ? shortDate(point.date) : 'Observation'),
+    subtitle: point.build_url ? 'Source-backed chart observation' : 'Retained chart observation',
+    fields: present(Object.entries(details).map(([key, field]) => ({ label: key.replace(/_/g, ' '), value: field }))),
+    sources: [point.build_url ? { label: 'Open exact source', url: String(point.build_url) } : { label: 'Open published source data', url: PERF_SOURCE }],
+  }
+}
+
 export interface PerfTile {
   name: string
   block: Rec

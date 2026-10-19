@@ -7,7 +7,7 @@ import type { Rec } from '@/domain/format'
 import type { PerfModelSection } from '@/domain/perf'
 
 defineProps<{ sections: PerfModelSection[] }>()
-defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec] }>()
+defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec]; point: [Rec, unknown] }>()
 </script>
 
 <template>
@@ -47,6 +47,7 @@ defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec] }>()
             :key="tile.name"
             :tile="tile"
             @open="$emit('history', section.model, config.config, tile.name, tile.block)"
+            @point="(point) => $emit('point', point, tile.block.unit)"
           />
         </div>
       </section>

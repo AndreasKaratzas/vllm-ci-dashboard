@@ -5,10 +5,11 @@ import { loadClassic, readFixture, type ClassicFns } from './classic'
 
 // renderPerf and openPerfHistory are DOM builders: run them on the snapshot and
 // compare what they render with the port's view model.
-const PORTED = ['state', 'cache', 'charts', 'renderPerf', 'perfValue', 'perfDelta', 'accuracyRows', 'openPerfHistory', 'closeOverlay'] as const
+const PORTED = ['state', 'cache', 'charts', 'renderPerf', 'perfValue', 'perfDelta', 'accuracyRows', 'openPerfHistory', 'closeOverlay', 'drawPerfSpark'] as const
 
 let classic: ClassicFns & { state: Rec; cache: Map<string, Promise<unknown>>; charts: Map<string, unknown> }
 let perf: Rec
+let lastChart: Rec | null = null
 
 function rng(seed: number) {
   let s = seed >>> 0
@@ -208,6 +209,70 @@ function classicHistory(model: Rec, config: Rec, metricName: string, block: Rec)
   return out
 }
 
+// The visible classic overlay (the newest one when drawers stack).
+function visibleOverlay() {
+  const open = all(document.body, '.ops-overlay:not([hidden])')
+  return open[open.length - 1]!
+}
+
+function classicDrawer() {
+  const overlay = visibleOverlay()
+  return {
+    title: text(overlay.querySelector('.ops-overlay-title')),
+    subtitle: text(overlay.querySelector('.ops-overlay-subtitle')),
+    description: text(overlay.querySelector('.ops-detail-description')) || undefined,
+    fields: all(overlay, '.ops-detail-field').map((f) => ({ label: text(f.querySelector('dt')), value: text(f.querySelector('dd')) })),
+    sources: all(overlay, '.ops-source-actions a').map((a) => ({ label: text(a), url: a.getAttribute('href') })),
+  }
+}
+
+function portDrawer(d: v2.PerfDetail) {
+  return {
+    title: d.title,
+    subtitle: d.subtitle,
+    description: d.description,
+    fields: d.fields.map((f) => ({ label: f.label, value: f.value.replace(/\s+/g, ' ').trim() })),
+    sources: d.sources.map((src) => ({ label: src.label, url: src.url })),
+  }
+}
+
+// Clicks every image button of a classic history overlay and compares each drawer.
+function compareImageDrawers(model: Rec, config: Rec, metricName: string, block: Rec) {
+  classic.openPerfHistory!(model, config, metricName, block)
+  const history = visibleOverlay()
+  const buttons = all(history, 'tbody tr td:last-child button') as HTMLButtonElement[]
+  const series = v2.perfHistory(model, config, metricName, block).series
+  expect(buttons.length).toBe(series.length)
+  buttons.forEach((b, i) => {
+    b.click()
+    expect(portDrawer(v2.perfImageDetail(series[i]!))).toEqual(classicDrawer())
+  })
+  classic.closeOverlay!()
+  return buttons.length
+}
+
+// classic drawPerfSpark -> drawChart inspectIndex for every point.
+function comparePointDrawers(series: Rec[], unit: unknown) {
+  lastChart = null
+  const canvas = document.createElement('canvas')
+  document.body.append(canvas)
+  classic.drawPerfSpark!('perf-test-' + Math.random(), canvas, series, 'good', unit)
+  const rows = v2.perfSparkRows(series)
+  if (rows.length < 2) {
+    expect(lastChart).toBeNull()
+    canvas.remove()
+    return 0
+  }
+  const onClick = (lastChart!.options as Rec).onClick as (e: unknown, els: { index: number }[]) => void
+  rows.forEach((point, index) => {
+    onClick(null, [{ index }])
+    expect(portDrawer(v2.perfPointDetail(point, unit))).toEqual(classicDrawer())
+    classic.closeOverlay!()
+  })
+  canvas.remove()
+  return rows.length
+}
+
 function portHistory(model: Rec, config: Rec, metricName: string, block: Rec) {
   const h = v2.perfHistory(model, config, metricName, block)
   return {
@@ -236,8 +301,9 @@ beforeAll(() => {
   // Sparklines are drawn by Chart.js; a no-op stand-in keeps them off the network.
   ;(window as unknown as Rec).Chart = class {
     canvas: unknown
-    constructor(canvas: unknown) {
+    constructor(canvas: unknown, config: Rec) {
       this.canvas = canvas
+      lastChart = config
     }
     destroy() {}
     resize() {}
@@ -418,6 +484,112 @@ describe('Perf Eval matches the classic renderer', () => {
   it('builds the same accuracy rows and history blocks', () => {
     expect(v2.accuracyRows(perf.models)).toEqual(classic.accuracyRows!(perf.models))
     expect(v2.accuracyRows(perf.models).length).toBeGreaterThan(0)
+  })
+
+  it('opens the same accuracy history from every classic accuracy table cell', async () => {
+    // Classic builds the accuracy block inline in each cell's click handler; click them all,
+    // including tasks without direction, label, or status.
+    const rand = rng(5822)
+    const variants = [perf, ...Array.from({ length: 6 }, () => {
+      const data = structuredClone(perf)
+      for (const model of data.models as Rec[])
+        for (const task of (model.accuracy_tasks || []) as Rec[]) {
+          if (rand() < 0.5) delete task.direction
+          else if (rand() < 0.3) task.direction = 'lower'
+          if (rand() < 0.2) delete task.label
+          if (rand() < 0.2) task.status = ['good', 'bad', undefined][Math.floor(rand() * 3)]
+          if (rand() < 0.1) task.unit = 's'
+        }
+      return data
+    })]
+    let clicks = 0
+    let undirected = 0
+    for (const data of variants) {
+      classic.cache.set(v2.PERF_SOURCE, Promise.resolve(data))
+      classic.state.perfView = 'accuracy'
+      classic.state.perfDevice = 'all'
+      for (const model of data.models as Rec[]) {
+        classic.state.perfModel = model.model
+        const host = document.createElement('div')
+        await classic.renderPerf!(host, { generated_at: '2026-09-01T00:00:00Z' })
+        const page = v2.perfPage(data, { view: 'accuracy', model: model.model, device: 'all' })
+        const rows = page.kind === 'accuracy' ? page.rows : []
+        const trs = all(host, 'tbody tr')
+        expect(trs.length).toBe(rows.length)
+        trs.forEach((tr, i) => {
+          const row = rows[i]!
+          if (!row.task.direction) undirected += 1
+          const expected = portHistory(row.model, { label: 'Accuracy' }, row.task.metric, v2.accuracyBlock(row.task))
+          for (const button of all(tr, 'button') as HTMLButtonElement[]) {
+            button.click()
+            const overlay = visibleOverlay()
+            const got = {
+              title: text(overlay.querySelector('.ops-overlay-title')),
+              subtitle: text(overlay.querySelector('.ops-overlay-subtitle')),
+              note: text(overlay.querySelector('.ops-evidence-note')),
+              summary: all(overlay, '.ops-evidence-summary > *').map((item) => `${text(item.querySelector('.ops-stat-label'))} ${text(item.querySelector('.ops-stat-value'))}|${(item.className.match(/is-(success|danger)/) || [''])[0]}`),
+              caption: text(overlay.querySelector('caption')),
+              rows: all(overlay, 'tbody tr').map((r) => all(r, 'td').map((td) => `${text(td)}|${td.querySelector('a')?.getAttribute('href') || ''}`)),
+            }
+            expect(expected).toEqual(got)
+            classic.closeOverlay!()
+            clicks += 1
+          }
+        })
+      }
+    }
+    expect(clicks).toBeGreaterThan(50)
+    expect(undirected).toBeGreaterThan(5)
+  })
+
+  it('opens the same model, image, and chart-point drawers as classic', async () => {
+    const LATEST = [undefined, {}, { build_number: 0, build_url: 'u' }, { vllm_commit: 'abcdef0123456789' }, { image: '' }, { build_url: 'https://b/1', image: 'img:1' }]
+    let models = 0
+    for (const latest of LATEST) {
+      const data = structuredClone(perf)
+      for (const model of data.models as Rec[]) {
+        if (latest !== undefined) model.latest = latest
+        if (latest && 'image' in latest) delete model.nightly_count
+        classic.cache.set(v2.PERF_SOURCE, Promise.resolve(data))
+        classic.state.perfView = 'performance'
+        classic.state.perfDevice = 'all'
+        classic.state.perfModel = model.model
+        const host = document.createElement('div')
+        await classic.renderPerf!(host, { generated_at: '2026-09-01T00:00:00Z' })
+        ;(host.querySelector('.ops-perf-model-title button') as HTMLButtonElement).click()
+        expect(portDrawer(v2.perfModelDetail(model))).toEqual(classicDrawer())
+        classic.closeOverlay!()
+        models += 1
+      }
+    }
+    expect(models).toBeGreaterThan(10)
+
+    let images = 0
+    let points = 0
+    for (const model of perf.models as Rec[]) {
+      for (const config of model.perf_configs as Rec[]) {
+        for (const name of v2.sortedMetricNames(config.metrics)) {
+          images += compareImageDrawers(model, config, name, config.metrics[name])
+          points += comparePointDrawers(config.metrics[name].series, config.metrics[name].unit)
+        }
+      }
+    }
+    const rand = rng(1406)
+    for (let i = 0; i < 120; i += 1) {
+      const series = Array.from({ length: Math.floor(rand() * 5) }, (_, j) => ({
+        date: rand() < 0.2 ? undefined : rand() < 0.1 ? 'bad-date' : `2026-0${1 + Math.floor(rand() * 9)}-1${j}T00:00:00Z`,
+        value: rand() < 0.15 ? 'x' : rand() * 3,
+        build_number: [0, undefined, null, 100 + j, 7][Math.floor(rand() * 5)],
+        build_url: rand() < 0.3 ? undefined : rand() < 0.1 ? '' : `https://buildkite.com/vllm/perf-eval/builds/${100 + j}`,
+        vllm_commit: rand() < 0.3 ? ['', undefined, null][j % 3] : `c0ffee${j}abcdef`,
+        image: rand() < 0.3 ? ['', undefined, null][j % 3] : `img:${j}`,
+      }))
+      const unit = ['s', 'ratio', 'tok/s', undefined][i % 4]
+      images += compareImageDrawers({ model: 'm' }, { label: 'Cfg' }, 'x', { series, unit })
+      points += comparePointDrawers(series, unit)
+    }
+    expect(images).toBeGreaterThan(200)
+    expect(points).toBeGreaterThan(200)
   })
 
   it('reads route state like classic syncRouteState', () => {

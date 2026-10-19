@@ -6,7 +6,7 @@ import ToneBadge from '@/components/ops/ToneBadge.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { shortDate, value, type Rec } from '@/domain/format'
-import { commitUrl, perfHistory, perfHistoryBuildLabel, perfImageDetail, perfValue, type PerfDetail } from '@/domain/perf'
+import { commitUrl, perfHistory, perfHistoryBuildLabel, perfImageDetail, perfPointDetail, perfValue, type PerfDetail } from '@/domain/perf'
 import PerfDetailSheet from './PerfDetailSheet.vue'
 import PerfLineChart from './PerfLineChart.vue'
 
@@ -100,10 +100,16 @@ const columns = computed<ColumnDef<Rec, unknown>[]>(() => [
         <Card>
           <CardHeader>
             <CardTitle>Nightly history</CardTitle>
-            <CardDescription>Payload order; points without a numeric value are omitted.</CardDescription>
+            <CardDescription>Payload order; points without a numeric value are omitted. Select a point to inspect it.</CardDescription>
           </CardHeader>
           <CardContent class="px-2 sm:px-6">
-            <PerfLineChart :series="target.block.series || []" :status="target.block.status" :unit="target.block.unit" :height="240" />
+            <PerfLineChart
+              :series="target.block.series || []"
+              :status="target.block.status"
+              :unit="target.block.unit"
+              :height="240"
+              @point="(point) => (image = { open: true, detail: perfPointDetail(point, target?.block.unit) })"
+            />
           </CardContent>
         </Card>
         <div>

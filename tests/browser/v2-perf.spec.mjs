@@ -145,6 +145,15 @@ test.describe('v2 Perf Eval matches the classic page on the same snapshot', () =
     expect(await tableRows(sheet.locator('table'))).toEqual(rows);
     await expect(sheet.getByTestId('perf-chart')).toBeVisible();
 
+    // A point on the history chart opens that observation.
+    await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+    const chartBox = await sheet.getByTestId('perf-chart').boundingBox();
+    await page.mouse.move(chartBox.x + chartBox.width / 2, chartBox.y + chartBox.height / 2);
+    await page.mouse.click(chartBox.x + chartBox.width / 2, chartBox.y + chartBox.height / 2);
+    await expect(page.getByRole('dialog').last()).toContainText(/Build #\d+|chart observation/);
+    await expect(page.getByRole('dialog').last()).toContainText('Open exact source');
+    await page.keyboard.press('Escape');
+
     // Runtime image drill-down.
     await sheet.locator('tbody tr').first().locator('td').last().getByRole('button').click();
     await expect(page.getByRole('dialog').last()).toContainText('Runtime image');
@@ -174,6 +183,8 @@ test.describe('v2 Perf Eval matches the classic page on the same snapshot', () =
     await expect(empty.locator('.ops-empty')).toHaveText('No model matches the selected filters.');
     await page.goto(`/#/perf?model=${encodeURIComponent(single.name)}&device=mi300x`);
     await expect(page.getByTestId('perf-empty')).toHaveText('No model matches the selected filters.');
+    // The v2-only regression badge counts the filtered models.
+    await expect(page.getByTestId('kpi-perf-models')).toContainText('0 regressed in filter');
   });
 
   test('model drawer and legacy links', async ({ page }) => {
@@ -200,5 +211,72 @@ test.describe('v2 Perf Eval matches the classic page on the same snapshot', () =
       return out;
     });
     expect(v2Fields).toEqual(fields);
+  });
+
+  test('sparkline points open the same observation drawer', async ({ page }) => {
+    const host = await classicPerf(page);
+    const model = (await tableRows(host.locator('table.ops-table')))[0][0];
+    const drawer = async (root) => ({
+      title: squash(await root.locator('.ops-overlay-title').innerText()),
+      subtitle: squash(await root.locator('.ops-overlay-subtitle').innerText()),
+      fields: await root.locator('.ops-detail-field').evaluateAll((items) =>
+        items.map((item) => `${item.querySelector('dt').textContent.trim().toLowerCase()}|${item.querySelector('dd').textContent.trim()}`),
+      ),
+      sources: await root.locator('.ops-source-actions a').evaluateAll((links) => links.map((a) => `${a.textContent.trim()}|${a.getAttribute('href')}`)),
+    });
+    const classicPoints = [];
+    for (const keys of [['Enter'], ['ArrowLeft', 'ArrowLeft', 'Enter']]) {
+      const classic = await classicPerf(page, `?ops_perf_model=${encodeURIComponent(model)}`);
+      const canvas = classic.locator('.ops-perf-spark canvas[role="button"]').first();
+      await canvas.focus();
+      for (const key of keys) await canvas.press(key);
+      classicPoints.push(await drawer(page.locator('.ops-overlay:not([hidden])')));
+    }
+    expect(classicPoints[0].fields.length).toBeGreaterThan(0);
+    expect(classicPoints[0].title).not.toBe(classicPoints[1].title);
+
+    for (const [i, keys] of [['Enter'], ['ArrowLeft', 'ArrowLeft', 'Enter']].entries()) {
+      await page.goto('about:blank');
+      await page.goto(`/#/perf?model=${encodeURIComponent(model)}`);
+      const chart = page.getByTestId('perf-tile').first().getByTestId('perf-chart');
+      await chart.focus();
+      for (const key of keys) await chart.press(key);
+      const sheet = page.getByRole('dialog');
+      await expect(sheet).toBeVisible();
+      const v2 = {
+        title: squash(await sheet.locator('[data-slot="sheet-title"]').innerText()),
+        subtitle: squash(await sheet.locator('[data-slot="sheet-description"]').innerText()),
+        fields: await sheet.locator('dl').evaluate((dl) => {
+          const cells = Array.from(dl.children);
+          const out = [];
+          for (let j = 0; j < cells.length; j += 2) out.push(`${cells[j].textContent.trim().toLowerCase()}|${cells[j + 1].textContent.trim()}`);
+          return out;
+        }),
+        sources: await sheet.locator('a').evaluateAll((links) => links.map((a) => `${a.textContent.replace('↗', '').trim()}|${a.getAttribute('href')}`)),
+      };
+      expect(v2).toEqual(classicPoints[i]);
+    }
+
+    // A mouse click on the sparkline opens a point, not the full history.
+    await page.goto('about:blank');
+    await page.goto(`/#/perf?model=${encodeURIComponent(model)}`);
+    const chart = page.getByTestId('perf-tile').first().getByTestId('perf-chart');
+    const box = await chart.boundingBox();
+    await page.mouse.move(box.x + box.width - 3, box.y + box.height / 2);
+    await page.mouse.click(box.x + box.width - 3, box.y + box.height / 2);
+    await expect(page.getByRole('dialog')).toContainText(/chart observation/);
+    await expect(page.getByTestId('perf-history')).toHaveCount(0);
+  });
+
+  test('view and hardware changes push history entries like classic', async ({ page }) => {
+    const host = await classicPerf(page);
+    const model = (await tableRows(host.locator('table.ops-table')))[0][0];
+    await page.goto(`/#/perf?model=${encodeURIComponent(model)}`);
+    await expect(page.getByTestId('perf-tile').first()).toBeVisible();
+    await page.getByRole('tab', { name: 'Accuracy' }).click();
+    await expect(page.getByTestId('perf-accuracy')).toBeVisible();
+    await page.goBack();
+    await expect(page.getByTestId('perf-tile').first()).toBeVisible();
+    await expect(page).not.toHaveURL(/view=accuracy/);
   });
 });
