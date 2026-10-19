@@ -1,4 +1,3 @@
-export const STATUS_URL = 'data/vllm/ci/publication_status.json'
 const HEALTHY_MAX_AGE_MS = 3 * 60 * 60 * 1000
 const FUTURE_SKEW_MS = 5 * 60 * 1000
 
@@ -120,8 +119,4 @@ export function statusDetails(payload: unknown): string[] {
   if (degradedSince) details.push(`Degraded since: ${degradedSince}.`)
   if (generatedAt) details.push(`Status recorded: ${generatedAt}.`)
   return details
-}
-
-export function statusUrl(nowMs: number = Date.now()) {
-  return `${STATUS_URL}?v=${Math.floor(nowMs / (60 * 1000))}`
 }

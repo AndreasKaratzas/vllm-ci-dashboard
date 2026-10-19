@@ -1,13 +1,6 @@
-import { shallowRef, ref } from 'vue'
-import { clearDataCache, fetchJSON } from '@/data/fetch'
-import { loadOperations } from '@/data/operations'
+import { computed, type Ref } from 'vue'
 import { populationSemantics, type Rec } from '@/domain/format'
-
-// One shared load per page view: the header, command palette and Home all read it.
-const ops = shallowRef<Rec | null>(null)
-const opsError = ref<string | null>(null)
-const opsLoading = ref(false)
-let opsRequest: Promise<void> | null = null
+import { useDataset, type Dataset } from './useDataset'
 
 export interface WorkItems {
   prs: Rec[]
@@ -15,84 +8,41 @@ export interface WorkItems {
   prsSemantics: string
   issuesSemantics: string
 }
-const work = shallowRef<WorkItems | null>(null)
-let workRequest: Promise<void> | null = null
 
-function loadOps(force = false) {
-  if (opsRequest && !force) return opsRequest
-  if (force) clearDataCache()
-  opsLoading.value = true
-  opsError.value = null
-  opsRequest = loadOperations([])
-    .then((data) => {
-      ops.value = data
-    })
-    .catch((e) => {
-      opsError.value = e instanceof Error ? e.message : String(e)
-      opsRequest = null
-    })
-    .finally(() => {
-      opsLoading.value = false
-    })
-  return opsRequest
+// Views replace their content with the error panel, so a failed background refresh
+// that still has data to show is not reported as an error here.
+function blockingError(dataset: Dataset): Ref<string | null> {
+  return computed(() => (dataset.data.value === null ? dataset.error.value : null))
 }
 
-function loadWork() {
-  workRequest ??= Promise.all([fetchJSON<Rec>('data/vllm/prs.json'), fetchJSON<Rec>('data/vllm/issues.json')])
-    .then(([prs, issues]) => {
-      work.value = {
-        prs: prs.prs || [],
-        issues: issues.issues || [],
-        prsSemantics: populationSemantics(prs),
-        issuesSemantics: populationSemantics(issues),
-      }
-    })
-    .catch(() => {
-      // Project activity is secondary; operations views still render.
-      work.value = { prs: [], issues: [], prsSemantics: 'lower_bound', issuesSemantics: 'lower_bound' }
-    })
-  return workRequest
-}
-
+/** The manifest shell: header, command palette and Home. */
 export function useOperations() {
-  void loadOps()
-  return { ops, error: opsError, loading: opsLoading, retry: () => loadOps(true) }
+  const dataset = useDataset({ sections: [] })
+  return { ops: dataset.data, error: blockingError(dataset), loading: dataset.loading, retry: dataset.refresh }
 }
 
-export function useWorkItems() {
-  void loadWork()
-  return work
-}
-
-const sectionCache = new Map<string, Promise<Rec>>()
-
-/** Shell merged with the named manifest sections, cached per section set. */
+/** Shell merged with the named manifest sections. */
 export function useOperationSections(names: string[]) {
-  const key = [...names].sort().join(',')
-  const data = shallowRef<Rec | null>(null)
-  const error = ref<string | null>(null)
-  const loading = ref(true)
-  async function run(force = false) {
-    if (force) {
-      sectionCache.delete(key)
-      clearDataCache()
+  const dataset = useDataset({ sections: names })
+  return { data: dataset.data, error: blockingError(dataset), loading: dataset.loading, retry: dataset.refresh }
+}
+
+const NO_WORK_ITEMS: WorkItems = { prs: [], issues: [], prsSemantics: 'lower_bound', issuesSemantics: 'lower_bound' }
+
+export function useWorkItems(): Ref<WorkItems | null> {
+  const prs = useDataset('prs')
+  const issues = useDataset('issues')
+  return computed(() => {
+    const prsData = prs.data.value
+    const issuesData = issues.data.value
+    // Project activity is secondary: a missing source shows as empty, never as a page error.
+    if ((prs.error.value && !prsData) || (issues.error.value && !issuesData)) return NO_WORK_ITEMS
+    if (!prsData || !issuesData) return null
+    return {
+      prs: prsData.prs || [],
+      issues: issuesData.issues || [],
+      prsSemantics: populationSemantics(prsData),
+      issuesSemantics: populationSemantics(issuesData),
     }
-    loading.value = true
-    error.value = null
-    let request = sectionCache.get(key)
-    if (!request) {
-      request = loadOperations(names)
-      sectionCache.set(key, request)
-      request.catch(() => sectionCache.delete(key))
-    }
-    try {
-      data.value = await request
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e)
-    } finally {
-      loading.value = false
-    }
-  }
-  void run()
-  return { data, error, loading, retry: () => run(true) }
+  })
 }

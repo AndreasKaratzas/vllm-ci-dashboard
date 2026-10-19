@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useOperations } from '@/composables/useOperations'
-import { clearDataCache, fetchJSON } from '@/data/fetch'
+import { clearDataCache, fetchJSON } from '@/data/client'
 import { age, integer, shortDate, type Rec } from '@/domain/format'
 import {
   PERF_SOURCE,
