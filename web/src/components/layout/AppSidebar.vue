@@ -26,7 +26,7 @@ const ICONS: Record<string, Component> = {
   omni: Layers,
 }
 const LINKS = [
-  { label: 'Classic dashboard', href: '../', icon: BookOpen },
+  { label: 'Classic dashboard', href: 'classic.html', icon: BookOpen },
   { label: 'Buildkite AMD CI', href: 'https://buildkite.com/vllm/amd-ci', icon: Activity },
   { label: 'Dashboard repository', href: 'https://github.com/AndreasKaratzas/vllm-ci-dashboard', icon: ExternalLink },
 ]

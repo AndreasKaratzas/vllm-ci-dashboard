@@ -86,12 +86,9 @@ PROJECTION_MAX_BLOB_BYTES = PUBLICATION_MAX_BLOB_BYTES
 PROJECTION_MAX_TREE_BYTES = PUBLICATION_MAX_TREE_BYTES
 PROJECTION_MAX_FILES = PUBLICATION_MAX_FILES
 CRITICAL_ASSET_PATHS = (
-    "assets/css/dashboard.css",
-    "assets/css/ops-v2.css",
-    "assets/js/utils.js",
-    "assets/js/publication-status.js",
-    "assets/js/dashboard-nav.js",
-    "assets/js/ops-v2.js",
+    "v2/assets/app.css",
+    "v2/theme-init.js",
+    "v2/assets/app.js",
 )
 CONTROL_RESOURCES_PER_PROBE = 5 + len(CRITICAL_ASSET_PATHS)
 CANARY_RESOURCES_PER_FULL_PROBE = len(OPERATIONS_V2_SECTION_NAMES) - 1
@@ -135,7 +132,8 @@ BRANCH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,299}")
 FUTURE_SKEW = timedelta(minutes=5)
 SITE_REQUIRED_MARKERS = (
     b"<title>vLLM AMD CI Operations</title>",
-    b'id="publication-status-banner"',
+    # The v2 app bundle renders the publication-status banner into #app.
+    b'<div id="app"></div>',
 )
 PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "blocked"})
 PUBLICATION_STATUSES = frozenset({"healthy", "degraded", "blocked"})

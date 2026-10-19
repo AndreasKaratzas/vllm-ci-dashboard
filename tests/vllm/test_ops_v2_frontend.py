@@ -15,7 +15,7 @@ from vllm import operations_bundle_contract as bundle_contract
 
 
 ROOT = Path(__file__).resolve().parents[2]
-INDEX = (ROOT / "docs" / "index.html").read_text()
+INDEX = (ROOT / "docs" / "classic.html").read_text()
 OPS_JS_PATH = ROOT / "docs" / "assets" / "js" / "ops-v2.js"
 OPS_JS = OPS_JS_PATH.read_text()
 AMD_MIRROR_INVENTORY_JS_PATH = (

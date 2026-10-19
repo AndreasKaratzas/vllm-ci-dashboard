@@ -218,7 +218,9 @@ jobs:
 
       - name: Check required files exist
         run: |
-          for f in docs/index.html docs/assets/css/dashboard.css \
+          for f in docs/index.html docs/classic.html \
+                   docs/v2/assets/app.js docs/v2/assets/app.css \
+                   docs/v2/theme-init.js docs/assets/css/dashboard.css \
                    docs/assets/css/ops-v2.css docs/assets/js/utils.js \
                    docs/assets/js/publication-status.js \
                    docs/assets/js/dashboard-nav.js docs/assets/js/ops-v2.js; do
@@ -231,9 +233,18 @@ jobs:
 
       - name: Validate HTML structure
         run: |
-          # Check that index.html has all required elements (static or dynamically registered)
+          # The root page is the v2 app shell; the site-health monitor
+          # requires the same markers.
+          for marker in '<title>vLLM AMD CI Operations</title>' '<div id="app"></div>'; do
+            if ! grep -qF "$marker" docs/index.html; then
+              echo "❌ Missing v2 shell marker: $marker"
+              exit 1
+            fi
+            echo "✅ v2 shell marker present: $marker"
+          done
+          # classic.html keeps the classic shell for views v2 has not ported
           for id in sidebar main-content parity-view; do
-            if ! grep -q "id=\"$id\"" docs/index.html; then
+            if ! grep -q "id=\"$id\"" docs/classic.html; then
               echo "❌ Missing element: #$id"
               exit 1
             fi

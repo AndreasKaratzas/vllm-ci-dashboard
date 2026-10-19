@@ -417,16 +417,16 @@ class TestAnalyticsData:
 
 class TestFrontendFiles:
     def test_index_html_exists(self):
-        assert (DOCS / "index.html").exists()
+        assert (DOCS / "classic.html").exists()
 
     def test_index_html_has_sidebar(self):
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         assert 'id="sidebar"' in html
         assert 'id="main-content"' in html
 
     def test_all_tabs_present(self):
         """CI tabs can be in HTML or dynamically registered via JS."""
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         js = (DOCS / "assets" / "js" / "utils.js").read_text()
         for tab in ["ci-health", "ci-analytics", "ci-perf-eval", "ci-omni"]:
             in_html = f'data-tab="{tab}"' in html
@@ -454,7 +454,7 @@ class TestFrontendFiles:
 
     def test_theme_toggle_exists(self):
         """index.html must have a theme toggle button and data-theme attribute."""
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         assert 'id="theme-toggle"' in html, "missing theme toggle button"
         assert 'data-theme' in html, "missing data-theme attribute for theme switching"
 

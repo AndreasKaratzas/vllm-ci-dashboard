@@ -62,13 +62,10 @@ class Fetcher:
         section_names = bundle_contract.operations_section_names_for_bundle_version(bundle_version)
         default_site = (
             b"<!doctype html><title>vLLM AMD CI Operations</title>"
-            b'<link rel="stylesheet" href="assets/css/dashboard.css?v=test">'
-            b'<link rel="stylesheet" href="assets/css/ops-v2.css?v=test">'
-            b'<section id="publication-status-banner"></section>'
-            b'<script src="assets/js/utils.js?v=test"></script>'
-            b'<script src="assets/js/publication-status.js?v=test"></script>'
-            b'<script src="assets/js/dashboard-nav.js?v=test"></script>'
-            b'<script src="assets/js/ops-v2.js?v=test"></script>'
+            b'<script src="./v2/theme-init.js?v=test"></script>'
+            b'<script type="module" crossorigin src="./v2/assets/app.js?v=test"></script>'
+            b'<link rel="stylesheet" crossorigin href="./v2/assets/app.css?v=test">'
+            b'<div id="app"></div>'
             + b"x" * 800
         )
         self.site = site or _response(default_site)
@@ -321,7 +318,7 @@ def test_critical_asset_contract_covers_every_local_shell_dependency():
     parser.close()
 
     referenced = tuple(
-        urlsplit(reference).path
+        urlsplit(reference).path.removeprefix("./")
         for reference in [*parser.stylesheets, *parser.scripts]
         if not urlsplit(reference).scheme and not urlsplit(reference).netloc
     )
@@ -500,7 +497,7 @@ def test_site_shell_failures_are_reported(site, expected):
 def test_oversize_site_cannot_claim_exact_integrity():
     body = (
         b"<title>vLLM AMD CI Operations</title>"
-        b'<section id="publication-status-banner">'
+        b'<div id="app"></div>'
         + b"x" * health.SITE_MAX_BYTES
     )[: health.SITE_MAX_BYTES]
     report = health.check_site_health(
@@ -1417,8 +1414,8 @@ def test_confirmation_reports_a_bounded_quorum_failure():
     assert report["overall_status"] == "confirmed_unhealthy"
     assert report["confirmation"]["confirmed"] is True
     assert report["confirmation"]["healthy_count"] == 1
-    assert health.REQUESTS_PER_PROBE == 48
-    assert health.CONTROL_REQUESTS_PER_PROBE == 22
+    assert health.REQUESTS_PER_PROBE == 42
+    assert health.CONTROL_REQUESTS_PER_PROBE == 16
     assert health.CANARY_REQUESTS_PER_CONFIRMATION == 26
     assert health.STREAMED_REQUESTS_PER_CONFIRMATION == 2
     assert health.MAX_CONFIRMATION_REQUESTS == (
@@ -1435,12 +1432,12 @@ def test_confirmation_reports_a_bounded_quorum_failure():
         + health.STREAMED_REQUESTS_PER_CONFIRMATION
         * health.STREAM_ATTEMPT_MAX_SECONDS
     )
-    assert report["confirmation"]["max_requests"] == 94
+    assert report["confirmation"]["max_requests"] == 76
     assert health.STREAM_TOTAL_TIMEOUT_SECONDS == 150
     assert report["confirmation"]["canary_request_timeout_seconds"] == 20
-    assert report["confirmation"]["max_transport_seconds"] == 1500
+    assert report["confirmation"]["max_transport_seconds"] == 1320
     assert report["confirmation"]["retry_delays_seconds"] == [0.0, 2.0, 5.0]
-    assert report["confirmation"]["max_elapsed_seconds"] == 1507
+    assert report["confirmation"]["max_elapsed_seconds"] == 1327
     assert "confirmation-quorum" in _codes(report)
 
 
@@ -1497,7 +1494,7 @@ def test_confirmed_publication_outage_keeps_nullable_diagnostics_empty():
             health.CRITICAL_ASSET_PATHS[0],
             _response(
                 b"body { color: black; }\n",
-                final_url="https://evil.test/assets/css/dashboard.css",
+                final_url="https://evil.test/v2/assets/app.css",
             ),
             "asset-redirect",
         ),
@@ -1996,9 +1993,9 @@ def test_manifest_rejects_duplicate_keys_and_path_traversal():
 def test_critical_asset_reference_cannot_escape_the_site_origin():
     site = _response(
         b"<!doctype html><title>vLLM AMD CI Operations</title>"
-        b'<link rel="stylesheet" href="https://evil.test/assets/css/dashboard.css">'
-        b'<section id="publication-status-banner"></section>'
-        b'<script src="assets/js/publication-status.js"></script>'
+        b'<link rel="stylesheet" href="https://evil.test/v2/assets/app.css">'
+        b'<div id="app"></div>'
+        b'<script src="./v2/assets/app.js"></script>'
         + b"x" * 800
     )
     fetcher = Fetcher(site=site)
@@ -2015,14 +2012,14 @@ def test_critical_asset_reference_cannot_escape_the_site_origin():
 def test_shell_rejects_base_url_and_duplicate_asset_attributes():
     for injected in (
         b'<base href="https://evil.test/">',
-        b'<link rel="stylesheet" href="assets/css/dashboard.css" href="https://evil.test/x">',
+        b'<link rel="stylesheet" href="./v2/assets/app.css" href="https://evil.test/x">',
     ):
         site = _response(
             b"<!doctype html><title>vLLM AMD CI Operations</title>"
             + injected
-            + b'<link rel="stylesheet" href="assets/css/dashboard.css">'
-            + b'<section id="publication-status-banner"></section>'
-            + b'<script src="assets/js/publication-status.js"></script>'
+            + b'<link rel="stylesheet" href="./v2/assets/app.css">'
+            + b'<div id="app"></div>'
+            + b'<script src="./v2/assets/app.js"></script>'
             + b"x" * 800
         )
         report = health.check_site_health(

@@ -33,6 +33,9 @@ DOCS = ROOT / "docs"
 DATA = ROOT / "data"
 PUBLIC_DATA_MANIFEST = ROOT / "config" / "public_data_manifest.json"
 CACHE_BUST_RE = re.compile(r"\?v=\d+")
+# The root page is the v2 dashboard; classic.html keeps the views v2 has not
+# ported yet. Both reference stable asset names with ?v= cache busters.
+SHELL_PAGES = ("index.html", "classic.html")
 CACHE_BUST_VALUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PUBLICATION_STATE_INPUT = "vllm/ci/publication_state.json"
 PUBLICATION_STATUS_OUTPUT = "vllm/ci/publication_status.json"
@@ -543,7 +546,8 @@ def build_site(
         stamp = cache_bust_value or str(int(time.time()))
         if CACHE_BUST_VALUE_RE.fullmatch(stamp) is None:
             raise ValueError("cache-bust value must be a safe bounded identifier")
-        cache_bust_index(output_dir / "index.html", stamp)
+        for page in SHELL_PAGES:
+            cache_bust_index(output_dir / page, stamp)
     validate_site_file_sizes(output_dir)
 
 
@@ -559,7 +563,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cache-bust-index",
         action="store_true",
-        help="Rewrite ?v=... asset query strings in index.html with the current Unix timestamp.",
+        help="Rewrite ?v=... asset query strings in the shell pages with the current Unix timestamp.",
     )
     parser.add_argument(
         "--cache-bust-value",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+
+import pytest
 from pathlib import Path
 
 import yaml
@@ -10,7 +12,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 JS = ROOT / "docs" / "assets" / "js"
-INDEX = ROOT / "docs" / "index.html"
+# The v2 root page and the classic page are both published shells.
+SHELL_PAGES = (ROOT / "docs" / "index.html", ROOT / "docs" / "classic.html")
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
@@ -22,7 +25,7 @@ def test_retired_browser_auth_and_control_tools_are_absent() -> None:
         "ci-ready.js",
         "ci-admin.js",
     )
-    index = INDEX.read_text()
+    index = "".join(page.read_text() for page in SHELL_PAGES)
     utils = (JS / "utils.js").read_text()
 
     for name in removed:
@@ -34,8 +37,9 @@ def test_retired_browser_auth_and_control_tools_are_absent() -> None:
     assert "__authGate" not in (JS / "dashboard-nav.js").read_text()
 
 
-def test_content_security_policy_has_no_browser_mutation_api() -> None:
-    index = INDEX.read_text()
+@pytest.mark.parametrize("page", SHELL_PAGES, ids=lambda page: page.name)
+def test_content_security_policy_has_no_browser_mutation_api(page) -> None:
+    index = page.read_text()
     match = re.search(
         r'<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"',
         index,
@@ -56,7 +60,9 @@ def test_no_browser_bundle_contains_embedded_credentials() -> None:
         "BUILDKITE_TOKEN=",
         "Authorization: Bearer gh",
     )
-    for path in JS.glob("*.js"):
+    bundles = [*JS.glob("*.js"), *(ROOT / "docs" / "v2").rglob("*.js")]
+    assert any("v2" in path.parts for path in bundles)
+    for path in bundles:
         source = path.read_text()
         for token in suspicious:
             assert token not in source, f"{path.name} contains {token!r}"

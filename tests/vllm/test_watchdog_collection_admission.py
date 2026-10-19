@@ -321,5 +321,10 @@ def test_timeout_kills_the_entire_git_read_process_group(tmp_path):
     child_pid = int(child_pid_path.read_text())
     state_path = Path(f'/proc/{child_pid}/stat')
     # An orphan can briefly remain a zombie until PID 1 reaps it; it cannot
-    # continue performing the ledger read or holding its pipes open.
-    assert not state_path.exists() or state_path.read_text().split()[2] == 'Z'
+    # continue performing the ledger read or holding its pipes open. Reaping
+    # can also land between opening and reading its stat file (no such process).
+    try:
+        state = state_path.read_text().split()[2]
+    except (FileNotFoundError, ProcessLookupError):
+        state = None
+    assert state in (None, 'Z')
