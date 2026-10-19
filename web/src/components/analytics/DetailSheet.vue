@@ -28,7 +28,7 @@ const sources = computed(() => (props.detail?.sources ?? []).filter((s) => s && 
         <p v-if="detail?.description" class="text-sm">{{ detail.description }}</p>
         <dl v-if="fields.length" class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
           <template v-for="[label, val] in fields" :key="label">
-            <dt class="text-muted-foreground capitalize">{{ label }}</dt>
+            <dt class="text-muted-foreground">{{ label }}</dt>
             <dd class="font-medium tabular-nums">{{ val }}</dd>
           </template>
         </dl>

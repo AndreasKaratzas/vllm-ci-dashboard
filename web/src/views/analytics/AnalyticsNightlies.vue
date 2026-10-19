@@ -14,6 +14,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { useOperationSections } from '@/composables/useOperations'
 import {
   analyticsObservedAt,
+  OPERATIONS_ASSET,
   nightliesModel,
   nightlyCountLabel,
   nightlyMovementSummary,
@@ -23,7 +24,6 @@ import { age, integer, shortDate, toneForState, value, type Rec } from '@/domain
 import { latestAmd, nightlyFailureCount, nightlyFailureMovement } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 
-const OPERATIONS_ASSET = 'data/vllm/ci/operations_v2_manifest.json'
 const { data: ops, error, loading, retry } = useOperationSections(['nightly'])
 
 const model = computed(() => nightliesModel(latestAmd(ops.value)))
@@ -185,7 +185,7 @@ const columns = computed<ColumnDef<Rec, unknown>[]>(() => [
           <DataTable
             :columns="columns"
             :data="model.rows"
-            :page-size="15"
+            :page-size="Math.max(model.rows.length, 10)"
             search-placeholder="Filter nightly, state, or date"
             empty-text="No matching observations."
           />

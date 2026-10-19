@@ -32,6 +32,15 @@ const classicOverlay = (page) => page.locator('.ops-overlay:not([hidden])').last
 const cellTexts = (rows) =>
   rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim())));
 
+// Hovering a bar must show an Unovis tooltip naming the hovered row and its series values.
+async function hoverBar(page, chart, label, series) {
+  await chart.locator('path[class*=bar]').first().hover();
+  const tip = page.locator('[class*="-tooltip"]').filter({ hasText: label }).last();
+  await expect(tip).toBeVisible();
+  for (const name of series) await expect(tip).toContainText(name);
+  await page.mouse.move(0, 0);
+}
+
 async function chartEvidence(page, root, name) {
   await root.getByRole('button', { name }).click();
   return page.getByRole('dialog').last();
@@ -107,6 +116,7 @@ test.describe('v2 CI Analytics matches the classic page on the same snapshot', (
     const v2Hardware = await cellTexts(evidence.locator('tbody tr'));
     expect(v2Hardware.map((r) => r.slice(0, 3))).toEqual(hardwareEvidence.map((r) => r.slice(0, 3)));
     await page.keyboard.press('Escape');
+    await hoverBar(page, view.getByTestId('hardware-health-chart'), v2Hardware[0][0], ['Passing', 'Hard fail', 'Not in latest']);
 
     await view.getByTestId('kpi-amd-health-test-groups').click();
     await expect(page.getByRole('dialog')).toContainText(`${logicalCount.split(' of ')[0]} rows`);
@@ -114,6 +124,8 @@ test.describe('v2 CI Analytics matches the classic page on the same snapshot', (
   });
 
   test('AMD nightly latency: cohort, KPIs, table, and nightly evidence', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
     const classic = await openClassic(page, 'latency');
     const cohort = (await classic.locator('.ops-window-context').innerText()).trim();
     const strip = await classicStrip(classic);
@@ -148,6 +160,9 @@ test.describe('v2 CI Analytics matches the classic page on the same snapshot', (
 
     const evidence = await chartEvidence(page, view.getByTestId('latency-chart'), /Inspect \d+ observations/);
     expect((await cellTexts(evidence.locator('tbody tr'))).map((r) => [r[0], r[2]])).toEqual(chartRows.map((r) => [r[0], r[2]]));
+    await page.keyboard.press('Escape');
+    await hoverBar(page, view.getByTestId('latency-chart'), chartRows[0][0], ['AMD']);
+    expect(errors).toEqual([]);
   });
 
   test('AMD nightlies: KPIs, movement table, chart evidence, and build detail', async ({ page }) => {

@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { StackedBar } from '@unovis/ts'
 import { VisAxis, VisStackedBar, VisTooltip, VisXYContainer } from '@unovis/vue'
-import { computed } from 'vue'
+import { computed, h, render } from 'vue'
 import {
   ChartContainer,
   ChartCrosshair,
   ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
-  componentToString,
   type ChartConfig,
 } from '@/components/ui/chart'
 
@@ -38,19 +37,30 @@ const data = computed(() => props.rows.map((row, index) => ({ ...row, index }) a
 type Row = (typeof data.value)[number]
 const accessors = computed(() => props.series.map((s) => (d: Row) => Number(d[s.key] ?? 0)))
 const colors = computed(() => props.series.map((s) => s.color))
-const tooltip = computed(() =>
-  componentToString(config.value, ChartTooltipContent, {
-    labelFormatter: (index: number | Date) => props.rows[Number(index)]?.label ?? '',
-  }),
-)
-const barTooltip = computed(() => ({
-  [StackedBar.selectors.bar]: (d: Row) => tooltip.value?.(d, d.index) ?? '',
-}))
+// Rendered at hover time, so it must not call setup-only APIs (componentToString uses useId()).
+const tooltip = (datum: Row | { data: Row }, x: number | Date) => {
+  const payload: Record<string, unknown> = 'data' in datum && typeof datum.data === 'object' ? datum.data : datum
+  const div = document.createElement('div')
+  render(
+    h(ChartTooltipContent, {
+      payload,
+      config: config.value,
+      x,
+      labelFormatter: (index: number | Date) => props.rows[Number(index)]?.label ?? '',
+    }),
+    div,
+  )
+  return div.innerHTML
+}
+// Unovis binds each bar segment to { datum, index, stacked, stackIndex }.
+type BarDatum = { datum: Row }
+const barTooltip = { [StackedBar.selectors.bar]: (d: BarDatum) => tooltip(d.datum, d.datum.index) }
+const barEvents = { [StackedBar.selectors.bar]: { click: (d: BarDatum) => emit('select', d.datum.index) } }
 const categoryDomain = computed<[number, number]>(() => [-0.5, Math.max(0, props.rows.length - 1) + 0.5])
 const format = (v: number) => `${props.absolute ? Math.abs(v) : v}`
 const tickLabel = (i: number) => {
   const label = props.rows[i]?.label ?? ''
-  return label.length > 34 ? `${label.slice(0, 31)}...` : label
+  return label.length > 42 ? `${label.slice(0, 39)}...` : label
 }
 </script>
 
@@ -68,7 +78,7 @@ const tickLabel = (i: number) => {
         :color="colors"
         :rounded-corners="3"
         :bar-max-width="40"
-        :events="{ [StackedBar.selectors.bar]: { click: (d: Row) => emit('select', d.index) } }"
+        :events="barEvents"
       />
       <VisAxis
         type="x"
@@ -91,7 +101,7 @@ const tickLabel = (i: number) => {
         :color="colors"
         :rounded-corners="3"
         :bar-max-width="28"
-        :events="{ [StackedBar.selectors.bar]: { click: (d: Row) => emit('select', d.index) } }"
+        :events="barEvents"
       />
       <VisAxis
         type="y"

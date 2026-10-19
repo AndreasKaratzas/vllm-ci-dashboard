@@ -15,6 +15,7 @@ import { nightlyFailureCount, nightlyFailureMovement } from './nightly'
 import { exactPipelineBuildUrl } from './urls'
 
 export const AMD_TEST_HEALTH_ASSET = 'data/vllm/ci/operations_v2/amd_test_health.json'
+export const OPERATIONS_ASSET = 'data/vllm/ci/operations_v2_manifest.json'
 export const LATENCY_ASSET = 'data/vllm/ci/operations_v2/comparison.json'
 
 export function normalizeLabel(label: unknown): string {

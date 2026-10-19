@@ -17,6 +17,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { useOperationSections } from '@/composables/useOperations'
 import {
   AMD_TEST_HEALTH_ASSET,
+  OPERATIONS_ASSET,
   amdHealthModel,
   analyticsObservedAt,
   hardwareValueSummary,
@@ -113,7 +114,7 @@ function inspectBuild(index: number) {
       title: point.label,
       subtitle: point.url ? 'Source-backed chart observation' : 'Retained chart observation',
       fields: point.details,
-      sources: [point.url ? { label: 'Open exact source', url: String(point.url) } : { label: 'Open published source data', url: AMD_TEST_HEALTH_ASSET }],
+      sources: [point.url ? { label: 'Open exact source', url: String(point.url) } : { label: 'Open published source data', url: OPERATIONS_ASSET }],
     },
   }
 }
@@ -146,7 +147,7 @@ const priorityColumns = computed<ColumnDef<Rec, unknown>[]>(() => [
     enableHiding: false,
     enableSorting: false,
   },
-  { id: 'queue', header: 'Queue', accessorFn: (row) => value(row.queue), cell: ({ getValue }) => h('span', { class: 'font-mono text-xs' }, String(getValue())) },
+  { id: 'queue', header: 'Queue', accessorFn: (row) => value(row.queue), cell: ({ getValue }) => h('span', { class: 'font-mono text-xs' }, String(getValue())), enableSorting: false },
   {
     id: 'rate',
     header: 'Retained-run pass rate',
@@ -165,6 +166,7 @@ const priorityColumns = computed<ColumnDef<Rec, unknown>[]>(() => [
         ? h('a', { href: row.original.latest_url, target: '_blank', rel: 'noopener' }, [badge])
         : h('button', { type: 'button', onClick: () => openGroup(row.original) }, [badge])
     },
+    enableSorting: false,
   },
   {
     id: 'counts',

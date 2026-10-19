@@ -95,8 +95,12 @@ const latest = (row: Rec) => amdLatestState(row, props.latestBuild)
                 <TableCell class="text-right tabular-nums">
                   <button type="button" class="hover:underline" @click="emit('inspect', row)">{{ passRateLabel(row) }}</button>
                 </TableCell>
-                <TableCell class="text-right tabular-nums">{{ integer(row.runs) }}</TableCell>
-                <TableCell class="text-right tabular-nums">{{ integer(row.current_pass_streak) }}</TableCell>
+                <TableCell class="text-right tabular-nums">
+                  <button type="button" class="hover:underline" @click="emit('inspect', row)">{{ integer(row.runs) }}</button>
+                </TableCell>
+                <TableCell class="text-right tabular-nums">
+                  <button type="button" class="hover:underline" @click="emit('inspect', row)">{{ integer(row.current_pass_streak) }}</button>
+                </TableCell>
                 <TableCell><ToneBadge tone="is-neutral">{{ value(row.hardware_variant || row.hardware) }}</ToneBadge></TableCell>
                 <TableCell class="font-mono text-xs">{{ value(row.queue) }}</TableCell>
                 <TableCell>
