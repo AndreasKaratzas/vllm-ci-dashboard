@@ -46,6 +46,7 @@ def _run(
     run_id=1,
     conclusion=None,
     recovery_key=None,
+    tag="recovery",
     display_title=None,
     head_branch="main",
     head_sha=CODE_SHA,
@@ -55,7 +56,7 @@ def _run(
     if display_title is None:
         display_title = "Data Collection"
         if recovery_key:
-            display_title += f" [recovery:{recovery_key}]"
+            display_title += f" [{tag}:{recovery_key}]"
     row = {
         "id": run_id,
         "head_branch": head_branch,
@@ -388,88 +389,164 @@ def test_workflow_run_evidence_requires_exact_main_branch(head_branch) -> None:
         watchdog.parse_workflow_runs({"workflow_runs": [row]}, now=NOW)
 
 
-def test_preflight_skips_when_another_publication_advanced_generation() -> None:
-    observation = watchdog.observe_publication(_status(age_minutes=30), now=NOW)
-    decision = watchdog.generation_preflight_decision(
-        observation,
-        expected_generation=(NOW - timedelta(hours=2)).isoformat(),
-        now=NOW,
+FULL_KEY = "1" * 64
+QUEUE_KEY = "2" * 64
+
+
+@pytest.mark.parametrize(("title", "mode", "key"), [
+    ("Data Collection", "routine", None),
+    (f"Data Collection [full:{FULL_KEY}]", "full", FULL_KEY),
+    ("Data Collection [full:]", "full", None),
+    (f"Data Collection [queue:{QUEUE_KEY}]", "queue", QUEUE_KEY),
+    ("Data Collection [dns:2026-08-30T04:00:00Z]", "dns", None),
+    (f"DNS Health Monitor [recovery:{FULL_KEY}]", "recovery", FULL_KEY),
+])
+def test_run_title_tag_sets_mode_and_recovery_key(title, mode, key) -> None:
+    (run,) = watchdog.parse_workflow_runs(
+        {"workflow_runs": [_run(age_minutes=5, display_title=title)]}, now=NOW,
     )
 
-    assert decision.required is False
-    assert decision.reason == "generation-advanced"
+    assert (run.mode, run.recovery_key) == (mode, key)
 
 
-def test_preflight_keeps_recovery_when_advanced_generation_is_already_stale() -> None:
-    observation = watchdog.observe_publication(_status(age_minutes=160), now=NOW)
-    decision = watchdog.generation_preflight_decision(
-        observation,
-        expected_generation=(NOW - timedelta(hours=2)).isoformat(),
-        now=NOW,
+def test_run_title_with_two_mode_tags_fails_closed() -> None:
+    title = f"Data Collection [full:{FULL_KEY}] [queue:{QUEUE_KEY}]"
+    with pytest.raises(ValueError, match="multiple run tags"):
+        watchdog.parse_workflow_runs(
+            {"workflow_runs": [_run(age_minutes=5, display_title=title)]}, now=NOW,
+        )
+
+
+@pytest.mark.parametrize("run_status", ["queued", "in_progress"])
+@pytest.mark.parametrize(("title", "active"), [
+    ("Data Collection", True),
+    (f"Data Collection [full:{FULL_KEY}]", True),
+    (f"Data Collection [queue:{QUEUE_KEY}]", False),
+    ("Data Collection [dns:2026-08-30T04:00:00Z]", False),
+])
+def test_only_full_and_routine_runs_count_as_collection_active(run_status, title, active) -> None:
+    decision = _decision(
+        _status(age_minutes=160),
+        [_run(age_minutes=5, status=run_status, started_age_minutes=5, display_title=title)],
     )
 
-    assert decision.required is True
-    assert decision.reason == "publication-stale"
+    assert decision.required is not active
+    assert decision.reason == ("collection-active" if active else "publication-stale")
 
 
-def test_preflight_keeps_same_generation_recovery() -> None:
-    observation = watchdog.observe_publication(_status(age_minutes=160), now=NOW)
-    decision = watchdog.generation_preflight_decision(
-        observation,
-        expected_generation=(NOW - timedelta(minutes=160)).isoformat(),
-        now=NOW,
-    )
+def test_every_data_collection_run_name_tag_is_classified() -> None:
+    root = Path(__file__).resolve().parents[2]
+    run_name = yaml.safe_load((root / ".github/workflows/hourly-master.yml").read_text())["run-name"]
+    tags = set(re.findall(r"format\(' \[(\w+):\{0\}\]'", run_name))
 
-    assert decision.required is True
-    assert decision.reason == "publication-stale"
+    assert tags == {"full", "queue", "dns"}
+    assert tags - {"full"} == watchdog.RECONCILIATION_MODES
 
 
-def test_preflight_treats_fresh_valid_status_as_recovery_from_unavailable() -> None:
-    observation = watchdog.observe_publication(_status(age_minutes=30), now=NOW)
-    decision = watchdog.generation_preflight_decision(
-        observation,
-        expected_generation=watchdog.UNAVAILABLE_GENERATION,
-        now=NOW,
-    )
+def test_full_run_title_key_drives_collector_retry_cooldown() -> None:
+    status = _status(age_minutes=160)
+    decision = _decision(status, [_run(age_minutes=5, recovery_key=_key(status), tag="full")])
 
-    assert decision.required is False
-    assert decision.reason == "publication-recovered"
+    assert decision.reason == "recent-recovery-attempt"
 
 
-def test_preflight_does_not_cancel_unavailable_recovery_with_stale_status() -> None:
-    observation = watchdog.observe_publication(_status(age_minutes=160), now=NOW)
-    decision = watchdog.generation_preflight_decision(
-        observation,
-        expected_generation=watchdog.UNAVAILABLE_GENERATION,
-        now=NOW,
-    )
-
-    assert decision.required is True
-    assert decision.reason == "publication-stale"
+TARGETS = watchdog.CoreTargets(
+    ("analytics", "ci_health", "perf_eval"), 135, {"perf_eval": "perf_eval/perf_eval.json"},
+)
 
 
-def test_cadence_preflight_coalesces_recent_publication() -> None:
-    observation = watchdog.observe_publication(
-        _status(age_minutes=119),
-        now=NOW,
-        max_publication_age_minutes=120,
-    )
-    decision = watchdog.cadence_preflight_decision(observation)
+def _pages_files(ages: dict[str, float]) -> dict[str, object]:
+    """Published core clocks, ``ages`` in minutes before NOW (None = unreadable)."""
+    def stamp(minutes):
+        return None if minutes is None else watchdog._canonical_timestamp(NOW - timedelta(minutes=minutes))
 
-    assert decision.required is False
-    assert decision.reason == "canonical-recent"
+    return {
+        watchdog.OPERATIONS_MANIFEST: {"shell": {"sources": {
+            key: {"timestamp": stamp(age)} for key, age in ages.items() if key != "perf_eval"
+        }}},
+        "perf_eval/perf_eval.json": {"generated_at": stamp(ages.get("perf_eval"))},
+    }
 
 
-def test_cadence_preflight_keeps_normally_due_schedule() -> None:
-    observation = watchdog.observe_publication(
-        _status(age_minutes=120),
-        now=NOW,
-        max_publication_age_minutes=120,
-    )
-    decision = watchdog.cadence_preflight_decision(observation)
+@pytest.mark.parametrize(("ages", "source", "stale"), [
+    ({"analytics": 30, "ci_health": 134.9, "perf_eval": 60, "queue_jobs": 900}, "ci_health", False),
+    ({"analytics": 30, "ci_health": 60, "perf_eval": 135}, "perf_eval", True),
+    ({"analytics": 300, "ci_health": 60, "perf_eval": 20}, "analytics", True),
+])
+def test_core_age_is_the_oldest_core_source_clock(ages, source, stale) -> None:
+    age = watchdog.core_data_age(_pages_files(ages).get, TARGETS, now=NOW)
 
-    assert decision.required is True
-    assert decision.reason == "publication-stale"
+    assert age == watchdog.CoreDataAge(source, NOW - timedelta(minutes=ages[source]), stale)
+
+
+@pytest.mark.parametrize(("ages", "source"), [
+    ({"analytics": 30, "perf_eval": 20}, "ci_health"),
+    ({"analytics": 30, "ci_health": 30, "perf_eval": None}, "perf_eval"),
+    ({"analytics": -10, "ci_health": 30, "perf_eval": 20}, "analytics"),
+])
+def test_missing_unreadable_or_future_core_clock_counts_as_stale(ages, source) -> None:
+    age = watchdog.core_data_age(_pages_files(ages).get, TARGETS, now=NOW)
+
+    assert age == watchdog.CoreDataAge(source, None, True)
+
+
+def test_repository_core_targets_follow_the_shared_freshness_config() -> None:
+    config = json.loads(watchdog.FRESHNESS_TARGETS.read_text())
+    targets = watchdog.load_core_targets()
+
+    assert targets.sources == tuple(config["core"]["sources"])
+    assert targets.target_minutes == config["core"]["target_minutes"]
+    assert targets.own_files == {
+        key: config["sources"][key]["path"]
+        for key in targets.sources if "path" in config["sources"][key]
+    }
+
+
+def commit_pages(root: Path, files: dict[str, object]) -> None:
+    """Commit Pages data files below ``data/vllm`` in a fresh repository."""
+    for relative, payload in files.items():
+        path = root / watchdog.PAGES_DATA_ROOT / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload if isinstance(payload, str) else json.dumps(payload))
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
+                  "commit", "-qm", "pages"]):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+
+
+def test_pages_reader_returns_bounded_strict_json_only(tmp_path, monkeypatch) -> None:
+    commit_pages(tmp_path, {
+        watchdog.OPERATIONS_MANIFEST: {"shell": {"sources": {}}},
+        "duplicate.json": '{"a": 1, "a": 2}',
+        "large.json": {"pad": "x" * 64},
+    })
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(watchdog, "PAGES_JSON_MAX_BYTES", 32)
+    read = watchdog.pages_json_reader("HEAD")
+
+    assert read(watchdog.OPERATIONS_MANIFEST) == {"shell": {"sources": {}}}
+    assert read("duplicate.json") is None
+    assert read("large.json") is None
+    assert read("missing.json") is None
+
+
+@pytest.mark.parametrize(("stale", "reason"), [
+    (False, "buildkite-collection-due"), (True, "core-data-stale"),
+])
+def test_open_admission_promotes_current_publication(stale, reason) -> None:
+    current = watchdog.observe_publication(_status(age_minutes=10), now=NOW)
+    core_age = watchdog.CoreDataAge("ci_health", NOW - timedelta(minutes=100), stale)
+    promoted = watchdog.admitted_observation(current, core_age)
+
+    assert promoted == watchdog.PublicationObservation(reason, current.generation, current.generated_at)
+    assert watchdog.watchdog_decision(promoted, (), now=NOW).required is True
+
+
+def test_open_admission_keeps_an_existing_recovery_reason() -> None:
+    stale = watchdog.observe_publication(_status(age_minutes=160), now=NOW)
+    core_age = watchdog.CoreDataAge("ci_health", None, True)
+
+    assert watchdog.admitted_observation(stale, core_age) == stale
 
 
 def test_missing_status_file_requests_recovery(tmp_path) -> None:

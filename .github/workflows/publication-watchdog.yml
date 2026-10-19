@@ -42,6 +42,12 @@ jobs:
           ref: main
           persist-credentials: false
 
+      # A near collector gate is awaited until this deadline; the last five of
+      # the 35 minutes stay reserved for the final ledger read and dispatch.
+      - name: Start the run budget clock
+        id: run-clock
+        run: echo "wait_deadline=$(( $(date -u +%s) + 30 * 60 ))" >> "$GITHUB_OUTPUT"
+
       - name: Set up exact Python runtime
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -627,14 +633,16 @@ jobs:
         if: >-
           steps.recovery-route.outputs.target == 'collector' &&
           steps.recovery-route.outputs.force_reason != 'state-uninitialized'
-        timeout-minutes: 6
+        timeout-minutes: 31
         env:
           GH_TOKEN: ${{ github.token }}
-          ADMISSION_MAX_WAIT_SECONDS: >-
-            ${{ github.event_name == 'workflow_run' &&
-                github.event.workflow_run.name == 'Site Health Check' && '0' || '300' }}
+          WAIT_DEADLINE: ${{ steps.run-clock.outputs.wait_deadline }}
         run: |
           set -euo pipefail
+          ADMISSION_MAX_WAIT_SECONDS=$(( WAIT_DEADLINE - $(date -u +%s) ))
+          if [ "$ADMISSION_MAX_WAIT_SECONDS" -lt 0 ]; then
+            ADMISSION_MAX_WAIT_SECONDS=0
+          fi
           python scripts/vllm/observe_watchdog_collection_admission.py \
             --config config/data_collection_attempt_budget.json \
             --max-wait-seconds "$ADMISSION_MAX_WAIT_SECONDS" \
@@ -678,7 +686,10 @@ jobs:
           fi
           if [ "$RECOVERY_TARGET" = collector ] && \
              [ "$FORCE_REASON" != state-uninitialized ]; then
-            ARGS+=(--collector-admission "$RUNNER_TEMP/collector-admission.json")
+            ARGS+=(
+              --collector-admission "$RUNNER_TEMP/collector-admission.json"
+              --pages-ref origin/gh-pages
+            )
           fi
           if [ "$RECOVERY_TARGET" = dns-health ]; then
             CURRENT_CODE_SHA=$(git rev-parse --verify 'HEAD^{commit}')

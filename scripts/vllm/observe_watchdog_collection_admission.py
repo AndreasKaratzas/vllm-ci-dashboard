@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # cspell:ignore killpg
-"""Observe collector admission and briefly wait for an already-near gate.
+"""Observe collector admission and wait for a gate that opens within the run budget.
 
+The watchdog spends the rest of its bounded run waiting for a near gate, so a
+tick that lands shortly before the next collection is due still dispatches it.
 This hint suppresses no-op recovery dispatches. It never reserves an attempt,
 changes a quota ledger or grants token access; the collector still reserves
 under its normal concurrency boundary immediately before Buildkite access.
@@ -25,7 +27,7 @@ from typing import Callable, Mapping
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from vllm import request_bearing_attempt_budget as budget  # noqa: E402
 
-MAX_WAIT_SECONDS = 300
+MAX_WAIT_SECONDS = 30 * 60
 POLL_SECONDS = 30
 PROOF_MAX_BYTES = 4096
 PROOF_MAX_AGE_SECONDS = 360
@@ -56,6 +58,13 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _gate_horizon(policy: budget.AttemptPolicy, mode: str) -> timedelta:
+    """Latest availability each gate can report; failed retries back off up to the success interval."""
+    if mode == "cap_gated":
+        return timedelta(hours=policy.window_hours)
+    return timedelta(minutes=policy.success_interval_minutes)
+
+
 def _validated_observation(
     value: Mapping[str, object], *, observed_at: datetime, policy: budget.AttemptPolicy,
 ) -> tuple[bool, str, datetime | None, str]:
@@ -76,12 +85,7 @@ def _validated_observation(
             raise ValueError("open collector admission has a conflicting availability clock")
         return True, mode, None, sha
     available = budget._timestamp(value.get("available_at"), label="collector available_at")
-    horizon = {
-        "success_gated": timedelta(minutes=policy.success_interval_minutes),
-        "retry_gated": timedelta(minutes=policy.failed_retry_interval_minutes),
-        "cap_gated": timedelta(hours=policy.window_hours),
-    }[str(mode)]
-    if not observed_at < available <= observed_at + horizon:
+    if not observed_at < available <= observed_at + _gate_horizon(policy, mode):
         raise ValueError("collector availability is inconsistent with its verified gate")
     return False, str(mode), available, sha
 
@@ -134,18 +138,18 @@ def observe_admission(
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
     observe: Callable[..., dict[str, object]] | None = None,
-    max_wait_seconds: int = MAX_WAIT_SECONDS,
+    max_wait_seconds: int,
 ) -> AdmissionDecision:
     if type(max_wait_seconds) is not int or not 0 <= max_wait_seconds <= MAX_WAIT_SECONDS:
-        raise ValueError("collector admission wait must be bounded by five minutes")
+        raise ValueError("collector admission wait must be bounded by thirty minutes")
     started_clock = _utc(clock())
     started_mono = monotonic()
     if not math.isfinite(started_mono):
         raise ValueError("collector admission elapsed clock must be finite")
     deadline_clock = started_clock + timedelta(seconds=max_wait_seconds)
     deadline_mono = started_mono + max_wait_seconds
-    # Leave 30 seconds of the six-minute workflow step for startup and outputs.
-    # Health-triggered zero-wait requests still get one bounded 60-second read.
+    # The final read must finish 30 seconds after the wait deadline; a
+    # zero-wait request still gets one bounded 60-second read.
     observation_deadline = deadline_mono + (30 if max_wait_seconds else OBSERVE_TIMEOUT_SECONDS)
     previous_clock = started_clock
     previous_mono = started_mono
@@ -223,15 +227,12 @@ def _load_admission(path: Path, *, now: datetime) -> AdmissionDecision:
         policy = budget.load_policy(budget.ROOT / "config/data_collection_attempt_budget.json")
         if policy.producer != "data_collection":
             raise ValueError("collector admission proof policy is invalid")
-        horizons = {"success_gated": timedelta(minutes=policy.success_interval_minutes),
-                    "retry_gated": timedelta(minutes=policy.failed_retry_interval_minutes),
-                    "cap_gated": timedelta(hours=policy.window_hours)}
         if (
             not isinstance(mode, str) or mode not in GATED_MODES
             or not isinstance(reason, str) or reason not in GATED_REASONS
             or reason not in {"collection-" + mode.replace("_", "-"),
                               "collection-admission-shifted", "collection-admission-deadline"}
-            or not observed < available <= observed + horizons[mode]
+            or not observed < available <= observed + _gate_horizon(policy, mode)
         ):
             raise ValueError("collector admission gated proof is inconsistent")
     return AdmissionDecision(**value)
@@ -250,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--github-output", type=Path)
-    parser.add_argument("--max-wait-seconds", type=int, choices=(0, MAX_WAIT_SECONDS), default=MAX_WAIT_SECONDS)
+    parser.add_argument("--max-wait-seconds", type=int, required=True)
     args = parser.parse_args(argv)
     try:
         decision = observe_admission(args.root.resolve(), budget.load_policy(args.config.resolve()),

@@ -19,6 +19,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from itertools import takewhile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -715,6 +716,16 @@ def _attempt_row(
     }
 
 
+def _attempt_complete(row: Mapping[str, Any], policy: AttemptPolicy) -> bool:
+    """Whether a row published every retryable collection surface."""
+    if row["succeeded_at"] is None:
+        return False
+    if policy.producer != "data_collection":
+        return True
+    evidence = row.get("collection_evidence") or row.get("pending_collection_evidence") or {}
+    return not any(surface in RETRY_SURFACES for surface in evidence.get("retry_surfaces", []))
+
+
 def _request_mode(
     attempts: list[dict[str, Any]], *, now: datetime, policy: AttemptPolicy,
     collection_retry_required: bool = False,
@@ -724,24 +735,31 @@ def _request_mode(
     Successful cadence is deliberately start-to-start.  Basing it on durable
     completion would add collection runtime to every interval (a 25-minute run
     on a two-hour cron would otherwise execute only every four hours).
+
+    Failed retries back off by the run of consecutive failed or incomplete
+    rows (30, 60, 120, 120 minutes with the shipped policy), so a persistent
+    collector bug leaves cap headroom for the first run after its fix.
     """
-    latest = max(attempts, key=lambda row: (row["reserved_at"], row["id"]), default=None)
-    if latest is not None:
+    newest_first = sorted(attempts, key=lambda row: (row["reserved_at"], row["id"]), reverse=True)
+    if newest_first:
+        latest = newest_first[0]
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
-        collection_failed = bool(
-            policy.producer == "data_collection"
-            and (collection_retry_required or any(surface in RETRY_SURFACES for surface in (
-                latest.get("collection_evidence") or latest.get("pending_collection_evidence") or {}
-            ).get("retry_surfaces", [])))
-        )
-        complete = latest["succeeded_at"] is not None and not collection_failed
-        interval = policy.success_interval_minutes if complete else policy.failed_retry_interval_minutes
+        inherited_retry = policy.producer == "data_collection" and collection_retry_required
+        if _attempt_complete(latest, policy) and not inherited_retry:
+            interval = policy.success_interval_minutes
+            gated_mode = "success_gated"
+        else:
+            failures = 1 + sum(1 for _ in takewhile(
+                lambda row: not _attempt_complete(row, policy), newest_first[1:],
+            ))
+            interval = min(
+                policy.success_interval_minutes,
+                policy.failed_retry_interval_minutes * 2 ** (failures - 1),
+            )
+            gated_mode = "retry_gated"
         available = reserved_at + timedelta(minutes=interval)
         if now < available:
-            return (
-                "success_gated" if complete else "retry_gated",
-                available,
-            )
+            return gated_mode, available
 
     legacy = [row for row in attempts if row["source"] == "legacy_migration"]
     runtime = [row for row in attempts if row["source"] == "runtime"]

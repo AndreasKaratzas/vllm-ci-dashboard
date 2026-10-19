@@ -832,7 +832,14 @@ class TestHourlyMasterWorkflow:
         assert inputs["queue_generation"]["default"] == ""
         assert inputs["watchdog_generation"]["default"] == ""
         assert inputs["recovery_key"]["default"] == ""
-        assert "[recovery:{0}]" in workflow["run-name"]
+        run_name = workflow["run-name"]
+        for tag, value in (
+            ("full", "inputs.recovery_key"),
+            ("queue", "inputs.recovery_key"),
+            ("dns", "inputs.dns_generation"),
+        ):
+            assert f"format(' [{tag}:{{0}}]', {value})" in run_name
+        assert run_name.index("[full:") < run_name.index("[queue:") < run_name.index("[dns:")
         steps = workflow["jobs"]["collect-and-deploy"]["steps"]
         validate = next(
             step
@@ -952,6 +959,7 @@ class TestHourlyMasterWorkflow:
             "publication-watchdog-preflight",
         ]
         assert collect["timeout-minutes"] == 75
+        assert {workflow["jobs"][name]["timeout-minutes"] for name in collect["needs"]} == {10}
         assert "always()" in collect["if"]
         assert "!cancelled()" in collect["if"]
         for conflict in (

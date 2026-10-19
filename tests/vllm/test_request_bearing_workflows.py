@@ -99,21 +99,20 @@ def test_data_collection_serializes_before_a_failure_surviving_reservation() -> 
     job = workflow["jobs"]["collect-and-deploy"]
     workflow_concurrency = workflow["concurrency"]
     assert workflow_concurrency["cancel-in-progress"] is False
-    workflow_group = workflow_concurrency["group"]
-    assert "data-collection-routine" in workflow_group
-    assert "data-collection-dns-recovery" in workflow_group
-    assert "data-collection-queue-recovery" in workflow_group
-    assert "data-collection-watchdog-recovery" in workflow_group
-    assert "inputs.dns_generation != ''" in workflow_group
-    assert "inputs.queue_generation != ''" in workflow_group
-    assert "inputs.watchdog_generation != ''" in workflow_group
+    workflow_group = " ".join(workflow_concurrency["group"].split())
+    # Schedule, webhook, manual and watchdog wakeups are all full collections.
+    assert workflow_group == (
+        "${{ inputs.dns_generation != '' && 'data-collection-dns-recovery' || "
+        "inputs.queue_generation != '' && 'data-collection-queue-recovery' || "
+        "'data-collection-full' }}"
+    )
     assert job["concurrency"] == {
         "group": "gh-pages-deploy",
         "queue": "max",
         "cancel-in-progress": False,
     }
-    # The workflow-level groups keep at most one pending wakeup per routine/DNS/
-    # watchdog class, while the shared writer queue guarantees that a survivor
+    # The workflow-level groups keep at most one pending wakeup per full/DNS/
+    # queue class, while the shared writer queue guarantees that a survivor
     # cannot replace another recovery already awaiting the Pages lock.
     assert job["timeout-minutes"] <= 75
     assert job["env"]["PYTHONPATH"] == "${{ github.workspace }}/scripts"

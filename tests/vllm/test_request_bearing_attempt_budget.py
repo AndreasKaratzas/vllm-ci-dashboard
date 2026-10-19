@@ -396,7 +396,7 @@ def test_runtime_attempt_ceiling_proves_rolling_request_bound(policy: budget.Att
     attempts = [
         budget._attempt_row(
             attempt_id=f"runtime-{index}",
-            reserved_at=BASE - timedelta(minutes=31 * (16 - index)),
+            reserved_at=BASE - timedelta(minutes=121 + 31 * (15 - index)),
             policy=policy,
             source="runtime",
             bound_proven=True,
@@ -461,7 +461,10 @@ def test_published_collector_failures_retry_at_thirty_minutes(repo, policy):
 
     # Failure before a durable publication must not lose the pending perf or
     # GitHub intent merely because the latest ledger row has no durable_ref.
-    after_failed_retry = budget.observe(checkout, policy, now=BASE + timedelta(minutes=60), remote="origin")
+    backed_off = budget.observe(checkout, policy, now=BASE + timedelta(minutes=60), remote="origin")
+    assert backed_off["request_mode"] == "retry_gated"
+    assert backed_off["available_at"] == budget._iso(BASE + timedelta(minutes=90))
+    after_failed_retry = budget.observe(checkout, policy, now=BASE + timedelta(minutes=90), remote="origin")
     assert after_failed_retry["required"] == "true"
     assert after_failed_retry["retry_surfaces"] == "github_home"
 
@@ -560,6 +563,63 @@ def test_incomplete_success_does_not_bypass_sixteen_attempt_cap(policy):
     }
     assert budget._request_mode(rows, now=BASE, policy=policy)[0] == "cap_gated"
     assert sum(row["request_start_allowance"] for row in rows) == 12_800
+
+
+def _row(number, reserved_at, policy, *, outcome):
+    """One runtime row whose collection outcome is failed, incomplete or complete."""
+    row = budget._attempt_row(
+        attempt_id=f"runtime-{number}", reserved_at=reserved_at, policy=policy, source="runtime",
+        bound_proven=True, workflow_run_id=str(number), workflow_run_attempt=1, event_name="schedule",
+        **({} if outcome == "failed" else {
+            "succeeded_at": reserved_at + timedelta(minutes=20), "durable_ref": REF,
+            "actual_request_starts": 50,
+        }),
+    )
+    if outcome == "incomplete":
+        row["collection_evidence"] = {
+            "schema_version": 1, "durable_ref": REF, "publication_state_oid": "b" * 40,
+            "retry_surfaces": ["github_home"],
+        }
+    return row
+
+
+@pytest.mark.parametrize("outcome", ["failed", "incomplete"])
+@pytest.mark.parametrize(("streak", "interval"), [(1, 30), (2, 60), (3, 120), (4, 120), (6, 120)])
+def test_failed_retry_backs_off_over_consecutive_unsuccessful_rows(policy, outcome, streak, interval):
+    rows = [_row(0, BASE - timedelta(hours=10), policy, outcome="complete")] + [
+        _row(number, BASE - timedelta(hours=streak - number), policy, outcome=outcome)
+        for number in range(1, streak + 1)
+    ]
+    assert budget._request_mode(rows, now=BASE, policy=policy) == (
+        "retry_gated", BASE + timedelta(minutes=interval),
+    )
+    after = BASE + timedelta(minutes=interval)
+    assert budget._request_mode(rows, now=after, policy=policy) == ("reserved", None)
+
+
+def test_complete_row_resets_backoff_and_restores_success_floor(policy):
+    failed = [_row(number, BASE - timedelta(hours=8 - number), policy, outcome="failed") for number in range(4)]
+    recovered = failed + [_row(9, BASE, policy, outcome="complete")]
+    assert budget._request_mode(recovered, now=BASE, policy=policy) == (
+        "success_gated", BASE + timedelta(minutes=120),
+    )
+    retried = recovered + [_row(10, BASE + timedelta(minutes=120), policy, outcome="failed")]
+    assert budget._request_mode(retried, now=BASE + timedelta(minutes=121), policy=policy) == (
+        "retry_gated", BASE + timedelta(minutes=150),
+    )
+
+
+def test_persistent_failure_keeps_cap_headroom_without_changing_the_cap(policy):
+    rows, reserved = [], []
+    for minute in range(policy.window_hours * 60):
+        now = BASE + timedelta(minutes=minute)
+        if budget._request_mode(rows, now=now, policy=policy)[0] == "reserved":
+            rows.append(_row(minute, now, policy, outcome="failed"))
+            reserved.append(minute)
+    assert reserved[:5] == [0, 30, 90, 210, 330]
+    assert {end - start for start, end in zip(reserved[3:], reserved[4:])} == {120}
+    assert len(reserved) == 14 < policy.max_request_bearing_attempts == 16
+    assert policy.max_request_bearing_attempts * policy.request_start_allowance == 12_800
 
 
 def test_strict_mark_success_rejects_missing_evidence_before_ledger_mutation(repo, policy):
@@ -819,7 +879,9 @@ def test_publication_validation_retry_cannot_bypass_real_sixteen_attempt_ledger(
     latest = current.ledger["attempts"][-1]
     rows = [budget._attempt_row(attempt_id=f"data-{number}-1", reserved_at=BASE - timedelta(minutes=60 + number),
                                 policy=policy, source="runtime", bound_proven=True,
-                                workflow_run_id=str(number), workflow_run_attempt=1, event_name="schedule")
+                                workflow_run_id=str(number), workflow_run_attempt=1, event_name="schedule",
+                                succeeded_at=BASE - timedelta(minutes=40 + number), durable_ref=REF,
+                                actual_request_starts=1)
             for number in range(100, 115)] + [latest]
     ledger = budget._new_ledger(rows, now=BASE + timedelta(minutes=10), policy=policy)
     original_sha = _persist_raw_historical_ledger(checkout, policy, ledger)
