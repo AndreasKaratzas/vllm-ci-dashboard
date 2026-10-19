@@ -4,5 +4,11 @@ export function healthRoute(params: URLSearchParams): string | null {
   // 'targets' was retired into Overview (classic dashboard-nav.js does the same).
   if (!view || view === 'overview' || view === 'targets') return '#/health'
   if (view === 'parity') return '#/health?view=parity'
+  if (view === 'mirrors') return '#/health?view=mirrors'
+  if (view === 'coverage') {
+    // Classic accepts platform | name | area and falls back to platform.
+    const sort = params.get('ops_health_sort')
+    return sort === 'name' || sort === 'area' ? `#/health?view=coverage&sort=${sort}` : '#/health?view=coverage'
+  }
   return null
 }
