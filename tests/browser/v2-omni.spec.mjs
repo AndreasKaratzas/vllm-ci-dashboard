@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
 import { readGolden } from './golden/read.mjs';
+import { routeSection } from './support/sections.mjs';
 
 // The fixture site's omni section carries no mapping history, so the second
 // suite serves the real (trimmed) published snapshot the goldens were read from.
@@ -17,7 +18,7 @@ async function isolate(page, omniBody) {
   // Both pages race the live queue branch against the published section; keep it offline.
   await page.route('https://raw.githubusercontent.com/**', (route) => route.abort());
   if (omniBody) {
-    await page.route(/operations_v2\/omni\.json/, (route) => route.fulfill({ body: omniBody, contentType: 'application/json' }));
+    await routeSection(page, 'omni', omniBody);
   }
 }
 

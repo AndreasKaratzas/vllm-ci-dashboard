@@ -17,10 +17,16 @@ const v2Strip = (root) =>
 const cellTexts = (rows) =>
   rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim())));
 
-// Hovering a bar must show an Unovis tooltip naming the hovered row and its series values.
+// Hovering the bar of a row must show an Unovis tooltip naming that row and its
+// series. The chart wrapper is excluded: only the floating tooltip counts.
 async function hoverBar(page, chart, label, series) {
-  await chart.locator('path[class*=bar]').first().hover();
-  const tip = page.locator('[class*="-tooltip"]').filter({ hasText: label }).last();
+  const tooltip = page.locator('[class*="-tooltip"]:not([data-slot="chart"])').filter({ hasText: label });
+  const bars = chart.locator('path[class*=bar]');
+  const count = await bars.count();
+  for (let index = 0; index < count && !(await tooltip.last().isVisible()); index += 1) {
+    await bars.nth(index).hover();
+  }
+  const tip = tooltip.last();
   await expect(tip).toBeVisible();
   for (const name of series) await expect(tip).toContainText(name);
   await page.mouse.move(0, 0);

@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { readGolden } from './golden/read.mjs';
+import { routeSection } from './support/sections.mjs';
 
 // CI Analytics "DNS health" and "CI agent health" against the golden page facts
 // of the same routed snapshots: a real (trimmed) DNS aggregate and the live
@@ -20,7 +21,7 @@ async function routeDns(page) {
 }
 
 async function routeAgent(page) {
-  await page.route('**/operations_v2/amd_agent_health.json*', (route) => route.fulfill({ body: AGENT, contentType: 'application/json' }));
+  await routeSection(page, 'amd_agent_health', AGENT);
 }
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -181,11 +182,9 @@ test.describe('CI agent health matches the golden page facts', () => {
   });
 
   test('rejects the legacy all-branch cohort', async ({ page }) => {
-    await page.route('**/operations_v2/amd_agent_health.json*', async (route) => {
-      const packet = JSON.parse(AGENT);
-      delete packet.amd_agent_health.branches;
-      await route.fulfill({ json: packet });
-    });
+    const packet = JSON.parse(AGENT);
+    delete packet.amd_agent_health.branches;
+    await routeSection(page, 'amd_agent_health', packet);
     await page.goto('/#/analytics?view=agent-health');
     await expect(page.getByTestId('agent-unavailable')).toHaveText(golden['agent all-branch cohort'].warning);
   });
