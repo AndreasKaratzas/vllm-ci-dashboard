@@ -47,3 +47,71 @@ test.describe('v2 dashboard', () => {
     await expect(page.getByRole('link', { name: 'Open CI Analytics on the classic dashboard' })).toHaveAttribute('href', '../#ci-analytics');
   });
 });
+
+async function classicHealthText(page, query) {
+  await page.goto(`/${query}#ci-health`);
+  const host = page.locator('#ci-health-view[data-render-state="ready"]');
+  await host.waitFor();
+  return host.innerText();
+}
+
+test.describe('v2 CI Health matches the classic page on the same snapshot', () => {
+  test('Overview: logical health, outcomes, and failure observations', async ({ page }) => {
+    const classic = await classicHealthText(page, '');
+    const ring = classic.match(/(\d+\.\d%)\s+(\d+ \/ \d+)/);
+    const meta = classic.match(/\d+ pass on every route · \d+ pass on some hardware only · \d+ non-passing everywhere/)[0];
+    const failures = [...classic.matchAll(/\n([^\n]+)\nmi\d+_\d+ - amd_mi\d+_\d+/g)].map((m) => m[1].trim());
+
+    expect(failures.length).toBeGreaterThan(0);
+    await page.goto('/v2/#/health');
+    const logical = page.getByTestId('logical-ring');
+    await expect(logical).toContainText(ring[1]);
+    await expect(logical).toContainText(ring[2]);
+    await expect(logical).toContainText(meta);
+    for (const label of ['pass every route', 'pass some routes', 'non-passing']) {
+      const count = classic.match(new RegExp(`\\n(\\d+)\\n${label}\\n`))[1];
+      await expect(page.getByRole('button', { name: new RegExp(`^${count}\\s*${label}$`) })).toBeVisible();
+    }
+    const v2Failures = await page.locator('table').last().locator('tbody tr button').allInnerTexts();
+    expect(v2Failures.map((t) => t.trim())).toEqual(failures);
+
+    await logical.getByRole('button', { name: /Inspect all logical test groups/ }).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toContainText(`${ring[2].split(' / ')[1]} rows`);
+    await sheet.locator('tbody tr').first().getByRole('button').first().click();
+    await expect(page.getByRole('dialog').last()).toContainText('Exact AMD job variant');
+  });
+
+  test('Upstream parity: coverage, distribution, config note, and gap areas', async ({ page }) => {
+    const classic = await classicHealthText(page, '?ops_health_view=parity');
+    const ring = classic.match(/(\d+\.\d%)\s+(\d+ \/ \d+)/);
+    const groups = classic.match(/CURRENT MAIN CI · (\d+) LOGICAL GROUPS/)[1];
+    const note = classic.match(/Configured AMD routes cover[^\n]+/)[0];
+    const areas = [...classic.matchAll(/\n([^\n]+)\n(\d+ potential open gaps?)\n/g)].map((m) => `${m[1]}|${m[2]}`);
+
+    expect(areas.length).toBeGreaterThan(0);
+    await page.goto('/v2/#/health?view=parity');
+    const parityRing = page.getByTestId('parity-ring');
+    await expect(parityRing).toContainText(ring[1]);
+    await expect(parityRing).toContainText(ring[2]);
+    await expect(page.getByText(new RegExp(`Current main CI · ${groups} logical groups`, 'i'))).toBeVisible();
+    await expect(page.getByText(note)).toBeVisible();
+    const v2Areas = await page.getByTestId('gap-area').evaluateAll((nodes) =>
+      nodes.map((n) => `${n.querySelector('strong').textContent.trim()}|${n.querySelector('span').textContent.trim()}`),
+    );
+    expect(v2Areas).toEqual(areas);
+
+    await page.getByTestId('gap-area').first().click();
+    const sheet = page.getByRole('dialog');
+    await sheet.locator('tbody tr').first().getByRole('button').first().click();
+    await expect(page.getByRole('dialog').last()).toContainText('AMD route mode');
+  });
+
+  test('unported CI Health views link to the matching classic view', async ({ page }) => {
+    await page.goto('/v2/#/health?view=mirrors');
+    await expect(page.getByRole('link', { name: 'Open AMD mirrors on the classic dashboard' })).toHaveAttribute(
+      'href',
+      '../?ops_health_view=mirrors#ci-health',
+    );
+  });
+});

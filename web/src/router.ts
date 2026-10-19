@@ -1,6 +1,8 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import HomeView from './views/HomeView.vue'
 
+const HealthView = () => import('./views/HealthView.vue')
+
 export interface NavTab {
   path: string
   name: string
@@ -25,7 +27,7 @@ export const router = createRouter({
     ...NAV_TABS.map((tab) => ({
       path: tab.path,
       name: tab.name,
-      component: tab.name === 'home' ? HomeView : NotPortedView,
+      component: tab.name === 'home' ? HomeView : tab.name === 'health' ? HealthView : NotPortedView,
       meta: { tab },
     })),
     { path: '/:pathMatch(.*)*', redirect: '/' },
