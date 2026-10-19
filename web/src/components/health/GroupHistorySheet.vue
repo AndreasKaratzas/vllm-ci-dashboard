@@ -83,10 +83,10 @@ const hasDuration = computed(() =>
 const hasWait = computed(() => observations.value.some((row) => observationWaitMinutes(row) !== null))
 
 const STAT_TEXT: Record<string, string> = {
-  'is-success': 'text-success',
-  'is-danger': 'text-destructive',
-  'is-warning': 'text-warning',
-  'is-neutral': '',
+  pass: 'text-success',
+  hard: 'text-destructive',
+  soft: 'text-warning',
+  neutral: '',
 }
 
 const outcomeConfig = {
@@ -156,7 +156,7 @@ const tickLabel = (i: number) => points.value[i]?.label ?? ''
           </SheetDescription>
         </SheetHeader>
         <div class="flex flex-col gap-4 px-4 pb-6" data-testid="group-evidence">
-          <Alert :class="notice.tone === 'is-info' ? 'border-info/40 bg-info/10' : 'border-warning/40 bg-warning/10'">
+          <Alert :class="notice.tone === 'info' ? 'border-info/40 bg-info/10' : 'border-warning/40 bg-warning/10'">
             <AlertDescription class="text-foreground">
               <p><strong>{{ notice.strong }}</strong>{{ notice.text }}</p>
             </AlertDescription>
@@ -259,7 +259,7 @@ const tickLabel = (i: number) => points.value[i]?.label ?? ''
                         </a>
                       </TableCell>
                       <TableCell>
-                        <ToneBadge :tone="isNightlyObservation(row) ? 'is-info' : 'is-neutral'">{{ isNightlyObservation(row) ? 'nightly' : 'main' }}</ToneBadge>
+                        <ToneBadge :tone="isNightlyObservation(row) ? 'info' : 'neutral'">{{ isNightlyObservation(row) ? 'nightly' : 'main' }}</ToneBadge>
                       </TableCell>
                       <TableCell>{{ shortDate(observationTimestamp(row)) }}</TableCell>
                       <TableCell><ToneBadge :tone="toneForState(evidenceResultLabel(row))">{{ evidenceResultLabel(row) }}</ToneBadge></TableCell>
@@ -272,7 +272,7 @@ const tickLabel = (i: number) => points.value[i]?.label ?? ''
                       <TableCell>
                         <ToneBadge
                           v-if="(row.retry_evidence || row).retried || (row.retry_evidence || row).retried_in_job_id || Number((row.retry_evidence || row).retries_count || 0)"
-                          tone="is-info"
+                          tone="info"
                           >{{ Number((row.retry_evidence || row).retries_count || 0) ? `${Number((row.retry_evidence || row).retries_count)} retries` : 'retried' }}</ToneBadge
                         >
                         <span v-else class="text-muted-foreground">-</span>

@@ -84,7 +84,7 @@ const architectures = computed<Rec[]>(() => matrix.value?.architectures || [])
 const coverageRows = computed(() => sortAmdMatrixRows(matrix.value?.rows || [], sort.value))
 const archHealth = computed(() => architectureHealth(architectures.value, coverageRows.value))
 
-const STAT_TONES: Record<string, Tone> = { all: 'is-neutral', passing: 'is-success', failing: 'is-danger', 'no-signal': 'is-neutral' }
+const STAT_TONES: Record<string, Tone> = { all: 'neutral', passing: 'pass', failing: 'hard', 'no-signal': 'neutral' }
 function statCount(mode: string) {
   const p = policy.value
   if (mode === 'passing') return Number(p.passing_groups || 0)
@@ -92,9 +92,9 @@ function statCount(mode: string) {
   return Number(p.waiting_groups || 0) + Number(p.unknown_groups || 0)
 }
 const segments = computed<Segment[]>(() => [
-  { key: 'passing', label: 'Passing', count: Number(policy.value.passing_groups || 0), tone: 'is-success' },
-  { key: 'failing', label: 'Failing', count: Number(policy.value.failing_groups || 0), tone: 'is-danger' },
-  { key: 'no-signal', label: 'No signal', count: Number(policy.value.waiting_groups || 0) + Number(policy.value.unknown_groups || 0), tone: 'is-neutral' },
+  { key: 'passing', label: 'Passing', count: Number(policy.value.passing_groups || 0), tone: 'pass' },
+  { key: 'failing', label: 'Failing', count: Number(policy.value.failing_groups || 0), tone: 'hard' },
+  { key: 'no-signal', label: 'No signal', count: Number(policy.value.waiting_groups || 0) + Number(policy.value.unknown_groups || 0), tone: 'neutral' },
 ])
 
 // Configured-group browser (classic openMatrixHealthBrowser).
@@ -138,7 +138,7 @@ const groupColumns: ColumnDef<Rec, unknown>[] = [
     header: 'Classification',
     cell: ({ row }) =>
       h('button', { type: 'button', onClick: () => openMatrixGroup(row.original) }, [
-        h(ToneBadge, { tone: row.original.classification === 'mi355-sensitive' ? 'is-info' : 'is-neutral' }, () => matrixGateKindLabel(row.original)),
+        h(ToneBadge, { tone: row.original.classification === 'mi355-sensitive' ? 'info' : 'neutral' }, () => matrixGateKindLabel(row.original)),
       ]),
   },
   { id: 'hardware', header: 'Hardware', cell: ({ row }) => row.original.architectures.map((a: string) => a.toUpperCase()).join(', ') || '-' },
@@ -218,12 +218,12 @@ const matrixBrowserOpen = ref(false)
 const matrixSearch = (row: Rec) => [row.title, row.area].join(' ')
 
 const RATE_TEXT: Record<Tone, string> = {
-  'is-success': 'text-success',
-  'is-warning': 'text-warning',
-  'is-danger': 'text-destructive',
-  'is-info': 'text-info',
-  'is-neutral': 'text-muted-foreground',
-  'is-not-targeted': 'text-muted-foreground',
+  pass: 'text-success',
+  soft: 'text-warning',
+  hard: 'text-destructive',
+  info: 'text-info',
+  neutral: 'text-muted-foreground',
+  'not-targeted': 'text-muted-foreground',
 }
 </script>
 
@@ -256,7 +256,7 @@ const RATE_TEXT: Record<Tone, string> = {
                 label="Pass rate"
                 :value="overview.rate"
                 :badge="`${overview.stats[1]!.count} / ${overview.stats[0]!.count}`"
-                :badge-tone="Number(policy.failing_groups || 0) ? 'is-warning' : 'is-success'"
+                :badge-tone="Number(policy.failing_groups || 0) ? 'soft' : 'pass'"
                 headline="Browse all →"
                 detail="One fixed best-hardware policy"
                 data-testid="hardware-rate"
@@ -317,7 +317,7 @@ const RATE_TEXT: Record<Tone, string> = {
                   <span class="text-xs text-muted-foreground" data-testid="architecture-configured">{{ integer(architectureRate(health).configured) }} configured routes</span>
                 </span>
                 <span class="flex h-2.5 overflow-hidden rounded-full bg-muted">
-                  <template v-for="[tone, count] in ([['is-success', health.passed], ['is-danger', health.incident], ['is-warning', health.unknown]] as [Tone, number][])" :key="tone">
+                  <template v-for="[tone, count] in ([['pass', health.passed], ['hard', health.incident], ['soft', health.unknown]] as [Tone, number][])" :key="tone">
                     <span v-if="count" :class="SEGMENT_FILL[tone]" :style="{ width: `${(count / Math.max(1, architectureRate(health).configured)) * 100}%` }" />
                   </template>
                 </span>

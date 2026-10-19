@@ -806,7 +806,7 @@ export function agentKpis(model: AgentModel, view: AgentView, options: Pick<Agen
       label: 'IDENTIFIED AMD NODES',
       value: nodeMetricsAvailable ? integer(identifiedNodes) : 'Unavailable',
       meta: coverageAvailable ? integer(view.totalRuns) + ' exact runs in ' + options.windowId : 'node detail is incomplete',
-      tone: 'is-info',
+      tone: 'info',
     },
     {
       id: 'agent-unreliable',
@@ -815,7 +815,7 @@ export function agentKpis(model: AgentModel, view: AgentView, options: Pick<Agen
       meta: view.exactAggregateScope
         ? integer(view.aggregateFailures.signal) + ' exact ' + signalTerm(options.signal) + ' failures in aggregate'
         : 'node-specific accounting is incomplete',
-      tone: unreliable ? 'is-warning' : 'is-success',
+      tone: unreliable ? 'soft' : 'pass',
     },
     {
       id: 'agent-coverage',
@@ -824,14 +824,14 @@ export function agentKpis(model: AgentModel, view: AgentView, options: Pick<Agen
       meta: coverageAvailable
         ? integer(view.identifiedRuns) + ' / ' + integer(view.totalRuns) + ' exact runs identified'
         : 'aggregate accounting unavailable',
-      tone: coverageAvailable && coveragePct >= 50 ? 'is-success' : coverageAvailable && coveragePct > 0 ? 'is-warning' : 'is-danger',
+      tone: coverageAvailable && coveragePct >= 50 ? 'pass' : coverageAvailable && coveragePct > 0 ? 'soft' : 'hard',
     },
     {
       id: 'agent-cofail',
       label: 'CO-FAILURE EVENTS',
       value: (model.evidenceIncomplete ? '≥' : '') + integer(view.events.length),
       meta: integer(concurrent) + ' retained concurrent · ' + integer(cross) + ' retained cross-pipeline',
-      tone: view.events.length ? 'is-danger' : 'is-success',
+      tone: view.events.length ? 'hard' : 'pass',
     },
   ]
 }
@@ -1046,7 +1046,7 @@ export function cofailureCard(event: CofailEvent, selected: boolean) {
     node: value(event.node),
     meta: shortDate(event.started_at) + ' · ' + duration(event.span_mins) + ' span · ' + integer(event.group_count) + ' groups',
     pattern: concurrent ? 'concurrent' : 'sequential',
-    patternTone: (concurrent ? 'is-warning' : 'is-info') as Tone,
+    patternTone: (concurrent ? 'soft' : 'info') as Tone,
     cross: event.cross_pipeline,
     detail: selected
       ? integer(event.run_count) +

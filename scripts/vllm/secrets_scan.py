@@ -49,6 +49,8 @@ PATH_ALLOWLIST = (
     ".git/",
     "data/",  # generated CI data with commit SHAs
     "web/tests/fixtures/",  # trimmed snapshots of published data/ for v2 parity tests
+    "web/tests/golden/",  # recorded outputs over those fixtures, with their commit SHAs
+    "tests/browser/golden/",  # recorded page facts of the fixture site, with its commit SHAs
     "flake.lock",
     "node_modules/",
     "tests/browser/node_modules/",  # pinned third-party browser-test dependencies

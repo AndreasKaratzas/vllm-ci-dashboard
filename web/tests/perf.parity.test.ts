@@ -1,20 +1,20 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import * as v2 from '@/domain/perf'
-import { integer, shortDate, value, type Rec } from '@/domain/format'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { age, integer, shortDate, value, type Rec } from '@/domain/format'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 // renderPerf and openPerfHistory are DOM builders: run them on the snapshot and
 // compare what they render with the port's view model.
 const PORTED = ['state', 'cache', 'charts', 'renderPerf', 'perfValue', 'perfDelta', 'accuracyRows', 'openPerfHistory', 'closeOverlay', 'drawPerfSpark'] as const
 
+const perf = readFixture<Rec>('perf_eval.json')
+const NOW = pinClock(perf.generated_at)
+const parity = classicParity('perf')
 let classic: ClassicFns & { state: Rec; cache: Map<string, Promise<unknown>>; charts: Map<string, unknown> }
-let perf: Rec
 let lastChart: Rec | null = null
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 const text = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
 const all = (root: ParentNode, sel: string) => Array.from(root.querySelectorAll(sel))
@@ -104,7 +104,7 @@ function renderPort(data: Rec, state: v2.PerfState, opsGeneratedAt = '2026-09-01
   const pipeline = v2.perfPipelineUrl(data)
   const out: Rendered = {
     unavailable: false,
-    header: `Observed ${shortDate(ts)} - ${ageOf(ts)}`,
+    header: `Observed ${shortDate(ts)} - ${age(ts, NOW)}`,
     strip: [
       ['AMD MODELS', k.models, 'nightly model families', ''],
       ['NIGHTLIES TRACKED', k.nightlies, 'across retained series', pipeline],
@@ -134,8 +134,8 @@ function renderPort(data: Rec, state: v2.PerfState, opsGeneratedAt = '2026-09-01
         link(integer(row.model.nightly_count), ''),
         link(integer(row.performanceMetrics), ''),
         link(integer(row.accuracyMetrics), ''),
-        badge(integer(row.regressions), (row.model.latest || {}).build_url, row.regressions ? 'is-danger' : 'is-success'),
-        badge(integer(row.improvements), (row.model.latest || {}).build_url, row.improvements ? 'is-success' : 'is-neutral'),
+        badge(integer(row.regressions), (row.model.latest || {}).build_url, row.regressions ? 'hard' : 'pass'),
+        badge(integer(row.improvements), (row.model.latest || {}).build_url, row.improvements ? 'pass' : 'neutral'),
         link(v2.perfLatestBuildLabel(row.model), (row.model.latest || {}).build_url),
       ]),
     }
@@ -178,18 +178,6 @@ function renderPort(data: Rec, state: v2.PerfState, opsGeneratedAt = '2026-09-01
     out.empty = out.sections.flatMap((s) => s.empty)
   }
   return out
-}
-
-// classic age() at render time; both sides run within the same second.
-function ageOf(ts: string) {
-  const delta = Date.now() - new Date(ts).getTime()
-  if (!Number.isFinite(delta)) return 'timestamp unavailable'
-  const mins = Math.max(0, Math.floor(delta / 60000))
-  if (mins < 2) return 'just now'
-  if (mins < 60) return mins + 'm ago'
-  const hours = Math.floor(mins / 60)
-  if (hours < 48) return hours + 'h ago'
-  return Math.floor(hours / 24) + 'd ago'
 }
 
 function classicHistory(model: Rec, config: Rec, metricName: string, block: Rec) {
@@ -242,10 +230,10 @@ function compareImageDrawers(model: Rec, config: Rec, metricName: string, block:
   const history = visibleOverlay()
   const buttons = all(history, 'tbody tr td:last-child button') as HTMLButtonElement[]
   const series = v2.perfHistory(model, config, metricName, block).series
-  expect(buttons.length).toBe(series.length)
+  parity('imageButtons', series.length, buttons.length)
   buttons.forEach((b, i) => {
     b.click()
-    expect(portDrawer(v2.perfImageDetail(series[i]!))).toEqual(classicDrawer())
+    parity('imageDetail', portDrawer(v2.perfImageDetail(series[i]!)), classicDrawer())
   })
   classic.closeOverlay!()
   return buttons.length
@@ -266,7 +254,7 @@ function comparePointDrawers(series: Rec[], unit: unknown) {
   const onClick = (lastChart!.options as Rec).onClick as (e: unknown, els: { index: number }[]) => void
   rows.forEach((point, index) => {
     onClick(null, [{ index }])
-    expect(portDrawer(v2.perfPointDetail(point, unit))).toEqual(classicDrawer())
+    parity('pointDetail', portDrawer(v2.perfPointDetail(point, unit)), classicDrawer())
     classic.closeOverlay!()
   })
   canvas.remove()
@@ -282,7 +270,7 @@ function portHistory(model: Rec, config: Rec, metricName: string, block: Rec) {
     summary: [
       `LATEST ${h.latest}|`,
       `PREVIOUS ${h.previous}|`,
-      `CHANGE ${h.change}|${h.changeTone === 'is-neutral' ? '' : h.changeTone}`,
+      `CHANGE ${h.change}|${h.changeTone === 'neutral' ? '' : h.changeTone}`,
       `POINTS ${h.points}|`,
     ],
     caption: h.series.length ? h.tableTitle : '',
@@ -308,7 +296,6 @@ beforeAll(() => {
     destroy() {}
     resize() {}
   }
-  perf = readFixture<Rec>('perf_eval.json')
 })
 
 const STATES = (data: Rec): v2.PerfState[] => {
@@ -320,7 +307,7 @@ const STATES = (data: Rec): v2.PerfState[] => {
 async function expectSame(data: Rec, state: v2.PerfState) {
   const a = await renderClassic(data, state)
   const b = renderPort(data, state)
-  expect(b, JSON.stringify(state)).toEqual(a)
+  parity('page', b, a, JSON.stringify(state))
   return a
 }
 
@@ -335,6 +322,7 @@ describe('Perf Eval matches the classic renderer', () => {
     }
     expect(tiles).toBeGreaterThan(100)
     expect(rows).toBeGreaterThan(20)
+    await expectGoldenFile('perf', 'summary', renderPort(perf, { view: 'performance', model: 'all', device: 'all' }))
   })
 
   it('formats values and deltas as classic does', () => {
@@ -344,14 +332,14 @@ describe('Perf Eval matches the classic renderer', () => {
       const magnitude = 10 ** Math.floor(rand() * 9 - 4)
       const raw = [rand() * magnitude * (rand() < 0.3 ? -1 : 1), String(rand() * 100), null, undefined, 'n/a', 0, 1, 999.96, 1000, 0.9995][i % 10]
       const unit = UNITS[Math.floor(rand() * UNITS.length)]
-      expect(v2.perfValue(raw, unit)).toBe(classic.perfValue!(raw, unit))
+      parity('perfValue', v2.perfValue(raw, unit), classic.perfValue!(raw, unit))
       const block: Rec = {
         previous: [null, undefined, 1, 0][Math.floor(rand() * 4)],
         delta_pct: [rand() * 20 - 10, 'x', null, 0, -0.04, 0.05][Math.floor(rand() * 6)],
         status: ['good', 'bad', 'neutral', undefined][Math.floor(rand() * 4)],
       }
       const el = classic.perfDelta!(block)
-      expect(v2.perfDelta(block)).toEqual({
+      parity('perfDelta', v2.perfDelta(block), {
         label: el.textContent,
         tone: (el.className.match(/is-(success|danger|neutral)/) || [])[0],
         title: el.getAttribute('title'),
@@ -446,13 +434,17 @@ describe('Perf Eval matches the classic renderer', () => {
       for (const config of model.perf_configs as Rec[]) {
         for (const name of v2.sortedMetricNames(config.metrics)) {
           const block = config.metrics[name]
-          expect(portHistory(model, config, name, block)).toEqual(classicHistory(model, config, name, block))
+          parity('history', portHistory(model, config, name, block), classicHistory(model, config, name, block))
           points += block.series.length
         }
       }
       for (const { task } of v2.accuracyRows([model])) {
         const block = v2.accuracyBlock(task)
-        expect(portHistory(model, { label: 'Accuracy' }, task.metric, block)).toEqual(classicHistory(model, { label: 'Accuracy' }, task.metric, block))
+        parity(
+          'accuracyHistory',
+          portHistory(model, { label: 'Accuracy' }, task.metric, block),
+          classicHistory(model, { label: 'Accuracy' }, task.metric, block),
+        )
       }
     }
     expect(points).toBeGreaterThan(200)
@@ -477,12 +469,12 @@ describe('Perf Eval matches the classic renderer', () => {
         label: rand() < 0.5 ? undefined : 'Lbl',
       }
       const config = rand() < 0.3 ? {} : { label: 'Cfg' }
-      expect(portHistory({ model: 'm' }, config, 'metric_x', block)).toEqual(classicHistory({ model: 'm' }, config, 'metric_x', block))
+      parity('generatedHistory', portHistory({ model: 'm' }, config, 'metric_x', block), classicHistory({ model: 'm' }, config, 'metric_x', block))
     }
   })
 
   it('builds the same accuracy rows and history blocks', () => {
-    expect(v2.accuracyRows(perf.models)).toEqual(classic.accuracyRows!(perf.models))
+    parity('accuracyRows', v2.accuracyRows(perf.models), classic.accuracyRows!(perf.models))
     expect(v2.accuracyRows(perf.models).length).toBeGreaterThan(0)
   })
 
@@ -515,7 +507,7 @@ describe('Perf Eval matches the classic renderer', () => {
         const page = v2.perfPage(data, { view: 'accuracy', model: model.model, device: 'all' })
         const rows = page.kind === 'accuracy' ? page.rows : []
         const trs = all(host, 'tbody tr')
-        expect(trs.length).toBe(rows.length)
+        parity('accuracyRowCount', rows.length, trs.length)
         trs.forEach((tr, i) => {
           const row = rows[i]!
           if (!row.task.direction) undirected += 1
@@ -531,7 +523,7 @@ describe('Perf Eval matches the classic renderer', () => {
               caption: text(overlay.querySelector('caption')),
               rows: all(overlay, 'tbody tr').map((r) => all(r, 'td').map((td) => `${text(td)}|${td.querySelector('a')?.getAttribute('href') || ''}`)),
             }
-            expect(expected).toEqual(got)
+            parity('accuracyCellHistory', expected, got)
             classic.closeOverlay!()
             clicks += 1
           }
@@ -557,7 +549,7 @@ describe('Perf Eval matches the classic renderer', () => {
         const host = document.createElement('div')
         await classic.renderPerf!(host, { generated_at: '2026-09-01T00:00:00Z' })
         ;(host.querySelector('.ops-perf-model-title button') as HTMLButtonElement).click()
-        expect(portDrawer(v2.perfModelDetail(model))).toEqual(classicDrawer())
+        parity('modelDetail', portDrawer(v2.perfModelDetail(model)), classicDrawer())
         classic.closeOverlay!()
         models += 1
       }
@@ -618,5 +610,23 @@ describe('Perf Eval matches the classic renderer', () => {
     })
     expect(v2.perfModelFamilies(perf).map((m) => m.label)).toEqual((perf.models as Rec[]).map((m) => m.model).reverse())
     expect(v2.perfImageDetail({}).fields).toEqual([{ label: 'Image', value: '-' }])
+  })
+})
+
+describe('Perf Eval helpers on hand-written inputs', () => {
+  it('formats values by unit', () => {
+    const cases: [unknown, string][] = [[0.12345, 'ratio'], [12.3456, 'tok/s'], [null, 's'], ['n/a', ''], [0.9995, 'ratio']]
+    expect(cases.map(([raw, unit]) => v2.perfValue(raw, unit))).toEqual(['12.3%', '12.3 tok/s', '0 ms', '-', '100.0%'])
+  })
+
+  it('labels deltas and statuses', () => {
+    expect(v2.perfDelta({ previous: 1, delta_pct: 5.25, status: 'good' })).toEqual({ label: '+5.3%', tone: 'pass', title: 'Change from the preceding nightly' })
+    expect(v2.perfDelta({ previous: 1, delta_pct: -2, status: 'bad' })).toEqual({ label: '-2.0%', tone: 'hard', title: 'Change from the preceding nightly' })
+    expect(v2.perfDelta({ previous: null, delta_pct: 3 })).toEqual({ label: 'First nightly', tone: 'neutral', title: null })
+    expect(['good', 'bad', 'neutral'].map((s) => [v2.perfStatusTone(s), v2.accuracyStatusLabel(s)])).toEqual([
+      ['pass', 'improved'],
+      ['hard', 'regressed'],
+      ['neutral', 'within band'],
+    ])
   })
 })

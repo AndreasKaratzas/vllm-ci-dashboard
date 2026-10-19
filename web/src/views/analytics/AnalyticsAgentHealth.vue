@@ -118,9 +118,9 @@ const KPI_TITLES: Record<string, string> = {
   'agent-cofail': 'Co-failure events',
 }
 const KPI_BADGES: Record<string, Record<string, string>> = {
-  'agent-unreliable': { 'is-warning': 'attention', 'is-success': 'clear' },
-  'agent-coverage': { 'is-success': 'identified', 'is-warning': 'partial', 'is-danger': 'unavailable' },
-  'agent-cofail': { 'is-danger': 'clustered', 'is-success': 'none' },
+  'agent-unreliable': { soft: 'attention', pass: 'clear' },
+  'agent-coverage': { pass: 'identified', soft: 'partial', hard: 'unavailable' },
+  'agent-cofail': { hard: 'clustered', pass: 'none' },
 }
 const emptyText = computed(() => (model.value && view.value ? agentEmptyText(model.value, view.value) : null))
 

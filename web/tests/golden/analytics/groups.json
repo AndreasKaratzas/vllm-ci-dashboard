@@ -1,0 +1,62 @@
+{
+  "clusters": [
+    {
+      "count": "15",
+      "description": "Soft, hard, or unresolved result in the latest nightly",
+      "label": "Needs attention",
+      "meta": "0 soft - 15 hard - 0 retained unresolved",
+      "tone": "hard"
+    },
+    {
+      "count": "34",
+      "description": "Latest exact AMD job result passed",
+      "label": "Passing now",
+      "meta": "10.9% of latest job variants",
+      "tone": "pass"
+    },
+    {
+      "count": "20",
+      "description": "Both passing and non-passing nightlies retained",
+      "label": "Mixed history",
+      "meta": "7 source nightlies; retained catalog only",
+      "tone": "soft"
+    },
+    {
+      "count": "38",
+      "description": "Older job names not present in the latest nightly",
+      "label": "Historical only",
+      "meta": "Not classified as current failures",
+      "tone": "neutral"
+    }
+  ],
+  "strip": [
+    {
+      "label": "LATEST AMD NIGHTLY",
+      "meta": "Oct 18, 06:00 AM",
+      "tone": "hard",
+      "url": "https://buildkite.com/vllm/ci/builds/95663",
+      "value": "#95663"
+    },
+    {
+      "label": "LATEST AMD TEST GROUPS",
+      "meta": "16 pass on every route · 0 pass on some hardware only · 9 non-passing everywhere",
+      "tone": "soft",
+      "url": null,
+      "value": "16 / 25 passing"
+    },
+    {
+      "label": "LATEST JOB VARIANTS",
+      "meta": "297 passing - 15 non-passing exact jobs; 38 older variants retained only for history",
+      "tone": "hard",
+      "url": null,
+      "value": "312"
+    },
+    {
+      "label": "FAILURE OBSERVATIONS",
+      "meta": "0 soft - 15 hard",
+      "tone": "hard",
+      "url": null,
+      "value": "15"
+    }
+  ]
+}

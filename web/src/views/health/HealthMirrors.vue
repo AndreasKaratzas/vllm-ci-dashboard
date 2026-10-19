@@ -71,7 +71,7 @@ const inventoryColumns = computed<ColumnDef<Rec, unknown>[]>(() => [
       h('button', { type: 'button', class: 'text-left font-medium hover:underline', onClick: () => openDetail(row.original) }, amdMirrorLabel(row.original)),
   },
   { id: 'area', header: 'Test area', cell: ({ row }) => value(row.original.area) },
-  { id: 'device', header: 'AMD device', cell: ({ row }) => h(ToneBadge, { tone: 'is-info' }, () => hardwareDisplayLabel(row.original.device)) },
+  { id: 'device', header: 'AMD device', cell: ({ row }) => h(ToneBadge, { tone: 'info' }, () => hardwareDisplayLabel(row.original.device)) },
   {
     id: 'width',
     header: 'GPU width',
@@ -219,7 +219,7 @@ const methodOpen = ref(false)
               data-testid="mirror-preview"
               @click="openDetail(row)"
             >
-              <ToneBadge tone="is-info">{{ hardwareDisplayLabel(row.device) }}</ToneBadge>
+              <ToneBadge tone="info">{{ hardwareDisplayLabel(row.device) }}</ToneBadge>
               <span class="flex min-w-0 flex-col">
                 <strong class="truncate text-sm" data-testid="mirror-preview-label">{{ amdMirrorLabel(row) }}</strong>
                 <small class="truncate text-xs text-muted-foreground" data-testid="mirror-preview-meta">{{ mirrorPreviewMeta(row) }}</small>

@@ -523,10 +523,10 @@ export function queueDnsSignatureLabels(row: Rec | null | undefined): string[] {
 
 export function queueDnsOutcomePresentation(state: unknown): { label: string; tone: Tone } {
   const normalized = String(state || '').toLowerCase()
-  if (normalized === 'passed') return { label: 'Passed after observation', tone: 'is-success' }
-  if (normalized === 'soft' || normalized === 'soft_failed' || normalized === 'soft_fail') return { label: 'Soft-failed', tone: 'is-warning' }
-  if (normalized === 'hard' || normalized === 'failed') return { label: 'Hard-failed', tone: 'is-danger' }
-  return { label: value(state, 'Unknown'), tone: 'is-neutral' }
+  if (normalized === 'passed') return { label: 'Passed after observation', tone: 'pass' }
+  if (normalized === 'soft' || normalized === 'soft_failed' || normalized === 'soft_fail') return { label: 'Soft-failed', tone: 'soft' }
+  if (normalized === 'hard' || normalized === 'failed') return { label: 'Hard-failed', tone: 'hard' }
+  return { label: value(state, 'Unknown'), tone: 'neutral' }
 }
 
 // ---- renderAnalyticsDns summary, node bars, and the evidence drawer ----
@@ -656,18 +656,18 @@ export function dnsPresentation(payload: Rec, requestedWindow: string, requested
   )
   const nonpassing = totals.softFailedJobs + totals.hardFailedJobs
   const outcomeTone: Tone | '' = totals.hardFailedJobs
-    ? 'is-danger'
+    ? 'hard'
     : totals.softFailedJobs
-      ? 'is-warning'
+      ? 'soft'
       : totals.passedJobs
-        ? 'is-success'
+        ? 'pass'
         : ''
   const summary: DnsSummaryItem[] = [
     {
       label: 'JOBS WITH DNS OBSERVATIONS',
       value: queueDnsDisplayCount(totals.affectedJobs, coverage),
       meta: queueDnsDisplayCount(totals.episodes, coverage) + ' episodes',
-      tone: totals.affectedJobs ? 'is-warning' : 'is-success',
+      tone: totals.affectedJobs ? 'soft' : 'pass',
     },
     {
       label: 'AFFECTED QUEUES',
@@ -739,7 +739,7 @@ export function queueDnsNodeEvidence(
   const truncated = rows.length < evidenceTotal
   const note = truncated
     ? {
-        tone: 'is-warning' as Tone,
+        tone: 'soft' as Tone,
         text:
           'Exact links are retained for ' +
           integer(rows.length) +
@@ -749,7 +749,7 @@ export function queueDnsNodeEvidence(
       }
     : !rows.length && nodeRow.affectedJobs
       ? {
-          tone: 'is-info' as Tone,
+          tone: 'info' as Tone,
           text: 'The aggregate contains affected jobs for this node, but no exact log links were retained in the bounded public evidence set.',
         }
       : null

@@ -49,7 +49,7 @@ const noSignalNote = computed(() => {
   if (!build || build.has_test_results !== false) return null
   const blocked = Number(build.test_jobs_blocked || 0)
   return {
-    tone: (blocked ? 'is-danger' : 'is-warning') as Tone,
+    tone: (blocked ? 'hard' : 'soft') as Tone,
     text: blocked
       ? `This nightly failed before test execution. ${integer(blocked)} test jobs were dependency-blocked, so no pass/fail movement is inferred.`
       : 'This build has no parsed test-group signal. No pass/fail movement is inferred.',
@@ -57,7 +57,7 @@ const noSignalNote = computed(() => {
 })
 
 function changeTone(lifecycle: string): Tone {
-  return lifecycle === 'New failure' ? 'is-danger' : lifecycle === 'Fixed' ? 'is-success' : 'is-warning'
+  return lifecycle === 'New failure' ? 'hard' : lifecycle === 'Fixed' ? 'pass' : 'soft'
 }
 </script>
 

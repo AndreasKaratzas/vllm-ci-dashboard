@@ -15,11 +15,11 @@ const open = defineModel<boolean>('open', { required: true })
 
 const detail = computed(() => (props.group ? matrixGroupDetail(props.group, props.matrix) : null))
 const NOTE_CLASSES: Record<string, string> = {
-  'is-success': 'border-success/40 bg-success/10',
-  'is-danger': 'border-destructive/40 bg-destructive/10',
-  'is-warning': 'border-warning/40 bg-warning/10',
-  'is-info': 'border-info/40 bg-info/10',
-  'is-neutral': '',
+  pass: 'border-success/40 bg-success/10',
+  hard: 'border-destructive/40 bg-destructive/10',
+  soft: 'border-warning/40 bg-warning/10',
+  info: 'border-info/40 bg-info/10',
+  neutral: '',
 }
 
 const link = (label: string, url: string, cls = 'font-medium hover:underline') => h('a', { href: url, target: '_blank', rel: 'noopener', class: cls }, label)
@@ -35,7 +35,7 @@ const columns: ColumnDef<Rec, unknown>[] = [
     id: 'hardware',
     header: 'Hardware',
     accessorFn: (row) => String(row.architecture).toUpperCase(),
-    cell: ({ getValue }) => h(ToneBadge, { tone: 'is-neutral' }, () => String(getValue())),
+    cell: ({ getValue }) => h(ToneBadge, { tone: 'neutral' }, () => String(getValue())),
   },
   { id: 'queue', header: 'Agent pool', accessorFn: (row) => value(row.queue), cell: ({ getValue }) => h('span', { class: 'font-mono text-xs' }, String(getValue())) },
   {

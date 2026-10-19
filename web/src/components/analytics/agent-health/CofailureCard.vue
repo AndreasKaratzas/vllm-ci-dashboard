@@ -34,7 +34,7 @@ function onCard(e: MouseEvent) {
         {{ card.node }}
       </button>
       <ToneBadge :tone="card.patternTone">{{ card.pattern }}</ToneBadge>
-      <ToneBadge v-if="card.cross" tone="is-danger">cross-pipeline</ToneBadge>
+      <ToneBadge v-if="card.cross" tone="hard">cross-pipeline</ToneBadge>
     </div>
     <p class="text-xs text-muted-foreground" data-testid="cofailure-meta">{{ card.meta }}</p>
     <p v-if="card.detail" class="text-xs font-medium" data-testid="cofailure-detail">{{ card.detail }}</p>

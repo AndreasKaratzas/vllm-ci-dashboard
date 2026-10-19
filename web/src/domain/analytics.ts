@@ -228,7 +228,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
     logicalPassing <= logicalTotal
   const logicalPresentation = logicalAvailable
     ? logicalTestGroupPresentation(latestTestGroups)
-    : { value: '-', meta: 'same-build logical test-group counts unavailable', tone: 'is-warning' as Tone }
+    : { value: '-', meta: 'same-build logical test-group counts unavailable', tone: 'soft' as Tone }
   const passing = Number(latestCounts.passed || 0)
   const soft = Number(latestCounts.soft || latestCounts.soft_failed || 0)
   const hard = Number(latestCounts.hard || latestCounts.hard_failed || 0)
@@ -267,7 +267,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       'Top-level latest-build totals remain source-complete; catalog counts, hardware distributions, and history charts are retained-row lower bounds, and aggregate rates are unavailable.'
   }
 
-  const severityTone: Tone = hard ? 'is-danger' : soft ? 'is-warning' : 'is-success'
+  const severityTone: Tone = hard ? 'hard' : soft ? 'soft' : 'pass'
   const strip: StripItem[] = [
     {
       id: 'amd-health-build',
@@ -301,7 +301,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
         integer(nonPassing) +
         ' non-passing exact jobs' +
         (notLatest ? '; ' + integer(notLatest) + ' older variants retained only for history' : ''),
-      tone: hard ? 'is-danger' : nonPassing ? 'is-warning' : 'is-success',
+      tone: hard ? 'hard' : nonPassing ? 'soft' : 'pass',
     },
     {
       id: 'amd-health-incidents',
@@ -321,7 +321,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       renderedCount: rendered(currentIncidents.length + currentUnknown.length),
       description: 'Soft, hard, or unresolved result in the latest nightly',
       meta: integer(soft) + ' soft - ' + integer(hard) + ' hard - ' + publication.prefix + integer(currentUnknown.length) + ' retained unresolved',
-      tone: hard ? 'is-danger' : 'is-warning',
+      tone: hard ? 'hard' : 'soft',
       catalog: {
         title: 'AMD variants needing attention',
         subtitle: 'Current soft, hard, and unresolved outcomes only; historical-only names are excluded',
@@ -337,7 +337,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       meta: publication.complete
         ? percent(currentPassing.length, latestVariantCount) + ' of latest job variants'
         : 'Aggregate share unavailable for incomplete catalog',
-      tone: 'is-success',
+      tone: 'pass',
       catalog: { title: 'AMD job variants passing now', subtitle: 'Latest exact main CI AMD gating-job outcomes', rows: currentPassing, filter: 'passing' },
     },
     {
@@ -346,7 +346,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       renderedCount: rendered(mixed.length),
       description: 'Both passing and non-passing nightlies retained',
       meta: integer(summary.build_count) + ' source nightlies; retained catalog only',
-      tone: 'is-warning',
+      tone: 'soft',
       catalog: {
         title: 'AMD job variants with mixed history',
         subtitle: 'Job variants that passed on some AMD nightlies and had raw failures on others',
@@ -360,7 +360,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       renderedCount: rendered(missing.length),
       description: 'Older job names not present in the latest nightly',
       meta: 'Not classified as current failures',
-      tone: 'is-neutral',
+      tone: 'neutral',
       catalog: {
         title: 'Historical AMD job variants',
         subtitle: 'Retained older names that are not part of the latest nightly observation set',
@@ -754,7 +754,7 @@ export function nightliesModel(nightly: Rec): NightliesModel {
     const movement = nightlyFailureMovement(row)
     return row.has_test_results !== false && Boolean(movement) && movement!.available !== false
   })
-  const countTone = (count: number, active: Tone): Tone => (latestMovement && count ? active : latestMovement ? 'is-success' : 'is-neutral')
+  const countTone = (count: number, active: Tone): Tone => (latestMovement && count ? active : latestMovement ? 'pass' : 'neutral')
   return {
     name,
     latest,
@@ -778,7 +778,7 @@ export function nightliesModel(nightly: Rec): NightliesModel {
         label: 'NEW FAILURES',
         value: latestMovement ? integer(latestMovement.new.length) : '-',
         meta: latestMovement ? 'not failing in the preceding observed nightly' : 'unavailable in this snapshot',
-        tone: countTone(latestMovement ? latestMovement.new.length : 0, 'is-danger'),
+        tone: countTone(latestMovement ? latestMovement.new.length : 0, 'hard'),
         opensBuild: true,
         scope: 'new',
       },
@@ -786,7 +786,7 @@ export function nightliesModel(nightly: Rec): NightliesModel {
         label: 'RECURRING FAILURES',
         value: latestMovement ? integer(latestMovement.recurring.length) : '-',
         meta: latestMovement ? 'failed in the preceding observed nightly too' : 'unavailable in this snapshot',
-        tone: countTone(latestMovement ? latestMovement.recurring.length : 0, 'is-warning'),
+        tone: countTone(latestMovement ? latestMovement.recurring.length : 0, 'soft'),
         opensBuild: true,
         scope: 'recurring',
       },
@@ -794,7 +794,7 @@ export function nightliesModel(nightly: Rec): NightliesModel {
         label: 'FIXED',
         value: latestMovement ? integer(latestMovement.fixed.length) : '-',
         meta: latestMovement ? 'failed previously and passed now' : 'unavailable in this snapshot',
-        tone: latestMovement && latestMovement.fixed.length ? 'is-success' : 'is-neutral',
+        tone: latestMovement && latestMovement.fixed.length ? 'pass' : 'neutral',
         opensBuild: true,
         scope: 'fixed',
       },

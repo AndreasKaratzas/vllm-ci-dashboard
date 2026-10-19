@@ -1,7 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import * as v2 from '@/domain/agentHealth'
 import { integer, shortDate, type Rec } from '@/domain/format'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 const PURE = [
   'agentStateColor',
@@ -19,19 +22,15 @@ const PURE = [
   'agentPipelineScopeLabel',
 ] as const
 
+const fixture = readFixture<Rec>('agent_health_live.json')
+pinClock(fixture.generated_at)
+const parity = classicParity('agentHealth')
 let classic: ClassicFns
-let fixture: Rec
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 beforeAll(() => {
   ;(globalThis as Rec).requestAnimationFrame = () => 0
   Element.prototype.scrollIntoView = () => {}
   classic = loadClassic([...PURE, 'renderAmdAgentHealth', 'state', 'closeOverlay'] as unknown as string[])
-  fixture = readFixture<Rec>('agent_health_live.json')
 })
 
 interface Selection {
@@ -126,13 +125,13 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
   )
   const view = v2.computeAgentView(model, options)
   const notes = [
-    'ops-evidence-note is-info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.',
+    'ops-evidence-note info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.',
   ]
-  if (model.completionScopeNote) notes.push('ops-evidence-note is-info ops-agent-completion-scope|' + model.completionScopeNote)
-  if (model.retentionNote) notes.push('ops-evidence-note is-warning|' + model.retentionNote.title + model.retentionNote.body)
+  if (model.completionScopeNote) notes.push('ops-evidence-note info ops-agent-completion-scope|' + model.completionScopeNote)
+  if (model.retentionNote) notes.push('ops-evidence-note soft|' + model.retentionNote.title + model.retentionNote.body)
   const c = model.criteria
   notes.push(
-    'ops-evidence-note is-neutral ops-agent-criteria|What counts as an anomalous (infra-suspect) failure? When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same ' +
+    'ops-evidence-note neutral ops-agent-criteria|What counts as an anomalous (infra-suspect) failure? When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same ' +
       c.dayLabel +
       ', both: passed at least ' +
       c.pct +
@@ -141,7 +140,7 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
       ' graded samples), so the group demonstrably works; andpassed on at least one other physical node that day, so the failure is isolated to this box rather than a broad code break.Groups that fail broadly (real code bugs) and failures inside auto-cancelled / superseded builds are filtered out by default, isolating the signal that points at a specific machine.',
   )
   const empty = v2.agentEmptyText(model, view)
-  if (empty) notes.push('ops-evidence-note is-warning|' + empty)
+  if (empty) notes.push('ops-evidence-note soft|' + empty)
   const sort = v2.effectiveAgentSort(state.sort, state.sortExplicit, options.signal)
   const rows = v2.sortedAgents(view.agents, sort)
   const showSignal = options.signal !== 'all'
@@ -195,7 +194,7 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
         selected,
         node: card.node,
         meta: card.meta,
-        badges: [`ops-badge ${card.patternTone}|${card.pattern}`, ...(card.cross ? ['ops-badge is-danger|cross-pipeline'] : [])],
+        badges: [`ops-badge ${card.patternTone}|${card.pattern}`, ...(card.cross ? ['ops-badge hard|cross-pipeline'] : [])],
         detail: card.detail,
         runs: card.runs.map((r) => [rgb(r.color), r.run.group, r.meta, ...(r.time ? [r.time] : []), r.link].join('|')),
         runLinks: card.runs.filter((r) => r.run.url).map((r) => r.run.url),
@@ -205,18 +204,22 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
   }
 }
 
+function initialState() {
+  return { sort: { key: 'infra_suspect', dir: 'desc' as 'asc' | 'desc' }, sortExplicit: false, eventNodeFilter: '', selectedEventKey: '', selectedNode: undefined as string | undefined }
+}
+
 async function expectSame(health: Rec, sel: Selection) {
   const host = classicDom(health, sel)
   if (sel.search) await settle()
   const gate = host.querySelector(':scope > .ops-evidence-note.is-warning')
   if (!v2.agentHealthScopeValid(health)) {
-    expect(text(gate)).toBe(v2.AGENT_UNAVAILABLE_TEXT)
+    parity('unavailable', v2.AGENT_UNAVAILABLE_TEXT, text(gate))
     expect(host.querySelector('.ops-agent-controls')).toBeNull()
     host.remove()
     return null
   }
-  const v2State = { sort: { key: 'infra_suspect', dir: 'desc' as 'asc' | 'desc' }, sortExplicit: false, eventNodeFilter: '', selectedEventKey: '', selectedNode: undefined as string | undefined }
-  expect(v2Scrape(health, sel, v2State)).toEqual(scrape(host))
+  const v2State = initialState()
+  parity('view', v2Scrape(health, sel, v2State), scrape(host))
   for (const label of sel.sorts ?? []) {
     const button = host.querySelector(`.ops-agent-table button[aria-label="Sort by ${label}"]`) as HTMLButtonElement | null
     if (!button) continue
@@ -225,7 +228,7 @@ async function expectSame(health: Rec, sel: Selection) {
     const options = v2.agentOptions(v2.agentHealthModel(health), { signal: sel.signal })
     v2State.sort = v2.nextAgentSort(v2.effectiveAgentSort(v2State.sort, v2State.sortExplicit, options.signal), key)
     v2State.sortExplicit = true
-    expect(v2Scrape(health, sel, v2State)).toEqual(scrape(host))
+    parity('sortedView', v2Scrape(health, sel, v2State), scrape(host))
   }
   if (sel.focus !== undefined) {
     const buttons = host.querySelectorAll('.ops-agent-table tbody tr td:first-child button')
@@ -239,14 +242,14 @@ async function expectSame(health: Rec, sel: Selection) {
       const agent = v2.sortedAgents(view.agents, v2.effectiveAgentSort(v2State.sort, v2State.sortExplicit, options.signal)).find((a) => (a.node || '-') === label)!
       v2State.eventNodeFilter = agent.node_raw
       v2State.selectedNode = agent.node_raw
-      expect(v2Scrape(health, sel, v2State)).toEqual(scrape(host))
+      parity('focusedView', v2Scrape(health, sel, v2State), scrape(host))
       const card = host.querySelector('.ops-cofailure-card .ops-cofailure-meta') as HTMLElement | null
       if (card) {
         card.click()
         const event = v2.eventsSection(view, options, v2State.eventNodeFilter).events[0]!
         v2State.selectedEventKey = v2.eventKey(event)
         v2State.selectedNode = event.node_raw
-        expect(v2Scrape(health, sel, v2State)).toEqual(scrape(host))
+        parity('selectedEventView', v2Scrape(health, sel, v2State), scrape(host))
       }
       // The node evidence drawer (Evidence column) lists the retained runs newest first.
       const evidenceButton = [...host.querySelectorAll('.ops-agent-table tbody tr')]
@@ -256,10 +259,14 @@ async function expectSame(health: Rec, sel: Selection) {
         evidenceButton.click()
         const dialog = document.querySelector('[role="dialog"]')!
         const drawer = v2.nodeEvidence(agent, options)
-        expect(text(dialog.querySelector('.ops-overlay-title'))).toBe(drawer.title)
-        expect(text(dialog.querySelector('.ops-overlay-subtitle'))).toBe(drawer.subtitle)
+        parity('nodeEvidenceTitle', drawer.title, text(dialog.querySelector('.ops-overlay-title')))
+        parity('nodeEvidenceSubtitle', drawer.subtitle, text(dialog.querySelector('.ops-overlay-subtitle')))
         const classicRows = [...dialog.querySelectorAll('tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent).join('|'))
-        expect(drawer.rows.slice(0, 30).map((p) => [p.label, shortDate(p.timestamp), p.valueSummary, p.url ? 'Open source' : 'Inspect'].join('|'))).toEqual(classicRows)
+        parity(
+          'nodeEvidenceRows',
+          drawer.rows.slice(0, 30).map((p) => [p.label, shortDate(p.timestamp), p.valueSummary, p.url ? 'Open source' : 'Inspect'].join('|')),
+          classicRows,
+        )
         expect(classicRows.length).toBe(Math.min(30, agent._runs.length))
         classic.closeOverlay!()
       }
@@ -296,13 +303,15 @@ describe('CI agent health domain matches the classic renderer', () => {
     }
     expect(rows).toBeGreaterThan(100)
     expect(events).toBeGreaterThan(10)
+    const view = v2Scrape(fixture, {}, initialState()) as Rec
+    await expectGoldenFile('agentHealth', 'default-view', { ...view, rows: view.rows.slice(0, 8), events: view.events.slice(0, 2) })
   }, 60_000)
 
   it('agrees on the classic helpers for the real snapshot', () => {
-    expect(v2.agentSourceCoverage(fixture)).toEqual(classic.agentSourceCoverage!(fixture))
-    expect(v2.agentPipelineScopeLabel(fixture)).toBe(classic.agentPipelineScopeLabel!(fixture))
+    parity('agentSourceCoverage', v2.agentSourceCoverage(fixture), classic.agentSourceCoverage!(fixture))
+    parity('agentPipelineScopeLabel', v2.agentPipelineScopeLabel(fixture), classic.agentPipelineScopeLabel!(fixture))
     for (const day of [undefined, '2026-10-01', '2026-10-12', '2026-10-13', '2026-10-19', '2026-10-20', 'bad']) {
-      expect(v2.agentSourceHistoryComplete(fixture, day)).toBe(classic.agentSourceHistoryComplete!(fixture, day))
+      parity('agentSourceHistoryComplete', v2.agentSourceHistoryComplete(fixture, day), classic.agentSourceHistoryComplete!(fixture, day))
     }
     for (const signal of ['infra', 'hard', 'all', 'x']) {
       for (const startDay of ['', '2026-10-12', '2026-10-18']) {
@@ -313,29 +322,35 @@ describe('CI agent health domain matches the classic renderer', () => {
             [true, false],
           ]) {
             const options = { startDay, hardware, nightlyOnly: flags[0], excludeCancelled: flags[1], signal }
-            expect(v2.agentAggregateRunCounts(fixture.node_accounting_totals, options)).toEqual(
+            parity(
+              'agentAggregateRunCounts',
+              v2.agentAggregateRunCounts(fixture.node_accounting_totals, options),
               classic.agentAggregateRunCounts!(fixture.node_accounting_totals, options),
             )
-            expect(v2.agentAggregateFailureCounts(fixture.failure_accounting_totals, options)).toEqual(
+            parity(
+              'agentAggregateFailureCounts',
+              v2.agentAggregateFailureCounts(fixture.failure_accounting_totals, options),
               classic.agentAggregateFailureCounts!(fixture.failure_accounting_totals, options),
             )
-            expect([...v2.agentFailureAccountingCounts(fixture.failure_accounting, options)]).toEqual([
-              ...classic.agentFailureAccountingCounts!(fixture.failure_accounting, options),
-            ])
+            parity(
+              'agentFailureAccountingCounts',
+              [...v2.agentFailureAccountingCounts(fixture.failure_accounting, options)],
+              [...classic.agentFailureAccountingCounts!(fixture.failure_accounting, options)],
+            )
           }
         }
       }
     }
-    for (const s of ['pass', 'PASSED', 'soft', 'hard', 'canceled', '', null]) expect(v2.agentStateColor(s)).toBe(classic.agentStateColor!(s))
-    for (const m of [30, 60, 90, 1440, 0, 'x']) expect(v2.agentCofailLabel(m)).toBe(classic.agentCofailLabel!(m))
+    for (const s of ['pass', 'PASSED', 'soft', 'hard', 'canceled', '', null]) parity('agentStateColor', v2.agentStateColor(s), classic.agentStateColor!(s))
+    for (const m of [30, 60, 90, 1440, 0, 'x']) parity('agentCofailLabel', v2.agentCofailLabel(m), classic.agentCofailLabel!(m))
     for (const [p, b, j] of [
       ['ci', 1, 'abc'],
       ['ci', 0, ''],
       ['', 1, 'x'],
       ['ci', null, 'x'],
     ])
-      expect(v2.buildkiteJobUrl(p, b, j)).toBe(classic.buildkiteJobUrl!(p, b, j))
-    for (const t of ['short', 'x'.repeat(34), 'y'.repeat(35), '']) expect(v2.agentTruncate(t, 34)).toBe(classic.agentTruncate!(t, 34))
+      parity('buildkiteJobUrl', v2.buildkiteJobUrl(p, b, j), classic.buildkiteJobUrl!(p, b, j))
+    for (const t of ['short', 'x'.repeat(34), 'y'.repeat(35), '']) parity('agentTruncate', v2.agentTruncate(t, 34), classic.agentTruncate!(t, 34))
   })
 
   it('clusters generated failing runs into the same co-failure events', () => {
@@ -357,7 +372,9 @@ describe('CI agent health domain matches the classic renderer', () => {
         }
       })
       const mins = pick([30, 60, 120, 180])
-      expect(v2.clusterNodeCofailures('n (MI300)', 'n', 'MI300', runs as unknown as v2.AgentRun[], mins)).toEqual(
+      parity(
+        'clusterNodeCofailures',
+        v2.clusterNodeCofailures('n (MI300)', 'n', 'MI300', runs as unknown as v2.AgentRun[], mins),
         classic.clusterNodeCofailures!('n (MI300)', 'n', 'MI300', structuredClone(runs), mins),
       )
     }
@@ -506,4 +523,38 @@ describe('CI agent health domain matches the classic renderer', () => {
     expect(exact!.kpis).not.toEqual(searched!.kpis)
     expect(integer(1)).toBe('1')
   }, 60_000)
+})
+
+describe('CI agent health helpers on hand-written inputs', () => {
+  it('labels co-failure windows, truncates, and links exact jobs', () => {
+    expect([30, 60, 90, 1440, 'x'].map((m) => v2.agentCofailLabel(m))).toEqual(['30m', '1h', '90m', '24h', '0h'])
+    expect(v2.agentTruncate('x'.repeat(35), 34)).toBe(`${'x'.repeat(33)}…`)
+    expect([v2.buildkiteJobUrl('ci', 1, 'abc'), v2.buildkiteJobUrl('ci', 0, ''), v2.buildkiteJobUrl('', 1, 'x')]).toEqual([
+      'https://buildkite.com/vllm/ci/builds/1/steps/canvas?jid=abc&tab=output',
+      'https://buildkite.com/vllm/ci/builds/0',
+      '',
+    ])
+  })
+
+  it('clusters overlapping failures into one concurrent event', () => {
+    const runs = [
+      { pipeline: 'ci', build_number: 1, group: 'g1', state: 'hard', _start: 0, _end: 600_000, started_at: '1970-01-01T00:00:00.000Z' },
+      { pipeline: 'ci', build_number: 1, group: 'g2', state: 'soft', _start: 300_000, _end: 900_000, started_at: '1970-01-01T00:05:00.000Z' },
+      { pipeline: 'ci', build_number: 2, group: 'g3', state: 'hard', _start: 36_000_000, _end: 36_600_000, started_at: '1970-01-01T10:00:00.000Z' },
+    ]
+    const events = v2.clusterNodeCofailures('n (MI300)', 'n', 'MI300', runs as unknown as v2.AgentRun[], 30)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ pattern: 'concurrent', span_mins: 15, run_count: 2, group_count: 2, hard_failed: 1, soft_failed: 1, cross_pipeline: false })
+  })
+
+  it('colors states, labels nodes, and sorts by signal', () => {
+    expect(['passed', 'soft', 'hard', 'canceled', ''].map((s) => v2.agentStateColor(s))).toEqual(['#35bb78', '#e3a63a', '#e06464', '#8a93a0', '#66717d'])
+    expect([v2.agentNodeLabel('n1', 'MI300'), v2.agentNodeLabel('n1', '')]).toEqual(['n1 (MI300)', 'n1'])
+    expect(v2.effectiveAgentSort({ key: 'node', dir: 'asc' }, false, 'infra')).toEqual({ key: 'infra_suspect', dir: 'desc' })
+    expect(v2.effectiveAgentSort({ key: 'infra_suspect', dir: 'asc' }, true, 'all')).toEqual({ key: 'failures', dir: 'asc' })
+    expect([v2.nextAgentSort({ key: 'node', dir: 'asc' }, 'node'), v2.nextAgentSort({ key: 'node', dir: 'asc' }, 'failures')]).toEqual([
+      { key: 'node', dir: 'desc' },
+      { key: 'failures', dir: 'desc' },
+    ])
+  })
 })
