@@ -19,6 +19,11 @@ export interface DetailStat {
 export interface DetailField {
   label: string
   value: string | number | null | undefined
+  /** Render the value as a status badge of this tone. */
+  tone?: Tone
+  /** Render the value as an external link. */
+  href?: string
+  mono?: boolean
 }
 
 export interface DetailSource {

@@ -10,7 +10,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from '@/components/ui/command'
 import { useOperations, useWorkItems } from '@/composables/useOperations'
 import { useTheme } from '@/composables/useTheme'
@@ -67,9 +66,14 @@ function run(action: () => void) {
 </script>
 
 <template>
-  <CommandDialog v-model:open="open" title="Search the dashboard" description="Jump to a view, nightly, issue, or pull request, or run an action">
-    <CommandInput placeholder="Type a view, build number, issue, or action…" />
-    <CommandList class="max-h-[min(28rem,70vh)]">
+  <CommandDialog
+    v-model:open="open"
+    class="top-[12vh] translate-y-0 sm:top-[15vh]"
+    title="Search the dashboard"
+    description="Jump to a view, nightly, issue, or pull request, or run an action"
+  >
+    <CommandInput placeholder="Search views, nightlies, actions…" class="pr-8" />
+    <CommandList class="max-h-[min(28rem,70vh)]" aria-label="Search results">
       <CommandEmpty>No results found.</CommandEmpty>
       <CommandGroup heading="Views">
         <CommandItem v-for="tab in NAV_TABS" :key="tab.name" :value="`view ${tab.label}`" @select="go(tab.path)">
@@ -83,7 +87,6 @@ function run(action: () => void) {
           <span>{{ view.label }}</span>
         </CommandItem>
       </CommandGroup>
-      <CommandSeparator />
       <CommandGroup heading="AMD nightlies">
         <CommandItem
           v-for="build in nightlies"
@@ -97,7 +100,6 @@ function run(action: () => void) {
           <span class="ml-auto text-xs text-muted-foreground">{{ build.state }} · {{ shortDate(build.created_at) }}</span>
         </CommandItem>
       </CommandGroup>
-      <CommandSeparator />
       <CommandGroup heading="Actions">
         <CommandItem value="action toggle theme dark light" @select="run(toggle)">
           <Sun v-if="dark" /><Moon v-else /> Switch to {{ dark ? 'light' : 'dark' }} theme
@@ -106,7 +108,6 @@ function run(action: () => void) {
         <CommandItem value="action open buildkite amd ci" @select="visit(BUILDKITE)"><Activity /> Open Buildkite AMD CI</CommandItem>
         <CommandItem value="action open dashboard repository github" @select="visit(REPO)"><FolderGit2 /> Open dashboard repository</CommandItem>
       </CommandGroup>
-      <CommandSeparator v-if="work?.issues.length || work?.prs.length" />
       <CommandGroup v-if="work?.issues.length" heading="Issues">
         <CommandItem v-for="issue in work.issues" :key="issue.number" :value="`issue #${issue.number} ${issue.title}`" @select="visit(issue.html_url)">
           <CircleDot /> <span class="truncate">#{{ issue.number }} {{ issue.title }}</span>

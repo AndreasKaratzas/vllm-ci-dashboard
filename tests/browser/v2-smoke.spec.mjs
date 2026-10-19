@@ -4,18 +4,21 @@ import { readGolden } from './golden/read.mjs';
 
 import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 
-const COMMAND_CENTER = { name: 'Command Center', level: 1 };
+const HOME = { name: 'Home', level: 1 };
 
 test.describe('Home', () => {
   test('renders the fixture nightlies and opens build evidence', async ({ page }) => {
     const errors = collectErrors(page);
 
     await page.goto('/');
-    await expect(page.getByRole('heading', COMMAND_CENTER)).toBeVisible();
+    await expect(page.getByRole('heading', HOME)).toBeVisible();
+    await expect(page.getByTestId('kpi-nightly').locator('[data-slot=kpi-value]')).toHaveText(/^2\s*failing$/);
     await expect(page.getByTestId('kpi-nightly')).toContainText('Hard failures');
+    await expect(page.getByTestId('kpi-nightly')).toContainText('No net change');
     await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 4 pass - 0 soft - 2 hard');
     await expect(page.getByTestId('kpi-pass-rate')).toContainText('66.7%');
     await expect(page.getByTestId('kpi-parity')).toContainText('90.9%');
+    await expect(page.getByTestId('kpi-parity')).toContainText('1 missing');
     await expect(page.getByTestId('kpi-attention')).toContainText('2');
     await expect(page.getByTestId('nightly-trend')).toContainText('AMD nightly pass rate');
     await expect(page.getByTestId('nightly-trend').getByRole('img', { name: 'AMD nightly pass rate' })).toBeVisible();
@@ -65,6 +68,21 @@ test.describe('Home', () => {
     await expect(page.getByRole('dialog')).toContainText('AMD build #30003');
   });
 
+  test('the pass-rate range control lives in the card header and keeps its choice in the URL', async ({ page }) => {
+    await page.goto('/');
+    const trend = page.getByTestId('nightly-trend');
+    const range = trend.getByRole('group', { name: 'Nightly range' });
+    await expect(range.getByRole('button', { name: 'All' })).toHaveAttribute('data-state', 'on');
+    await range.getByRole('button', { name: 'Last 7' }).click();
+    await expect(page).toHaveURL(/range=7/);
+    await expect(trend).toContainText('All 5 retained nightlies');
+    await page.goto('/#/?range=14');
+    await expect(page.getByTestId('nightly-trend').getByRole('group', { name: 'Nightly range' }).getByRole('button', { name: 'Last 14' })).toHaveAttribute(
+      'data-state',
+      'on',
+    );
+  });
+
   test('the engineering workbench switches between issues and pull requests in the URL', async ({ page }) => {
     await page.goto('/');
     const workbench = page.getByTestId('workbench');
@@ -78,9 +96,9 @@ test.describe('Home', () => {
 test.describe('App shell', () => {
   test('the command palette jumps between views', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByRole('heading', COMMAND_CENTER)).toBeVisible();
+    await expect(page.getByRole('heading', HOME)).toBeVisible();
     await page.keyboard.press('Control+k');
-    await page.getByPlaceholder(/Type a view/).fill('analytics');
+    await page.getByPlaceholder(/Search views/).fill('analytics');
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/#\/analytics$/);
   });
@@ -128,7 +146,9 @@ test.describe('App shell', () => {
 const SHEETS = {
   'build evidence': async (page) => page.getByTestId('nightly-table').locator('tbody tr').first().getByRole('cell').nth(1).click(),
   'attention evidence': async (page) => page.getByTestId('attention-row').first().click(),
-  'data freshness': async (page) => page.locator('[data-slot=header-freshness]').first().click(),
+  'data freshness': async (page) => page.locator('[data-slot^=header-freshness]:visible').first().click(),
+  'hard-count evidence': async (page) => page.getByTestId('nightly-table').locator('tbody tr').first().getByRole('button', { name: '2' }).first().click(),
+  'command palette': async (page) => page.keyboard.press('Control+k'),
 };
 
 for (const theme of ['light', 'dark']) {
@@ -139,7 +159,7 @@ for (const theme of ['light', 'dark']) {
         await page.setViewportSize(viewport);
         const errors = collectErrors(page);
         await page.goto('/');
-        await expect(page.getByRole('heading', COMMAND_CENTER)).toBeVisible();
+        await expect(page.getByRole('heading', HOME)).toBeVisible();
         await open(page);
         await expect(page.getByRole('dialog')).toBeVisible();
         await page.waitForTimeout(400);
@@ -198,7 +218,7 @@ test.describe('v2 is the root page and keeps old links working', () => {
     await expect(page).toHaveURL(/#\/health\?view=parity$/);
     await expect(page.getByTestId('parity-ring')).toBeVisible();
     await page.goto('/#projects');
-    await expect(page.getByRole('heading', COMMAND_CENTER)).toBeVisible();
+    await expect(page.getByRole('heading', HOME)).toBeVisible();
   });
 
   test('old /v2/ bookmarks redirect to the root with their route', async ({ page }) => {

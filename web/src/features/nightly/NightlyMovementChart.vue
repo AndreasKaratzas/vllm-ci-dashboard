@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import BarChart from '@/components/charts/BarChart.vue'
-import type { SeriesSpec } from '@/components/charts/chart'
+import { shortDay, type SeriesSpec } from '@/components/charts/chart'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import type { Rec } from '@/domain/format'
 import { nightlyFailureCount } from '@/domain/nightly'
@@ -41,6 +41,12 @@ const rows = computed<Row[]>(() =>
     fixed: nightlyFailureCount(build, 'fixed') ?? 0,
   })),
 )
+// Dates on the axis match the pass-rate chart; the tooltip and Inspect name the build.
+const day = (row: Row) => {
+  const ms = Date.parse(String(row.build.created_at || ''))
+  return Number.isFinite(ms) ? shortDay(ms) : `#${row.build.number}`
+}
+const rowLabel = (row: Row) => `Nightly #${row.build.number} · ${day(row)}`
 const select = computed(() => (props.onSelect ? (row: Row) => props.onSelect!(row.build) : undefined))
 </script>
 
@@ -53,7 +59,10 @@ const select = computed(() => (props.onSelect ? (row: Row) => props.onSelect!(ro
   <BarChart
     v-else
     :rows="rows"
-    :category="(row: Row) => `#${row.build.number}`"
+    :category="day"
+    :row-label="rowLabel"
+    integer
+    inspect-placement="legend"
     :series="SERIES"
     :diverging="['fixed']"
     :label="label"

@@ -36,8 +36,15 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     label: 'Build',
     value: (build) => Number(build.number || 0),
     cell: (build) => link(`#${build.number}`, exactPipelineBuildUrl(build, 'ci'), true),
+    class: 'whitespace-nowrap',
   },
-  { id: 'started', label: 'Started', value: (build) => String(build.created_at || ''), cell: (build) => text(shortDate(build.created_at)) },
+  {
+    id: 'started',
+    label: 'Started',
+    value: (build) => String(build.created_at || ''),
+    cell: (build) => text(shortDate(build.created_at)),
+    class: 'hidden whitespace-nowrap sm:table-cell',
+  },
   {
     id: 'passRate',
     label: 'Pass rate',
@@ -47,8 +54,9 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       const missing = noSignalLabel(build)
       if (missing) return { text: missing, tone: nightlyResultTone(build) }
       const counts = nightlyCounts(build)!
-      return { text: `${((counts.passed / counts.total) * 100).toFixed(1)}%`, sub: `${integer(counts.passed)} / ${integer(counts.total)}` }
+      return { text: `${(counts.passRate * 100).toFixed(1)}%`, sub: `${integer(counts.passed)} / ${integer(counts.total)}` }
     },
+    class: 'whitespace-nowrap',
   },
   ...(['hard', 'soft'] as const).map(
     (scope): ColumnSpec<Rec> => ({
@@ -65,6 +73,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       label: LABELS[scope],
       numeric: true,
       hideable: true,
+      class: 'hidden md:table-cell',
       value: (build) => nightlyFailureCount(build, scope) ?? -1,
       cell: (build) => countCell(build, scope, nightlyFailureCount(build, scope)),
     }),
@@ -78,7 +87,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       <CardTitle class="text-base">Retained nightlies</CardTitle>
       <CardDescription>{{ integer(props.builds.length) }} AMD nightlies · open a row for its evidence, or a count for its job variants</CardDescription>
     </CardHeader>
-    <CardContent data-testid="nightly-table">
+    <CardContent class="px-4 sm:px-6" data-testid="nightly-table">
       <DataTable
         :columns="columns"
         :rows="props.builds"

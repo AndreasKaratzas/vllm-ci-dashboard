@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import AreaChart, { type CompanionBars, type RangeOption } from '@/components/charts/AreaChart.vue'
+import AreaChart, { type CompanionBars } from '@/components/charts/AreaChart.vue'
 import { shortDay, type SeriesSpec } from '@/components/charts/chart'
+import RangeToggle, { type RangeOption } from '@/components/charts/RangeToggle.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useQueryState } from '@/composables/useQueryState'
-import { passRateDomain, type NightlyCounts } from '@/domain/home'
+import { passRateAxis, type NightlyCounts } from '@/domain/home'
 import { SERIES, statusVar } from '@/lib/palette'
 
 const props = defineProps<{ series: NightlyCounts[] }>()
@@ -40,18 +41,21 @@ const FAILURES: CompanionBars = {
   ],
 }
 
-const RANGE_KEYS = ['all', '14', '7'] as const
-const rangeParam = useQueryState<(typeof RANGE_KEYS)[number]>('range', { default: 'all', allowed: RANGE_KEYS })
-const ranges = computed<RangeOption[]>(() => {
-  const count = rows.value.length
-  const options = [{ value: 0, label: `All ${count}` }, ...[14, 7].filter((n) => n < count).map((n) => ({ value: n, label: `Last ${n}` }))]
-  return options.length > 1 ? options : []
-})
+const RANGE_KEYS = ['all', '30', '14', '7'] as const
+type RangeKey = (typeof RANGE_KEYS)[number]
+const RANGES: RangeOption[] = [
+  { value: 0, label: 'All' },
+  { value: 30, label: 'Last 30' },
+  { value: 14, label: 'Last 14' },
+  { value: 7, label: 'Last 7' },
+]
+const rangeParam = useQueryState<RangeKey>('range', { default: 'all', allowed: RANGE_KEYS })
 const range = computed({
-  get: () => (rangeParam.value === 'all' || Number(rangeParam.value) >= rows.value.length ? 0 : Number(rangeParam.value)),
-  set: (value: number) => (rangeParam.value = value ? (String(value) as '14' | '7') : 'all'),
+  get: () => (rangeParam.value === 'all' ? 0 : Number(rangeParam.value)),
+  set: (value: number) => (rangeParam.value = value ? (String(value) as RangeKey) : 'all'),
 })
 const shown = computed(() => (range.value ? Math.min(range.value, rows.value.length) : rows.value.length))
+const axis = computed(() => passRateAxis(props.series))
 
 const percent = (value: number) => `${Number(value.toFixed(1))}%`
 const dayOf = (index: number) => {
@@ -66,9 +70,12 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
     <CardHeader>
       <CardTitle class="text-base">AMD nightly pass rate</CardTitle>
       <CardDescription>
-        <span>Job variants passed in the last {{ shown }} retained nightlies</span>
-        <span class="hidden @3xl/main:inline">, with hard and soft failures below</span>
+        <span>{{ shown === rows.length ? `All ${shown} retained nightlies` : `Last ${shown} of ${rows.length} retained nightlies` }}</span>
+        <span class="hidden @3xl/main:inline"> · hard and soft failures below</span>
       </CardDescription>
+      <CardAction v-if="rows.length > 1">
+        <RangeToggle v-model="range" :options="RANGES" label="Nightly range" />
+      </CardAction>
     </CardHeader>
     <CardContent class="px-3 sm:px-6">
       <EmptyState
@@ -85,9 +92,10 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
         :row-label="rowLabel"
         :series="PASS_RATE"
         :bars="FAILURES"
-        :y-domain="passRateDomain(series)"
+        :y-domain="axis.domain"
+        :y-ticks="axis.ticks"
         :y-format="percent"
-        :ranges="ranges"
+        inspect-placement="legend"
         label="AMD nightly pass rate"
         hint="Click for build evidence"
         :on-select="(row: Row) => emit('select', row.number)"

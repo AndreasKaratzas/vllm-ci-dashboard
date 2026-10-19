@@ -62,11 +62,20 @@ export function noSignalLabel(build: Rec | null | undefined): string | null {
   return Number(build?.test_jobs_blocked || 0) ? 'Infra blocked' : 'No test signal'
 }
 
-/** A y-domain up to 100 that puts the lowest rate mid-plot, so small pass-rate changes stay visible. */
-export function passRateDomain(series: NightlyCounts[]): [number, number] {
-  if (!series.length) return [0, 100]
-  const lowest = Math.min(...series.map((row) => row.passRate * 100))
-  return [Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))), 100]
+const AXIS_STEPS = [1, 2, 5, 10, 20, 25]
+
+/**
+ * A pass-rate axis up to 100 that puts the lowest rate mid-plot, so small changes stay visible,
+ * with at most five round ticks and the bottom of the domain on a tick.
+ */
+export function passRateAxis(series: NightlyCounts[]): { domain: [number, number]; ticks: number[] } {
+  const lowest = series.length ? Math.min(...series.map((row) => row.passRate * 100)) : 0
+  const floor = series.length ? Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))) : 0
+  const step = AXIS_STEPS.find((candidate) => (100 - floor) / candidate <= 4) ?? 25
+  const start = Math.floor(floor / step) * step
+  const ticks: number[] = []
+  for (let value = start; value <= 100; value += step) ticks.push(value)
+  return { domain: [start, 100], ticks }
 }
 
 /** The most severe tone across attention signals; none active is a pass. */

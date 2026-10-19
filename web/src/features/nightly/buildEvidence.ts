@@ -2,6 +2,7 @@ import type { Detail, DetailNote, DetailStat } from '@/components/evidence/detai
 import { badge, link, mono, type ColumnSpec } from '@/components/table/columns'
 import { integer, shortDate, toneForState, value, type Rec, type Tone } from '@/domain/format'
 import { nightlyBuildEvidence, nightlyFailureMovement } from '@/domain/nightly'
+import { commitUrl } from '@/domain/perf'
 import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
 
 export interface BuildEvidenceOptions {
@@ -35,16 +36,19 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
     stats.push({ label: 'Hard failures', value: integer(failureCount(build, 'failed_groups')) })
     stats.push({ label: 'Soft failures', value: integer(failureCount(build, 'soft_failed_groups')) })
   }
-  stats.push(
-    scoped
-      ? { label: evidence.label, value: evidence.available ? integer(evidence.rows.length) : 'Unavailable' }
-      : {
-          label: 'New / recurring / fixed',
-          value: movementAvailable
-            ? `${integer((movement!.new || []).length)} / ${integer((movement!.recurring || []).length)} / ${integer((movement!.fixed || []).length)}`
-            : 'Unavailable',
-        },
-  )
+  // A hard or soft scope is already counted above; its table carries the row count.
+  if (!severityScope) {
+    stats.push(
+      scoped
+        ? { label: evidence.label, value: evidence.available ? integer(evidence.rows.length) : 'Unavailable' }
+        : {
+            label: 'New / recurring / fixed',
+            value: movementAvailable
+              ? `${integer((movement!.new || []).length)} / ${integer((movement!.recurring || []).length)} / ${integer((movement!.fixed || []).length)}`
+              : 'Unavailable',
+          },
+    )
+  }
 
   const notes: DetailNote[] = []
   if (!hasSignal) {
@@ -84,10 +88,17 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
           value: (row) => String(row.lifecycle || ''),
           cell: (row) => badge(row.lifecycle, CHANGE_TONE[row.lifecycle] ?? 'neutral'),
         },
-    { id: 'queue', label: 'Queue', value: (row) => String(row.queue || ''), cell: (row) => mono(row.queue) },
+    {
+      id: 'queue',
+      label: 'Queue',
+      value: (row) => String(row.queue || ''),
+      cell: (row) => (row.queue ? { ...mono(row.queue), hardware: String(row.queue) } : mono(row.queue)),
+      class: 'whitespace-nowrap',
+    },
   ]
 
   const commit = typeof build.commit === 'string' ? build.commit : ''
+  const state = String(build.state || '')
   const message = typeof build.message === 'string' ? build.message.split('\n')[0]!.trim() : ''
   const buildUrl = exactPipelineBuildUrl(build, pipeline)
   const label = scoped ? evidence.label : 'Failure movement'
@@ -96,13 +107,13 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
     id: `build-${value(build.number)}-${evidence.scope}`,
     title: options.title || (build.number ? `AMD build #${build.number}` : 'AMD build'),
     subtitle: scoped ? `${evidence.label} evidence` : 'Build result and failure movement evidence',
-    description: message || undefined,
     notes,
     stats,
     fields: [
-      { label: 'State', value: value(build.state) },
+      { label: 'Buildkite state', value: state ? state.charAt(0).toUpperCase() + state.slice(1) : null, tone: toneForState(state) },
       { label: 'Started', value: shortDate(build.created_at) },
-      { label: 'Commit', value: commit ? commit.slice(0, 12) : null },
+      { label: 'Message', value: message || null },
+      { label: 'Commit', value: commit ? commit.slice(0, 12) : null, href: commit ? commitUrl(commit) : undefined, mono: true },
       { label: 'Test signal', value: hasSignal ? 'Observed' : 'Unavailable' },
       { label: 'Dependency-blocked test jobs', value: blocked ? integer(blocked) : null },
     ],

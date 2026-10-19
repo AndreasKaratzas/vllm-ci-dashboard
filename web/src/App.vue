@@ -14,7 +14,7 @@ const searchOpen = ref(false)
   <SidebarProvider :style="{ '--sidebar-width': 'calc(var(--spacing) * 64)', '--header-height': 'calc(var(--spacing) * 14)' }">
     <AppSidebar @search="searchOpen = true" />
     <SidebarInset class="min-w-0">
-      <SiteHeader @search="searchOpen = true" />
+      <SiteHeader :palette-open="searchOpen" @search="searchOpen = true" />
       <div class="@container/main flex min-w-0 flex-1 flex-col gap-4 p-4 md:gap-6 md:p-6">
         <PublicationBanner />
         <RouterView />

@@ -1,7 +1,8 @@
 import type { Detail, DetailStat } from '@/components/evidence/detail'
 import type { Freshness } from '@/components/layout/PageHeader.vue'
 import { badge, mono, text, type ColumnSpec } from '@/components/table/columns'
-import { age, shortDate } from '@/domain/format'
+import { shortDay } from '@/components/charts/chart'
+import { age } from '@/domain/format'
 import {
   coreFreshness,
   queueFreshness,
@@ -44,17 +45,18 @@ function minutesText(minutes: number): string {
   return rest ? `${hours}h ${rest}m` : `${hours}h`
 }
 
+/** "2h 30m / 3h" (target / stale), or just the stale limit when both match. */
 function target(row: SourceFreshness): string {
-  return row.warnMinutes === row.staleMinutes
-    ? `stale after ${minutesText(row.staleMinutes)}`
-    : `target ${minutesText(row.warnMinutes)} · stale after ${minutesText(row.staleMinutes)}`
+  return row.warnMinutes === row.staleMinutes ? minutesText(row.staleMinutes) : `${minutesText(row.warnMinutes)} / ${minutesText(row.staleMinutes)}`
 }
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
 
 function summaryStat(label: string, summary: FreshnessSummary | null, nowMs: number): DetailStat {
   return {
     label,
     value: sourceAge(summary, nowMs),
-    meta: summary ? `${summary.sources.length} sources` : 'No sources configured',
+    meta: summary ? plural(summary.sources.length, 'source') : 'No sources configured',
     tone: summary ? FRESHNESS_TONE[summary.state] : undefined,
     toneLabel: summary ? FRESHNESS_LABEL[summary.state] : undefined,
   }
@@ -72,16 +74,26 @@ const COLUMNS = (nowMs: number): ColumnSpec<SourceFreshness>[] => [
     id: 'collected',
     label: 'Collected',
     value: (row) => row.ageMs ?? Number.MAX_SAFE_INTEGER,
-    cell: (row) => (row.timestamp ? text(age(row.timestamp, nowMs), shortDate(row.timestamp)) : text('No timestamp')),
+    cell: (row) => (row.timestamp ? text(age(row.timestamp, nowMs), shortDay(Date.parse(row.timestamp))) : text('No timestamp')),
+    class: 'whitespace-nowrap',
   },
-  { id: 'target', label: 'Target', value: (row) => row.staleMinutes, cell: (row) => text(target(row)), hideable: true },
-  { id: 'file', label: 'File', value: (row) => row.path ?? '', cell: (row) => mono(row.path), hideable: true },
+  {
+    id: 'target',
+    label: 'Target / stale',
+    value: (row) => row.staleMinutes,
+    cell: (row) => text(target(row)),
+    hideable: true,
+    class: 'hidden whitespace-nowrap sm:table-cell',
+  },
+  { id: 'file', label: 'File', value: (row) => row.path ?? '', cell: (row) => mono(row.path), hideable: true, class: 'hidden lg:table-cell' },
 ]
 
 /** The "Data freshness" sheet: every configured source's collection age against its target, worst first. */
 export function freshnessDetail(rows: SourceFreshness[], nowMs: number): Detail {
   const collectors = rows.filter((row) => !row.informational)
-  const late = collectors.filter((row) => row.state !== 'fresh').length
+  const lateRows = collectors.filter((row) => row.state !== 'fresh')
+  const late = lateRows.length
+  const worst: FreshnessState = lateRows.some((row) => row.state === 'stale') ? 'stale' : late ? 'warn' : 'fresh'
   return {
     id: 'data-freshness',
     title: 'Data freshness',
@@ -91,10 +103,16 @@ export function freshnessDetail(rows: SourceFreshness[], nowMs: number): Detail 
     stats: [
       summaryStat('Core data', coreFreshness(rows), nowMs),
       summaryStat('Queue', queueFreshness(rows), nowMs),
-      { label: 'Sources past target', value: `${late} of ${collectors.length}`, tone: late ? 'soft' : undefined, toneLabel: 'Past target' },
+      {
+        label: 'Sources past target',
+        value: `${late} of ${collectors.length}`,
+        meta: late ? `${lateRows.filter((row) => row.state === 'stale').length} stale` : undefined,
+        tone: late ? FRESHNESS_TONE[worst] : undefined,
+        toneLabel: late ? FRESHNESS_LABEL[worst] : undefined,
+      },
     ],
     sources: [{ label: 'Freshness targets', url: TARGETS_URL }],
-    tables: [{ title: 'Sources', meta: `${rows.length} sources`, columns: COLUMNS(nowMs), rows, pageSize: false }],
+    tables: [{ title: 'Sources', meta: plural(rows.length, 'source'), columns: COLUMNS(nowMs), rows, pageSize: false }],
     width: 'lg',
   }
 }

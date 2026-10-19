@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { currentSubView, subViewQuery } from '@/components/layout/navigation'
-import { attentionTone, nightlyResultTone, noSignalLabel, passRateDomain, nightlySeries } from '@/domain/home'
+import { attentionTone, nightlyResultTone, noSignalLabel, passRateAxis, nightlySeries } from '@/domain/home'
 import { sourceFreshness } from '@/domain/freshness'
 import { freshnessChip, freshnessDetail } from '@/features/freshness/freshness'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -41,7 +41,8 @@ describe('build evidence detail', () => {
     const detail = buildEvidenceDetail(build)
     expect(detail.title).toBe('AMD build #30005')
     expect(detail.subtitle).toBe('Build result and failure movement evidence')
-    expect(detail.description).toBe('Fix the thing')
+    expect(detail.fields?.find((f) => f.label === 'Message')?.value).toBe('Fix the thing')
+    expect(detail.fields?.find((f) => f.label === 'Buildkite state')).toMatchObject({ value: 'Failed', tone: 'hard' })
     expect(detail.stats?.map((s) => [s.label, s.value])).toEqual([
       ['Job variants observed', '6'],
       ['Hard failures', '2'],
@@ -60,7 +61,8 @@ describe('build evidence detail', () => {
     const detail = buildEvidenceDetail(build, { scope: 'hard', title: 'Hard-failed groups' })
     expect(detail.title).toBe('Hard-failed groups')
     expect(detail.subtitle).toBe('Current hard failures evidence')
-    expect(detail.stats?.at(-1)).toEqual({ label: 'Current hard failures', value: '2' })
+    expect(detail.stats?.map((s) => s.label)).toEqual(['Job variants observed', 'Hard failures', 'Soft failures'])
+    expect(detail.tables![0]!.meta).toBe('2 job variants')
     expect(detail.tables![0]!.columns.map((c) => c.label)).toEqual(['Job variant', 'Current result', 'Queue'])
   })
 
@@ -86,9 +88,12 @@ describe('home tones and domains', () => {
   })
 
   it('keeps small pass-rate changes visible and ranks attention severity', () => {
-    expect(passRateDomain(nightlySeries([build]))).toEqual([33, 100])
-    expect(passRateDomain(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }]))).toEqual([97, 100])
-    expect(passRateDomain([])).toEqual([0, 100])
+    expect(passRateAxis(nightlySeries([build]))).toEqual({ domain: [20, 100], ticks: [20, 40, 60, 80, 100] })
+    expect(passRateAxis(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }]))).toEqual({
+      domain: [97, 100],
+      ticks: [97, 98, 99, 100],
+    })
+    expect(passRateAxis([])).toEqual({ domain: [0, 100], ticks: [0, 25, 50, 75, 100] })
     expect(attentionTone([{ severity: 'warning' }, { severity: 'critical' }])).toBe('hard')
     expect(attentionTone([{ severity: 'warning' }])).toBe('soft')
     expect(attentionTone([])).toBe('pass')
@@ -120,7 +125,9 @@ describe('freshness presentation', () => {
     expect(detail.stats?.[0]).toMatchObject({ label: 'Core data', tone: 'hard', toneLabel: 'Stale' })
     const target = detail.tables![0]!.columns.find((c) => c.id === 'target')!
     const analytics = rows.find((row) => row.key === 'analytics')!
-    expect(target.cell!(analytics).text).toBe('target 2h 30m · stale after 3h')
+    expect(target.cell!(analytics).text).toBe('2h 30m / 3h')
+    expect(detail.stats?.[1]).toMatchObject({ label: 'Queue', meta: '1 source' })
+    expect(detail.stats?.[2]).toMatchObject({ label: 'Sources past target', tone: 'hard', toneLabel: 'Stale' })
   })
 })
 

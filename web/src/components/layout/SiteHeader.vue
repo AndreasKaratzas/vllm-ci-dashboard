@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ChevronRight, Moon, Search, Sun } from '@lucide/vue'
-import { computed } from 'vue'
+import { ChevronRight, Clock, Moon, Search, Sun } from '@lucide/vue'
+import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import SheetStack from '@/components/evidence/SheetStack.vue'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/composables/useTheme'
-import type { FreshnessSummary } from '@/domain/freshness'
+import type { FreshnessState, FreshnessSummary } from '@/domain/freshness'
 import { FRESHNESS_LABEL, FRESHNESS_TONE, sourceAge } from '@/features/freshness/freshness'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { toneClasses } from '@/lib/palette'
@@ -16,6 +16,7 @@ import type { NavTab } from '@/router'
 import { currentSubView } from './navigation'
 import { SHORTCUT } from './shortcut'
 
+const props = defineProps<{ paletteOpen?: boolean }>()
 defineEmits<{ search: [] }>()
 const route = useRoute()
 const { dark, toggle } = useTheme()
@@ -36,6 +37,25 @@ const chips = computed<Chip[]>(() =>
   ].filter((chip): chip is Chip => chip.summary !== null),
 )
 const age = (summary: Pick<FreshnessSummary, 'timestamp'>) => sourceAge(summary, freshness.now.value)
+// "48d ago" -> "48d" for the phone chip, which shows the core age with the worse of both states.
+const shortAge = (summary: Pick<FreshnessSummary, 'timestamp'>) => age(summary).replace(/ ago$/, '')
+const SEVERITY: Record<FreshnessState, number> = { fresh: 0, warn: 1, stale: 2 }
+const worst = computed<FreshnessState>(() =>
+  chips.value.reduce<FreshnessState>((state, chip) => (SEVERITY[chip.summary.state] > SEVERITY[state] ? chip.summary.state : state), 'fresh'),
+)
+
+// One tooltip at a time, and none over the command palette.
+const tip = ref<string | null>(null)
+watch(
+  () => props.paletteOpen,
+  (open) => {
+    if (open) tip.value = null
+  },
+)
+const setTip = (key: string, open: boolean) => {
+  if (open && !props.paletteOpen) tip.value = key
+  else if (tip.value === key) tip.value = null
+}
 </script>
 
 <template>
@@ -57,19 +77,19 @@ const age = (summary: Pick<FreshnessSummary, 'timestamp'>) => sourceAge(summary,
         </ol>
       </nav>
       <div class="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-        <Tooltip v-for="chip in chips" :key="chip.key">
+        <Tooltip v-for="chip in chips" :key="chip.key" :open="tip === chip.key" @update:open="(open: boolean) => setTip(chip.key, open)">
           <TooltipTrigger as-child>
             <Button
               variant="outline"
               size="sm"
-              class="h-8 gap-1.5 px-2 font-normal text-muted-foreground sm:px-2.5"
+              class="hidden h-8 gap-1.5 px-2.5 font-normal text-muted-foreground lg:inline-flex"
               data-slot="header-freshness"
               :data-freshness="chip.summary.state"
               @click="freshness.open"
             >
               <span class="size-2 shrink-0 rounded-full" :class="toneClasses(FRESHNESS_TONE[chip.summary.state], 'fill')" aria-hidden="true" />
-              <span class="hidden lg:inline">{{ chip.label }} {{ age(chip.summary) }}</span>
-              <span class="sr-only lg:hidden">{{ chip.label }} {{ age(chip.summary) }}</span>
+              <span class="text-muted-foreground">{{ chip.label }}</span>
+              <span class="text-foreground tabular-nums">{{ age(chip.summary) }}</span>
               <span class="sr-only">: {{ FRESHNESS_LABEL[chip.summary.state] }}</span>
             </Button>
           </TooltipTrigger>
@@ -84,6 +104,20 @@ const age = (summary: Pick<FreshnessSummary, 'timestamp'>) => sourceAge(summary,
             <p class="mt-1 opacity-80">Click for every source.</p>
           </TooltipContent>
         </Tooltip>
+        <Button
+          v-if="chips.length"
+          variant="outline"
+          size="sm"
+          class="h-8 gap-1.5 px-2 font-normal lg:hidden"
+          data-slot="header-freshness-compact"
+          :data-freshness="worst"
+          :aria-label="`Data freshness: ${chips.map((chip) => `${chip.label} ${age(chip.summary)}`).join(', ')}. ${FRESHNESS_LABEL[worst]}`"
+          @click="freshness.open"
+        >
+          <Clock class="text-muted-foreground" aria-hidden="true" />
+          <span class="size-2 shrink-0 rounded-full" :class="toneClasses(FRESHNESS_TONE[worst], 'fill')" aria-hidden="true" />
+          <span class="tabular-nums" aria-hidden="true">{{ shortAge(chips[0]!.summary) }}</span>
+        </Button>
         <Button variant="outline" size="sm" class="h-8 text-muted-foreground" @click="$emit('search')">
           <Search />
           <span class="sr-only md:not-sr-only">Search…</span>

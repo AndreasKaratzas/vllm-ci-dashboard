@@ -2,6 +2,7 @@
 import { ExternalLink } from '@lucide/vue'
 import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import ProportionBar from '@/components/charts/ProportionBar.vue'
 import SheetStack from '@/components/evidence/SheetStack.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
 import Callout from '@/components/feedback/Callout.vue'
@@ -15,13 +16,14 @@ import { useClock } from '@/composables/useClock'
 import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
-import { integer, type Rec } from '@/domain/format'
+import { integer, toneForState, type Rec } from '@/domain/format'
 import { freshnessOf, sourceFreshness } from '@/domain/freshness'
 import { HOME_EXCLUDED_ATTENTION, attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
 import { attentionTone, nightlySeries, passRateTrend } from '@/domain/home'
 import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import { freshnessChip } from '@/features/freshness/freshness'
+import { statusVar } from '@/lib/palette'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import AttentionCard from './home/AttentionCard.vue'
@@ -29,8 +31,8 @@ import NightlyTable from './home/NightlyTable.vue'
 import NightlyTrendCard from './home/NightlyTrendCard.vue'
 import WorkbenchCard from './home/WorkbenchCard.vue'
 
-// The shell carries the newest nightlies only; the nightly section has every retained one.
-const HOME_SOURCES = ['analytics', 'ci_health', 'test_group_parity'] as const
+// Collector inputs of the KPIs and charts; the workbench's project board is the 'home' area source.
+const HOME_INPUTS = ['analytics', 'ci_health', 'test_group_parity'] as const
 
 const router = useRouter()
 const now = useClock()
@@ -51,11 +53,34 @@ const retentionMessage = computed(() => ciHealthPublicationRetentionMessage(amd.
 const attention = computed<Rec[]>(() =>
   (ops.value?.attention || []).filter((item: Rec) => !HOME_EXCLUDED_ATTENTION.includes(item.kind)),
 )
-const freshness = computed(() => freshnessChip(freshnessOf(sourceFreshness(ops.value, null, now.value), HOME_SOURCES), now.value))
+const freshness = computed(() => {
+  const rows = sourceFreshness(ops.value, null, now.value)
+  const keys = [...HOME_INPUTS, ...rows.filter((row) => row.area === 'home' && !row.informational).map((row) => row.key)]
+  return freshnessChip(freshnessOf(rows, keys), now.value, 'Home data')
+})
+// The headline count carries the outcome; the footnote keeps the build's counts and Buildkite state.
+const nightlyFootnote = computed(() => nightly.value.meta.replace(`; ${nightly.value.movementLabel}`, ''))
 
 const parityAvailable = computed(() => parity.value.main_complete_groups !== undefined && Number(parity.value.applicable_groups) > 0)
 const parityRate = computed(() => (Number(parity.value.main_complete_groups) / Number(parity.value.applicable_groups)) * 100)
 const parityMissing = computed(() => Number(parity.value.main_missing_groups || 0))
+const paritySegments = computed(() => [
+  { key: 'covered', label: 'Covered', count: Number(parity.value.main_complete_groups || 0), color: statusVar('pass') },
+  { key: 'missing', label: 'Missing', count: parityMissing.value, color: statusVar('soft') },
+])
+const attentionSegments = computed(() =>
+  (['hard', 'soft'] as const).map((tone) => ({
+    key: tone,
+    label: tone === 'hard' ? 'Critical' : 'Warning',
+    count: attention.value.filter((item) => toneForState(item.severity) === tone).length,
+    color: statusVar(tone),
+  })),
+)
+const breakdown = (segments: { label: string; count: number }[]) =>
+  segments
+    .filter((segment) => segment.count)
+    .map((segment) => `${integer(segment.count)} ${segment.label.toLowerCase()}`)
+    .join(' · ')
 const pointsText = (delta: number) => `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts`
 
 function openBuild(build: Rec, scope?: string, title?: string) {
@@ -96,7 +121,7 @@ watch(sheets.stack, (stack) => {
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
     <PageHeader
-      title="Command Center"
+      title="Home"
       description="AMD nightly health, upstream parity, and open ROCm CI work at a glance."
       :freshness="freshness"
     >
@@ -123,10 +148,13 @@ watch(sheets.stack, (stack) => {
         <StatGrid>
           <KpiCard
             label="Latest AMD nightly"
-            :value="nightly.label"
+            :value="nightly.hasSignal ? nightly.incidentCount : null"
+            unit="failing"
             :delta="nightly.incidentDelta !== null ? { value: nightly.incidentDelta, goodWhen: 'down', text: nightly.movementLabel } : undefined"
+            :status="nightly.incidentDelta === null ? { tone: nightly.tone, label: nightly.label } : undefined"
             :spark="series.map((row) => row.hard + row.soft)"
-            :footnote="nightly.meta"
+            :headline="nightly.label"
+            :footnote="nightlyFootnote"
             :action="latestUrl ? { label: `Open #${latestBuild.number} on Buildkite`, href: latestUrl } : undefined"
             data-testid="kpi-nightly"
           />
@@ -148,12 +176,17 @@ watch(sheets.stack, (stack) => {
             label="Upstream test-group parity"
             :value="parityRate"
             :format="(value: number) => `${value.toFixed(1)}%`"
-            :status="parityMissing ? { tone: 'soft', label: `${integer(parityMissing)} missing` } : undefined"
+            :status="{ tone: Number(parity.action_groups) ? 'soft' : 'pass', label: `${integer(parityMissing)} missing` }"
             headline="Open upstream parity"
             :footnote="`${integer(parity.main_complete_groups)} / ${integer(parity.applicable_groups)} upstream test groups covered on main`"
             :action="{ label: 'Open upstream parity', to: { name: 'health', query: { view: 'parity' } } }"
             data-testid="kpi-parity"
-          />
+          >
+            <template #visual>
+              <ProportionBar :segments="paritySegments" :max="Number(parity.applicable_groups)" label="Upstream test groups on main" :legend="false" />
+              <p class="mt-1.5 text-xs text-muted-foreground tabular-nums">{{ breakdown(paritySegments) }}</p>
+            </template>
+          </KpiCard>
           <EmptyState v-else title="Parity unavailable" description="The current main CI parity inventory is not published." class="py-6" data-testid="kpi-parity" />
           <KpiCard
             label="Needs attention"
@@ -164,12 +197,17 @@ watch(sheets.stack, (stack) => {
             :footnote="attention.length ? attentionLabel(attention[0]!) : 'No active AMD nightly or route signals'"
             :action="attention.length ? { label: 'Review active signals', onOpen: showAttention } : undefined"
             data-testid="kpi-attention"
-          />
+          >
+            <template v-if="attention.length" #visual>
+              <ProportionBar :segments="attentionSegments" label="Active signals by severity" :legend="false" />
+              <p class="mt-1.5 text-xs text-muted-foreground tabular-nums">{{ breakdown(attentionSegments) }}</p>
+            </template>
+          </KpiCard>
         </StatGrid>
 
         <NightlyTrendCard :series="series" @select="openBuildNumber" />
 
-        <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] *:min-w-0">
+        <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] *:min-w-0">
           <AttentionCard :items="attention" @inspect="inspectAttention" />
           <Card class="gap-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
             <CardHeader>

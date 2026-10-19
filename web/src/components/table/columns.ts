@@ -13,6 +13,10 @@ export interface CellSpec {
   /** De-emphasized value, e.g. a zero count. */
   muted?: boolean
   sub?: string
+  /** Short labels rendered as outline badges, e.g. issue labels. */
+  tags?: string[]
+  /** Hardware label (queue, runner) drawn with its hardware color dot. */
+  hardware?: string
 }
 
 export interface ColumnSpec<T> {
@@ -24,6 +28,8 @@ export interface ColumnSpec<T> {
   numeric?: boolean
   sortable?: boolean
   hideable?: boolean
+  /** Classes for the column's header and cells, e.g. 'hidden md:table-cell' or 'whitespace-nowrap'. */
+  class?: string
 }
 
 export interface FilterSpec<T> {
