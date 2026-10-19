@@ -47,14 +47,20 @@ export function hang(init: RequestInit | undefined): Promise<Response> {
 }
 
 /** Advances fake time, letting real macrotasks (WebCrypto) run between steps, until `promise` settles. */
-export async function settle<T>(promise: Promise<T>, stepMs = 250, maxSteps = 100): Promise<T> {
+export async function settle<T>(promise: Promise<T>, stepMs = 250, realTimeoutMs = 20_000): Promise<T> {
+  // Fake timers drive retries and backoff, while WebCrypto and fetch settle on
+  // real macrotasks. Yield real time until the promise settles, advancing fake
+  // time only when a timer is pending, so a slow real task never strands a
+  // retry; a real-time bound turns a stuck promise into a failure, not a hang.
   let done = false
   const tracked = promise.finally(() => {
     done = true
   })
-  for (let step = 0; step < maxSteps && !done; step += 1) {
+  const deadline = performance.now() + realTimeoutMs
+  while (!done) {
+    if (performance.now() > deadline) throw new Error(`settle: promise still pending after ${realTimeoutMs} ms`)
     await new Promise((resolve) => setImmediate(resolve))
-    await vi.advanceTimersByTimeAsync(stepMs)
+    if (!done && vi.getTimerCount() > 0) await vi.advanceTimersByTimeAsync(stepMs)
   }
   return tracked
 }
