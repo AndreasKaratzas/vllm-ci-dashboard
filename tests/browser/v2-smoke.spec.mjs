@@ -43,8 +43,8 @@ test.describe('v2 dashboard', () => {
   });
 
   test('unported views link to the classic dashboard', async ({ page }) => {
-    await page.goto('/#/analytics');
-    await expect(page.getByRole('link', { name: 'Open CI Analytics on the classic dashboard' })).toHaveAttribute('href', 'classic.html#ci-analytics');
+    await page.goto('/#/perf');
+    await expect(page.getByRole('link', { name: 'Open Perf Eval on the classic dashboard' })).toHaveAttribute('href', 'classic.html#ci-perf-eval');
   });
 });
 

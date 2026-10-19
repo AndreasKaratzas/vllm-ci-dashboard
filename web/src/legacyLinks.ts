@@ -1,30 +1,32 @@
 // Classic dashboard links (issue bodies, watchers, bookmarks) use
 // ?ops_<state>=...#<tab>. Route ported views to v2 and everything else to the
-// classic page, which still serves them.
+// classic page, which still serves them. Each area owns its mapping in
+// src/legacy/<area>.ts.
+import { analyticsRoute } from './legacy/analytics'
+import { healthRoute } from './legacy/health'
+import { omniRoute } from './legacy/omni'
+import { perfRoute } from './legacy/perf'
 
 export const CLASSIC_PAGE = 'classic.html'
 
-const LEGACY_TABS = new Set(['projects', 'ci-health', 'ci-analytics', 'ci-perf-eval', 'ci-omni'])
+const TAB_ROUTES: Record<string, (params: URLSearchParams) => string | null> = {
+  projects: () => '#/',
+  'ci-health': healthRoute,
+  'ci-analytics': analyticsRoute,
+  'ci-perf-eval': perfRoute,
+  'ci-omni': omniRoute,
+}
 
 /** The v2 hash route for a legacy link, or null when only the classic page serves it. */
 export function v2RouteFor(tab: string, params: URLSearchParams): string | null {
-  if (tab === 'projects') return '#/'
-  if (tab === 'ci-health') {
-    const view = params.get('ops_health_view')
-    // 'targets' was retired into Overview (classic dashboard-nav.js does the same).
-    if (!view || view === 'overview' || view === 'targets') return '#/health'
-    if (view === 'parity') return '#/health?view=parity'
-    return null
-  }
-  return null
+  return TAB_ROUTES[tab]?.(params) ?? null
 }
 
 /** Rewrites the current location for a legacy link; returns true if it navigated away. */
 export function redirectLegacyLink(location: Location = window.location): boolean {
   const tab = location.hash.replace(/^#/, '')
-  if (!LEGACY_TABS.has(tab)) return false
-  const params = new URLSearchParams(location.search)
-  const route = v2RouteFor(tab, params)
+  if (!Object.prototype.hasOwnProperty.call(TAB_ROUTES, tab)) return false
+  const route = v2RouteFor(tab, new URLSearchParams(location.search))
   if (route) {
     history.replaceState(null, '', location.pathname + route)
     return false

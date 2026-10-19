@@ -251,7 +251,7 @@ async function routeDnsFixture(page, fixture = DNS_FIXTURE, delayMs = 0) {
     });
   };
   await page.route('https://raw.githubusercontent.com/**/dns_failures.json*', fulfill);
-  await page.route('http://127.0.0.1:4173/data/vllm/ci/dns_failures.json*', fulfill);
+  await page.route('**/data/vllm/ci/dns_failures.json*', fulfill);
 }
 
 const PUBLIC_VIEWS = [
@@ -1089,7 +1089,7 @@ test('analytics DNS paints fast Pages data without loading the operations manife
   const requested = [];
   page.on('request', request => requested.push(request.url()));
   await page.route('https://raw.githubusercontent.com/**/dns_failures.json*', () => new Promise(() => {}));
-  await page.route('http://127.0.0.1:4173/data/vllm/ci/dns_failures.json*', route => route.fulfill({
+  await page.route('**/data/vllm/ci/dns_failures.json*', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(DNS_FIXTURE),
@@ -1151,7 +1151,7 @@ test('analytics DNS upgrades a fast older Pages paint when slower live data is n
       body: JSON.stringify(newerLive),
     });
   });
-  await page.route('http://127.0.0.1:4173/data/vllm/ci/dns_failures.json*', route => route.fulfill({
+  await page.route('**/data/vllm/ci/dns_failures.json*', route => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(DNS_FIXTURE),

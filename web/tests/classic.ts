@@ -6,8 +6,8 @@ import { resolve } from 'node:path'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ClassicFns = Record<string, (...args: any[]) => any>
 
-export function loadClassic(names: string[]): ClassicFns {
-  const source = readFileSync(resolve(process.cwd(), '../docs/assets/js/ops-v2.js'), 'utf8')
+export function loadClassic(names: string[], file = 'ops-v2.js'): ClassicFns {
+  const source = readFileSync(resolve(process.cwd(), '../docs/assets/js', file), 'utf8')
   const end = source.lastIndexOf('})();')
   if (end < 0) throw new Error('classic renderer IIFE not found')
   const key = `__classic_${names.length}_${Math.random().toString(36).slice(2)}`
