@@ -16,6 +16,7 @@ from vllm import operations_bundle_contract as bundle_contract
 
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
+CORE_GENERATED_AT = health._iso_utc(NOW - timedelta(hours=1))
 
 
 def test_projection_health_proof_uses_exact_publication_ceiling() -> None:
@@ -57,7 +58,15 @@ def _response(body=b"", *, status=200, oversize=False, final_url=None):
 
 
 class Fetcher:
-    def __init__(self, publication=None, *, site=None, resources=None, bundle_version=None):
+    def __init__(
+        self,
+        publication=None,
+        *,
+        site=None,
+        resources=None,
+        bundle_version=None,
+        core_generated_at=CORE_GENERATED_AT,
+    ):
         bundle_version = bundle_contract.OPERATIONS_BUNDLE_VERSION if bundle_version is None else bundle_version
         section_names = bundle_contract.operations_section_names_for_bundle_version(bundle_version)
         default_site = (
@@ -98,7 +107,7 @@ class Fetcher:
             "bundle_version": bundle_version,
             "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
             "monolith": None,
-            "shell": {},
+            "shell": {"core_generated_at": core_generated_at},
             "organization_summary": {
                 "path": "org_summary.json",
                 "bytes": len(organization_body),
@@ -108,6 +117,7 @@ class Fetcher:
                 name: {
                     "path": f"operations_v2/{name}.json",
                     "bytes": len(section_bodies[name]),
+                    "sha256": hashlib.sha256(section_bodies[name]).hexdigest(),
                 }
                 for name in section_names
             },
@@ -456,6 +466,40 @@ def test_stale_publication_fails_even_when_root_is_http_200():
     assert report["site"]["http_status"] == 200
     assert report["healthy"] is False
     assert _codes(report) == {"publication-stale"}
+
+
+def test_stale_core_data_fails_under_a_fresh_queue_republication_without_extra_requests():
+    stale_minutes = health.load_freshness_targets()["core"]["stale_minutes"]
+    fresh_fetcher = Fetcher(
+        core_generated_at=health._iso_utc(NOW - timedelta(minutes=stale_minutes))
+    )
+    stale_fetcher = Fetcher(
+        core_generated_at=health._iso_utc(NOW - timedelta(minutes=stale_minutes + 1))
+    )
+
+    fresh = health.check_site_health(now=NOW, fetch=fresh_fetcher)
+    stale = health.check_site_health(now=NOW, fetch=stale_fetcher)
+
+    assert fresh["healthy"] is True
+    assert fresh["publication"]["core_age_hours"] == round(stale_minutes / 60, 3)
+    assert stale["publication"]["age_hours"] == 0.5
+    assert _codes(stale) == {"core-stale"}
+    assert stale["publication"]["core_generated_at"] == health._iso_utc(
+        NOW - timedelta(minutes=stale_minutes + 1)
+    )
+    assert stale["projection"]["verified"] is True
+    assert len(stale_fetcher.calls) == len(fresh_fetcher.calls)
+
+
+@pytest.mark.parametrize("core_generated_at", [None, "2026-08-17T10:00:00+00:00", "soon"])
+def test_unknown_core_data_age_is_core_stale(core_generated_at):
+    report = health.check_site_health(
+        now=NOW, fetch=Fetcher(core_generated_at=core_generated_at)
+    )
+
+    assert _codes(report) == {"core-stale"}
+    assert report["publication"]["core_age_hours"] is None
+    assert report["projection"]["verified"] is True
 
 
 def test_small_future_skew_is_allowed_but_larger_skew_is_rejected():
@@ -1608,6 +1652,27 @@ def test_operations_manifest_rejects_an_unbounded_canary_bundle():
     assert exc.value.code == "operations-canary-budget"
 
 
+@pytest.mark.parametrize(
+    "mutation,code",
+    [
+        (lambda descriptor: descriptor.pop("sha256"), "operations-manifest-contract"),
+        (lambda descriptor: descriptor.update(sha256="A" * 64), "operations-manifest-contract"),
+        (lambda descriptor: descriptor.update(sha256="0" * 64), "operations-projection-contract"),
+    ],
+)
+def test_operations_sections_bind_the_public_projection_digest(mutation, code):
+    fetcher = Fetcher()
+    operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
+    projection = json.loads(fetcher.responses[health.PUBLICATION_MANIFEST_PATH]["body"])
+    health._normalize_operations_manifest(operations, projection)
+    mutation(operations["sections"]["nightly"])
+
+    with pytest.raises(health._ProjectionFailure) as exc:
+        health._normalize_operations_manifest(operations, projection)
+
+    assert exc.value.code == code
+
+
 def test_operations_manifest_uses_declared_legacy_budget_during_rollout():
     fetcher = Fetcher(bundle_version=2)
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
@@ -1695,7 +1760,9 @@ def test_checker_accepts_a_hash_bound_canary_larger_than_two_mibibytes():
     canary_body = b'{"padding":"' + b"x" * (2 * 1024 * 1024) + b'"}\n'
 
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
-    operations["sections"][canary_name]["bytes"] = len(canary_body)
+    operations["sections"][canary_name].update(
+        bytes=len(canary_body), sha256=hashlib.sha256(canary_body).hexdigest()
+    )
     operations_body = json.dumps(operations).encode()
     fetcher.responses[health.OPERATIONS_MANIFEST_PATH] = _response(operations_body)
     fetcher.responses[canary_path] = _response(canary_body)
@@ -1742,7 +1809,9 @@ def test_checker_rejects_hash_bound_nonfinite_canary_json():
     canary_body = b'{"derived_metric":NaN}\n'
 
     operations = json.loads(fetcher.responses[health.OPERATIONS_MANIFEST_PATH]["body"])
-    operations["sections"][canary_name]["bytes"] = len(canary_body)
+    operations["sections"][canary_name].update(
+        bytes=len(canary_body), sha256=hashlib.sha256(canary_body).hexdigest()
+    )
     operations_body = json.dumps(operations).encode()
     fetcher.responses[health.OPERATIONS_MANIFEST_PATH] = _response(operations_body)
     fetcher.responses[canary_path] = _response(canary_body)
