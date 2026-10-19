@@ -13,10 +13,19 @@ describe('legacy dashboard links', () => {
     expect(route('ci-health', 'ops_health_view=targets&ops_health_result=non_passing')).toBe('#/health')
   })
 
+  it('routes Perf Eval links with their state', () => {
+    expect(route('ci-perf-eval')).toBe('#/perf')
+    expect(route('ci-perf-eval', 'ops_perf_view=performance&ops_perf_model=all&ops_perf_device=all')).toBe('#/perf')
+    expect(route('ci-perf-eval', 'ops_perf_view=accuracy')).toBe('#/perf?view=accuracy')
+    expect(route('ci-perf-eval', 'ops_perf_view=bogus&ops_detail=perf-model-x')).toBe('#/perf')
+    expect(route('ci-perf-eval', 'ops_perf_model=MiniMaxAI%2FMiniMax-M2.5&ops_perf_device=mi355x&ops_perf_view=accuracy')).toBe(
+      '#/perf?view=accuracy&model=MiniMaxAI%2FMiniMax-M2.5&device=mi355x',
+    )
+  })
+
   it('leaves unported views to the classic page', () => {
     expect(route('ci-health', 'ops_health_view=mirrors')).toBeNull()
     expect(route('ci-analytics', 'ops_analytics_view=latency')).toBeNull()
-    expect(route('ci-perf-eval')).toBeNull()
     expect(route('ci-omni')).toBeNull()
   })
 })
