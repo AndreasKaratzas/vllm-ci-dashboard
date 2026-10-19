@@ -29,7 +29,7 @@ from vllm.dashboard_storage_budget import writer_max_bytes
 
 
 RETRY_SURFACES = frozenset({
-    "ci_core", "ci_analytics",
+    "ci_core", "ci_analytics", "queue_workload",
     "agent_health", "github_home", "perf_eval",
 })
 HISTORICAL_RETRY_SURFACES = RETRY_SURFACES | frozenset({

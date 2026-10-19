@@ -1329,6 +1329,32 @@ def test_mapping_window_avoids_irrelevant_lookback_pins_but_proves_late_and_ambi
     assert current["query"]["end_exclusive"] == baseline["query"]["end_exclusive"]
 
 
+def test_scope_join_survives_runtime_index_eviction_of_current_page_pins(monkeypatch):
+    """A saturated pin cache must not evict a proof the current page still needs."""
+    from vllm.ci import analytics_cache
+
+    monkeypatch.setattr(analytics_cache, "RUNTIME_SOURCE_CACHE_MAX_PINS", 2)
+    restored_pin, unrelated_pin = "f" * 40, "1" * 40
+    # A restored cache iterates in sorted order, so a late pin is evicted first.
+    cwm._SOURCE_SCOPE_INDEXES.update({
+        unrelated_pin: _mi_cpu_index(unrelated_pin),
+        restored_pin: _mi_cpu_index(restored_pin),
+    })
+    cpu = {**_job("cpu", "amd_mi250_1"), "step": {"key": "torch-abi"}}
+    gpu = _job("gpu", "amd_mi250_1")
+    builds = [
+        {**_build("ci", [cpu, gpu], 1), "commit": restored_pin},
+        {**_build("ci", [gpu], 2), "commit": "a" * 40},
+        {**_build("ci", [gpu], 3), "commit": "b" * 40},
+    ]
+
+    scoped = cwm._scope_ci_builds(builds, "ci")
+
+    assert [build["source_scope_commit"] for build in scoped] == [restored_pin, "a" * 40, "b" * 40]
+    assert [job.get("source_no_gpu") for job in scoped[0]["jobs"]] == [True, None]
+    assert len(cwm._SOURCE_SCOPE_INDEXES) == 2
+
+
 @pytest.mark.parametrize("created", ["2026-07-26", "2026-07-26T10:00:00"])
 def test_mapping_source_prefilter_keeps_timestamp_without_explicit_timezone_conservative(
     monkeypatch, created,

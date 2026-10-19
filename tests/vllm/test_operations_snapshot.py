@@ -473,6 +473,42 @@ def test_ci_ownership_snapshot_is_top_level_but_raw_source_is_private(tmp_path):
     assert payload["sources"]["ci_ownership"]["published"] is False
 
 
+def test_shell_core_clock_is_the_oldest_core_collection_including_perf_eval(tmp_path):
+    data_dir = tmp_path / "ci"
+    data_dir.mkdir()
+    _fixture_data(data_dir)
+    for name, stamp in {
+        "analytics": "2026-04-22T11:58:00Z",
+        "ci_health": "2026-04-22T11:57:00Z",
+        "amd_test_matrix": "2026-04-22T11:56:00Z",
+        "test_group_parity": "2026-04-22T11:55:00Z",
+        "workload_mapping": "2026-04-22T11:54:00Z",
+        "queue_jobs": "2026-04-22T08:00:00Z",
+    }.items():
+        path = data_dir / ops.SOURCE_FILES[name]
+        path.write_text(json.dumps({**ops._load_json(path), "generated_at": stamp}))
+    perf_eval = tmp_path / "perf_eval" / "perf_eval.json"
+    perf_eval.parent.mkdir()
+    perf_eval.write_text(json.dumps({"generated_at": "2026-04-22T11:30:00.250000+00:00"}))
+
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+    shell = ops.write_snapshot_bundle(tmp_path / "out" / "operations_v2.json", payload)["shell"]
+
+    assert payload["sources"]["perf_eval"] == {
+        "path": "../perf_eval/perf_eval.json",
+        "timestamp": "2026-04-22T11:30:00.250000+00:00",
+        "timestamp_source": "payload",
+    }
+    assert shell["sources"] == payload["sources"]
+    assert shell["core_generated_at"] == "2026-04-22T11:30:00Z"
+
+    perf_eval.unlink()
+    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
+    shell = ops.write_snapshot_bundle(tmp_path / "out" / "operations_v2.json", payload)["shell"]
+    assert payload["sources"]["perf_eval"]["timestamp_source"] == "missing"
+    assert shell["core_generated_at"] is None
+
+
 @pytest.mark.parametrize("suffix", [".json", ".json.gz"])
 def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit(
     tmp_path, monkeypatch, suffix,
@@ -3332,9 +3368,10 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     manifest_path = output.parent / ops.OPERATIONS_MANIFEST_NAME
     assert json.loads(manifest_path.read_text()) == manifest
     for descriptor in manifest["sections"].values():
-        section_path = output.parent / descriptor["path"]
-        assert section_path.exists()
-        assert section_path.stat().st_size == descriptor["bytes"]
+        section_bytes = (output.parent / descriptor["path"]).read_bytes()
+        assert set(descriptor) == {"path", "bytes", "sha256"}
+        assert len(section_bytes) == descriptor["bytes"]
+        assert hashlib.sha256(section_bytes).hexdigest() == descriptor["sha256"]
 
     comparison = json.loads(
         (output.parent / manifest["sections"]["comparison"]["path"]).read_text()

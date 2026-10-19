@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm.bounded_json import atomic_write_bytes  # noqa: E402
 from vllm.constants import amd_gpu_hardware, is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.data_freshness_targets import load_freshness_targets  # noqa: E402
 from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_SECTION_MAX_BYTES,
     OPERATIONS_PRODUCER_BUNDLE_VERSION,
@@ -4104,6 +4105,11 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         sources[name] = _source_record(path, data, queue_snapshot.get("ts", "") if name == "queue_timeseries" else "")
     for internal_source in ("agent_health", "omni_issue_state", "ci_ownership"):
         sources[internal_source]["published"] = False
+    perf_eval = load_freshness_targets()["sources"]["perf_eval"]["path"]
+    sources["perf_eval"] = {
+        **_source_record(data_dir.parent / perf_eval, _load_json(data_dir.parent / perf_eval)),
+        "path": f"../{perf_eval}",
+    }
     # The raw JSONL ledger is an internal build input, so diagnostics link to
     # the published analytics source while retaining the actual latest AMD
     # observation time rather than the wrapper regeneration time.
@@ -4398,6 +4404,15 @@ def _diagnostic_section(payload: dict) -> dict:
     }
 
 
+def _core_generated_at(sources: dict) -> str | None:
+    """Return the oldest core collection time, or None while any core source is undated."""
+    stamps = [
+        _parse_dt((sources.get(name) or {}).get("timestamp"))
+        for name in load_freshness_targets()["core"]["sources"]
+    ]
+    return None if None in stamps else _utc_iso(min(stamps))
+
+
 def _operations_shell(payload: dict) -> dict:
     nightly = _compact_nightly(payload.get("nightly") or {}, build_limit=7)
     nightly["pipelines"] = [
@@ -4412,6 +4427,7 @@ def _operations_shell(payload: dict) -> dict:
         key: payload.get(key)
         for key in ("schema_version", "hardware_scope", "generated_at", "sources", "home", "attention")
     } | {
+        "core_generated_at": _core_generated_at(payload.get("sources") or {}),
         "nightly": nightly,
         "amd_test_health": {"summary": amd_health.get("summary") or {}},
         "definition_parity": {
@@ -6511,13 +6527,14 @@ def write_snapshot_bundle(
     # generation. A growing evidence catalog can therefore preserve the last
     # known-good publication instead of producing a partially writable bundle.
     encoded_sections = {
-        name: _encoded_json(section)
+        name: _encoded_json(section).encode("utf-8")
         for name, section in _operation_sections(payload).items()
     }
     section_manifest = {
         name: {
             "path": f"{OPERATIONS_BUNDLE_DIR_NAME}/{name}.json",
-            "bytes": len(encoded.encode("utf-8")),
+            "bytes": len(encoded),
+            "sha256": hashlib.sha256(encoded).hexdigest(),
         }
         for name, encoded in encoded_sections.items()
     }
@@ -6582,7 +6599,7 @@ def write_snapshot_bundle(
     bundle_dir = output.parent / OPERATIONS_BUNDLE_DIR_NAME
     bundle_dir.mkdir(parents=True, exist_ok=True)
     for name, encoded in encoded_sections.items():
-        (bundle_dir / f"{name}.json").write_text(encoded)
+        (bundle_dir / f"{name}.json").write_bytes(encoded)
     for stale in bundle_dir.glob("*.json"):
         if stale not in expected_paths:
             stale.unlink()
