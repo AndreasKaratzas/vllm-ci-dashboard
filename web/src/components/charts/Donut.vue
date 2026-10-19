@@ -22,9 +22,12 @@ const props = withDefaults(
     centerValue?: string
     centerLabel?: string
     valueFormat?: (value: number) => string
+    /** 'sm' is the compact ring for KPI cards. */
+    size?: 'sm' | 'md'
+    legend?: boolean
     onSelect?: (slice: DonutSlice) => void
   }>(),
-  { valueFormat: plainNumber },
+  { valueFormat: plainNumber, size: 'md', legend: true },
 )
 
 const total = computed(() => props.slices.reduce((sum, s) => sum + Math.max(0, s.value), 0))
@@ -38,14 +41,14 @@ const events = computed(() => ({ [Donut.selectors.segment]: { click: (d: { data:
 </script>
 
 <template>
-  <div class="flex min-w-0 flex-col items-center gap-4 sm:flex-row" data-slot="donut">
-    <div role="img" :aria-label="label" class="size-40 shrink-0" :class="onSelect && '[&_path]:cursor-pointer'">
+  <div :class="cn('flex min-w-0 flex-col items-center gap-4 sm:flex-row', !legend && 'shrink-0')" data-slot="donut">
+    <div role="img" :aria-label="label" :class="cn('shrink-0', size === 'sm' ? 'size-20' : 'size-40', onSelect && '[&_path]:cursor-pointer')">
       <ChartContainer :config="config" class="aspect-square size-full">
         <VisSingleContainer :data="slices">
           <VisDonut
             :value="(d: DonutSlice) => Math.max(0, d.value)"
             :color="(d: DonutSlice) => d.color"
-            :arc-width="22"
+            :arc-width="size === 'sm' ? 10 : 22"
             :pad-angle="0.02"
             :corner-radius="4"
             :central-label="centerValue"
@@ -57,7 +60,7 @@ const events = computed(() => ({ [Donut.selectors.segment]: { click: (d: { data:
         </VisSingleContainer>
       </ChartContainer>
     </div>
-    <ul class="flex w-full min-w-0 flex-col gap-1 text-sm">
+    <ul v-if="legend" class="flex w-full min-w-0 flex-col gap-1 text-sm">
       <li v-for="slice in slices" :key="slice.key">
         <component
           :is="onSelect ? 'button' : 'div'"

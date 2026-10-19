@@ -38,6 +38,9 @@ function open() {
       <template v-else>{{ cell.text }}</template>
     </button>
     <StatusBadge v-else-if="cell.tone" :tone="cell.tone" :label="cell.text" />
+    <span v-else-if="cell.dot" class="inline-flex items-center gap-1.5" :class="cell.mono && 'font-mono text-xs'">
+      <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: cell.dot }" aria-hidden="true" />{{ cell.text }}
+    </span>
     <span v-else :class="[cell.mono && 'font-mono text-xs', cell.text === '—' && 'text-muted-foreground']">{{ cell.text }}</span>
     <span v-if="cell.sub" class="text-xs text-muted-foreground">{{ cell.sub }}</span>
   </span>

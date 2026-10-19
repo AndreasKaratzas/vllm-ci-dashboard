@@ -1,260 +1,185 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, ref } from 'vue'
-import DistributionCard, { SEGMENT_FILL, type Segment } from '@/components/ops/DistributionCard.vue'
-import RingCard from '@/components/ops/RingCard.vue'
-import TableSheet from '@/components/ops/TableSheet.vue'
-import ToneBadge from '@/components/ops/ToneBadge.vue'
-import { Button } from '@/components/ui/button'
+import { ChevronRight, SearchX } from '@lucide/vue'
+import { computed } from 'vue'
+import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
+import Callout from '@/components/feedback/Callout.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import KpiCard from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import {
-  ROUTE_MODE_LABELS,
-  parityGapAreas,
-  testGroupDefinitionState,
-  testGroupParityRows,
-  testGroupParityState,
-  type GapArea,
-} from '@/domain/ciHealth'
-import { integer, value, type Rec } from '@/domain/format'
+import type { SheetStack } from '@/composables/useSheetStack'
+import { parityGapAreas, testGroupParityRows, type GapArea } from '@/domain/ciHealth'
+import { integer, type Rec } from '@/domain/format'
 import { currentTestGroupParity } from '@/domain/health'
+import { statusVar } from '@/lib/palette'
+import { parityInventoryDetail, parityTone } from './details'
 
-const props = defineProps<{ ops: Rec }>()
+const props = defineProps<{ ops: Rec; sheets: SheetStack }>()
 
 const parity = computed(() => currentTestGroupParity(props.ops.test_group_parity))
 const summary = computed<Rec>(() => parity.value.summary || {})
 const source = computed<Rec>(() => parity.value.source || {})
-const retention = computed<Rec>(() => parity.value.operations_publication_retention || {})
+const bounded = computed(() => (parity.value.operations_publication_retention || {}).complete_relative_to_source === false)
 const allRows = computed(() => testGroupParityRows(parity.value, 'all', 'all'))
-const mainRows = computed(() => testGroupParityRows(parity.value, 'existing', 'all'))
-const missingRows = computed(() => testGroupParityRows(parity.value, 'action', 'all'))
-const unsupportedRows = computed(() => testGroupParityRows(parity.value, 'unsupported', 'all'))
-const applicableRows = computed(() => allRows.value.filter((row) => row.state !== 'unsupported'))
-const gapAreas = computed(() => parityGapAreas(parity.value))
-const inventoryMain = computed<Rec>(() => (parity.value.rocm_inventory || summary.value.rocm_inventory || {}).main || {})
 const available = computed(() => allRows.value.length > 0 && Number(summary.value.upstream_logical_groups || 0) > 0)
+const gapAreas = computed(() => parityGapAreas(parity.value))
 
-const segments = computed<Segment[]>(() => [
-  { key: 'existing', label: 'covered on main', count: Number(summary.value.main_complete_groups || 0), tone: 'pass' },
-  { key: 'action', label: 'potential open gaps', count: Number(summary.value.action_groups || 0), tone: 'hard' },
-  { key: 'unsupported', label: 'not targeted', count: Number(summary.value.unsupported_groups || 0), tone: 'not-targeted' },
-])
-
-const configNote = computed(() => {
-  const s = summary.value
-  const required = s.main_required_groups
-  const rate = s.main_required_rate_pct
-  const commit = source.value.current_definition_commit_sha || source.value.main_commit || ''
-  return (
-    `Configured AMD routes cover ${integer(s.main_complete_groups)} of ${integer(s.applicable_groups)} applicable current CUDA logical groups. ` +
-    (required === undefined
-      ? 'Required-route coverage is unavailable. '
-      : `${integer(required)} groups have a required source configuration` +
-        (Number.isFinite(Number(rate)) ? ` (${Number(rate).toFixed(1)}%)` : '') +
-        `; ${integer(s.main_optional_only_groups)} are optional only and ${integer(s.main_soft_fail_only_groups)} are soft fail only. `) +
-    'These are source configuration flags; individual nightly scheduling and blocking outcomes are separate.' +
-    (/^[0-9a-f]{40}$/.test(commit) ? ` Source: main CI at ${commit.slice(0, 12)}.` : '')
-  )
+const covered = computed(() => Number(summary.value.main_complete_groups || 0))
+const applicable = computed(() => Number(summary.value.applicable_groups || 0))
+const missing = computed(() => Number(summary.value.main_missing_groups || 0))
+const requiredRate = computed(() => {
+  const rate = Number(summary.value.main_required_rate_pct)
+  return summary.value.main_required_rate_pct === undefined || !Number.isFinite(rate) ? null : rate
 })
 
-const browser = ref({ open: false, title: '', rows: [] as Rec[] })
-function openRows(title: string, rows: Rec[]) {
-  browser.value = { open: true, title, rows }
-}
-function openSegment(segment: Segment) {
-  const map: Record<string, [string, Rec[]]> = {
-    existing: ['Covered on main', mainRows.value],
-    action: ['Potential open gaps', missingRows.value],
-    unsupported: ['Not targeted / unsupported', unsupportedRows.value],
-  }
-  const [title, rows] = map[segment.key as string]!
-  openRows(title, rows)
+const INVENTORIES = {
+  applicable: { title: 'Applicable upstream test groups', rows: () => allRows.value.filter((row) => row.state !== 'unsupported') },
+  existing: { title: 'Covered on main', rows: () => testGroupParityRows(parity.value, 'existing', 'all') },
+  action: { title: 'Potential open gaps', rows: () => testGroupParityRows(parity.value, 'action', 'all') },
+  unsupported: { title: 'Not targeted / unsupported', rows: () => testGroupParityRows(parity.value, 'unsupported', 'all') },
+  all: { title: 'Complete current upstream inventory', rows: () => allRows.value },
+} as const
+type InventoryKey = keyof typeof INVENTORIES
+
+function openInventory(key: InventoryKey) {
+  const inventory = INVENTORIES[key]
+  props.sheets.open(parityInventoryDetail(key, inventory.title, inventory.rows(), source.value))
 }
 function openArea(area: GapArea) {
-  openRows(`${area.label} potential open gaps`, area.rows)
+  props.sheets.open(parityInventoryDetail(`area-${area.label}`, `${area.label} potential open gaps`, area.rows, source.value))
 }
 
-const detail = ref<{ open: boolean; row: Rec | null }>({ open: false, row: null })
-function openDetail(row: Rec) {
-  detail.value = { open: true, row }
-}
-const detailFields = computed(() => {
-  const row = detail.value.row
-  if (!row) return []
-  const definition = row.definition_resolution || {}
-  return [
-    ['Inventory number', value(row.id)],
-    ['Test area', value(row.area)],
-    ['Configured coverage', testGroupParityState(row.state).label.replace(/^[●■]\s*/, '')],
-    ['Current CI definition', testGroupDefinitionState(row)],
-    ['Source name', value(row.title)],
-    ['AMD route mode', ROUTE_MODE_LABELS[row.gate_kind] || 'Unavailable'],
-    ['Current replacement names', (definition.successor_labels || []).join(' · ') || '—'],
-    ['Definition changes', definition.note || '—'],
-    ['Upstream CUDA variants', value(row.cuda_variants)],
-  ]
-})
-const detailSources = computed(() => {
-  const row = detail.value.row
-  if (!row) return []
-  const definition = row.definition_resolution || {}
-  const commit = source.value.main_commit || source.value.commit_sha || ''
-  const commitUrl = source.value.main_commit_url || (commit ? `https://github.com/vllm-project/vllm/commit/${commit}` : '')
-  return [
-    commitUrl ? { label: 'Open current main CI source commit', url: commitUrl } : null,
-    /^[0-9a-f]{40}$/.test(definition.commit_sha || '')
-      ? { label: 'Open current CI definitions', url: `https://github.com/vllm-project/vllm/tree/${definition.commit_sha}/.buildkite/test_areas` }
-      : null,
-  ].filter((s): s is { label: string; url: string } => s !== null)
-})
+const segments = computed<ProportionSegment[]>(() => [
+  { key: 'existing', label: 'covered on main', count: covered.value, color: statusVar('pass') },
+  { key: 'action', label: 'potential open gaps', count: Number(summary.value.action_groups || 0), color: statusVar(parityTone('hard')) },
+  { key: 'unsupported', label: 'not targeted', count: Number(summary.value.unsupported_groups || 0), color: statusVar('not-targeted') },
+])
+const areaSegments = (area: GapArea): ProportionSegment[] =>
+  area.segments.map((segment) => ({ key: segment.label, label: segment.label, count: segment.count, color: statusVar(parityTone(segment.tone)) }))
 
-const columns: ColumnDef<Rec, unknown>[] = [
-  { id: 'id', header: '#', accessorFn: (row) => Number(row.id || 0), cell: ({ getValue }) => h('span', { class: 'font-mono' }, integer(getValue())) },
-  {
-    id: 'title',
-    header: 'Upstream logical test group',
-    accessorFn: (row) => [row.title, row.reviewed_title].join(' '),
-    cell: ({ row }) => h('button', { type: 'button', class: 'text-left font-medium hover:underline', onClick: () => openDetail(row.original) }, row.original.title),
-    enableHiding: false,
-  },
-  { id: 'area', header: 'Area', accessorFn: (row) => value(row.area) },
-  { id: 'cuda', header: 'CUDA variants', accessorFn: (row) => value(row.cuda_variants) },
-  {
-    id: 'coverage',
-    header: 'Configured coverage',
-    accessorFn: (row) => testGroupParityState(row.state).label,
-    cell: ({ row }) => {
-      const p = testGroupParityState(row.original.state)
-      return h(ToneBadge, { tone: p.tone }, () => p.label)
-    },
-  },
-  { id: 'definition', header: 'Current CI definition', accessorFn: (row) => testGroupDefinitionState(row) },
-  {
-    id: 'assessment',
-    header: 'ROCm counterpart or assessment',
-    accessorFn: (row) => value(row.assessment),
-    cell: ({ getValue }) => h('span', { class: 'text-muted-foreground' }, String(getValue())),
-    enableSorting: false,
-  },
-]
+const inventoryLinks = computed(() => [
+  { key: 'action' as const, label: 'Potential open gaps', count: Number(summary.value.action_groups || 0), hint: 'Upstream groups with no configured AMD route' },
+  { key: 'unsupported' as const, label: 'Not-targeted groups', count: Number(summary.value.unsupported_groups || 0), hint: 'Hardware- or backend-specific; outside the denominator' },
+  { key: 'all' as const, label: 'Complete inventory', count: Number(summary.value.upstream_logical_groups || 0), hint: 'Every current upstream logical test group' },
+])
 </script>
 
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
-    <p v-if="retention.complete_relative_to_source === false" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-      Parity rows are storage-bounded in this snapshot; counts are lower bounds.
-    </p>
-    <p v-if="!available" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-      The current main CI test-group parity inventory is unavailable in this snapshot.
-    </p>
+    <Callout v-if="bounded" tone="soft" title="Storage-bounded snapshot">Parity rows are storage-bounded; counts are lower bounds.</Callout>
+    <Card v-if="!available">
+      <CardContent>
+        <EmptyState :icon="SearchX" title="Upstream parity is unavailable" description="The current main CI test-group parity inventory is missing from this snapshot." />
+      </CardContent>
+    </Card>
     <template v-else>
-      <div class="grid gap-4 md:gap-6 @4xl/main:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
-        <RingCard
-          eyebrow="Upstream parity on main"
-          title="Applicable test groups covered"
-          :current="Number(summary.main_complete_groups || 0)"
-          :total="Number(summary.applicable_groups || 0)"
-          :meta="`${integer(summary.main_missing_groups)} potential open gaps remain`"
-          :tone="Number(summary.main_missing_groups) ? 'soft' : 'pass'"
-          action-label="Inspect applicable groups →"
+      <StatGrid :cols="4">
+        <KpiCard
+          variant="ring"
+          label="Upstream parity"
+          :value="`${integer(covered)} covered`"
+          :ratio="{ current: covered, total: applicable }"
+          :status="missing ? { tone: 'soft', label: `${integer(missing)} open` } : { tone: 'pass', label: 'Complete' }"
+          :footnote="`${integer(missing)} potential open gaps remain`"
+          headline="Inspect applicable groups"
+          :action="{ label: 'Inspect applicable groups', onOpen: () => openInventory('applicable') }"
           data-testid="parity-ring"
-          @open="openRows('Applicable upstream test groups', applicableRows)"
         />
-        <DistributionCard
-          :title="`Current main CI · ${integer(summary.upstream_logical_groups)} logical groups`"
-          :subtitle="`${integer(summary.unsupported_groups)} hardware- or backend-specific groups are classified outside the parity denominator.`"
-          :segments="segments"
-          @open="openSegment"
+        <KpiCard
+          label="Potential open gaps"
+          :value="Number(summary.action_groups || 0)"
+          :status="Number(summary.action_groups || 0) ? { tone: 'soft', label: 'Attention' } : undefined"
+          :footnote="`Across ${integer(gapAreas.length)} test areas`"
+          headline="Inspect open gaps"
+          :action="{ label: 'Inspect potential open gaps', onOpen: () => openInventory('action') }"
+          data-testid="kpi-parity-gaps"
         />
-      </div>
-      <p class="rounded-md border border-info/40 bg-info/10 p-3 text-sm text-info">{{ configNote }}</p>
+        <KpiCard
+          label="Required route coverage"
+          :value="requiredRate"
+          :format="(v: number) => `${v.toFixed(1)}%`"
+          :footnote="`${integer(summary.main_required_groups)} required · ${integer(summary.main_optional_only_groups)} optional only · ${integer(summary.main_soft_fail_only_groups)} soft fail only`"
+          data-testid="kpi-parity-required"
+        />
+        <KpiCard
+          label="Not targeted"
+          :value="Number(summary.unsupported_groups || 0)"
+          footnote="Hardware- or backend-specific groups outside the denominator"
+          headline="Inspect not-targeted groups"
+          :action="{ label: 'Inspect not-targeted groups', onOpen: () => openInventory('unsupported') }"
+          data-testid="kpi-parity-unsupported"
+        />
+      </StatGrid>
 
-      <Card>
+      <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
+        <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="parity-distribution">
+          <CardHeader>
+            <CardTitle as="h2">Current main CI · {{ integer(summary.upstream_logical_groups) }} logical groups</CardTitle>
+            <CardDescription>{{ integer(summary.unsupported_groups) }} hardware- or backend-specific groups are classified outside the parity denominator.</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-4">
+            <ProportionBar :segments="segments" label="Upstream logical groups by configured coverage" :on-select="(s) => openInventory(s.key as InventoryKey)" />
+          </CardContent>
+        </Card>
+
+        <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300">
+          <CardHeader>
+            <CardTitle as="h2">Inventories</CardTitle>
+            <CardDescription>Searchable tables; each test group opens its assessment.</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-1 px-3">
+            <button
+              v-for="item in inventoryLinks"
+              :key="item.key"
+              type="button"
+              class="group/link flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-accent/80"
+              @click="openInventory(item.key)"
+            >
+              <span class="flex min-w-0 flex-1 flex-col">
+                <span class="text-sm font-medium">{{ item.label }}</span>
+                <span class="text-xs text-muted-foreground">{{ item.hint }}</span>
+              </span>
+              <span class="text-sm font-semibold tabular-nums" :class="!item.count && 'text-muted-foreground'">{{ integer(item.count) }}</span>
+              <ChevronRight class="size-4 text-muted-foreground transition-transform group-hover/link:translate-x-0.5" aria-hidden="true" />
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300">
         <CardHeader>
-          <CardTitle>Potential open gaps by test area</CardTitle>
-          <CardDescription>Select an area to open its complete table.</CardDescription>
+          <CardTitle as="h2">Potential open gaps by test area</CardTitle>
+          <CardDescription>Coverage gaps are configuration attention items, not runtime failures. Select an area for its groups.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div class="grid gap-3 @3xl/main:grid-cols-2 @6xl/main:grid-cols-3">
+          <EmptyState v-if="!gapAreas.length" title="No potential open gaps" description="Every applicable upstream group has a configured AMD route." />
+          <div v-else class="grid grid-cols-1 gap-3 @3xl/main:grid-cols-2 @6xl/main:grid-cols-3">
             <button
-              v-for="area in gapAreas"
+              v-for="(area, index) in gapAreas"
               :key="area.label"
               type="button"
-              class="flex flex-col gap-2 rounded-lg border p-3 text-left hover:bg-accent"
+              class="group/area flex min-w-0 flex-col gap-3 rounded-lg border bg-linear-to-t from-status-soft/5 to-card p-4 text-left transition-[border-color,box-shadow,transform] duration-150 hover:border-foreground/20 hover:shadow-sm focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:active:scale-[.99]"
+              :style="{ animationDelay: `${index * 30}ms` }"
               data-testid="gap-area"
               @click="openArea(area)"
             >
-              <div class="flex items-baseline justify-between gap-2">
-                <strong>{{ area.label }}</strong>
-                <span class="text-xs text-destructive">{{ area.countLabel }}</span>
-              </div>
-              <div class="flex h-2 w-full overflow-hidden rounded-full bg-muted">
-                <span
-                  v-for="segment in area.segments.filter((s) => s.count)"
-                  :key="segment.label"
-                  :class="SEGMENT_FILL[segment.tone]"
-                  :style="{ width: `${(segment.count / Math.max(1, area.total)) * 100}%` }"
-                />
-              </div>
-              <ul class="text-xs text-muted-foreground">
-                <li v-for="group in area.rows.slice(0, 3)" :key="group.id" class="truncate">#{{ integer(group.id) }} {{ group.title }}</li>
+              <span class="flex items-start justify-between gap-2">
+                <strong class="font-semibold" data-testid="gap-area-label">{{ area.label }}</strong>
+                <span class="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-status-soft-fg" data-testid="gap-area-count">
+                  {{ area.countLabel }}<ChevronRight class="size-3.5 transition-transform group-hover/area:translate-x-0.5" aria-hidden="true" />
+                </span>
+              </span>
+              <ProportionBar :segments="areaSegments(area)" :max="area.total" :label="`${area.label} coverage`" :legend="false" />
+              <ul class="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                <li v-for="group in area.rows.slice(0, 3)" :key="group.id" class="truncate">
+                  <span class="font-mono">#{{ integer(group.id) }}</span> {{ group.title }}
+                </li>
+                <li v-if="area.rows.length > 3">+{{ integer(area.rows.length - 3) }} more</li>
               </ul>
             </button>
           </div>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Inspect exact test groups</CardTitle>
-          <CardDescription>Tables open in a searchable panel; selecting a test group opens its assessment.</CardDescription>
-        </CardHeader>
-        <CardContent class="flex flex-wrap gap-2">
-          <Button @click="openRows('Potential open gaps', missingRows)">Browse all {{ integer(summary.action_groups) }} potential open gaps</Button>
-          <Button variant="outline" @click="openRows('Not targeted / unsupported', unsupportedRows)">
-            Browse {{ integer(summary.unsupported_groups) }} not-targeted groups
-          </Button>
-          <Button variant="outline" @click="openRows('Complete current upstream inventory', allRows)">
-            Browse complete {{ integer(summary.upstream_logical_groups) }}-group inventory
-          </Button>
-        </CardContent>
-      </Card>
-      <p v-if="inventoryMain.logical_groups || inventoryMain.physical_definitions" class="text-sm text-muted-foreground">
-        Separate ROCm inventory on main: {{ integer(inventoryMain.logical_groups) }} logical AMD test groups from
-        {{ integer(inventoryMain.physical_definitions) }} YAML definitions. These inventory counts are not the upstream-parity numerator.
-      </p>
     </template>
-
-    <TableSheet
-      v-model:open="browser.open"
-      :title="browser.title"
-      :subtitle="`${integer(browser.rows.length)} current upstream logical test groups`"
-      :columns="columns"
-      :rows="browser.rows"
-      search-placeholder="Filter test group, area, CUDA variant, status, or assessment"
-    />
-
-    <Sheet v-model:open="detail.open">
-      <SheetContent class="w-full overflow-y-auto sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle>{{ detail.row?.title || 'Upstream logical test group' }}</SheetTitle>
-          <SheetDescription>Configured AMD routes against upstream source definitions</SheetDescription>
-        </SheetHeader>
-        <div class="flex flex-col gap-4 px-4 pb-6">
-          <p class="text-sm">{{ detail.row?.assessment || 'No source-derived assessment is available.' }}</p>
-          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <template v-for="[label, val] in detailFields" :key="label">
-              <dt class="text-muted-foreground">{{ label }}</dt>
-              <dd class="font-medium">{{ val }}</dd>
-            </template>
-          </dl>
-          <div class="flex flex-wrap gap-3">
-            <a v-for="link in detailSources" :key="link.url" :href="link.url" target="_blank" rel="noopener" class="text-sm font-medium hover:underline">
-              {{ link.label }} ↗
-            </a>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
   </div>
 </template>

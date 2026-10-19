@@ -14,14 +14,15 @@ import {
 } from '@/components/ui/chart'
 import type { Rec } from '@/domain/format'
 import { nightlyFailureCount } from '@/domain/nightly'
+import { statusVar } from '@/lib/palette'
 
 const props = defineProps<{ builds: Rec[]; latestSignal: unknown }>()
 const emit = defineEmits<{ select: [Rec] }>()
 
 const config = {
-  new: { label: 'New failure', color: 'var(--destructive)' },
-  recurring: { label: 'Recurring failure', color: 'var(--warning)' },
-  fixed: { label: 'Fixed', color: 'var(--success)' },
+  new: { label: 'New failure', color: statusVar('hard') },
+  recurring: { label: 'Recurring failure', color: statusVar('soft') },
+  fixed: { label: 'Fixed', color: statusVar('pass') },
 } satisfies ChartConfig
 
 // Fixes are drawn below zero so failures and recoveries read as one movement.
@@ -45,7 +46,7 @@ const tooltip = computed(() =>
 <template>
   <Card>
     <CardHeader>
-      <CardTitle>Nightly failure movement</CardTitle>
+      <CardTitle as="h2">Nightly failure movement</CardTitle>
       <CardDescription>
         New and recurring failures are above zero; fixes are below. Latest signal #{{ latestSignal ?? '-' }} · click a bar for its evidence.
       </CardDescription>

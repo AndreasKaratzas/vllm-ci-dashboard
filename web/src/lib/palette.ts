@@ -27,6 +27,11 @@ export const SERIES = {
   muted: token('series-muted'),
 } as const
 
+/** The same hue at reduced strength, e.g. a lighter step that reads as "less strict". */
+export function tint(color: PaletteColor, percent: number): PaletteColor {
+  return `color-mix(in oklch, ${color} ${percent}%, transparent)` as PaletteColor
+}
+
 export type HardwareFamily = 'MI250' | 'MI300' | 'MI325' | 'MI355'
 const HARDWARE_FAMILIES: readonly HardwareFamily[] = ['MI250', 'MI300', 'MI325', 'MI355']
 
@@ -55,7 +60,7 @@ export type TonePart = 'badge' | 'text' | 'icon' | 'fill' | 'stroke' | 'surface'
 // Literal class strings so Tailwind's scanner emits every one of them. Pass is
 // the quiet default (no tint); 'info' deliberately renders neutral.
 const QUIET: Record<TonePart, string> = {
-  badge: 'border-border bg-muted text-muted-foreground',
+  badge: 'border-border bg-muted text-foreground/80',
   text: 'text-muted-foreground',
   icon: 'text-muted-foreground',
   fill: 'bg-status-unknown',

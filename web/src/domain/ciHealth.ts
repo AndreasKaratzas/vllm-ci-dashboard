@@ -259,3 +259,59 @@ export function parityGapAreas(parity: Rec): GapArea[] {
     })
     .sort((left, right) => right.attention - left.attention || left.label.localeCompare(right.label))
 }
+
+export interface LogicalHealthPoint {
+  number: number
+  rate: number
+}
+
+/** Logical pass rate (passing on any route) per retained nightly with a test signal, oldest first. */
+export function logicalHealthHistory(builds: Rec[] | null | undefined): LogicalHealthPoint[] {
+  return (builds || [])
+    .filter((build) => build.has_test_results !== false && Number(build.unique_test_groups || 0) > 0)
+    .map((build) => ({
+      number: Number(build.number),
+      rate: (Number(build.test_groups_passing_or || 0) / Number(build.unique_test_groups)) * 100,
+    }))
+    .reverse()
+}
+
+export interface JobVariantPoint {
+  number: number
+  observed: number
+  passed: number
+  soft: number
+  hard: number
+}
+
+/** Exact job-variant outcomes per retained AMD build, oldest first. */
+export function jobVariantHistory(amdHealth: Rec | null | undefined): JobVariantPoint[] {
+  const builds: Rec[] = Array.isArray(currentAmdHealth(amdHealth).builds) ? currentAmdHealth(amdHealth).builds : []
+  return builds
+    .filter((build) => Number(build.observed_job_variants ?? build.observed ?? 0) > 0)
+    .map((build) => ({
+      number: Number(build.build_number ?? build.number),
+      observed: Number(build.observed_job_variants ?? build.observed ?? 0),
+      passed: Number(build.passed_job_variants ?? build.passed ?? 0),
+      soft: Number(build.soft_failed_job_variants ?? build.soft_failed ?? 0),
+      hard: Number(build.hard_failed_job_variants ?? build.hard_failed ?? 0),
+    }))
+    .sort((left, right) => left.number - right.number)
+}
+
+/** The configured-route sentence of the upstream parity methodology. */
+export function parityConfigNote(summary: Rec, source: Rec): string {
+  const required = summary.main_required_groups
+  const rate = summary.main_required_rate_pct
+  const commit = source.current_definition_commit_sha || source.main_commit || ''
+  return (
+    `Configured AMD routes cover ${integer(summary.main_complete_groups)} of ${integer(summary.applicable_groups)} applicable current CUDA logical groups. ` +
+    (required === undefined
+      ? 'Required-route coverage is unavailable. '
+      : `${integer(required)} groups have a required source configuration` +
+        (Number.isFinite(Number(rate)) ? ` (${Number(rate).toFixed(1)}%)` : '') +
+        `; ${integer(summary.main_optional_only_groups)} are optional only and ${integer(summary.main_soft_fail_only_groups)} are soft fail only. `) +
+    'These are source configuration flags; individual nightly scheduling and blocking outcomes are separate.' +
+    (/^[0-9a-f]{40}$/.test(commit) ? ` Source: main CI at ${commit.slice(0, 12)}.` : '')
+  )
+}

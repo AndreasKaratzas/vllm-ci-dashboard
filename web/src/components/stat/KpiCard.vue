@@ -130,6 +130,10 @@ const actionAttrs = computed(() => {
       </div>
     </div>
 
+    <div v-if="$slots.default" class="relative px-4 @[15rem]/card:px-6" data-slot="kpi-content">
+      <slot />
+    </div>
+
     <div v-if="spark && spark.length > 1" class="px-4 @[15rem]/card:px-6">
       <Sparkline :values="spark" :label="`${label} trend over ${spark.length} points`" />
     </div>

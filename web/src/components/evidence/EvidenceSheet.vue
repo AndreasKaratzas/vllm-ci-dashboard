@@ -40,7 +40,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
 
         <Callout v-for="(note, index) in detail.notes" :key="index" :tone="note.tone" :title="note.title">{{ note.text }}</Callout>
 
-        <dl v-if="detail.stats?.length" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <dl v-if="detail.stats?.length" data-slot="detail-stats" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div v-for="stat in detail.stats" :key="stat.label" class="flex min-w-0 flex-col gap-1 rounded-lg border bg-linear-to-t from-brand/5 to-card p-3">
             <dt class="text-xs text-muted-foreground">{{ stat.label }}</dt>
             <dd class="flex flex-wrap items-center gap-2">
@@ -51,7 +51,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
           </div>
         </dl>
 
-        <dl v-if="fields.length" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
+        <dl v-if="fields.length" data-slot="detail-fields" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
           <template v-for="field in fields" :key="field.label">
             <dt class="text-muted-foreground">{{ field.label }}</dt>
             <dd class="font-medium break-words">{{ field.value }}</dd>
@@ -59,6 +59,14 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
         </dl>
 
         <slot />
+
+        <div v-for="(section, index) in detail.sections" :key="`section-${index}`" class="flex flex-col gap-2" data-slot="detail-section">
+          <div v-if="section.title || section.meta" class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 v-if="section.title" class="text-sm font-semibold">{{ section.title }}</h3>
+            <span v-if="section.meta" class="text-xs text-muted-foreground">{{ section.meta }}</span>
+          </div>
+          <component :is="section.component" v-bind="section.props" @drill="(d: Detail) => emit('drill', d)" />
+        </div>
 
         <EmptyState v-if="detail.empty" :title="detail.empty" />
 
@@ -72,6 +80,10 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             :rows="table.rows"
             :search-text="table.searchText"
             :searchable="table.rows.length > 10"
+            :search-placeholder="table.searchPlaceholder"
+            :filters="table.filters"
+            :show-total="table.showTotal"
+            :on-row-click="table.rowDetail ? (row: unknown) => emit('drill', table.rowDetail!(row)) : undefined"
             :page-size="table.pageSize ?? 25"
             :empty-text="table.emptyText"
             :label="table.title"

@@ -1,4 +1,5 @@
 import type { Detail } from '@/components/evidence/detail'
+import type { PaletteColor } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 export interface CellSpec {
@@ -9,6 +10,8 @@ export interface CellSpec {
   detail?: () => Detail
   onOpen?: () => void
   tone?: Tone
+  /** A leading identity dot (hardware family, series) for non-status categories. */
+  dot?: PaletteColor
   mono?: boolean
   sub?: string
 }
@@ -28,6 +31,8 @@ export interface FilterSpec<T> {
   id: string
   label: string
   options: { value: string; label: string }[]
+  /** Label of the no-filter option; defaults to "All <label>". */
+  allLabel?: string
   initial?: string
   predicate: (row: T, value: string) => boolean
 }
@@ -41,4 +46,5 @@ export const num = (value: number | null | undefined, format: (n: number) => str
 })
 export const link = (value: unknown, url: string | null | undefined, isMono = false): CellSpec => ({ text: show(value), href: url || undefined, mono: isMono })
 export const badge = (value: unknown, tone: Tone): CellSpec => ({ text: show(value), tone })
+export const dotted = (value: unknown, color: PaletteColor, sub?: string): CellSpec => ({ text: show(value), dot: color, sub })
 export const drill = (value: unknown, detail: () => Detail): CellSpec => ({ text: show(value), detail })

@@ -7,7 +7,7 @@ import DetailSheet, { type DetailRequest } from '@/components/analytics/DetailSh
 import LogicalGroupSheet from '@/components/analytics/LogicalGroupSheet.vue'
 import StackedBarChart, { type ChartSeries } from '@/components/analytics/StackedBarChart.vue'
 import StatCard from '@/components/analytics/StatCard.vue'
-import AmdGroupSheet from '@/components/health/AmdGroupSheet.vue'
+import EvidenceSheet from '@/components/evidence/EvidenceSheet.vue'
 import DataTable from '@/components/ops/DataTable.vue'
 import TableSheet from '@/components/ops/TableSheet.vue'
 import ToneBadge from '@/components/ops/ToneBadge.vue'
@@ -37,6 +37,7 @@ import {
 } from '@/domain/ciHealth'
 import { age, integer, percent, shortDate, toneForState, value, type Rec, type Tone } from '@/domain/format'
 import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
+import { exactJobDetail } from '@/features/amd-groups/details'
 
 const { data: ops, error, loading, retry } = useOperationSections(['amd_test_health'])
 
@@ -344,7 +345,7 @@ const logicalColumns: ColumnDef<Rec, unknown>[] = [
       </template>
 
       <AmdCatalogSheet v-model:open="catalog.open" :request="catalog.request" :latest-build="latestBuild" @inspect="openGroup" />
-      <AmdGroupSheet v-model:open="group.open" :row="group.row" :latest-build="latestBuild" />
+      <EvidenceSheet v-if="group.row" v-model:open="group.open" :detail="exactJobDetail(group.row, latestBuild)" />
       <TableSheet
         v-model:open="logicalCatalog"
         title="Latest AMD logical test groups"

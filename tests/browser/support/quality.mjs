@@ -44,8 +44,14 @@ export async function expectAccessible(page) {
   expect(serious, 'serious accessibility violations').toEqual([]);
 }
 
+// Entrance animations fade content in; contrast is judged on the settled page.
+export async function settleAnimations(page) {
+  await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== 'running' || animation.effect?.getTiming().iterations === Infinity));
+}
+
 /** Every gate on the current page, as rendered at the current viewport and theme. */
 export async function expectQuality(page, errors) {
+  await settleAnimations(page);
   await expectPointerCursors(page);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);

@@ -34,10 +34,10 @@ const fresh = computed(() => !!generatedAt.value && Date.now() - Date.parse(gene
           <span class="size-1.5 rounded-full" :class="fresh ? 'bg-success' : 'bg-destructive'" />
           Updated {{ age(generatedAt) }}
         </Badge>
-        <Button variant="outline" size="sm" class="text-muted-foreground" @click="$emit('search')">
+        <Button variant="outline" size="sm" class="text-muted-foreground" aria-label="Search builds, issues, PRs" @click="$emit('search')">
           <Search />
           <span class="hidden md:inline">Search builds, issues, PRs…</span>
-          <kbd class="pointer-events-none hidden rounded border bg-muted px-1.5 font-mono text-[10px] md:inline">⌘K</kbd>
+          <kbd class="pointer-events-none hidden rounded border bg-background px-1.5 font-mono text-[10px] md:inline">⌘K</kbd>
         </Button>
         <Button variant="ghost" size="icon" :aria-label="dark ? 'Switch to light theme' : 'Switch to dark theme'" @click="toggle">
           <Sun v-if="dark" /><Moon v-else />

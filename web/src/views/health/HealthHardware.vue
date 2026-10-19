@@ -1,409 +1,243 @@
 <script setup lang="ts">
-// CI Health "AMD hardware" (classic ops_health_view=coverage).
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, ref, shallowRef } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import BrowserSheet, { type BrowserFilter } from '@/components/health/BrowserSheet.vue'
-import GroupHistorySheet from '@/components/health/GroupHistorySheet.vue'
-import MatrixGroupSheet from '@/components/health/MatrixGroupSheet.vue'
-import DataTable from '@/components/ops/DataTable.vue'
-import DistributionCard, { SEGMENT_FILL, type Segment } from '@/components/ops/DistributionCard.vue'
-import KpiCard from '@/components/ops/KpiCard.vue'
-import ToneBadge from '@/components/ops/ToneBadge.vue'
-import ViewState from '@/components/ops/ViewState.vue'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { ChevronRight, ServerOff } from '@lucide/vue'
+import { computed } from 'vue'
+import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import Callout from '@/components/feedback/Callout.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import KpiCard from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
+import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { useOperationSections } from '@/composables/useOperations'
-import { fetchJSON } from '@/data/client'
-import { integer, percent, toneForState, value, type Rec, type Tone } from '@/domain/format'
+import { useDataset } from '@/composables/useDataset'
+import { useQueryState } from '@/composables/useQueryState'
+import type { SheetStack } from '@/composables/useSheetStack'
+import { integer, percent, type Rec } from '@/domain/format'
 import {
-  MATRIX_BROWSER_TITLES,
-  MATRIX_CLASSIFICATION_OPTIONS,
   MATRIX_SORT_MODES,
-  MATRIX_STATUS_OPTIONS,
   amdMatrixSortDescription,
-  architectureBrowser,
-  architectureCellUrl,
   architectureHealth,
   architectureRate,
   coverageBrowserSubtitle,
   hardwareViewState,
-  matrixBrowserFilters,
   matrixBrowserState,
-  matrixClassificationPredicate,
-  matrixGateKindLabel,
-  matrixGroupEvidence,
-  matrixGroupSearchText,
   matrixHealthOverviewPresentation,
   matrixHealthPolicy,
-  matrixHealthStatusLabel,
-  matrixHealthTone,
-  matrixSortMode,
-  matrixStatusPredicate,
   runtimeMatrixSummary,
   sortAmdMatrixRows,
   type ArchitectureHealth,
   type MatrixBrowserMode,
   type MatrixSortMode,
 } from '@/domain/healthHardware'
+import { hardwareColor, rateTone, statusVar, toneClasses } from '@/lib/palette'
+import { architectureDetail, groupHistoryDetail, matrixBrowserDetail, matrixColumns, matrixUnavailableDetail } from './details'
 
-const MATRIX_PATH = 'data/vllm/ci/amd_test_matrix.json'
+const props = defineProps<{ ops: Rec; sheets: SheetStack }>()
 
-// Same section set as the CI Health page, so the request is shared.
-const { data: ops, error, loading, retry } = useOperationSections(['nightly', 'amd_test_health', 'test_group_parity'])
-const matrix = shallowRef<Rec | null>(null)
-const matrixLoaded = ref(false)
-// Classic treats an unreadable matrix as "unavailable", not as a page error.
-fetchJSON<Rec>(MATRIX_PATH)
-  .then((data) => (matrix.value = data || {}))
-  .catch(() => (matrix.value = {}))
-  .finally(() => (matrixLoaded.value = true))
+// An unreadable matrix reads as "unavailable", never as a page error.
+const matrixSet = useDataset('amd_test_matrix')
+const matrix = computed<Rec | null>(() => matrixSet.data.value ?? (matrixSet.error.value ? {} : null))
 
-const route = useRoute()
-const router = useRouter()
-const sort = computed<MatrixSortMode>({
-  get: () => matrixSortMode(route.query.sort),
-  set: (mode) => void router.replace({ query: { ...route.query, sort: mode === 'platform' ? undefined : mode } }),
+const sort = useQueryState<MatrixSortMode>('sort', { default: 'platform', allowed: MATRIX_SORT_MODES.map((m) => m.id) })
+const sortModel = computed({
+  get: () => sort.value,
+  set: (mode: string) => {
+    if (mode) sort.value = mode as MatrixSortMode
+  },
 })
 
-const amdHealth = computed<Rec>(() => ops.value?.amd_test_health ?? {})
+const amdHealth = computed<Rec>(() => props.ops.amd_test_health ?? {})
 const runtime = computed(() => runtimeMatrixSummary(amdHealth.value))
 const policy = computed(() => matrixHealthPolicy(runtime.value))
 const overview = computed(() =>
-  matrixHealthOverviewPresentation(
-    runtime.value,
-    policy.value,
-    runtime.value.latest_build_number || ((amdHealth.value.summary || {}) as Rec).latest_build_number,
-  ),
+  matrixHealthOverviewPresentation(runtime.value, policy.value, runtime.value.latest_build_number || ((amdHealth.value.summary || {}) as Rec).latest_build_number),
 )
 const viewState = computed(() => hardwareViewState(matrix.value))
 const architectures = computed<Rec[]>(() => matrix.value?.architectures || [])
 const coverageRows = computed(() => sortAmdMatrixRows(matrix.value?.rows || [], sort.value))
 const archHealth = computed(() => architectureHealth(architectures.value, coverageRows.value))
+const columns = computed(() => matrixColumns(architectures.value, props.ops))
 
-const STAT_TONES: Record<string, Tone> = { all: 'neutral', passing: 'pass', failing: 'hard', 'no-signal': 'neutral' }
-function statCount(mode: string) {
-  const p = policy.value
-  if (mode === 'passing') return Number(p.passing_groups || 0)
-  if (mode === 'failing') return Number(p.failing_groups || 0)
-  return Number(p.waiting_groups || 0) + Number(p.unknown_groups || 0)
+const noSignal = computed(() => Number(policy.value.waiting_groups || 0) + Number(policy.value.unknown_groups || 0))
+const included = computed(() => Number(policy.value.included_groups || 0))
+const STAT_COUNT: Record<string, () => number> = {
+  all: () => included.value,
+  passing: () => Number(policy.value.passing_groups || 0),
+  failing: () => Number(policy.value.failing_groups || 0),
+  'no-signal': () => noSignal.value,
 }
-const segments = computed<Segment[]>(() => [
-  { key: 'passing', label: 'Passing', count: Number(policy.value.passing_groups || 0), tone: 'pass' },
-  { key: 'failing', label: 'Failing', count: Number(policy.value.failing_groups || 0), tone: 'hard' },
-  { key: 'no-signal', label: 'No signal', count: Number(policy.value.waiting_groups || 0) + Number(policy.value.unknown_groups || 0), tone: 'neutral' },
+const segments = computed<ProportionSegment[]>(() => [
+  { key: 'passing', label: 'Passing', count: STAT_COUNT.passing!(), color: statusVar('pass') },
+  { key: 'failing', label: 'Failing', count: STAT_COUNT.failing!(), color: statusVar('hard') },
+  { key: 'no-signal', label: 'No signal', count: noSignal.value, color: statusVar('neutral') },
 ])
 
-// Configured-group browser (classic openMatrixHealthBrowser).
-const groupBrowser = ref({ open: false, mode: 'all' as MatrixBrowserMode })
-const unavailable = ref<{ open: boolean; label: string; description: string }>({ open: false, label: '', description: '' })
-const browserState = computed(() => matrixBrowserState(matrix.value))
-const browserGroups = computed<Rec[]>(() => (browserState.value.available ? browserState.value.groups : []))
-function openGroupBrowser(mode: MatrixBrowserMode) {
-  const state = browserState.value
-  if (!state.available) {
-    unavailable.value = { open: true, label: state.label, description: state.description }
-    return
-  }
-  groupBrowser.value = { open: true, mode }
+function openBrowser(mode: MatrixBrowserMode) {
+  const state = matrixBrowserState(matrix.value)
+  if (!state.available) props.sheets.open(matrixUnavailableDetail(state.label, state.description))
+  else props.sheets.open(matrixBrowserDetail(mode, state.groups, state.subtitle, matrix.value))
 }
-const groupFilters = computed<BrowserFilter<Rec>[]>(() => {
-  const initial = matrixBrowserFilters(groupBrowser.value.mode)
-  return [
-    { label: 'Filter configured test-group status', options: MATRIX_STATUS_OPTIONS, initial: initial.status, predicate: matrixStatusPredicate },
-    { label: 'Filter configured test-group classification', options: MATRIX_CLASSIFICATION_OPTIONS, initial: initial.classification, predicate: matrixClassificationPredicate },
-  ]
-})
+function openArchitecture(health: ArchitectureHealth) {
+  props.sheets.open(architectureDetail(health, coverageRows.value, props.ops))
+}
+function openMatrix() {
+  props.sheets.open({
+    id: 'route-matrix',
+    title: 'Complete AMD test matrix',
+    subtitle: coverageBrowserSubtitle(coverageRows.value, architectures.value, sort.value),
+    tables: [
+      {
+        rows: coverageRows.value,
+        columns: columns.value,
+        searchText: (row: Rec) => [row.title, row.area].join(' '),
+        searchPlaceholder: 'Filter test group or area',
+        showTotal: true,
+        rowDetail: (row: Rec) => groupHistoryDetail(row, props.ops),
+        pageSize: 50,
+      },
+    ],
+    width: 'xl',
+  })
+}
 
-const matrixGroup = ref<{ open: boolean; group: Rec | null }>({ open: false, group: null })
-const openMatrixGroup = (group: Rec) => (matrixGroup.value = { open: true, group })
-const groupButton = (label: string, group: Rec, cls = 'text-left font-medium hover:underline') =>
-  h('button', { type: 'button', class: cls, onClick: () => openMatrixGroup(group) }, label)
-
-const groupColumns: ColumnDef<Rec, unknown>[] = [
-  { id: 'title', header: 'Test group', cell: ({ row }) => groupButton(String(row.original.title ?? ''), row.original) },
-  {
-    id: 'status',
-    header: 'Status',
-    cell: ({ row }) =>
-      h('button', { type: 'button', onClick: () => openMatrixGroup(row.original) }, [
-        h(ToneBadge, { tone: matrixHealthTone(row.original.status) }, () => matrixHealthStatusLabel(row.original.status)),
-      ]),
-  },
-  {
-    id: 'classification',
-    header: 'Classification',
-    cell: ({ row }) =>
-      h('button', { type: 'button', onClick: () => openMatrixGroup(row.original) }, [
-        h(ToneBadge, { tone: row.original.classification === 'mi355-sensitive' ? 'info' : 'neutral' }, () => matrixGateKindLabel(row.original)),
-      ]),
-  },
-  { id: 'hardware', header: 'Hardware', cell: ({ row }) => row.original.architectures.map((a: string) => a.toUpperCase()).join(', ') || '-' },
-  {
-    id: 'reason',
-    header: 'Classification reason',
-    cell: ({ row }) => groupButton(row.original.classificationReason || '-', row.original, 'text-left text-muted-foreground hover:underline'),
-  },
-  { id: 'signal', header: 'Route signal', cell: ({ row }) => `${integer(row.original.passedCells)} pass - ${integer(row.original.incidentCells)} non-passing` },
-  {
-    id: 'evidence',
-    header: 'Evidence',
-    cell: ({ row }) => groupButton(`${integer(matrixGroupEvidence(row.original).filter((e) => e.url).length)} jobs`, row.original),
-  },
+const routeSegments = (health: ArchitectureHealth): ProportionSegment[] => [
+  { key: 'passed', label: 'passing', count: health.passed, color: statusVar('pass') },
+  { key: 'incident', label: 'non-passing', count: health.incident, color: statusVar('hard') },
+  { key: 'unknown', label: 'unobserved', count: health.unknown, color: statusVar('neutral') },
 ]
-
-// Test-group detail (classic openGroupDetailWithEvidence({name, area}, ops)).
-const groupDetail = ref<{ open: boolean; group: Rec | null }>({ open: false, group: null })
-const openGroupDetail = (row: Rec) => (groupDetail.value = { open: true, group: { name: row.title, area: row.area } })
-const detailButton = (row: Rec) =>
-  h('button', { type: 'button', class: 'text-left font-medium hover:underline', onClick: () => openGroupDetail(row) }, String(row.title ?? ''))
-const stateBadge = (row: Rec, label: string, stateName: unknown) =>
-  h('button', { type: 'button', onClick: () => openGroupDetail(row) }, [h(ToneBadge, { tone: toneForState(stateName) }, () => label)])
-
-// Per-architecture route browser (classic openArchitectureHealth).
-const archBrowser = ref<{ open: boolean; health: ArchitectureHealth | null }>({ open: false, health: null })
-const archBrowserData = computed(() => (archBrowser.value.health ? architectureBrowser(archBrowser.value.health, coverageRows.value) : null))
-const archColumns = computed<ColumnDef<Rec, unknown>[]>(() => {
-  const id = archBrowser.value.health?.architecture.id
-  return [
-    { id: 'title', header: 'Test group', cell: ({ row }) => detailButton(row.original) },
-    { id: 'area', header: 'Area', cell: ({ row }) => value(row.original.area) },
-    {
-      id: 'latest',
-      header: 'Latest result',
-      cell: ({ row }) => {
-        const cell = (row.original.cells || {})[id] || {}
-        return stateBadge(row.original, cell.latest_state || 'unobserved', cell.latest_state)
-      },
-    },
-    {
-      id: 'build',
-      header: 'Build',
-      cell: ({ row }) => {
-        const cell = (row.original.cells || {})[id] || {}
-        const url = architectureCellUrl(cell)
-        return url
-          ? h('a', { href: url, target: '_blank', rel: 'noopener', class: 'font-mono hover:underline' }, `#${value(cell.latest_build_number)}`)
-          : h('span', { class: 'text-muted-foreground' }, '-')
-      },
-    },
-  ]
-})
-
-// Route matrix: one column per architecture.
-const matrixColumns = computed<ColumnDef<Rec, unknown>[]>(() => [
-  { id: 'title', header: 'Group', accessorFn: (row) => String(row.title ?? ''), cell: ({ row }) => detailButton(row.original), enableHiding: false, enableSorting: false },
-  { id: 'area', header: 'Area', accessorFn: (row) => value(row.area), enableSorting: false },
-  ...architectures.value.map(
-    (arch): ColumnDef<Rec, unknown> => ({
-      id: `arch-${arch.id}`,
-      header: arch.label,
-      enableSorting: false,
-      accessorFn: (row) => {
-        const c = (row.cells || {})[arch.id] || {}
-        return c.exists ? c.latest_state || 'unknown' : '-'
-      },
-      cell: ({ row }) => {
-        const c = (row.original.cells || {})[arch.id] || {}
-        if (!c.exists) return h('span', { class: 'text-muted-foreground' }, '-')
-        return stateBadge(row.original, c.latest_state || 'unknown', c.latest_state)
-      },
-    }),
-  ),
-])
-const matrixBrowserOpen = ref(false)
-const matrixSearch = (row: Rec) => [row.title, row.area].join(' ')
-
-const RATE_TEXT: Record<Tone, string> = {
-  pass: 'text-success',
-  soft: 'text-warning',
-  hard: 'text-destructive',
-  info: 'text-info',
-  neutral: 'text-muted-foreground',
-  'not-targeted': 'text-muted-foreground',
-}
 </script>
 
 <template>
-  <ViewState :loading="(loading && !ops) || !matrixLoaded" :error="error" @retry="retry">
-    <div v-if="ops" class="flex flex-col gap-4 md:gap-6">
-      <Alert v-if="viewState === 'unavailable'" class="border-warning/40 bg-warning/10" data-testid="hardware-unavailable">
-        <AlertDescription class="text-warning">
-          Current main CI AMD hardware evidence is unavailable. No older AMD pipeline result is substituted.
-        </AlertDescription>
-      </Alert>
-      <template v-else>
-        <!-- Configured AMD test groups: the fixed best-hardware policy. -->
-        <section class="flex flex-col gap-3" data-testid="hardware-policy">
-          <div class="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h3 class="text-lg font-semibold">Configured AMD test groups</h3>
-              <p class="text-sm text-muted-foreground" data-testid="hardware-policy-meta">{{ overview.meta }}</p>
-            </div>
-            <Button v-if="!overview.unavailable" variant="outline" size="sm" @click="openGroupBrowser('all')">{{ overview.browseLabel }}</Button>
-          </div>
-          <Alert v-if="overview.unavailable" class="border-warning/40 bg-warning/10">
-            <AlertDescription class="text-foreground">
-              <p><strong>Best-hardware metric unavailable.</strong> Complete best-hardware detail is unavailable or storage-bounded; rates and drill-downs stay hidden.</p>
-            </AlertDescription>
-          </Alert>
-          <template v-else>
-            <div class="grid grid-cols-1 gap-4 @xl/main:grid-cols-2 @5xl/main:grid-cols-5">
-              <KpiCard
-                label="Pass rate"
-                :value="overview.rate"
-                :badge="`${overview.stats[1]!.count} / ${overview.stats[0]!.count}`"
-                :badge-tone="Number(policy.failing_groups || 0) ? 'soft' : 'pass'"
-                headline="Browse all →"
-                detail="One fixed best-hardware policy"
-                data-testid="hardware-rate"
-                @open="openGroupBrowser('all')"
-              />
-              <KpiCard
-                v-for="stat in overview.stats"
-                :key="stat.mode"
-                :label="stat.label"
-                :value="stat.count"
-                :headline="`Inspect ${stat.label.toLowerCase()} →`"
-                :badge="stat.mode === 'all' ? undefined : percent(statCount(stat.mode), policy.included_groups)"
-                :badge-tone="STAT_TONES[stat.mode]"
-                :data-testid="`hardware-stat-${stat.mode}`"
-                @open="openGroupBrowser(stat.mode)"
-              />
-            </div>
-            <DistributionCard
-              title="Best-hardware outcome"
-              :subtitle="overview.facts"
-              :segments="segments"
-              data-testid="hardware-distribution"
-              @open="(segment) => openGroupBrowser(segment.key as MatrixBrowserMode)"
-            />
-          </template>
-        </section>
-
-        <Alert v-if="viewState === 'bounded'" class="border-warning/40 bg-warning/10" data-testid="hardware-bounded">
-          <AlertDescription class="text-warning">AMD detail is storage-bounded; architecture rates and routes are hidden.</AlertDescription>
-        </Alert>
+  <AsyncBoundary :loading="matrix === null" :error="null" skeleton="cards">
+    <Card v-if="viewState === 'unavailable'" data-testid="hardware-unavailable">
+      <CardContent>
+        <EmptyState :icon="ServerOff" title="Current main CI AMD hardware evidence is unavailable" description="No older AMD pipeline result is substituted." />
+      </CardContent>
+    </Card>
+    <div v-else class="flex flex-col gap-4 md:gap-6">
+      <section class="flex flex-col gap-4 md:gap-6" data-testid="hardware-policy" aria-label="Configured AMD test groups">
+        <Callout v-if="overview.unavailable" tone="soft" title="Best-hardware metric unavailable">
+          Complete best-hardware detail is unavailable or storage-bounded; rates and drill-downs stay hidden.
+        </Callout>
         <template v-else>
-          <Alert v-if="!policy.best_hardware_unavailable" class="border-info/40 bg-info/10">
-            <AlertDescription class="text-foreground">
-              <p>
-                <strong>One fixed health policy.</strong> Generic test families pass when any configured AMD architecture passes. Explicit
-                MI355-sensitive obligations use their exact MI355 route, so another architecture cannot hide a regression.
-              </p>
-            </AlertDescription>
-          </Alert>
+          <StatGrid :cols="5">
+            <KpiCard
+              label="Pass rate"
+              :value="overview.rate === '-' ? null : overview.rate"
+              :status="{ tone: rateTone(policy.pass_percentage), label: `${overview.stats[1]!.count} / ${overview.stats[0]!.count}` }"
+              footnote="One fixed best-hardware policy"
+              :headline="overview.browseLabel"
+              :action="{ label: overview.browseLabel, onOpen: () => openBrowser('all') }"
+              data-testid="hardware-rate"
+            />
+            <KpiCard
+              v-for="stat in overview.stats"
+              :key="stat.mode"
+              :label="stat.label"
+              :value="STAT_COUNT[stat.mode]!()"
+              :status="stat.mode === 'failing' && STAT_COUNT.failing!() ? { tone: 'hard', label: percent(STAT_COUNT.failing!(), included) } : undefined"
+              :footnote="stat.mode === 'all' ? 'Deduplicated by the best-hardware policy' : `${percent(STAT_COUNT[stat.mode]!(), included)} of configured groups`"
+              :headline="`Inspect ${stat.label.toLowerCase()}`"
+              :action="{ label: `Inspect ${stat.label.toLowerCase()}`, onOpen: () => openBrowser(stat.mode) }"
+              :data-testid="`hardware-stat-${stat.mode}`"
+            />
+          </StatGrid>
+        </template>
+      </section>
 
-          <Card data-testid="architecture-routes">
-            <CardHeader>
-              <CardTitle>AMD architecture routes</CardTitle>
-              <CardDescription>Architecture counts are hardware routes; the best-hardware policy above deduplicates test groups</CardDescription>
-            </CardHeader>
-            <CardContent class="flex flex-col divide-y">
-              <button
-                v-for="health in archHealth"
-                :key="health.architecture.id"
-                type="button"
-                class="grid grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-4 py-3 text-left hover:bg-accent/50 md:grid-cols-[8rem_minmax(0,1fr)_minmax(0,16rem)_5rem]"
-                :aria-label="`Inspect ${health.architecture.label}: ${integer(health.passed)} passing routes, ${integer(health.incident)} non-passing routes, ${integer(health.unknown)} unobserved routes`"
-                data-testid="architecture-row"
-                @click="archBrowser = { open: true, health }"
-              >
-                <span class="flex flex-col">
-                  <strong data-testid="architecture-label">{{ health.architecture.label }}</strong>
+      <Callout v-if="viewState === 'bounded'" tone="soft" title="Storage-bounded snapshot" data-testid="hardware-bounded">
+        AMD detail is storage-bounded; architecture rates and routes are hidden.
+      </Callout>
+
+      <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-2 *:min-w-0">
+        <Card v-if="!overview.unavailable" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="hardware-distribution">
+          <CardHeader>
+            <CardTitle as="h2">Best-hardware outcome</CardTitle>
+            <CardDescription data-testid="hardware-policy-meta">{{ overview.meta }}</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-4">
+            <div class="flex items-baseline gap-2">
+              <span class="text-4xl font-semibold tracking-tight tabular-nums">{{ integer(STAT_COUNT.passing!()) }}</span>
+              <span class="text-sm text-muted-foreground">of {{ integer(included) }} configured test groups pass on their best AMD route</span>
+            </div>
+            <ProportionBar :segments="segments" label="Best-hardware outcome" :on-select="(s) => openBrowser(s.key as MatrixBrowserMode)" />
+            <p class="text-xs text-muted-foreground">{{ overview.facts }}</p>
+          </CardContent>
+        </Card>
+
+        <Card v-if="viewState !== 'bounded'" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="architecture-routes">
+          <CardHeader>
+            <CardTitle as="h2">AMD architecture routes</CardTitle>
+            <CardDescription>Hardware routes per architecture; the best-hardware policy deduplicates them into test groups</CardDescription>
+          </CardHeader>
+          <CardContent class="flex flex-col gap-1 px-3">
+            <EmptyState v-if="!archHealth.length" title="No architectures are configured in this matrix" />
+            <button
+              v-for="health in archHealth"
+              :key="health.architecture.id"
+              type="button"
+              class="group/arch grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-accent/80"
+              :aria-label="`Inspect ${health.architecture.label}: ${integer(health.passed)} passing routes, ${integer(health.incident)} non-passing routes, ${integer(health.unknown)} unobserved routes`"
+              data-testid="architecture-row"
+              @click="openArchitecture(health)"
+            >
+              <span class="flex min-w-0 items-center gap-2.5">
+                <span class="h-8 w-1 shrink-0 rounded-full" :style="{ backgroundColor: hardwareColor(health.architecture.id) }" aria-hidden="true" />
+                <span class="flex min-w-0 flex-col">
+                  <strong class="font-semibold" data-testid="architecture-label">{{ health.architecture.label }}</strong>
                   <span class="text-xs text-muted-foreground" data-testid="architecture-configured">{{ integer(architectureRate(health).configured) }} configured routes</span>
                 </span>
-                <span class="flex h-2.5 overflow-hidden rounded-full bg-muted">
-                  <template v-for="[tone, count] in ([['pass', health.passed], ['hard', health.incident], ['soft', health.unknown]] as [Tone, number][])" :key="tone">
-                    <span v-if="count" :class="SEGMENT_FILL[tone]" :style="{ width: `${(count / Math.max(1, architectureRate(health).configured)) * 100}%` }" />
-                  </template>
+              </span>
+              <span class="flex min-w-0 flex-col gap-1.5">
+                <ProportionBar :segments="routeSegments(health)" :max="architectureRate(health).configured" :label="`${health.architecture.label} routes`" :legend="false" />
+                <span class="flex flex-wrap gap-x-3 text-xs text-muted-foreground" data-testid="architecture-metrics">
+                  <span :class="health.passed ? 'text-foreground' : undefined">{{ integer(health.passed) }} passing</span>
+                  <span :class="health.incident ? toneClasses('hard', 'text') : undefined">{{ integer(health.incident) }} non-passing</span>
+                  <span>{{ integer(health.unknown) }} unobserved</span>
                 </span>
-                <span class="hidden flex-wrap gap-x-3 text-xs md:flex" data-testid="architecture-metrics">
-                  <span class="text-success">{{ integer(health.passed) }} passing</span>
-                  <span class="text-destructive">{{ integer(health.incident) }} non-passing</span>
-                  <span class="text-warning">{{ integer(health.unknown) }} unobserved</span>
-                </span>
+              </span>
+              <span class="flex items-center gap-2">
                 <span class="flex flex-col items-end">
-                  <strong class="text-lg tabular-nums" :class="RATE_TEXT[architectureRate(health).tone]" data-testid="architecture-rate">{{ architectureRate(health).label }}</strong>
+                  <strong class="text-lg font-semibold tabular-nums" :class="architectureRate(health).tone === 'pass' ? 'text-foreground' : toneClasses(architectureRate(health).tone, 'text')" data-testid="architecture-rate">
+                    {{ architectureRate(health).label }}
+                  </strong>
                   <span class="text-xs text-muted-foreground">passing</span>
                 </span>
-              </button>
-            </CardContent>
-          </Card>
+                <ChevronRight class="size-4 text-muted-foreground transition-transform group-hover/arch:translate-x-0.5" aria-hidden="true" />
+              </span>
+            </button>
+          </CardContent>
+        </Card>
+      </div>
 
-          <Card data-testid="route-matrix">
-            <CardHeader>
-              <CardTitle>Test-group routes by architecture</CardTitle>
-              <CardDescription data-testid="matrix-sort-description">{{ amdMatrixSortDescription(sort) }}</CardDescription>
-              <CardAction>
-                <ToggleGroup v-model="sort" type="single" variant="outline" size="sm" aria-label="Sort AMD test matrix">
-                  <ToggleGroupItem v-for="mode in MATRIX_SORT_MODES" :key="mode.id" :value="mode.id">{{ mode.label }}</ToggleGroupItem>
-                </ToggleGroup>
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                :key="sort"
-                :columns="matrixColumns"
-                :data="coverageRows"
-                :page-size="8"
-                search-placeholder="Filter test group or area"
-                empty-text="No configured AMD test groups."
-              />
-            </CardContent>
-            <CardFooter v-if="coverageRows.length > 8">
-              <Button variant="outline" size="sm" @click="matrixBrowserOpen = true">Browse complete route matrix</Button>
-            </CardFooter>
-          </Card>
-        </template>
-      </template>
-
-      <BrowserSheet
-        v-model:open="groupBrowser.open"
-        :title="MATRIX_BROWSER_TITLES[groupBrowser.mode]"
-        :subtitle="browserState.available ? browserState.subtitle : ''"
-        :rows="browserGroups"
-        :columns="groupColumns"
-        :search-text="matrixGroupSearchText"
-        search-placeholder="Search group, reason, command, hardware, or queue"
-        :filters="groupFilters"
-      />
-      <BrowserSheet
-        v-model:open="archBrowser.open"
-        :title="archBrowserData?.title ?? ''"
-        :subtitle="archBrowserData?.subtitle"
-        :rows="archBrowserData?.rows ?? []"
-        :columns="archColumns"
-        :search-text="archBrowserData?.searchText ?? (() => '')"
-        :wide="false"
-      />
-      <BrowserSheet
-        v-model:open="matrixBrowserOpen"
-        title="Complete AMD test matrix"
-        :subtitle="coverageBrowserSubtitle(coverageRows, architectures, sort)"
-        :rows="coverageRows"
-        :columns="matrixColumns"
-        :search-text="matrixSearch"
-        search-placeholder="Filter test group or area"
-      />
-      <MatrixGroupSheet v-model:open="matrixGroup.open" :group="matrixGroup.group" :matrix="matrix" />
-      <GroupHistorySheet v-model:open="groupDetail.open" :group="groupDetail.group" :ops="ops" />
-      <Sheet v-model:open="unavailable.open">
-        <SheetContent class="w-full sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle>{{ unavailable.label }}</SheetTitle>
-            <SheetDescription>Operational aggregate</SheetDescription>
-          </SheetHeader>
-          <div class="flex flex-col gap-3 px-4 pb-6 text-sm">
-            <p>{{ unavailable.description }}</p>
-            <p><span class="text-muted-foreground">Value:</span> <strong>Unavailable</strong></p>
-            <a v-if="unavailable.label === 'Configured AMD test groups'" :href="MATRIX_PATH" target="_blank" rel="noopener" class="font-medium hover:underline">Open published matrix ↗</a>
-          </div>
-        </SheetContent>
-      </Sheet>
+      <Card v-if="viewState !== 'bounded'" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="route-matrix">
+        <CardHeader class="@max-2xl/main:has-data-[slot=card-action]:grid-cols-1">
+          <CardTitle as="h2">Test-group routes by architecture</CardTitle>
+          <CardDescription data-testid="matrix-sort-description">{{ amdMatrixSortDescription(sort) }}</CardDescription>
+          <CardAction class="@max-2xl/main:col-start-1 @max-2xl/main:row-span-1 @max-2xl/main:row-start-3 @max-2xl/main:justify-self-start">
+            <ToggleGroup v-model="sortModel" type="single" variant="outline" size="sm" aria-label="Sort AMD test matrix">
+              <ToggleGroupItem v-for="mode in MATRIX_SORT_MODES" :key="mode.id" :value="mode.id">{{ mode.label }}</ToggleGroupItem>
+            </ToggleGroup>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            :key="sort"
+            :columns="columns"
+            :rows="coverageRows"
+            :page-size="8"
+            :on-row-click="(row: Rec) => sheets.open(groupHistoryDetail(row, ops))"
+            search-placeholder="Filter test group or area"
+            label="Test-group routes by architecture"
+            empty-text="No configured AMD test groups."
+          />
+        </CardContent>
+        <CardFooter v-if="coverageRows.length > 8">
+          <Button variant="outline" size="sm" @click="openMatrix">Browse complete route matrix <ChevronRight /></Button>
+        </CardFooter>
+      </Card>
     </div>
-  </ViewState>
+  </AsyncBoundary>
 </template>
