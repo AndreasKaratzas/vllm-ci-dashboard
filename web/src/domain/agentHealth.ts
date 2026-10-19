@@ -1092,3 +1092,70 @@ export function nodeEvidence(agent: AgentRow, options: Pick<AgentOptions, 'windo
     rows: points.slice().reverse(),
   }
 }
+
+export type AgentDay = {
+  day: string
+  runs: number
+  identifiedRuns: number
+  /** Identified nodes with at least one run that day. */
+  nodes: number
+  /** Identified nodes with at least one failure matching the signal that day. */
+  failingNodes: number
+  hard: number
+  soft: number
+  /** Failures matching the signal, split by state. */
+  signalHard: number
+  signalSoft: number
+  signal: number
+  cofailEvents: number
+}
+
+/**
+ * Per UTC day of the selected window (the creation day for the build-created cohort), the
+ * same filters as the page applied to node_days and the compact failure accounting.
+ */
+export function agentDailySeries(model: AgentModel, view: AgentView, options: AgentOptions): AgentDay[] {
+  const daysBack = AGENT_WINDOW_DAYS[options.windowId] || 7
+  const startDay = new Date(model.endMs - daysBack * 86400000).toISOString().slice(0, 10)
+  const endDay = new Date(model.endMs).toISOString().slice(0, 10)
+  const days = new Map<string, AgentDay & { nodeSet: Set<string>; failingSet: Set<string> }>()
+  for (let ms = Date.parse(startDay + 'T00:00:00Z'); ms <= Date.parse(endDay + 'T00:00:00Z'); ms += 86400000) {
+    const day = new Date(ms).toISOString().slice(0, 10)
+    days.set(day, { day, runs: 0, identifiedRuns: 0, nodes: 0, failingNodes: 0, hard: 0, soft: 0, signalHard: 0, signalSoft: 0, signal: 0, cofailEvents: 0, nodeSet: new Set(), failingSet: new Set() })
+  }
+  const filter = (hardware: unknown, nodeRaw: unknown) => matchesFilter(options, hardware, nodeRaw)
+  for (const nd of model.nodeDays) {
+    const entry = days.get(String(nd.d))
+    const bucket = options.nightlyOnly ? nd.n : nd.a
+    if (!entry || !filter(nd.h, nd.nd) || !bucket || !bucket[0]) continue
+    entry.runs += bucket[0]
+    if (nd.nd !== '(unidentified)') {
+      entry.identifiedRuns += bucket[0]
+      entry.nodeSet.add(nd.nd)
+    }
+  }
+  const count = (day: unknown, nodeRaw: string, stateName: string, signal: boolean, n: number) => {
+    const entry = days.get(String(day))
+    if (!entry || !n || (stateName !== 'hard' && stateName !== 'soft')) return
+    entry[stateName] += n
+    if (!signal) return
+    entry[stateName === 'hard' ? 'signalHard' : 'signalSoft'] += n
+    entry.signal += n
+    if (nodeRaw !== '(unidentified)') entry.failingSet.add(nodeRaw)
+  }
+  const signalOf = (infra: unknown, stateName: unknown) =>
+    (options.signal === 'infra' && !!infra) || (options.signal === 'hard' && stateName === 'hard') || options.signal === 'all'
+  if (model.failureAccounting.length) {
+    for (const row of model.failureAccounting) {
+      if (!filter(row.h, row.nd) || (options.nightlyOnly && !row.ng) || (options.excludeCancelled && row.bc)) continue
+      count(row.d, row.nd, row.s, signalOf(row.i, row.s), Math.max(0, Number(row.c) || 0))
+    }
+  } else {
+    for (const run of view.fRuns) count(run.day, run.node_raw, run.state, true, 1)
+  }
+  for (const event of view.events) {
+    const entry = days.get(event.started_at.slice(0, 10))
+    if (entry) entry.cofailEvents += 1
+  }
+  return [...days.values()].map(({ nodeSet, failingSet, ...entry }) => ({ ...entry, nodes: nodeSet.size, failingNodes: failingSet.size }))
+}

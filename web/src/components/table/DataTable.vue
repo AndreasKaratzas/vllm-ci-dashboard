@@ -24,6 +24,8 @@ const props = withDefaults(
     searchPlaceholder?: string
     emptyText?: string
     label?: string
+    /** The ordering before any header is clicked. */
+    defaultSort?: { id: string; desc: boolean }
     onRowClick?: (row: T) => void
   }>(),
   { filters: () => [], pageSize: 10, searchable: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
@@ -31,7 +33,7 @@ const props = withDefaults(
 const emit = defineEmits<{ drill: [Detail] }>()
 
 const query = ref('')
-const sort = ref<{ id: string; desc: boolean } | null>(null)
+const sort = ref<{ id: string; desc: boolean } | null>(props.defaultSort ? { ...props.defaultSort } : null)
 const hidden = ref(new Set<string>())
 const page = ref(0)
 const filterValues = reactive<Record<string, string>>(Object.fromEntries(props.filters.map((f) => [f.id, f.initial ?? ALL])))
@@ -58,6 +60,7 @@ const sorted = computed(() => {
   if (!active || !column) return filtered.value
   const direction = active.desc ? -1 : 1
   return [...filtered.value].sort((a, b) => {
+    if (column.compare) return column.compare(a, b) * direction
     const x = column.value(a)
     const y = column.value(b)
     const order = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'en', { numeric: true })
@@ -113,7 +116,7 @@ function activate(row: T, event: Event) {
       <slot name="toolbar" />
       <DropdownMenu v-if="hideable.length">
         <DropdownMenuTrigger as-child>
-          <Button variant="outline" size="sm" class="ml-auto"><Columns3 /> <span class="hidden lg:inline">Columns</span></Button>
+          <Button variant="outline" size="sm" class="ml-auto" aria-label="Columns"><Columns3 /> <span class="hidden lg:inline">Columns</span></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuCheckboxItem

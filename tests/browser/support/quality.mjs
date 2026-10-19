@@ -25,7 +25,8 @@ export async function expectPointerCursors(page) {
         const box = node.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
       })
-      .filter((node) => getComputedStyle(node).cursor !== 'pointer')
+      // The sidebar rail is a resize handle and keeps its resize cursor.
+      .filter((node) => !node.matches('[data-slot="sidebar-rail"]') && getComputedStyle(node).cursor !== 'pointer')
       .map((node) => `${node.tagName.toLowerCase()}[${node.getAttribute('role') ?? ''}] ${node.textContent.trim().slice(0, 40)}`),
   );
   expect(offenders, 'clickable controls without a pointer cursor').toEqual([]);
@@ -37,6 +38,10 @@ export async function expectNoHorizontalOverflow(page) {
 }
 
 export async function expectAccessible(page) {
+  // Entrance fades would otherwise be measured half transparent.
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))),
+  );
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   const serious = results.violations
     .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')

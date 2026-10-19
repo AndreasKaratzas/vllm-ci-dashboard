@@ -64,7 +64,8 @@ function containerConfig() {
         lineCap: false,
         rowHeight: ROW_HEIGHT,
         showRowLabels: true,
-        rowMaxLabelWidth: 220,
+        // Labels keep at most 40% of a narrow plot.
+        rowMaxLabelWidth: Math.min(220, Math.round((host.value?.clientWidth ?? 600) * 0.4)),
         rowLabelTextAlign: 'left',
         showEmptySegments: true,
         lineCursor: () => (props.onSelect ? 'pointer' : 'default'),
