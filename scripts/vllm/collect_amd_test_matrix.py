@@ -1396,8 +1396,12 @@ def build_matrix(
     rows_by_title: dict[str, dict[str, Any]] = {}
     title_fingerprints: dict[str, set[str]] = defaultdict(set)
 
+    declared_by_key: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
     for step in steps:
         title_fingerprints[step["title"]].add(step["definition_key"])
+        declared_by_key[(step["arch"], strip_shard_index(step["link_label"], shard_bases))].add(
+            _parse_job_execution_label(step["link_label"])[1:]
+        )
 
     ambiguous_titles = {
         title for title, fingerprints in title_fingerprints.items() if len(fingerprints) > 1
@@ -1457,6 +1461,13 @@ def build_matrix(
         ]
         if filtered_matches:
             matches = filtered_matches
+        siblings = declared_by_key[(step["arch"], variant_key)] - {
+            _parse_job_execution_label(step["link_label"])[1:]
+        }
+        matches = [
+            match for match in matches
+            if _parse_job_execution_label(match.get("name", ""))[1:] not in siblings
+        ]
         analytics_state = aggregate_state([
             state for m in matches if isinstance((state := m.get("state")), str)
         ])

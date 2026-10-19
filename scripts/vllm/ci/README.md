@@ -638,7 +638,10 @@ retention. The supported organization
 Builds REST endpoint does not filter job event timestamps directly. The
 collector unions builds finished inside the source window, builds created
 inside it, and active-state builds created inside the bounded parent-build
-horizon, then filters jobs by the twelve direct cluster-queue UUIDs. Every
+horizon, then filters jobs by the twelve direct cluster-queue UUIDs. A target
+queue missing from a fully paginated cluster listing is retired: it is listed
+in `coverage.absent_queues` and its zero row is not a measurement, while an
+empty discovery still fails. Every
 retained value is therefore an exact direct job observation, while the
 aggregate separately declares residual population limits such as page-number
 drift and jobs attached to parent builds created before that horizon.

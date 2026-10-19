@@ -105,7 +105,8 @@ def _declared_name(name: str, bases: list[str]) -> str:
 def catalog_definitions_from_report(report: dict) -> tuple[str, dict[str, tuple[str, str, str, str]]]:
     """Recover health's full pinned definition tuples without collector imports."""
     config_parity = importlib.import_module("vllm.config_parity")
-    commit, routes = config_parity.extract_amd_runtime_group_key_map_from_report(report)
+    commit, routes, _shared = config_parity.extract_amd_runtime_group_key_map_from_report(report)
+    members = config_parity.extract_amd_definition_families_from_report(report)
     if not _SHA.fullmatch(commit):
         raise ValueError("AMD definition catalog requires an exact source commit")
     definitions = {}
@@ -114,6 +115,8 @@ def catalog_definitions_from_report(report: dict) -> tuple[str, dict[str, tuple[
         label = analyzer._normalize_job_name(str(raw.get("label") or "")).strip()
         pool = str(raw.get("agent_pool") or "").strip().casefold()
         family = routes.get((label, pool))
+        if isinstance(identity, str) and identity in members:
+            family = members[identity][2] if members[identity][:2] == (label, pool) else None
         if not isinstance(identity, str) or "#" not in identity or not identity.rsplit("#", 1)[-1] or not family:
             raise ValueError("AMD execution definition lacks a pinned family identity")
         if identity in definitions:

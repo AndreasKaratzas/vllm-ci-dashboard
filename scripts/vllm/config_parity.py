@@ -32,6 +32,7 @@ import requests
 import yaml
 
 from vllm.ci.analyzer import (
+    _amd_declared_label_signature,
     _normalize_job_name,
     _parity_key_base,
     commands_similarity,
@@ -1799,13 +1800,18 @@ def _match_config_steps(
 
 
 def _finalize_amd_runtime_group_key_map(
-    candidates: dict[tuple[str, str], set[str]],
-) -> dict[tuple[str, str], str]:
-    """Validate and flatten route candidates into one family per route."""
+    candidates: dict[tuple[str, str], dict[tuple[str, str], set[str]]],
+) -> tuple[dict[tuple[str, str], str], frozenset[tuple[str, str]]]:
+    """Flatten route candidates, keyed by declared hardware, into one family per route.
+
+    A route shared by families that declare different AMD hardware has no
+    label-only family; it is returned in the shared set so that only its exact
+    source definition can attribute it.
+    """
     ambiguous = {
-        route: sorted(family_keys)
-        for route, family_keys in candidates.items()
-        if len(family_keys) != 1
+        route: sorted(set().union(*by_declaration.values()))
+        for route, by_declaration in candidates.items()
+        if any(len(family_keys) != 1 for family_keys in by_declaration.values())
     }
     if ambiguous:
         details = "; ".join(
@@ -1817,14 +1823,33 @@ def _finalize_amd_runtime_group_key_map(
             f"{details}"
         )
 
-    return {
-        route: next(iter(family_keys))
-        for route, family_keys in sorted(candidates.items())
-    }
+    routes = {}
+    shared = set()
+    for route, by_declaration in sorted(candidates.items()):
+        family_keys = set().union(*by_declaration.values())
+        if len(family_keys) == 1:
+            routes[route] = next(iter(family_keys))
+        else:
+            shared.add(route)
+    return routes, frozenset(shared)
 
 
-def extract_amd_runtime_group_key_map() -> tuple[str, dict[tuple[str, str], str]]:
-    """Return build-pinned AMD route -> identity-family keys.
+def _add_amd_route_candidate(
+    candidates: dict[tuple[str, str], dict[tuple[str, str], set[str]]],
+    label: str,
+    agent_pool: str,
+    family_key: str,
+) -> None:
+    normalized_label, platform, hardware, _ = _amd_declared_label_signature(label)
+    candidates.setdefault((normalized_label, agent_pool), {}).setdefault(
+        (platform, hardware), set()
+    ).add(family_key)
+
+
+def extract_amd_runtime_group_key_map() -> tuple[
+    str, dict[tuple[str, str], str], frozenset[tuple[str, str]]
+]:
+    """Return build-pinned AMD route -> identity-family keys and shared routes.
 
     Runtime result rows retain the concrete ``agent_pool`` as their leading
     Buildkite name prefix. Pairing that route with the normalized YAML label
@@ -1837,37 +1862,24 @@ def extract_amd_runtime_group_key_map() -> tuple[str, dict[tuple[str, str], str]
         (_source_provenance() or {}).get("commit_sha") or ""
     ).strip().casefold()
     if amd_steps is None:
-        return source_commit, {}
+        return source_commit, {}, frozenset()
 
     logical_steps = _semantic_amd_steps(amd_steps)
     _, family_by_definition_id = _amd_identity_family_keys(logical_steps)
-    candidates: dict[tuple[str, str], set[str]] = {}
+    candidates: dict[tuple[str, str], dict[tuple[str, str], set[str]]] = {}
     for step in amd_steps:
         family_key = family_by_definition_id.get(step.definition_id)
         normalized_label = _normalize_job_name(step.label).strip()
         agent_pool = str(step.agent_pool or "").strip().casefold()
         if not family_key or not normalized_label:
             continue
-        candidates.setdefault((normalized_label, agent_pool), set()).add(
-            family_key
-        )
+        _add_amd_route_candidate(candidates, step.label, agent_pool, family_key)
 
-    return source_commit, _finalize_amd_runtime_group_key_map(candidates)
+    return source_commit, *_finalize_amd_runtime_group_key_map(candidates)
 
 
-def extract_amd_runtime_group_key_map_from_report(
-    report: dict,
-) -> tuple[str, dict[tuple[str, str], str]]:
-    """Recover the route map from a previously published parity report.
-
-    This keeps ``collect_ci.py --skip-config-parity`` source-aligned without a
-    network fetch. The report retains every physical member label and agent
-    pool, plus its configuration identity-family key and source commit.
-    """
-    source_commit = str(
-        ((report or {}).get("source") or {}).get("commit_sha") or ""
-    ).strip().casefold()
-    candidates: dict[tuple[str, str], set[str]] = {}
+def _report_amd_members(report: dict):
+    """Yield every physical AMD member as ``(definition ID, label, pool, family)``."""
     for section in (
         "matches",
         "inline_mirror_variants",
@@ -1888,20 +1900,62 @@ def extract_amd_runtime_group_key_map_from_report(
                 or row.get("member_agent_pools")
                 or [row.get("amd_agent_pool") or row.get("agent_pool")]
             )
-            if len(labels) != len(agent_pools):
+            definition_ids = (
+                row.get("amd_member_definition_ids")
+                or row.get("member_definition_ids")
+                or [None] * len(labels)
+            )
+            if not len(labels) == len(agent_pools) == len(definition_ids):
                 raise ValueError(
                     "AMD runtime group report has mismatched member labels "
                     f"and agent pools for family {family_key or '<unknown>'}"
                 )
-            for label, agent_pool in zip(labels, agent_pools):
-                normalized_label = _normalize_job_name(str(label or "")).strip()
-                normalized_pool = str(agent_pool or "").strip().casefold()
-                if family_key and normalized_label:
-                    candidates.setdefault(
-                        (normalized_label, normalized_pool), set()
-                    ).add(family_key)
+            for definition_id, label, agent_pool in zip(
+                definition_ids, labels, agent_pools
+            ):
+                yield (
+                    definition_id,
+                    str(label or ""),
+                    str(agent_pool or "").strip().casefold(),
+                    family_key,
+                )
 
-    return source_commit, _finalize_amd_runtime_group_key_map(candidates)
+
+def extract_amd_runtime_group_key_map_from_report(
+    report: dict,
+) -> tuple[str, dict[tuple[str, str], str], frozenset[tuple[str, str]]]:
+    """Recover the route map from a previously published parity report.
+
+    This keeps ``collect_ci.py --skip-config-parity`` source-aligned without a
+    network fetch. The report retains every physical member label and agent
+    pool, plus its configuration identity-family key and source commit.
+    """
+    source_commit = str(
+        ((report or {}).get("source") or {}).get("commit_sha") or ""
+    ).strip().casefold()
+    candidates: dict[tuple[str, str], dict[tuple[str, str], set[str]]] = {}
+    for _definition_id, label, agent_pool, family_key in _report_amd_members(report):
+        if family_key and _normalize_job_name(label).strip():
+            _add_amd_route_candidate(candidates, label, agent_pool, family_key)
+
+    return source_commit, *_finalize_amd_runtime_group_key_map(candidates)
+
+
+def extract_amd_definition_families_from_report(
+    report: dict,
+) -> dict[str, tuple[str, str, str]]:
+    """Map each physical definition ID to its ``(label, pool, family)``."""
+    members: dict[str, tuple[str, str, str]] = {}
+    for definition_id, label, agent_pool, family_key in _report_amd_members(report):
+        member = (_normalize_job_name(label).strip(), agent_pool, family_key)
+        if not definition_id or not family_key:
+            continue
+        if members.setdefault(definition_id, member) != member:
+            raise ValueError(
+                "AMD runtime group report assigns one definition to multiple "
+                f"identity families: {definition_id}"
+            )
+    return members
 
 
 # ---------------------------------------------------------------------------

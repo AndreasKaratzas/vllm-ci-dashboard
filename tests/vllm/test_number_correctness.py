@@ -62,6 +62,33 @@ def _load_test_results():
 
 
 
+def _amd_group_key(monkeypatch):
+    """Key AMD results like compute_build_summary does for the latest build."""
+    from vllm.ci import analyzer
+    from vllm.ci.runtime_families import catalog_definitions_from_report
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+
+    latest = _load_json("ci_health.json").get("amd", {}).get("latest_build", {})
+    definition_parity = _load_json("config_parity.json")
+    commit, routes, shared = extract_amd_runtime_group_key_map_from_report(definition_parity)
+    definitions = (catalog_definitions_from_report(definition_parity)[1]
+                   if definition_parity.get("amd_execution_definitions") else {})
+    for name in ("_AMD_RUNTIME_GROUP_KEY_COMMIT", "_AMD_RUNTIME_GROUP_KEYS",
+                 "_AMD_RUNTIME_DEFINITIONS", "_AMD_SHARED_ROUTES"):
+        monkeypatch.setattr(analyzer, name, getattr(analyzer, name))
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions, shared)
+
+    def group_key(result: dict) -> str:
+        aligned = (str(result.get("build_number")) == str(latest.get("build_number"))
+                   and bool(latest.get("commit")) and commit.startswith(str(latest["commit"])))
+        if result.get("source_definition_id"):
+            assert aligned and result.get("source_commit") == commit, "AMD result source commit is not the runtime pin"
+            return definitions[result["source_definition_id"]][2]
+        return analyzer._amd_runtime_group_key(result.get("job_name", ""), commit if aligned else "")
+
+    return group_key
+
+
 @pytest.mark.live_data
 class TestGroupCountCorrectness:
     """Validate that per-hardware group counts match the raw test results."""
@@ -109,6 +136,7 @@ class TestGroupCountCorrectness:
         from vllm.ci.analyzer import (
             _AMD_RUNTIME_POOL_SUFFIX_RE,
             _JOB_PREFIX_RE,
+            _amd_declared_label_signature,
             _extract_hardware,
             _normalize_job_name,
             _parse_job_execution_label,
@@ -135,6 +163,8 @@ class TestGroupCountCorrectness:
         assert len(all_families) == published_family_count
 
         families_by_definition = defaultdict(set)
+        families_by_route = defaultdict(set)
+        families_by_definition_id = defaultdict(set)
         families_by_runtime_label = defaultdict(set)
         for row in family_rows:
             family = row.get("amd_identity_family_key")
@@ -150,14 +180,23 @@ class TestGroupCountCorrectness:
                 or row.get("member_agent_pools")
                 or [row.get("amd_agent_pool") or row.get("agent_pool")]
             )
-            assert len(labels) == len(pools), (
-                f"Definition-family provenance has {len(labels)} labels but "
-                f"{len(pools)} pools for {family}"
+            definition_ids = (
+                row.get("amd_member_definition_ids")
+                or row.get("member_definition_ids")
+                or [None] * len(labels)
             )
-            for label, pool in zip(labels, pools):
+            assert len(labels) == len(pools) == len(definition_ids), (
+                f"Definition-family provenance has {len(labels)} labels, "
+                f"{len(pools)} pools and {len(definition_ids)} definition IDs for {family}"
+            )
+            for label, pool, definition_id in zip(labels, pools, definition_ids):
                 normalized = _normalize_job_name(str(label or ""))
-                families_by_definition[(str(pool or ""), normalized)].add(family)
+                declaration = _amd_declared_label_signature(str(label or ""))[1:3]
+                families_by_definition[(str(pool or ""), normalized, declaration)].add(family)
+                families_by_route[(str(pool or ""), normalized)].add(family)
                 families_by_runtime_label[normalized].add(family)
+                if definition_id:
+                    families_by_definition_id[definition_id].add(family)
 
         ambiguous_runtime_labels = {
             label: sorted(families)
@@ -169,10 +208,26 @@ class TestGroupCountCorrectness:
             for key, families in families_by_definition.items()
             if len(families) > 1
         }
+        ambiguous_definition_keys.update(
+            (definition_id,) for definition_id, families in families_by_definition_id.items()
+            if len(families) > 1
+        )
         assert not ambiguous_definition_keys, (
-            "Agent-pool + normalized-label definition keys are ambiguous: "
+            "Agent-pool + normalized-label + declared-hardware definition keys are ambiguous: "
             f"{ambiguous_definition_keys}"
         )
+
+        def route_families(pool: str, name: str) -> set:
+            """A label-only route has one family; a shared one needs its declaration."""
+            normalized = _normalize_job_name(name)
+            families = families_by_route.get((pool, normalized), set())
+            if len(families) <= 1:
+                return families
+            _, platform, hardware, _ = _amd_declared_label_signature(name)
+            if platform != "amd" or not hardware:
+                return set()
+            return families_by_definition.get((pool, normalized, (platform, hardware)), set())
+
         execution_definitions = {
             row["definition_id"]: row
             for row in definition_parity.get("amd_execution_definitions", [])
@@ -185,9 +240,9 @@ class TestGroupCountCorrectness:
                 for variant in member.get("variants", []):
                     key = (
                         str(variant.get("agent_pool") or ""),
-                        _normalize_job_name(str(variant.get("label") or "")),
+                        str(variant.get("label") or ""),
                     )
-                    families = families_by_definition.get(key, set())
+                    families = route_families(*key)
                     if not families:
                         missing_definition_keys.add(key)
                         continue
@@ -235,10 +290,8 @@ class TestGroupCountCorrectness:
                         _, platform, _ = _parse_job_execution_label(job_name)
                         if platform == "amd" and native_pool:
                             pool = native_pool.group("pool").casefold()
-                    key = (
-                        pool,
-                        _normalize_job_name(job_name),
-                    )
+                    key = (pool, job_name)
+                    families = route_families(*key)
                     source_fields = ("source_definition_id", "source_agent_pool",
                                      "source_commit", "source_binding_basis")
                     if any(result.get(field) for field in (*source_fields, "source_step_key")):
@@ -257,8 +310,9 @@ class TestGroupCountCorrectness:
                             ), pool), "AMD result source declaration is not the pinned route"
                         assert result["source_agent_pool"] == definition["agent_pool"], "AMD result source declared pool is not the pinned definition"
                         assert _normalize_job_name(job_name) == _normalize_job_name(definition["label"]), "AMD result source label is not the pinned definition"
-                        key = (result["source_agent_pool"], _normalize_job_name(job_name))
-                    families = families_by_definition.get(key, set())
+                        key = (result["source_definition_id"],)
+                        families = families_by_definition_id.get(key[0]) or route_families(
+                            definition["agent_pool"], definition["label"])
                     if not families:
                         missing_result_keys.add(key)
                         continue
@@ -303,23 +357,21 @@ class TestGroupCountCorrectness:
             f"{runtime_passing}.{collision_hint}"
         )
 
-    def test_ci_health_group_counts_match_jsonl(self):
+    def test_ci_health_group_counts_match_jsonl(self, monkeypatch):
         """ci_health.json per-HW group counts must match what's in the JSONL."""
         health = _load_json("ci_health.json")
         results, fname = _load_test_results()
 
-        from vllm.ci.analyzer import _extract_hardware, _normalize_job_name
+        from vllm.ci.analyzer import _extract_hardware
 
-        # Extract per-HW groups from JSONL (same logic as compute_build_summary)
+        # Extract per-HW groups from JSONL (same keys as compute_build_summary)
+        group_key = _amd_group_key(monkeypatch)
         hw_groups = defaultdict(set)
         for r in results:
-            job_name = r.get("job_name", "")
-            hw = _extract_hardware(job_name)
-            norm = _normalize_job_name(job_name)
-            hw_groups[hw].add(norm)
+            hw_groups[_extract_hardware(r.get("job_name", ""))].add(group_key(r))
 
-        # Compare with ci_health
         lb = health.get("amd", {}).get("latest_build", {})
+        # Compare with ci_health
         bh = lb.get("by_hardware", {})
         for hw, ci_data in bh.items():
             if hw == "unknown":
@@ -1113,7 +1165,7 @@ class TestNormalizationInvariants:
     """
 
     @pytest.mark.live_data
-    def test_all_merges_are_shard_based(self):
+    def test_all_merges_are_shard_based(self, monkeypatch):
         """Within the SAME hardware, every merge of multiple raw jobs into
         one normalized name must correspond to a known shard base.
 
@@ -1121,25 +1173,33 @@ class TestNormalizationInvariants:
         different GPU — e.g., mi250_1: Engine and mi325_1: Engine).
         """
         results, fname = _load_test_results()
-        from vllm.ci.analyzer import _normalize_job_name, _extract_hardware, _SHARD_BASES
+        from vllm.ci.analyzer import _normalize_job_name, _extract_hardware, _RUNTIME_SHARD_SUFFIX_RE, _SHARD_BASES
+
+        def strip_runtime_shard(raw: str) -> str:
+            match = _RUNTIME_SHARD_SUFFIX_RE.search(raw)
+            if match and 1 <= int(match.group(1)) <= int(match.group(2)):
+                return raw[:match.start()]
+            return raw
 
         assert _SHARD_BASES, "shard_bases not loaded — json import may be missing"
 
-        # Group raw job names by (hardware, normalized name)
+        # Group raw job names by (hardware, normalized name, group key)
+        group_key = _amd_group_key(monkeypatch)
         hw_norm_to_raw: dict[tuple, set] = defaultdict(set)
         for r in results:
             raw = r.get("job_name", "")
             hw = _extract_hardware(raw)
             norm = _normalize_job_name(raw)
-            hw_norm_to_raw[(hw, norm)].add(raw)
+            hw_norm_to_raw[(hw, norm, group_key(r))].add(raw)
 
         # Within the same HW, >1 raw name must be a shard base
         bad_merges = []
-        for (hw, norm), raws in hw_norm_to_raw.items():
+        for (hw, norm, _group), raws in hw_norm_to_raw.items():
             if len(raws) <= 1:
                 continue
             is_shard = any(norm.startswith(base) for base in _SHARD_BASES)
-            if not is_shard:
+            is_runtime_shard = len({strip_runtime_shard(raw) for raw in raws}) == 1
+            if not (is_shard or is_runtime_shard):
                 bad_merges.append((hw, norm, raws))
 
         assert not bad_merges, (

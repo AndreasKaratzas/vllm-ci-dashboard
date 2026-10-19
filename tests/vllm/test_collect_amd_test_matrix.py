@@ -335,6 +335,18 @@ def test_strip_shard_index_unifies_nested_runtime_prefix_and_decorated_template(
     ) == "attention kernels shard"
 
 
+def test_strip_shard_index_collapses_runtime_planned_shards_without_bases():
+    assert strip_shard_index(
+        ":amd: (MI300) PyTorch Compilation Passes shard 3/6", []
+    ) == "pytorch compilation passes"
+    assert strip_shard_index(
+        ":amd: (MI300) PyTorch Compilation Passes shard 7/6", []
+    ) == "pytorch compilation passes shard 7/6"
+    assert strip_shard_index(
+        ":amd: (MI300) Foo Shard 2 shard 3/6", ["Foo Shard"]
+    ) == "foo shard"
+
+
 @pytest.mark.parametrize(("architecture", "agent_pool", "decorator", "suffix"), [
     ("mi300", "mi300_1", "MI300", ""),
     ("mi355", "mi355_dpx", "MI355 DPX", ""),
@@ -386,6 +398,29 @@ steps:
     assert cell["variants"][0]["latest_match_count"] == 2
     assert matrix["summary"]["hardware_cells"] == 1
     assert matrix["summary"]["latest_matched_cells"] == 1
+
+
+def test_matrix_binds_shared_label_and_queue_by_declared_hardware():
+    steps, architectures = parse_steps("""
+steps:
+  - label: ":amd: (MI355) LM Eval Small Models"
+    agent_pool: mi355_dpx
+    commands: [pytest evals/gsm8k --config-list-file=configs/models-small.txt]
+  - label: ":amd: (MI355 DPX) LM Eval Small Models"
+    agent_pool: mi355_dpx
+    commands: [pytest evals/gsm8k --config-list-file=configs/models-blackwell.txt]
+""")
+    build = {"number": 95663, "web_url": "https://buildkite.com/vllm/ci/builds/95663", "jobs": [
+        {"id": job_id, "type": "script", "name": name, "state": state, "agent_query_rules": ["queue=amd_mi355_dpx"]}
+        for job_id, name, state in [("small", ":amd: (MI355) LM Eval Small Models", "failed"),
+                                    ("dpx", ":amd: (MI355 DPX) LM Eval Small Models", "passed")]]}
+    matrix = build_matrix(steps, architectures, build_buildkite_job_index(build, []), build, {}, {}, [],
+                          "https://example.invalid/lm_eval.yaml")
+    assert {row["title"]: (row["cells"]["mi355"]["variants"][0]["latest_match_count"],
+                           row["cells"]["mi355"]["latest_state"]) for row in matrix["rows"]} == {
+        ":amd: (MI355) LM Eval Small Models": (1, "failed"),
+        ":amd: (MI355 DPX) LM Eval Small Models": (1, "passed"),
+    }
 
 
 def test_matrix_matches_literal_percent_n_jobs_for_mi300_and_mi355():

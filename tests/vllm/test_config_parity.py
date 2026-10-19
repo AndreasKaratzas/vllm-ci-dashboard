@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 import tarfile
 
+import pytest
+
 from vllm import config_parity
 from vllm.config_parity import ConfigStep, _match_config_steps
 
@@ -458,7 +460,7 @@ def test_runtime_group_key_map_preserves_same_label_gpu_topologies(
         lambda: {"commit_sha": source_commit},
     )
 
-    commit, route_keys = config_parity.extract_amd_runtime_group_key_map()
+    commit, route_keys, _ = config_parity.extract_amd_runtime_group_key_map()
 
     normalized = config_parity._normalize_job_name(label_mi300)
     assert commit == source_commit
@@ -488,7 +490,7 @@ def test_runtime_group_key_map_can_be_recovered_from_published_report():
         ],
     }
 
-    commit, route_keys = (
+    commit, route_keys, _ = (
         config_parity.extract_amd_runtime_group_key_map_from_report(report)
     )
 
@@ -496,6 +498,30 @@ def test_runtime_group_key_map_can_be_recovered_from_published_report():
     assert route_keys == {
         ("qwen eplb accuracy", "mi300_4"): "qwen eplb accuracy (4 gpus)",
         ("qwen eplb accuracy", "mi355_2"): "qwen eplb accuracy (2 gpus)",
+    }
+
+
+@pytest.mark.parametrize(("dpx_label", "shared"), [
+    (":amd: (MI355 DPX) LM Eval Small Models", True),
+    (":amd: (MI355) LM Eval Small Models", False),
+])
+def test_runtime_group_route_shared_by_families_needs_distinct_declarations(dpx_label, shared):
+    report = {"source": {"commit_sha": "c" * 40}, "inline_mirror_variants": [
+        {"amd_identity_family_key": "lm eval small models", "amd_member_labels": [":amd: (MI355) LM Eval Small Models"],
+         "amd_member_agent_pools": ["mi355_dpx"], "amd_member_definition_ids": ["lm_eval.yaml#amd-lm-eval-small-models"]},
+        {"amd_identity_family_key": "lm eval small models (1 gpus)", "amd_member_labels": [dpx_label],
+         "amd_member_agent_pools": ["mi355_dpx"], "amd_member_definition_ids": ["lm_eval.yaml#amd-lm-eval-small-models-1xb200"]},
+    ]}
+    if not shared:
+        with pytest.raises(ValueError, match="multiple identity families"):
+            config_parity.extract_amd_runtime_group_key_map_from_report(report)
+        return
+    assert config_parity.extract_amd_runtime_group_key_map_from_report(report) == (
+        "c" * 40, {}, {("lm eval small models", "mi355_dpx")})
+    assert config_parity.extract_amd_definition_families_from_report(report) == {
+        "lm_eval.yaml#amd-lm-eval-small-models": ("lm eval small models", "mi355_dpx", "lm eval small models"),
+        "lm_eval.yaml#amd-lm-eval-small-models-1xb200": (
+            "lm eval small models", "mi355_dpx", "lm eval small models (1 gpus)"),
     }
 
 

@@ -200,7 +200,7 @@ def test_canonical_scope_is_only_requested_families_and_widths():
     assert "amd_mi355b_1" not in AMD_METRIC_TARGET_QUEUES
 
 
-def test_rest_queue_discovery_resolves_exact_target_ids_and_fails_on_missing():
+def test_rest_queue_discovery_resolves_exact_target_ids_and_tolerates_retired_queue():
     calls = []
 
     def complete(path, token, params):
@@ -209,7 +209,7 @@ def test_rest_queue_discovery_resolves_exact_target_ids_and_fails_on_missing():
 
     by_id, coverage = lifecycle.fetch_rest_target_queues("secret", page_fetcher=complete)
     assert by_id == _queue_by_id()
-    assert coverage == {"complete": True, "pages": 1, "target_queue_count": 12}
+    assert coverage == {"complete": True, "pages": 1, "target_queue_count": 12, "absent_target_queues": []}
     assert calls == [
         (
             f"/organizations/{lifecycle.BK_ORG}/clusters/{lifecycle.BK_CLUSTER_UUID}/queues",
@@ -218,11 +218,18 @@ def test_rest_queue_discovery_resolves_exact_target_ids_and_fails_on_missing():
         )
     ]
 
-    def incomplete(path, token, params):
+    def retired(path, token, params):
         return [{"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES[:-1]]
 
-    with pytest.raises(RuntimeError, match="missing target REST cluster queue IDs"):
-        lifecycle.fetch_rest_target_queues("secret", page_fetcher=incomplete)
+    by_id, coverage = lifecycle.fetch_rest_target_queues("secret", page_fetcher=retired)
+    assert set(by_id.values()) == set(AMD_METRIC_TARGET_QUEUES[:-1])
+    assert coverage == {"complete": True, "pages": 1, "target_queue_count": 11,
+                        "absent_target_queues": [AMD_METRIC_TARGET_QUEUES[-1]]}
+
+    with pytest.raises(RuntimeError, match="found no target queues"):
+        lifecycle.fetch_rest_target_queues(
+            "secret", page_fetcher=lambda path, token, params: []
+        )
 
 
 def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
@@ -1959,6 +1966,56 @@ def test_guard_exhaustion_checkpoints_progress_and_repeated_runs_finish_once(tmp
     assert lifecycle._checkpoint_cache_marker(checkpoint_path).is_file()
 
 
+def test_retired_target_queue_resumes_checkpoint_and_publishes_zero_row(tmp_path):
+    jobs_path = tmp_path / "jobs"
+    summary_path = tmp_path / "summary.json"
+    checkpoint_path = tmp_path / "private" / "checkpoint.json.gz"
+    remaining = {"requests": 0}
+
+    def fetch_page(path, token, params):
+        if remaining["requests"] == 0:
+            raise lifecycle.BuildkiteRequestAllowanceExhausted("allowance exhausted")
+        remaining["requests"] -= 1
+        return [{"jobs": [_rest_job()]}]
+
+    def queue_page(path, token, params):
+        return [
+            {"id": f"id:{queue}", "key": queue}
+            for queue in AMD_METRIC_TARGET_QUEUES
+            if queue != "amd_mi250_8"
+        ]
+
+    kwargs = dict(
+        jobs_path=jobs_path,
+        summary_path=summary_path,
+        checkpoint_path=checkpoint_path,
+        baseline_ref="bootstrap",
+        page_fetcher=fetch_page,
+        queue_page_fetcher=queue_page,
+    )
+    with pytest.raises(lifecycle.BuildkiteRequestAllowanceExhausted):
+        lifecycle.collect_lifecycle("token", now=NOW, **kwargs)
+    assert checkpoint_path.is_file()
+
+    remaining["requests"] = 100
+    summary = lifecycle.collect_lifecycle(
+        "token", now=NOW + timedelta(minutes=20), **kwargs
+    )
+
+    assert summary["scope"]["queues"] == list(AMD_METRIC_TARGET_QUEUES)
+    assert summary["coverage"]["absent_queues"] == ["amd_mi250_8"]
+    assert summary["coverage"]["target_queue_scope_complete"] is True
+    assert "not measurements: amd_mi250_8." in summary["coverage"]["reason"]
+    assert summary["queues"]["amd_mi250_8"]["served"] == 0
+    assert summary["queues"]["amd_mi300_1"]["served"] == 1
+    assert summary["provenance"]["collection"]["queue_discovery"] == {
+        "complete": True,
+        "pages": 1,
+        "target_queue_count": 11,
+        "absent_target_queues": ["amd_mi250_8"],
+    }
+
+
 def test_wall_clock_yield_persists_split_before_stopping(tmp_path, monkeypatch):
     jobs_path = tmp_path / "jobs"
     summary_path = tmp_path / "summary.json"
@@ -2032,6 +2089,7 @@ def test_wall_clock_yield_accepts_complete_checkpoint_and_retry_makes_no_build_r
             "complete": True,
             "pages": 1,
             "target_queue_count": len(queue_by_id),
+            "absent_target_queues": [],
         },
     )
     for unit in state["units"][:-1]:
@@ -2164,6 +2222,7 @@ def test_old_context_bound_checkpoint_remains_resumable_across_cap_waits(tmp_pat
             "complete": True,
             "pages": 1,
             "target_queue_count": len(AMD_METRIC_TARGET_QUEUES),
+            "absent_target_queues": [],
         },
     )
     lifecycle._write_checkpoint(checkpoint_path, state)
@@ -2195,6 +2254,7 @@ def test_future_checkpoint_horizon_remains_fail_closed(tmp_path):
             "complete": True,
             "pages": 1,
             "target_queue_count": len(AMD_METRIC_TARGET_QUEUES),
+            "absent_target_queues": [],
         },
     )
     lifecycle._write_checkpoint(checkpoint_path, state)
