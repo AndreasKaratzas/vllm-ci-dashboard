@@ -80,8 +80,9 @@ const header = computed(() => {
         </Button>
       </div>
     </div>
-    <Tabs v-model="view">
-      <TabsList>
+    <Tabs v-model="view" class="max-w-full">
+      <!-- Scroll instead of overflowing the page on narrow screens. -->
+      <TabsList class="max-w-full justify-start overflow-x-auto">
         <TabsTrigger v-for="v in VIEWS" :key="v.id" :value="v.id">{{ v.label }}</TabsTrigger>
       </TabsList>
     </Tabs>
