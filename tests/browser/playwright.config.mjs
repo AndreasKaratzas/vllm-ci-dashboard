@@ -8,7 +8,7 @@ const repoRoot = resolve(browserTests, '../..');
 
 export default defineConfig({
   testDir: browserTests,
-  testMatch: 'dashboard-smoke.spec.mjs',
+  testMatch: ['dashboard-smoke.spec.mjs', 'v2-smoke.spec.mjs'],
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
