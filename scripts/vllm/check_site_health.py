@@ -37,7 +37,7 @@ from vllm.operations_bundle_contract import (  # noqa: E402
     operations_section_names_for_bundle_version,
     validate_operations_canary_budget_for_bundle_version,
 )
-from vllm.data_freshness_targets import load_freshness_targets  # noqa: E402
+from vllm.data_freshness_targets import load_freshness_targets, source_stale_minutes  # noqa: E402
 from vllm.publication_limits import (  # noqa: E402
     PUBLICATION_MAX_BLOB_BYTES,
     PUBLICATION_MAX_FILES,
@@ -976,8 +976,11 @@ def _normalize_operations_manifest(
         )
 
     def declared_file(raw: object, *, section: bool = False) -> str:
-        if not isinstance(raw, dict) or set(raw) != (
-            {"path", "bytes", "sha256"} if section else {"path", "bytes"}
+        # Section digests are optional so manifests from producers that predate
+        # them stay readable; a declared digest must match the projection.
+        if not isinstance(raw, dict) or not (
+            set(raw) == {"path", "bytes"}
+            or (section and set(raw) == {"path", "bytes", "sha256"})
         ):
             raise _ProjectionFailure(
                 "operations-manifest-contract",
@@ -985,18 +988,13 @@ def _normalize_operations_manifest(
             )
         relative = _safe_manifest_path(raw.get("path"))
         size = raw.get("bytes")
+        digest = raw.get("sha256")
         if (
             type(size) is not int
             or not 0 <= size <= PROJECTION_MAX_BLOB_BYTES
             or (section and not relative.startswith("operations_v2/"))
             or not relative.endswith(".json")
-            or (
-                section
-                and (
-                    not isinstance(raw.get("sha256"), str)
-                    or SHA256_RE.fullmatch(raw["sha256"]) is None
-                )
-            )
+            or ("sha256" in raw and (not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None))
         ):
             raise _ProjectionFailure(
                 "operations-manifest-contract",
@@ -1007,7 +1005,7 @@ def _normalize_operations_manifest(
         if (
             not isinstance(projection_descriptor, dict)
             or projection_descriptor.get("bytes") != size
-            or (section and projection_descriptor.get("sha256") != raw["sha256"])
+            or ("sha256" in raw and projection_descriptor.get("sha256") != digest)
         ):
             raise _ProjectionFailure(
                 "operations-projection-contract",
@@ -1131,34 +1129,40 @@ def _normalize_operations_manifest(
 
 
 def _check_core_age(
-    value: object,
+    shell: dict[str, Any],
     checked_at: datetime,
     publication: dict[str, Any],
     reasons: list[dict[str, str]],
 ) -> None:
-    """Judge the oldest core collection, which queue/DNS republications never refresh."""
-    stale_minutes = load_freshness_targets()["core"]["stale_minutes"]
-    core_at = _parse_timestamp(value)
-    if core_at is None or _iso_utc(core_at) != value:
-        reasons.append(
-            _reason(
-                "core-stale",
-                "Core data age is unknown: the Operations manifest has no canonical "
-                "core collection time.",
+    """Judge each core collection, which queue/DNS republications never refresh."""
+    sources = shell.get("sources")
+    if not isinstance(sources, dict):
+        sources = {}
+    stamps: dict[str, datetime] = {}
+    problems: list[str] = []
+    for name in load_freshness_targets()["core"]["sources"]:
+        # A core source newer than the manifest's producer is absent rather than
+        # undated; judging only what was published keeps rollbacks readable.
+        if sources and name not in sources:
+            continue
+        record = sources.get(name)
+        stamp = _parse_timestamp(record.get("timestamp") if isinstance(record, dict) else None)
+        if stamp is None or stamp > checked_at + FUTURE_SKEW:
+            problems.append(f"{name} has no trustworthy collection time")
+            continue
+        stamps[name] = stamp
+        limit = source_stale_minutes(name)
+        age = checked_at - stamp
+        if age > timedelta(minutes=limit):
+            problems.append(
+                f"{name} is {age.total_seconds() / 3600:.1f} hours old (limit {limit} minutes)"
             )
-        )
-        return
-    age = checked_at - core_at
-    publication["core_generated_at"] = value
-    publication["core_age_hours"] = round(age.total_seconds() / 3600, 3)
-    if age > timedelta(minutes=stale_minutes):
-        reasons.append(
-            _reason(
-                "core-stale",
-                f"Core data is {age.total_seconds() / 3600:.1f} hours old; "
-                f"limit is {stale_minutes} minutes.",
-            )
-        )
+    if stamps:
+        oldest = min(stamps.values())
+        publication["core_generated_at"] = _iso_utc(oldest)
+        publication["core_age_hours"] = round((checked_at - oldest).total_seconds() / 3600, 3)
+    if problems:
+        reasons.append(_reason("core-stale", f"Core data is stale: {'; '.join(problems)}."))
 
 
 def _critical_asset_references(site_url: str, site_body: bytes) -> dict[str, str]:
@@ -2116,7 +2120,7 @@ def check_site_health(
                 ) = _normalize_operations_manifest(operations, manifest)
                 verified_files.append(OPERATIONS_MANIFEST_PATH)
                 _check_core_age(
-                    operations["shell"].get("core_generated_at"),
+                    operations["shell"],
                     checked_at,
                     publication,
                     reasons,

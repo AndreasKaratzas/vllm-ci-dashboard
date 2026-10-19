@@ -16,7 +16,10 @@ from vllm import operations_bundle_contract as bundle_contract
 
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=timezone.utc)
-CORE_GENERATED_AT = health._iso_utc(NOW - timedelta(hours=1))
+CORE_SOURCES = {
+    name: {"timestamp": health._iso_utc(NOW - timedelta(hours=1))}
+    for name in health.load_freshness_targets()["core"]["sources"]
+}
 
 
 def test_projection_health_proof_uses_exact_publication_ceiling() -> None:
@@ -65,9 +68,12 @@ class Fetcher:
         site=None,
         resources=None,
         bundle_version=None,
-        core_generated_at=CORE_GENERATED_AT,
+        core_sources=CORE_SOURCES,
+        section_digests=None,
     ):
         bundle_version = bundle_contract.OPERATIONS_BUNDLE_VERSION if bundle_version is None else bundle_version
+        if section_digests is None:
+            section_digests = bundle_version == bundle_contract.OPERATIONS_BUNDLE_VERSION
         section_names = bundle_contract.operations_section_names_for_bundle_version(bundle_version)
         default_site = (
             b"<!doctype html><title>vLLM AMD CI Operations</title>"
@@ -107,7 +113,7 @@ class Fetcher:
             "bundle_version": bundle_version,
             "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
             "monolith": None,
-            "shell": {"core_generated_at": core_generated_at},
+            "shell": {"sources": core_sources},
             "organization_summary": {
                 "path": "org_summary.json",
                 "bytes": len(organization_body),
@@ -117,8 +123,11 @@ class Fetcher:
                 name: {
                     "path": f"operations_v2/{name}.json",
                     "bytes": len(section_bodies[name]),
-                    "sha256": hashlib.sha256(section_bodies[name]).hexdigest(),
-                }
+                } | (
+                    {"sha256": hashlib.sha256(section_bodies[name]).hexdigest()}
+                    if section_digests
+                    else {}
+                )
                 for name in section_names
             },
         }
@@ -468,38 +477,78 @@ def test_stale_publication_fails_even_when_root_is_http_200():
     assert _codes(report) == {"publication-stale"}
 
 
-def test_stale_core_data_fails_under_a_fresh_queue_republication_without_extra_requests():
-    stale_minutes = health.load_freshness_targets()["core"]["stale_minutes"]
-    fresh_fetcher = Fetcher(
-        core_generated_at=health._iso_utc(NOW - timedelta(minutes=stale_minutes))
-    )
-    stale_fetcher = Fetcher(
-        core_generated_at=health._iso_utc(NOW - timedelta(minutes=stale_minutes + 1))
-    )
+def _core_sources(**timestamps):
+    return {
+        name: {"timestamp": timestamps.get(name, record["timestamp"])}
+        for name, record in CORE_SOURCES.items()
+    }
+
+
+@pytest.mark.parametrize("name", ["workload_mapping", "perf_eval"])
+def test_stale_core_data_fails_under_a_fresh_queue_republication_without_extra_requests(name):
+    limit = health.source_stale_minutes(name)
+    fresh_fetcher = Fetcher(core_sources=_core_sources(**{name: health._iso_utc(NOW - timedelta(minutes=limit))}))
+    stale_at = health._iso_utc(NOW - timedelta(minutes=limit + 1))
+    stale_fetcher = Fetcher(core_sources=_core_sources(**{name: stale_at}))
 
     fresh = health.check_site_health(now=NOW, fetch=fresh_fetcher)
     stale = health.check_site_health(now=NOW, fetch=stale_fetcher)
 
     assert fresh["healthy"] is True
-    assert fresh["publication"]["core_age_hours"] == round(stale_minutes / 60, 3)
+    assert fresh["publication"]["core_age_hours"] == round(limit / 60, 3)
     assert stale["publication"]["age_hours"] == 0.5
     assert _codes(stale) == {"core-stale"}
-    assert stale["publication"]["core_generated_at"] == health._iso_utc(
-        NOW - timedelta(minutes=stale_minutes + 1)
-    )
+    assert name in stale["reasons"][0]["message"]
+    assert stale["publication"]["core_generated_at"] == stale_at
     assert stale["projection"]["verified"] is True
     assert len(stale_fetcher.calls) == len(fresh_fetcher.calls)
 
 
-@pytest.mark.parametrize("core_generated_at", [None, "2026-08-17T10:00:00+00:00", "soon"])
-def test_unknown_core_data_age_is_core_stale(core_generated_at):
+def test_perf_eval_is_judged_against_its_own_scheduled_cadence():
+    core_limit = health.load_freshness_targets()["core"]["stale_minutes"]
+    assert health.source_stale_minutes("perf_eval") > core_limit
     report = health.check_site_health(
-        now=NOW, fetch=Fetcher(core_generated_at=core_generated_at)
+        now=NOW,
+        fetch=Fetcher(core_sources=_core_sources(
+            perf_eval=health._iso_utc(NOW - timedelta(minutes=core_limit + 60))
+        )),
+    )
+
+    assert report["healthy"] is True
+    assert report["publication"]["core_age_hours"] == round((core_limit + 60) / 60, 3)
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [None, "soon", "2026-08-17T10:00:00", health._iso_utc(NOW + timedelta(minutes=6))],
+)
+def test_untrustworthy_core_collection_time_is_core_stale(timestamp):
+    report = health.check_site_health(
+        now=NOW, fetch=Fetcher(core_sources=_core_sources(analytics=timestamp))
     )
 
     assert _codes(report) == {"core-stale"}
-    assert report["publication"]["core_age_hours"] is None
+    assert "analytics" in report["reasons"][0]["message"]
     assert report["projection"]["verified"] is True
+
+
+def test_core_age_is_unknown_without_published_sources():
+    report = health.check_site_health(now=NOW, fetch=Fetcher(core_sources=None))
+
+    assert _codes(report) == {"core-stale"}
+    assert report["publication"]["core_age_hours"] is None
+
+
+def test_manifest_from_a_producer_without_digests_or_perf_core_source_stays_healthy():
+    fetcher = Fetcher(
+        core_sources={name: record for name, record in CORE_SOURCES.items() if name != "perf_eval"},
+        section_digests=False,
+    )
+
+    report = health.check_site_health(now=NOW, fetch=fetcher)
+
+    assert report["healthy"] is True
+    assert report["publication"]["core_age_hours"] == 1.0
 
 
 def test_small_future_skew_is_allowed_but_larger_skew_is_rejected():
@@ -1655,7 +1704,8 @@ def test_operations_manifest_rejects_an_unbounded_canary_bundle():
 @pytest.mark.parametrize(
     "mutation,code",
     [
-        (lambda descriptor: descriptor.pop("sha256"), "operations-manifest-contract"),
+        (lambda descriptor: descriptor.update(sha256=None), "operations-manifest-contract"),
+        (lambda descriptor: descriptor.update(extra=1), "operations-manifest-contract"),
         (lambda descriptor: descriptor.update(sha256="A" * 64), "operations-manifest-contract"),
         (lambda descriptor: descriptor.update(sha256="0" * 64), "operations-projection-contract"),
     ],

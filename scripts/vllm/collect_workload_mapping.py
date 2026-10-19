@@ -153,7 +153,7 @@ def _scope_ci_builds(
 
 def _checkpoint_source_scope_index(commit: str, indexes: dict[str, dict]) -> None:
     retained = retain_runtime_source_indexes(
-        {**_SOURCE_SCOPE_INDEXES, commit: indexes[commit]},
+        {**_SOURCE_SCOPE_INDEXES, **indexes},
         preferred_commits=[commit, *indexes, *_SOURCE_SCOPE_INDEXES],
     )
     if _SOURCE_SCOPE_CACHE_DIR is not None:

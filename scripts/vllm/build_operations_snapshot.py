@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm.bounded_json import atomic_write_bytes  # noqa: E402
 from vllm.constants import amd_gpu_hardware, is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.data_freshness_targets import core_generated_at, load_freshness_targets  # noqa: E402
+from vllm.data_freshness_targets import load_freshness_targets  # noqa: E402
 from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_SECTION_MAX_BYTES,
     OPERATIONS_PRODUCER_BUNDLE_VERSION,
@@ -4404,6 +4404,15 @@ def _diagnostic_section(payload: dict) -> dict:
     }
 
 
+def _core_generated_at(sources: dict) -> str | None:
+    """Return the oldest core collection time, or None while any core source is undated."""
+    stamps = [
+        _parse_dt((sources.get(name) or {}).get("timestamp"))
+        for name in load_freshness_targets()["core"]["sources"]
+    ]
+    return None if None in stamps else _utc_iso(min(stamps))
+
+
 def _operations_shell(payload: dict) -> dict:
     nightly = _compact_nightly(payload.get("nightly") or {}, build_limit=7)
     nightly["pipelines"] = [
@@ -4418,7 +4427,7 @@ def _operations_shell(payload: dict) -> dict:
         key: payload.get(key)
         for key in ("schema_version", "hardware_scope", "generated_at", "sources", "home", "attention")
     } | {
-        "core_generated_at": core_generated_at(payload.get("sources") or {}),
+        "core_generated_at": _core_generated_at(payload.get("sources") or {}),
         "nightly": nightly,
         "amd_test_health": {"summary": amd_health.get("summary") or {}},
         "definition_parity": {
