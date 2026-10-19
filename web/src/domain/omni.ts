@@ -631,11 +631,11 @@ const link = (label: unknown, url: unknown, mono = false): Cell => ({ text: Stri
 const action = (label: unknown, open: () => OmniDetail): Cell => ({ text: String(label), open })
 export function toneForLabel(label: unknown): Tone {
   const stateName = String(label || '').toLowerCase()
-  if (['passed', 'green', 'healthy', 'fixed', 'success'].includes(stateName)) return 'is-success'
-  if (['failed', 'failing', 'hard', 'incident', 'error', 'red', 'critical', 'surge', 'broken'].includes(stateName)) return 'is-danger'
-  if (['soft', 'soft_fail', 'soft_failed', 'soft_failing', 'warning', 'attention', 'elevated', 'waiting'].includes(stateName)) return 'is-warning'
-  if (['new', 'info', 'recurring'].includes(stateName)) return 'is-info'
-  return 'is-neutral'
+  if (['passed', 'green', 'healthy', 'fixed', 'success'].includes(stateName)) return 'pass'
+  if (['failed', 'failing', 'hard', 'incident', 'error', 'red', 'critical', 'surge', 'broken'].includes(stateName)) return 'hard'
+  if (['soft', 'soft_fail', 'soft_failed', 'soft_failing', 'warning', 'attention', 'elevated', 'waiting'].includes(stateName)) return 'soft'
+  if (['new', 'info', 'recurring'].includes(stateName)) return 'info'
+  return 'neutral'
 }
 const badge = (label: unknown, tone?: Tone): Cell => ({ text: String(label || 'unknown'), tone: tone || toneForLabel(label) })
 // Classic linkedBadge: the exact source when present, else a result drawer.
@@ -1226,7 +1226,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
       label: jobRangeNonExhaustive || jobRangeUnknown ? 'OBSERVED OMNI MAPPINGS' : 'INCOMING OMNI JOBS',
       value: mappingAvailable ? mappingCountPrefix + integer(omniTotal.mapped_jobs) : '-',
       meta: mappingAvailable ? mappingCountPrefix + integer(omniTotal.started_jobs) + ' started · ' + mappingCountMeta : mappingView.reason,
-      tone: jobRangeNonExhaustive || jobRangeUnknown || !mappingRatesAvailable ? 'is-warning' : 'is-info',
+      tone: jobRangeNonExhaustive || jobRangeUnknown || !mappingRatesAvailable ? 'soft' : 'info',
       open: () => workloadMappingDetail('omni', OMNI_REPOSITORIES.omni),
     },
     {
@@ -1256,7 +1256,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
       meta: mappingAvailable
         ? mappingCountPrefix + integer(omniRetiringMapped) + ' Omni · ' + mappingCountPrefix + integer(mainRetiringMapped) + ' ' + OMNI_REPOSITORIES.main
         : 'No selected-window queue evidence',
-      tone: omniRetiringMapped ? 'is-warning' : 'is-success',
+      tone: omniRetiringMapped ? 'soft' : 'pass',
       open: mi325ExposureDetail,
     },
   ]
@@ -1273,7 +1273,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
     apiCoverageHeading +
     (jobRangeNonExhaustive ? 'All job-created mappings are not provably exhaustive. ' : jobRangeUnknown ? 'Job-created population coverage is not published. ' : '')
   const scopeNote = {
-    tone: (mappingView.retainedComplete && !mappingPublicationIncomplete && !jobRangeNonExhaustive && !jobRangeUnknown ? 'is-info' : 'is-warning') as Tone,
+    tone: (mappingView.retainedComplete && !mappingPublicationIncomplete && !jobRangeNonExhaustive && !jobRangeUnknown ? 'info' : 'soft') as Tone,
     heading: coverageHeading,
     text:
       (mappingPublicationIncomplete
@@ -1394,7 +1394,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
             { label: 'GPU-slot requests', numeric: true, cell: (bucket: MappingBucket) => text(integer(bucket.workloads.omni.mapped_gpu_slots)) },
             {
               label: 'API coverage',
-              cell: (bucket: MappingBucket) => badge(coverageLabel(bucket), bucket.lowerBound ? 'is-warning' : bucket.complete ? 'is-success' : 'is-info'),
+              cell: (bucket: MappingBucket) => badge(coverageLabel(bucket), bucket.lowerBound ? 'soft' : bucket.complete ? 'pass' : 'info'),
             },
           ],
           searchText: (bucket: MappingBucket) => [bucketLabel(bucket), bucket.complete, bucket.lowerBound, bucket.hasOpenBucket].join(' '),
@@ -1593,9 +1593,9 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
             { label: 'Queue', cell: (r: Rec) => action(value(r.queue), () => openQueue(r.queue)) },
             { label: 'State', cell: (r: Rec) => linkedBadge(r.state, r.url) },
             { label: 'Age', numeric: true, cell: (r: Rec) => link(duration(r.wait_min !== undefined ? r.wait_min : r.run_min), r.url) },
-            { label: 'Analysis', cell: (r: Rec) => badge(r.analysis_excluded ? 'stale excluded' : 'active', r.analysis_excluded ? 'is-warning' : 'is-success') },
+            { label: 'Analysis', cell: (r: Rec) => badge(r.analysis_excluded ? 'stale excluded' : 'active', r.analysis_excluded ? 'soft' : 'pass') },
             { label: 'Build', cell: (r: Rec) => link((r.pipeline || '?') + ' #' + value(r.build), r.build_url || buildUrl(r.pipeline, r.build), true) },
-            { label: 'Source', cell: (r: Rec) => linkedBadge(r.source || r.workload || 'omni', r.url, 'is-info') },
+            { label: 'Source', cell: (r: Rec) => linkedBadge(r.source || r.workload || 'omni', r.url, 'info') },
           ],
           searchText: (row: Rec) => [row.name, row.queue, row.pipeline, row.branch, row.state].join(' '),
           searchPlaceholder: 'Filter job, queue, pipeline, branch, or state',
@@ -1655,7 +1655,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
             { label: 'Samples', numeric: true, cell: (row: DailyRow) => text(integer(row.samples)) },
             {
               label: 'Attribution',
-              cell: (row: DailyRow) => badge(row.complete ? 'complete' : 'partial lower bound', row.complete ? 'is-success' : 'is-warning'),
+              cell: (row: DailyRow) => badge(row.complete ? 'complete' : 'partial lower bound', row.complete ? 'pass' : 'soft'),
             },
           ],
           searchText: (row: DailyRow) => [row.day, row.complete].join(' '),
@@ -1669,28 +1669,28 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
       label: 'EXACT ACTIVE JOBS',
       value: integer(activeJobs.length),
       meta: integer(ledgerWaiting) + ' waiting · ' + integer(ledgerRunning) + ' running',
-      tone: pending.length ? 'is-warning' : '',
+      tone: pending.length ? 'soft' : '',
       open: browseActiveJobs,
     },
     {
       label: 'OBSERVED QUEUED',
       value: latestPoint ? integer(latestPoint.allWaiting) : '-',
       meta: latestPoint ? shortDate(latestPoint.ts) : 'No waiting-attributed snapshot in ' + selectedRange.label,
-      tone: latestPoint && latestPoint.allWaiting ? 'is-warning' : '',
+      tone: latestPoint && latestPoint.allWaiting ? 'soft' : '',
       open: () => occupancyEvidence('Latest observed Omni queue', latestPoint ? [latestPoint] : [], 'Explicit waiting-attributed counts only'),
     },
     {
       label: 'QUEUED PEAK',
       value: waitingPeak === null ? '-' : integer(waitingPeak),
       meta: integer(waitingPoints.length) + ' waiting-attributed snapshots · ' + selectedRange.label,
-      tone: waitingPeak ? 'is-warning' : '',
+      tone: waitingPeak ? 'soft' : '',
       open: () => occupancyEvidence('Omni queued observations', waitingPoints, 'Snapshot occupancy is operational context, not unique-job volume'),
     },
     {
       label: 'ATTRIBUTED SNAPSHOTS',
       value: points.length ? integer(points.length) : '-',
       meta: integer(waitingPoints.length) + ' waiting · ' + integer(runningPoints.length) + ' running',
-      tone: points.length && windowCoverage === 'complete' ? 'is-success' : 'is-warning',
+      tone: points.length && windowCoverage === 'complete' ? 'pass' : 'soft',
       open: () =>
         occupancyEvidence('Omni workload attribution coverage', points, 'Waiting and running availability are retained independently; partial attribution remains a lower bound'),
     },

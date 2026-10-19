@@ -19,7 +19,7 @@ defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec]; point: [Rec, unkno
             <button type="button" class="text-left hover:underline" data-testid="perf-model-title" @click="$emit('model', section.model)">
               {{ section.model.model }}
             </button>
-            <ToneBadge v-for="device in section.devices" :key="device" tone="is-info">{{ device }}</ToneBadge>
+            <ToneBadge v-for="device in section.devices" :key="device" tone="info">{{ device }}</ToneBadge>
           </CardTitle>
           <CardDescription class="flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="perf-provenance">
             <a v-if="section.provenance.commit" :href="section.provenance.commit.url" target="_blank" rel="noopener" class="font-mono hover:underline">{{ section.provenance.commit.label }}</a>

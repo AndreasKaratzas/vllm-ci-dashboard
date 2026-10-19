@@ -1,7 +1,10 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import * as v2 from '@/domain/dns'
 import { age, integer, type Rec } from '@/domain/format'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 const PURE = [
   'queueDnsCount',
@@ -31,22 +34,17 @@ const PURE = [
   'queueTimestamp',
 ] as const
 
+const pages = readFixture<Rec>('dns_pages.json')
+const live = readFixture<Rec>('dns_live.json')
+const NOW = pinClock(live.generated_at)
+const parity = classicParity('dns')
 let classic: ClassicFns
-let pages: Rec
-let live: Rec
 
 const SCOPES = ['amd', 'canonical', 'bogus']
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 beforeAll(() => {
   ;(globalThis as Rec).requestAnimationFrame = () => 0
   classic = loadClassic([...PURE, 'renderAnalyticsDns', 'state', 'closeOverlay', 'loadQueueDns', 'invalidateDnsData'] as unknown as string[])
-  pages = readFixture<Rec>('dns_pages.json')
-  live = readFixture<Rec>('dns_live.json')
 })
 
 /** Facts read from classic renderAnalyticsDns, in the shape the v2 view renders them. */
@@ -109,8 +107,8 @@ function classicDom(payload: Rec, windowId: string, scope: string) {
 }
 
 /** The same facts from the v2 domain, formatted as the v2 view renders them. */
-function v2Facts(payload: Rec, windowId: string, scope: string) {
-  const p = v2.dnsPresentation(payload, windowId, scope)
+function v2Facts(payload: Rec, windowId: string, scope: string, now: number) {
+  const p = v2.dnsPresentation(payload, windowId, scope, now)
   if (!p.block) return { error: 'The selected DNS observation window is not present in the published aggregate.' }
   const option = v2.QUEUE_DNS_WINDOW_OPTIONS.find((o) => o.id === p.windowId)
   const shortDate = (ts: unknown) => new Date(String(ts)).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -118,7 +116,7 @@ function v2Facts(payload: Rec, windowId: string, scope: string) {
     error: null,
     window: p.windowId,
     stateWindow: p.windowId,
-    badge: (p.freshness.stale ? 'Stale - ' : 'Updated ') + age(p.block.end_exclusive),
+    badge: (p.freshness.stale ? 'Stale - ' : 'Updated ') + age(p.block.end_exclusive, now),
     stale: p.freshness.stale
       ? 'DNS observations are stale. ' +
         (option ? option.label : p.windowId) +
@@ -190,47 +188,45 @@ function v2Facts(payload: Rec, windowId: string, scope: string) {
   }
 }
 
-function expectSameView(payload: Rec, windowId: string, scope: string) {
+function expectSameView(payload: Rec, windowId: string, scope: string, now = NOW) {
   const fromClassic = classicDom(payload, windowId, scope)
-  const fromV2 = v2Facts(payload, windowId, scope)
+  const fromV2 = v2Facts(payload, windowId, scope, now)
   if (fromV2.error) {
-    expect(fromClassic.error).toBe(fromV2.error)
+    parity('error', fromV2.error, fromClassic.error)
     return fromClassic
   }
-  expect(fromV2).toEqual(fromClassic)
+  parity('view', fromV2, fromClassic)
   return fromClassic
 }
 
 function comparePure(payload: Rec) {
-  expect(v2.queueDnsPayloadValid(payload)).toBe(classic.queueDnsPayloadValid!(payload))
+  parity('queueDnsPayloadValid', v2.queueDnsPayloadValid(payload), classic.queueDnsPayloadValid!(payload))
   for (const windowId of [...v2.QUEUE_DNS_WINDOW_IDS, 'bogus', '']) {
     const fromV2 = v2.queueDnsWindow(payload, windowId)
-    expect(fromV2).toEqual(classic.queueDnsWindow!(payload, windowId))
-    expect(v2.queueDnsCoverage(payload, fromV2.block)).toEqual(classic.queueDnsCoverage!(payload, fromV2.block))
+    parity('queueDnsWindow', fromV2, classic.queueDnsWindow!(payload, windowId))
+    parity('queueDnsCoverage', v2.queueDnsCoverage(payload, fromV2.block), classic.queueDnsCoverage!(payload, fromV2.block))
     const generatedMs = Date.parse(payload.generated_at || '2026-01-01T00:00:00Z')
     const endMs = Date.parse((fromV2.block || {}).end_exclusive || '') || generatedMs
     for (const now of [generatedMs + 3600_000, generatedMs + 30 * 3600_000, endMs + 30 * 3600_000, Math.max(generatedMs, endMs) + 3 * 86400_000]) {
-      expect(v2.queueDnsFreshness(payload, fromV2.block, now)).toEqual(classic.queueDnsFreshness!(payload, fromV2.block, now))
+      parity('queueDnsFreshness', v2.queueDnsFreshness(payload, fromV2.block, now), classic.queueDnsFreshness!(payload, fromV2.block, now))
     }
     for (const scope of SCOPES) {
       const nodes = v2.queueDnsNodeRows(fromV2.block, scope)
-      expect(nodes).toEqual(classic.queueDnsNodeRows!(fromV2.block, scope))
+      parity('queueDnsNodeRows', nodes, classic.queueDnsNodeRows!(fromV2.block, scope))
       const roster = ['amd_mi250_1', 'amd_mi325_8', 'amd_mi355b_1', 'gpu_1', ' amd_mi300_2 ']
-      expect(v2.queueDnsQueueRows(fromV2.block, scope, roster)).toEqual(classic.queueDnsQueueRows!(fromV2.block, scope, roster))
+      parity('queueDnsQueueRows', v2.queueDnsQueueRows(fromV2.block, scope, roster), classic.queueDnsQueueRows!(fromV2.block, scope, roster))
       for (const node of nodes) {
-        expect(v2.queueDnsNodeOutcomes(payload, fromV2.id, node)).toEqual(classic.queueDnsNodeOutcomes!(payload, fromV2.id, node))
-        expect(v2.queueDnsEvidenceForNode(payload, fromV2.id, node.queue, node.nodeRaw)).toEqual(
-          classic.queueDnsEvidenceForNode!(payload, fromV2.id, node.queue, node.nodeRaw),
-        )
+        parity('queueDnsNodeOutcomes', v2.queueDnsNodeOutcomes(payload, fromV2.id, node), classic.queueDnsNodeOutcomes!(payload, fromV2.id, node))
+        parity('queueDnsEvidenceForNode', v2.queueDnsEvidenceForNode(payload, fromV2.id, node.queue, node.nodeRaw), classic.queueDnsEvidenceForNode!(payload, fromV2.id, node.queue, node.nodeRaw))
       }
     }
   }
   for (const row of (payload.evidence || {}).items || []) {
-    expect(v2.queueDnsEvidenceItemValid(row, payload.windows)).toBe(classic.queueDnsEvidenceItemValid!(row, payload.windows))
-    expect(v2.queueDnsEvidenceUrl(row)).toBe(classic.queueDnsEvidenceUrl!(row))
-    expect(v2.queueDnsTargetLabels(row)).toEqual(classic.queueDnsTargetLabels!(row))
-    expect(v2.queueDnsSignatureLabels(row)).toEqual(classic.queueDnsSignatureLabels!(row))
-    expect(v2.queueDnsOutcomePresentation(row.state)).toEqual(classic.queueDnsOutcomePresentation!(row.state))
+    parity('queueDnsEvidenceItemValid', v2.queueDnsEvidenceItemValid(row, payload.windows), classic.queueDnsEvidenceItemValid!(row, payload.windows))
+    parity('queueDnsEvidenceUrl', v2.queueDnsEvidenceUrl(row), classic.queueDnsEvidenceUrl!(row))
+    parity('queueDnsTargetLabels', v2.queueDnsTargetLabels(row), classic.queueDnsTargetLabels!(row))
+    parity('queueDnsSignatureLabels', v2.queueDnsSignatureLabels(row), classic.queueDnsSignatureLabels!(row))
+    parity('queueDnsOutcomePresentation', v2.queueDnsOutcomePresentation(row.state), classic.queueDnsOutcomePresentation!(row.state))
   }
 }
 
@@ -295,8 +291,6 @@ function variant(base: Rec, seed: number): Rec {
 }
 
 describe('DNS health domain matches the classic renderer', () => {
-  afterEach(() => vi.useRealTimers())
-
   it('reads the real Pages and live snapshots identically', () => {
     for (const payload of [pages, live]) {
       expect(v2.queueDnsPayloadValid(payload)).toBe(true)
@@ -304,7 +298,7 @@ describe('DNS health domain matches the classic renderer', () => {
     }
   })
 
-  it('renders the same summary, queue cards, node bars, and evidence drawers on the real snapshots', () => {
+  it('renders the same summary, queue cards, node bars, and evidence drawers on the real snapshots', async () => {
     let bars = 0
     let evidenceRows = 0
     let notes = 0
@@ -321,6 +315,7 @@ describe('DNS health domain matches the classic renderer', () => {
     expect(bars).toBeGreaterThan(50)
     expect(evidenceRows).toBeGreaterThan(50)
     expect(notes).toBeGreaterThan(5)
+    await expectGoldenFile('dns', 'live-week', v2Facts({ ...live, __sourceAsset: v2.DNS_LIVE_ASSET }, '168h', 'amd', NOW))
   })
 
   it('flags staleness the same way when only the generation time or only the window end is old', () => {
@@ -342,15 +337,15 @@ describe('DNS health domain matches the classic renderer', () => {
         const now = endMs + nowOffsetH * 3600_000
         const block = v2.queueDnsWindow(payload, windowId).block
         const fromV2 = v2.queueDnsFreshness(payload, block, now)
-        expect(fromV2).toEqual(classic.queueDnsFreshness!(payload, block, now))
+        parity('queueDnsFreshness', fromV2, classic.queueDnsFreshness!(payload, block, now))
         expect(v2.dnsPresentation(payload, windowId, 'amd', now).freshness).toEqual(fromV2)
         seen.add(String(fromV2.stale))
-        vi.useFakeTimers({ toFake: ['Date'] })
+        // The classic renderer reads the wall clock.
         vi.setSystemTime(now)
-        const view = expectSameView(payload, windowId, 'amd')
+        const view = expectSameView(payload, windowId, 'amd', now)
         expect(view.stale !== null).toBe(fromV2.stale)
         expect(String(view.badge).startsWith('Stale - ')).toBe(fromV2.stale)
-        vi.useRealTimers()
+        vi.setSystemTime(NOW)
       }
     }
     expect([...seen].sort()).toEqual(['false', 'true'])
@@ -373,14 +368,14 @@ describe('DNS health domain matches the classic renderer', () => {
     const RAW = [null, undefined, '', true, false, 0, 1, 2.7, -3, '4', 'x', Infinity, NaN, '1e2']
     for (let i = 0; i < 2000; i += 1) {
       const raw = pick(RAW)
-      expect(v2.queueDnsCount(raw)).toBe(classic.queueDnsCount!(raw))
+      parity('queueDnsCount', v2.queueDnsCount(raw), classic.queueDnsCount!(raw))
       const row: Rec = {}
       for (const key of ['passed_jobs', 'soft_failed_jobs', 'hard_failed_jobs', 'affected_jobs']) if (rand() < 0.85) row[key] = pick([0, 1, 2, 3, '1', 1.5, -1, null])
-      expect(v2.queueDnsOutcomeCounts(row)).toEqual(classic.queueDnsOutcomeCounts!(row))
+      parity('queueDnsOutcomeCounts', v2.queueDnsOutcomeCounts(row), classic.queueDnsOutcomeCounts!(row))
       const coverage = pick([{ complete: true }, { complete: false }, null, {}])
-      expect(v2.queueDnsDisplayCount(raw, coverage)).toBe(classic.queueDnsDisplayCount!(raw, coverage))
+      parity('queueDnsDisplayCount', v2.queueDnsDisplayCount(raw, coverage), classic.queueDnsDisplayCount!(raw, coverage))
       const q = pick(['amd_mi250_1', 'amd_mi355b_2', 'amd_mi325_1', 'AMD_MI300_8', 'amd_mi300b_1', 'amd_mi3001', 'gpu_1', ' amd_mi355_1 ', null])
-      for (const scope of SCOPES) expect(v2.queueDnsMatchesPublishedScope(q, scope)).toBe(classic.queueDnsMatchesPublishedScope!(q, scope))
+      for (const scope of SCOPES) parity('queueDnsMatchesPublishedScope', v2.queueDnsMatchesPublishedScope(q, scope), classic.queueDnsMatchesPublishedScope!(q, scope))
       const ev = {
         pipeline: pick(['ci', 'amd-ci', '']),
         build_number: pick([1, 0, '12', '012', 2 ** 60, -4, null]),
@@ -389,10 +384,10 @@ describe('DNS health domain matches the classic renderer', () => {
         signature_ids: pick([['a_b', '', null], 'x', ['temporary_name_resolution']]),
         state: pick(['passed', 'SOFT', 'soft_failed', 'failed', 'hard', 'canceled', '', null]),
       }
-      expect(v2.queueDnsEvidenceUrl(ev)).toBe(classic.queueDnsEvidenceUrl!(ev))
-      expect(v2.queueDnsTargetLabels(ev)).toEqual(classic.queueDnsTargetLabels!(ev))
-      expect(v2.queueDnsSignatureLabels(ev)).toEqual(classic.queueDnsSignatureLabels!(ev))
-      expect(v2.queueDnsOutcomePresentation(ev.state)).toEqual(classic.queueDnsOutcomePresentation!(ev.state))
+      parity('queueDnsEvidenceUrl', v2.queueDnsEvidenceUrl(ev), classic.queueDnsEvidenceUrl!(ev))
+      parity('queueDnsTargetLabels', v2.queueDnsTargetLabels(ev), classic.queueDnsTargetLabels!(ev))
+      parity('queueDnsSignatureLabels', v2.queueDnsSignatureLabels(ev), classic.queueDnsSignatureLabels!(ev))
+      parity('queueDnsOutcomePresentation', v2.queueDnsOutcomePresentation(ev.state), classic.queueDnsOutcomePresentation!(ev.state))
     }
   })
 
@@ -419,7 +414,7 @@ describe('DNS health domain matches the classic renderer', () => {
     for (const mutate of mutations) {
       const copy = structuredClone(pages)
       mutate(copy)
-      expect(v2.queueDnsPayloadValid(copy)).toBe(classic.queueDnsPayloadValid!(copy))
+      parity('queueDnsPayloadValid', v2.queueDnsPayloadValid(copy), classic.queueDnsPayloadValid!(copy))
       expect(v2.queueDnsPayloadValid(copy)).toBe(false)
     }
   })
@@ -481,7 +476,37 @@ describe('DNS health domain matches the classic renderer', () => {
         (p) => p.__sourceAsset + '@' + p.generated_at,
         (e: Error) => 'error:' + e.message,
       )
-      expect(fromV2).toBe(fromClassic)
+      parity('loadQueueDns', fromV2, fromClassic)
     }
   }, 60_000)
+})
+
+describe('DNS health helpers on hand-written inputs', () => {
+  it('counts only non-negative integers', () => {
+    expect([null, '', true, 0, 1, 2.7, -3, '4', 'x', NaN].map((raw) => v2.queueDnsCount(raw))).toEqual([0, 0, 0, 0, 1, 2, 0, 4, 0, 0])
+    expect(v2.queueDnsOutcomeCounts({ passed_jobs: 1, soft_failed_jobs: '2', hard_failed_jobs: 1.5, affected_jobs: 5 })).toEqual({
+      available: false,
+      passed: 1,
+      softFailed: 2,
+      hardFailed: 1,
+    })
+  })
+
+  it('links exact logs only for canonical job ids', () => {
+    expect(v2.queueDnsEvidenceUrl({ pipeline: 'ci', build_number: 12, job_id: '01a00c92-9cab-4dd2-9a75-32210e739d02' })).toBe(
+      'https://buildkite.com/vllm/ci/builds/12/list?jid=01a00c92-9cab-4dd2-9a75-32210e739d02&tab=output',
+    )
+    expect(v2.queueDnsEvidenceUrl({ pipeline: 'ci', build_number: 12, job_id: 'x' })).toBe('')
+  })
+
+  it('labels targets, signatures, and outcomes', () => {
+    expect(v2.queueDnsTargetLabels({ target_categories: ['github', 'github', 'pypi', 'mystery'] })).toEqual(['GitHub', 'PyPI', 'Unknown target'])
+    expect(v2.queueDnsSignatureLabels({ signature_ids: ['temporary_name_resolution', 'a_b', ''] })).toEqual(['temporary name resolution', 'a b'])
+    expect(['passed', 'soft', 'failed', ''].map((state) => v2.queueDnsOutcomePresentation(state))).toEqual([
+      { label: 'Passed after observation', tone: 'pass' },
+      { label: 'Soft-failed', tone: 'soft' },
+      { label: 'Hard-failed', tone: 'hard' },
+      { label: 'Unknown', tone: 'neutral' },
+    ])
+  })
 })

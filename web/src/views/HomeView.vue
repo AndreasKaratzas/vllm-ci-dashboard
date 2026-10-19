@@ -48,12 +48,12 @@ const nightlyTrend = computed<'up' | 'down' | null>(() =>
 )
 const passRateCard = computed(() => {
   const trend = passRate.value
-  if (!trend) return { value: 'No signal', badge: undefined, tone: 'is-neutral' as Tone, trend: null, detail: 'Latest nightly has no parsed test groups' }
+  if (!trend) return { value: 'No signal', badge: undefined, tone: 'neutral' as Tone, trend: null, detail: 'Latest nightly has no parsed test groups' }
   const delta = trend.deltaPoints
   return {
     value: percent(trend.latest.passed, trend.latest.total),
     badge: delta === null ? 'first signal' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts`,
-    tone: (delta === null || Math.abs(delta) < 0.05 ? 'is-neutral' : delta > 0 ? 'is-success' : 'is-danger') as Tone,
+    tone: (delta === null || Math.abs(delta) < 0.05 ? 'neutral' : delta > 0 ? 'pass' : 'hard') as Tone,
     trend: delta === null || Math.abs(delta) < 0.05 ? null : delta > 0 ? ('up' as const) : ('down' as const),
     detail: `${integer(trend.latest.passed)} of ${integer(trend.latest.total)} job variants passed in #${trend.latest.number}`,
   }
@@ -64,7 +64,7 @@ const parityCard = computed(() => {
   return {
     value: available ? percent(p.main_complete_groups, p.applicable_groups) : 'Unavailable',
     badge: available ? `${integer(p.main_missing_groups)} missing` : undefined,
-    tone: (Number(p.action_groups) ? 'is-warning' : 'is-success') as Tone,
+    tone: (Number(p.action_groups) ? 'soft' : 'pass') as Tone,
     detail: available
       ? `${integer(p.main_complete_groups)} / ${integer(p.applicable_groups)} upstream test groups covered on main`
       : 'Current main CI parity inventory unavailable',
@@ -72,7 +72,7 @@ const parityCard = computed(() => {
 })
 const attentionTone = computed<Tone>(() => {
   const tones = attention.value.map((item) => toneForState(item.severity))
-  return tones.includes('is-danger') ? 'is-danger' : tones.includes('is-warning') ? 'is-warning' : 'is-success'
+  return tones.includes('hard') ? 'hard' : tones.includes('soft') ? 'soft' : 'pass'
 })
 
 const workKind = ref<'issues' | 'prs'>('issues')
@@ -135,8 +135,8 @@ function inspectAttention(item: Rec) {
   }
 }
 function testSignal(build: Rec) {
-  if (build.has_test_results !== false) return { label: 'Observed', tone: 'is-success' as const }
-  return { label: Number(build.test_jobs_blocked || 0) ? 'Infra blocked' : 'Unavailable', tone: 'is-danger' as const }
+  if (build.has_test_results !== false) return { label: 'Observed', tone: 'pass' as const }
+  return { label: Number(build.test_jobs_blocked || 0) ? 'Infra blocked' : 'Unavailable', tone: 'hard' as const }
 }
 function movementCount(build: Rec, key: MovementKey) {
   const count = nightlyFailureCount(build, key)

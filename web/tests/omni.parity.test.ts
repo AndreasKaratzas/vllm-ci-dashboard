@@ -1,7 +1,7 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import * as v2 from '@/domain/omni'
 import { shortDate, type Rec } from '@/domain/format'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
 import {
   classicDetailShape,
   classicTableShape,
@@ -10,6 +10,9 @@ import {
   v2TableShape,
   type DetailShape,
 } from './omniClassicDom'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 const HELPERS = [
   'emptyOmniMappingStats',
@@ -39,22 +42,18 @@ const HELPERS = [
   'historyPointSources',
 ] as const
 
+const fixture = readFixture<Rec>('omni_sections.json')
+pinClock(fixture.omni.mapping_history.generated_at)
+const parity = classicParity('omni')
 let classic: ClassicFns
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let classicState: Record<string, any>
-let fixture: Rec
 const charts: Record<string, Rec> = {}
 let frames: (() => void)[] = []
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 beforeAll(() => {
   classic = loadClassic([...HELPERS, 'renderOmni', 'state', 'closeOverlay'])
   classicState = classic.state as unknown as Record<string, unknown>
-  fixture = readFixture<Rec>('omni_sections.json')
   ;(window as unknown as Rec).requestAnimationFrame = (cb: () => void) => frames.push(cb)
   ;(window as unknown as Rec).Chart = class {
     constructor(canvas: HTMLCanvasElement, config: Rec) {
@@ -298,10 +297,16 @@ function back() {
 }
 
 let drawersCompared = 0
+// Rows classic shows on the first page of each drawer table, one drawer per line in
+// traversal order; stored as a golden so the traversal and the table cuts do not need classic.
+let drawerPages: number[][] = []
+const pagesJson = () => `[\n${drawerPages.map((rows) => JSON.stringify(rows)).join(',\n')}\n]\n`
 /** Compares a drawer and, to `depth`, the drawers its first rows open. */
 function compareDrawer(control: Element | (() => void), detail: v2.OmniDetail, path: string, depth = 2) {
   const shape = openClassic(control)
-  expect(v2DetailShape(detail, shape), path).toEqual(shape)
+  const visibleRows = shape.tables.map((t) => t.rows.length)
+  drawerPages.push(visibleRows)
+  parity('detail', v2DetailShape(detail, visibleRows), shape, path)
   drawersCompared += 1
   if (depth > 0) {
     const overlay = topOverlay()!
@@ -314,7 +319,7 @@ function compareDrawer(control: Element | (() => void), detail: v2.OmniDetail, p
         cells.forEach((td, ci) => {
           const button = td.querySelector('button')
           const cell = v2Tables[ti]!.columns[ci]!.cell(v2Tables[ti]!.rows[ri])
-          expect(Boolean(button), `${path} row ${ri} col ${ci} is a drill-down`).toBe(Boolean(cell.open))
+          parity('drillDown', Boolean(cell.open), Boolean(button), `${path} row ${ri} col ${ci} is a drill-down`)
           if (button && cell.open) compareDrawer(button, cell.open(), `${path} > ${cell.text}`, depth - 1)
         })
       }
@@ -327,81 +332,93 @@ function comparePage(ops: Rec, mappingRange: string, range: string, label: strin
   const host = renderClassic(ops, mappingRange, range)
   const page = v2.omniView(ops, mappingRange, range)
   if (!page.available) {
-    expect(txt(host)).toBe(page.message)
+    parity('unavailableMessage', page.message, txt(host))
     return
   }
-  expect(txt(host.querySelector('.ops-page-title'))).toBe(page.header.title)
-  expect(txt(host.querySelector('.ops-page-description'))).toBe(page.header.description)
+  parity('headerTitle', page.header.title, txt(host.querySelector('.ops-page-title')))
+  parity('headerDescription', page.header.description, txt(host.querySelector('.ops-page-description')))
   const observed = txt(host.querySelector('.ops-page-header .ops-panel-meta'))
-  expect(observed.split(' - ')[0]).toBe(page.header.observedAt ? `Observed ${shortDate(page.header.observedAt)}` : '')
+  parity('headerObserved', page.header.observedAt ? `Observed ${shortDate(page.header.observedAt)}` : '', observed.split(' - ')[0])
   const headerAction = host.querySelector('.ops-page-actions a')!
-  expect(`${txt(headerAction)} <${headerAction.getAttribute('href')}>`).toBe(`${page.header.actionLabel} <${page.header.actionUrl}>`)
+  parity('headerAction', `${page.header.actionLabel} <${page.header.actionUrl}>`, `${txt(headerAction)} <${headerAction.getAttribute('href')}>`)
 
   const segments = host.querySelectorAll('.ops-omni-mapping-toolbar .ops-segment')
-  expect([...segments].map(txt)).toEqual(v2.OMNI_MAPPING_WINDOWS.map((w) => w.label))
-  expect(txt(host.querySelector('.ops-omni-mapping-toolbar .ops-segment.is-active'))).toBe(v2.OMNI_MAPPING_WINDOWS.find((w) => w.id === page.mappingRange)!.label)
+  parity('mappingWindows', v2.OMNI_MAPPING_WINDOWS.map((w) => w.label), [...segments].map(txt))
+  parity(
+    'activeMappingWindow',
+    v2.OMNI_MAPPING_WINDOWS.find((w) => w.id === page.mappingRange)!.label,
+    txt(host.querySelector('.ops-omni-mapping-toolbar .ops-segment.is-active')),
+  )
 
   // KPI strip
   const kpis = [...host.querySelectorAll(':scope > .ops-status-strip .ops-status-item')]
-  expect(
+  parity(
+    'kpis',
+    page.kpis.map((k) => [k.label, k.value, k.meta.replace(/\s+/g, ' ').trim(), k.tone]),
     kpis.map((k) => [txt(k.querySelector('.ops-stat-label')), txt(k.querySelector('.ops-stat-value')), txt(k.querySelector('.ops-stat-meta')), toneOf(k)]),
     `${label} KPIs`,
-  ).toEqual(page.kpis.map((k) => [k.label, k.value, k.meta.replace(/\s+/g, ' ').trim(), k.tone]))
+  )
 
   // Scope note
   const note = host.querySelector('.ops-omni-coverage-note')!
-  expect(toneOf(note)).toBe(page.scopeNote.tone)
-  expect(txt(note.querySelector('strong'))).toBe(page.scopeNote.heading.trim())
-  expect(txt(note.querySelector('span'))).toBe(page.scopeNote.text.replace(/\s+/g, ' ').trim())
+  parity('scopeNoteTone', page.scopeNote.tone, toneOf(note))
+  parity('scopeNoteHeading', page.scopeNote.heading.trim(), txt(note.querySelector('strong')))
+  parity('scopeNoteText', page.scopeNote.text.replace(/\s+/g, ' ').trim(), txt(note.querySelector('span')))
   const noteButtons = [...note.querySelectorAll('button')]
-  expect(noteButtons.map(txt)).toEqual(['Inspect methodology', ...(page.scopeNote.excluded ? ['Inspect excluded stale jobs'] : [])])
+  parity('scopeNoteActions', ['Inspect methodology', ...(page.scopeNote.excluded ? ['Inspect excluded stale jobs'] : [])], noteButtons.map(txt))
 
   // Overview grid
   const grid = [...host.querySelectorAll('.ops-omni-overview-grid > section')]
   const panelHead = (p: Element) => `${txt(p.querySelector('.ops-panel-title'))}|${txt(p.querySelector('.ops-panel-meta'))}`
-  expect(panelHead(grid[0]!)).toBe(`${page.volume.title}|${page.volume.meta}`)
-  expect(panelHead(grid[1]!)).toBe(`${page.impact.title}|${page.impact.meta}`)
+  parity('volumeHead', `${page.volume.title}|${page.volume.meta}`, panelHead(grid[0]!))
+  parity('impactHead', `${page.impact.title}|${page.impact.meta}`, panelHead(grid[1]!))
   if (page.volume.available) {
     const chart = charts['omni-amd-mapped-jobs']!
-    expect(chart.data.labels).toEqual(page.volume.bars.map((b) => b.label))
-    expect(chart.data.datasets[0].data).toEqual(page.volume.bars.map((b) => b.value))
+    parity('volumeLabels', page.volume.bars.map((b) => b.label), chart.data.labels)
+    parity('volumeValues', page.volume.bars.map((b) => b.value), chart.data.datasets[0].data)
   } else {
     expect(charts['omni-amd-mapped-jobs']).toBeUndefined()
-    expect(txt(grid[0]!.querySelector('.ops-empty'))).toBe(page.volume.empty)
+    parity('volumeEmpty', page.volume.empty, txt(grid[0]!.querySelector('.ops-empty')))
   }
   if (page.impact.available) {
     const chart = charts['omni-queue-impact']!
-    expect(chart.data.labels).toEqual(page.impact.bars.map((b) => b.label))
-    expect(chart.data.datasets[0].data).toEqual(page.impact.bars.map((b) => b.value))
-    expect(chart.data.datasets[0].backgroundColor).toEqual(page.impact.bars.map((b) => (b.color === 'retiring' ? '#e3a63a' : '#22b8ad')))
+    parity('impactLabels', page.impact.bars.map((b) => b.label), chart.data.labels)
+    parity('impactValues', page.impact.bars.map((b) => b.value), chart.data.datasets[0].data)
+    parity('impactColors', page.impact.bars.map((b) => (b.color === 'retiring' ? '#e3a63a' : '#22b8ad')), chart.data.datasets[0].backgroundColor)
     const table = grid[1]!.querySelector('table.ops-table')!
-    expect(classicTableShape(grid[1]!, table)).toEqual(v2TableShape(page.impact.preview))
+    parity('impactPreview', v2TableShape(page.impact.preview), classicTableShape(grid[1]!, table))
   } else {
     expect(charts['omni-queue-impact']).toBeUndefined()
-    expect(txt(grid[1]!.querySelector('.ops-empty'))).toBe(page.impact.empty)
+    parity('impactEmpty', page.impact.empty, txt(grid[1]!.querySelector('.ops-empty')))
   }
 
   // Repository comparison
   const comparison = host.querySelector('.ops-omni-comparison')!
-  expect(panelHead(comparison)).toBe(`${page.comparison.title}|${page.comparison.meta}`)
-  expect(classicTableShape(comparison, comparison.querySelector('table.ops-table')!)).toEqual(v2TableShape(page.comparison.table))
+  parity('comparisonHead', `${page.comparison.title}|${page.comparison.meta}`, panelHead(comparison))
+  parity('comparisonTable', v2TableShape(page.comparison.table), classicTableShape(comparison, comparison.querySelector('table.ops-table')!))
   const comparisonActions = [...comparison.querySelectorAll('.ops-inline-actions button')]
-  expect(comparisonActions.map(txt)).toEqual(['Inspect time buckets', ...(page.comparison.browseQueues ? ['Browse all queues'] : [])])
+  parity('comparisonActions', ['Inspect time buckets', ...(page.comparison.browseQueues ? ['Browse all queues'] : [])], comparisonActions.map(txt))
 
   // Live state
   const live = host.querySelector('.ops-omni-live')!
-  expect(panelHead(live)).toBe(`${page.live.title}|${page.live.meta}`)
+  parity('liveHead', `${page.live.title}|${page.live.meta}`, panelHead(live))
   const facts = [...live.querySelectorAll('.ops-omni-live-fact')]
-  expect(facts.map((f) => [txt(f.querySelector('.ops-stat-label')), txt(f.querySelector('.ops-omni-live-value')), txt(f.querySelector('.ops-stat-meta')), toneOf(f)])).toEqual(
+  parity(
+    'liveFacts',
     page.live.facts.map((f) => [f.label, f.value, f.meta, f.tone]),
+    facts.map((f) => [txt(f.querySelector('.ops-stat-label')), txt(f.querySelector('.ops-omni-live-value')), txt(f.querySelector('.ops-stat-meta')), toneOf(f)]),
   )
   const liveSegments = live.querySelectorAll('.ops-segment')
-  expect([...liveSegments].map(txt)).toEqual(v2.OMNI_RANGE_WINDOWS.map((w) => w.label))
-  expect(txt(live.querySelector('.ops-segment.is-active'))).toBe(v2.OMNI_RANGE_WINDOWS.find((w) => w.id === page.omniRange)!.label)
+  parity('rangeWindows', v2.OMNI_RANGE_WINDOWS.map((w) => w.label), [...liveSegments].map(txt))
+  parity('activeRangeWindow', v2.OMNI_RANGE_WINDOWS.find((w) => w.id === page.omniRange)!.label, txt(live.querySelector('.ops-segment.is-active')))
   const liveButtons = [...live.querySelectorAll('.ops-omni-live-actions > button')]
-  expect(liveButtons.map(txt)).toEqual(page.live.actions.map((a) => a.label))
+  parity('liveActions', page.live.actions.map((a) => a.label), liveButtons.map(txt))
   const historyLink = live.querySelector('.ops-omni-live-actions > a')!
-  expect(`${txt(historyLink)} <${historyLink.getAttribute('href')}>`).toBe(`Inspect published queue history <${page.live.queueHistoryUrl}>`)
+  parity(
+    'queueHistoryLink',
+    `Inspect published queue history <${page.live.queueHistoryUrl}>`,
+    `${txt(historyLink)} <${historyLink.getAttribute('href')}>`,
+  )
 
   if (!drillDown) return
   kpis.forEach((k, i) => compareDrawer(k, page.kpis[i]!.open(), `${label} KPI ${i}`))
@@ -442,11 +459,11 @@ describe('Omni helpers match the classic renderer', () => {
     const mapping = fixture.omni.mapping_history
     for (const range of [...v2.OMNI_MAPPING_WINDOWS.map((w) => w.id), 'bogus']) {
       const view = v2.omniMappingWindow(mapping, range)
-      expect(view).toEqual(classic.omniMappingWindow!(mapping, range))
-      expect(v2.omniMappingBuckets(view)).toEqual(classic.omniMappingBuckets!(classic.omniMappingWindow!(mapping, range)))
-      expect(v2.omniMappingTotals(view.rows)).toEqual(classic.omniMappingTotals!(view.rows))
+      parity('omniMappingWindow', view, classic.omniMappingWindow!(mapping, range))
+      parity('omniMappingBuckets', v2.omniMappingBuckets(view), classic.omniMappingBuckets!(classic.omniMappingWindow!(mapping, range)))
+      parity('omniMappingTotals', v2.omniMappingTotals(view.rows), classic.omniMappingTotals!(view.rows))
       for (const resolution of ['hourly', 'daily', 'unavailable']) {
-        expect(v2.omniMappingPopulationBoundary(mapping, resolution)).toEqual(classic.omniMappingPopulationBoundary!(mapping, resolution))
+        parity('omniMappingPopulationBoundary', v2.omniMappingPopulationBoundary(mapping, resolution), classic.omniMappingPopulationBoundary!(mapping, resolution))
       }
     }
     expect(v2.omniMappingWindow(mapping, '7d').rows.length).toBeGreaterThan(0)
@@ -454,13 +471,13 @@ describe('Omni helpers match the classic renderer', () => {
 
   it('reads the real occupancy history identically for every range', () => {
     const points = v2.omniHistoryPoints(fixture.omni)
-    expect(points).toEqual(classic.omniHistoryPoints!(fixture.omni))
+    parity('omniHistoryPoints', points, classic.omniHistoryPoints!(fixture.omni))
     expect(points.length).toBeGreaterThan(0)
     for (const range of [...v2.OMNI_RANGE_WINDOWS.map((w) => w.id), 'bogus']) {
-      expect(v2.omniWindowPoints(points, range)).toEqual(classic.omniWindowPoints!(points, range))
+      parity('omniWindowPoints', v2.omniWindowPoints(points, range), classic.omniWindowPoints!(points, range))
     }
     const waiting = points.filter((p) => p.waitingSupported)
-    expect(v2.omniDailyRows(waiting)).toEqual(classic.omniDailyRows!(waiting))
+    parity('omniDailyRows', v2.omniDailyRows(waiting), classic.omniDailyRows!(waiting))
   })
 
   it('agrees on generated mapping windows, buckets, history and jobs', () => {
@@ -471,46 +488,46 @@ describe('Omni helpers match the classic renderer', () => {
       const range = pickFrom(rand, [...v2.OMNI_MAPPING_WINDOWS.map((w) => w.id), 'x'])
       const view = v2.omniMappingWindow(mapping, range)
       const classicView = classic.omniMappingWindow!(mapping, range)
-      expect(view, `seed ${seed}`).toEqual(classicView)
-      expect(v2.omniMappingBuckets(view)).toEqual(classic.omniMappingBuckets!(classicView))
+      parity('omniMappingWindow', view, classicView, `seed ${seed}`)
+      parity('omniMappingBuckets', v2.omniMappingBuckets(view), classic.omniMappingBuckets!(classicView))
       const resolution = view.resolution
       for (const bucket of v2.omniMappingBuckets(view)) {
-        expect(v2.omniMappingBucketLabel(bucket, resolution)).toBe(classic.omniMappingBucketLabel!(bucket, resolution))
+        parity('omniMappingBucketLabel', v2.omniMappingBucketLabel(bucket, resolution), classic.omniMappingBucketLabel!(bucket, resolution))
       }
       for (const row of [...(mapping?.hourly || []), ...(mapping?.daily || [])].slice(0, 30)) {
         for (const r of ['hourly', 'daily']) {
-          expect(v2.omniMappingRowStart(row, r)).toBe(classic.omniMappingRowStart!(row, r))
-          expect(v2.omniMappingRowEnd(row, r)).toBe(classic.omniMappingRowEnd!(row, r))
+          parity('omniMappingRowStart', v2.omniMappingRowStart(row, r), classic.omniMappingRowStart!(row, r))
+          parity('omniMappingRowEnd', v2.omniMappingRowEnd(row, r), classic.omniMappingRowEnd!(row, r))
         }
       }
       const points = v2.omniHistoryPoints(ops.omni)
-      expect(points).toEqual(classic.omniHistoryPoints!(ops.omni))
+      parity('omniHistoryPoints', points, classic.omniHistoryPoints!(ops.omni))
       const omniRange = pickFrom(rand, [...v2.OMNI_RANGE_WINDOWS.map((w) => w.id), 'x'])
-      expect(v2.omniWindowPoints(points, omniRange)).toEqual(classic.omniWindowPoints!(points, omniRange))
+      parity('omniWindowPoints', v2.omniWindowPoints(points, omniRange), classic.omniWindowPoints!(points, omniRange))
       const waiting = points.filter((p) => p.waitingSupported)
-      expect(v2.omniDailyRows(waiting)).toEqual(classic.omniDailyRows!(waiting))
+      parity('omniDailyRows', v2.omniDailyRows(waiting), classic.omniDailyRows!(waiting))
       for (const job of [...(ops.omni.current_jobs?.pending || []), ...(ops.omni.current_jobs?.running || [])]) {
-        expect(v2.omniAgeBand(job)).toBe(classic.omniAgeBand!(job))
-        expect(v2.isRetiredQueue(job.queue)).toBe(classic.isRetiredQueue!(job.queue))
-        expect(v2.buildUrl(job.pipeline, job.build)).toBe(classic.buildUrl!(job.pipeline, job.build))
+        parity('omniAgeBand', v2.omniAgeBand(job), classic.omniAgeBand!(job))
+        parity('isRetiredQueue', v2.isRetiredQueue(job.queue), classic.isRetiredQueue!(job.queue))
+        parity('buildUrl', v2.buildUrl(job.pipeline, job.build), classic.buildUrl!(job.pipeline, job.build))
       }
       for (const q of Object.values(ops.queue.snapshot.queues as Rec)) {
         for (const metric of ['min', 'max', 'p50', 'p95', 'p99']) {
-          expect(v2.waitValue(q, metric)).toBe(classic.waitValue!(q, metric))
-          expect(v2.waitSource(q, metric)).toBe(classic.waitSource!(q, metric))
-          expect(v2.waitSourceDetail(q, metric)).toBe(classic.waitSourceDetail!(q, metric))
-          expect(v2.officialWaitValue(q, metric)).toBe(classic.officialWaitValue!(q, metric))
-          expect(v2.sampleWaitValue(q, metric)).toBe(classic.sampleWaitValue!(q, metric))
+          parity('waitValue', v2.waitValue(q, metric), classic.waitValue!(q, metric))
+          parity('waitSource', v2.waitSource(q, metric), classic.waitSource!(q, metric))
+          parity('waitSourceDetail', v2.waitSourceDetail(q, metric), classic.waitSourceDetail!(q, metric))
+          parity('officialWaitValue', v2.officialWaitValue(q, metric), classic.officialWaitValue!(q, metric))
+          parity('sampleWaitValue', v2.sampleWaitValue(q, metric), classic.sampleWaitValue!(q, metric))
         }
-        expect(v2.waitSampleCount(q)).toBe(classic.waitSampleCount!(q))
-        expect(v2.hasAgentMeasurement(q)).toBe(classic.hasAgentMeasurement!(q))
+        parity('waitSampleCount', v2.waitSampleCount(q), classic.waitSampleCount!(q))
+        parity('hasAgentMeasurement', v2.hasAgentMeasurement(q), classic.hasAgentMeasurement!(q))
       }
     }
-    for (const n of [-5, 0, 3, 1234567, 'x', null]) expect(v2.signedInteger(n)).toBe(classic.signedInteger!(n))
+    for (const n of [-5, 0, 3, 1234567, 'x', null]) parity('signedInteger', v2.signedInteger(n), classic.signedInteger!(n))
     for (const wait of [undefined, null, '', -1, 0, 59.9, 60, 179, 180, 359, 360, 719, 720, 1439, 1440, 4319, 4320, 99999, 'abc']) {
-      expect(v2.omniAgeBand({ wait_min: wait })).toBe(classic.omniAgeBand!({ wait_min: wait }))
+      parity('omniAgeBand', v2.omniAgeBand({ wait_min: wait }), classic.omniAgeBand!({ wait_min: wait }))
     }
-    expect(v2.omniAgeBand(null)).toBe(classic.omniAgeBand!(null))
+    parity('omniAgeBand', v2.omniAgeBand(null), classic.omniAgeBand!(null))
   })
 
   it('labels and sources evidence points as classic does', () => {
@@ -524,8 +541,8 @@ describe('Omni helpers match the classic renderer', () => {
       if (rand() < 0.5) point.sourceAsset = 'data/a.json'
       if (rand() < 0.5) point.sources = [{ label: 'Open published x', url: pickFrom(rand, ['https://buildkite.com/x', 'data/b.json', '']) }, null]
       const fallback = pickFrom(rand, [undefined, 'data/c.json'])
-      expect(v2.historyPointLabel(point)).toBe(classic.historyPointLabel!(point))
-      expect(v2.historyPointSources(point, fallback)).toEqual(classic.historyPointSources!(point, fallback))
+      parity('historyPointLabel', v2.historyPointLabel(point), classic.historyPointLabel!(point))
+      parity('historyPointSources', v2.historyPointSources(point, fallback), classic.historyPointSources!(point, fallback))
     }
   })
 
@@ -540,16 +557,24 @@ describe('Omni helpers match the classic renderer', () => {
 })
 
 describe('the Omni page matches classic renderOmni on the same snapshot', () => {
-  it('renders the real snapshot identically for every window pair, with every drawer', () => {
+  beforeEach(() => {
+    drawerPages = []
+  })
+
+  it('renders the real snapshot identically for every window pair, with every drawer', async () => {
     for (const mappingRange of v2.OMNI_MAPPING_WINDOWS.map((w) => w.id)) {
       for (const range of v2.OMNI_RANGE_WINDOWS.map((w) => w.id)) {
         comparePage(fixture, mappingRange, range, `${mappingRange}/${range}`, range === '24h' || mappingRange === '7d')
       }
     }
     expect(drawersCompared).toBeGreaterThan(100)
+    const page = v2.omniView(fixture, '7d', '24h')
+    if (!page.available) throw new Error('the Omni fixture must be available')
+    await expectGoldenFile('omni', 'page', { header: page.header, kpis: page.kpis, scopeNote: page.scopeNote, live: page.live.facts })
+    await expect(pagesJson()).toMatchFileSnapshot('golden/omni/real-drawer-pages.json')
   }, 180_000)
 
-  it('renders generated snapshot variants identically, with every drawer', () => {
+  it('renders generated snapshot variants identically, with every drawer', async () => {
     const seen = new Set<string>()
     for (let seed = 1; seed <= 80; seed += 1) {
       const { ops, applied } = variant(seed * 104729)
@@ -560,5 +585,29 @@ describe('the Omni page matches classic renderOmni on the same snapshot', () => 
       comparePage(ops, mappingRange, range, `seed ${seed} [${applied.join(',')}] ${mappingRange}/${range}`)
     }
     expect([...seen].sort()).toEqual(Object.keys(MUTATIONS).sort())
+    await expect(pagesJson()).toMatchFileSnapshot('golden/omni/generated-drawer-pages.json')
   }, 180_000)
+})
+
+describe('Omni helpers on hand-written inputs', () => {
+  it('bands queue waits at their boundaries', () => {
+    expect([undefined, 59.9, 60, 180, 360, 720, 1440, 4320, 'abc'].map((wait) => v2.omniAgeBand({ wait_min: wait }))).toEqual([
+      '', 'lt1h', '1to3h', '3to6h', '6to12h', '12to24h', '1to3d', 'gte3d', '',
+    ])
+  })
+
+  it('formats signed counts and build links', () => {
+    expect([-5, 0, 3, 1234567, 'x', null].map((n) => v2.signedInteger(n))).toEqual(['-5', '0', '+3', '+1,234,567', '-', '0'])
+    expect([v2.buildUrl('vllm-omni-amd-ci', 12), v2.buildUrl('', 12), v2.buildUrl('vllm-omni-amd-ci', undefined)]).toEqual([
+      'https://buildkite.com/vllm/vllm-omni-amd-ci/builds/12',
+      '',
+      '',
+    ])
+  })
+
+  it('labels evidence points and prefers official queue waits', () => {
+    expect([{ label: 'Label' }, { name: 'Name' }, {}].map((point) => v2.historyPointLabel(point))).toEqual(['Label', 'Name', 'Observation'])
+    const queue = { official_wait: { p50: 1.5, p95: 9 }, sample_wait: { p50: 2, max: 30, count: 4 } }
+    expect(['p50', 'p95', 'max'].map((metric) => v2.waitValue(queue, metric))).toEqual([1.5, 9, undefined])
+  })
 })

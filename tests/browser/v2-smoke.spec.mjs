@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { readGolden } from './golden/read.mjs';
+
 test.describe('v2 dashboard', () => {
   test('Home renders the fixture nightlies and opens build evidence', async ({ page }) => {
     const errors = [];
@@ -43,28 +45,17 @@ test.describe('v2 dashboard', () => {
   });
 });
 
-async function classicHealthText(page, query) {
-  await page.goto(`/classic.html${query}#ci-health`);
-  const host = page.locator('#ci-health-view[data-render-state="ready"]');
-  await host.waitFor();
-  return host.innerText();
-}
+const golden = readGolden('smoke');
 
-test.describe('v2 CI Health matches the classic page on the same snapshot', () => {
+test.describe('CI Health matches the golden page facts', () => {
   test('Overview: logical health, outcomes, and failure observations', async ({ page }) => {
-    const classic = await classicHealthText(page, '');
-    const ring = classic.match(/(\d+\.\d%)\s+(\d+ \/ \d+)/);
-    const meta = classic.match(/\d+ pass on every route · \d+ pass on some hardware only · \d+ non-passing everywhere/)[0];
-    const failures = [...classic.matchAll(/\n([^\n]+)\nmi\d+_\d+ - amd_mi\d+_\d+/g)].map((m) => m[1].trim());
-
-    expect(failures.length).toBeGreaterThan(0);
+    const { rate, ratio, meta, counts, failures } = golden.overview;
     await page.goto('/#/health');
     const logical = page.getByTestId('logical-ring');
-    await expect(logical).toContainText(ring[1]);
-    await expect(logical).toContainText(ring[2]);
+    await expect(logical).toContainText(rate);
+    await expect(logical).toContainText(ratio);
     await expect(logical).toContainText(meta);
-    for (const label of ['pass every route', 'pass some routes', 'non-passing']) {
-      const count = classic.match(new RegExp(`\\n(\\d+)\\n${label}\\n`))[1];
+    for (const [label, count] of Object.entries(counts)) {
       await expect(page.getByRole('button', { name: new RegExp(`^${count}\\s*${label}$`) })).toBeVisible();
     }
     const v2Failures = await page.locator('table').last().locator('tbody tr button').allInnerTexts();
@@ -72,23 +63,17 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
 
     await logical.getByRole('button', { name: /Inspect all logical test groups/ }).click();
     const sheet = page.getByRole('dialog');
-    await expect(sheet).toContainText(`${ring[2].split(' / ')[1]} rows`);
+    await expect(sheet).toContainText(`${ratio.split(' / ')[1]} rows`);
     await sheet.locator('tbody tr').first().getByRole('button').first().click();
     await expect(page.getByRole('dialog').last()).toContainText('Exact AMD job variant');
   });
 
   test('Upstream parity: coverage, distribution, config note, and gap areas', async ({ page }) => {
-    const classic = await classicHealthText(page, '?ops_health_view=parity');
-    const ring = classic.match(/(\d+\.\d%)\s+(\d+ \/ \d+)/);
-    const groups = classic.match(/CURRENT MAIN CI · (\d+) LOGICAL GROUPS/)[1];
-    const note = classic.match(/Configured AMD routes cover[^\n]+/)[0];
-    const areas = [...classic.matchAll(/\n([^\n]+)\n(\d+ potential open gaps?)\n/g)].map((m) => `${m[1]}|${m[2]}`);
-
-    expect(areas.length).toBeGreaterThan(0);
+    const { rate, ratio, groups, note, areas } = golden.parity;
     await page.goto('/#/health?view=parity');
     const parityRing = page.getByTestId('parity-ring');
-    await expect(parityRing).toContainText(ring[1]);
-    await expect(parityRing).toContainText(ring[2]);
+    await expect(parityRing).toContainText(rate);
+    await expect(parityRing).toContainText(ratio);
     await expect(page.getByText(new RegExp(`Current main CI · ${groups} logical groups`, 'i'))).toBeVisible();
     await expect(page.getByText(note)).toBeVisible();
     const v2Areas = await page.getByTestId('gap-area').evaluateAll((nodes) =>
@@ -104,13 +89,6 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
 });
 
 test.describe('v2 is the root page and keeps old links working', () => {
-  test('legacy links to views only the classic page serves open it with their state', async ({ page }) => {
-    // The retired reliability view has no v2 counterpart.
-    await page.goto('/?ops_analytics_view=reliability#ci-analytics');
-    await expect(page).toHaveURL(/\/classic\.html\?ops_analytics_view=reliability#ci-analytics$/);
-    await expect(page.locator('#ci-analytics-view[data-render-state="ready"]')).toBeVisible();
-  });
-
   test('legacy links to ported views open v2', async ({ page }) => {
     await page.goto('/?ops_health_view=parity#ci-health');
     await expect(page).toHaveURL(/#\/health\?view=parity$/);

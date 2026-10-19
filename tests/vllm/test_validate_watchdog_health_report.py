@@ -84,6 +84,25 @@ def test_routes_only_identity_consistent_pure_staleness_to_collector():
     assert validator.report_confirms_recovery(extra) is True
 
 
+@pytest.mark.parametrize(
+    "codes",
+    [
+        (("core-stale",),) * 3,
+        (("publication-stale", "core-stale"), ("core-stale",), ()),
+        (("core-stale",), ("publication-stale",), ("publication-stale", "core-stale")),
+    ],
+)
+def test_routes_stale_core_data_to_collector(codes):
+    assert validator.report_recovery_target(_report(codes=codes)) == "collector"
+
+
+def test_stale_core_data_with_any_outage_routes_to_pages():
+    outage = _report(codes=(("core-stale", "site-http"), ("core-stale",), ("core-stale",)))
+    assert validator.report_recovery_target(outage) == "deploy-pages"
+    lone = _report(codes=(("core-stale",), (), ()))
+    assert validator.report_recovery_target(lone) is None
+
+
 def test_accepts_each_mandatory_failure_mode():
     healthy = _report(codes=((), (), ("site-http",)))
     assert validator.report_recovery_target(healthy) is None

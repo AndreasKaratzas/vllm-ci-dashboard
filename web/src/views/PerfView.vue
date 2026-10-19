@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useOperations } from '@/composables/useOperations'
-import { clearDataCache, fetchJSON } from '@/data/fetch'
+import { clearDataCache, fetchJSON } from '@/data/client'
 import { age, integer, shortDate, type Rec } from '@/domain/format'
 import {
   PERF_SOURCE,
@@ -160,7 +160,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
             label="AMD models"
             :value="page.kpis.models"
             :badge="`${integer(totals.regressions)} regressed${filtered ? ' in filter' : ''}`"
-            :badge-tone="totals.regressions ? 'is-danger' : 'is-success'"
+            :badge-tone="totals.regressions ? 'hard' : 'pass'"
             headline="Inspect model families"
             detail="nightly model families"
             @open="families = { open: true, rows: perfModelFamilies(perf!) }"
@@ -170,7 +170,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
             label="Nightlies tracked"
             :value="page.kpis.nightlies"
             :badge="`${integer(totals.improvements)} improved${filtered ? ' in filter' : ''}`"
-            :badge-tone="totals.improvements ? 'is-success' : 'is-neutral'"
+            :badge-tone="totals.improvements ? 'pass' : 'neutral'"
             headline="Open perf-eval pipeline"
             :href="pipelineUrl"
             detail="across retained series"
@@ -180,7 +180,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
             label="Metric points"
             :value="page.kpis.points"
             badge="retained"
-            badge-tone="is-info"
+            badge-tone="info"
             headline="Inspect retained points"
             :detail="page.kpis.pointsMeta"
             @open="
@@ -199,7 +199,7 @@ const familyColumns: ColumnDef<Family, unknown>[] = [
             label="AMD hardware"
             :value="page.kpis.hardware"
             badge="ROCm"
-            badge-tone="is-info"
+            badge-tone="info"
             headline="Inspect hardware"
             detail="ROCm only"
             @open="

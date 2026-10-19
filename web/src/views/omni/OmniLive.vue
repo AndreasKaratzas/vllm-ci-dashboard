@@ -15,8 +15,8 @@ const range = computed({
 })
 // Classic marks warning and success facts with a coloured top rule.
 const ACCENT: Record<string, string> = {
-  'is-warning': 'border-t-2 border-t-warning',
-  'is-success': 'border-t-2 border-t-success',
+  soft: 'border-t-2 border-t-warning',
+  pass: 'border-t-2 border-t-success',
   '': '',
 }
 </script>

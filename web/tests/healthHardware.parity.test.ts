@@ -3,7 +3,10 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Rec } from '@/domain/format'
 import * as v2 from '@/domain/healthHardware'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 const PORTED = [
   'matrixHealthPolicy',
@@ -31,14 +34,11 @@ const PORTED = [
   'groupPublicationHistoryComplete',
 ] as const
 
+const matrix = readFixture<Rec>('health_hardware_matrix.json')
+const sections = readFixture<Rec>('health_hardware_sections.json')
+pinClock(matrix.generated_at)
+const parity = classicParity('healthHardware')
 let classic: ClassicFns
-let matrix: Rec
-let sections: Rec
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 const ARCHS = ['mi250', 'mi300', 'mi325', 'mi355']
 const STATES = ['passed', 'failed', 'soft_fail', 'soft_failed', 'soft', 'timed_out', 'broken', 'canceled', 'cancelled', 'expired', 'running', 'scheduled', 'assigned', 'unknown', 'skipped', 'error', 'incident', 'hard', 'failing', '', 'PASSED', ' Failed ', 'Soft_Fail', undefined]
@@ -153,30 +153,32 @@ function generateMatrix(rand: () => number, i: number): Rec {
 
 beforeAll(() => {
   classic = loadClassic([...PORTED])
-  matrix = readFixture<Rec>('health_hardware_matrix.json')
-  sections = readFixture<Rec>('health_hardware_sections.json')
 })
 
 function compareMatrix(m: Rec) {
-  expect(v2.matrixHealthPolicy(m.summary)).toEqual(classic.matrixHealthPolicy!(m.summary))
-  expect(v2.bestHardwareMatrixContract(m)).toEqual(classic.bestHardwareMatrixContract!(m))
+  parity('matrixHealthPolicy', v2.matrixHealthPolicy(m.summary), classic.matrixHealthPolicy!(m.summary))
+  parity('bestHardwareMatrixContract', v2.bestHardwareMatrixContract(m), classic.bestHardwareMatrixContract!(m))
   const groups = v2.matrixHealthCollection(m)
-  expect(groups).toEqual(classic.matrixHealthCollection!(m))
+  parity('matrixHealthCollection', groups, classic.matrixHealthCollection!(m))
   for (const group of groups) {
-    expect(v2.matrixGroupEvidence(group)).toEqual(classic.matrixGroupEvidence!(group))
-    expect(v2.matrixHealthStatusLabel(group.status)).toBe(classic.matrixHealthStatusLabel!(group.status))
-    expect(v2.matrixHealthTone(group.status)).toBe(classic.matrixHealthTone!(group.status))
-    expect(v2.matrixGateKindLabel(group)).toBe(classic.matrixGateKindLabel!(group))
+    parity('matrixGroupEvidence', v2.matrixGroupEvidence(group), classic.matrixGroupEvidence!(group))
+    parity('matrixHealthStatusLabel', v2.matrixHealthStatusLabel(group.status), classic.matrixHealthStatusLabel!(group.status))
+    parity('matrixHealthTone', v2.matrixHealthTone(group.status), classic.matrixHealthTone!(group.status))
+    parity('matrixGateKindLabel', v2.matrixGateKindLabel(group), classic.matrixGateKindLabel!(group))
   }
   for (const mode of ['platform', 'name', 'area', 'other']) {
-    expect(v2.sortAmdMatrixRows(m.rows, mode).map((r) => r.id + r.title)).toEqual(classic.sortAmdMatrixRows!(m.rows, mode).map((r: Rec) => r.id + r.title))
-    expect(v2.amdMatrixSortDescription(mode)).toBe(classic.amdMatrixSortDescription!(mode))
+    parity(
+      'sortAmdMatrixRows',
+      v2.sortAmdMatrixRows(m.rows, mode).map((r) => r.id + r.title),
+      classic.sortAmdMatrixRows!(m.rows, mode).map((r: Rec) => r.id + r.title),
+    )
+    parity('amdMatrixSortDescription', v2.amdMatrixSortDescription(mode), classic.amdMatrixSortDescription!(mode))
   }
   for (const arch of ARCHS) {
-    expect(v2.sortArchitectureSignalRows(m.rows, arch)).toEqual(classic.sortArchitectureSignalRows!(m.rows, arch))
+    parity('sortArchitectureSignalRows', v2.sortArchitectureSignalRows(m.rows, arch), classic.sortArchitectureSignalRows!(m.rows, arch))
   }
   for (const row of m.rows as Rec[]) {
-    expect(v2.amdMatrixPlatformRank(row)).toBe(classic.amdMatrixPlatformRank!(row))
+    parity('amdMatrixPlatformRank', v2.amdMatrixPlatformRank(row), classic.amdMatrixPlatformRank!(row))
   }
   return groups
 }
@@ -190,7 +192,7 @@ describe('AMD hardware domain matches the classic renderer', () => {
     expect(groups.some((g) => g.classification === 'mi355-sensitive')).toBe(true)
     expect(groups.flatMap((g) => v2.matrixGroupEvidence(g)).filter((row) => row.url).length).toBeGreaterThan(50)
     const runtime = v2.runtimeMatrixSummary(sections.amd_test_health)
-    expect(v2.matrixHealthPolicy(runtime)).toEqual(classic.matrixHealthPolicy!(runtime))
+    parity('matrixHealthPolicy', v2.matrixHealthPolicy(runtime), classic.matrixHealthPolicy!(runtime))
     expect(v2.matrixHealthPolicy(runtime).best_hardware_unavailable).toBeUndefined()
   })
 
@@ -201,13 +203,13 @@ describe('AMD hardware domain matches the classic renderer', () => {
 
   it('agrees on status labels, tones, and signal ranks for arbitrary states', () => {
     for (const s of [...GROUP_STATUSES, ...STATES, 'constructor', 'toString', '__proto__', 'hasOwnProperty']) {
-      expect(v2.matrixHealthStatusLabel(s)).toBe(classic.matrixHealthStatusLabel!(s))
-      expect(v2.matrixHealthTone(s)).toBe(classic.matrixHealthTone!(s))
-      expect(v2.architectureSignalStateRank(s)).toBe(classic.architectureSignalStateRank!(s))
+      parity('matrixHealthStatusLabel', v2.matrixHealthStatusLabel(s), classic.matrixHealthStatusLabel!(s))
+      parity('matrixHealthTone', v2.matrixHealthTone(s), classic.matrixHealthTone!(s))
+      parity('architectureSignalStateRank', v2.architectureSignalStateRank(s), classic.architectureSignalStateRank!(s))
     }
     for (const pair of [['a', 'A'], ['é', 'e'], ['10', '9'], ['', 'x'], [null, undefined]]) {
-      expect(Math.sign(v2.compareText(pair[0], pair[1]))).toBe(Math.sign(classic.compareText!(pair[0], pair[1])))
-      expect(v2.normalizeLabel(pair[0])).toBe(classic.normalizeLabel!(pair[0]))
+      parity('compareTextSign', Math.sign(v2.compareText(pair[0], pair[1])), Math.sign(classic.compareText!(pair[0], pair[1])))
+      parity('normalizeLabel', v2.normalizeLabel(pair[0]), classic.normalizeLabel!(pair[0]))
     }
   })
 
@@ -252,21 +254,21 @@ describe('AMD hardware domain matches the classic renderer', () => {
         latency_rankings: rand() < 0.3 ? { by_p90_duration: catalog } : undefined,
       }
       const ops = { reliability }
-      expect(v2.reliabilityForPipeline(ops, 'ci')).toEqual(classic.reliabilityForPipeline!(ops, 'ci'))
-      expect(v2.reliabilityForPipeline(ops, 'amd-ci')).toEqual(classic.reliabilityForPipeline!(ops, 'amd-ci'))
-      expect(v2.reliabilityCatalog(reliability)).toEqual(classic.reliabilityCatalog!(reliability))
+      parity('reliabilityForPipeline', v2.reliabilityForPipeline(ops, 'ci'), classic.reliabilityForPipeline!(ops, 'ci'))
+      parity('reliabilityForPipeline', v2.reliabilityForPipeline(ops, 'amd-ci'), classic.reliabilityForPipeline!(ops, 'amd-ci'))
+      parity('reliabilityCatalog', v2.reliabilityCatalog(reliability), classic.reliabilityCatalog!(reliability))
       for (const name of ['Alpha', 'alpha beta', 'Gamma', 'Label', 'none']) {
-        expect(v2.groupReliability(reliability, name)).toEqual(classic.groupReliability!(reliability, name))
+        parity('groupReliability', v2.groupReliability(reliability, name), classic.groupReliability!(reliability, name))
       }
       for (const row of catalog) {
-        expect(v2.groupPublicationHistoryComplete(row)).toBe(classic.groupPublicationHistoryComplete!(row))
-        expect(v2.evidenceObservations(row)).toEqual(classic.evidenceObservations!(row))
-        expect(v2.trailingPassStats(row.observations, 3)).toEqual(classic.trailingPassStats!(row.observations, 3))
-        expect(v2.trailingPassStats(row.observations, 10)).toEqual(classic.trailingPassStats!(row.observations, 10))
+        parity('groupPublicationHistoryComplete', v2.groupPublicationHistoryComplete(row), classic.groupPublicationHistoryComplete!(row))
+        parity('evidenceObservations', v2.evidenceObservations(row), classic.evidenceObservations!(row))
+        parity('trailingPassStats', v2.trailingPassStats(row.observations, 3), classic.trailingPassStats!(row.observations, 3))
+        parity('trailingPassStats', v2.trailingPassStats(row.observations, 10), classic.trailingPassStats!(row.observations, 10))
         for (const o of row.observations) {
-          expect(v2.isNightlyObservation(o)).toBe(classic.isNightlyObservation!(o))
-          expect(v2.observationDurationMinutes(o)).toBe(classic.observationDurationMinutes!(o))
-          expect(v2.observationWaitMinutes(o)).toBe(classic.observationWaitMinutes!(o))
+          parity('isNightlyObservation', v2.isNightlyObservation(o), classic.isNightlyObservation!(o))
+          parity('observationDurationMinutes', v2.observationDurationMinutes(o), classic.observationDurationMinutes!(o))
+          parity('observationWaitMinutes', v2.observationWaitMinutes(o), classic.observationWaitMinutes!(o))
         }
       }
     }
@@ -306,6 +308,7 @@ async function renderClassicCoverage(m: Rec, amdTestHealth: Rec, sort: string): 
 }
 
 const text = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
+const toneClass = (el: Element) => [...el.classList].find((c) => /^is-(success|danger|warning|info|neutral|not-targeted)$/.test(c)) ?? ''
 const leafText = (el: Element) =>
   [...el.querySelectorAll('*')].filter((child) => !child.children.length).map((child) => text(child)).filter(Boolean).join(' ')
 const normRows = (rows: unknown[][]) => rows.map((r) => r.map((c) => String(c).replace(/\s+/g, ' ').trim()))
@@ -340,22 +343,30 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
   const policy = v2.matrixHealthPolicy(runtime)
   const overview = v2.matrixHealthOverviewPresentation(runtime, policy, runtime.latest_build_number || (amdTestHealth.summary || {}).latest_build_number)
   const card = host.querySelector('.ops-unique-health')!
-  expect(text(card.querySelector('.ops-panel-meta'))).toBe(overview.meta)
+  parity('overviewMeta', overview.meta, text(card.querySelector('.ops-panel-meta')))
   if (overview.unavailable) {
     expect(text(card)).toContain('Best-hardware metric unavailable.')
     expect(card.querySelector('.ops-unique-health-rate')).toBeNull()
     hit('policy-unavailable')
   } else {
-    expect(text(card.querySelector('.ops-unique-health-rate strong'))).toBe(overview.rate)
-    expect([...card.querySelectorAll('.ops-unique-health-stat')].map((el) => leafText(el))).toEqual(overview.stats.map((s) => `${s.label} ${s.count}`))
-    expect([...card.querySelectorAll('.ops-unique-health-segment')].map((el) => (el as HTMLElement).title)).toEqual(
+    parity('overviewRate', overview.rate, text(card.querySelector('.ops-unique-health-rate strong')))
+    parity(
+      'overviewStats',
+      overview.stats.map((s) => `${s.label} ${s.count}`),
+      [...card.querySelectorAll('.ops-unique-health-stat')].map((el) => leafText(el)),
+    )
+    parity(
+      'overviewSegmentTitles',
       overview.segments.map((s) => `${s.label}: ${s.count.toLocaleString()}`),
+      [...card.querySelectorAll('.ops-unique-health-segment')].map((el) => (el as HTMLElement).title),
     )
-    expect([...card.querySelectorAll('.ops-unique-health-segment')].map((el) => (el as HTMLElement).style.width)).toEqual(
+    parity(
+      'overviewSegmentWidths',
       overview.segments.map((s) => `${(s.count / overview.total) * 100}%`),
+      [...card.querySelectorAll('.ops-unique-health-segment')].map((el) => (el as HTMLElement).style.width),
     )
-    expect(text(card.querySelector('.ops-unique-health-footer span'))).toBe(overview.facts)
-    expect(text(card.querySelector('.ops-unique-health-footer button'))).toBe(overview.browseLabel)
+    parity('overviewFacts', overview.facts, text(card.querySelector('.ops-unique-health-footer span')))
+    parity('overviewBrowseLabel', overview.browseLabel, text(card.querySelector('.ops-unique-health-footer button')))
     // The matrix browser re-reads the matrix payload.
     const overlay = await view.open(card.querySelector('.ops-unique-health-footer button')!)
     const browser = v2.matrixBrowserState(m)
@@ -364,11 +375,16 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
       hit('browser-unavailable')
     } else {
       hit(browser.groups.length ? 'browser-groups' : 'browser-empty')
-      expect(text(overlay.querySelector('.ops-overlay-subtitle'))).toBe(browser.subtitle)
-      expect(text(overlay.querySelector('.ops-browser-count'))).toBe(`${browser.groups.length.toLocaleString()} of ${browser.groups.length.toLocaleString()} rows`)
+      parity('browserSubtitle', browser.subtitle, text(overlay.querySelector('.ops-overlay-subtitle')))
+      parity(
+        'browserCount',
+        `${browser.groups.length.toLocaleString()} of ${browser.groups.length.toLocaleString()} rows`,
+        text(overlay.querySelector('.ops-browser-count')),
+      )
       const first = tableRows(overlay).map((cells) => cells[0])
-      expect(first).toEqual(normList(browser.groups.slice(0, 50).map((g) => String(g.title ?? ''))))
-      expect(tableRows(overlay).map((cells) => cells.slice(1, 7))).toEqual(
+      parity('browserFirstColumn', normList(browser.groups.slice(0, 50).map((g) => String(g.title ?? ''))), first)
+      parity(
+        'browserRows',
         browser.groups.slice(0, 50).map((g) => [
           v2.matrixHealthStatusLabel(g.status),
           v2.matrixGateKindLabel(g),
@@ -377,6 +393,7 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
           `${g.passedCells.toLocaleString()} pass - ${g.incidentCells.toLocaleString()} non-passing`,
           `${v2.matrixGroupEvidence(g).filter((r) => r.url).length.toLocaleString()} jobs`,
         ]),
+        tableRows(overlay).map((cells) => cells.slice(1, 7)),
       )
       const selects = overlay.querySelectorAll('select')
       for (const status of ['passing', 'failing', 'no-signal', 'all']) {
@@ -388,7 +405,11 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
             { selected: status, predicate: v2.matrixStatusPredicate },
             { selected: classification, predicate: v2.matrixClassificationPredicate },
           ])
-          expect(text(overlay.querySelector('.ops-browser-count'))).toBe(`${expected.length.toLocaleString()} of ${browser.groups.length.toLocaleString()} rows`)
+          parity(
+            'browserFilteredCount',
+            `${expected.length.toLocaleString()} of ${browser.groups.length.toLocaleString()} rows`,
+            text(overlay.querySelector('.ops-browser-count')),
+          )
         }
       }
       for (const query of ['alpha', 'MI300', 'cmd', 'fp', '  Beta   kernels ', 'reason 1', 'zzz']) {
@@ -396,8 +417,16 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
         input.value = query
         input.dispatchEvent(new Event('input'))
         const expected = v2.browseRows(browser.groups, query, v2.matrixGroupSearchText)
-        expect(text(overlay.querySelector('.ops-browser-count'))).toBe(`${expected.length.toLocaleString()} of ${browser.groups.length.toLocaleString()} rows`)
-        expect(tableRows(overlay).map((cells) => cells[0])).toEqual(normList(expected.slice(0, 50).map((g) => String(g.title ?? ''))))
+        parity(
+          'browserSearchCount',
+          `${expected.length.toLocaleString()} of ${browser.groups.length.toLocaleString()} rows`,
+          text(overlay.querySelector('.ops-browser-count')),
+        )
+        parity(
+          'browserSearchFirstColumn',
+          normList(expected.slice(0, 50).map((g) => String(g.title ?? ''))),
+          tableRows(overlay).map((cells) => cells[0]),
+        )
       }
       // Each group's evidence drawer.
       const reset = overlay.querySelector('input')!
@@ -410,20 +439,28 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
         const drawer = await view.open(button)
         hit(detail.evidence.length ? 'drawer-evidence' : 'drawer-empty')
         if (detail.commandsText) hit('drawer-commands')
-        expect(text(drawer.querySelector('.ops-overlay-title'))).toBe(detail.title)
-        expect(text(drawer.querySelector('.ops-evidence-note'))).toBe(`${v2.matrixHealthStatusLabel(group.status)}. ${detail.note}`)
-        expect([...drawer.querySelectorAll('.ops-detail-field')].map((el) => [text(el.querySelector('dt')), text(el.querySelector('dd'))])).toEqual(
+        parity('groupDetailTitle', detail.title, text(drawer.querySelector('.ops-overlay-title')))
+        parity('groupDetailNote', `${v2.matrixHealthStatusLabel(group.status)}. ${detail.note}`, text(drawer.querySelector('.ops-evidence-note')))
+        parity(
+          'groupDetailFields',
           detail.fields.map((f) => [f.label, String(f.value)]),
+          [...drawer.querySelectorAll('.ops-detail-field')].map((el) => [text(el.querySelector('dt')), text(el.querySelector('dd'))]),
         )
-        expect([...drawer.querySelectorAll('.ops-source-actions a')].map((a) => (a as HTMLAnchorElement).getAttribute('href'))).toEqual(detail.sources.map((s) => s.url))
+        parity(
+          'groupDetailSources',
+          detail.sources.map((s) => s.url),
+          [...drawer.querySelectorAll('.ops-source-actions a')].map((a) => (a as HTMLAnchorElement).getAttribute('href')),
+        )
         if (detail.evidence.length) {
-          expect(text(drawer.querySelector('caption'))).toBe(detail.evidenceCaption)
-          expect(tableRows(drawer).map((cells) => [cells[0], cells[2], cells[3], cells[4]])).toEqual(
+          parity('groupDetailEvidenceCaption', detail.evidenceCaption, text(drawer.querySelector('caption')))
+          parity(
+            'groupDetailEvidence',
             detail.evidence.map((row) => [String(row.definition).trim(), String(row.queue || '-').trim(), String(row.result).trim(), row.commandIdentity || '-']),
+            tableRows(drawer).map((cells) => [cells[0], cells[2], cells[3], cells[4]]),
           )
         }
         const pre = drawer.querySelector('pre')
-        expect(pre?.textContent ?? '').toBe(detail.commandsText)
+        parity('groupDetailCommands', detail.commandsText, pre?.textContent ?? '')
         ;(drawer.querySelector('.ops-overlay-close') as HTMLElement).click()
       }
     }
@@ -435,57 +472,67 @@ async function compareCoverageView(m: Rec, amdTestHealth: Rec, sort: string) {
     hit('bounded')
     return
   }
-  expect(Boolean(host.querySelector('.ops-evidence-note.is-info'))).toBe(!policy.best_hardware_unavailable)
+  parity('policyNote', !policy.best_hardware_unavailable, Boolean(host.querySelector('.ops-evidence-note.is-info')))
   const architectures: Rec[] = m.architectures || []
   const rows = v2.sortAmdMatrixRows(m.rows || [], sort)
   const health = v2.architectureHealth(architectures, rows)
   const archRows = [...host.querySelectorAll('.ops-architecture-row')]
-  expect(archRows.map((el) => leafText(el))).toEqual(
+  parity(
+    'architectureRows',
     health.map((h) => {
       const rate = v2.architectureRate(h)
       return `${h.architecture.label} ${rate.configured.toLocaleString()} configured routes ${h.passed.toLocaleString()} passing ${h.incident.toLocaleString()} non-passing ${h.unknown.toLocaleString()} unobserved ${rate.label} passing`
     }),
+    archRows.map((el) => leafText(el)),
   )
-  expect(archRows.map((el) => el.querySelector('.ops-architecture-rate')!.className.split(' ').pop())).toEqual(
+  parity(
+    'architectureRateTones',
     health.map((h) => v2.architectureRate(h).tone),
+    archRows.map((el) => el.querySelector('.ops-architecture-rate')!.className.split(' ').pop()),
   )
   for (const [index, h] of health.entries()) {
     const overlay = await view.open(archRows[index]!)
     hit(h.passed && h.incident ? 'arch-mixed' : 'arch')
     const browser = v2.architectureBrowser(h, rows)
-    expect(text(overlay.querySelector('.ops-overlay-title'))).toBe(browser.title)
-    expect(text(overlay.querySelector('.ops-overlay-subtitle'))).toBe(browser.subtitle)
-    expect(tableRows(overlay)).toEqual(normRows(
-      browser.rows.slice(0, 50).map((row) => {
-        const cell = (row.cells || {})[h.architecture.id] || {}
-        const url = v2.architectureCellUrl(cell)
-        return [String(row.title ?? ''), row.area === undefined || row.area === null || row.area === '' ? '-' : String(row.area), String(cell.latest_state || 'unobserved'), url ? `#${cell.latest_build_number ?? '-'}` : '-']
-      })),
+    parity('architectureBrowserTitle', browser.title, text(overlay.querySelector('.ops-overlay-title')))
+    parity('architectureBrowserSubtitle', browser.subtitle, text(overlay.querySelector('.ops-overlay-subtitle')))
+    parity(
+      'architectureBrowserRows',
+      normRows(
+        browser.rows.slice(0, 50).map((row) => {
+          const cell = (row.cells || {})[h.architecture.id] || {}
+          const url = v2.architectureCellUrl(cell)
+          return [String(row.title ?? ''), row.area === undefined || row.area === null || row.area === '' ? '-' : String(row.area), String(cell.latest_state || 'unobserved'), url ? `#${cell.latest_build_number ?? '-'}` : '-']
+        })),
+      tableRows(overlay),
     )
     ;(overlay.querySelector('.ops-overlay-close') as HTMLElement).click()
   }
   // The preview matrix and its sort description.
   const panel = [...host.querySelectorAll('.ops-panel')].find((el) => text(el.querySelector('.ops-panel-title')) === 'Test-group routes by architecture')!
-  expect(text(panel.querySelector('.ops-panel-meta'))).toBe(v2.amdMatrixSortDescription(sort))
+  parity('matrixSortDescription', v2.amdMatrixSortDescription(sort), text(panel.querySelector('.ops-panel-meta')))
   if (rows.length) {
-    expect(tableRows(panel)).toEqual(normRows(
-      rows.slice(0, 8).map((row) => [
-        String(row.title ?? ''),
-        row.area === undefined || row.area === '' ? '-' : String(row.area),
-        ...architectures.map((a) => {
-          const c = (row.cells || {})[a.id] || {}
-          return c.exists ? String(c.latest_state || 'unknown') : '-'
-        }),
-      ])),
+    parity(
+      'matrixPreviewRows',
+      normRows(
+        rows.slice(0, 8).map((row) => [
+          String(row.title ?? ''),
+          row.area === undefined || row.area === '' ? '-' : String(row.area),
+          ...architectures.map((a) => {
+            const c = (row.cells || {})[a.id] || {}
+            return c.exists ? String(c.latest_state || 'unknown') : '-'
+          }),
+        ])),
+      tableRows(panel),
     )
   }
   const browse = [...panel.querySelectorAll('button')].find((b) => text(b) === 'Browse complete route matrix')
-  expect(Boolean(browse)).toBe(rows.length > 8)
+  parity('hasMatrixBrowse', rows.length > 8, Boolean(browse))
   if (browse) {
     const overlay = await view.open(browse)
     hit('matrix-browse')
-    expect(text(overlay.querySelector('.ops-overlay-subtitle'))).toBe(v2.coverageBrowserSubtitle(rows, architectures, sort))
-    expect(tableRows(overlay).map((cells) => cells[0])).toEqual(normList(rows.slice(0, 50).map((row) => String(row.title ?? ''))))
+    parity('matrixBrowseSubtitle', v2.coverageBrowserSubtitle(rows, architectures, sort), text(overlay.querySelector('.ops-overlay-subtitle')))
+    parity('matrixBrowseFirstColumn', normList(rows.slice(0, 50).map((row) => String(row.title ?? ''))), tableRows(overlay).map((cells) => cells[0]))
     ;(overlay.querySelector('.ops-overlay-close') as HTMLElement).click()
   }
 }
@@ -497,6 +544,13 @@ describe('AMD hardware view matches the classic coverage DOM', () => {
     }
     const view = await renderClassicCoverage(matrix, sections.amd_test_health, 'platform')
     expect(view.host.querySelectorAll('.ops-architecture-row').length).toBe(3)
+    const runtime = v2.runtimeMatrixSummary(sections.amd_test_health)
+    const rows = v2.sortAmdMatrixRows(matrix.rows, 'platform')
+    await expectGoldenFile('healthHardware', 'coverage', {
+      overview: v2.matrixHealthOverviewPresentation(runtime, v2.matrixHealthPolicy(runtime), runtime.latest_build_number),
+      architectures: v2.architectureHealth(matrix.architectures, rows).map((h) => ({ ...h, rate: v2.architectureRate(h) })),
+      preview: rows.slice(0, 8).map((row) => row.title),
+    })
   })
 
   it('on generated matrices', async () => {
@@ -593,24 +647,30 @@ describe('test-group detail matches the classic drawer and history overlay', () 
       const state = v2.groupDetailState(group, ops)
       seenKinds.add(state.kind)
       if (state.kind === 'aggregate') {
-        expect(text(overlay.querySelector('.ops-overlay-title'))).toBe(state.name)
-        expect(text(overlay.querySelector('.ops-overlay-subtitle'))).toBe('Test-group detail')
-        expect([...overlay.querySelectorAll('.ops-detail-field')].map((el) => [text(el.querySelector('dt')), text(el.querySelector('dd'))])).toEqual(
+        parity('aggregateTitle', state.name, text(overlay.querySelector('.ops-overlay-title')))
+        parity('aggregateSubtitle', 'Test-group detail', text(overlay.querySelector('.ops-overlay-subtitle')))
+        parity(
+          'aggregateFields',
           state.fields.filter((f) => f.value !== null && f.value !== undefined && f.value !== '').map((f) => [f.label, String(f.value)]),
+          [...overlay.querySelectorAll('.ops-detail-field')].map((el) => [text(el.querySelector('dt')), text(el.querySelector('dd'))]),
         )
-        expect(Boolean([...overlay.querySelectorAll('button')].find((b) => text(b) === 'Load 30-day run history'))).toBe(state.canLoadHistory)
+        parity(
+          'aggregateCanLoadHistory',
+          state.canLoadHistory,
+          Boolean([...overlay.querySelectorAll('button')].find((b) => text(b) === 'Load 30-day run history')),
+        )
         continue
       }
       const row = state.row
       const complete = v2.groupPublicationHistoryComplete(row)
       const all = v2.mixedOutcomeObservations(row)
       const notice = v2.mixedOutcomeNotice(all, complete, row.source_pipeline || 'ci')
-      expect(text(overlay.querySelector('.ops-overlay-title'))).toBe(row.name || 'Group evidence')
-      expect(text(overlay.querySelector('.ops-evidence-note'))).toBe(text({ textContent: notice.strong + notice.text } as Element))
-      expect(overlay.querySelector('.ops-evidence-note')!.classList.contains(notice.tone)).toBe(true)
+      parity('evidenceTitle', row.name || 'Group evidence', text(overlay.querySelector('.ops-overlay-title')))
+      parity('evidenceNote', text({ textContent: notice.strong + notice.text } as Element), text(overlay.querySelector('.ops-evidence-note')))
+      parity('evidenceNoteTone', notice.tone, toneClass(overlay.querySelector('.ops-evidence-note')!))
       if (!all.length) {
         seenKinds.add('evidence-empty')
-        expect(text(overlay.querySelector('.ops-overlay-subtitle'))).toBe(`${state.scopeLabel} evidence`)
+        parity('evidenceEmptySubtitle', `${state.scopeLabel} evidence`, text(overlay.querySelector('.ops-overlay-subtitle')))
         continue
       }
       seenKinds.add('evidence-rows')
@@ -626,13 +686,15 @@ describe('test-group detail matches the classic drawer and history overlay', () 
           continue
         }
         const summary = v2.mixedOutcomeSummary(observations, complete, mode)
-        expect([...overlay.querySelectorAll('.ops-evidence-stat')].map((el) => [text(el.querySelector('.ops-stat-label')).toLowerCase(), text(el.querySelector('.ops-stat-value'))])).toEqual(
+        parity(
+          'evidenceSummary',
           summary.map((s) => [s.label.toLowerCase(), s.value]),
+          [...overlay.querySelectorAll('.ops-evidence-stat')].map((el) => [text(el.querySelector('.ops-stat-label')).toLowerCase(), text(el.querySelector('.ops-stat-value'))]),
         )
         const captions = [...overlay.querySelectorAll('.ops-chart-panel .ops-panel-meta')].map((el) => text(el))
-        expect(captions[0]).toBe(v2.outcomeChartCaption(observations, complete))
+        parity('outcomeChartCaption', v2.outcomeChartCaption(observations, complete), captions[0])
         const hasDuration = observations.some((o) => v2.observationDurationMinutes(o) !== null || v2.observationWaitMinutes(o) !== null)
-        expect(captions.length).toBe(hasDuration ? 2 : 1)
+        parity('outcomeChartCount', hasDuration ? 2 : 1, captions.length)
         const search = overlay.querySelector('input[type=search]') as HTMLInputElement
         const select = overlay.querySelector('select') as HTMLSelectElement
         for (const [query, filter] of [['', 'all'], ['', 'passing'], ['', 'incident'], ['amd_mi300_2', 'all'], ['1', 'incident'], ['alpha', 'all'], ['FAILED', 'all']] as const) {
@@ -645,7 +707,8 @@ describe('test-group detail matches the classic drawer and history overlay', () 
             `${expected.length.toLocaleString()} of ${observations.length.toLocaleString()} retained ${mode} observations`,
           )
           if (expected.length) {
-            expect([...table.querySelectorAll('tbody tr')].map((tr) => [...tr.querySelectorAll('td')].slice(0, 4).map((td) => text(td)))).toEqual(
+            parity(
+              'evidenceRows',
               normRows(expected.map((o) => [
                 o.build_number ? `#${o.build_number}` : 'Build',
                 v2.isNightlyObservation(o) ? 'nightly' : 'main',
@@ -655,6 +718,7 @@ describe('test-group detail matches the classic drawer and history overlay', () 
                 })(),
                 v2.evidenceResultLabel(o) || 'unknown',
               ])),
+              [...table.querySelectorAll('tbody tr')].map((tr) => [...tr.querySelectorAll('td')].slice(0, 4).map((td) => text(td))),
             )
           }
         }
@@ -672,8 +736,43 @@ describe('test-group detail matches the classic drawer and history overlay', () 
     for (let i = 0; i < 300; i += 1) {
       const r = generateReliability(rand)
       for (const candidate of [r, { ...r, scope: 'branch=main' }, { ...r, cohort: { available: true }, available: true, scope: 'nightly job runs' }, null, 'x']) {
-        expect(v2.reliabilityScopeInfo(candidate as Rec)).toEqual(classicFns.reliabilityScopeInfo!(candidate))
+        parity('reliabilityScopeInfo', v2.reliabilityScopeInfo(candidate as Rec), classicFns.reliabilityScopeInfo!(candidate))
       }
     }
+  })
+})
+
+describe('AMD hardware helpers on hand-written inputs', () => {
+  it('labels and tones matrix statuses', () => {
+    expect(['passing', 'failed', 'mixed', 'waiting', 'unknown'].map((s) => [v2.matrixHealthStatusLabel(s), v2.matrixHealthTone(s)])).toEqual([
+      ['Passing', 'pass'],
+      ['Failing', 'hard'],
+      ['Mixed', 'soft'],
+      ['In progress', 'info'],
+      ['No signal', 'neutral'],
+    ])
+  })
+
+  it('ranks architecture signals and normalizes labels', () => {
+    expect(['failed', 'soft_fail', 'running', 'passed'].map((s) => v2.architectureSignalStateRank(s))).toEqual([0, 1, 2, 3])
+    expect(['  Alpha   Beta ', 'Écho', null].map((s) => v2.normalizeLabel(s))).toEqual(['alpha beta', 'écho', ''])
+  })
+
+  it('rates architectures at the 90% and 50% boundaries', () => {
+    const rate = (passed: number, incident: number) => v2.architectureRate({ architecture: { id: 'mi300', label: 'MI300' }, passed, incident, unknown: 0, missing: 0 })
+    expect([rate(9, 1), rate(1, 1), rate(0, 0)]).toEqual([
+      { configured: 10, passRate: 90, label: '90.0%', tone: 'pass' },
+      { configured: 2, passRate: 50, label: '50.0%', tone: 'soft' },
+      { configured: 0, passRate: null, label: '-', tone: 'hard' },
+    ])
+  })
+
+  it('labels gate kinds and trails pass rates', () => {
+    expect([{ classification: 'mi355-sensitive' }, {}].map((group) => v2.matrixGateKindLabel(group))).toEqual(['MI355-sensitive', 'Generic family'])
+    expect(v2.trailingPassStats([{ state: 'passed' }, { state: 'failed' }, { state: 'passed' }], 2)).toEqual([
+      { passed: 1, total: 1, rate: 100 },
+      { passed: 1, total: 2, rate: 50 },
+      { passed: 1, total: 2, rate: 50 },
+    ])
   })
 })

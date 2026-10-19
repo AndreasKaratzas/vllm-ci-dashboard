@@ -54,9 +54,9 @@ const failures = computed(() => latestFailureObservations(props.ops.amd_test_hea
 const movement = computed(() => movementBuilds(amd.value.builds || []))
 
 const segments = computed<Segment[]>(() => [
-  { key: 'passing_all', label: 'pass every route', count: Number(counts.value.passing_all || 0), tone: 'is-success' },
-  { key: 'partial', label: 'pass some routes', count: Number(counts.value.partial || 0), tone: 'is-warning' },
-  { key: 'non_passing', label: 'non-passing', count: Number(counts.value.non_passing || 0), tone: 'is-danger' },
+  { key: 'passing_all', label: 'pass every route', count: Number(counts.value.passing_all || 0), tone: 'pass' },
+  { key: 'partial', label: 'pass some routes', count: Number(counts.value.partial || 0), tone: 'soft' },
+  { key: 'non_passing', label: 'non-passing', count: Number(counts.value.non_passing || 0), tone: 'hard' },
 ])
 
 // Logical catalog sheet
@@ -170,7 +170,7 @@ const failureColumns: ColumnDef<Rec, unknown>[] = [
         :current="Number(counts.passing || 0)"
         :total="Number(counts.total || 0)"
         :meta="logical.meta"
-        :tone="!logical.available ? 'is-warning' : Number(counts.passing) === Number(counts.total) ? 'is-success' : 'is-warning'"
+        :tone="!logical.available ? 'soft' : Number(counts.passing) === Number(counts.total) ? 'pass' : 'soft'"
         action-label="Inspect all logical test groups →"
         data-testid="logical-ring"
         @open="openCatalog('Latest AMD logical test groups', logicalRows)"
@@ -240,7 +240,7 @@ const failureColumns: ColumnDef<Rec, unknown>[] = [
                       {{ variant.display_name || variant.exact_job_name || 'Unnamed variant' }}
                     </button>
                   </TableCell>
-                  <TableCell><ToneBadge tone="is-neutral">{{ hardwareDisplayLabel(variant.hardware_variant || variant.hardware) }}</ToneBadge></TableCell>
+                  <TableCell><ToneBadge tone="neutral">{{ hardwareDisplayLabel(variant.hardware_variant || variant.hardware) }}</ToneBadge></TableCell>
                   <TableCell>
                     <ToneBadge :tone="amdLogicalSignalTone(variant.test_signal_state)">{{ amdLogicalSignalLabel(variant.test_signal_state) }}</ToneBadge>
                   </TableCell>

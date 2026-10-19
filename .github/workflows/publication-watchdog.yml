@@ -19,6 +19,8 @@ on:
     types: [completed]
     branches: [main]
 
+# A run awaiting a near collector gate holds this group for up to 30 minutes;
+# Pages and DNS ticks queue behind it and only the newest pending one runs.
 concurrency:
   group: publication-watchdog
   cancel-in-progress: false
@@ -29,8 +31,9 @@ jobs:
   recover:
     runs-on: ubuntu-24.04
     # Exact state/code/Pages proofs and a failed Site Health completion can
-    # compose with the checker's 1,507-second transport/deadline bound. Preserve
-    # more than five minutes for Git proofs and recovery dispatch afterward.
+    # compose with the checker's 1,507-second transport/deadline bound. Every
+    # wait ends by the run-budget deadline, leaving the final ledger read,
+    # planning and dispatch the remaining minutes.
     timeout-minutes: 35
     permissions:
       actions: write
@@ -41,6 +44,12 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+
+      # A near collector gate is awaited until this deadline; the last five of
+      # the 35 minutes stay reserved for the final ledger read and dispatch.
+      - name: Start the run budget clock
+        id: run-clock
+        run: echo "wait_deadline=$(( $(date -u +%s) + 30 * 60 ))" >> "$GITHUB_OUTPUT"
 
       - name: Set up exact Python runtime
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -488,6 +497,22 @@ jobs:
             echo "Pages does not carry the exact state-bound public projection."
             exit 0
           fi
+          # Core source clocks only label an admitted collection, so a missing
+          # or oversized operations manifest is logged rather than fatal.
+          OPERATIONS_MANIFEST="$RUNNER_TEMP/pages-operations-manifest.json"
+          rm -f "$OPERATIONS_MANIFEST"
+          if OPERATIONS_BLOB=$(GIT_NO_LAZY_FETCH=1 git show \
+               origin/gh-pages:publication_manifest.json | python -c '
+          import json, sys
+          row = json.load(sys.stdin)["files"]["data/vllm/ci/operations_v2_manifest.json"]
+          print(row["git_oid"], row["bytes"])') && \
+             read -r OPERATIONS_OID OPERATIONS_BYTES <<< "$OPERATIONS_BLOB" && \
+             hydrate_proven_blob "$OPERATIONS_OID" "$OPERATIONS_BYTES" \
+               2097152 "Pages operations manifest"; then
+            GIT_NO_LAZY_FETCH=1 git cat-file blob "$OPERATIONS_OID" > "$OPERATIONS_MANIFEST"
+          else
+            echo "::warning::Pages operations manifest is unavailable; core data age is unknown."
+          fi
 
           if [ "${{ github.event_name }}" = workflow_run ] && \
              [ "${{ github.event.workflow_run.name }}" = "Site Health Check" ] && \
@@ -627,14 +652,16 @@ jobs:
         if: >-
           steps.recovery-route.outputs.target == 'collector' &&
           steps.recovery-route.outputs.force_reason != 'state-uninitialized'
-        timeout-minutes: 6
+        timeout-minutes: 31
         env:
           GH_TOKEN: ${{ github.token }}
-          ADMISSION_MAX_WAIT_SECONDS: >-
-            ${{ github.event_name == 'workflow_run' &&
-                github.event.workflow_run.name == 'Site Health Check' && '0' || '300' }}
+          WAIT_DEADLINE: ${{ steps.run-clock.outputs.wait_deadline }}
         run: |
           set -euo pipefail
+          ADMISSION_MAX_WAIT_SECONDS=$(( WAIT_DEADLINE - $(date -u +%s) ))
+          if [ "$ADMISSION_MAX_WAIT_SECONDS" -lt 0 ]; then
+            ADMISSION_MAX_WAIT_SECONDS=0
+          fi
           python scripts/vllm/observe_watchdog_collection_admission.py \
             --config config/data_collection_attempt_budget.json \
             --max-wait-seconds "$ADMISSION_MAX_WAIT_SECONDS" \
@@ -678,7 +705,10 @@ jobs:
           fi
           if [ "$RECOVERY_TARGET" = collector ] && \
              [ "$FORCE_REASON" != state-uninitialized ]; then
-            ARGS+=(--collector-admission "$RUNNER_TEMP/collector-admission.json")
+            ARGS+=(
+              --collector-admission "$RUNNER_TEMP/collector-admission.json"
+              --operations-manifest "$RUNNER_TEMP/pages-operations-manifest.json"
+            )
           fi
           if [ "$RECOVERY_TARGET" = dns-health ]; then
             CURRENT_CODE_SHA=$(git rev-parse --verify 'HEAD^{commit}')

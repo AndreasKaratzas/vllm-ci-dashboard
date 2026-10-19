@@ -82,16 +82,16 @@ export function matrixHealthStatusLabel(status: unknown): string {
 }
 
 const STATUS_TONES: Rec = {
-  passing: 'is-success',
-  failed: 'is-danger',
-  mixed: 'is-warning',
-  waiting: 'is-info',
-  unknown: 'is-neutral',
-  ignored: 'is-neutral',
+  passing: 'pass',
+  failed: 'hard',
+  mixed: 'soft',
+  waiting: 'info',
+  unknown: 'neutral',
+  ignored: 'neutral',
 }
 
 export function matrixHealthTone(status: unknown): Tone {
-  return STATUS_TONES[status as string] || 'is-neutral'
+  return STATUS_TONES[status as string] || 'neutral'
 }
 
 export function matrixGateKindLabel(group: Rec): string {
@@ -360,9 +360,9 @@ export function matrixHealthOverviewPresentation(matrixSummary: Rec, policy: Rec
     ],
     // Bar segments are omitted at zero; widths share max(1, included).
     segments: [
-      { mode: 'passing' as const, label: 'Passing', count: Number(policy.passing_groups || 0), tone: 'is-success' as Tone },
-      { mode: 'failing' as const, label: 'Failing', count: Number(policy.failing_groups || 0), tone: 'is-danger' as Tone },
-      { mode: 'no-signal' as const, label: 'No signal', count: noSignal, tone: 'is-neutral' as Tone },
+      { mode: 'passing' as const, label: 'Passing', count: Number(policy.passing_groups || 0), tone: 'pass' as Tone },
+      { mode: 'failing' as const, label: 'Failing', count: Number(policy.failing_groups || 0), tone: 'hard' as Tone },
+      { mode: 'no-signal' as const, label: 'No signal', count: noSignal, tone: 'neutral' as Tone },
     ].filter((item) => item.count),
     total: Math.max(1, Number(policy.included_groups || 0)),
     facts: [
@@ -484,7 +484,7 @@ export function architectureRate(health: ArchitectureHealth) {
     configured,
     passRate,
     label: passRate === null ? '-' : passRate.toFixed(1) + '%',
-    tone: (Number(passRate) >= 90 ? 'is-success' : Number(passRate) >= 50 ? 'is-warning' : 'is-danger') as Tone,
+    tone: (Number(passRate) >= 90 ? 'pass' : Number(passRate) >= 50 ? 'soft' : 'hard') as Tone,
   }
 }
 
@@ -635,11 +635,11 @@ export function mixedOutcomeSummary(observations: Rec[], complete: boolean, mode
   const hard = Math.max(0, incidents.length - soft)
   const prefix = complete ? '' : '≥'
   return [
-    { label: mode === 'main' ? 'Main observations' : 'Nightly observations', value: prefix + integer(observations.length), tone: 'is-neutral' as Tone },
-    { label: 'Passed', value: prefix + integer(passed), tone: 'is-success' as Tone },
-    { label: 'Hard incidents', value: prefix + integer(hard), tone: (hard ? 'is-danger' : 'is-neutral') as Tone },
-    { label: 'Soft incidents', value: prefix + integer(soft), tone: (soft ? 'is-warning' : 'is-neutral') as Tone },
-    { label: 'Incident rate', value: complete ? percent(incidents.length, observations.length) : 'Unavailable', tone: (incidents.length ? 'is-warning' : 'is-success') as Tone },
+    { label: mode === 'main' ? 'Main observations' : 'Nightly observations', value: prefix + integer(observations.length), tone: 'neutral' as Tone },
+    { label: 'Passed', value: prefix + integer(passed), tone: 'pass' as Tone },
+    { label: 'Hard incidents', value: prefix + integer(hard), tone: (hard ? 'hard' : 'neutral') as Tone },
+    { label: 'Soft incidents', value: prefix + integer(soft), tone: (soft ? 'soft' : 'neutral') as Tone },
+    { label: 'Incident rate', value: complete ? percent(incidents.length, observations.length) : 'Unavailable', tone: (incidents.length ? 'soft' : 'pass') as Tone },
   ]
 }
 
@@ -741,7 +741,7 @@ export function mixedOutcomeNotice(observations: Rec[], complete: boolean, sourc
   const hasPassing = observations.some((row) => observationState(row) === 'passed')
   const hasIncidents = observations.some(isIncidentObservation)
   return {
-    tone: (complete ? 'is-info' : 'is-warning') as Tone,
+    tone: (complete ? 'info' : 'soft') as Tone,
     strong: hasPassing && hasIncidents ? 'Classification: mixed-outcome candidate. ' : 'Historical group evidence. ',
     text:
       'Outcome, completion, and queue-wait history below use exact ' +

@@ -1,36 +1,13 @@
 <script setup lang="ts">
-import { useDocumentVisibility, useIntervalFn } from '@vueuse/core'
 import { TriangleAlert } from '@lucide/vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { dataUrl } from '@/data/fetch'
-import { statusDetails, statusUrl, viewFor } from '@/data/publicationStatus'
+import { useDataset } from '@/composables/useDataset'
+import { statusDetails, viewFor } from '@/data/publicationStatus'
 
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000
-const REQUEST_TIMEOUT_MS = 30 * 1000
-const payload = ref<unknown>(undefined)
-let serial = 0
-
-async function load() {
-  const request = ++serial
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  try {
-    const response = await fetch(dataUrl(statusUrl()), { cache: 'no-store', signal: controller.signal })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const body = await response.json()
-    if (request === serial) payload.value = body
-  } catch {
-    if (request === serial) payload.value = { mode: 'unavailable', status: 'unknown' }
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-const visibility = useDocumentVisibility()
-onMounted(load)
-useIntervalFn(load, REFRESH_INTERVAL_MS)
-watch(visibility, (state) => state === 'visible' && load())
+const { data, error } = useDataset('publication_status')
+// An unreadable status file is itself a reason to warn, even when an older status loaded.
+const payload = computed<unknown>(() => (error.value ? { mode: 'unavailable', status: 'unknown' } : (data.value ?? undefined)))
 
 const view = computed(() => (payload.value === undefined ? null : viewFor(payload.value)))
 const details = computed(() => statusDetails(payload.value))

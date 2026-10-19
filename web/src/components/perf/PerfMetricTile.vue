@@ -8,7 +8,7 @@ import PerfLineChart from './PerfLineChart.vue'
 const props = defineProps<{ tile: PerfTile }>()
 defineEmits<{ open: []; point: [Rec] }>()
 
-const ACCENT = { 'is-success': 'border-t-success', 'is-danger': 'border-t-destructive' } as Record<string, string>
+const ACCENT = { pass: 'border-t-success', hard: 'border-t-destructive' } as Record<string, string>
 const accent = () => cn('border-t-2', ACCENT[props.tile.tone] ?? 'border-t-border')
 </script>
 

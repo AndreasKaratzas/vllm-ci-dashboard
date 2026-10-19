@@ -18,6 +18,7 @@ PROBE_REASON_MAX_ITEMS = 20
 REASON_CODE_MAX_CHARS = 80
 REASON_MESSAGE_MAX_CHARS = 2048
 REASON_CODE_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+STALENESS_REASON_CODES = frozenset({"publication-stale", "core-stale"})
 SUMMARY_REASON_CODES = frozenset(
     {
         "confirmation-quorum",
@@ -191,17 +192,22 @@ def report_recovery_target(report: object) -> str | None:
         return None
     confirmation = report["confirmation"]
     probes = confirmation["probes"]
+    report_codes = {reason["code"] for reason in report["reasons"]}
     pure_staleness = (
         confirmation["complete_projection_verified"] is True
         and all(probe["matches_complete_projection"] for probe in probes)
-        and sum(probe["reason_codes"] == ["publication-stale"] for probe in probes)
+        and sum(
+            not probe["healthy"] and set(probe["reason_codes"]) <= STALENESS_REASON_CODES
+            for probe in probes
+        )
         >= CONFIRMATION_QUORUM
         and all(
-            probe["healthy"] or probe["reason_codes"] == ["publication-stale"] for probe in probes
+            probe["healthy"] or set(probe["reason_codes"]) <= STALENESS_REASON_CODES
+            for probe in probes
         )
-        and {reason["code"] for reason in report["reasons"]}
-        <= {"publication-stale", "confirmation-quorum", "projection-generation-quorum"}
-        and any(reason["code"] == "publication-stale" for reason in report["reasons"])
+        and report_codes
+        <= STALENESS_REASON_CODES | {"confirmation-quorum", "projection-generation-quorum"}
+        and bool(report_codes & STALENESS_REASON_CODES)
     )
     return "collector" if pure_staleness else "deploy-pages"
 

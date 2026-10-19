@@ -164,7 +164,7 @@ export function amdNightlyPresentation(
   if (!hasSignal) {
     return {
       label: blocked ? 'Infra blocked' : inProgress ? (snapshotStale ? 'Snapshot stale' : 'Awaiting results') : 'No test signal',
-      tone: blocked ? 'is-danger' : inProgress && !snapshotStale ? 'is-info' : 'is-warning',
+      tone: blocked ? 'hard' : inProgress && !snapshotStale ? 'info' : 'soft',
       meta:
         buildPrefix +
         (blocked
@@ -178,7 +178,7 @@ export function amdNightlyPresentation(
       hasSignal: false,
       movementLabel: 'Movement unavailable',
       movementMeta: 'No test execution in the latest nightly; no change is inferred',
-      movementTone: 'is-neutral',
+      movementTone: 'neutral',
       hasComparison: false,
       incidentCount: 0,
       incidentDelta: null,
@@ -195,7 +195,7 @@ export function amdNightlyPresentation(
     : movement.hasComparison
       ? 'Failure movement does not match the latest observed signal'
       : 'No comparable preceding eligible nightly'
-  let movementTone: Tone = incidentCount ? 'is-warning' : 'is-neutral'
+  let movementTone: Tone = incidentCount ? 'soft' : 'neutral'
   if (comparisonReliable) {
     movementLabel =
       movement.delta > 0
@@ -212,46 +212,46 @@ export function amdNightlyPresentation(
       ' fixed'
     movementTone =
       movement.delta > 0
-        ? 'is-danger'
+        ? 'hard'
         : movement.delta < 0
-          ? 'is-success'
+          ? 'pass'
           : movement.currentFailures
-            ? 'is-warning'
-            : 'is-success'
+            ? 'soft'
+            : 'pass'
   }
 
   let label: string
   let tone: Tone
   if (inProgress) {
     label = incidentCount ? 'Running with failures' : 'Running clean'
-    tone = hard ? 'is-danger' : incidentCount ? 'is-warning' : 'is-info'
+    tone = hard ? 'hard' : incidentCount ? 'soft' : 'info'
   } else if (['canceled', 'cancelled'].includes(pipelineState)) {
     label = 'Canceled'
-    tone = 'is-warning'
+    tone = 'soft'
   } else if (hard) {
     label = 'Hard failures'
-    tone = 'is-danger'
+    tone = 'hard'
   } else if (['failed', 'failing', 'blocked'].includes(pipelineState)) {
     label = 'Pipeline failed'
-    tone = 'is-danger'
+    tone = 'hard'
   } else if (!incidentCount) {
     label = comparisonReliable && movement.fixedCount ? 'Recovered' : 'Healthy'
-    tone = 'is-success'
+    tone = 'pass'
   } else if (!comparisonReliable) {
     label = soft && !hard ? 'Soft observations' : 'Failures observed'
-    tone = 'is-warning'
+    tone = 'soft'
   } else if (movement.delta > 0) {
     label = 'More failures'
-    tone = 'is-danger'
+    tone = 'hard'
   } else if (movement.delta < 0) {
     label = 'Improved'
-    tone = 'is-success'
+    tone = 'pass'
   } else if (movement.newCount || movement.fixedCount) {
     label = 'Changed, net even'
-    tone = 'is-warning'
+    tone = 'soft'
   } else {
     label = 'Stable failure count'
-    tone = 'is-warning'
+    tone = 'soft'
   }
 
   return {

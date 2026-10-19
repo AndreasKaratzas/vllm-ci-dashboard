@@ -92,7 +92,7 @@ const columns = computed<ColumnDef<Rec, unknown>[]>(() => [
           <div v-for="stat in stats" :key="stat.label" class="rounded-lg border p-3" data-testid="perf-history-stat">
             <div class="text-xs font-medium tracking-wide text-muted-foreground uppercase">{{ stat.label }}</div>
             <div class="mt-1 text-xl font-semibold tabular-nums">
-              <ToneBadge v-if="stat.tone && stat.tone !== 'is-neutral'" :tone="stat.tone" class="text-base">{{ stat.value }}</ToneBadge>
+              <ToneBadge v-if="stat.tone && stat.tone !== 'neutral'" :tone="stat.tone" class="text-base">{{ stat.value }}</ToneBadge>
               <template v-else>{{ stat.value }}</template>
             </div>
           </div>

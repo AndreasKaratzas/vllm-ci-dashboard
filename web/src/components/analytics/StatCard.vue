@@ -11,11 +11,11 @@ const props = defineProps<{ item: StripItem; badge?: string; action?: string }>(
 defineEmits<{ open: [] }>()
 
 const ACCENT: Record<string, string> = {
-  'is-success': 'before:bg-success',
-  'is-danger': 'before:bg-destructive',
-  'is-warning': 'before:bg-warning',
-  'is-info': 'before:bg-info',
-  'is-neutral': 'before:bg-muted-foreground/50',
+  pass: 'before:bg-success',
+  hard: 'before:bg-destructive',
+  soft: 'before:bg-warning',
+  info: 'before:bg-info',
+  neutral: 'before:bg-muted-foreground/50',
 }
 const classes = computed(() =>
   cn(
@@ -48,7 +48,7 @@ const tag = computed(() => (props.item.url ? 'a' : props.item.static ? 'div' : '
           >{{ item.value }}</CardTitle
         >
         <CardAction v-if="badge">
-          <ToneBadge :tone="item.tone || 'is-neutral'">{{ badge }}</ToneBadge>
+          <ToneBadge :tone="item.tone || 'neutral'">{{ badge }}</ToneBadge>
         </CardAction>
       </CardHeader>
       <CardFooter class="flex-col items-start gap-1.5 text-sm">

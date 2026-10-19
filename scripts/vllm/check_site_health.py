@@ -37,6 +37,7 @@ from vllm.operations_bundle_contract import (  # noqa: E402
     operations_section_names_for_bundle_version,
     validate_operations_canary_budget_for_bundle_version,
 )
+from vllm.data_freshness_targets import load_freshness_targets, source_stale_minutes  # noqa: E402
 from vllm.publication_limits import (  # noqa: E402
     PUBLICATION_MAX_BLOB_BYTES,
     PUBLICATION_MAX_FILES,
@@ -974,19 +975,26 @@ def _normalize_operations_manifest(
             "Operations application manifest lacked a public projection.",
         )
 
-    def declared_file(raw: object, *, prefix: str | None = None) -> str:
-        if not isinstance(raw, dict) or set(raw) != {"path", "bytes"}:
+    def declared_file(raw: object, *, section: bool = False) -> str:
+        # Section digests are optional so manifests from producers that predate
+        # them stay readable; a declared digest must match the projection.
+        if not isinstance(raw, dict) or not (
+            set(raw) == {"path", "bytes"}
+            or (section and set(raw) == {"path", "bytes", "sha256"})
+        ):
             raise _ProjectionFailure(
                 "operations-manifest-contract",
                 "Operations application manifest contained a malformed file descriptor.",
             )
         relative = _safe_manifest_path(raw.get("path"))
         size = raw.get("bytes")
+        digest = raw.get("sha256")
         if (
             type(size) is not int
             or not 0 <= size <= PROJECTION_MAX_BLOB_BYTES
-            or (prefix is not None and not relative.startswith(prefix))
+            or (section and not relative.startswith("operations_v2/"))
             or not relative.endswith(".json")
+            or ("sha256" in raw and (not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None))
         ):
             raise _ProjectionFailure(
                 "operations-manifest-contract",
@@ -997,6 +1005,7 @@ def _normalize_operations_manifest(
         if (
             not isinstance(projection_descriptor, dict)
             or projection_descriptor.get("bytes") != size
+            or ("sha256" in raw and projection_descriptor.get("sha256") != digest)
         ):
             raise _ProjectionFailure(
                 "operations-projection-contract",
@@ -1040,7 +1049,7 @@ def _normalize_operations_manifest(
                 "operations-manifest-contract",
                 "Operations application manifest contained an unsafe section name.",
             )
-        section_path = declared_file(descriptor, prefix="operations_v2/")
+        section_path = declared_file(descriptor, section=True)
         section_paths.append(section_path)
         named_section_paths[name] = section_path
     if len(section_paths) != len(set(section_paths)):
@@ -1117,6 +1126,43 @@ def _normalize_operations_manifest(
         streamed_paths,
         streamed_sizes,
     )
+
+
+def _check_core_age(
+    shell: dict[str, Any],
+    checked_at: datetime,
+    publication: dict[str, Any],
+    reasons: list[dict[str, str]],
+) -> None:
+    """Judge each core collection, which queue/DNS republications never refresh."""
+    sources = shell.get("sources")
+    if not isinstance(sources, dict):
+        sources = {}
+    stamps: dict[str, datetime] = {}
+    problems: list[str] = []
+    for name in load_freshness_targets()["core"]["sources"]:
+        # A core source newer than the manifest's producer is absent rather than
+        # undated; judging only what was published keeps rollbacks readable.
+        if sources and name not in sources:
+            continue
+        record = sources.get(name)
+        stamp = _parse_timestamp(record.get("timestamp") if isinstance(record, dict) else None)
+        if stamp is None or stamp > checked_at + FUTURE_SKEW:
+            problems.append(f"{name} has no trustworthy collection time")
+            continue
+        stamps[name] = stamp
+        limit = source_stale_minutes(name)
+        age = checked_at - stamp
+        if age > timedelta(minutes=limit):
+            problems.append(
+                f"{name} is {age.total_seconds() / 3600:.1f} hours old (limit {limit} minutes)"
+            )
+    if stamps:
+        oldest = min(stamps.values())
+        publication["core_generated_at"] = _iso_utc(oldest)
+        publication["core_age_hours"] = round((checked_at - oldest).total_seconds() / 3600, 3)
+    if problems:
+        reasons.append(_reason("core-stale", f"Core data is stale: {'; '.join(problems)}."))
 
 
 def _critical_asset_references(site_url: str, site_body: bytes) -> dict[str, str]:
@@ -1573,6 +1619,8 @@ def check_site_health(
         "generated_at": None,
         "degraded_since": None,
         "age_hours": None,
+        "core_generated_at": None,
+        "core_age_hours": None,
         "publication_blocked": None,
         "uses_fallback": None,
         "affected_surfaces": None,
@@ -2058,21 +2106,25 @@ def check_site_health(
                     operations_raw,
                     limit=OPERATIONS_MANIFEST_MAX_BYTES,
                 )
+                operations = _strict_json(
+                    operations_raw,
+                    code="operations-manifest-json",
+                    label="Operations application manifest",
+                )
                 (
                     application_paths,
                     canary_paths,
                     canary_sizes,
                     streamed_paths,
                     streamed_sizes,
-                ) = _normalize_operations_manifest(
-                    _strict_json(
-                        operations_raw,
-                        code="operations-manifest-json",
-                        label="Operations application manifest",
-                    ),
-                    manifest,
-                )
+                ) = _normalize_operations_manifest(operations, manifest)
                 verified_files.append(OPERATIONS_MANIFEST_PATH)
+                _check_core_age(
+                    operations["shell"],
+                    checked_at,
+                    publication,
+                    reasons,
+                )
                 canary_rows = [
                     {"name": name, "path": None, "http_status": None}
                     for name in canary_paths
@@ -2596,6 +2648,7 @@ def markdown_report(report: dict[str, Any]) -> str:
         f"| Publication status | {safe(publication.get('status'))} |",
         f"| Publication generated at | {safe(publication.get('generated_at'))} |",
         f"| Publication age (hours) | {safe(publication.get('age_hours'))} |",
+        f"| Core data age (hours) | {safe(publication.get('core_age_hours'))} |",
         f"| Projection mode | {safe(projection.get('mode'))} |",
         f"| Projection manifest SHA-256 | {safe(projection.get('manifest_sha256'))} |",
         f"| Projection files / bytes | {safe(projection.get('file_count'))} / {safe(projection.get('total_bytes'))} |",
@@ -2648,6 +2701,8 @@ def _internal_error_report(site_url: str) -> dict[str, Any]:
             "generated_at": None,
             "degraded_since": None,
             "age_hours": None,
+            "core_generated_at": None,
+            "core_age_hours": None,
             "publication_blocked": None,
             "uses_fallback": None,
             "affected_surfaces": None,

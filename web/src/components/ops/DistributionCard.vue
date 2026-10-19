@@ -17,12 +17,12 @@ const total = computed(() => props.segments.reduce((sum, s) => sum + Number(s.co
 
 <script lang="ts">
 export const SEGMENT_FILL: Record<Tone, string> = {
-  'is-success': 'bg-success',
-  'is-danger': 'bg-destructive',
-  'is-warning': 'bg-warning',
-  'is-info': 'bg-info',
-  'is-neutral': 'bg-muted-foreground',
-  'is-not-targeted': 'bg-muted-foreground/40',
+  pass: 'bg-success',
+  hard: 'bg-destructive',
+  soft: 'bg-warning',
+  info: 'bg-info',
+  neutral: 'bg-muted-foreground',
+  'not-targeted': 'bg-muted-foreground/40',
 }
 </script>
 

@@ -25,9 +25,9 @@ const range = computed({
   set: (id) => id && emit('range', String(id)),
 })
 const noteClass = computed(() =>
-  props.view.scopeNote.tone === 'is-info' ? 'border-info/40 bg-info/10' : 'border-warning/40 bg-warning/10',
+  props.view.scopeNote.tone === 'info' ? 'border-info/40 bg-info/10' : 'border-warning/40 bg-warning/10',
 )
-const kpiTone = (tone: Tone | '') => (tone || 'is-neutral') as Tone
+const kpiTone = (tone: Tone | '') => (tone || 'neutral') as Tone
 </script>
 
 <template>
@@ -61,7 +61,7 @@ const kpiTone = (tone: Tone | '') => (tone || 'is-neutral') as Tone
     </div>
 
     <div class="flex gap-3 rounded-lg border p-4 text-sm" :class="noteClass" :data-tone="view.scopeNote.tone" data-testid="omni-scope-note">
-      <Info v-if="view.scopeNote.tone === 'is-info'" class="mt-0.5 size-4 shrink-0 text-info" />
+      <Info v-if="view.scopeNote.tone === 'info'" class="mt-0.5 size-4 shrink-0 text-info" />
       <TriangleAlert v-else class="mt-0.5 size-4 shrink-0 text-warning" />
       <div class="flex flex-col gap-1.5">
         <strong class="font-semibold">{{ view.scopeNote.heading.trim() }}</strong>

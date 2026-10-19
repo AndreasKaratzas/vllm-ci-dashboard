@@ -3,7 +3,7 @@ import type { DialogContentEmits, DialogContentProps } from "reka-ui"
 import type { HTMLAttributes } from "vue"
 import { X } from "@lucide/vue"
 import { reactiveOmit } from "@vueuse/core"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import {
   DialogClose,
   DialogContent,
