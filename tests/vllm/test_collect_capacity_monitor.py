@@ -458,6 +458,9 @@ def test_capacity_writer_preserves_lkg_on_byte_overflow(tmp_path, monkeypatch) -
     output.mkdir()
     published = output / "capacity_monitor.json"
     published.write_text("existing-capacity")
+    # The publication lane pins VLLM_CONFIG_SHA, which would make main()
+    # download the vLLM archive instead of using the fake repo.
+    monkeypatch.delenv("VLLM_CONFIG_SHA", raising=False)
     monkeypatch.setattr(
         ccm,
         "parse_args",
