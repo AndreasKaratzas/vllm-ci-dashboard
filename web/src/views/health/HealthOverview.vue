@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import type { ColumnDef } from '@tanstack/vue-table'
 import { computed, h, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AmdGroupSheet from '@/components/health/AmdGroupSheet.vue'
+import MirrorSummaryCard from '@/components/health/MirrorSummaryCard.vue'
 import MovementChart from '@/components/health/MovementChart.vue'
 import BuildDetailSheet from '@/components/ops/BuildDetailSheet.vue'
 import DataTable from '@/components/ops/DataTable.vue'
@@ -43,6 +45,11 @@ const logicalRows = computed<Rec[]>(() => inventory.value.rows || [])
 const nightly = computed(() =>
   amdNightlyPresentation((amd.value.builds || [])[0] || {}, summary.value, props.ops.generated_at),
 )
+// Classic summaryCard: the runtime group count only when the logical signal is available.
+const mirrorInventory = computed<Rec>(() => (props.ops.test_group_parity || {}).mirror_inventory || {})
+const route = useRoute()
+const router = useRouter()
+const openMirrors = () => void router.push({ query: { ...route.query, view: 'mirrors' } })
 const failures = computed(() => latestFailureObservations(props.ops.amd_test_health))
 const movement = computed(() => movementBuilds(amd.value.builds || []))
 
@@ -175,6 +182,12 @@ const failureColumns: ColumnDef<Rec, unknown>[] = [
         @open="openSegment"
       />
     </div>
+
+    <MirrorSummaryCard
+      :inventory="mirrorInventory"
+      :runtime-group-count="logical.available ? Number(counts.total || 0) : null"
+      @open="openMirrors"
+    />
 
     <div class="grid gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <MovementChart :builds="movement" :latest-signal="latestBuild" @select="(build) => (buildDetail = { open: true, build })" />

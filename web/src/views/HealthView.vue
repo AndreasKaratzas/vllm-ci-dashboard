@@ -54,6 +54,12 @@ const header = computed(() => {
     const url = source.main_commit_url || (commit ? `https://github.com/vllm-project/vllm/commit/${commit}` : '')
     return { observedAt: (o.test_group_parity || {}).generated_at || o.generated_at, action: url ? { label: 'Open current main CI source ↗', url } : null }
   }
+  if (view.value === 'mirrors') {
+    const source = ((o.test_group_parity || {}).mirror_inventory || {}).source || {}
+    const commit = source.current_definition_commit_sha || source.main_commit || ''
+    const action = /^[0-9a-f]{40}$/.test(commit) ? { label: 'Open current main CI source ↗', url: `https://github.com/vllm-project/vllm/commit/${commit}` } : null
+    return { observedAt: (o.test_group_parity || {}).generated_at || o.generated_at, action }
+  }
   return { observedAt: o.generated_at, action: null }
 })
 </script>
