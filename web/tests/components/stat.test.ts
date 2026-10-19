@@ -73,6 +73,16 @@ describe('KpiCard', () => {
     expect(wrapper.text()).toContain('96 / 100')
   })
 
+  it('shows the status badge alongside the delta', () => {
+    const wrapper = mount(KpiCard, {
+      props: { label: 'Hard fails', value: 4, status: { tone: 'hard', label: 'Regressed' }, delta: { value: 2, goodWhen: 'down' } },
+    })
+    const badge = wrapper.find('[data-tone]')
+    expect(badge.attributes('data-tone')).toBe('hard')
+    expect(text(badge.element)).toBe('Regressed')
+    expect(wrapper.find('[data-direction=up]').exists()).toBe(true)
+  })
+
   it('shows a sparkline when history exists', () => {
     const wrapper = mount(KpiCard, { props: { label: 'Failures', value: 4, spark: [1, 3, 2, 4] } })
     expect(wrapper.find('[data-slot=sparkline]').attributes('aria-label')).toBe('Failures trend over 4 points')

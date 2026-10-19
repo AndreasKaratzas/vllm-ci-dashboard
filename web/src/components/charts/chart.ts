@@ -28,6 +28,8 @@ export function chartConfig(series: SeriesSpec[]): ChartConfig {
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 export const shortDay = (value: number | Date) => DAY.format(new Date(value))
+const DAY_TIME = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' })
+export const shortDayTime = (value: number | Date) => DAY_TIME.format(new Date(value))
 
 export const plainNumber = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
 
@@ -35,6 +37,20 @@ export const plainNumber = (value: number) => value.toLocaleString('en-US', { ma
 export function thinTicks(values: number[], max: number): number[] {
   const step = Math.max(1, Math.ceil(values.length / Math.max(1, max)))
   return values.filter((_, i) => (values.length - 1 - i) % step === 0)
+}
+
+/** Up to `count` evenly spaced ticks across the domain, dropping any whose label repeats the previous one. */
+export function distinctTicks([min, max]: [number, number], count: number, format: (value: number) => string): number[] {
+  const steps = Math.max(1, count - 1)
+  const ticks: number[] = []
+  let last: string | null = null
+  for (let i = 0; i <= steps; i++) {
+    const value = min + ((max - min) * i) / steps
+    const label = format(value)
+    if (label !== last) ticks.push(value)
+    last = label
+  }
+  return ticks
 }
 
 /** About one axis tick per `spacing` pixels of the element's width. */
@@ -59,8 +75,11 @@ interface SeriesInteraction<T extends ChartRow> {
 export function useSeriesInteraction<T extends ChartRow>(opts: SeriesInteraction<T>) {
   let hovered: T | null = null
   const describe = (row: T) => opts.series().map((s) => ({ label: s.label, value: opts.format(seriesValue(row, s.key)), color: s.color }))
+  // Unovis reports an undefined x whenever the pointer is outside the plot area.
+  function track(x: number | Date | undefined, row: T | undefined) {
+    hovered = x === undefined ? null : (row ?? null)
+  }
   function tooltip(row: T) {
-    hovered = row
     const hint = opts.hint() ?? (opts.onSelect() ? 'Click for evidence' : undefined)
     return tooltipHtml({ title: opts.title(row), rows: describe(row), hint })
   }
@@ -70,5 +89,5 @@ export function useSeriesInteraction<T extends ChartRow>(opts: SeriesInteraction
   }
   const inspectItems = (rows: T[]): InspectItem[] =>
     rows.map((row) => ({ label: opts.title(row), detail: describe(row).map((d) => d.value).join(' · ') }))
-  return { tooltip, select, selectHovered: () => select(hovered), inspectItems }
+  return { track, tooltip, select, selectHovered: () => select(hovered), inspectItems }
 }

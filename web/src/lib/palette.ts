@@ -54,6 +54,15 @@ export type TonePart = 'badge' | 'text' | 'icon' | 'fill' | 'stroke' | 'surface'
 
 // Literal class strings so Tailwind's scanner emits every one of them. Pass is
 // the quiet default (no tint); 'info' deliberately renders neutral.
+const QUIET: Record<TonePart, string> = {
+  badge: 'border-border bg-muted text-muted-foreground',
+  text: 'text-muted-foreground',
+  icon: 'text-muted-foreground',
+  fill: 'bg-status-unknown',
+  stroke: 'stroke-status-unknown',
+  surface: 'border-border bg-muted/50',
+}
+
 const TONE_CLASSES: Record<Tone, Record<TonePart, string>> = {
   pass: {
     badge: 'border-transparent bg-transparent px-0 text-foreground',
@@ -79,22 +88,8 @@ const TONE_CLASSES: Record<Tone, Record<TonePart, string>> = {
     stroke: 'stroke-status-hard',
     surface: 'border-status-hard/30 bg-status-hard/8',
   },
-  info: {
-    badge: 'border-border bg-muted text-muted-foreground',
-    text: 'text-muted-foreground',
-    icon: 'text-muted-foreground',
-    fill: 'bg-status-unknown',
-    stroke: 'stroke-status-unknown',
-    surface: 'border-border bg-muted/50',
-  },
-  neutral: {
-    badge: 'border-border bg-muted text-muted-foreground',
-    text: 'text-muted-foreground',
-    icon: 'text-muted-foreground',
-    fill: 'bg-status-unknown',
-    stroke: 'stroke-status-unknown',
-    surface: 'border-border bg-muted/50',
-  },
+  info: QUIET,
+  neutral: QUIET,
   'not-targeted': {
     badge: 'border-dashed border-border bg-transparent text-muted-foreground',
     text: 'text-muted-foreground',

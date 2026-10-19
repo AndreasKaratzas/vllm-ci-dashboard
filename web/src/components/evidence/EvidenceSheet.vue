@@ -11,7 +11,7 @@ import type { Detail } from './detail'
 
 const props = withDefaults(defineProps<{ detail: Detail; depth?: number }>(), { depth: 0 })
 const open = defineModel<boolean>('open', { required: true })
-const emit = defineEmits<{ drill: [Detail] }>()
+const emit = defineEmits<{ drill: [Detail]; closed: [] }>()
 
 const WIDTH = { md: 'sm:max-w-xl', lg: 'sm:max-w-3xl', xl: 'sm:max-w-5xl' } as const
 const width = computed(() => WIDTH[props.detail.width ?? 'lg'])
@@ -21,7 +21,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
 
 <template>
   <Sheet v-model:open="open">
-    <SheetContent :class="['w-full overflow-y-auto', width]" data-slot="evidence-sheet" :data-detail="detail.id">
+    <SheetContent :class="['w-full overflow-y-auto', width]" data-slot="evidence-sheet" :data-detail="detail.id" @close-auto-focus="emit('closed')">
       <SheetHeader class="gap-2 pr-10">
         <Button v-if="depth > 0" variant="ghost" size="sm" class="-ml-2 w-fit text-muted-foreground" @click="open = false">
           <ArrowLeft /> Back

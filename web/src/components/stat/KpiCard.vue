@@ -95,9 +95,9 @@ const actionAttrs = computed(() => {
       >
         {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
       </CardTitle>
-      <CardAction v-if="delta || status" class="@max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start">
+      <CardAction v-if="delta || status" class="@max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5">
+        <StatusBadge v-if="status" :tone="status.tone" :label="status.label" />
         <DeltaBadge v-if="delta" :delta="delta" />
-        <StatusBadge v-else-if="status" :tone="status.tone" :label="status.label" />
       </CardAction>
     </CardHeader>
 

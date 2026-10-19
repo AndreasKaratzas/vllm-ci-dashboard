@@ -131,7 +131,7 @@ function activate(row: T, event: Event) {
 
     <div class="overflow-hidden rounded-lg border">
       <Table :aria-label="label">
-        <TableHeader class="sticky top-0 z-10 bg-muted">
+        <TableHeader class="bg-muted">
           <TableRow class="hover:bg-transparent">
             <TableHead
               v-for="column in visibleColumns"

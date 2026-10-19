@@ -61,9 +61,10 @@ describe('HwDot', () => {
 })
 
 describe('Callout', () => {
-  it('announces as status with a tone icon, title and body', () => {
+  it('is a static note, not a live region, with a tone icon, title and body', () => {
     const wrapper = mount(Callout, { props: { tone: 'soft', title: 'Coverage incomplete' }, slots: { default: '154 of 168 buckets' } })
-    expect(wrapper.attributes('role')).toBe('status')
+    expect(wrapper.attributes('role')).toBe('note')
+    expect(wrapper.attributes('aria-live')).toBeUndefined()
     expect(wrapper.find('svg').exists()).toBe(true)
     expect(text(wrapper.element)).toBe('Coverage incomplete 154 of 168 buckets')
     expect(wrapper.classes()).toContain('bg-status-soft/8')

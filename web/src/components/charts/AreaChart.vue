@@ -60,7 +60,7 @@ const rangeModel = computed({
   },
 })
 
-const { tooltip, select, selectHovered, inspectItems } = useSeriesInteraction<T>({
+const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInteraction<T>({
   rows: () => props.rows,
   series: () => props.series,
   title: titleOf,
@@ -113,7 +113,7 @@ const { tooltip, select, selectHovered, inspectItems } = useSeriesInteraction<T>
           <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="shortDay" :tick-line="false" :domain-line="false" :grid-line="false" />
           <VisAxis type="y" :num-ticks="4" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
-          <ChartCrosshair :template="tooltip" :color="series.map((s) => s.color)" />
+          <ChartCrosshair :template="tooltip" :on-crosshair-move="track" :color="series.map((s) => s.color)" />
         </VisXYContainer>
       </ChartContainer>
     </div>

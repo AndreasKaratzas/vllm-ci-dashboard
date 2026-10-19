@@ -36,6 +36,48 @@ describe('DataTable', () => {
     wrapper.unmount()
   })
 
+  it('returns to the first page when the search, rows or filters change', async () => {
+    const wrapper = mount(DataTable<Group>, {
+      props: {
+        columns,
+        rows: groups,
+        pageSize: 5,
+        filters: [{ id: 'state', label: 'State', options: [{ value: 'pass', label: 'Passing' }], predicate: (g: Group, v: string) => g.state === v }],
+      },
+      attachTo: document.body,
+    })
+    const next = () => wrapper.find('button[aria-label="Next page"]').trigger('click')
+    await next()
+    await wrapper.find('input').setValue('group')
+    expect(wrapper.text()).toContain('Page 1 of 3')
+    await next()
+    await wrapper.setProps({ rows: [...groups] })
+    expect(wrapper.text()).toContain('Page 1 of 3')
+    await next()
+    wrapper.find('[role=combobox]').element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, ctrlKey: false, pointerType: 'mouse' }))
+    await settle()
+    ;[...document.querySelectorAll<HTMLElement>('[role=option]')].find((o) => text(o) === 'Passing')!.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse' }))
+    await settle()
+    expect(wrapper.text()).toContain('8 rows')
+    expect(wrapper.text()).toContain('Page 1 of 2')
+    wrapper.unmount()
+  })
+
+  it('hides columns from the Columns menu but never the first one', async () => {
+    const wrapper = mount(DataTable<Group>, { props: { columns, rows: groups.slice(0, 2) }, attachTo: document.body })
+    const menu = wrapper.findAll('button').find((b) => b.text() === 'Columns')!
+    menu.element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, ctrlKey: false, pointerType: 'mouse' }))
+    menu.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await settle()
+    const items = [...document.querySelectorAll<HTMLElement>('[role=menuitemcheckbox]')]
+    expect(items.map((item) => text(item))).toEqual(['Runs', 'State'])
+    items[0]!.click()
+    await settle()
+    expect(wrapper.findAll('th').map((th) => text(th.element))).toEqual(['Group', 'State'])
+    expect(wrapper.find('tbody tr').findAll('td')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
   it('sorts numerically through header buttons and exposes aria-sort', async () => {
     const wrapper = mount(DataTable<Group>, { props: { columns, rows: groups, pageSize: false } })
     const runs = wrapper.findAll('th')[1]!

@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
 import AreaChart from '@/components/charts/AreaChart.vue'
 import BarChart from '@/components/charts/BarChart.vue'
 import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Timeline from '@/components/charts/Timeline.vue'
+import { distinctTicks, shortDay, useSeriesInteraction } from '@/components/charts/chart'
+import { useDragRange } from '@/components/charts/dragRange'
 import { escapeHtml, tooltipHtml } from '@/components/charts/tooltip'
 import { SERIES, statusVar } from '@/lib/palette'
 import { installLayoutStubs, settle, text } from './support'
@@ -48,11 +51,48 @@ async function inspect(entry: number) {
 describe('tooltip', () => {
   it('escapes every value it renders', () => {
     expect(escapeHtml(`<img src=x onerror="a">&'`)).toBe('&lt;img src=x onerror=&quot;a&quot;&gt;&amp;&#39;')
-    const html = tooltipHtml({ title: '<b>#12</b>', rows: [{ label: 'a<b', value: 1234, color: 'var(--series-1)' }], hint: 'Click for evidence' })
-    expect(html).not.toContain('<b>')
+    const html = tooltipHtml({
+      title: '<b>#12</b>',
+      rows: [
+        { label: '<i>shard</i>', value: 1234, color: 'var(--series-1)' },
+        { label: 'note', value: '<u>x</u>' },
+      ],
+      hint: '<s>hint</s>',
+    })
+    for (const tag of ['<b>', '<i>', '<u>', '<s>']) expect(html).not.toContain(tag)
     expect(html).toContain('&lt;b&gt;#12&lt;/b&gt;')
+    expect(html).toContain('&lt;i&gt;shard&lt;/i&gt;')
+    expect(html).toContain('&lt;u&gt;x&lt;/u&gt;')
+    expect(html).toContain('&lt;s&gt;hint&lt;/s&gt;')
     expect(html).toContain('1,234')
-    expect(html).toContain('Click for evidence')
+  })
+})
+
+describe('distinctTicks', () => {
+  it('never repeats a label across a short domain', () => {
+    const start = Date.UTC(2026, 8, 20, 2)
+    expect(distinctTicks([start, start + 6 * 3_600_000], 5, shortDay)).toEqual([start])
+    const days = distinctTicks([Date.UTC(2026, 8, 20), Date.UTC(2026, 8, 24)], 5, shortDay)
+    expect(days.map(shortDay)).toEqual(['Sep 20', 'Sep 21', 'Sep 22', 'Sep 23', 'Sep 24'])
+  })
+})
+
+describe('useSeriesInteraction', () => {
+  it('forgets the hovered row once the pointer leaves the plot', () => {
+    const picked: number[] = []
+    const chart = useSeriesInteraction<Row>({
+      rows: () => rows,
+      series: () => rate,
+      title: (r) => String(r.day),
+      format: String,
+      hint: () => undefined,
+      onSelect: () => (_r, i) => picked.push(i),
+    })
+    chart.track(rows[1]!.day, rows[1])
+    chart.selectHovered()
+    chart.track(undefined, undefined)
+    chart.selectHovered()
+    expect(picked).toEqual([1])
   })
 })
 
@@ -166,6 +206,56 @@ describe('ProportionBar', () => {
     await buttons[1]!.trigger('click')
     expect(picked).toEqual(['hard'])
     expect(buttons[2]!.find('.tabular-nums').classes()).toContain('text-muted-foreground')
+  })
+})
+
+describe('useDragRange', () => {
+  // A plot from x=100 to x=300 on screen mapping linearly onto 0..1000.
+  async function setup() {
+    const ranges: number[][] = []
+    const clicks: string[] = []
+    let drag!: ReturnType<typeof useDragRange>
+    const Host = defineComponent({
+      setup() {
+        drag = useDragRange({
+          toPlot: (x) => ({ local: Math.max(0, Math.min(200, x - 100)), hostPx: Math.max(0, Math.min(200, x - 100)) }),
+          invert: (local) => local * 5,
+          onRange: () => (a, b) => ranges.push([a, b]),
+        })
+        return () => h('div', { onMousedown: drag.onDown, onClickCapture: drag.onClickCapture }, [h('span', { onClick: () => clicks.push('mark') })])
+      },
+    })
+    const wrapper = mount(Host, { attachTo: document.body })
+    // Vue ignores events stamped in the same millisecond its listeners were attached.
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    const mouse = (type: string, clientX: number) => new MouseEvent(type, { bubbles: true, button: 0, clientX })
+    return { wrapper, drag, ranges, clicks, mouse }
+  }
+
+  it('reports the dragged range, shows the selection, and swallows the trailing click', async () => {
+    const { wrapper, drag, ranges, clicks, mouse } = await setup()
+    const mark = wrapper.find('span').element
+    mark.dispatchEvent(mouse('mousedown', 250))
+    window.dispatchEvent(mouse('mousemove', 140))
+    expect(drag.selection.value).toEqual({ left: 40, width: 110 })
+    window.dispatchEvent(mouse('mouseup', 140))
+    mark.dispatchEvent(mouse('click', 140))
+    expect(ranges).toEqual([[200, 750]])
+    expect(clicks).toEqual([])
+    expect(drag.selection.value).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('lets a plain click through to the marks', async () => {
+    const { wrapper, ranges, clicks, mouse } = await setup()
+    const mark = wrapper.find('span').element
+    mark.dispatchEvent(mouse('mousedown', 150))
+    window.dispatchEvent(mouse('mousemove', 152))
+    window.dispatchEvent(mouse('mouseup', 152))
+    mark.dispatchEvent(mouse('click', 152))
+    expect(ranges).toEqual([])
+    expect(clicks).toEqual(['mark'])
+    wrapper.unmount()
   })
 })
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, nextTick } from 'vue'
 import type { Detail } from '@/components/evidence/detail'
 import EvidenceSheet from '@/components/evidence/EvidenceSheet.vue'
 import SheetStack from '@/components/evidence/SheetStack.vue'
@@ -43,7 +43,7 @@ describe('EvidenceSheet', () => {
     expect(sheet.className).toContain('sm:max-w-5xl')
     expect(text(sheet.querySelector('h2'))).toBe('Nightly #12')
     expect(text(sheet)).toContain('Every retained job.')
-    expect(text(sheet.querySelector('[role=status]'))).toBe('Partial Two shards missing.')
+    expect(text(sheet.querySelector('[role=note]'))).toBe('Partial Two shards missing.')
     expect(text(sheet.querySelector('dl'))).toBe('Hard 3 Hard fail Passed 120')
     expect(text(sheet.querySelectorAll('dl')[1]!)).toBe('Commit abc1234')
     const source = sheet.querySelector<HTMLAnchorElement>('a[href="https://buildkite.com/b/12"]')!
@@ -71,9 +71,15 @@ describe('SheetStack', () => {
     expect(sheets().map((s) => s.getAttribute('data-detail'))).toEqual(['build', 'job'])
     const back = [...sheets()[1]!.querySelectorAll('button')].find((b) => text(b) === 'Back')!
     back.click()
+    await nextTick()
+    expect(wrapper.findAllComponents(EvidenceSheet).map((s) => [s.props('detail').id, s.props('open')])).toEqual([
+      ['build', true],
+      ['job', false],
+    ])
     await settle()
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(sheets().map((s) => s.getAttribute('data-detail'))).toEqual(['build'])
+    expect(wrapper.findAllComponents(EvidenceSheet)).toHaveLength(1)
     wrapper.unmount()
   })
 })

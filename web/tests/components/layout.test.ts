@@ -12,15 +12,31 @@ afterEach(() => {
 describe('PageHeader', () => {
   it('renders the title as the page heading with description, freshness and actions', () => {
     const wrapper = mount(PageHeader, {
-      props: { title: 'CI Health', description: 'AMD nightly coverage', freshness: { text: 'Collected 12 min ago', tone: 'pass', detail: 'ci_health.json' } },
+      props: { title: 'CI Health', description: 'AMD nightly coverage', freshness: { text: 'Collected 12 min ago', tone: 'soft' } },
       slots: { actions: '<button>Export</button>' },
     })
     expect(wrapper.find('h1').text()).toBe('CI Health')
     expect(text(wrapper.find('p').element)).toBe('AMD nightly coverage')
     const chip = wrapper.find('[data-slot=freshness]')
-    expect(chip.attributes('title')).toBe('ci_health.json')
-    expect(chip.find('[aria-hidden=true]').classes()).toContain('bg-status-pass')
+    expect(chip.element.tagName).not.toBe('BUTTON')
+    expect(chip.find('[aria-hidden=true]').classes()).toContain('bg-status-soft')
+    expect(text(chip.element)).toBe('Collected 12 min ago : Past target')
+    expect(chip.find('.sr-only').exists()).toBe(true)
     expect(wrapper.find('button').text()).toBe('Export')
+  })
+
+  it('opens the freshness detail from a keyboard-reachable button', async () => {
+    const wrapper = mount(PageHeader, {
+      props: { title: 'CI Health', freshness: { text: 'Collected 3 h ago', tone: 'hard', detail: 'ci_health.json, target 2 h' } },
+      attachTo: document.body,
+    })
+    const chip = wrapper.find('[data-slot=freshness]')
+    expect(chip.element.tagName).toBe('BUTTON')
+    expect(text(chip.element)).toBe('Collected 3 h ago : Stale')
+    await chip.trigger('click')
+    await settle()
+    expect(text(document.querySelector('[data-slot=freshness-detail]'))).toBe('Stale ci_health.json, target 2 h')
+    wrapper.unmount()
   })
 
   it('puts methodology behind an About popover only when given', async () => {
