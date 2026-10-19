@@ -10,6 +10,8 @@ export interface CellSpec {
   onOpen?: () => void
   tone?: Tone
   mono?: boolean
+  /** De-emphasized value, e.g. a zero count. */
+  muted?: boolean
   sub?: string
 }
 

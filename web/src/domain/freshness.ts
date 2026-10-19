@@ -119,6 +119,11 @@ export function queueFreshness(rows: SourceFreshness[]): FreshnessSummary | null
   return summarize(pick(rows, TARGETS.queue.sources))
 }
 
+/** The named sources, e.g. the inputs of one page. */
+export function freshnessOf(rows: SourceFreshness[], keys: readonly string[]): FreshnessSummary | null {
+  return summarize(pick(rows, keys))
+}
+
 /** One page area's collector sources; upstream activity sources are excluded. */
 export function areaFreshness(rows: SourceFreshness[], area: string): FreshnessSummary | null {
   return summarize(rows.filter((row) => row.area === area && !row.informational))

@@ -45,7 +45,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             <dt class="text-xs text-muted-foreground">{{ stat.label }}</dt>
             <dd class="flex flex-wrap items-center gap-2">
               <span class="text-xl font-semibold tabular-nums">{{ stat.value }}</span>
-              <StatusBadge v-if="stat.tone && stat.tone !== 'pass'" :tone="stat.tone" />
+              <StatusBadge v-if="stat.tone && stat.tone !== 'pass'" :tone="stat.tone" :label="stat.toneLabel" />
             </dd>
             <dd v-if="stat.meta" class="text-xs text-muted-foreground">{{ stat.meta }}</dd>
           </div>

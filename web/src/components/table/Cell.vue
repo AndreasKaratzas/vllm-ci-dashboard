@@ -31,14 +31,14 @@ function open() {
       v-else-if="cell.detail || cell.onOpen"
       type="button"
       class="relative z-10 inline-flex items-center text-left font-medium underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 hover:decoration-solid"
-      :class="cell.mono && 'font-mono text-xs'"
+      :class="[cell.mono && 'font-mono text-xs', cell.muted && 'text-muted-foreground']"
       @click="open"
     >
       <StatusBadge v-if="cell.tone" :tone="cell.tone" :label="cell.text" />
       <template v-else>{{ cell.text }}</template>
     </button>
     <StatusBadge v-else-if="cell.tone" :tone="cell.tone" :label="cell.text" />
-    <span v-else :class="[cell.mono && 'font-mono text-xs', cell.text === '—' && 'text-muted-foreground']">{{ cell.text }}</span>
+    <span v-else :class="[cell.mono && 'font-mono text-xs', (cell.muted || cell.text === '—') && 'text-muted-foreground']">{{ cell.text }}</span>
     <span v-if="cell.sub" class="text-xs text-muted-foreground">{{ cell.sub }}</span>
   </span>
 </template>

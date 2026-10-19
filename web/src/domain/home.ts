@@ -1,4 +1,4 @@
-import type { Rec } from './format'
+import { toneForState, type Rec, type Tone } from './format'
 import { nightlyFailureCount } from './nightly'
 
 export interface NightlyCounts {
@@ -47,4 +47,30 @@ export function passRateTrend(builds: Rec[]): { latest: NightlyCounts; deltaPoin
   if (!latest || Number(builds[0]?.number) !== latest.number) return null
   const previous = series.at(-2)
   return { latest, deltaPoints: previous ? (latest.passRate - previous.passRate) * 100 : null }
+}
+
+/** Tone of a nightly's outcome: hard or soft failures, a pass, or no test signal. */
+export function nightlyResultTone(build: Rec | null | undefined): Tone {
+  const counts = nightlyCounts(build)
+  if (!counts) return Number(build?.test_jobs_blocked || 0) ? 'hard' : 'neutral'
+  return counts.hard ? 'hard' : counts.soft ? 'soft' : 'pass'
+}
+
+/** Why a nightly has no pass rate, or null when it has one. */
+export function noSignalLabel(build: Rec | null | undefined): string | null {
+  if (nightlyCounts(build)) return null
+  return Number(build?.test_jobs_blocked || 0) ? 'Infra blocked' : 'No test signal'
+}
+
+/** A y-domain up to 100 that puts the lowest rate mid-plot, so small pass-rate changes stay visible. */
+export function passRateDomain(series: NightlyCounts[]): [number, number] {
+  if (!series.length) return [0, 100]
+  const lowest = Math.min(...series.map((row) => row.passRate * 100))
+  return [Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))), 100]
+}
+
+/** The most severe tone across attention signals; none active is a pass. */
+export function attentionTone(items: Rec[]): Tone {
+  const tones = items.map((item) => toneForState(item.severity))
+  return tones.includes('hard') ? 'hard' : tones.includes('soft') ? 'soft' : 'pass'
 }

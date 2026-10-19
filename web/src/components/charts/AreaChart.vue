@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T extends ChartRow">
-import { VisArea, VisAxis, VisLine, VisXYContainer } from '@unovis/vue'
+import { StackedBar } from '@unovis/ts'
+import { VisArea, VisAxis, VisLine, VisStackedBar, VisTooltip, VisXYContainer } from '@unovis/vue'
 import { useId } from 'reka-ui'
 import { computed, ref } from 'vue'
 import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
@@ -16,6 +17,13 @@ export interface RangeOption {
   label: string
 }
 
+/** Stacked bars drawn under the area on the same x positions, e.g. failure counts under a pass rate. */
+export interface CompanionBars {
+  series: SeriesSpec[]
+  label: string
+  yFormat?: (value: number) => string
+}
+
 const props = withDefaults(
   defineProps<{
     rows: T[]
@@ -23,14 +31,16 @@ const props = withDefaults(
     series: SeriesSpec[]
     label: string
     rowLabel?: (row: T) => string
+    xFormat?: (value: number) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
     ranges?: RangeOption[]
     hint?: string
     class?: string
+    bars?: CompanionBars
     onSelect?: (row: T, index: number) => void
   }>(),
-  { yFormat: plainNumber },
+  { xFormat: shortDay, yFormat: plainNumber },
 )
 const range = defineModel<number>('range', { default: 0 })
 
@@ -41,7 +51,7 @@ const gradientId = (key: string) => `${uid}-${key}`
 
 const visible = computed(() => (range.value > 0 ? props.rows.slice(-range.value) : props.rows))
 const xValue = (row: T) => Number(props.x(row))
-const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : shortDay(xValue(row)))
+const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : props.xFormat(xValue(row)))
 const svgDefs = computed(() =>
   props.series
     .map(
@@ -68,6 +78,32 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
   hint: () => props.hint,
   onSelect: () => props.onSelect,
 })
+
+// With companion bars both plots share fixed margins and an x domain padded by half a step,
+// so every bar sits exactly under its point on the area.
+const SHARED_MARGIN = { left: 44, right: 12 }
+const xDomain = computed<[number, number] | undefined>(() => {
+  if (!props.bars) return undefined
+  const xs = visible.value.map(xValue)
+  if (!xs.length) return undefined
+  const min = Math.min(...xs)
+  const max = Math.max(...xs)
+  const gaps = xs.slice(1).map((x, i) => Math.abs(x - xs[i]!)).filter((gap) => gap > 0)
+  const half = (gaps.length ? Math.min(...gaps) : 1) / 2
+  return [min - half, max + half]
+})
+const xTicks = computed(() => thinTicks(visible.value.map(xValue), ticks.value))
+const bar = useSeriesInteraction<T>({
+  rows: () => props.rows,
+  series: () => props.bars?.series ?? [],
+  title: titleOf,
+  format: (value) => (props.bars?.yFormat ?? plainNumber)(value),
+  hint: () => props.hint,
+  onSelect: () => props.onSelect,
+})
+const barAccessors = computed(() => (props.bars?.series ?? []).map((s) => (row: T) => seriesValue(row, s.key)))
+const barEvents = { [StackedBar.selectors.bar]: { click: (row: T) => bar.select(row) } }
+const barTriggers = { [StackedBar.selectors.bar]: (row: T) => bar.tooltip(row) }
 </script>
 
 <template>
@@ -90,7 +126,14 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
     </div>
     <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer'" @click="selectHovered">
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto h-[250px] w-full', props.class)" cursor>
-        <VisXYContainer :data="visible" :svg-defs="svgDefs" :margin="{ left: 4, right: 12, top: 8 }" :y-domain="yDomain">
+        <VisXYContainer
+          :data="visible"
+          :svg-defs="svgDefs"
+          :margin="bars ? { ...SHARED_MARGIN, top: 8, bottom: 4 } : { left: 4, right: 12, top: 8 }"
+          :auto-margin="!bars"
+          :x-domain="xDomain"
+          :y-domain="yDomain"
+        >
           <VisArea
             v-for="s in series"
             :key="`area-${s.key}`"
@@ -110,13 +153,32 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
             curve-type="monotoneX"
             :duration="300"
           />
-          <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="shortDay" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis v-if="!bars" type="x" :x="xValue" :tick-values="xTicks" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
           <VisAxis type="y" :num-ticks="4" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair :template="tooltip" :on-crosshair-move="track" :color="series.map((s) => s.color)" />
         </VisXYContainer>
       </ChartContainer>
     </div>
-    <Legend v-if="series.length > 1" :items="series" />
+    <div v-if="bars" role="img" :aria-label="bars.label" :class="onSelect && '[&_[data-vis-xy-container]_path]:cursor-pointer'" data-slot="area-chart-bars">
+      <ChartContainer :config="chartConfig(bars.series)" class="aspect-auto h-[120px] w-full">
+        <VisXYContainer :data="visible" :margin="{ ...SHARED_MARGIN, top: 4, bottom: 24 }" :auto-margin="false" :x-domain="xDomain">
+          <VisStackedBar
+            :x="xValue"
+            :y="barAccessors"
+            :color="bars.series.map((s) => s.color)"
+            :rounded-corners="4"
+            :bar-max-width="28"
+            :bar-padding="0.2"
+            :duration="300"
+            :events="barEvents"
+          />
+          <VisAxis type="x" :x="xValue" :tick-values="xTicks" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis type="y" :num-ticks="2" :tick-format="bars.yFormat ?? plainNumber" :tick-line="false" :domain-line="false" />
+          <VisTooltip :triggers="barTriggers" />
+        </VisXYContainer>
+      </ChartContainer>
+    </div>
+    <Legend v-if="series.length + (bars?.series.length ?? 0) > 1" :items="[...series, ...(bars?.series ?? [])]" />
   </div>
 </template>
