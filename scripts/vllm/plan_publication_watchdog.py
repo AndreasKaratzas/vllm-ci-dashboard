@@ -15,6 +15,7 @@ from pathlib import Path
 # Support direct execution as ``python scripts/vllm/plan_publication_watchdog.py``.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from vllm.operations_bundle_contract import OPERATIONS_MANIFEST_MAX_BYTES  # noqa: E402
 from vllm.plan_dns_publication_reconcile import (  # noqa: E402
     FUTURE_SKEW,
     STATUS_MAX_BYTES,
@@ -30,8 +31,14 @@ DEFAULT_ACTIVE_RUN_MAX_AGE_MINUTES = 75.0
 WORKFLOW_RUNS_MAX_BYTES = 2 * 1024 * 1024
 UNAVAILABLE_GENERATION = "unavailable"
 RECOVERY_TARGETS = frozenset({"collector", "deploy-pages", "dns-health"})
-RECOVERY_KEY_RE = re.compile(r"(?:^| )\[recovery:([0-9a-f]{64})\](?:$| )")
+# Run titles tag their mode: ``[full:<key>]``, ``[queue:<key>]`` and
+# ``[dns:<generation>]`` for Data Collection, ``[recovery:<key>]`` for keyed
+# Pages and DNS monitor runs. Untagged runs are routine.
+RUN_TAG_RE = re.compile(r"(?<!\S)\[(full|queue|dns|recovery):([^\s\[\]]*)\](?!\S)")
+RECOVERY_KEY_RE = re.compile(r"[0-9a-f]{64}")
+RECONCILIATION_MODES = frozenset({"queue", "dns"})
 COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+FRESHNESS_TARGETS = Path(__file__).resolve().parents[2] / "config/data_freshness_targets.json"
 COMPLETED_CONCLUSIONS = frozenset(
     {
         "action_required",
@@ -129,6 +136,24 @@ class WorkflowRun:
     conclusion: str | None
     recovery_key: str | None
     head_sha: str | None = None
+    mode: str = "routine"
+
+
+@dataclass(frozen=True)
+class CoreTargets:
+    """Core sources clocked by the operations manifest and their age target."""
+
+    sources: tuple[str, ...]
+    target_minutes: float
+
+
+@dataclass(frozen=True)
+class CoreDataAge:
+    """The oldest core source; ``collected_at`` is None when its clock is unreadable."""
+
+    source: str
+    collected_at: datetime | None
+    stale: bool
 
 
 def recovery_key(*, target: str, reason: str, observed_generation: str) -> str:
@@ -143,13 +168,18 @@ def recovery_key(*, target: str, reason: str, observed_generation: str) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
-def _display_title_recovery_key(display_title: object) -> str | None:
+def _display_title_tag(display_title: object) -> tuple[str, str | None]:
+    """Return the run mode and its recovery key from a bounded run title."""
     if not isinstance(display_title, str) or not 1 <= len(display_title) <= 256:
         raise ValueError("workflow run state contains an invalid display title")
-    matches = RECOVERY_KEY_RE.findall(display_title)
+    matches = RUN_TAG_RE.findall(display_title)
     if len(matches) > 1:
-        raise ValueError("workflow run state contains multiple recovery keys")
-    return matches[0] if matches else None
+        raise ValueError("workflow run state contains multiple run tags")
+    if not matches:
+        return "routine", None
+    mode, value = matches[0]
+    keyed = mode != "dns" and RECOVERY_KEY_RE.fullmatch(value) is not None
+    return mode, value if keyed else None
 
 
 def _positive_finite(value: float, *, label: str) -> float:
@@ -240,8 +270,7 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
         )
         updated_at = _parse_timestamp(row.get("updated_at"))
         conclusion = row.get("conclusion")
-        display_title = row.get("display_title")
-        parsed_recovery_key = _display_title_recovery_key(display_title)
+        mode, parsed_recovery_key = _display_title_tag(row.get("display_title"))
         if (
             type(run_id) is not int
             or run_id <= 0
@@ -276,6 +305,7 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
                 conclusion=conclusion,
                 recovery_key=parsed_recovery_key,
                 head_sha=head_sha,
+                mode=mode,
             )
         )
     return tuple(runs)
@@ -322,6 +352,10 @@ def watchdog_decision(
 
     active_cutoff = now - timedelta(minutes=active_run_max_age_minutes)
     for run in workflow_runs:
+        # Queue and DNS reconciliations republish without collecting, so they
+        # never stand in for the collection or recovery being planned.
+        if run.mode in RECONCILIATION_MODES:
+            continue
         # Bound queued and running suppression so an orphaned API state cannot
         # disable recovery forever. The 75-minute default matches the full
         # collector job's timeout; older orphaned states cannot block a retry.
@@ -365,45 +399,66 @@ def watchdog_decision(
     return RecoveryDecision(True, observation.recovery_reason, observation.generation, incident_key)
 
 
-def generation_preflight_decision(
-    observation: PublicationObservation,
-    *,
-    expected_generation: str,
-    now: datetime,
-) -> RecoveryDecision:
-    """Recheck a queued wake-up after it acquires the publication lock."""
+def load_core_targets(path: Path = FRESHNESS_TARGETS) -> CoreTargets:
+    """Read the core sources shared with Site Health and the web UI.
+
+    Sources published under their own ``path`` are not clocked by the
+    operations manifest and stay out of the watchdog's core age.
+    """
+    loaded, payload = _load_bounded_json(path, max_bytes=STATUS_MAX_BYTES)
+    try:
+        if not loaded:
+            raise TypeError
+        core = payload["core"]
+        sources = tuple(key for key in core["sources"] if "path" not in payload["sources"][key])
+        target_minutes = _positive_finite(float(core["target_minutes"]), label="core target")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("data freshness targets are invalid") from exc
+    if not sources or not all(isinstance(key, str) for key in sources):
+        raise ValueError("data freshness targets are invalid")
+    return CoreTargets(sources, target_minutes)
+
+
+def core_data_age(manifest_path: Path, targets: CoreTargets, *, now: datetime) -> CoreDataAge:
+    """Return the oldest core clock in a hydrated operations manifest.
+
+    A missing or unreadable clock counts as stale: the collector admission
+    still bounds every Buildkite request.
+    """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     now = now.astimezone(timezone.utc)
-    if expected_generation == UNAVAILABLE_GENERATION:
-        if observation.generated_at is not None and observation.recovery_reason is None:
-            return RecoveryDecision(False, "publication-recovered", observation.generation)
-        return RecoveryDecision(
-            True,
-            observation.recovery_reason or "status-unavailable",
-            observation.generation,
-        )
-    expected = _parse_timestamp(expected_generation)
-    if expected is None or expected > now + FUTURE_SKEW:
-        return RecoveryDecision(True, "expected-generation-invalid", observation.generation)
-    if (
-        observation.generated_at is not None
-        and observation.generated_at > expected
-        and observation.recovery_reason is None
-    ):
-        return RecoveryDecision(False, "generation-advanced", observation.generation)
+    _, manifest = _load_bounded_json(manifest_path, max_bytes=OPERATIONS_MANIFEST_MAX_BYTES)
+    shell = manifest.get("shell") if isinstance(manifest, dict) else None
+    published = shell.get("sources") if isinstance(shell, dict) else None
+    oldest: tuple[str, datetime] | None = None
+    for key in targets.sources:
+        entry = published.get(key) if isinstance(published, dict) else None
+        raw = entry.get("timestamp") if isinstance(entry, dict) else None
+        collected_at = _parse_timestamp(raw)
+        if collected_at is None or collected_at > now + FUTURE_SKEW:
+            return CoreDataAge(key, None, True)
+        if oldest is None or collected_at < oldest[1]:
+            oldest = (key, collected_at)
+    assert oldest is not None
+    source, collected_at = oldest
+    stale = now - collected_at >= timedelta(minutes=targets.target_minutes)
+    return CoreDataAge(source, collected_at, stale)
+
+
+def admitted_observation(
+    observation: PublicationObservation, core_age: CoreDataAge
+) -> PublicationObservation:
+    """Promote a current publication once the collector admission is open.
+
+    Queue and DNS reconciliations keep the publication clock fresh, so a
+    current publication says nothing about the core collection; the open
+    durable admission is the authority that a collection is due.
+    """
     if observation.recovery_reason is not None:
-        return RecoveryDecision(True, observation.recovery_reason, observation.generation)
-    return RecoveryDecision(True, "generation-pending", observation.generation)
-
-
-def cadence_preflight_decision(
-    observation: PublicationObservation,
-) -> RecoveryDecision:
-    """Coalesce a scheduled run queued behind a just-finished recovery."""
-    if observation.recovery_reason is None:
-        return RecoveryDecision(False, "canonical-recent", observation.generation)
-    return RecoveryDecision(True, observation.recovery_reason, observation.generation)
+        return observation
+    reason = "core-data-stale" if core_age.stale else "buildkite-collection-due"
+    return PublicationObservation(reason, observation.generation, observation.generated_at)
 
 
 def _append_github_output(path: Path, decision: RecoveryDecision) -> None:
@@ -417,13 +472,15 @@ def _append_github_output(path: Path, decision: RecoveryDecision) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--status", type=Path, required=True)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--workflow-runs", type=Path)
-    mode.add_argument("--expected-generation")
-    mode.add_argument("--cadence-preflight", action="store_true")
+    parser.add_argument("--workflow-runs", type=Path, required=True)
+    parser.add_argument("--recovery-target", choices=sorted(RECOVERY_TARGETS), required=True)
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--collector-admission", type=Path)
-    parser.add_argument("--recovery-target", choices=sorted(RECOVERY_TARGETS))
+    parser.add_argument(
+        "--operations-manifest",
+        type=Path,
+        help="Hydrated Pages operations manifest whose core clocks label an admitted collection",
+    )
     parser.add_argument(
         "--current-code-sha",
         help="Exact trusted checkout HEAD for DNS same-code retry suppression",
@@ -451,14 +508,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.force_recovery_reason and args.workflow_runs is None:
-        parser.error("--force-recovery-reason requires --workflow-runs")
-    if (args.workflow_runs is None) != (args.recovery_target is None):
-        parser.error("--recovery-target is required exactly with --workflow-runs")
     if (args.recovery_target == "dns-health") != (args.current_code_sha is not None):
         parser.error("--current-code-sha is required exactly with DNS workflow recovery")
     if args.collector_admission and (args.recovery_target != "collector" or args.force_recovery_reason == "state-uninitialized"):
         parser.error("--collector-admission requires a non-bootstrap collector route")
+    if (args.collector_admission is None) != (args.operations_manifest is None):
+        parser.error("--operations-manifest is required exactly with --collector-admission")
 
     now = _parse_timestamp(args.now) if args.now else datetime.now(timezone.utc)
     if now is None:
@@ -475,35 +530,33 @@ def main(argv: list[str] | None = None) -> int:
                 observation.generation,
                 observation.generated_at,
             )
-        if args.workflow_runs is not None:
-            assert args.recovery_target is not None
-            runs = load_workflow_runs(args.workflow_runs, now=now)
-            decision = watchdog_decision(
-                observation,
-                runs,
-                now=now,
-                recovery_target=args.recovery_target,
-                retry_cooldown_minutes=args.retry_cooldown_minutes,
-                active_run_max_age_minutes=args.active_run_max_age_minutes,
-                current_code_sha=args.current_code_sha,
-            )
-            if args.collector_admission:
-                from vllm.observe_watchdog_collection_admission import load_admission
+        admission = None
+        if args.collector_admission:
+            from vllm.observe_watchdog_collection_admission import load_admission
 
-                admission = load_admission(args.collector_admission, now=now)
-                if not admission.required:
-                    decision = RecoveryDecision(
-                        False, admission.reason, decision.observed_generation,
-                        decision.recovery_key,
-                    )
-        elif args.expected_generation is not None:
-            decision = generation_preflight_decision(
-                observation,
-                expected_generation=args.expected_generation,
-                now=now,
+            admission = load_admission(args.collector_admission, now=now)
+            if admission.required:
+                core_age = core_data_age(args.operations_manifest, load_core_targets(), now=now)
+                print(
+                    f"Oldest core source: {core_age.source} collected at "
+                    f"{_canonical_timestamp(core_age.collected_at) if core_age.collected_at else 'unknown'}"
+                    f" ({'stale' if core_age.stale else 'within target'})"
+                )
+                observation = admitted_observation(observation, core_age)
+        runs = load_workflow_runs(args.workflow_runs, now=now)
+        decision = watchdog_decision(
+            observation,
+            runs,
+            now=now,
+            recovery_target=args.recovery_target,
+            retry_cooldown_minutes=args.retry_cooldown_minutes,
+            active_run_max_age_minutes=args.active_run_max_age_minutes,
+            current_code_sha=args.current_code_sha,
+        )
+        if admission is not None and not admission.required:
+            decision = RecoveryDecision(
+                False, admission.reason, decision.observed_generation, decision.recovery_key,
             )
-        else:
-            decision = cadence_preflight_decision(observation)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
 

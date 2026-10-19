@@ -1,6 +1,11 @@
 name: Data Collection
+# Each mode carries its own tag so run lists tell full collections from queue
+# and DNS reconciliations; untagged runs are routine full collections.
 run-name: >-
-  Data Collection${{ inputs.recovery_key != '' && format(' [recovery:{0}]', inputs.recovery_key) || '' }}
+  Data Collection${{
+    inputs.dns_generation != '' && format(' [dns:{0}]', inputs.dns_generation) ||
+    inputs.queue_generation != '' && format(' [queue:{0}]', inputs.recovery_key) ||
+    inputs.watchdog_generation != '' && format(' [full:{0}]', inputs.recovery_key) || '' }}
 
 # Single unified cron job that runs all data collection, tests, and deploy.
 # Replaces the legacy CI collection/update schedules. The synthetic site
@@ -51,9 +56,9 @@ permissions:
   contents: write
   issues: write
 
-# Coalesce routine, DNS-recovery, queue-recovery, and publication-recovery wakeups
-# independently
-# before they can occupy the Pages writer queue. A routine burst therefore
+# Every full-collection trigger (schedule, webhook, manual, watchdog) shares one
+# group, so at most one full collection runs and one waits. DNS and queue
+# reconciliations coalesce in their own groups, so a full-collection burst
 # cannot replace a pending targeted repair. The job-level lock below then
 # queues each surviving Data workflow without replacing another Pages writer.
 concurrency:
@@ -61,8 +66,7 @@ concurrency:
     ${{
       inputs.dns_generation != '' && 'data-collection-dns-recovery' ||
       inputs.queue_generation != '' && 'data-collection-queue-recovery' ||
-      inputs.watchdog_generation != '' && 'data-collection-watchdog-recovery' ||
-      'data-collection-routine'
+      'data-collection-full'
     }}
   cancel-in-progress: false
 
@@ -4098,7 +4102,7 @@ jobs:
   dns-reconcile-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.dns_generation != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -4147,7 +4151,7 @@ jobs:
   queue-reconcile-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.queue_generation != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -4473,7 +4477,7 @@ jobs:
   publication-watchdog-preflight:
     if: github.event_name == 'workflow_dispatch' && inputs.watchdog_generation != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -4504,7 +4508,7 @@ jobs:
     # reserve step, independent of general publication timestamps.
     if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
