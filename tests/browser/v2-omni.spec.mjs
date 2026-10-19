@@ -100,6 +100,7 @@ async function classicDrawer(page) {
       fields: [...o.querySelectorAll('.ops-detail-fields .ops-detail-field')].map((f) => `${t(f.querySelector('dt'))}=${t(f.querySelector('dd'))}`),
       strip: [...o.querySelectorAll('.ops-status-strip .ops-stat-value')].map(t),
       firstColumn: [...o.querySelectorAll('table.ops-table')].map((table) => [...table.querySelectorAll('tbody tr')].map((tr) => t(tr.querySelector('td')))),
+      empties: [...o.querySelectorAll('.ops-overlay-body .ops-empty')].map(t),
     };
   });
 }
@@ -115,6 +116,7 @@ async function v2Drawer(page) {
       fields: [...o.querySelectorAll('dl dt')].map((dt) => `${t(dt)}=${t(dt.nextElementSibling)}`),
       strip: [...o.querySelectorAll('[data-slot=card-title]')].map(t),
       firstColumn: [...o.querySelectorAll('table')].map((table) => [...table.querySelectorAll('tbody tr')].map((tr) => t(tr.querySelector('td')))),
+      empties: [...o.querySelectorAll('[data-testid=omni-detail-empty], [data-testid=omni-detail-table-empty]')].map(t),
     };
   });
 }
@@ -149,7 +151,33 @@ test.describe('v2 Omni CI matches the classic page on the same snapshot', () => 
     expect(classicJobs.firstColumn[0].length).toBeGreaterThan(0);
     expect(jobs.title).toBe(classicJobs.title);
     expect(jobs.firstColumn[0]).toEqual(classicJobs.firstColumn[0]);
+
+    // With no mapping history the bucket browser is an empty note on both pages, not an empty table.
+    await page.locator('.ops-overlay:not([hidden]) .ops-overlay-close').last().click();
+    await page.getByRole('button', { name: 'Inspect time buckets' }).click();
+    const classicBuckets = await classicDrawer(page);
+    await page.goto('/#/omni');
+    await page.getByRole('button', { name: 'Inspect time buckets' }).click();
+    const buckets = await v2Drawer(page);
+    expect(classicBuckets.title).not.toBe('');
+    expect(classicBuckets.empties.length).toBeGreaterThan(0);
+    expect(classicBuckets.firstColumn).toEqual([]);
+    expect(buckets).toEqual(classicBuckets);
     expect(errors).toEqual([]);
+  });
+
+  test('narrow viewport: the window toggles do not scroll the page sideways', async ({ page }) => {
+    await isolate(page, MAPPED_OMNI);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/#/omni');
+    await page.getByTestId('omni-mapping-range').waitFor();
+    await expect(page.getByTestId('omni-range')).toBeVisible();
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(clientWidth).toBe(390);
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
   });
 
   test('published snapshot: mapping KPIs, coverage note, charts, comparison, and drawers', async ({ page }) => {

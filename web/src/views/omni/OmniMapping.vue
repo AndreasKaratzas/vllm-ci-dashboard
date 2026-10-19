@@ -33,11 +33,13 @@ const kpiTone = (tone: Tone | '') => (tone || 'is-neutral') as Tone
 <template>
   <section class="flex flex-col gap-4 md:gap-6" aria-label="Incoming Omni workload">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flex max-w-full min-w-0 flex-wrap items-center gap-3">
         <span class="text-sm font-medium">Incoming workload</span>
-        <ToggleGroup v-model="range" type="single" variant="outline" size="sm" aria-label="Filter unique Omni mappings by time window" data-testid="omni-mapping-range">
-          <ToggleGroupItem v-for="w in OMNI_MAPPING_WINDOWS" :key="w.id" :value="w.id" :aria-label="w.label">{{ w.label }}</ToggleGroupItem>
-        </ToggleGroup>
+        <div class="max-w-full overflow-x-auto">
+          <ToggleGroup v-model="range" type="single" variant="outline" size="sm" aria-label="Filter unique Omni mappings by time window" data-testid="omni-mapping-range">
+            <ToggleGroupItem v-for="w in OMNI_MAPPING_WINDOWS" :key="w.id" :value="w.id" :aria-label="w.label">{{ w.label }}</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
       <Button variant="outline" size="sm" @click="emit('open', view.methodology())">Scope &amp; coverage</Button>
     </div>

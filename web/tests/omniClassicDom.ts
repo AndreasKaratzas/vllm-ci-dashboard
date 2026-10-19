@@ -1,6 +1,6 @@
 // Reads what the classic renderOmni draws (jsdom) and what the v2 Omni models
 // describe into one comparable shape, including every drawer it opens.
-import { detailSubtitle, detailTitle, visibleFields, type Cell, type DetailTable, type OmniDetail } from '@/domain/omni'
+import { OMNI_EMPTY_TABLE_TEXT, detailSubtitle, detailTitle, visibleFields, type Cell, type DetailTable, type OmniDetail } from '@/domain/omni'
 import type { Rec } from '@/domain/format'
 
 export interface TableShape {
@@ -85,7 +85,8 @@ export function v2TableShape(table: DetailTable<Rec>, limit = Infinity): TableSh
 export function v2DetailShape(detail: OmniDetail, classic: DetailShape): DetailShape {
   // Classic dataTable() draws an empty table as a note, not a table.
   const tables = detail.tables.filter((t) => t.rows.length)
-  const emptyBrowser = detail.tables.some((t) => !t.rows.length) ? 'No matching evidence. No matching observations.' : ''
+  // The sheet renders an empty table as the same dashed note (OMNI_EMPTY_TABLE_TEXT).
+  const emptyBrowser = detail.tables.filter((t) => !t.rows.length).map(() => OMNI_EMPTY_TABLE_TEXT)
   return {
     title: detailTitle(detail),
     subtitle: detailSubtitle(detail),
@@ -95,6 +96,6 @@ export function v2DetailShape(detail: OmniDetail, classic: DetailShape): DetailS
     strip: (detail.strip ?? []).map((s) => `${s.label}|${s.value}|${s.meta}`),
     panels: detail.tables.filter((t) => t.title).map((t) => `${t.title}|${t.meta ?? ''}`),
     tables: tables.map((t, i) => v2TableShape(t, classic.tables[i]?.rows.length ?? Infinity)),
-    empty: [detail.empty, emptyBrowser].filter(Boolean).join(' / '),
+    empty: [detail.empty, ...emptyBrowser].filter(Boolean).join(' / '),
   }
 }

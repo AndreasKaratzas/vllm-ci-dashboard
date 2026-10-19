@@ -584,6 +584,9 @@ export interface Column<T = Rec> {
   numeric?: boolean
   cell: (row: T) => Cell
 }
+/** Classic dataTable() note for a browser table with no rows: 'No matching evidence' + '. No matching observations.' */
+export const OMNI_EMPTY_TABLE_TEXT = 'No matching evidence. No matching observations.'
+
 export interface DetailTable<T = Rec> {
   title?: string
   meta?: string

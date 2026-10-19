@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import type { Rec } from '@/domain/format'
-import { detailSubtitle, detailTitle, visibleFields, type DetailTable, type OmniDetail } from '@/domain/omni'
+import { OMNI_EMPTY_TABLE_TEXT, detailSubtitle, detailTitle, visibleFields, type DetailTable, type OmniDetail } from '@/domain/omni'
 import OmniCell from './OmniCell.vue'
 
 const props = withDefaults(defineProps<{ detail: OmniDetail; depth?: number }>(), { depth: 0 })
@@ -72,7 +72,7 @@ function columnsFor(table: DetailTable<Rec>): ColumnDef<Rec, unknown>[] {
           </Button>
         </div>
 
-        <p v-if="detail.empty" class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">{{ detail.empty }}</p>
+        <p v-if="detail.empty" class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground" data-testid="omni-detail-empty">{{ detail.empty }}</p>
 
         <template v-for="(table, index) in detail.tables" :key="index">
           <div class="flex flex-col gap-2">
@@ -80,12 +80,18 @@ function columnsFor(table: DetailTable<Rec>): ColumnDef<Rec, unknown>[] {
               <h3 v-if="table.title" class="text-sm font-semibold">{{ table.title }}</h3>
               <span v-if="table.meta" class="text-xs text-muted-foreground">{{ table.meta }}</span>
             </div>
+            <p
+              v-if="!table.rows.length"
+              class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground"
+              data-testid="omni-detail-table-empty"
+            >{{ OMNI_EMPTY_TABLE_TEXT }}</p>
             <DataTable
+              v-else
               :columns="columnsFor(table)"
               :data="table.rows"
               :page-size="25"
               :search-placeholder="table.searchPlaceholder ?? 'Filter rows'"
-              empty-text="No matching evidence."
+              :empty-text="OMNI_EMPTY_TABLE_TEXT"
             />
           </div>
         </template>

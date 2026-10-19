@@ -46,9 +46,11 @@ const ACCENT: Record<string, string> = {
         </button>
       </div>
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <ToggleGroup v-model="range" type="single" variant="outline" size="sm" aria-label="Filter live Omni occupancy context by time window" data-testid="omni-range">
-          <ToggleGroupItem v-for="w in OMNI_RANGE_WINDOWS" :key="w.id" :value="w.id" :aria-label="w.label">{{ w.label }}</ToggleGroupItem>
-        </ToggleGroup>
+        <div class="max-w-full overflow-x-auto">
+          <ToggleGroup v-model="range" type="single" variant="outline" size="sm" aria-label="Filter live Omni occupancy context by time window" data-testid="omni-range">
+            <ToggleGroupItem v-for="w in OMNI_RANGE_WINDOWS" :key="w.id" :value="w.id" :aria-label="w.label">{{ w.label }}</ToggleGroupItem>
+          </ToggleGroup>
+        </div>
         <div class="flex flex-wrap gap-2" data-testid="omni-live-actions">
           <Button v-for="item in view.live.actions" :key="item.label" variant="outline" size="sm" @click="emit('open', item.open())">{{ item.label }}</Button>
           <Button variant="ghost" size="sm" as="a" :href="view.live.queueHistoryUrl" target="_blank" rel="noopener">
