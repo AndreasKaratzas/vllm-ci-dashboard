@@ -122,43 +122,44 @@ def _scope_ci_builds(
     # One lock spans priming/checkpointing: concurrent day slices cannot spend
     # duplicate source starts or overwrite each other's verified progress.
     with _SOURCE_SCOPE_LOCK:
-        missing = sorted(set(candidates) - _SOURCE_SCOPE_INDEXES.keys())
+        # The bounded cache may evict any proof, including one this page needs,
+        # so the join reads this page's own proofs and only checkpoints them.
+        indexes = {commit: _SOURCE_SCOPE_INDEXES[commit]
+                   for commit in candidates if commit in _SOURCE_SCOPE_INDEXES}
+        missing = sorted(set(candidates) - indexes.keys())
         for offset in range(0, len(missing), 50):
             batch = missing[offset:offset + 50]
             prewarm_runtime_snapshots(batch)
             for commit in batch:
-                annotated = annotate_runtime_source_scope({"commit": commit, "jobs": []})
-                retained = retain_runtime_source_indexes(
-                    {**_SOURCE_SCOPE_INDEXES, commit: annotated["source_scope_index"]},
-                    preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES],
-                )
-                if _SOURCE_SCOPE_CACHE_DIR is not None:
-                    write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
-                _SOURCE_SCOPE_INDEXES.clear()
-                _SOURCE_SCOPE_INDEXES.update(retained)
+                indexes[commit] = annotate_runtime_source_scope({"commit": commit, "jobs": []})["source_scope_index"]
+                _checkpoint_source_scope_index(commit, indexes)
         result = []
         for build in builds:
             commit = str(build.get("commit") or "").strip().casefold()
-            if str((build.get("pipeline") or {}).get("slug") or pipeline) == "ci" and commit in candidates:
+            if str((build.get("pipeline") or {}).get("slug") or pipeline) == "ci" and commit in indexes:
                 prepared = {**build, "jobs": [
                     {**job, "agent_queue": _job_queue(job)} if isinstance(job, dict) else job
                     for job in build.get("jobs") or []
                 ]}
-                annotated = annotate_runtime_source_scope(prepared, scope_index=_SOURCE_SCOPE_INDEXES[commit])
-                index = annotated["source_scope_index"]
-                if index != _SOURCE_SCOPE_INDEXES[commit]:
-                    retained = retain_runtime_source_indexes(
-                        {**_SOURCE_SCOPE_INDEXES, commit: index},
-                        preferred_commits=[commit, *_SOURCE_SCOPE_INDEXES],
-                    )
-                    if _SOURCE_SCOPE_CACHE_DIR is not None:
-                        write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
-                    _SOURCE_SCOPE_INDEXES.clear()
-                    _SOURCE_SCOPE_INDEXES.update(retained)
+                annotated = annotate_runtime_source_scope(prepared, scope_index=indexes[commit])
+                if annotated["source_scope_index"] != indexes[commit]:
+                    indexes[commit] = annotated["source_scope_index"]
+                    _checkpoint_source_scope_index(commit, indexes)
                 result.append(annotated)
             else:
                 result.append(build)
         return result
+
+
+def _checkpoint_source_scope_index(commit: str, indexes: dict[str, dict]) -> None:
+    retained = retain_runtime_source_indexes(
+        {**_SOURCE_SCOPE_INDEXES, commit: indexes[commit]},
+        preferred_commits=[commit, *indexes, *_SOURCE_SCOPE_INDEXES],
+    )
+    if _SOURCE_SCOPE_CACHE_DIR is not None:
+        write_runtime_source_indexes(_SOURCE_SCOPE_CACHE_DIR, retained)
+    _SOURCE_SCOPE_INDEXES.clear()
+    _SOURCE_SCOPE_INDEXES.update(retained)
 
 
 PER_PAGE = 100
