@@ -1,4 +1,5 @@
 import type { Detail } from '@/components/evidence/detail'
+import type { PaletteColor } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 export interface CellSpec {
@@ -11,6 +12,8 @@ export interface CellSpec {
   tone?: Tone
   mono?: boolean
   sub?: string
+  /** A trend drawn after the text; fewer than two values draw nothing. */
+  spark?: { values: number[]; label: string; color?: PaletteColor }
 }
 
 export interface ColumnSpec<T> {

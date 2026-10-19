@@ -19,14 +19,14 @@ const REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
     v-if="view"
     :variant="view.tone === 'critical' ? 'destructive' : 'default'"
     :role="view.tone === 'critical' ? 'alert' : 'status'"
-    :class="view.tone === 'warning' ? 'border-warning/50 text-warning' : ''"
+    :class="view.tone === 'warning' ? 'border-warning/50 text-warning' : 'text-status-hard-fg *:data-[slot=alert-description]:text-status-hard-fg'"
     data-testid="publication-banner"
   >
     <TriangleAlert />
     <AlertTitle>{{ view.title }}</AlertTitle>
     <AlertDescription>
       <p>{{ view.message }}</p>
-      <p v-if="details.length" class="text-xs opacity-80">{{ details.join(' ') }}</p>
+      <p v-if="details.length" class="text-xs">{{ details.join(' ') }}</p>
       <p class="text-xs">
         <a class="underline" :href="`${REPO}/issues?q=is%3Aissue%20is%3Aopen%20%22Hourly%20validation%20failure%22`">Refresh failure details</a>
         ·

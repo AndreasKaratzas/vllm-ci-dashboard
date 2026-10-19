@@ -12,6 +12,8 @@ export interface DetailStat {
   value: string
   meta?: string
   tone?: Tone
+  /** Badge text for the tone; defaults to the generic status label. */
+  toneLabel?: string
 }
 
 export interface DetailField {

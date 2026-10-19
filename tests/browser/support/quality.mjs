@@ -6,6 +6,8 @@ import { expect } from '@playwright/test';
 // no serious or critical accessibility violations in the current theme.
 
 const CLICKABLE = 'button:not(:disabled), [role="tab"], [role="button"], [role="option"], [role="menuitem"], a[href], summary, select';
+// The sidebar rail is a drag handle and keeps its resize cursor.
+const RESIZE_HANDLE = '[data-sidebar="rail"]';
 
 export function collectErrors(page) {
   const errors = [];
@@ -19,14 +21,15 @@ export async function setTheme(page, theme) {
 }
 
 export async function expectPointerCursors(page) {
-  const offenders = await page.locator(CLICKABLE).evaluateAll((nodes) =>
+  const offenders = await page.locator(CLICKABLE).evaluateAll((nodes, handle) =>
     nodes
       .filter((node) => {
         const box = node.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
       })
-      .filter((node) => getComputedStyle(node).cursor !== 'pointer')
+      .filter((node) => !node.matches(handle) && getComputedStyle(node).cursor !== 'pointer')
       .map((node) => `${node.tagName.toLowerCase()}[${node.getAttribute('role') ?? ''}] ${node.textContent.trim().slice(0, 40)}`),
+    RESIZE_HANDLE,
   );
   expect(offenders, 'clickable controls without a pointer cursor').toEqual([]);
 }
@@ -46,6 +49,10 @@ export async function expectAccessible(page) {
 
 /** Every gate on the current page, as rendered at the current viewport and theme. */
 export async function expectQuality(page, errors) {
+  // Entrance animations fade content in; contrast is measured on the settled page.
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))),
+  );
   await expectPointerCursors(page);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);

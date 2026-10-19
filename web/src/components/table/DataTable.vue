@@ -113,7 +113,7 @@ function activate(row: T, event: Event) {
       <slot name="toolbar" />
       <DropdownMenu v-if="hideable.length">
         <DropdownMenuTrigger as-child>
-          <Button variant="outline" size="sm" class="ml-auto"><Columns3 /> <span class="hidden lg:inline">Columns</span></Button>
+          <Button variant="outline" size="sm" class="ml-auto" aria-label="Columns"><Columns3 /> <span class="hidden lg:inline">Columns</span></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuCheckboxItem
