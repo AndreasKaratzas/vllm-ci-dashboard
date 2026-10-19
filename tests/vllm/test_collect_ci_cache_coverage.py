@@ -673,7 +673,7 @@ def test_exact_source_step_preserves_two_families_on_observed_rerouted_hardware(
         for job in build["jobs"]
     ], "amd", build)
     from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
-    commit, routes = extract_amd_runtime_group_key_map_from_report(report)
+    commit, routes, _ = extract_amd_runtime_group_key_map_from_report(report)
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
@@ -747,7 +747,7 @@ def test_analyzer_refuses_unverified_source_identity(field, value, monkeypatch):
     rows = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)
     commit, definitions = _amd_source_definition_catalog(report)
     attested = _attest_amd_source_results(rows, build, commit, definitions)
-    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    _, routes, _ = extract_amd_runtime_group_key_map_from_report(report)
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
@@ -767,7 +767,7 @@ def test_same_commit_cached_row_cannot_borrow_another_valid_definition_family(mo
     row = TestResult(**_record(build["jobs"][0]["name"], build_num=7790, job_id="job-0"))
     commit, definitions = _amd_source_definition_catalog(report)
     attested = _attest_amd_source_results(_current_scope_results([row], "amd", build), build, commit, definitions)
-    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    _, routes, _ = extract_amd_runtime_group_key_map_from_report(report)
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
@@ -808,7 +808,7 @@ def test_original_dpx_declaration_binds_keyless_provider_step_without_queue_alia
     assert proved[1].step_id == build["jobs"][1]["step"]["id"]
     assert proved[1].source_agent_pool == "mi355_dpx"
     assert proved[1].job_name.startswith("amd_mi355_1:")
-    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    _, routes, _ = extract_amd_runtime_group_key_map_from_report(report)
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
@@ -853,6 +853,68 @@ def test_present_malformed_key_cannot_downgrade_to_declared_label_proof(location
         _attest_amd_source_results([row], build, commit, definitions)
 
 
+def _shared_route_lm_eval_report(monkeypatch):
+    """Trimmed from vLLM da9134bc: two steps mirror to one label on mi355_dpx."""
+    from vllm import config_parity
+    path = ".buildkite/test_areas/lm_eval.yaml"
+    steps = [
+        {"label": ":nvidia: (H200 MIG 35GB) LM Eval Small Models", "device": "h200_35gb",
+         "key": "lm-eval-small-models", "commands": ["pytest evals/gsm8k --config-list-file=configs/models-small.txt"],
+         "mirror": {"amd": {"label": ":amd: (MI355) LM Eval Small Models", "device": "mi355_dpx"}}},
+        {"label": ":nvidia: (B200) LM Eval Small Models", "key": "lm-eval-small-models-1xb200", "device": "b200-k8s",
+         "commands": ["pytest evals/gsm8k --config-list-file=configs/models-blackwell.txt"],
+         "mirror": {"amd": {"label": ":amd: (MI355 DPX) LM Eval Small Models", "device": "mi355_dpx", "num_devices": 1}}},
+    ]
+    monkeypatch.setattr(config_parity, "_SOURCE_SNAPSHOT", config_parity.ConfigSourceSnapshot("a" * 40, {
+        ".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+        path: {"group": "LM Eval", "steps": steps}}, "2026-10-18T06:00:00Z"))
+    report = config_parity.build_config_parity()
+    build = _scope_nightly_build({"number": 95663, "commit": "a" * 40, "branch": "main", "state": "passed", "jobs": [
+        {**_job(step["mirror"]["amd"]["label"]), "id": f"job-{index}", "step": {"id": f"step-{index}"},
+         "step_key": f"amd-{step['key']}", "agent_query_rules": ["queue=amd_mi355_dpx"]}
+        for index, step in enumerate(steps)]}, "amd")
+    return report, build
+
+
+def test_shared_label_and_queue_keep_distinct_source_families(monkeypatch):
+    from vllm.ci import analyzer
+    from vllm.ci.runtime_families import catalog_definitions_from_report
+    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
+    report, build = _shared_route_lm_eval_report(monkeypatch)
+    commit, definitions = _amd_source_definition_catalog(report)
+    assert catalog_definitions_from_report(report) == (commit, definitions)
+    assert {family for _label, _pool, family, _source in definitions.values()} == {
+        "lm eval small models", "lm eval small models (1 gpus)"}
+    rows = _current_scope_results([TestResult(**_record(job["name"], build_num=95663, job_id=job["id"]))
+                                   for job in build["jobs"]], "amd", build)
+    attested = _attest_amd_source_results(rows, build, commit, definitions)
+    _, routes, shared = extract_amd_runtime_group_key_map_from_report(report)
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
+    monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})
+    monkeypatch.setattr(analyzer, "_AMD_SHARED_ROUTES", frozenset())
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions, shared)
+    assert compute_build_summary(build, attested, "amd").unique_test_groups == 2
+    assert compute_build_summary(build, rows, "amd").unique_test_groups == 2
+    untagged = TestResult(**_record("amd_mi355_dpx: LM Eval Small Models", build_num=95663))
+    with pytest.raises(ValueError, match="shared by multiple source families"):
+        compute_build_summary(build, [untagged], "amd")
+    analyzer.set_amd_runtime_group_key_map(commit, routes, {}, shared)
+    with pytest.raises(ValueError, match="shared by multiple source families"):
+        compute_build_summary(build, rows, "amd")
+    analyzer.set_amd_runtime_group_key_map(commit, routes, definitions, shared)
+    for job in build["jobs"]:
+        del job["step_key"]
+    assert [row.source_definition_id for row in _attest_amd_source_results(rows, build, commit, definitions)] == [
+        ".buildkite/test_areas/lm_eval.yaml#amd-lm-eval-small-models",
+        ".buildkite/test_areas/lm_eval.yaml#amd-lm-eval-small-models-1xb200"]
+    build["jobs"][0]["name"] = "LM Eval Small Models"
+    undeclared = _current_scope_results([TestResult(**_record("LM Eval Small Models", build_num=95663, job_id="job-0"))],
+                                        "amd", build)
+    with pytest.raises(ValueError, match="pinned declared source identity"):
+        _attest_amd_source_results(undeclared, build, commit, definitions)
+
+
 def test_cached_declared_label_proof_cannot_choose_an_ambiguous_definition(monkeypatch):
     from vllm.ci import analyzer
     from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
@@ -863,7 +925,7 @@ def test_cached_declared_label_proof_cannot_choose_an_ambiguous_definition(monke
     proved = _attest_amd_source_results([row], build, commit, definitions)
     identity = proved[0].source_definition_id
     definitions[identity.replace("models.yaml", "other.yaml")] = definitions[identity]
-    _, routes = extract_amd_runtime_group_key_map_from_report(report)
+    _, routes, _ = extract_amd_runtime_group_key_map_from_report(report)
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEY_COMMIT", "")
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_GROUP_KEYS", {})
     monkeypatch.setattr(analyzer, "_AMD_RUNTIME_DEFINITIONS", {})

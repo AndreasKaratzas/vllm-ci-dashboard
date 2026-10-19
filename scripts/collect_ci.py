@@ -532,8 +532,12 @@ def _persist_scoped_cached_results(
 
 def _amd_source_definition_catalog(report: dict) -> tuple[str, dict[str, tuple[str, str, str, str]]]:
     """Index physical definitions from one immutable runtime source report."""
-    from vllm.config_parity import extract_amd_runtime_group_key_map_from_report
-    commit, routes = extract_amd_runtime_group_key_map_from_report(report)
+    from vllm.config_parity import (
+        extract_amd_definition_families_from_report,
+        extract_amd_runtime_group_key_map_from_report,
+    )
+    commit, routes, _shared = extract_amd_runtime_group_key_map_from_report(report)
+    members = extract_amd_definition_families_from_report(report)
     if not FULL_COMMIT_SHA_RE.fullmatch(commit):
         raise ValueError("AMD definition catalog requires an exact source commit")
     definitions = {}
@@ -542,6 +546,8 @@ def _amd_source_definition_catalog(report: dict) -> tuple[str, dict[str, tuple[s
         label = _normalize_job_name(str(raw.get("label") or "")).strip()
         pool = str(raw.get("agent_pool") or "").strip().casefold()
         family = routes.get((label, pool))
+        if isinstance(identity, str) and identity in members:
+            family = members[identity][2] if members[identity][:2] == (label, pool) else None
         if not isinstance(identity, str) or "#" not in identity or not identity.rsplit("#", 1)[-1] or not family:
             raise ValueError("AMD execution definition lacks a pinned family identity")
         if identity in definitions:
@@ -574,7 +580,7 @@ def _attest_amd_source_results(
     routes = {}
     for identity, (label, pool, family, _source_label) in definitions.items():
         by_step.setdefault(identity.rsplit("#", 1)[-1], []).append(identity)
-        routes[(label, pool)] = family
+        routes.setdefault((label, pool), set()).add(family)
     attested = []
     for row in rows:
         job = jobs.get(row.job_id)
@@ -622,7 +628,7 @@ def _attest_amd_source_results(
                 clean = replace(clean, source_definition_id=identity,
                                 source_agent_pool=definitions[identity][1], source_commit=commit,
                                 step_id=raw_step["id"], source_binding_basis="pinned_declared_label")
-            elif (label, pool) not in routes or _amd_declared_label_signature(str(job.get("name") or ""))[1]:
+            elif len(routes.get((label, pool), ())) != 1 or _amd_declared_label_signature(str(job.get("name") or ""))[1]:
                 raise ValueError("AMD rerouted runtime attempt requires a pinned declared source identity")
         attested.append(clean)
     return attested
@@ -1906,7 +1912,7 @@ def main():
             runtime_definition_commit, runtime_definitions = _amd_source_definition_catalog(runtime_config_parity)
         else:
             runtime_definition_commit = ""
-        runtime_group_commit, runtime_group_keys = (
+        runtime_group_commit, runtime_group_keys, runtime_shared_routes = (
             extract_amd_runtime_group_key_map()
         )
         # Update the analyzer's YAML-derived normalization knobs for this run.
@@ -1914,6 +1920,7 @@ def main():
             runtime_group_commit,
             runtime_group_keys,
             runtime_definitions,
+            runtime_shared_routes,
         )
         if runtime_definitions and runtime_definition_commit != runtime_group_commit:
             raise ValueError("AMD runtime definition and family source commits disagree")
@@ -1951,7 +1958,7 @@ def main():
                 extract_amd_runtime_group_key_map_from_report,
             )
             runtime_config_parity = json.loads(config_parity_path.read_text())
-            runtime_group_commit, runtime_group_keys = (
+            runtime_group_commit, runtime_group_keys, runtime_shared_routes = (
                 extract_amd_runtime_group_key_map_from_report(
                     runtime_config_parity
                 )
@@ -1961,6 +1968,7 @@ def main():
                 runtime_group_commit,
                 runtime_group_keys,
                 runtime_definitions,
+                runtime_shared_routes,
             )
             log.info(
                 "Reused %d AMD runtime group routes for config commit %s",

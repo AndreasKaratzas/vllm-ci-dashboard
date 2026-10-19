@@ -583,13 +583,16 @@ def fetch_rest_target_queues(token: str, *, page_fetcher=None) -> tuple[dict[str
             break
     else:
         raise RuntimeError("REST cluster queue discovery reached the pagination safety cap")
+    if not discovered:
+        raise RuntimeError("REST cluster queue discovery found no target queues")
     missing = [queue for queue in AMD_METRIC_TARGET_QUEUES if queue not in discovered]
     if missing:
-        raise RuntimeError("missing target REST cluster queue IDs: " + ", ".join(missing))
+        log.warning("Target queues absent from the Buildkite cluster: %s", ", ".join(missing))
     by_id = {queue_id: queue for queue, queue_id in discovered.items()}
     if len(by_id) != len(discovered):
         raise RuntimeError("target REST cluster queues share a queue ID")
-    return by_id, {"complete": True, "pages": pages, "target_queue_count": len(by_id)}
+    return by_id, {"complete": True, "pages": pages, "target_queue_count": len(by_id),
+                   "absent_target_queues": missing}
 
 
 def _project_rest_builds(
@@ -1627,9 +1630,9 @@ def _baseline_sha256(observations: Iterable[dict]) -> str:
 
 
 def _queue_identity_sha256(queue_by_id: dict[str, str]) -> str:
-    if set(queue_by_id.values()) != set(AMD_METRIC_TARGET_QUEUES):
-        raise RuntimeError("target queue identity map has incomplete scope")
-    if len(queue_by_id) != len(AMD_METRIC_TARGET_QUEUES) or any(
+    if not queue_by_id or not set(queue_by_id.values()) <= set(AMD_METRIC_TARGET_QUEUES):
+        raise RuntimeError("target queue identity map has invalid scope")
+    if len(set(queue_by_id.values())) != len(queue_by_id) or any(
         not isinstance(queue_id, str) or not queue_id
         for queue_id in queue_by_id
     ):
@@ -1855,6 +1858,7 @@ def _validate_checkpoint_shape(state: object) -> dict:
         "complete",
         "pages",
         "target_queue_count",
+        "absent_target_queues",
     }:
         raise RuntimeError("queue lifecycle checkpoint queue discovery schema is invalid")
     if discovery.get("complete") is not True:
@@ -1862,8 +1866,18 @@ def _validate_checkpoint_shape(state: object) -> dict:
     _nonnegative_checkpoint_int(
         discovery.get("pages"), "queue discovery pages", maximum=REST_PAGE_SAFETY_CAP
     )
-    if discovery.get("pages") < 1 or discovery.get("target_queue_count") != len(
-        AMD_METRIC_TARGET_QUEUES
+    _nonnegative_checkpoint_int(
+        discovery.get("target_queue_count"),
+        "queue discovery target queue count",
+        maximum=len(AMD_METRIC_TARGET_QUEUES),
+    )
+    absent = discovery.get("absent_target_queues")
+    if (
+        discovery.get("pages") < 1
+        or discovery.get("target_queue_count") < 1
+        or not isinstance(absent, list)
+        or absent != [queue for queue in AMD_METRIC_TARGET_QUEUES if queue in absent]
+        or discovery["target_queue_count"] + len(absent) != len(AMD_METRIC_TARGET_QUEUES)
     ):
         raise RuntimeError("queue lifecycle checkpoint queue discovery scope is invalid")
 
@@ -3050,6 +3064,16 @@ def build_summary(
         if api_complete
         else "No complete current API collection covers the rolling window."
     )
+    absent_queues = (
+        list((collection.get("queue_discovery") or {}).get("absent_target_queues", []))
+        if collection
+        else None
+    )
+    if absent_queues:
+        coverage_reason += (
+            " Target queues absent from the Buildkite cluster are out of scope and their "
+            f"zero rows are not measurements: {', '.join(absent_queues)}."
+        )
     if ledger_retention.get("byte_limited") is True:
         coverage_reason += (
             " The durable ledger is byte-limited; aggregates cover only the exact "
@@ -3062,6 +3086,7 @@ def build_summary(
         "api_complete": api_complete,
         "api_collection_performed": collection is not None,
         "target_queue_scope_complete": bool(queue_discovery_complete and source_complete),
+        "absent_queues": absent_queues,
         "pagination_complete": source_complete,
         "exact_rolling_window_covered_by_current_query": bool(
             collection is not None and query_covers_window

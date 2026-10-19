@@ -7,6 +7,7 @@ import json
 import logging
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import datetime
 from difflib import SequenceMatcher
 from typing import Optional
@@ -106,8 +107,14 @@ def _parse_job_execution_label(name: str) -> tuple[str, str, str]:
     )
 
 
+_RUNTIME_SHARD_SUFFIX_RE = re.compile(r'\s+shard\s+(\d+)/(\d+)$', re.IGNORECASE)
+
+
 def _strip_known_shard_index(name: str, shard_bases: list[str]) -> str:
-    """Collapse configured shards, including indices before suite qualifiers."""
+    """Collapse configured and runtime-planned (``shard %N/%t``) shards."""
+    runtime = _RUNTIME_SHARD_SUFFIX_RE.search(name)
+    if runtime and 1 <= int(runtime.group(1)) <= int(runtime.group(2)):
+        name = name[:runtime.start()]
     match = re.search(r'\s+\d+(?=\s*(?:\([^)]*\))?$)', name)
     if match:
         base = (name[:match.start()] + name[match.end():]).strip()
@@ -170,12 +177,14 @@ def _normalize_job_name(name: str, *, shard_bases: list[str] | None = None) -> s
 _AMD_RUNTIME_GROUP_KEY_COMMIT = ""
 _AMD_RUNTIME_GROUP_KEYS: dict[tuple[str, str], str] = {}
 _AMD_RUNTIME_DEFINITIONS: dict[str, tuple[str, str, str, str]] = {}
+_AMD_SHARED_ROUTES: frozenset[tuple[str, str]] = frozenset()
 
 
 def set_amd_runtime_group_key_map(
     commit_sha: str | None,
     route_keys: dict[tuple[str, str], str] | None,
     definitions: dict[str, tuple[str, str, str, str]] | None = None,
+    shared_routes: Iterable[tuple[str, str]] = (),
 ) -> None:
     """Install config-family keys for one exact AMD build commit.
 
@@ -185,12 +194,13 @@ def set_amd_runtime_group_key_map(
     Invalid or incomplete provenance therefore clears the map and falls back
     to the historical normalized-label grouping.
     """
-    global _AMD_RUNTIME_GROUP_KEY_COMMIT, _AMD_RUNTIME_GROUP_KEYS, _AMD_RUNTIME_DEFINITIONS
+    global _AMD_RUNTIME_GROUP_KEY_COMMIT, _AMD_RUNTIME_GROUP_KEYS, _AMD_RUNTIME_DEFINITIONS, _AMD_SHARED_ROUTES
     commit = str(commit_sha or "").strip().casefold()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         _AMD_RUNTIME_GROUP_KEY_COMMIT = ""
         _AMD_RUNTIME_GROUP_KEYS = {}
         _AMD_RUNTIME_DEFINITIONS = {}
+        _AMD_SHARED_ROUTES = frozenset()
         return
 
     normalized: dict[tuple[str, str], str] = {}
@@ -207,8 +217,9 @@ def set_amd_runtime_group_key_map(
     _AMD_RUNTIME_GROUP_KEY_COMMIT = commit
     _AMD_RUNTIME_GROUP_KEYS = normalized
     _AMD_RUNTIME_DEFINITIONS = {}
+    _AMD_SHARED_ROUTES = frozenset(shared_routes)
     for identity, (label, pool, family, source_label) in (definitions or {}).items():
-        if not identity or normalized.get((label, pool)) != family:
+        if not identity or (normalized.get((label, pool)) != family and (label, pool) not in _AMD_SHARED_ROUTES):
             raise ValueError("AMD source definition disagrees with its pinned family route")
         _AMD_RUNTIME_DEFINITIONS[identity] = (label, pool, family, source_label)
 
@@ -314,6 +325,14 @@ def _amd_runtime_group_key(job_name: str, build_commit: str) -> str:
         _, platform, _ = _parse_job_execution_label(job_name)
         if platform == "amd" and native_pool:
             agent_pool = native_pool.group("pool").casefold()
+    if (normalized, agent_pool) in _AMD_SHARED_ROUTES:
+        families = {
+            definition[2] for definition in _AMD_RUNTIME_DEFINITIONS.values()
+            if definition[:2] == (normalized, agent_pool) and _amd_declared_label_matches(job_name, definition)
+        }
+        if len(families) != 1:
+            raise ValueError("AMD runtime route is shared by multiple source families")
+        return families.pop()
     return _AMD_RUNTIME_GROUP_KEYS.get((normalized, agent_pool), normalized)
 
 

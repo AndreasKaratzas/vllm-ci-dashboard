@@ -1479,7 +1479,7 @@ def _latest_logical_amd_test_groups_at_source(
     )
     definition_report = definition_parity if isinstance(definition_parity, dict) else {}
     try:
-        definition_commit, route_map = (
+        definition_commit, route_map, shared_routes = (
             extract_amd_runtime_group_key_map_from_report(definition_report)
         )
     except (TypeError, ValueError):
@@ -1503,6 +1503,7 @@ def _latest_logical_amd_test_groups_at_source(
     previous_route_commit = ci_analyzer._AMD_RUNTIME_GROUP_KEY_COMMIT
     previous_route_keys = dict(ci_analyzer._AMD_RUNTIME_GROUP_KEYS)
     previous_definitions = dict(ci_analyzer._AMD_RUNTIME_DEFINITIONS)
+    previous_shared_routes = ci_analyzer._AMD_SHARED_ROUTES
     logical: dict[str, dict] = {}
     try:
         ci_analyzer.set_shard_bases(shard_bases)
@@ -1512,7 +1513,7 @@ def _latest_logical_amd_test_groups_at_source(
             catalog_commit, definitions = catalog_definitions_from_report(definition_report)
             if catalog_commit != definition_commit:
                 raise ValueError("AMD runtime definition and family commits disagree")
-        ci_analyzer.set_amd_runtime_group_key_map(definition_commit, route_map, definitions)
+        ci_analyzer.set_amd_runtime_group_key_map(definition_commit, route_map, definitions, shared_routes)
         jobs_by_id = _amd_test_runtime_jobs(metadata)
         metadata_families = None
         if "source_family_catalog" in metadata:
@@ -1610,6 +1611,7 @@ def _latest_logical_amd_test_groups_at_source(
             previous_route_commit,
             previous_route_keys,
             previous_definitions,
+            previous_shared_routes,
         )
 
     rows = []

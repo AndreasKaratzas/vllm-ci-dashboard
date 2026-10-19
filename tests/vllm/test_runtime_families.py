@@ -89,6 +89,48 @@ def test_shards_use_their_own_pinned_bases_without_global_analyzer_state():
     assert len(latency["rows"][0]["amd"]["samples"][0]["jobs"]) == 2
 
 
+def runtime_sharded_build(names, key="amd-pytorch-compilation-passes-unit-tests"):
+    """Trimmed from nightly 95338: ci-infra runtime-shards an AMD step without YAML parallelism."""
+    step = {"key": "pytorch-compilation-passes-unit-tests", "label": ":nvidia: (L4) PyTorch Compilation Passes",
+            "automatic_shard": True, "device": "l4", "num_devices": 1, "commands": ["pytest compile/passes"],
+            "mirror": {"amd": {"label": ":amd: (MI300) PyTorch Compilation Passes", "automatic_shard": True,
+                               "device": "mi300_1", "commands": ["pytest compile/passes"]}}}
+    pinned = MainCISnapshot(PIN, {".buildkite/ci_config.yaml": {"job_dirs": [".buildkite/test_areas"]},
+                                  ".buildkite/test_areas/pytorch.yaml": {"steps": [step]}}, "", TREE)
+    jobs = [{"id": str(UUID(int=index + 1)), "type": "script", "name": name, "state": "passed",
+             "step_key": key, "step": {"id": str(UUID(int=100))}, "agent_query_rules": ["queue=amd_mi300_1"],
+             "parallel_group_index": index, "parallel_group_total": len(names),
+             "started_at": "2026-10-09T06:00:00Z", "finished_at": f"2026-10-09T06:{10 + index:02d}:00Z"}
+            for index, name in enumerate(names)]
+    return rf.family_catalog_from_snapshot(pinned), build(jobs)
+
+
+def test_runtime_planned_shards_bind_to_their_pinned_step():
+    names = [f":amd: (MI300) PyTorch Compilation Passes shard {index}/6" for index in range(1, 7)]
+    catalog, original = runtime_sharded_build(names)
+    proved = rf.annotate_build_source_families(original, catalog)
+    assert {row["source_definition_id"] for row in proved["jobs"]} == {
+        ".buildkite/test_areas/pytorch.yaml#amd-pytorch-compilation-passes-unit-tests"}
+    latency = build_current_nightly_latency(summarize_pipeline_builds("ci", [proved]),
+                                            generated_at=CLOCK, source_available=True,
+                                            source_identity_basis=rf.IDENTITY_BASIS)
+    assert [row["id"] for row in latency["rows"]] == ["pytorch compilation passes (1 gpus)"]
+    assert len(latency["rows"][0]["amd"]["samples"][0]["jobs"]) == 6
+
+
+@pytest.mark.parametrize(("name", "key"), [
+    (":amd: (MI300) PyTorch Compilation Passes shard 7/6", "amd-pytorch-compilation-passes-unit-tests"),
+    (":amd: (MI300) PyTorch Compilation Passes shard 0/6", "amd-pytorch-compilation-passes-unit-tests"),
+    (":amd: (MI300) PyTorch Compilation shard 1/6", "amd-pytorch-compilation-passes-unit-tests"),
+    (":amd: (MI300) PyTorch Compilation Passes shard 1/6", "amd-other-step"),
+    (":amd: (MI355) PyTorch Compilation Passes shard 1/6", "amd-pytorch-compilation-passes-unit-tests"),
+])
+def test_runtime_shard_suffix_cannot_bind_contradictory_jobs(name, key):
+    catalog, original = runtime_sharded_build([name], key=key)
+    with pytest.raises(ValueError):
+        rf.annotate_build_source_families(original, catalog)
+
+
 @pytest.mark.parametrize("global_bases", [["gpu audit"], ["renamed", "gpu audit"], ["lm eval small models"]])
 def test_family_source_labels_and_keys_ignore_unrelated_global_shards(monkeypatch, global_bases):
     from vllm.ci import analyzer
