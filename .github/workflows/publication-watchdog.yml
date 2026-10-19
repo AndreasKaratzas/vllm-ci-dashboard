@@ -58,8 +58,13 @@ jobs:
 
       - name: Inspect durable state and choose recovery target
         id: recovery-route
+        # Event fields are passed as environment so this long script carries no
+        # expression; GitHub caps expression-bearing scalars at 21,000 chars.
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_RUN_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
           TRUSTED_MAIN_SHA=$(git rev-parse --verify 'HEAD^{commit}')
@@ -514,9 +519,9 @@ jobs:
             echo "::warning::Pages operations manifest is unavailable; core data age is unknown."
           fi
 
-          if [ "${{ github.event_name }}" = workflow_run ] && \
-             [ "${{ github.event.workflow_run.name }}" = "Site Health Check" ] && \
-             [ "${{ github.event.workflow_run.conclusion }}" != success ]; then
+          if [ "$EVENT_NAME" = workflow_run ] && \
+             [ "$WORKFLOW_RUN_NAME" = "Site Health Check" ] && \
+             [ "$WORKFLOW_RUN_CONCLUSION" != success ]; then
             HEALTH_REPORT="$RUNNER_TEMP/watchdog-site-health.json"
             HEALTH_DETAILS="$RUNNER_TEMP/watchdog-site-health.md"
             BOOTSTRAP_EVIDENCE="$RUNNER_TEMP/watchdog-dashboard-bootstrap-refs.json"

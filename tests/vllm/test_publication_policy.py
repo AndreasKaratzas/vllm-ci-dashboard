@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import importlib.util
 import json
+import posixpath
 import re
 from pathlib import Path
 
@@ -877,13 +878,14 @@ def test_production_manifest_matches_current_operation_sections() -> None:
     assert operation_outputs == (
         set(manifest["generated_files"]) - {PUBLICATION_STATUS_OUTPUT}
     )
+    # Source paths are relative to vllm/ci/ and may leave it (../perf_eval/...).
     published_diagnostic_sources = {
-        f"vllm/ci/{record['path']}"
+        posixpath.normpath(f"vllm/ci/{record['path']}")
         for record in operation_manifest["shell"]["sources"].values()
         if record.get("published") is not False
     }
     private_diagnostic_sources = {
-        f"vllm/ci/{record['path']}"
+        posixpath.normpath(f"vllm/ci/{record['path']}")
         for record in operation_manifest["shell"]["sources"].values()
         if record.get("published") is False
     }
