@@ -174,6 +174,16 @@ def test_current_and_exact_previous_contracts_preserve_valid_ci_retry_evidence(v
     assert recovery.retry_surfaces_from_state(state) == ["ci_core"]
 
 
+@pytest.mark.parametrize("surface,retried", [("queue_workload", True), ("queue_capacity", False)])
+def test_buildkite_queue_collector_failure_retries_but_github_only_capacity_does_not(surface, retried):
+    state = {"schema_version": 2, "surface_contract_version": recovery.SURFACE_CONTRACT_VERSION,
+             "mode": "fallback", "fallback_surfaces": [surface], "fresh_degraded_surfaces": [],
+             "degraded_surfaces": [surface], "collector_failures": [{
+                 "schema_version": 1, "surface": surface, "collector": "collect.py",
+                 "step": "Queue collection", "reason_class": "command-error", "exit_code": 1}]}
+    assert recovery.retry_surfaces_from_state(state) == ([surface] if retried else [])
+
+
 def operations_failure(surfaces=("ci_analytics", "ci_core")):
     return {
         "severity": "error", "code": "publication-operations-build-failed",
