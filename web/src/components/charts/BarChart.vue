@@ -3,6 +3,7 @@ import { GroupedBar, StackedBar } from '@unovis/ts'
 import { VisAxis, VisGroupedBar, VisStackedBar, VisTooltip, VisXYContainer } from '@unovis/vue'
 import { computed, ref } from 'vue'
 import { ChartContainer } from '@/components/ui/chart'
+import type { PaletteColor } from '@/lib/palette'
 import { cn } from '@/lib/utils'
 import { chartConfig, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
@@ -19,6 +20,8 @@ const props = withDefaults(
     /** Series keys drawn below the baseline (e.g. regressions against improvements). */
     diverging?: string[]
     valueFormat?: (value: number) => string
+    /** Per-row fill for a single series (e.g. the hardware family of each category); series colors otherwise. */
+    barColor?: (row: T) => PaletteColor
     hint?: string
     class?: string
     onSelect?: (row: T, index: number) => void
@@ -34,7 +37,10 @@ type Indexed = { row: T; index: number }
 const data = computed<Indexed[]>(() => props.rows.map((row, index) => ({ row, index })))
 const signed = (key: string) => (d: Indexed) => (props.diverging.includes(key) ? -1 : 1) * seriesValue(d.row, key)
 const accessors = computed(() => props.series.map((s) => signed(s.key)))
-const colors = computed(() => props.series.map((s) => s.color))
+const colors = computed(() => {
+  const barColor = props.barColor
+  return barColor ? (d: Indexed) => barColor(d.row) : props.series.map((s) => s.color)
+})
 
 const { tooltip, select, inspectItems } = useSeriesInteraction<T>({
   rows: () => props.rows,

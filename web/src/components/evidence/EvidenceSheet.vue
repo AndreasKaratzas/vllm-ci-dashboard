@@ -40,18 +40,18 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
 
         <Callout v-for="(note, index) in detail.notes" :key="index" :tone="note.tone" :title="note.title">{{ note.text }}</Callout>
 
-        <dl v-if="detail.stats?.length" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <dl v-if="detail.stats?.length" data-slot="evidence-stats" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div v-for="stat in detail.stats" :key="stat.label" class="flex min-w-0 flex-col gap-1 rounded-lg border bg-linear-to-t from-brand/5 to-card p-3">
             <dt class="text-xs text-muted-foreground">{{ stat.label }}</dt>
             <dd class="flex flex-wrap items-center gap-2">
-              <span class="text-xl font-semibold tabular-nums">{{ stat.value }}</span>
+              <span class="text-xl font-semibold tabular-nums" data-slot="evidence-stat-value">{{ stat.value }}</span>
               <StatusBadge v-if="stat.tone && stat.tone !== 'pass'" :tone="stat.tone" />
             </dd>
             <dd v-if="stat.meta" class="text-xs text-muted-foreground">{{ stat.meta }}</dd>
           </div>
         </dl>
 
-        <dl v-if="fields.length" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
+        <dl v-if="fields.length" data-slot="evidence-fields" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
           <template v-for="field in fields" :key="field.label">
             <dt class="text-muted-foreground">{{ field.label }}</dt>
             <dd class="font-medium break-words">{{ field.value }}</dd>

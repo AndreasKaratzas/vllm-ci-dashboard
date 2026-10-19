@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import Callout from '@/components/feedback/Callout.vue'
 import { useDataset } from '@/composables/useDataset'
 import { statusDetails, viewFor } from '@/data/publicationStatus'
 
@@ -15,23 +14,19 @@ const REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
 </script>
 
 <template>
-  <Alert
+  <Callout
     v-if="view"
-    :variant="view.tone === 'critical' ? 'destructive' : 'default'"
+    :tone="view.tone === 'critical' ? 'hard' : 'soft'"
+    :title="view.title"
     :role="view.tone === 'critical' ? 'alert' : 'status'"
-    :class="view.tone === 'warning' ? 'border-warning/50 text-warning' : ''"
     data-testid="publication-banner"
   >
-    <TriangleAlert />
-    <AlertTitle>{{ view.title }}</AlertTitle>
-    <AlertDescription>
-      <p>{{ view.message }}</p>
-      <p v-if="details.length" class="text-xs opacity-80">{{ details.join(' ') }}</p>
-      <p class="text-xs">
-        <a class="underline" :href="`${REPO}/issues?q=is%3Aissue%20is%3Aopen%20%22Hourly%20validation%20failure%22`">Refresh failure details</a>
-        ·
-        <a class="underline" :href="`${REPO}/actions/workflows/hourly-master.yml`">Refresh history</a>
-      </p>
-    </AlertDescription>
-  </Alert>
+    <p>{{ view.message }}</p>
+    <p v-if="details.length" class="text-xs">{{ details.join(' ') }}</p>
+    <p class="text-xs">
+      <a class="underline" :href="`${REPO}/issues?q=is%3Aissue%20is%3Aopen%20%22Hourly%20validation%20failure%22`">Refresh failure details</a>
+      ·
+      <a class="underline" :href="`${REPO}/actions/workflows/hourly-master.yml`">Refresh history</a>
+    </p>
+  </Callout>
 </template>

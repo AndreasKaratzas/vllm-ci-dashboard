@@ -924,7 +924,20 @@ export interface OmniView {
     facts: LiveFact[]
     actions: { label: string; open: () => OmniDetail }[]
     queueHistoryUrl: string
+    /** Workload-attributed occupancy snapshots inside the selected range, oldest first. */
+    points: HistoryPoint[]
+    inspectPoint: (point: HistoryPoint) => OmniDetail
+    queues: LiveQueue[]
+    jobs: DetailTable<Rec>
   }
+}
+
+export interface LiveQueue {
+  name: string
+  waiting: number
+  running: number
+  jobs: number
+  open: () => OmniDetail
 }
 
 export type OmniPage = OmniView | { available: false; message: string }
@@ -1578,6 +1591,20 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
   const dailyRows = omniDailyRows(waitingHistoryPoints)
   const visibleJobs = activeJobs.slice().sort((left, right) => Number(right.wait_min || 0) - Number(left.wait_min || 0) || compareText(left.name, right.name))
   const openQueue = (name: string) => queueDetail(name, queueSnapshots[name] || {}, activeJobs)
+  const jobsTable: DetailTable<Rec> = {
+    rows: visibleJobs,
+    columns: [
+      { label: 'Job', cell: (r: Rec) => link(r.name || 'Unnamed job', r.url) },
+      { label: 'Queue', cell: (r: Rec) => action(value(r.queue), () => openQueue(r.queue)) },
+      { label: 'State', cell: (r: Rec) => linkedBadge(r.state, r.url) },
+      { label: 'Age', numeric: true, cell: (r: Rec) => link(duration(r.wait_min !== undefined ? r.wait_min : r.run_min), r.url) },
+      { label: 'Analysis', cell: (r: Rec) => badge(r.analysis_excluded ? 'stale excluded' : 'active', r.analysis_excluded ? 'soft' : 'pass') },
+      { label: 'Build', cell: (r: Rec) => link((r.pipeline || '?') + ' #' + value(r.build), r.build_url || buildUrl(r.pipeline, r.build), true) },
+      { label: 'Source', cell: (r: Rec) => linkedBadge(r.source || r.workload || 'omni', r.url, 'info') },
+    ],
+    searchText: (row: Rec) => [row.name, row.queue, row.pipeline, row.branch, row.state].join(' '),
+    searchPlaceholder: 'Filter job, queue, pipeline, branch, or state',
+  }
   function browseActiveJobs(): OmniDetail {
     return {
       id: 'omni-job-browser',
@@ -1585,22 +1612,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
       subtitle: 'Every row links to the exact Buildkite job; aggregate queue totals are never expanded into synthetic jobs',
       fields: [],
       sources: [],
-      tables: [
-        {
-          rows: visibleJobs,
-          columns: [
-            { label: 'Job', cell: (r: Rec) => link(r.name || 'Unnamed job', r.url) },
-            { label: 'Queue', cell: (r: Rec) => action(value(r.queue), () => openQueue(r.queue)) },
-            { label: 'State', cell: (r: Rec) => linkedBadge(r.state, r.url) },
-            { label: 'Age', numeric: true, cell: (r: Rec) => link(duration(r.wait_min !== undefined ? r.wait_min : r.run_min), r.url) },
-            { label: 'Analysis', cell: (r: Rec) => badge(r.analysis_excluded ? 'stale excluded' : 'active', r.analysis_excluded ? 'soft' : 'pass') },
-            { label: 'Build', cell: (r: Rec) => link((r.pipeline || '?') + ' #' + value(r.build), r.build_url || buildUrl(r.pipeline, r.build), true) },
-            { label: 'Source', cell: (r: Rec) => linkedBadge(r.source || r.workload || 'omni', r.url, 'info') },
-          ],
-          searchText: (row: Rec) => [row.name, row.queue, row.pipeline, row.branch, row.state].join(' '),
-          searchPlaceholder: 'Filter job, queue, pipeline, branch, or state',
-        },
-      ],
+      tables: [jobsTable],
     }
   }
   function browseCurrentQueues(): OmniDetail {
@@ -1728,6 +1740,10 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
         { label: 'Daily closing context', open: browseDailyContext },
       ],
       queueHistoryUrl: SOURCE_ASSETS.queueHistory,
+      points,
+      inspectPoint: (point) => occupancyEvidence('Omni occupancy at ' + shortDate(point.ts), [point], 'Observed workload-attributed snapshot'),
+      queues: queueRows.map((row) => ({ ...row, open: () => openQueue(row.name) })),
+      jobs: jobsTable,
     },
   }
 }

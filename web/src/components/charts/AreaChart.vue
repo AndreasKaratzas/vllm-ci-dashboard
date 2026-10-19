@@ -23,6 +23,8 @@ const props = withDefaults(
     series: SeriesSpec[]
     label: string
     rowLabel?: (row: T) => string
+    /** x-axis tick label; dates by default. Ticks that would repeat the previous label are dropped. */
+    xFormat?: (value: number) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
     ranges?: RangeOption[]
@@ -30,7 +32,7 @@ const props = withDefaults(
     class?: string
     onSelect?: (row: T, index: number) => void
   }>(),
-  { yFormat: plainNumber },
+  { yFormat: plainNumber, xFormat: shortDay },
 )
 const range = defineModel<number>('range', { default: 0 })
 
@@ -52,6 +54,23 @@ const svgDefs = computed(() =>
     )
     .join(''),
 )
+// Unevenly spaced rows (collection gaps) would crowd index-thinned ticks, so ticks also keep a
+// minimum distance in x; the latest tick always stays.
+const xTicks = computed(() => {
+  const candidates = thinTicks(visible.value.map(xValue), ticks.value)
+  const span = (candidates.at(-1) ?? 0) - (candidates[0] ?? 0)
+  const gap = (span / Math.max(1, ticks.value)) * 0.8
+  const kept: number[] = []
+  for (const value of candidates) {
+    const previous = kept.at(-1)
+    if (previous !== undefined && (value - previous < gap || props.xFormat(value) === props.xFormat(previous))) {
+      if (value === candidates.at(-1)) kept[kept.length - 1] = value
+      continue
+    }
+    kept.push(value)
+  }
+  return kept
+})
 const rangeText = computed(() => props.ranges?.find((r) => r.value === range.value)?.label ?? '')
 const rangeModel = computed({
   get: () => String(range.value),
@@ -110,7 +129,7 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
             curve-type="monotoneX"
             :duration="300"
           />
-          <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="shortDay" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis type="x" :x="xValue" :tick-values="xTicks" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
           <VisAxis type="y" :num-ticks="4" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair :template="tooltip" :on-crosshair-move="track" :color="series.map((s) => s.color)" />

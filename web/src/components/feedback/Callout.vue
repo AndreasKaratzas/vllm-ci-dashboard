@@ -11,7 +11,7 @@ withDefaults(defineProps<{ tone?: Tone; title?: string }>(), { tone: 'neutral' }
     <component :is="TONE_ICON[tone]" class="mt-0.5 size-4 shrink-0" :class="toneClasses(tone, 'icon')" aria-hidden="true" />
     <div class="flex min-w-0 flex-1 flex-col gap-1">
       <p v-if="title" class="font-medium" :class="tone === 'soft' || tone === 'hard' ? toneClasses(tone, 'text') : 'text-foreground'">{{ title }}</p>
-      <div class="text-muted-foreground [&_a]:font-medium [&_a]:text-foreground [&_a]:underline-offset-4 [&_a:hover]:underline"><slot /></div>
+      <div :class="tone === 'soft' || tone === 'hard' ? 'text-foreground' : 'text-muted-foreground'" class="[&_a]:font-medium [&_a]:text-foreground [&_a]:underline-offset-4 [&_a:hover]:underline"><slot /></div>
     </div>
     <div v-if="$slots.action" class="shrink-0 self-center"><slot name="action" /></div>
   </div>
