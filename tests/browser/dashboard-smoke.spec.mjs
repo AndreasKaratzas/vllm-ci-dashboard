@@ -255,7 +255,7 @@ async function routeDnsFixture(page, fixture = DNS_FIXTURE, delayMs = 0) {
 }
 
 const PUBLIC_VIEWS = [
-  { name: 'home', url: '/#projects', tab: 'projects', heading: 'Command Center' },
+  { name: 'home', url: '/classic.html#projects', tab: 'projects', heading: 'Command Center' },
   ...[
     ['overview', ''],
     ['parity', ''],
@@ -263,25 +263,25 @@ const PUBLIC_VIEWS = [
     ['mirrors', ''],
   ].map(([view,extra]) => ({
     name: `health ${view}`,
-    url: `/?ops_health_view=${view.split(' ')[0]}${extra}#ci-health`,
+    url: `/classic.html?ops_health_view=${view.split(' ')[0]}${extra}#ci-health`,
     tab: 'ci-health',
     heading: 'CI Health',
     watchdog: view === 'overview',
   })),
   ...['groups', 'latency', 'nightlies', 'dns', 'agent-health'].map(view => ({
     name: `analytics ${view}`,
-    url: `/?ops_analytics_view=${view}#ci-analytics`,
+    url: `/classic.html?ops_analytics_view=${view}#ci-analytics`,
     tab: 'ci-analytics',
     heading: 'CI Analytics',
     dnsFixture: view === 'dns',
   })),
   ...['performance', 'accuracy'].map(view => ({
     name: `performance ${view}`,
-    url: `/?ops_perf_view=${view}#ci-perf-eval`,
+    url: `/classic.html?ops_perf_view=${view}#ci-perf-eval`,
     tab: 'ci-perf-eval',
     heading: 'Performance & Evaluation',
   })),
-  { name: 'omni', url: '/#ci-omni', tab: 'ci-omni', heading: 'Omni CI' },
+  { name: 'omni', url: '/classic.html#ci-omni', tab: 'ci-omni', heading: 'Omni CI' },
 ];
 
 test.describe('public dashboard routes', () => {
@@ -314,7 +314,7 @@ test.describe('public dashboard routes', () => {
 });
 
 test('CI health keeps configured health policy in AMD hardware', async ({ page }) => {
-  await page.goto('/?ops_health_view=coverage#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=coverage#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health .ops-unique-health');
   await expect(health.locator('.ops-unique-health-rate span')).toHaveText('Passing');
@@ -398,7 +398,7 @@ async function routeAgentHistoryScope(page, scope, delayedEvidence = false, nigh
 
 test('CI main agent health rejects legacy all-branch started-job totals', async ({ page }) => {
   await routeAgentHistoryScope(page, agentStartedScope);
-  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  await page.goto('/classic.html?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
   await expect(panel.locator('.ops-evidence-note.is-warning')).toContainText('Current ci/main MI GPU cohort observations are required');
@@ -412,7 +412,7 @@ test('CI main agent health rejects legacy all-branch started-job totals', async 
 test('CI agent health labels the build creation cohort and keeps exact covered default-week rates', async ({ page }) => {
   const scope = {...agentMainScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
   await routeAgentHistoryScope(page, scope);
-  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  await page.goto('/classic.html?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
   const completion = panel.locator('.ops-agent-completion-scope');
@@ -446,7 +446,7 @@ test('CI agent health labels the build creation cohort and keeps exact covered d
 test('CI agent health selects evidence by build creation day while retaining actual job times', async ({ page }) => {
   const scope = {...agentMainScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
   await routeAgentHistoryScope(page, scope, true);
-  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  await page.goto('/classic.html?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
   const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
@@ -468,7 +468,7 @@ test('CI agent health selects evidence by build creation day while retaining act
 test('CI main agent health nightlies are a subset of the exact main cohort', async ({ page }) => {
   const scope = {...agentMainScope, requested_days: 7, collected_from: '2026-10-01T00:00:00Z'};
   await routeAgentHistoryScope(page, scope, false, 4);
-  await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+  await page.goto('/classic.html?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-analytics');
   await expect(panel.locator('.ops-loading')).toHaveCount(0);
   const row = panel.locator('.ops-agent-table tbody tr').filter({hasText: 'fixture-ci-node'});
@@ -496,7 +496,7 @@ for (const [name, scope] of [
 ]) {
   test(`CI agent health keeps observed counts and hides rates for ${name} coverage`, async ({ page }) => {
     await routeAgentHistoryScope(page, scope);
-    await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+    await page.goto('/classic.html?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
     const panel = page.locator('#tab-ci-analytics');
     await expect(panel.locator('.ops-loading')).toHaveCount(0);
     if (scope.version !== 3 || scope.branch !== 'main') {
@@ -520,7 +520,7 @@ for (const [name, scope] of [
 }
 
 test('CI health upstream parity exposes the main backlog and not-targeted set', async ({ page }) => {
-  await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
   await expect(health.getByRole('button', { name: /^\d+ potential open gaps$/ }).first()).toBeVisible();
@@ -533,7 +533,7 @@ test('CI health upstream parity exposes the main backlog and not-targeted set', 
 });
 
 test('CI health summaries stay scoped to the selected view', async ({ page }) => {
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
   await expect(health.getByText('LATEST AMD TEST GROUPS', { exact: true })).toBeVisible();
@@ -557,7 +557,7 @@ test('CI health overview exposes configured AMD mirror groups and routes to the 
   const parityResponse = page.waitForResponse(response => (
     new URL(response.url()).pathname.endsWith('/data/vllm/ci/operations_v2/test_group_parity.json')
   ));
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
 
   const payload = await (await parityResponse).json();
   const mirrorCount = Number(payload.test_group_parity.mirror_inventory.summary.total);
@@ -578,7 +578,7 @@ test('CI health overview exposes configured AMD mirror groups and routes to the 
 
 test('CI health overview remains usable when the mirror enhancement cannot load', async ({ page }) => {
   await page.route(/\/assets\/js\/amd-mirror-inventory\.js(?:\?.*)?$/, route => route.abort('failed'));
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
   await expect(health.getByText('Logical runtime health', { exact: true })).toBeVisible();
@@ -588,7 +588,7 @@ test('CI health overview remains usable when the mirror enhancement cannot load'
 
 test('CI health overview marks the mirror count unavailable without losing core health', async ({ page }) => {
   await page.route(/\/data\/vllm\/ci\/operations_v2\/test_group_parity\.json(?:\?.*)?$/, route => route.abort('failed'));
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
   await expect(health.getByText('Logical runtime health', { exact: true })).toBeVisible();
@@ -599,7 +599,7 @@ test('CI health overview marks the mirror count unavailable without losing core 
 });
 
 test('CI health data freshness opens in place without changing views', async ({ page }) => {
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
 
   const initialUrl = page.url();
@@ -616,7 +616,7 @@ test('CI health data freshness opens in place without changing views', async ({ 
 
 test('CI health mobile deep links keep the active view visible', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
   const tabs = page.locator('#tab-ci-health .ops-health-tabs');
   const active = tabs.getByRole('button', { name: 'AMD mirrors', exact: true });
   await expect(active).toHaveAttribute('aria-pressed', 'true');
@@ -628,7 +628,7 @@ test('CI health mobile deep links keep the active view visible', async ({ page }
 });
 
 test('CI health tabs retain keyboard focus after route-backed rerenders', async ({ page }) => {
-  await page.goto('/?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=overview#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
 
   const overview = health.getByRole('button', { name: 'Overview', exact: true });
@@ -648,7 +648,7 @@ test('CI health AMD mirrors uses graphical summaries and retains the full invent
   const parityResponse = page.waitForResponse(response => (
     new URL(response.url()).pathname.endsWith('/data/vllm/ci/operations_v2/test_group_parity.json')
   ));
-  await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
   const payload = await (await parityResponse).json();
   const inventory = (() => {
@@ -721,7 +721,7 @@ test('CI health AMD mirrors does not overstate an incomplete hardware breakdown'
     };
     await route.fulfill({ response, json: payload });
   });
-  await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
   const hero = health.locator('.ops-mirror-total-card');
@@ -738,7 +738,7 @@ test('CI health AMD mirrors does not overstate an incomplete hardware breakdown'
 
 test('CI health AMD mirror graphics retain text equivalents in forced colors', async ({ page }) => {
   await page.emulateMedia({ forcedColors: 'active' });
-  await page.goto('/?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
 
   const health = page.locator('#tab-ci-health');
   await expect(health.locator('.ops-mirror-count-ring')).toBeVisible();
@@ -749,7 +749,7 @@ test('CI health AMD mirror graphics retain text equivalents in forced colors', a
 });
 
 test('CI health parity is main-only and opens grouped gap tables', async ({ page }) => {
-  await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
   const health = page.locator('#tab-ci-health');
   await expect(health).toContainText('Potential open gaps by test area');
   await expect(health.getByText(/proposed/i)).toHaveCount(0);
@@ -778,7 +778,7 @@ test('CI parity explains changed definitions without transferring reviewed cover
     };
     await route.fulfill({ response, json: payload });
   });
-  await page.goto('/?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_health_view=parity#ci-health', { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-ci-health').getByRole('button', { name: /Browse complete \d+-group inventory/ }).click();
   const inventory = page.getByRole('dialog');
   await expect(inventory).toContainText('Current CI definition');
@@ -805,7 +805,7 @@ test('CI parity explains changed definitions without transferring reviewed cover
 
 
 test('CI analytics separates logical test groups from exact job variants', async ({ page }) => {
-  await page.goto('/?ops_analytics_view=groups#ci-analytics', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_analytics_view=groups#ci-analytics', { waitUntil: 'domcontentloaded' });
 
   const summary = page.locator('#tab-ci-analytics .ops-status-strip').first();
   const cards = summary.locator('.ops-status-item');
@@ -868,7 +868,7 @@ test('nightly failure alerts exclude fixed groups while build movement retains t
   await page.route('**/operations_v2/nightly.json*', route => route.fulfill({
     json: { nightly: {pipelines: [{pipeline: 'ci', source_pipeline: 'ci', job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu', cohort_id: 'ci-amd', builds: [build]}]}  },
   }));
-  await page.goto('/#projects', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html#projects', { waitUntil: 'domcontentloaded' });
   const home = page.locator('#tab-projects');
   await home.getByRole('button', { name: 'Hard-failed groups in the latest AMD nightly', exact: true }).click();
   let dialog = page.getByRole('dialog');
@@ -885,7 +885,7 @@ test('nightly failure alerts exclude fixed groups while build movement retains t
   await expect(dialog).not.toContainText(hard.name);
   await expect(dialog).not.toContainText(fixed.name);
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
-  await page.goto('/?ops_analytics_view=nightlies#ci-analytics', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html?ops_analytics_view=nightlies#ci-analytics', { waitUntil: 'domcontentloaded' });
   await page.locator('#tab-ci-analytics .ops-status-item').filter({ hasText: 'JOB VARIANTS OBSERVED' }).click();
   dialog = page.getByRole('dialog');
   await expect(dialog.getByText('Failure movement', { exact: true })).toBeVisible();
@@ -894,14 +894,14 @@ test('nightly failure alerts exclude fixed groups while build movement retains t
 });
 
 test('retired control routes are absent from the public dashboard', async ({ page }) => {
-  await page.goto('/#ci-testbuild', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html#ci-testbuild', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#tab-ci-testbuild')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Sign in|Test Build|Ready Tickets|Admin Control/i })).toHaveCount(0);
 });
 
 test('mobile navigation contains focus and restores the dashboard', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/#ci-health', { waitUntil: 'domcontentloaded' });
+  await page.goto('/classic.html#ci-health', { waitUntil: 'domcontentloaded' });
   const toggle = page.getByRole('button', { name: 'Open navigation' });
   await toggle.click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
@@ -915,7 +915,7 @@ test('mobile navigation contains focus and restores the dashboard', async ({ pag
 test('analytics DNS bars are compact, outcome-first, and open sanitized evidence', async ({ page }) => {
   await routeDnsFixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+  await page.goto('/classic.html?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
 
@@ -973,7 +973,7 @@ test('analytics DNS bars are compact, outcome-first, and open sanitized evidence
 
 test('analytics DNS drawer projects long-job evidence into the selected window', async ({ page }) => {
   await routeDnsFixture(page);
-  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=1h#ci-analytics', {
+  await page.goto('/classic.html?ops_analytics_view=dns&ops_analytics_dns_window=1h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
 
@@ -1030,7 +1030,7 @@ test('analytics DNS partial coverage renders native bars as lower bounds', async
     windowBlock.coverage = { ...partialCoverage };
   });
   await routeDnsFixture(page, partialFixture);
-  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+  await page.goto('/classic.html?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
 
@@ -1049,7 +1049,7 @@ test('analytics DNS partial coverage renders native bars as lower bounds', async
 
 test('legacy Queue DNS deep links migrate to CI Analytics', async ({ page }) => {
   await routeDnsFixture(page);
-  await page.goto('/?ops_queue_view=dns&ops_queue_dns_window=3h#ci-queue', {
+  await page.goto('/classic.html?ops_queue_view=dns&ops_queue_dns_window=3h#ci-queue', {
     waitUntil: 'domcontentloaded',
   });
 
@@ -1066,7 +1066,7 @@ test('legacy Queue DNS deep links migrate to CI Analytics', async ({ page }) => 
 
 test('delayed DNS data cannot repaint Analytics after the user switches views', async ({ page }) => {
   await routeDnsFixture(page, DNS_FIXTURE, 800);
-  await page.goto('/?ops_analytics_view=dns#ci-analytics', {
+  await page.goto('/classic.html?ops_analytics_view=dns#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
 
@@ -1096,7 +1096,7 @@ test('analytics DNS paints fast Pages data without loading the operations manife
   }));
 
   const started = Date.now();
-  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+  await page.goto('/classic.html?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
   await expect(page.locator('#tab-ci-analytics .ops-dns-node-bar').first()).toBeVisible();
@@ -1157,7 +1157,7 @@ test('analytics DNS upgrades a fast older Pages paint when slower live data is n
     body: JSON.stringify(DNS_FIXTURE),
   }));
 
-  await page.goto('/?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
+  await page.goto('/classic.html?ops_analytics_view=dns&ops_analytics_dns_window=3h#ci-analytics', {
     waitUntil: 'domcontentloaded',
   });
   const panel = page.locator('#tab-ci-analytics');
@@ -1167,11 +1167,11 @@ test('analytics DNS upgrades a fast older Pages paint when slower live data is n
 });
 
 for (const migration of [
-  {url:'/?ops_queue_view=history&ops_queue_range=24h#ci-queue',tab:'ci-omni'},
-  {url:'/?ops_trajectory_view=capacity&ops_capacity_jobs=30#ci-hotness',tab:'ci-health'},
-  {url:'/?ops_health_view=targets&ops_health_result=failed#ci-health',tab:'ci-health'},
-  {url:'/?ops_analytics_view=flakes&ops_analytics_window=30d#ci-analytics',tab:'ci-analytics'},
-  {url:'/?ops_analytics_view=retries&ops_analytics_window=30d#ci-analytics',tab:'ci-analytics'},
+  {url:'/classic.html?ops_queue_view=history&ops_queue_range=24h#ci-queue',tab:'ci-omni'},
+  {url:'/classic.html?ops_trajectory_view=capacity&ops_capacity_jobs=30#ci-hotness',tab:'ci-health'},
+  {url:'/classic.html?ops_health_view=targets&ops_health_result=failed#ci-health',tab:'ci-health'},
+  {url:'/classic.html?ops_analytics_view=flakes&ops_analytics_window=30d#ci-analytics',tab:'ci-analytics'},
+  {url:'/classic.html?ops_analytics_view=retries&ops_analytics_window=30d#ci-analytics',tab:'ci-analytics'},
 ]) {
   test(`retired view ${migration.url} resolves to a supported view`,async ({page}) => {
     await page.goto(migration.url,{waitUntil:'domcontentloaded'});
@@ -1207,7 +1207,7 @@ test(`latency comparison uses five current main CI nightlies and exact ${evidenc
     for(const row of latency.rows) for(const source of [row.amd]) if(source) for(const observation of source.samples) observation.jobs=observation.jobs.map(job=>latency.job_columns.map(column=>job[column]));
   }
   await page.route('**/operations_v2/comparison.json*',route=>route.fulfill({json:{latency}}));
-  await page.goto('/?ops_analytics_view=latency#ci-analytics',{waitUntil:'domcontentloaded'});
+  await page.goto('/classic.html?ops_analytics_view=latency#ci-analytics',{waitUntil:'domcontentloaded'});
   const panel=page.locator('#tab-ci-analytics');
   await expect(panel).toContainText('Latest five completed main CI nightlies');
   await expect(panel).toContainText('#30005 · #30004 · #30003 · #30002 · #30001');
@@ -1230,7 +1230,7 @@ test(`latency comparison uses five current main CI nightlies and exact ${evidenc
 test('current AMD mirror inventory separates required optional and soft-fail source modes',async ({page})=>{
   const response=page.waitForResponse(row=>new URL(row.url()).pathname.endsWith('/operations_v2/test_group_parity.json'));
   const requested=[];page.on('request',request=>requested.push(request.url()));
-  await page.goto('/?ops_health_view=mirrors#ci-health',{waitUntil:'domcontentloaded'});
+  await page.goto('/classic.html?ops_health_view=mirrors#ci-health',{waitUntil:'domcontentloaded'});
   const payload=await (await response).json();const mirror=payload.test_group_parity.mirror_inventory;
   const modes=mirror.rows.reduce((counts,row)=>{counts[row.gate_kind==='soft_fail'||row.soft_fail===true?'soft fail':row.gate_kind==='optional'||row.optional===true?'optional':'required']++;return counts;},{required:0,optional:0,'soft fail':0});
   const health=page.locator('#tab-ci-health');
@@ -1264,7 +1264,7 @@ test('offline fixture preserves exact current-CI source and five-nightly evidenc
     for(const sample of source.samples) for(const job of sample.jobs) expect(job.url).toContain(`/vllm/ci/builds/${sample.build_number}/`);
   }
   expect(nightly.pipelines.map(row=>[row.cohort_id,row.source_pipeline,row.job_scope])).toEqual([['ci-amd','ci','amd_gpu']]);
-  await page.goto('/?ops_analytics_view=nightlies&ops_analytics_pipeline=ci-cuda#ci-analytics',{waitUntil:'domcontentloaded'});
+  await page.goto('/classic.html?ops_analytics_view=nightlies&ops_analytics_pipeline=ci-cuda#ci-analytics',{waitUntil:'domcontentloaded'});
   const panel=page.locator('#tab-ci-analytics');
   await expect(panel).toContainText('#30005');
   await expect(panel.getByRole('button',{name:'CUDA gating jobs',exact:true})).toHaveCount(0);
@@ -1283,7 +1283,7 @@ for (const foreign of ['legacy', 'cuda', 'cpu']) {
       if (foreign === 'cpu') health.group_catalog[0].no_gpu = true;
       await route.fulfill({response, json: packet});
     });
-    await page.goto('/?ops_analytics_view=groups#ci-analytics', {waitUntil: 'domcontentloaded'});
+    await page.goto('/classic.html?ops_analytics_view=groups#ci-analytics', {waitUntil: 'domcontentloaded'});
     const panel = page.locator('#tab-ci-analytics');
     await expect(panel).toContainText('AMD job-variant history is unavailable');
     await expect(panel.locator('.ops-amd-scorecard')).toHaveCount(0);
@@ -1304,7 +1304,7 @@ for (const foreign of ['pipeline', 'queue', 'cpu']) {
       agent.failing_runs = [row];
       await route.fulfill({response, json: packet});
     });
-    await page.goto('/?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
+    await page.goto('/classic.html?ops_analytics_view=agent-health#ci-analytics', {waitUntil: 'domcontentloaded'});
     const panel = page.locator('#tab-ci-analytics');
     await expect(panel).toContainText('Current ci/main MI GPU cohort observations are required');
     await expect(panel.locator('.ops-agent-table')).toHaveCount(0);
@@ -1349,7 +1349,7 @@ test('Omni partial mapping history keeps counts and limits rates to covered wind
     packet.omni.mapping_history = mapping;
     await route.fulfill({response, json: packet});
   });
-  await page.goto('/#ci-omni', {waitUntil: 'domcontentloaded'});
+  await page.goto('/classic.html#ci-omni', {waitUntil: 'domcontentloaded'});
   const panel = page.locator('#tab-ci-omni');
   const rows = panel.locator('.ops-omni-comparison tbody tr');
   const mappingControls = panel.locator('.ops-omni-mapping-toolbar');

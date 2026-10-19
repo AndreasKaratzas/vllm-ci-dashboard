@@ -4,7 +4,7 @@ A real headless-browser test would require Node or Playwright, neither of
 which is available in this repo's venv. Instead we verify the contract
 statically:
 
-1. ``docs/index.html`` references every JS module we ship
+1. ``docs/classic.html`` references every JS module we ship
 2. Each referenced JS file exists and has balanced braces/parens
 3. Every ``fetch('data/...')`` call in the JS points at a file that
    exists under ``data/`` (or is one we know may not have been
@@ -58,7 +58,7 @@ def _strip_html_comments(html: str) -> str:
 
 def _js_files_referenced_by_index():
     """Return (relative_src, absolute_path) for every local <script src>."""
-    html = _strip_html_comments((DOCS / "index.html").read_text())
+    html = _strip_html_comments((DOCS / "classic.html").read_text())
     refs = re.findall(r'<script[^>]+src="([^"]+)"', html)
     out = []
     for src in refs:
@@ -73,10 +73,10 @@ def _js_files_referenced_by_index():
 
 class TestIndexHtml:
     def test_index_exists(self):
-        assert (DOCS / "index.html").exists(), "docs/index.html is missing"
+        assert (DOCS / "classic.html").exists(), "docs/classic.html is missing"
 
     def test_index_references_all_core_js(self):
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         required = [
             "utils.js",
             "publication-status.js",
@@ -87,7 +87,7 @@ class TestIndexHtml:
             assert name in html, f"docs/index.html must reference {name}"
 
     def test_utils_loads_before_dependents(self):
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         utils_pos = html.find("utils.js")
         for dep in ("publication-status.js", "dashboard-nav.js", "ops-v2.js"):
             dep_pos = html.find(dep)
@@ -96,12 +96,12 @@ class TestIndexHtml:
             )
 
     def test_retired_control_tools_are_not_loaded(self):
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         for retired in ("auth.js", "token-vault.js", "ci-testbuild.js", "ci-ready.js", "ci-admin.js"):
             assert retired not in html
 
     def test_current_operations_renderer_has_a_cache_busted_release(self):
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         assert 'assets/css/ops-v2.css?v=17' in html
         assert 'assets/js/ops-v2.js?v=38' in html
         assert 'assets/js/utils.js?v=64' in html
@@ -187,7 +187,7 @@ for (const file of process.argv.slice(1)) {
 
 
     def test_index_has_boot_fallback_guard(self):
-        text = (DOCS / "index.html").read_text()
+        text = (DOCS / "classic.html").read_text()
         assert "__recordBootIssue" in text, (
             "index.html should install a boot-error guard so runtime/script failures are shown on the page"
         )
@@ -202,7 +202,7 @@ for (const file of process.argv.slice(1)) {
         ), "the boot watchdog must leave active loading, successful, and handled-error v2 panels to OpsV2"
 
     def test_public_shell_has_no_browser_auth_hooks(self):
-        index = (DOCS / "index.html").read_text()
+        index = (DOCS / "classic.html").read_text()
         nav = (JS / "dashboard-nav.js").read_text()
         assert "__authGate" not in nav
         assert "auth:changed" not in nav

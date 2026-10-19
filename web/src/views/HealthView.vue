@@ -82,7 +82,7 @@ const header = computed(() => {
 
     <div v-if="current.classic" class="flex flex-col items-start gap-3 rounded-lg border p-6">
       <p class="text-sm text-muted-foreground">{{ current.label }} has not moved to the new dashboard yet.</p>
-      <Button as="a" :href="`../?ops_health_view=${current.classic}#ci-health`">Open {{ current.label }} on the classic dashboard</Button>
+      <Button as="a" :href="`classic.html?ops_health_view=${current.classic}#ci-health`">Open {{ current.label }} on the classic dashboard</Button>
     </div>
     <ViewState v-else :loading="loading && !ops" :error="error" @retry="retry">
       <HealthOverview v-if="view === 'overview' && ops" :ops="ops" />

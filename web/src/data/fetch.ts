@@ -1,5 +1,5 @@
-// v2 is published at <site>/v2/ beside <site>/data/; the dev server proxies /data.
-export const DATA_BASE = import.meta.env.DEV ? '/' : '../'
+// The root page is v2, served beside <site>/data/; the dev server proxies /data.
+export const DATA_BASE = import.meta.env.DEV ? '/' : './'
 
 const cache = new Map<string, Promise<unknown>>()
 

@@ -6,7 +6,7 @@ test.describe('v2 dashboard', () => {
     page.on('pageerror', (error) => errors.push(error.message));
     page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
 
-    await page.goto('/v2/');
+    await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
     await expect(page.getByTestId('kpi-nightly')).toContainText('Hard failures');
     await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 4 pass - 0 soft - 2 hard');
@@ -28,7 +28,7 @@ test.describe('v2 dashboard', () => {
   });
 
   test('the command palette jumps between views', async ({ page }) => {
-    await page.goto('/v2/');
+    await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
     await page.keyboard.press('Control+k');
     await page.getByPlaceholder(/Type a view/).fill('analytics');
@@ -37,19 +37,19 @@ test.describe('v2 dashboard', () => {
   });
 
   test('the sidebar collapses to icons', async ({ page }) => {
-    await page.goto('/v2/');
+    await page.goto('/');
     await page.getByRole('button', { name: 'Toggle Sidebar' }).first().click();
     await expect(page.locator('[data-collapsible="icon"]')).toHaveCount(1);
   });
 
   test('unported views link to the classic dashboard', async ({ page }) => {
-    await page.goto('/v2/#/analytics');
-    await expect(page.getByRole('link', { name: 'Open CI Analytics on the classic dashboard' })).toHaveAttribute('href', '../#ci-analytics');
+    await page.goto('/#/analytics');
+    await expect(page.getByRole('link', { name: 'Open CI Analytics on the classic dashboard' })).toHaveAttribute('href', 'classic.html#ci-analytics');
   });
 });
 
 async function classicHealthText(page, query) {
-  await page.goto(`/${query}#ci-health`);
+  await page.goto(`/classic.html${query}#ci-health`);
   const host = page.locator('#ci-health-view[data-render-state="ready"]');
   await host.waitFor();
   return host.innerText();
@@ -63,7 +63,7 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
     const failures = [...classic.matchAll(/\n([^\n]+)\nmi\d+_\d+ - amd_mi\d+_\d+/g)].map((m) => m[1].trim());
 
     expect(failures.length).toBeGreaterThan(0);
-    await page.goto('/v2/#/health');
+    await page.goto('/#/health');
     const logical = page.getByTestId('logical-ring');
     await expect(logical).toContainText(ring[1]);
     await expect(logical).toContainText(ring[2]);
@@ -90,7 +90,7 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
     const areas = [...classic.matchAll(/\n([^\n]+)\n(\d+ potential open gaps?)\n/g)].map((m) => `${m[1]}|${m[2]}`);
 
     expect(areas.length).toBeGreaterThan(0);
-    await page.goto('/v2/#/health?view=parity');
+    await page.goto('/#/health?view=parity');
     const parityRing = page.getByTestId('parity-ring');
     await expect(parityRing).toContainText(ring[1]);
     await expect(parityRing).toContainText(ring[2]);
@@ -108,10 +108,32 @@ test.describe('v2 CI Health matches the classic page on the same snapshot', () =
   });
 
   test('unported CI Health views link to the matching classic view', async ({ page }) => {
-    await page.goto('/v2/#/health?view=mirrors');
+    await page.goto('/#/health?view=mirrors');
     await expect(page.getByRole('link', { name: 'Open AMD mirrors on the classic dashboard' })).toHaveAttribute(
       'href',
-      '../?ops_health_view=mirrors#ci-health',
+      'classic.html?ops_health_view=mirrors#ci-health',
     );
+  });
+});
+
+test.describe('v2 is the root page and keeps old links working', () => {
+  test('legacy links to unported views open the classic page with their state', async ({ page }) => {
+    await page.goto('/?ops_analytics_view=latency#ci-analytics');
+    await expect(page).toHaveURL(/\/classic\.html\?ops_analytics_view=latency#ci-analytics$/);
+    await expect(page.locator('#ci-analytics-view[data-render-state="ready"]')).toBeVisible();
+  });
+
+  test('legacy links to ported views open v2', async ({ page }) => {
+    await page.goto('/?ops_health_view=parity#ci-health');
+    await expect(page).toHaveURL(/#\/health\?view=parity$/);
+    await expect(page.getByTestId('parity-ring')).toBeVisible();
+    await page.goto('/#projects');
+    await expect(page.getByRole('heading', { name: 'Command Center' })).toBeVisible();
+  });
+
+  test('old /v2/ bookmarks redirect to the root with their route', async ({ page }) => {
+    await page.goto('/v2/#/health');
+    await expect(page).toHaveURL(/\/#\/health$/);
+    await expect(page.getByTestId('logical-ring')).toBeVisible();
   });
 });

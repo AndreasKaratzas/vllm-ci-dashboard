@@ -1076,7 +1076,7 @@ class TestQueueViewContract:
 
     def test_retired_ci_queue_page_is_absent_and_omni_is_registered(self):
         """Queue automation remains shared with Omni after its page is retired."""
-        html = (DOCS / "index.html").read_text()
+        html = (DOCS / "classic.html").read_text()
         js = (DOCS / "assets" / "js" / "utils.js").read_text()
         in_html = 'data-tab="ci-queue"' in html
         in_js = "id: 'ci-queue'" in js

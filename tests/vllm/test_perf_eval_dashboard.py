@@ -26,7 +26,7 @@ class TestTabRegistration:
         assert "label: 'Perf Eval'" in text
 
     def test_index_loads_active_operations_renderer_after_utils(self):
-        html = (DOCS / "index.html").read_text(encoding="utf-8")
+        html = (DOCS / "classic.html").read_text(encoding="utf-8")
         assert "ops-v2.js" in html, "index.html must load the active operations renderer"
         assert html.find("utils.js") < html.find("ops-v2.js"), (
             "ops-v2.js must load after utils.js"

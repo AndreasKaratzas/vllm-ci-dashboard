@@ -8,7 +8,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-INDEX = (ROOT / "docs" / "index.html").read_text()
+INDEX = (ROOT / "docs" / "classic.html").read_text()
 SCRIPT = (ROOT / "docs" / "assets" / "js" / "publication-status.js").read_text()
 CSS = (ROOT / "docs" / "assets" / "css" / "dashboard.css").read_text()
 MANIFEST = (ROOT / "config" / "public_data_manifest.json").read_text()
