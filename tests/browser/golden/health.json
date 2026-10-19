@@ -1,0 +1,737 @@
+{
+  "coverage": {
+    "meta": "Latest observed matrix build #30005 - one fixed best-hardware policy",
+    "rate": "40.0%",
+    "stats": [
+      [
+        "Test groups",
+        "10"
+      ],
+      [
+        "Passing",
+        "4"
+      ],
+      [
+        "Failing",
+        "2"
+      ],
+      [
+        "No signal",
+        "4"
+      ]
+    ],
+    "facts": "10 generic best-of-hardware families - 0 explicit MI355-sensitive obligations - no-signal groups remain in the denominator",
+    "architectures": [
+      {
+        "label": "MI300",
+        "configured": "8 configured routes",
+        "metrics": [
+          "4 passing",
+          "0 non-passing",
+          "4 unobserved"
+        ],
+        "rate": "50.0%"
+      },
+      {
+        "label": "MI355",
+        "configured": "2 configured routes",
+        "metrics": [
+          "0 passing",
+          "2 non-passing",
+          "0 unobserved"
+        ],
+        "rate": "0.0%"
+      }
+    ],
+    "description": "Grouped by first configured platform: MI250, MI300, MI325, then MI355",
+    "rows": [
+      [
+        "Attention Kernels Shard 1",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Attention Kernels Shard 2",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Basic Models (Other)",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Extra kernels",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Extra models",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Optional integration",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Routed Alpha",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Soft integration",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ]
+    ]
+  },
+  "coverage drill-downs": {
+    "browsers": {
+      "all": {
+        "title": "Configured AMD test groups",
+        "count": "10 of 10 rows",
+        "rows": [
+          [
+            "Broken Group",
+            "Failing",
+            "Generic family",
+            "MI355",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 1 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Routed Beta",
+            "Failing",
+            "Generic family",
+            "MI355",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 1 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Extra kernels",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Extra models",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Optional integration",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Soft integration",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Attention Kernels Shard 1",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Attention Kernels Shard 2",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Basic Models (Other)",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Routed Alpha",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ]
+        ]
+      },
+      "passing": {
+        "title": "Passing AMD test groups",
+        "count": "4 of 10 rows",
+        "rows": [
+          [
+            "Attention Kernels Shard 1",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Attention Kernels Shard 2",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Basic Models (Other)",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Routed Alpha",
+            "Passing",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "1 pass - 0 non-passing",
+            "1 jobs"
+          ]
+        ]
+      },
+      "failing": {
+        "title": "Failing AMD test groups",
+        "count": "2 of 10 rows",
+        "rows": [
+          [
+            "Broken Group",
+            "Failing",
+            "Generic family",
+            "MI355",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 1 non-passing",
+            "1 jobs"
+          ],
+          [
+            "Routed Beta",
+            "Failing",
+            "Generic family",
+            "MI355",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 1 non-passing",
+            "1 jobs"
+          ]
+        ]
+      },
+      "no-signal": {
+        "title": "AMD groups without a terminal signal",
+        "count": "4 of 10 rows",
+        "rows": [
+          [
+            "Extra kernels",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Extra models",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Optional integration",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ],
+          [
+            "Soft integration",
+            "No signal",
+            "Generic family",
+            "MI300",
+            "generic logical family; passes when any represented AMD architecture passes",
+            "0 pass - 0 non-passing",
+            "0 jobs"
+          ]
+        ]
+      }
+    },
+    "evidence": {
+      "title": "Broken Group",
+      "fields": [
+        [
+          "Status",
+          "Failing"
+        ],
+        [
+          "Test-group classification",
+          "Generic family"
+        ],
+        [
+          "Classification reason",
+          "generic logical family; passes when any represented AMD architecture passes"
+        ],
+        [
+          "Source definitions",
+          "1"
+        ],
+        [
+          "Hardware",
+          "MI355"
+        ],
+        [
+          "Signal",
+          "0 passing - 1 non-passing"
+        ]
+      ],
+      "definitions": [
+        [
+          ":amd: (MI355) Broken Group",
+          "mi355",
+          "failed"
+        ]
+      ]
+    },
+    "architecture": {
+      "title": "MI300 test-group routes",
+      "subtitle": "8 configured hardware routes; non-passing latest results first, then test group A-Z; Build links open exact AMD jobs",
+      "rows": [
+        [
+          "Extra kernels",
+          "Browser fixture",
+          "unobserved",
+          "-"
+        ],
+        [
+          "Extra models",
+          "Browser fixture",
+          "unobserved",
+          "-"
+        ],
+        [
+          "Optional integration",
+          "Browser fixture",
+          "unobserved",
+          "-"
+        ],
+        [
+          "Soft integration",
+          "Browser fixture",
+          "unobserved",
+          "-"
+        ],
+        [
+          "Attention Kernels Shard 1",
+          "Browser fixture",
+          "passed",
+          "#30005"
+        ],
+        [
+          "Attention Kernels Shard 2",
+          "Browser fixture",
+          "passed",
+          "#30005"
+        ],
+        [
+          "Basic Models (Other)",
+          "Browser fixture",
+          "passed",
+          "#30005"
+        ],
+        [
+          "Routed Alpha",
+          "Browser fixture",
+          "passed",
+          "#30005"
+        ]
+      ]
+    },
+    "group": {
+      "title": "Extra kernels",
+      "fields": [
+        [
+          "Area",
+          "Browser fixture"
+        ]
+      ]
+    }
+  },
+  "coverage sorted by area": {
+    "description": "Test areas sorted alphabetically, then by test-group name",
+    "rows": [
+      [
+        "Attention Kernels Shard 1",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Attention Kernels Shard 2",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Basic Models (Other)",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Broken Group",
+        "Browser fixture",
+        "-",
+        "failed"
+      ],
+      [
+        "Extra kernels",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Extra models",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Optional integration",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Routed Alpha",
+        "Browser fixture",
+        "passed",
+        "-"
+      ]
+    ]
+  },
+  "coverage sorted by name": {
+    "description": "Test groups sorted alphabetically by name",
+    "rows": [
+      [
+        "Attention Kernels Shard 1",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Attention Kernels Shard 2",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Basic Models (Other)",
+        "Browser fixture",
+        "passed",
+        "-"
+      ],
+      [
+        "Broken Group",
+        "Browser fixture",
+        "-",
+        "failed"
+      ],
+      [
+        "Extra kernels",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Extra models",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Optional integration",
+        "Browser fixture",
+        "unknown",
+        "-"
+      ],
+      [
+        "Routed Alpha",
+        "Browser fixture",
+        "passed",
+        "-"
+      ]
+    ]
+  },
+  "mirror summary": {
+    "count": "10",
+    "meta": "Physical mirror.amd declarations · separate from 4 runtime groups",
+    "facts": "8 required · 1 optional · 1 soft fail · 1 files",
+    "label": "10 configured AMD mirror groups. Open the AMD mirror inventory."
+  },
+  "mirrors": {
+    "total": "10",
+    "meta": "Each group is one mirror.amd declaration on vLLM main.",
+    "legend": [
+      [
+        "8",
+        "MI300"
+      ],
+      [
+        "2",
+        "MI355"
+      ]
+    ],
+    "modes": [
+      "8",
+      "1",
+      "1"
+    ],
+    "facts": [
+      "1",
+      "2"
+    ],
+    "areasSubtitle": "Top 1 of 1 source files by group count",
+    "areas": [
+      [
+        "browser fixture",
+        "browser_fixture.yaml",
+        "8 R · 1 O · 1 S",
+        "10",
+        "https://github.com/vllm-project/vllm/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.buildkite/test_areas/browser_fixture.yaml"
+      ]
+    ],
+    "inventorySubtitle": "10 of 10 physical mirror.amd declarations",
+    "preview": [
+      [
+        ":amd: (MI300) Attention Kernels Shard 1",
+        "browser fixture · browser_fixture.yaml",
+        "required"
+      ],
+      [
+        ":amd: (MI300) Attention Kernels Shard 2",
+        "browser fixture · browser_fixture.yaml",
+        "required"
+      ],
+      [
+        ":amd: (MI300) Basic Models (Other)",
+        "browser fixture · browser_fixture.yaml",
+        "required"
+      ],
+      [
+        ":amd: (MI355) Broken Group",
+        "browser fixture · browser_fixture.yaml",
+        "required"
+      ],
+      [
+        ":amd: (MI300) Extra kernels",
+        "browser fixture · browser_fixture.yaml",
+        "required"
+      ],
+      [
+        ":amd: (MI300) Extra models",
+        "browser fixture · browser_fixture.yaml",
+        "required"
+      ]
+    ],
+    "browse": [
+      "Browse all 1 test-area files",
+      "Browse all 10 AMD mirrors"
+    ],
+    "headerAction": [
+      [
+        "Open current main CI source ↗",
+        "https://github.com/vllm-project/vllm/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    ],
+    "observed": "Observed Oct 8, 08:00 PM",
+    "drawer": {
+      "title": ":amd: (MI300) Attention Kernels Shard 1",
+      "fields": [
+        [
+          "Source test group",
+          ":nvidia: (H100) Attention Kernels Shard 1"
+        ],
+        [
+          "Source definition ID",
+          ".buildkite/test_areas/browser_fixture.yaml#current-2"
+        ],
+        [
+          "Test area",
+          "browser fixture"
+        ],
+        [
+          "YAML definition",
+          ".buildkite/test_areas/browser_fixture.yaml"
+        ],
+        [
+          "AMD device",
+          "mi300"
+        ],
+        [
+          "GPU width",
+          "1"
+        ],
+        [
+          "Configured route mode",
+          "required"
+        ]
+      ],
+      "sources": [
+        "https://github.com/vllm-project/vllm/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.buildkite/test_areas/browser_fixture.yaml",
+        "https://github.com/vllm-project/vllm/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "data/vllm/ci/operations_v2/test_group_parity.json"
+      ]
+    },
+    "browsers": [
+      {
+        "label": "Browse all 1 test-area files",
+        "title": "AMD mirrors by test-area file",
+        "count": "1 of 1 rows",
+        "rows": [
+          [
+            "browser_fixture.yaml ↗",
+            "browser fixture",
+            "10",
+            "8",
+            "1",
+            "1",
+            "MI300, MI355"
+          ]
+        ]
+      },
+      {
+        "label": "Browse all 10 AMD mirrors",
+        "title": "AMD mirror inventory",
+        "count": "10 of 10 rows",
+        "rows": [
+          [
+            ":amd: (MI300) Attention Kernels Shard 1",
+            "browser fixture",
+            "MI300",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Attention Kernels Shard 2",
+            "browser fixture",
+            "MI300",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Basic Models (Other)",
+            "browser fixture",
+            "MI300",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI355) Broken Group",
+            "browser fixture",
+            "MI355",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Extra kernels",
+            "browser fixture",
+            "MI300",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Extra models",
+            "browser fixture",
+            "MI300",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Optional integration",
+            "browser fixture",
+            "MI300",
+            "1",
+            "optional",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Routed Alpha",
+            "browser fixture",
+            "MI300",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI355) Routed Beta",
+            "browser fixture",
+            "MI355",
+            "1",
+            "required",
+            "Pinned YAML ↗"
+          ],
+          [
+            ":amd: (MI300) Soft integration",
+            "browser fixture",
+            "MI300",
+            "1",
+            "soft fail",
+            "Pinned YAML ↗"
+          ]
+        ]
+      }
+    ]
+  }
+}
