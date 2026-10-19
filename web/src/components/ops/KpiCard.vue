@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { TrendingDown, TrendingUp } from '@lucide/vue'
+import { computed } from 'vue'
 import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Tone } from '@/domain/format'
 import ToneBadge from './ToneBadge.vue'
 
-defineProps<{
+const props = defineProps<{
   label: string
   value: string
   badge?: string
@@ -15,18 +16,29 @@ defineProps<{
   href?: string
 }>()
 defineEmits<{ open: [] }>()
+
+// A long value beside a long badge wraps word by word in the header's action
+// column, so long content stacks the badge above the value instead.
+const stacked = computed(() => props.value.length > 10 || (props.badge?.length ?? 0) > 14)
 </script>
 
 <template>
   <Card class="@container/card">
     <CardHeader>
       <CardDescription>{{ label }}</CardDescription>
+      <div v-if="badge && stacked">
+        <ToneBadge :tone="badgeTone ?? 'is-neutral'">
+          <TrendingUp v-if="trend === 'up'" />
+          <TrendingDown v-else-if="trend === 'down'" />
+          {{ badge }}
+        </ToneBadge>
+      </div>
       <CardTitle
         class="font-semibold tabular-nums"
         :class="value.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl'"
         >{{ value }}</CardTitle
       >
-      <CardAction v-if="badge">
+      <CardAction v-if="badge && !stacked">
         <ToneBadge :tone="badgeTone ?? 'is-neutral'">
           <TrendingUp v-if="trend === 'up'" />
           <TrendingDown v-else-if="trend === 'down'" />
