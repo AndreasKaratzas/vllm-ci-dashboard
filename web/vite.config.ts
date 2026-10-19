@@ -54,6 +54,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Parity suites compare thousands of generated variants against the
+    // classic renderer; shared CI runners need more than the 5 s default.
+    testTimeout: 60_000,
     include: ['tests/**/*.test.ts'],
   },
 })
