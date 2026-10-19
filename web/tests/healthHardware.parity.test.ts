@@ -766,4 +766,13 @@ describe('AMD hardware helpers on hand-written inputs', () => {
       { configured: 0, passRate: null, label: '-', tone: 'hard' },
     ])
   })
+
+  it('labels gate kinds and trails pass rates', () => {
+    expect([{ classification: 'mi355-sensitive' }, {}].map((group) => v2.matrixGateKindLabel(group))).toEqual(['MI355-sensitive', 'Generic family'])
+    expect(v2.trailingPassStats([{ state: 'passed' }, { state: 'failed' }, { state: 'passed' }], 2)).toEqual([
+      { passed: 1, total: 1, rate: 100 },
+      { passed: 1, total: 2, rate: 50 },
+      { passed: 1, total: 2, rate: 50 },
+    ])
+  })
 })

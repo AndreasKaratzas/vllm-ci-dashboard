@@ -1,7 +1,7 @@
 // Differential parity: the v2 domain modules must reproduce the classic
 // renderer's (docs/assets/js/ops-v2.js) decisions on the same inputs.
 import { beforeAll, describe, expect, it } from 'vitest'
-import { populationSemantics, observedCountLabel, type Rec } from '@/domain/format'
+import { populationSemantics, observedCountLabel, toneForState, type Rec } from '@/domain/format'
 import { attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
 import {
   amdNightlyPresentation,
@@ -285,6 +285,17 @@ describe('nightly presentation on a hand-written nightly', () => {
     })
     expect((['new', 'recurring', 'fixed'] as const).map((key) => nightlyFailureCount(build, key))).toEqual([1, 1, 1])
     expect(nightlyBuildEvidence(build, 'hard')).toEqual({ scope: 'hard', label: 'Current hard failures', available: true, rows: build.failed_groups })
+  })
+
+  it('maps every published state to its tone', () => {
+    const tones = {
+      pass: ['passed', 'green', 'healthy', 'fixed', 'success', 'PASSED'],
+      hard: ['failed', 'failing', 'hard', 'incident', 'error', 'red', 'critical', 'surge', 'broken'],
+      soft: ['soft', 'soft_fail', 'soft_failed', 'soft_failing', 'warning', 'attention', 'elevated', 'waiting'],
+      info: ['new', 'info', 'recurring'],
+      neutral: ['', null, undefined, 'missing', 'not-targeted'],
+    }
+    for (const [tone, states] of Object.entries(tones)) expect(states.map(toneForState), tone).toEqual(states.map(() => tone))
   })
 
   it('labels attention signals and population counts', () => {

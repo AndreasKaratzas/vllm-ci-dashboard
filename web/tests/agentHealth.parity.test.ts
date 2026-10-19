@@ -546,4 +546,15 @@ describe('CI agent health helpers on hand-written inputs', () => {
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ pattern: 'concurrent', span_mins: 15, run_count: 2, group_count: 2, hard_failed: 1, soft_failed: 1, cross_pipeline: false })
   })
+
+  it('colors states, labels nodes, and sorts by signal', () => {
+    expect(['passed', 'soft', 'hard', 'canceled', ''].map((s) => v2.agentStateColor(s))).toEqual(['#35bb78', '#e3a63a', '#e06464', '#8a93a0', '#66717d'])
+    expect([v2.agentNodeLabel('n1', 'MI300'), v2.agentNodeLabel('n1', '')]).toEqual(['n1 (MI300)', 'n1'])
+    expect(v2.effectiveAgentSort({ key: 'node', dir: 'asc' }, false, 'infra')).toEqual({ key: 'infra_suspect', dir: 'desc' })
+    expect(v2.effectiveAgentSort({ key: 'infra_suspect', dir: 'asc' }, true, 'all')).toEqual({ key: 'failures', dir: 'asc' })
+    expect([v2.nextAgentSort({ key: 'node', dir: 'asc' }, 'node'), v2.nextAgentSort({ key: 'node', dir: 'asc' }, 'failures')]).toEqual([
+      { key: 'node', dir: 'desc' },
+      { key: 'failures', dir: 'desc' },
+    ])
+  })
 })

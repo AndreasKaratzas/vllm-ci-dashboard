@@ -362,4 +362,8 @@ describe('AMD mirror helpers on hand-written inputs', () => {
       facts: '1 required · 1 optional · 0 soft fail · 1 files',
     })
   })
+
+  it('tones gate modes', () => {
+    expect([{ gate_kind: 'soft_fail' }, { soft_fail: true }, { gate_kind: 'optional' }, {}].map((row) => v2.amdMirrorModeTone(row))).toEqual(['soft', 'soft', 'soft', 'neutral'])
+  })
 })

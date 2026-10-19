@@ -1,12 +1,12 @@
 // Golden digests: every value a test passes to expectGolden is canonicalized
 // and folded into a sha256 per (area, test, fn), cut into chunks of CHUNK calls
 // so a mismatch names a narrow call range. `GOLDEN_RECORD=1 npx vitest run -u`
-// rewrites tests/golden/<area>.json and the readable tests/golden/<area>/*.json
-// snapshots; otherwise both are compared.
+// records the tests that ran into tests/golden/<area>.json and rewrites the
+// readable tests/golden/<area>/*.json snapshots; otherwise both are compared.
 import { createHash, type Hash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { expect, onTestFinished } from 'vitest'
+import { afterAll, expect, onTestFinished, type RunnerTask, type RunnerTestFile, type RunnerTestSuite } from 'vitest'
 
 // shortDate() renders in local time; recorded digests assume UTC.
 process.env.TZ = 'UTC'
@@ -16,26 +16,11 @@ const CHUNK = 100
 const DIGEST_HEX = 16
 const GOLDEN_DIR = resolve(import.meta.dirname, '../golden')
 
-// Digests recorded before the tone rename hold CSS-class tone names; both
-// spellings canonicalize to the domain Tone so the recordings stay valid.
-const TONE_BY_CLASS: Record<string, string> = {
-  'is-success': 'pass',
-  'is-danger': 'hard',
-  'is-warning': 'soft',
-  'is-info': 'info',
-  'is-neutral': 'neutral',
-  'is-not-targeted': 'not-targeted',
-}
-const TONE_CLASS = /(?<![\w-])is-(?:success|danger|warning|info|neutral|not-targeted)(?![\w-])/g
-
-const tone = (s: string) => (s.includes('is-') ? s.replace(TONE_CLASS, (t) => TONE_BY_CLASS[t]!) : s)
-
 /**
  * The value as plain data, with the leniency of toEqual: object keys sorted,
  * undefined properties dropped, Map/Set as arrays, Dates as ISO strings.
  */
 export function normalize(value: unknown, seen = new Set<object>()): unknown {
-  if (typeof value === 'string') return tone(value)
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'symbol' || typeof value === 'bigint') throw new TypeError(`golden values must be data, got ${typeof value}`)
     return value
@@ -93,21 +78,15 @@ interface Stream extends Digest {
   last: string
 }
 
-const stored = new Map<string, AreaFile>()
-const recorded = new Map<string, AreaFile>()
-const open = new Map<string, Map<string, Stream>>()
+interface Area {
+  stored: AreaFile
+  recorded: AreaFile
+  open: Map<string, Map<string, Stream>>
+}
+
+const areas = new Map<string, Area>()
 
 const goldenPath = (area: string) => resolve(GOLDEN_DIR, `${area}.json`)
-
-function storedArea(area: string): AreaFile {
-  let file = stored.get(area)
-  if (!file) {
-    const path = goldenPath(area)
-    file = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as AreaFile) : {}
-    stored.set(area, file)
-  }
-  return file
-}
 
 function where(area: string, test: string, fn: string) {
   return `golden ${area} › ${test} › ${fn}`
@@ -119,7 +98,7 @@ function closeChunk(area: string, test: string, fn: string, stream: Stream) {
   stream.chunks.push(digest)
   stream.hash = createHash('sha256')
   if (RECORD) return
-  const expected = storedArea(area)[test]?.[fn]
+  const expected = areas.get(area)!.stored[test]?.[fn]
   const first = index * CHUNK + 1
   expect(
     digest,
@@ -129,9 +108,9 @@ function closeChunk(area: string, test: string, fn: string, stream: Stream) {
 }
 
 function finishTest(area: string, test: string, failed: boolean) {
-  const key = `${area}\0${test}`
-  const streams = open.get(key)!
-  open.delete(key)
+  const state = areas.get(area)!
+  const streams = state.open.get(test)!
+  state.open.delete(test)
   // A failed test stopped early: its partial digests are neither evidence nor a recording.
   if (failed) return
   const digests: Record<string, Digest> = {}
@@ -140,17 +119,46 @@ function finishTest(area: string, test: string, failed: boolean) {
     if (stream.calls % CHUNK) closeChunk(area, test, fn, stream)
     digests[fn] = { calls: stream.calls, chunks: stream.chunks }
   }
-  if (RECORD) {
-    const file = recorded.get(area) ?? {}
-    if (file[test]) throw new Error(`${where(area, test, '*')}: test titles must be unique within an area`)
-    file[test] = digests
-    recorded.set(area, file)
-    writeArea(area, file)
-    return
-  }
-  const expected = storedArea(area)[test] ?? {}
+  if (state.recorded[test]) throw new Error(`${where(area, test, '*')}: test titles must be unique within an area`)
+  state.recorded[test] = digests
+  if (RECORD) return
+  const expected = state.stored[test] ?? {}
   const calls = (d: Record<string, Digest>) => Object.fromEntries(Object.entries(d).map(([fn, { calls }]) => [fn, calls]))
   expect(calls(digests), `${where(area, test, '*')}: calls per fn differ from the recording`).toEqual(calls(expected))
+}
+
+function testsOf(suite: Readonly<RunnerTestSuite | RunnerTestFile>, out = new Map<string, RunnerTask>()) {
+  for (const task of suite.tasks) {
+    if (task.type === 'suite') testsOf(task, out)
+    else out.set(task.fullTestName ?? task.name, task)
+  }
+  return out
+}
+
+/**
+ * Runs once the area's file finishes. Recording rewrites the area from the
+ * tests that passed and keeps the digests of tests that did not run or failed;
+ * comparing fails on recorded tests that are gone or stopped calling expectGolden.
+ */
+function finishArea(area: string, file: Readonly<RunnerTestSuite | RunnerTestFile>) {
+  const { stored, recorded } = areas.get(area)!
+  const tests = testsOf(file)
+  const passed = (name: string) => tests.get(name)?.result?.state === 'pass'
+  if (RECORD) {
+    const next: AreaFile = {}
+    for (const name of tests.keys()) {
+      const digests = passed(name) ? recorded[name] : stored[name]
+      if (digests) next[name] = digests
+    }
+    writeArea(area, next)
+    return
+  }
+  const problems = Object.keys(stored).flatMap((name) => {
+    if (!tests.has(name)) return [`${where(area, name, '*')}: recorded test no longer exists`]
+    if (passed(name) && !recorded[name]) return [`${where(area, name, '*')}: recorded test made no golden calls`]
+    return []
+  })
+  if (problems.length) throw new Error(`${problems.join('\n')}\n(re-record with GOLDEN_RECORD=1 if intended)`)
 }
 
 function writeArea(area: string, file: AreaFile) {
@@ -172,17 +180,27 @@ function writeArea(area: string, file: AreaFile) {
 }
 
 /**
- * Folds `value` into the digest of (area, current test, fn). An area belongs to
- * exactly one test file, because recording rewrites the whole area file.
+ * Declares the golden area of the calling test file; call it once at module
+ * top level. The returned expectGolden folds `value` into the digest of
+ * (area, current test, fn).
  */
-export function expectGolden(area: string, fn: string, value: unknown): void {
+export function goldenArea(area: string): (fn: string, value: unknown) => void {
+  if (areas.has(area)) throw new Error(`golden area ${area} is declared twice`)
+  const path = goldenPath(area)
+  const stored = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as AreaFile) : {}
+  areas.set(area, { stored, recorded: {}, open: new Map() })
+  afterAll(({}, file) => finishArea(area, file))
+  return (fn, value) => expectGolden(area, fn, value)
+}
+
+function expectGolden(area: string, fn: string, value: unknown): void {
   const test = expect.getState().currentTestName
   if (!test) throw new Error('expectGolden must run inside a test')
-  const key = `${area}\0${test}`
-  let streams = open.get(key)
+  const { open } = areas.get(area)!
+  let streams = open.get(test)
   if (!streams) {
     streams = new Map()
-    open.set(key, streams)
+    open.set(test, streams)
     onTestFinished(({ task }) => finishTest(area, test, task.result?.state === 'fail'))
   }
   let stream = streams.get(fn)
