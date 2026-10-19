@@ -429,13 +429,23 @@ class TestWorkflowYAML:
             elif isinstance(value, str):
                 yield value
 
+        def expanded_length(scalar):
+            # GitHub turns "a ${{ x }} b" into format('a {0} b', x) before
+            # checking the limit: literal quotes and braces are doubled.
+            expressions = re.findall(r"\$\{\{(.*?)\}\}", scalar)
+            literal = re.sub(r"\$\{\{.*?\}\}", "{0}", scalar)
+            literal = literal.replace("'", "''").replace("{", "{{").replace("}", "}}")
+            arguments = ", ".join(expression.strip() for expression in expressions)
+            return len(f"format('{literal}', {arguments})")
+
         for workflow in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(workflow.read_text())
             for scalar in scalars(data):
                 if "${{" not in scalar:
                     continue
-                assert len(scalar) <= 21_000, (
-                    f"{workflow.name}: expression-bearing scalar is {len(scalar)} "
+                length = expanded_length(scalar)
+                assert length <= 21_000, (
+                    f"{workflow.name}: expression-bearing scalar expands to {length} "
                     "characters; GitHub's parser limit is 21000"
                 )
 
@@ -3624,9 +3634,12 @@ class TestPublicationWatchdogWorkflow:
         assert 'HEALTH_REASON=site-health-failed' in route_script
         assert 'HEALTH_REASON=site-health-stale' in route_script
         assert 'force_reason=$HEALTH_REASON' in route_script
-        assert 'github.event.workflow_run.name' in route_script
-        assert '"Site Health Check"' in route_script
-        assert 'github.event.workflow_run.conclusion' in route_script
+        assert route["env"]["WORKFLOW_RUN_NAME"] == "${{ github.event.workflow_run.name }}"
+        assert route["env"]["WORKFLOW_RUN_CONCLUSION"] == (
+            "${{ github.event.workflow_run.conclusion }}"
+        )
+        assert '[ "$WORKFLOW_RUN_NAME" = "Site Health Check" ]' in route_script
+        assert '[ "$WORKFLOW_RUN_CONCLUSION" != success ]' in route_script
         assert "scripts/vllm/check_site_health.py" in route_script
         assert "--max-publication-age-hours 3" in route_script
         assert "validate_watchdog_health_report.py" in route_script
