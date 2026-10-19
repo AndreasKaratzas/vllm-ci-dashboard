@@ -133,3 +133,32 @@ describe('CI Health domain matches the classic renderer', () => {
     }
   })
 })
+
+describe('CI Health helpers on hand-written inputs', () => {
+  it('reads the latest state against the latest build', () => {
+    expect(v2.amdLatestState({ latest_build_number: 101, latest_state: 'passed' }, 101)).toBe('passed')
+    expect(v2.amdLatestState({ latest_build_number: 100, latest_state: 'failed' }, 101)).toBe('missing')
+    expect(v2.amdLatestState({ latest_build_number: 101, latest_state: 'soft_fail' }, 101)).toBe('soft')
+    expect(['passed', 'soft', 'hard', 'missing', 'x'].map((s) => v2.amdStateLabel(s))).toEqual(['Passing', 'Soft fail', 'Hard fail', 'Not in latest', 'No result'])
+  })
+
+  it('computes pass rates and logical test-group presentations', () => {
+    expect([{ passed: 3, soft_failed: 1, hard_failed: 0 }, { pass_rate_pct: 42.42 }, {}].map((row) => v2.amdGroupPassRate(row))).toEqual([75, 42.42, null])
+    expect(v2.logicalTestGroupPresentation({ total: 10, passing: 7, partial: 2 })).toEqual({
+      available: true,
+      value: '7 / 10 passing',
+      meta: '5 pass on every route · 2 pass on some hardware only · 3 non-passing everywhere',
+      tone: 'soft',
+    })
+    expect(v2.logicalTestGroupPresentation({ total: 4, passing: 4, passing_all: 3, partial: 0 }).tone).toBe('pass')
+  })
+
+  it('labels definition resolution states', () => {
+    expect(['resolved', 'unresolved', 'ambiguous', 'unavailable'].map((status) => v2.testGroupDefinitionState({ definition_resolution: { status } }))).toEqual([
+      'Current',
+      'Removed or changed',
+      'Mapping needs review',
+      'Snapshot unavailable',
+    ])
+  })
+})

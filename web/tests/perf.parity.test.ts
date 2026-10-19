@@ -612,3 +612,21 @@ describe('Perf Eval matches the classic renderer', () => {
     expect(v2.perfImageDetail({}).fields).toEqual([{ label: 'Image', value: '-' }])
   })
 })
+
+describe('Perf Eval helpers on hand-written inputs', () => {
+  it('formats values by unit', () => {
+    const cases: [unknown, string][] = [[0.12345, 'ratio'], [12.3456, 'tok/s'], [null, 's'], ['n/a', ''], [0.9995, 'ratio']]
+    expect(cases.map(([raw, unit]) => v2.perfValue(raw, unit))).toEqual(['12.3%', '12.3 tok/s', '0 ms', '-', '100.0%'])
+  })
+
+  it('labels deltas and statuses', () => {
+    expect(v2.perfDelta({ previous: 1, delta_pct: 5.25, status: 'good' })).toEqual({ label: '+5.3%', tone: 'pass', title: 'Change from the preceding nightly' })
+    expect(v2.perfDelta({ previous: 1, delta_pct: -2, status: 'bad' })).toEqual({ label: '-2.0%', tone: 'hard', title: 'Change from the preceding nightly' })
+    expect(v2.perfDelta({ previous: null, delta_pct: 3 })).toEqual({ label: 'First nightly', tone: 'neutral', title: null })
+    expect(['good', 'bad', 'neutral'].map((s) => [v2.perfStatusTone(s), v2.accuracyStatusLabel(s)])).toEqual([
+      ['pass', 'improved'],
+      ['hard', 'regressed'],
+      ['neutral', 'within band'],
+    ])
+  })
+})

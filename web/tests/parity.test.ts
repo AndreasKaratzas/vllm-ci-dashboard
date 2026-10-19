@@ -250,3 +250,49 @@ describe('v2 domain matches the classic renderer', () => {
     }
   })
 })
+
+describe('nightly presentation on a hand-written nightly', () => {
+  const build: Rec = {
+    number: 1001,
+    state: 'failed',
+    build_url: 'https://buildkite.com/vllm/ci/builds/1001',
+    total_groups: 10,
+    failed_groups: [{ name: 'Kernels', state: 'failed', queue: 'amd_mi300_1', build_number: 1001, job_url: 'https://buildkite.com/vllm/ci/builds/1001/steps/canvas?jid=k1' }],
+    soft_failed_groups: [{ name: 'Models', state: 'soft_fail', queue: 'amd_mi355_1', build_number: 1001, job_url: 'https://buildkite.com/vllm/ci/builds/1001/steps/canvas?jid=m1' }],
+    failure_movement: {
+      policy_id: 'observed-failure-movement-v1',
+      available: true,
+      preceding_build_number: 1000,
+      new: [{ name: 'Kernels', state: 'failed', build_number: 1001 }],
+      recurring: [{ name: 'Models', state: 'soft_fail', build_number: 1001 }],
+      fixed: [{ name: 'Lora', state: 'passed', build_number: 1001 }],
+    },
+  }
+  const summary = { latest_build_number: 1001, latest_job_variant_count: 10, latest_job_variant_state_counts: { passed: 8, hard: 1, soft: 1 } }
+
+  it('labels the outcome, the movement, and the evidence', () => {
+    expect(amdNightlyPresentation(build, summary, '2026-10-17T09:38:09Z', Date.parse('2026-10-17T10:38:09Z'))).toEqual({
+      label: 'Hard failures',
+      tone: 'hard',
+      meta: '#1001 - 8 pass - 1 soft - 1 hard; No net change; Buildkite failed',
+      hasSignal: true,
+      movementLabel: 'No net change',
+      movementMeta: '1 new - 1 recurring - 1 fixed',
+      movementTone: 'soft',
+      hasComparison: true,
+      incidentCount: 2,
+      incidentDelta: 0,
+    })
+    expect((['new', 'recurring', 'fixed'] as const).map((key) => nightlyFailureCount(build, key))).toEqual([1, 1, 1])
+    expect(nightlyBuildEvidence(build, 'hard')).toEqual({ scope: 'hard', label: 'Current hard failures', available: true, rows: build.failed_groups })
+  })
+
+  it('labels attention signals and population counts', () => {
+    expect(['nightly_hard_failures', 'omni_waiting', 'queue_waiting'].map((kind) => attentionLabel({ kind }))).toEqual([
+      'Hard-failed groups in the latest AMD nightly',
+      'Omni jobs waiting across the fleet',
+      'queue waiting',
+    ])
+    expect([{}, { count_semantics: 'complete' }].map((p) => observedCountLabel(1234, populationSemantics(p)))).toEqual(['≥1,234', '1,234'])
+  })
+})

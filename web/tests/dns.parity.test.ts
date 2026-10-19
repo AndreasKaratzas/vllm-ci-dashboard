@@ -480,3 +480,33 @@ describe('DNS health domain matches the classic renderer', () => {
     }
   }, 60_000)
 })
+
+describe('DNS health helpers on hand-written inputs', () => {
+  it('counts only non-negative integers', () => {
+    expect([null, '', true, 0, 1, 2.7, -3, '4', 'x', NaN].map((raw) => v2.queueDnsCount(raw))).toEqual([0, 0, 0, 0, 1, 2, 0, 4, 0, 0])
+    expect(v2.queueDnsOutcomeCounts({ passed_jobs: 1, soft_failed_jobs: '2', hard_failed_jobs: 1.5, affected_jobs: 5 })).toEqual({
+      available: false,
+      passed: 1,
+      softFailed: 2,
+      hardFailed: 1,
+    })
+  })
+
+  it('links exact logs only for canonical job ids', () => {
+    expect(v2.queueDnsEvidenceUrl({ pipeline: 'ci', build_number: 12, job_id: '01a00c92-9cab-4dd2-9a75-32210e739d02' })).toBe(
+      'https://buildkite.com/vllm/ci/builds/12/list?jid=01a00c92-9cab-4dd2-9a75-32210e739d02&tab=output',
+    )
+    expect(v2.queueDnsEvidenceUrl({ pipeline: 'ci', build_number: 12, job_id: 'x' })).toBe('')
+  })
+
+  it('labels targets, signatures, and outcomes', () => {
+    expect(v2.queueDnsTargetLabels({ target_categories: ['github', 'github', 'pypi', 'mystery'] })).toEqual(['GitHub', 'PyPI', 'Unknown target'])
+    expect(v2.queueDnsSignatureLabels({ signature_ids: ['temporary_name_resolution', 'a_b', ''] })).toEqual(['temporary name resolution', 'a b'])
+    expect(['passed', 'soft', 'failed', ''].map((state) => v2.queueDnsOutcomePresentation(state))).toEqual([
+      { label: 'Passed after observation', tone: 'pass' },
+      { label: 'Soft-failed', tone: 'soft' },
+      { label: 'Hard-failed', tone: 'hard' },
+      { label: 'Unknown', tone: 'neutral' },
+    ])
+  })
+})

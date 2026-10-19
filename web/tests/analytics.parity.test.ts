@@ -745,3 +745,19 @@ describe('AMD nightlies match the classic renderer', () => {
     await compareNightlies({ nightly: { canonical_history: fixture.nightly.pipelines[0] } }, 'canonical history')
   })
 })
+
+describe('CI Analytics helpers on hand-written inputs', () => {
+  it('validates latency metrics and formats durations', () => {
+    expect([null, '', '0', -1, '3.5', 'x', Infinity, 12].map((raw) => v2.latencyMetric(raw))).toEqual([null, null, 0, null, 3.5, null, null, 12])
+    expect([null, { median_duration_mins: 75 }, { median_duration_mins: 3000 }].map((side) => v2.latencySideDuration(side))).toEqual(['Unavailable', '1h 15m', '2d'])
+  })
+
+  it('keeps only exact job URLs of the same build', () => {
+    const urls = ['https://buildkite.com/vllm/ci/builds/7/steps/canvas?jid=abc&tab=output', 'https://buildkite.com/vllm/ci/builds/7#abc', 'https://buildkite.com/vllm/ci/builds/8#abc', 'not a url']
+    expect(urls.map((url) => v2.exactLatencyJobUrl({ job_id: 'abc', url }, 7))).toEqual([urls[0], urls[1], '', ''])
+  })
+
+  it('labels pass rates from published or counted outcomes', () => {
+    expect([{ pass_rate_pct: 87.5 }, { passed: 3, soft_failed: 1, hard_failed: 0 }, { pass_rate_pct: 'n/a' }].map((row) => v2.passRateLabel(row))).toEqual(['87.5%', '75.0%', '-'])
+  })
+})

@@ -524,3 +524,26 @@ describe('CI agent health domain matches the classic renderer', () => {
     expect(integer(1)).toBe('1')
   }, 60_000)
 })
+
+describe('CI agent health helpers on hand-written inputs', () => {
+  it('labels co-failure windows, truncates, and links exact jobs', () => {
+    expect([30, 60, 90, 1440, 'x'].map((m) => v2.agentCofailLabel(m))).toEqual(['30m', '1h', '90m', '24h', '0h'])
+    expect(v2.agentTruncate('x'.repeat(35), 34)).toBe(`${'x'.repeat(33)}…`)
+    expect([v2.buildkiteJobUrl('ci', 1, 'abc'), v2.buildkiteJobUrl('ci', 0, ''), v2.buildkiteJobUrl('', 1, 'x')]).toEqual([
+      'https://buildkite.com/vllm/ci/builds/1/steps/canvas?jid=abc&tab=output',
+      'https://buildkite.com/vllm/ci/builds/0',
+      '',
+    ])
+  })
+
+  it('clusters overlapping failures into one concurrent event', () => {
+    const runs = [
+      { pipeline: 'ci', build_number: 1, group: 'g1', state: 'hard', _start: 0, _end: 600_000, started_at: '1970-01-01T00:00:00.000Z' },
+      { pipeline: 'ci', build_number: 1, group: 'g2', state: 'soft', _start: 300_000, _end: 900_000, started_at: '1970-01-01T00:05:00.000Z' },
+      { pipeline: 'ci', build_number: 2, group: 'g3', state: 'hard', _start: 36_000_000, _end: 36_600_000, started_at: '1970-01-01T10:00:00.000Z' },
+    ]
+    const events = v2.clusterNodeCofailures('n (MI300)', 'n', 'MI300', runs as unknown as v2.AgentRun[], 30)
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ pattern: 'concurrent', span_mins: 15, run_count: 2, group_count: 2, hard_failed: 1, soft_failed: 1, cross_pipeline: false })
+  })
+})

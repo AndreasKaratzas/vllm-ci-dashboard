@@ -588,3 +588,26 @@ describe('the Omni page matches classic renderOmni on the same snapshot', () => 
     await expect(pagesJson()).toMatchFileSnapshot('golden/omni/generated-drawer-pages.json')
   }, 180_000)
 })
+
+describe('Omni helpers on hand-written inputs', () => {
+  it('bands queue waits at their boundaries', () => {
+    expect([undefined, 59.9, 60, 180, 360, 720, 1440, 4320, 'abc'].map((wait) => v2.omniAgeBand({ wait_min: wait }))).toEqual([
+      '', 'lt1h', '1to3h', '3to6h', '6to12h', '12to24h', '1to3d', 'gte3d', '',
+    ])
+  })
+
+  it('formats signed counts and build links', () => {
+    expect([-5, 0, 3, 1234567, 'x', null].map((n) => v2.signedInteger(n))).toEqual(['-5', '0', '+3', '+1,234,567', '-', '0'])
+    expect([v2.buildUrl('vllm-omni-amd-ci', 12), v2.buildUrl('', 12), v2.buildUrl('vllm-omni-amd-ci', undefined)]).toEqual([
+      'https://buildkite.com/vllm/vllm-omni-amd-ci/builds/12',
+      '',
+      '',
+    ])
+  })
+
+  it('labels evidence points and prefers official queue waits', () => {
+    expect([{ label: 'Label' }, { name: 'Name' }, {}].map((point) => v2.historyPointLabel(point))).toEqual(['Label', 'Name', 'Observation'])
+    const queue = { official_wait: { p50: 1.5, p95: 9 }, sample_wait: { p50: 2, max: 30, count: 4 } }
+    expect(['p50', 'p95', 'max'].map((metric) => v2.waitValue(queue, metric))).toEqual([1.5, 9, undefined])
+  })
+})

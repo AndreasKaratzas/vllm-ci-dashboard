@@ -741,3 +741,29 @@ describe('test-group detail matches the classic drawer and history overlay', () 
     }
   })
 })
+
+describe('AMD hardware helpers on hand-written inputs', () => {
+  it('labels and tones matrix statuses', () => {
+    expect(['passing', 'failed', 'mixed', 'waiting', 'unknown'].map((s) => [v2.matrixHealthStatusLabel(s), v2.matrixHealthTone(s)])).toEqual([
+      ['Passing', 'pass'],
+      ['Failing', 'hard'],
+      ['Mixed', 'soft'],
+      ['In progress', 'info'],
+      ['No signal', 'neutral'],
+    ])
+  })
+
+  it('ranks architecture signals and normalizes labels', () => {
+    expect(['failed', 'soft_fail', 'running', 'passed'].map((s) => v2.architectureSignalStateRank(s))).toEqual([0, 1, 2, 3])
+    expect(['  Alpha   Beta ', 'Écho', null].map((s) => v2.normalizeLabel(s))).toEqual(['alpha beta', 'écho', ''])
+  })
+
+  it('rates architectures at the 90% and 50% boundaries', () => {
+    const rate = (passed: number, incident: number) => v2.architectureRate({ architecture: { id: 'mi300', label: 'MI300' }, passed, incident, unknown: 0, missing: 0 })
+    expect([rate(9, 1), rate(1, 1), rate(0, 0)]).toEqual([
+      { configured: 10, passRate: 90, label: '90.0%', tone: 'pass' },
+      { configured: 2, passRate: 50, label: '50.0%', tone: 'soft' },
+      { configured: 0, passRate: null, label: '-', tone: 'hard' },
+    ])
+  })
+})

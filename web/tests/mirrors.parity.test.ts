@@ -328,3 +328,38 @@ describe('AMD mirror inventory matches the classic module', () => {
     expect([...seen].sort()).toEqual(['areas', 'complete', 'lower-bound', 'no-total', 'partial', 'preview', 'zero'])
   })
 })
+
+describe('AMD mirror helpers on hand-written inputs', () => {
+  it('reads gate modes and labels', () => {
+    expect([{ gate_kind: 'soft_fail' }, { optional: true }, { gate_kind: 'required' }, {}].map((row) => v2.amdMirrorGateMode(row))).toEqual(['soft fail', 'optional', 'required', 'required'])
+    expect(v2.amdMirrorModes([{ gate_kind: 'soft_fail' }, { optional: true }, {}, {}])).toEqual({ required: 2, optional: 1, 'soft fail': 1 })
+    expect([{ amd_label: ':amd: (MI300) Alpha' }, { label: ':nvidia: (H100) Beta', device: 'mi355_8' }, {}].map((row) => v2.amdMirrorLabel(row))).toEqual([
+      ':amd: (MI300) Alpha',
+      ':amd: (MI355) Beta',
+      'AMD mirror',
+    ])
+  })
+
+  it('summarizes a small inventory against the runtime group count', () => {
+    const inv = {
+      source: { pipeline: 'ci', current_definition_commit_sha: 'a'.repeat(40), repository: 'vllm-project/vllm' },
+      summary: { total: 2 },
+      rows: [
+        { definition_id: 'd1', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi300_1' },
+        { definition_id: 'd2', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi355_8', optional: true },
+      ],
+    }
+    expect(v2.amdMirrorSummary(inv, 3)).toEqual({
+      unavailable: false,
+      countLabel: '2',
+      ariaLabel: '2 configured AMD mirror groups. Open the AMD mirror inventory.',
+      meta: 'Physical mirror.amd declarations · separate from 3 runtime groups',
+      track: [
+        { key: 'required', label: 'Required', count: 1, width: 50 },
+        { key: 'optional', label: 'Optional', count: 1, width: 50 },
+        { key: 'soft_fail', label: 'Soft fail', count: 0, width: 0 },
+      ],
+      facts: '1 required · 1 optional · 0 soft fail · 1 files',
+    })
+  })
+})
