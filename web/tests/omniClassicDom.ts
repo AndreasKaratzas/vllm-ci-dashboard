@@ -81,8 +81,8 @@ export function v2TableShape(table: DetailTable<Rec>, limit = Infinity): TableSh
   }
 }
 
-/** v2 detail in classic's shape; tables are cut to the rows classic shows on its first page. */
-export function v2DetailShape(detail: OmniDetail, classic: DetailShape): DetailShape {
+/** v2 detail in classic's shape; table i is cut to visibleRows[i], the rows classic shows on its first page. */
+export function v2DetailShape(detail: OmniDetail, visibleRows: number[]): DetailShape {
   // Classic dataTable() draws an empty table as a note, not a table.
   const tables = detail.tables.filter((t) => t.rows.length)
   // The sheet renders an empty table as the same dashed note (OMNI_EMPTY_TABLE_TEXT).
@@ -95,7 +95,7 @@ export function v2DetailShape(detail: OmniDetail, classic: DetailShape): DetailS
     sources: detail.sources.filter((s) => s && s.url).map((s) => `${s.label} <${s.url}>`),
     strip: (detail.strip ?? []).map((s) => `${s.label}|${s.value}|${s.meta}`),
     panels: detail.tables.filter((t) => t.title).map((t) => `${t.title}|${t.meta ?? ''}`),
-    tables: tables.map((t, i) => v2TableShape(t, classic.tables[i]?.rows.length ?? Infinity)),
+    tables: tables.map((t, i) => v2TableShape(t, visibleRows[i] ?? Infinity)),
     empty: [detail.empty, ...emptyBrowser].filter(Boolean).join(' / '),
   }
 }

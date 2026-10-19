@@ -2,6 +2,8 @@
 // internal functions so v2 ports can be compared against them.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { expect } from 'vitest'
+import { canonical, expectGolden, normalize } from './support/golden'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ClassicFns = Record<string, (...args: any[]) => any>
@@ -18,6 +20,16 @@ export function loadClassic(names: string[], file = 'ops-v2.js'): ClassicFns {
   return (window as unknown as Record<string, ClassicFns>)[key]!
 }
 
-export function readFixture<T = unknown>(name: string): T {
-  return JSON.parse(readFileSync(resolve(process.cwd(), 'tests/fixtures', name), 'utf8')) as T
+/**
+ * Asserts that the v2 value equals the classic one once both are canonicalized,
+ * and folds the v2 value into the area's golden digest.
+ */
+export function classicParity(area: string) {
+  return (fn: string, port: unknown, classic: unknown, message?: string): void => {
+    if (canonical(port) !== canonical(classic)) {
+      expect(normalize(port), message ?? fn).toEqual(normalize(classic))
+      expect(canonical(port), message ?? fn).toBe(canonical(classic))
+    }
+    expectGolden(area, fn, port)
+  }
 }

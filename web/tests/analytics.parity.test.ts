@@ -8,7 +8,10 @@ import { amdLatestState, amdStateLabel } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
 import { latestAmd } from '@/domain/nightly'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 const NAMES = [
   'state',
@@ -29,14 +32,11 @@ const NAMES = [
   'closeOverlay',
 ]
 
+const fixture = readFixture<Rec>('analytics_sections.json')
+pinClock(fixture.generated_at)
+const parity = classicParity('analytics')
 let classic: ClassicFns
-let fixture: Rec
 let charts: { key: string; config: Rec }[] = []
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 beforeAll(() => {
   // Draw charts synchronously into a recorder so their data can be compared.
@@ -52,7 +52,6 @@ beforeAll(() => {
     destroy() {}
   }
   classic = loadClassic(NAMES)
-  fixture = readFixture<Rec>('analytics_sections.json')
 })
 
 afterEach(() => {
@@ -109,21 +108,24 @@ function classicGroups(amdHealth: Rec) {
   return host
 }
 
+const clusterTiles = (model: ReturnType<typeof v2.amdHealthModel>) =>
+  model.clusters.map((c) => ({ label: c.label, count: c.renderedCount, description: c.description, meta: c.meta, tone: c.tone }))
+
 function compareGroups(rawHealth: Rec, label: string) {
   const health = currentAmdHealth(rawHealth)
-  expect(health).toEqual(classic.currentAmdHealth!(rawHealth))
+  parity('currentAmdHealth', health, classic.currentAmdHealth!(rawHealth))
   const model = v2.amdHealthModel(health)
   const host = classicGroups(health)
   const note = text(host.querySelector('.ops-evidence-note.is-warning'))
   if (!model.available) {
-    expect(note, label).toBe('AMD job-variant history is unavailable. No upstream result has been substituted for AMD health.')
-    expect(stripOf(host)).toEqual([])
+    parity('unavailableNote', 'AMD job-variant history is unavailable. No upstream result has been substituted for AMD health.', note, label)
+    parity('unavailableStrip', [], stripOf(host))
     return model
   }
-  expect(note, label).toBe(model.retentionNote)
-  expect(stripOf(host), label).toEqual(v2Strip(model.strip))
+  parity('retentionNote', model.retentionNote, note, label)
+  parity('strip', v2Strip(model.strip), stripOf(host), label)
   const actions = [...host.querySelectorAll('.ops-status-item .ops-stat-action')].map(text)
-  expect(actions).toEqual(model.strip.filter((s) => s.actionLabel).map((s) => s.actionLabel))
+  parity('stripActions', model.strip.filter((s) => s.actionLabel).map((s) => s.actionLabel), actions)
 
   const tiles = [...host.querySelectorAll('.ops-cluster-tile')].map((el) => ({
     label: text(el.querySelector('.ops-cluster-label')),
@@ -132,16 +134,15 @@ function compareGroups(rawHealth: Rec, label: string) {
     meta: text(el.querySelector('.ops-cluster-meta')),
     tone: tone(el),
   }))
-  expect(tiles, label).toEqual(
-    model.clusters.map((c) => ({ label: c.label, count: c.renderedCount, description: c.description, meta: c.meta, tone: c.tone })),
-  )
-  expect(text(host.querySelector('.ops-cluster-section header button'))).toBe(model.browseAllLabel)
+  parity('clusters', clusterTiles(model), tiles, label)
+  parity('browseAllLabel', model.browseAllLabel, text(host.querySelector('.ops-cluster-section header button')))
 
   const priorityPanel = host.querySelector('.ops-amd-priority')!
-  expect(text(priorityPanel.querySelector('.ops-panel-meta'))).toBe(model.priorityMeta)
+  parity('priorityMeta', model.priorityMeta, text(priorityPanel.querySelector('.ops-panel-meta')))
   const caption = text(priorityPanel.querySelector('.ops-table-caption') || priorityPanel.querySelector('.ops-empty'))
-  expect(caption.startsWith(model.priorityCaption)).toBe(true)
-  expect(tableRows(priorityPanel), label).toEqual(
+  parity('priorityCaption', model.priorityCaption, caption.slice(0, model.priorityCaption.length))
+  parity(
+    'priorityRows',
     model.priority.map((row) => [
       value(row.display_name || row.name || row.job_name) + value(row.hardware_variant || row.hardware, 'unknown') + ' - ' + value(row.queue, 'queue unavailable'),
       value(row.queue),
@@ -150,26 +151,36 @@ function compareGroups(rawHealth: Rec, label: string) {
       `${integer(row.passed)} / ${integer(row.soft_failed)} / ${integer(row.hard_failed)}`,
       '#' + value(row.latest_build_number),
     ]),
+    tableRows(priorityPanel),
+    label,
   )
 
   // Charts: AMD health by nightly and by hardware variant.
   const builds = chart('analytics-amd-build-health')!.config
-  expect(builds.data.labels).toEqual(model.builds.map((b) => b.label))
+  parity('buildChartLabels', model.builds.map((b) => b.label), builds.data.labels)
   const num = (x: unknown) => (x === null || x === undefined || x === '' || !Number.isFinite(Number(x)) ? 0 : Number(x))
-  expect(builds.data.datasets.map((d: Rec) => d.data.map(num))).toEqual([
-    model.builds.map((b) => b.passed),
-    model.builds.map((b) => b.soft),
-    model.builds.map((b) => b.hard),
-    model.builds.map((b) => b.unknown),
-  ])
+  parity(
+    'buildChartData',
+    [
+      model.builds.map((b) => b.passed),
+      model.builds.map((b) => b.soft),
+      model.builds.map((b) => b.hard),
+      model.builds.map((b) => b.unknown),
+    ],
+    builds.data.datasets.map((d: Rec) => d.data.map(num)),
+  )
   const hardware = chart('analytics-amd-hardware-health')!.config
-  expect(hardware.data.labels).toEqual(model.hardware.map((h) => h.label))
-  expect(hardware.data.datasets.map((d: Rec) => d.data)).toEqual([
-    model.hardware.map((h) => h.passed),
-    model.hardware.map((h) => h.soft),
-    model.hardware.map((h) => h.hard),
-    model.hardware.map((h) => h.missing),
-  ])
+  parity('hardwareChartLabels', model.hardware.map((h) => h.label), hardware.data.labels)
+  parity(
+    'hardwareChartData',
+    [
+      model.hardware.map((h) => h.passed),
+      model.hardware.map((h) => h.soft),
+      model.hardware.map((h) => h.hard),
+      model.hardware.map((h) => h.missing),
+    ],
+    hardware.data.datasets.map((d: Rec) => d.data),
+  )
   return model
 }
 
@@ -219,13 +230,13 @@ function compareCatalog(health: Rec, rows: Rec[], filter: string, search: string
   const latestBuild = (health.summary || {}).latest_build_number
   const got = classicCatalog(health, rows, filter, search)
   const mine = v2.amdCatalogRows(rows, latestBuild, filter, search)
-  expect(got.options).toEqual(v2.AMD_CATALOG_FILTERS)
+  parity('catalogFilters', v2.AMD_CATALOG_FILTERS, got.options)
   if (!mine.length) {
-    expect(got.rows, label).toEqual([])
+    parity('catalogRows', [], got.rows, label)
     return mine
   }
-  expect(got.caption, label).toBe(`1-${integer(Math.min(50, mine.length))} of ${integer(mine.length)} matching AMD job variants`)
-  expect(got.rows, label).toEqual(mine.slice(0, 50).map((row) => v2CatalogRow(row, latestBuild)))
+  parity('catalogCaption', `1-${integer(Math.min(50, mine.length))} of ${integer(mine.length)} matching AMD job variants`, got.caption, label)
+  parity('catalogRows', mine.slice(0, 50).map((row) => v2CatalogRow(row, latestBuild)), got.rows, label)
   return mine
 }
 
@@ -317,9 +328,10 @@ function generatedHealth(rand: () => number, i: number): Rec {
 }
 
 describe('AMD test health matches the classic renderer', () => {
-  it('renders the real snapshot identically', () => {
+  it('renders the real snapshot identically', async () => {
     const health = fixture.amd_test_health
     const model = compareGroups(health, 'fixture')
+    await expectGoldenFile('analytics', 'groups', { strip: v2Strip(model.strip), clusters: clusterTiles(model) })
     expect(model.available).toBe(true)
     expect(model.priority.length).toBeGreaterThan(0)
     expect(model.hardware.length).toBeGreaterThan(1)
@@ -327,18 +339,22 @@ describe('AMD test health matches the classic renderer', () => {
     expect(model.clusters.map((c) => c.count).every((c) => c >= 0)).toBe(true)
     expect(model.clusters.find((c) => c.label === 'Historical only')!.count).toBeGreaterThan(0)
     expect(model.clusters.find((c) => c.label === 'Mixed history')!.count).toBeGreaterThan(0)
-    expect(v2.amdHealthPublicationState(health)).toEqual(classic.amdHealthPublicationState!(health))
-    expect(v2.amdHardwareRows(model.groups, model.latestBuild)).toEqual(classic.amdHardwareRows!(model.groups, model.latestBuild))
+    parity('amdHealthPublicationState', v2.amdHealthPublicationState(health), classic.amdHealthPublicationState!(health))
+    parity('amdHardwareRows', v2.amdHardwareRows(model.groups, model.latestBuild), classic.amdHardwareRows!(model.groups, model.latestBuild))
 
     const host = document.body.firstElementChild!
     const buildEvidence = chartEvidence(host, 'analytics-amd-build-health')
-    expect(buildEvidence.action).toBe(`Inspect ${integer(model.builds.length)} observations`)
-    expect(buildEvidence.rows).toEqual(
+    parity('buildEvidenceAction', `Inspect ${integer(model.builds.length)} observations`, buildEvidence.action)
+    parity(
+      'buildEvidenceRows',
       model.builds.slice().reverse().map((b) => [b.label, shortDate(b.timestamp), b.valueSummary, b.url ? 'Open source' : 'Inspect']),
+      buildEvidence.rows,
     )
     const hwEvidence = chartEvidence(host, 'analytics-amd-hardware-health')
-    expect(hwEvidence.rows.map((r) => r.slice(0, 3))).toEqual(
+    parity(
+      'hardwareEvidenceRows',
       model.hardware.slice().reverse().map((h) => [h.label, '-', v2.hardwareValueSummary(h)]),
+      hwEvidence.rows.map((r) => r.slice(0, 3)),
     )
   })
 
@@ -369,9 +385,9 @@ describe('AMD test health matches the classic renderer', () => {
       document.body.innerHTML = ''
       charts = []
       const health = currentAmdHealth(raw)
-      expect(v2.amdHealthPublicationState(raw)).toEqual(classic.amdHealthPublicationState!(raw))
+      parity('amdHealthPublicationState', v2.amdHealthPublicationState(raw), classic.amdHealthPublicationState!(raw))
       const latest = (health.summary || {}).latest_build_number
-      expect(v2.amdHardwareRows(health.group_catalog, latest)).toEqual(classic.amdHardwareRows!(health.group_catalog, latest))
+      parity('amdHardwareRows', v2.amdHardwareRows(health.group_catalog, latest), classic.amdHardwareRows!(health.group_catalog, latest))
       if (!model.available) continue
       available += 1
       const mode = v2.AMD_CATALOG_FILTERS[i % v2.AMD_CATALOG_FILTERS.length]![0]
@@ -405,27 +421,29 @@ function v2LatencyRow(row: Rec, builds: Rec[]) {
 function compareLatency(ops: Rec, label: string) {
   const { comparison, host } = classicLatency(ops)
   const mine = v2.latencyComparison(ops)
-  expect(mine, label).toEqual(comparison)
+  parity('latencyComparison', mine, comparison, label)
   if (!mine.available) return mine
   const model = v2.latencyModel(mine)
-  expect(text(host.querySelector('.ops-window-context'))).toBe(model.context)
-  expect(stripOf(host), label).toEqual(v2Strip(model.strip))
+  parity('latencyContext', model.context, text(host.querySelector('.ops-window-context')))
+  parity('latencyStrip', v2Strip(model.strip), stripOf(host), label)
   const panel = [...host.querySelectorAll('.ops-panel')].find((p) => text(p.querySelector('.ops-panel-title')) === 'Recent AMD MI nightly latency')!
-  expect(text(panel.querySelector('.ops-panel-meta'))).toBe(model.tableMeta)
-  expect(tableRows(panel), label).toEqual(model.rows.slice(0, 12).map((row) => v2LatencyRow(row, model.builds)))
+  parity('latencyTableMeta', model.tableMeta, text(panel.querySelector('.ops-panel-meta')))
+  parity('latencyRows', model.rows.slice(0, 12).map((row) => v2LatencyRow(row, model.builds)), tableRows(panel), label)
   // Browse all opens every row in the same order.
   ;(panel.querySelector('.ops-panel-footer button') as HTMLButtonElement).click()
-  expect(tableRows(overlay()), label).toEqual(model.rows.slice(0, 50).map((row) => v2LatencyRow(row, model.builds)))
+  parity('latencyBrowseRows', model.rows.slice(0, 50).map((row) => v2LatencyRow(row, model.builds)), tableRows(overlay()), label)
   classic.closeOverlay!()
 
   const timing = chart('analytics-latency-comparison')
   if (!model.timed.length) {
     expect(timing).toBeUndefined()
   } else {
-    expect(timing!.config.data.datasets[0].data).toEqual(model.top.map((row) => row.amd.median_duration_mins))
+    parity('latencyChartData', model.top.map((row) => row.amd.median_duration_mins), timing!.config.data.datasets[0].data)
     const evidence = chartEvidence(host, 'analytics-latency-comparison')
-    expect(evidence.rows.map((r) => [r[0], r[2]])).toEqual(
+    parity(
+      'latencyChartEvidence',
       model.top.slice().reverse().map((row) => [v2.historyPointLabel({ label: row.label }), v2.latencySideDuration(row.amd) + ' AMD MI']),
+      evidence.rows.map((r) => [r[0], r[2]]),
     )
   }
   return mine
@@ -435,19 +453,19 @@ function compareLatencyEvidence(row: Rec, comparison: Rec, label: string) {
   classic.openLatencyEvidence!(row, comparison)
   const root = overlay()
   const mine = v2.latencyEvidence(row, comparison as v2.LatencyComparison)
-  expect(text(root.querySelector('.ops-overlay-title'))).toBe(mine.title)
-  expect(stripOf(root).map((s) => [s.value, s.meta])).toEqual([[mine.value, mine.meta]])
+  parity('evidenceTitle', mine.title, text(root.querySelector('.ops-overlay-title')))
+  parity('evidenceStrip', [[mine.value, mine.meta]], stripOf(root).map((s) => [s.value, s.meta]))
   const trs = [...root.querySelectorAll('table.ops-table tbody tr')]
-  expect(trs.length, label).toBe(mine.rows.length)
+  parity('evidenceRowCount', mine.rows.length, trs.length, label)
   trs.forEach((tr, index) => {
     const cells = [...tr.querySelectorAll('td')]
     const ev = mine.rows[index]!
-    expect(text(cells[0]), label).toBe('#' + ev.number)
-    expect(cells[0]!.querySelector('a')?.getAttribute('href') ?? '', label).toBe(ev.buildUrl)
-    expect(text(cells[1])).toBe(ev.created)
-    expect(text(cells[2])).toBe(ev.wall)
+    parity('evidenceBuild', '#' + ev.number, text(cells[0]), label)
+    parity('evidenceBuildUrl', ev.buildUrl, cells[0]!.querySelector('a')?.getAttribute('href') ?? '', label)
+    parity('evidenceCreated', ev.created, text(cells[1]))
+    parity('evidenceWall', ev.wall, text(cells[2]))
     const links = [...cells[3]!.querySelectorAll('a')].map((a) => [text(a), a.getAttribute('href')])
-    expect(links, label).toEqual(ev.jobs.map((j) => [j.label, j.url]))
+    parity('evidenceJobs', ev.jobs.map((j) => [j.label, j.url]), links, label)
     if (!ev.observed) expect(text(cells[3])).toBe('No observation in this nightly')
     else if (!ev.jobs.length) expect(text(cells[3])).toBe('Exact job links unavailable')
   })
@@ -521,8 +539,14 @@ function mutateLatency(payload: Rec, rand: () => number): Rec {
 }
 
 describe('AMD nightly latency matches the classic renderer', () => {
-  it('renders the real snapshot identically, including every evidence sheet', () => {
+  it('renders the real snapshot identically, including every evidence sheet', async () => {
     const comparison = compareLatency(fixture, 'fixture')
+    const model = v2.latencyModel(comparison)
+    await expectGoldenFile('analytics', 'latency', {
+      context: model.context,
+      strip: v2Strip(model.strip),
+      rows: model.rows.slice(0, 12).map((row) => v2LatencyRow(row, model.builds)),
+    })
     expect(comparison.available).toBe(true)
     expect(comparison.rows.length).toBeGreaterThan(12)
     expect(comparison.rows.some((row) => row.amd && row.amd.sample_count < 5)).toBe(true)
@@ -564,7 +588,7 @@ describe('AMD nightly latency matches the classic renderer', () => {
 
   it('validates metrics and exact job URLs like classic', () => {
     for (const raw of [null, undefined, '', '0', 0, -1, '3.5', 'x', Infinity, 12]) {
-      expect(v2.latencyMetric(raw)).toBe(classic.latencyMetric!(raw))
+      parity('latencyMetric', v2.latencyMetric(raw), classic.latencyMetric!(raw))
     }
     const job = { job_id: 'abc', url: 'https://buildkite.com/vllm/ci/builds/7/steps/canvas?jid=abc&tab=output' }
     const urls = [
@@ -583,13 +607,13 @@ describe('AMD nightly latency matches the classic renderer', () => {
       for (const build of [7, 0, 7.5, -7]) {
         for (const id of ['abc', ' ', 3]) {
           const candidate = { ...job, url, job_id: id }
-          expect(v2.exactLatencyJobUrl(candidate, build)).toBe(classic.exactLatencyJobUrl!(candidate, build))
+          parity('exactLatencyJobUrl', v2.exactLatencyJobUrl(candidate, build), classic.exactLatencyJobUrl!(candidate, build))
         }
       }
     }
-    expect(v2.exactLatencyJobUrl(null, 7)).toBe(classic.exactLatencyJobUrl!(null, 7))
+    parity('exactLatencyJobUrl', v2.exactLatencyJobUrl(null, 7), classic.exactLatencyJobUrl!(null, 7))
     for (const side of [null, { median_duration_mins: 75 }, { median_duration_mins: 3000 }]) {
-      expect(v2.latencySideDuration(side)).toBe(classic.latencySideDuration!(side))
+      parity('latencySideDuration', v2.latencySideDuration(side), classic.latencySideDuration!(side))
     }
   })
 })
@@ -604,41 +628,47 @@ async function classicNightlies(ops: Rec) {
   return host
 }
 
+function nightlyCells(row: Rec) {
+  return [
+    '#' + row.number,
+    value(row.state, 'unknown'),
+    integer(row.total_groups),
+    v2.nightlyCountLabel(row, 'new'),
+    v2.nightlyCountLabel(row, 'recurring'),
+    v2.nightlyCountLabel(row, 'fixed'),
+    shortDate(row.created_at),
+  ]
+}
+
 async function compareNightlies(ops: Rec, label: string) {
   const nightly = latestAmd(ops)
-  expect(nightly).toEqual(classic.nightlyForCohort!(ops, 'ci-amd'))
-  expect(v2.nightlyDisplayName(nightly)).toBe(classic.nightlyDisplayName!(nightly))
+  parity('nightlyForCohort', nightly, classic.nightlyForCohort!(ops, 'ci-amd'))
+  parity('nightlyDisplayName', v2.nightlyDisplayName(nightly), classic.nightlyDisplayName!(nightly))
   const model = v2.nightliesModel(nightly)
   const host = await classicNightlies(ops)
-  expect(stripOf(host), label).toEqual(v2Strip(model.strip))
+  parity('nightliesStrip', v2Strip(model.strip), stripOf(host), label)
   const note = host.querySelector('.ops-evidence-note')!
-  expect(tone(note)).toBe(model.latestMovement ? 'is-info' : 'is-warning')
+  parity('movementNoteTone', model.latestMovement ? 'is-info' : 'is-warning', tone(note))
   const panelTitles = [...host.querySelectorAll('.ops-panel-title')].map(text)
   expect(panelTitles).toContain(model.name + ' nightly failure movement')
   const trs = [...host.querySelectorAll('table.ops-table tbody tr')]
   if (!model.rows.length) expect(text(host.querySelector('.ops-empty'))).toContain('No matching observations')
-  expect(trs.length, label).toBe(model.rows.length)
+  parity('nightlyRowCount', model.rows.length, trs.length, label)
   trs.forEach((tr, index) => {
     const row = model.rows[index]!
     const cells = [...tr.querySelectorAll('td')]
-    expect(cells.map(text), label).toEqual([
-      '#' + row.number,
-      value(row.state, 'unknown'),
-      integer(row.total_groups),
-      v2.nightlyCountLabel(row, 'new'),
-      v2.nightlyCountLabel(row, 'recurring'),
-      v2.nightlyCountLabel(row, 'fixed'),
-      shortDate(row.created_at),
-    ])
+    parity('nightlyRow', nightlyCells(row), cells.map(text), label)
     const badge = cells[1]!.querySelector('.ops-badge')!
-    expect(tone(badge)).toBe(toneForState(row.state))
+    parity('nightlyStateTone', toneForState(row.state), tone(badge))
   })
   const movement = chart('analytics-trend')!.config
-  expect(movement.data.labels).toEqual(model.chartBuilds.map((b) => '#' + b.number))
+  parity('movementChartLabels', model.chartBuilds.map((b) => '#' + b.number), movement.data.labels)
   if (model.chartBuilds.length) {
     const evidence = chartEvidence(host, 'analytics-trend')
-    expect(evidence.rows.map((r) => [r[0], r[2]])).toEqual(
+    parity(
+      'movementChartEvidence',
       model.chartBuilds.slice().reverse().map((b) => ['#' + b.number, v2.nightlyMovementSummary(b)]),
+      evidence.rows.map((r) => [r[0], r[2]]),
     )
   }
   return model
@@ -652,6 +682,7 @@ function nightlyOps(builds: Rec[], extra: Rec = {}): Rec {
 describe('AMD nightlies match the classic renderer', () => {
   it('renders the real snapshot identically', async () => {
     const model = await compareNightlies(fixture, 'fixture')
+    await expectGoldenFile('analytics', 'nightlies', { strip: v2Strip(model.strip), rows: model.rows.map(nightlyCells) })
     expect(model.rows.length).toBeGreaterThan(5)
     expect(model.chartBuilds.length).toBeGreaterThan(5)
     expect(model.rows.some((row) => v2.nightlyCountLabel(row, 'new') === '-')).toBe(true)

@@ -7,7 +7,10 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Rec } from '@/domain/format'
 import { hardwareDisplayLabel } from '@/domain/health'
 import * as v2 from '@/domain/mirrors'
-import { loadClassic, readFixture, type ClassicFns } from './classic'
+import { classicParity, loadClassic, type ClassicFns } from './classic'
+import { pinClock, readFixture } from './support/fixtures'
+import { expectGoldenFile } from './support/golden'
+import { rng } from './support/rng'
 
 const INTERNALS = [
   'amdMirrorInventoryRows',
@@ -36,14 +39,12 @@ function loadMirrorClassic(): ClassicFns {
   return (window as unknown as Record<string, ClassicFns>).__mirrorClassic!
 }
 
+const snapshot = readFixture<Rec>('mirrors_inventory.json')
+const inventory: Rec = snapshot.mirror_inventory
+pinClock(snapshot.generated_at)
+const parity = classicParity('mirrors')
 let mirror: ClassicFns
 let uiBase: ClassicFns
-let inventory: Rec
-
-function rng(seed: number) {
-  let s = seed >>> 0
-  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32
-}
 
 interface Captured {
   drawers: Rec[]
@@ -102,7 +103,6 @@ function generateInventory(rand: () => number): Rec {
 beforeAll(() => {
   uiBase = loadClassic(UI_HELPERS)
   mirror = loadMirrorClassic()
-  inventory = readFixture<Rec>('mirrors_inventory.json').mirror_inventory
 })
 
 const text = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim()
@@ -111,15 +111,15 @@ const children = (el: Element | null | undefined) => [...(el?.children ?? [])].m
 function compareFunctions(inv: Rec) {
   const ui = uiBase
   const state = v2.amdMirrorInventoryState(inv)
-  expect(state).toEqual(mirror.amdMirrorInventoryState!(inv, ui))
-  expect(v2.amdMirrorInventoryRows(inv)).toEqual(mirror.amdMirrorInventoryRows!(inv, ui))
-  expect(v2.amdMirrorAreaRows(inv, state.rows)).toEqual(mirror.amdMirrorAreaRows!(inv, state.rows, ui))
-  expect(v2.amdMirrorHardwareRows(state.rows)).toEqual(mirror.amdMirrorHardwareRows!(state.rows, ui))
-  expect(v2.amdMirrorModes(state.rows)).toEqual(mirror.amdMirrorModes!(state.rows))
+  parity('amdMirrorInventoryState', state, mirror.amdMirrorInventoryState!(inv, ui))
+  parity('amdMirrorInventoryRows', v2.amdMirrorInventoryRows(inv), mirror.amdMirrorInventoryRows!(inv, ui))
+  parity('amdMirrorAreaRows', v2.amdMirrorAreaRows(inv, state.rows), mirror.amdMirrorAreaRows!(inv, state.rows, ui))
+  parity('amdMirrorHardwareRows', v2.amdMirrorHardwareRows(state.rows), mirror.amdMirrorHardwareRows!(state.rows, ui))
+  parity('amdMirrorModes', v2.amdMirrorModes(state.rows), mirror.amdMirrorModes!(state.rows))
   for (const row of state.rows) {
-    expect(v2.amdMirrorGateMode(row)).toBe(mirror.amdMirrorGateMode!(row))
-    expect(v2.amdMirrorLabel(row)).toBe(mirror.amdMirrorLabel!(row, ui))
-    expect(v2.amdMirrorSourceUrl(inv, row)).toBe(mirror.amdMirrorSourceUrl!(inv, row))
+    parity('amdMirrorGateMode', v2.amdMirrorGateMode(row), mirror.amdMirrorGateMode!(row))
+    parity('amdMirrorLabel', v2.amdMirrorLabel(row), mirror.amdMirrorLabel!(row, ui))
+    parity('amdMirrorSourceUrl', v2.amdMirrorSourceUrl(inv, row), mirror.amdMirrorSourceUrl!(inv, row))
   }
   return state
 }
@@ -128,15 +128,15 @@ function compareFunctions(inv: Rec) {
 function compareSummary(inv: Rec, runtime: number | null | undefined) {
   const card = mirror.renderAmdMirrorSummary!(inv, runtime, uiBase, () => {}) as HTMLElement
   const summary = v2.amdMirrorSummary(inv, runtime)
-  expect(card.getAttribute('aria-label')).toBe(summary.ariaLabel)
-  expect(card.classList.contains('is-unavailable')).toBe(summary.unavailable)
-  expect(children(card.querySelector('.ops-health-mirror-title'))).toEqual([summary.countLabel, 'configured AMD mirror groups'])
-  expect(text(card.querySelector('.ops-health-mirror-meta'))).toBe(summary.meta)
-  expect(text(card.querySelector('.ops-health-mirror-facts'))).toBe(summary.facts)
+  parity('summaryAriaLabel', summary.ariaLabel, card.getAttribute('aria-label'))
+  parity('summaryUnavailable', summary.unavailable, card.classList.contains('is-unavailable'))
+  parity('summaryTitle', [summary.countLabel, 'configured AMD mirror groups'], children(card.querySelector('.ops-health-mirror-title')))
+  parity('summaryMeta', summary.meta, text(card.querySelector('.ops-health-mirror-meta')))
+  parity('summaryFacts', summary.facts, text(card.querySelector('.ops-health-mirror-facts')))
   const track = card.querySelector('.ops-health-mirror-track')
-  expect(Boolean(track)).toBe(Boolean(summary.track))
+  parity('summaryHasTrack', Boolean(summary.track), Boolean(track))
   if (track && summary.track) {
-    expect([...track.children].map((el) => (el as HTMLElement).style.width)).toEqual(summary.track.map((s) => `${s.width}%`))
+    parity('summaryTrack', summary.track.map((s) => `${s.width}%`), [...track.children].map((el) => (el as HTMLElement).style.width))
   }
   return summary
 }
@@ -149,125 +149,153 @@ function compareView(inv: Rec) {
   const view = v2.amdMirrorInventoryView(inv)
   // Count hero.
   const ring = host.querySelector('.ops-mirror-count-ring') as HTMLElement
-  expect(ring.getAttribute('aria-label')).toBe(view.hero.ariaLabel)
-  expect(children(ring)).toEqual([view.hero.totalDisplay, 'mirror groups'])
-  expect(text(host.querySelector('.ops-mirror-hero-meta'))).toBe(view.hero.meta)
-  expect([...host.querySelectorAll('.ops-mirror-hardware-item')].map((el) => children(el).slice(1))).toEqual(
+  parity('heroAriaLabel', view.hero.ariaLabel, ring.getAttribute('aria-label'))
+  parity('heroTitle', [view.hero.totalDisplay, 'mirror groups'], children(ring))
+  parity('heroMeta', view.hero.meta, text(host.querySelector('.ops-mirror-hero-meta')))
+  parity(
+    'heroLegend',
     view.hero.legend.map((row) => [row.count.toLocaleString(), row.label]),
+    [...host.querySelectorAll('.ops-mirror-hardware-item')].map((el) => children(el).slice(1)),
   )
   // Configuration shape.
-  expect(children(host.querySelector('.ops-mirror-mode-headline'))).toEqual([
-    view.configuration.required, 'required', view.configuration.optional, 'optional', view.configuration.softFail, 'soft fail',
-  ])
+  parity(
+    'configurationHeadline',
+    [
+      view.configuration.required, 'required', view.configuration.optional, 'optional', view.configuration.softFail, 'soft fail',
+    ],
+    children(host.querySelector('.ops-mirror-mode-headline')),
+  )
   const track = host.querySelector('.ops-mirror-mode-track')
-  expect(Boolean(track)).toBe(Boolean(view.configuration.track))
+  parity('configurationHasTrack', Boolean(view.configuration.track), Boolean(track))
   if (track && view.configuration.track) {
-    expect(track.getAttribute('aria-label')).toBe(view.configuration.trackLabel)
-    expect([...track.children].map((el) => (el as HTMLElement).style.width)).toEqual(view.configuration.track.map((s) => `${s.width}%`))
+    parity('configurationTrackLabel', view.configuration.trackLabel, track.getAttribute('aria-label'))
+    parity('configurationTrack', view.configuration.track.map((s) => `${s.width}%`), [...track.children].map((el) => (el as HTMLElement).style.width))
   }
-  expect([...host.querySelectorAll('.ops-mirror-fact')].map((el) => children(el))).toEqual([
-    [view.configuration.files, 'source files'],
-    [view.configuration.families, 'GPU families'],
-  ])
-  expect(Boolean(host.querySelector('.ops-mirror-lower-bound'))).toBe(view.configuration.lowerBound)
+  parity(
+    'configurationFacts',
+    [
+      [view.configuration.files, 'source files'],
+      [view.configuration.families, 'GPU families'],
+    ],
+    [...host.querySelectorAll('.ops-mirror-fact')].map((el) => children(el)),
+  )
+  parity('configurationLowerBound', view.configuration.lowerBound, Boolean(host.querySelector('.ops-mirror-lower-bound')))
   // Partial-detail warning.
   const warning = host.querySelector(':scope > .ops-evidence-note.is-warning')
-  expect(warning ? text(warning) : null).toBe(view.coverageNote)
+  parity('coverageNote', view.coverageNote, warning ? text(warning) : null)
   // Area chart.
   const areaPanel = host.querySelector('.ops-mirror-area-panel')
-  expect(Boolean(areaPanel)).toBe(Boolean(view.areaChart))
+  parity('hasAreaChart', Boolean(view.areaChart), Boolean(areaPanel))
   if (areaPanel && view.areaChart) {
-    expect(text(areaPanel.querySelector('.ops-panel-meta'))).toBe(view.areaChart.subtitle)
+    parity('areaChartSubtitle', view.areaChart.subtitle, text(areaPanel.querySelector('.ops-panel-meta')))
     const bars = [...areaPanel.querySelectorAll('.ops-mirror-area-row')]
-    expect(bars.map((el) => [children(el.querySelector('.ops-mirror-area-label')), text(el.querySelector('.ops-mirror-area-breakdown')), text(el.querySelector('.ops-mirror-area-count')), el.getAttribute('href')])).toEqual(
+    parity(
+      'areaChartRows',
       view.areaChart.rows.map((row) => [
         [String(row.area).replace(/\s+/g, ' ').trim(), String(row.yaml_file.split('/').pop()).replace(/\s+/g, ' ').trim()],
         v2.mirrorAreaBreakdown(row),
         row.count.toLocaleString(),
         row.source_url || null,
       ]),
+      bars.map((el) => [children(el.querySelector('.ops-mirror-area-label')), text(el.querySelector('.ops-mirror-area-breakdown')), text(el.querySelector('.ops-mirror-area-count')), el.getAttribute('href')]),
     )
     const max = Math.max(...view.areaChart.rows.map((row) => Number(row.count || 0)), 1)
-    expect(bars.map((el) => (el.querySelector('.ops-mirror-area-fill') as HTMLElement).style.width)).toEqual(
+    parity(
+      'areaChartFill',
       view.areaChart.rows.map((row) => `${(Number(row.count || 0) / max) * 100}%`),
+      bars.map((el) => (el.querySelector('.ops-mirror-area-fill') as HTMLElement).style.width),
     )
     const browse = areaPanel.querySelector('.ops-mirror-actions button') as HTMLElement
-    expect(text(browse)).toBe(view.areaChart.browseLabel)
+    parity('areaChartBrowseLabel', view.areaChart.browseLabel, text(browse))
     browse.click()
     const config = captured.browsers.pop()!
     expect(config.title).toBe('AMD mirrors by test-area file')
-    expect(config.rows).toEqual(view.areas)
+    parity('areaBrowserRows', view.areas, config.rows)
     for (const row of view.areas) {
-      expect(config.searchText(row)).toBe(v2.mirrorAreaSearchText(row))
+      parity('areaSearchText', v2.mirrorAreaSearchText(row), config.searchText(row))
       const cells = config.columns.map((column: Rec) => {
         const rendered = column.render(row)
         return typeof rendered === 'string' ? rendered : text(rendered)
       })
-      expect(cells).toEqual([
-        row.source_url ? `${row.yaml_file.split('/').pop()} ↗` : row.yaml_file,
-        row.area === '' || row.area === undefined ? '-' : row.area,
-        row.count.toLocaleString(),
-        row.required.toLocaleString(),
-        row.optional.toLocaleString(),
-        row.soft_fail.toLocaleString(),
-        v2.mirrorDevicesLabel(row),
-      ].map((c) => String(c).replace(/\s+/g, ' ').trim()))
+      parity(
+        'areaBrowserCells',
+        [
+          row.source_url ? `${row.yaml_file.split('/').pop()} ↗` : row.yaml_file,
+          row.area === '' || row.area === undefined ? '-' : row.area,
+          row.count.toLocaleString(),
+          row.required.toLocaleString(),
+          row.optional.toLocaleString(),
+          row.soft_fail.toLocaleString(),
+          v2.mirrorDevicesLabel(row),
+        ].map((c) => String(c).replace(/\s+/g, ' ').trim()),
+        cells,
+      )
     }
   }
   // Inventory preview, drawers, and the inventory browser.
   const preview = host.querySelector('.ops-mirror-inventory-panel')!
-  expect(text(preview.querySelector('.ops-panel-meta'))).toBe(view.preview.subtitle)
+  parity('previewSubtitle', view.preview.subtitle, text(preview.querySelector('.ops-panel-meta')))
   const buttons = [...preview.querySelectorAll('.ops-mirror-preview-row')] as HTMLElement[]
-  expect(buttons.map((el) => [text(el.querySelector('.ops-mirror-preview-copy strong')), text(el.querySelector('.ops-mirror-preview-copy small')), text(el.querySelectorAll('.ops-badge')[1] ?? el.lastElementChild?.previousElementSibling)])).toEqual(
+  parity(
+    'previewRows',
     view.preview.rows.map((row) => [v2.amdMirrorLabel(row), v2.mirrorPreviewMeta(row), v2.amdMirrorGateMode(row)].map((c) => String(c).replace(/\s+/g, ' ').trim())),
+    buttons.map((el) => [text(el.querySelector('.ops-mirror-preview-copy strong')), text(el.querySelector('.ops-mirror-preview-copy small')), text(el.querySelectorAll('.ops-badge')[1] ?? el.lastElementChild?.previousElementSibling)]),
   )
   buttons.forEach((el, index) => {
     el.click()
     const drawer = captured.drawers.pop()!
     const row = view.preview.rows[index]!
     const detail = v2.amdMirrorDetail(row, inv)
-    expect(drawer.title).toBe(detail.title)
-    expect(drawer.subtitle).toBe(detail.subtitle)
-    expect(drawer.description).toBe(detail.description)
-    expect(drawer.fields.filter((f: Rec) => f.value !== null && f.value !== undefined && f.value !== '').map((f: Rec) => ({ label: f.label, value: String(f.value) }))).toEqual(detail.fields)
-    expect(drawer.sources).toEqual(detail.sources)
+    parity('detailTitle', detail.title, drawer.title)
+    parity('detailSubtitle', detail.subtitle, drawer.subtitle)
+    parity('detailDescription', detail.description, drawer.description)
+    parity(
+      'detailFields',
+      detail.fields,
+      drawer.fields.filter((f: Rec) => f.value !== null && f.value !== undefined && f.value !== '').map((f: Rec) => ({ label: f.label, value: String(f.value) })),
+    )
+    parity('detailSources', detail.sources, drawer.sources)
   })
   const browseInventory = preview.querySelector('.ops-mirror-actions button') as HTMLElement | null
-  expect(browseInventory ? text(browseInventory) : null).toBe(view.preview.browseLabel)
+  parity('previewBrowseLabel', view.preview.browseLabel, browseInventory ? text(browseInventory) : null)
   if (!view.groups.length) expect(text(preview)).toContain('No published AMD mirror groups are available.')
   if (browseInventory) {
     browseInventory.click()
     const config = captured.browsers.pop()!
-    expect(config.subtitle).toBe(view.inventoryBrowserSubtitle)
-    expect(config.rows).toEqual(view.groups)
+    parity('inventoryBrowserSubtitle', view.inventoryBrowserSubtitle, config.subtitle)
+    parity('inventoryBrowserRows', view.groups, config.rows)
     for (const row of view.groups) {
-      expect(config.searchText(row)).toBe(v2.mirrorInventorySearchText(row))
+      parity('inventorySearchText', v2.mirrorInventorySearchText(row), config.searchText(row))
       const cells = config.columns.map((column: Rec) => {
         const rendered = column.render(row)
         return typeof rendered === 'string' ? rendered : text(rendered)
       })
-      expect(cells).toEqual([
-        v2.amdMirrorLabel(row),
-        row.area === '' || row.area === undefined ? '-' : row.area,
-        hardwareDisplayLabel(row.device),
-        row.num_devices === null || row.num_devices === undefined ? '—' : Number(row.num_devices).toLocaleString(),
-        v2.amdMirrorGateMode(row),
-        v2.amdMirrorSourceUrl(inv, row) ? 'Pinned YAML ↗' : '-',
-      ].map((c) => String(c).replace(/\s+/g, ' ').trim()))
+      parity(
+        'inventoryBrowserCells',
+        [
+          v2.amdMirrorLabel(row),
+          row.area === '' || row.area === undefined ? '-' : row.area,
+          hardwareDisplayLabel(row.device),
+          row.num_devices === null || row.num_devices === undefined ? '—' : Number(row.num_devices).toLocaleString(),
+          v2.amdMirrorGateMode(row),
+          v2.amdMirrorSourceUrl(inv, row) ? 'Pinned YAML ↗' : '-',
+        ].map((c) => String(c).replace(/\s+/g, ' ').trim()),
+        cells,
+      )
       const clickable = config.columns[0].render(row) as HTMLElement
       clickable.click()
-      expect(captured.drawers.pop()!.title).toBe(v2.amdMirrorDetail(row, inv).title)
+      parity('inventoryDetailTitle', v2.amdMirrorDetail(row, inv).title, captured.drawers.pop()!.title)
     }
   }
   // Method disclosure commit link.
   const link = host.querySelector('.ops-method-details a')
-  expect(link ? link.getAttribute('href') : '').toBe(view.commitUrl)
-  if (link) expect(text(link)).toBe(`Open scanned commit ${view.commit.slice(0, 12)} ↗`)
+  parity('commitUrl', view.commitUrl, link ? link.getAttribute('href') : '')
+  if (link) parity('commitLinkText', `Open scanned commit ${view.commit.slice(0, 12)} ↗`, text(link))
   return view
 }
 
 describe('AMD mirror inventory matches the classic module', () => {
-  it('reads the real mirror inventory identically', () => {
+  it('reads the real mirror inventory identically', async () => {
     const state = compareFunctions(inventory)
     expect(state.rows.length).toBeGreaterThan(100)
     expect(state.detailComplete).toBe(state.total === state.rows.length)
@@ -276,6 +304,12 @@ describe('AMD mirror inventory matches the classic module', () => {
     expect(view.hardwareRows.length).toBeGreaterThan(1)
     for (const runtime of [231, 0, null, undefined]) compareSummary(inventory, runtime)
     expect(compareSummary(inventory, 4).countLabel).toBe(String(inventory.summary.total))
+    await expectGoldenFile('mirrors', 'inventory', {
+      summary: v2.amdMirrorSummary(inventory, 231),
+      hero: view.hero,
+      configuration: view.configuration,
+      areas: view.areaChart?.rows,
+    })
   })
 
   it('agrees on generated inventories, summaries, drawers, and browsers', () => {
