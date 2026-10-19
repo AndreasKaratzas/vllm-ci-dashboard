@@ -44,7 +44,7 @@ const stats = computed(() => {
       label: 'Observed build',
       value: inv.build_number ? `#${integer(inv.build_number)}` : '-',
       meta: inv.route_map_aligned ? 'Definitions aligned to the observed commit' : 'Definition alignment unavailable',
-      tone: (inv.route_map_aligned ? 'is-success' : 'is-warning') as Tone,
+      tone: (inv.route_map_aligned ? 'pass' : 'soft') as Tone,
     },
   ]
 })
@@ -99,7 +99,7 @@ const catalogGroup = (variant: Rec) => amdLogicalCatalogGroup(variant, props.amd
                   </a>
                   <span v-else class="font-medium">{{ variant.display_name || variant.exact_job_name || 'Unnamed variant' }}</span>
                 </TableCell>
-                <TableCell><ToneBadge tone="is-neutral">{{ hardwareDisplayLabel(variant.hardware_variant || variant.hardware) }}</ToneBadge></TableCell>
+                <TableCell><ToneBadge tone="neutral">{{ hardwareDisplayLabel(variant.hardware_variant || variant.hardware) }}</ToneBadge></TableCell>
                 <TableCell>
                   <ToneBadge :tone="amdLogicalSignalTone(variant.test_signal_state)">{{ amdLogicalSignalLabel(variant.test_signal_state) }}</ToneBadge>
                 </TableCell>

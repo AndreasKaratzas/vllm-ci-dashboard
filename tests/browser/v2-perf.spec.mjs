@@ -15,11 +15,8 @@ async function tableRows(table) {
   );
 }
 
-// Pre-rename domain tones on data-tone attributes, in the golden vocabulary.
-const TONES = { 'is-success': 'pass', 'is-danger': 'hard', 'is-neutral': 'neutral' };
-
 async function v2Tiles(page) {
-  return page.getByTestId('perf-config').evaluateAll((configs, tones) =>
+  return page.getByTestId('perf-config').evaluateAll((configs) =>
     configs.map((config) => ({
       label: config.querySelector('[data-testid="perf-config-label"]').textContent.trim(),
       meta: config.querySelector('[data-testid="perf-config-meta"]').textContent.trim(),
@@ -29,11 +26,10 @@ async function v2Tiles(page) {
           tile.querySelector('[data-testid="perf-tile-delta"]').textContent,
           tile.querySelector('[data-testid="perf-tile-value"]').textContent,
           tile.querySelector('[data-testid="perf-tile-direction"]').textContent,
-          tones[tile.dataset.tone] ?? tile.dataset.tone,
+          tile.dataset.tone,
         ].map((s) => s.trim()).join('|'),
       ),
     })),
-    TONES,
   );
 }
 

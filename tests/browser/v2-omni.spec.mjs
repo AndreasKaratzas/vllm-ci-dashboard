@@ -82,21 +82,13 @@ async function v2Drawer(page) {
   });
 }
 
-// Pre-rename domain tones on data-tone attributes, in the golden vocabulary.
-const TONES = { 'is-success': 'pass', 'is-danger': 'hard', 'is-warning': 'soft', 'is-info': 'info', 'is-neutral': 'neutral' };
-const tones = (text) => text.replace(/\bis-(?:success|danger|warning|info|neutral)\b/g, (t) => TONES[t]);
-
-function expectGoldenFacts(v2, expected) {
-  expect({ ...v2, kpis: v2.kpis.map(tones), facts: v2.facts.map(tones), noteTone: tones(v2.noteTone) }).toEqual(expected);
-}
-
 test.describe('Omni CI matches the golden page facts', () => {
   test('fixture site: unavailable mapping history and live queue state', async ({ page }) => {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await isolate(page);
     const expected = golden['fixture site'];
-    expectGoldenFacts(await v2Facts(page), expected.facts);
+    expect(await v2Facts(page)).toEqual(expected.facts);
 
     // Active jobs drill-down: the exact job rows.
     await page.getByRole('button', { name: /^Active jobs \(/ }).click();
@@ -129,7 +121,7 @@ test.describe('Omni CI matches the golden page facts', () => {
     await isolate(page, MAPPED_OMNI);
     const expected = golden['published snapshot'];
     const v2 = await v2Facts(page);
-    expectGoldenFacts(v2, expected.facts);
+    expect(v2).toEqual(expected.facts);
     expect(v2.empties).toEqual(['', '']);
 
     // Every KPI opens its drawer.
@@ -153,14 +145,14 @@ test.describe('Omni CI matches the golden page facts', () => {
     await isolate(page, MAPPED_OMNI);
     await page.goto('/?ops_omni_mapping_range=1d&ops_omni_range=3h#ci-omni');
     await expect(page).toHaveURL(/#\/omni\?mapping=1d&range=3h$/);
-    expectGoldenFacts(await v2Facts(page, '/#/omni?mapping=1d&range=3h'), golden['mapping 1d, range 3h']);
+    expect(await v2Facts(page, '/#/omni?mapping=1d&range=3h')).toEqual(golden['mapping 1d, range 3h']);
 
     // Toggling a window renders the golden facts of that window.
     await page.goto('/#/omni');
     await page.getByTestId('omni-mapping-range').locator('[aria-label="1 month"]').click();
     await expect(page).toHaveURL(/#\/omni\?mapping=1m$/);
     const toggled = await v2Facts(page, '/#/omni?mapping=1m');
-    expectGoldenFacts(toggled, golden['mapping 1m']);
+    expect(toggled).toEqual(golden['mapping 1m']);
     expect(norm(toggled.panels[0])).toContain('1 month');
   });
 });

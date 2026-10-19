@@ -49,13 +49,13 @@ const columns: ColumnDef<PerfModelRow, unknown>[] = [
     id: 'regressions',
     header: 'Regressions',
     accessorFn: (row) => row.regressions,
-    cell: ({ row }) => badge(integer(row.original.regressions), (row.original.model.latest || {}).build_url, row.original.regressions ? 'is-danger' : 'is-success'),
+    cell: ({ row }) => badge(integer(row.original.regressions), (row.original.model.latest || {}).build_url, row.original.regressions ? 'hard' : 'pass'),
   },
   {
     id: 'improvements',
     header: 'Improvements',
     accessorFn: (row) => row.improvements,
-    cell: ({ row }) => badge(integer(row.original.improvements), (row.original.model.latest || {}).build_url, row.original.improvements ? 'is-success' : 'is-neutral'),
+    cell: ({ row }) => badge(integer(row.original.improvements), (row.original.model.latest || {}).build_url, row.original.improvements ? 'pass' : 'neutral'),
   },
   {
     id: 'latest',

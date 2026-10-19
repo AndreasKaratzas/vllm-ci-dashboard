@@ -20,12 +20,12 @@ const rate = computed(() => (available.value ? Math.min(100, (Math.max(0, props.
 const RADIUS = 42
 const circumference = 2 * Math.PI * RADIUS
 const STROKE: Record<Tone, string> = {
-  'is-success': 'stroke-success',
-  'is-danger': 'stroke-destructive',
-  'is-warning': 'stroke-warning',
-  'is-info': 'stroke-info',
-  'is-neutral': 'stroke-muted-foreground',
-  'is-not-targeted': 'stroke-muted-foreground',
+  pass: 'stroke-success',
+  hard: 'stroke-destructive',
+  soft: 'stroke-warning',
+  info: 'stroke-info',
+  neutral: 'stroke-muted-foreground',
+  'not-targeted': 'stroke-muted-foreground',
 }
 </script>
 

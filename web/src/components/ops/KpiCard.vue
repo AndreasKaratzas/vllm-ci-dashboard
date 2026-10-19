@@ -27,7 +27,7 @@ const stacked = computed(() => props.value.length > 10 || (props.badge?.length ?
     <CardHeader>
       <CardDescription>{{ label }}</CardDescription>
       <div v-if="badge && stacked">
-        <ToneBadge :tone="badgeTone ?? 'is-neutral'">
+        <ToneBadge :tone="badgeTone ?? 'neutral'">
           <TrendingUp v-if="trend === 'up'" />
           <TrendingDown v-else-if="trend === 'down'" />
           {{ badge }}
@@ -39,7 +39,7 @@ const stacked = computed(() => props.value.length > 10 || (props.badge?.length ?
         >{{ value }}</CardTitle
       >
       <CardAction v-if="badge && !stacked">
-        <ToneBadge :tone="badgeTone ?? 'is-neutral'">
+        <ToneBadge :tone="badgeTone ?? 'neutral'">
           <TrendingUp v-if="trend === 'up'" />
           <TrendingDown v-else-if="trend === 'down'" />
           {{ badge }}

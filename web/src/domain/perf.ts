@@ -48,7 +48,7 @@ export function perfValue(raw: unknown, unit?: unknown): string {
 }
 
 export function perfStatusTone(status: unknown): Tone {
-  return status === 'good' ? 'is-success' : status === 'bad' ? 'is-danger' : 'is-neutral'
+  return status === 'good' ? 'pass' : status === 'bad' ? 'hard' : 'neutral'
 }
 
 export interface PerfDelta {
@@ -59,9 +59,9 @@ export interface PerfDelta {
 
 /** classic perfDelta returns a span; this is its text, tone class, and title. */
 export function perfDelta(block: Rec): PerfDelta {
-  if (block.previous === null || block.previous === undefined) return { label: 'First nightly', tone: 'is-neutral', title: null }
+  if (block.previous === null || block.previous === undefined) return { label: 'First nightly', tone: 'neutral', title: null }
   const delta = Number(block.delta_pct)
-  if (!Number.isFinite(delta)) return { label: 'No comparison', tone: 'is-neutral', title: null }
+  if (!Number.isFinite(delta)) return { label: 'No comparison', tone: 'neutral', title: null }
   const label = (delta > 0 ? '+' : '') + delta.toFixed(1) + '%'
   return { label, tone: perfStatusTone(block.status), title: 'Change from the preceding nightly' }
 }

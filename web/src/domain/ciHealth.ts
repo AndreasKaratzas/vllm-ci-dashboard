@@ -67,7 +67,7 @@ export function amdStateLabel(result: string): string {
 export function logicalTestGroupPresentation(groups: Rec | null | undefined) {
   const summary = groups || {}
   if (summary.available === false || summary.total === undefined) {
-    return { available: false, value: 'Unavailable', meta: 'No aligned runtime test-group signal', tone: 'is-warning' as Tone }
+    return { available: false, value: 'Unavailable', meta: 'No aligned runtime test-group signal', tone: 'soft' as Tone }
   }
   const total = Number(summary.total || 0)
   const partial = Number(summary.partial || 0)
@@ -84,7 +84,7 @@ export function logicalTestGroupPresentation(groups: Rec | null | undefined) {
       ' pass on some hardware only · ' +
       integer(nonPassing) +
       ' non-passing everywhere',
-    tone: (partial || nonPassing ? 'is-warning' : 'is-success') as Tone,
+    tone: (partial || nonPassing ? 'soft' : 'pass') as Tone,
   }
 }
 
@@ -123,10 +123,10 @@ export function amdLogicalStateLabel(stateName: string): string {
 }
 
 export function amdLogicalStateTone(stateName: string): Tone {
-  if (stateName === 'passing_all') return 'is-success'
-  if (stateName === 'partial') return 'is-warning'
-  if (stateName === 'non_passing') return 'is-danger'
-  return 'is-neutral'
+  if (stateName === 'passing_all') return 'pass'
+  if (stateName === 'partial') return 'soft'
+  if (stateName === 'non_passing') return 'hard'
+  return 'neutral'
 }
 
 export function amdLogicalSignalLabel(stateName: string): string {
@@ -136,9 +136,9 @@ export function amdLogicalSignalLabel(stateName: string): string {
 }
 
 export function amdLogicalSignalTone(stateName: string): Tone {
-  if (stateName === 'passing') return 'is-success'
-  if (stateName === 'failing') return 'is-danger'
-  return 'is-neutral'
+  if (stateName === 'passing') return 'pass'
+  if (stateName === 'failing') return 'hard'
+  return 'neutral'
 }
 
 export function amdLogicalCatalogGroup(variant: Rec | null | undefined, amdHealth: Rec | null | undefined): Rec | null {
@@ -188,11 +188,11 @@ export function movementBuilds(builds: Rec[]): Rec[] {
 
 export function testGroupParityState(stateName: string): { label: string; tone: Tone } {
   const presentations: Record<string, { label: string; tone: Tone }> = {
-    existing: { label: '● Covered on main', tone: 'is-success' },
-    unsupported: { label: '■ Not targeted / unsupported', tone: 'is-not-targeted' },
-    action: { label: '● Potential open gap', tone: 'is-danger' },
+    existing: { label: '● Covered on main', tone: 'pass' },
+    unsupported: { label: '■ Not targeted / unsupported', tone: 'not-targeted' },
+    action: { label: '● Potential open gap', tone: 'hard' },
   }
-  return presentations[stateName] || { label: value(stateName), tone: 'is-neutral' }
+  return presentations[stateName] || { label: value(stateName), tone: 'neutral' }
 }
 
 export function testGroupParityRows(payload: Rec | null | undefined, stateName: string, areaName: string): Rec[] {
@@ -251,9 +251,9 @@ export function parityGapAreas(parity: Rec): GapArea[] {
         total: Number(row.total || 0),
         rows: missingRows.filter((group) => group.area === row.area),
         segments: [
-          { label: 'covered on main', count: Number(row.existing || 0), tone: 'is-success' as Tone },
-          { label: 'potential open gaps', count: action, tone: 'is-danger' as Tone },
-          { label: 'not targeted', count: Number(row.unsupported || 0), tone: 'is-not-targeted' as Tone },
+          { label: 'covered on main', count: Number(row.existing || 0), tone: 'pass' as Tone },
+          { label: 'potential open gaps', count: action, tone: 'hard' as Tone },
+          { label: 'not targeted', count: Number(row.unsupported || 0), tone: 'not-targeted' as Tone },
         ],
       }
     })

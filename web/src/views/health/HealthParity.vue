@@ -35,9 +35,9 @@ const inventoryMain = computed<Rec>(() => (parity.value.rocm_inventory || summar
 const available = computed(() => allRows.value.length > 0 && Number(summary.value.upstream_logical_groups || 0) > 0)
 
 const segments = computed<Segment[]>(() => [
-  { key: 'existing', label: 'covered on main', count: Number(summary.value.main_complete_groups || 0), tone: 'is-success' },
-  { key: 'action', label: 'potential open gaps', count: Number(summary.value.action_groups || 0), tone: 'is-danger' },
-  { key: 'unsupported', label: 'not targeted', count: Number(summary.value.unsupported_groups || 0), tone: 'is-not-targeted' },
+  { key: 'existing', label: 'covered on main', count: Number(summary.value.main_complete_groups || 0), tone: 'pass' },
+  { key: 'action', label: 'potential open gaps', count: Number(summary.value.action_groups || 0), tone: 'hard' },
+  { key: 'unsupported', label: 'not targeted', count: Number(summary.value.unsupported_groups || 0), tone: 'not-targeted' },
 ])
 
 const configNote = computed(() => {
@@ -155,7 +155,7 @@ const columns: ColumnDef<Rec, unknown>[] = [
           :current="Number(summary.main_complete_groups || 0)"
           :total="Number(summary.applicable_groups || 0)"
           :meta="`${integer(summary.main_missing_groups)} potential open gaps remain`"
-          :tone="Number(summary.main_missing_groups) ? 'is-warning' : 'is-success'"
+          :tone="Number(summary.main_missing_groups) ? 'soft' : 'pass'"
           action-label="Inspect applicable groups →"
           data-testid="parity-ring"
           @open="openRows('Applicable upstream test groups', applicableRows)"

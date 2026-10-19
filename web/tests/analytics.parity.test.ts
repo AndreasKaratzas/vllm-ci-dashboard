@@ -648,7 +648,7 @@ async function compareNightlies(ops: Rec, label: string) {
   const host = await classicNightlies(ops)
   parity('nightliesStrip', v2Strip(model.strip), stripOf(host), label)
   const note = host.querySelector('.ops-evidence-note')!
-  parity('movementNoteTone', model.latestMovement ? 'is-info' : 'is-warning', tone(note))
+  parity('movementNoteTone', model.latestMovement ? 'info' : 'soft', tone(note))
   const panelTitles = [...host.querySelectorAll('.ops-panel-title')].map(text)
   expect(panelTitles).toContain(model.name + ' nightly failure movement')
   const trs = [...host.querySelectorAll('table.ops-table tbody tr')]

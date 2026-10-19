@@ -1,7 +1,9 @@
+import type { Tone } from '@/lib/tone'
+
+export type { Tone }
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Rec = Record<string, any>
-
-export type Tone = 'is-success' | 'is-danger' | 'is-warning' | 'is-info' | 'is-neutral' | 'is-not-targeted'
 
 export function value(v: unknown, fallback?: string): string {
   return v === null || v === undefined || v === '' ? fallback || '-' : String(v)
@@ -47,13 +49,13 @@ export function age(ts: unknown, nowMs: number = Date.now()): string {
 
 export function toneForState(s: unknown): Tone {
   const stateName = String(s || '').toLowerCase()
-  if (['passed', 'green', 'healthy', 'fixed', 'success'].includes(stateName)) return 'is-success'
+  if (['passed', 'green', 'healthy', 'fixed', 'success'].includes(stateName)) return 'pass'
   if (['failed', 'failing', 'hard', 'incident', 'error', 'red', 'critical', 'surge', 'broken'].includes(stateName))
-    return 'is-danger'
+    return 'hard'
   if (['soft', 'soft_fail', 'soft_failed', 'soft_failing', 'warning', 'attention', 'elevated', 'waiting'].includes(stateName))
-    return 'is-warning'
-  if (['new', 'info', 'recurring'].includes(stateName)) return 'is-info'
-  return 'is-neutral'
+    return 'soft'
+  if (['new', 'info', 'recurring'].includes(stateName)) return 'info'
+  return 'neutral'
 }
 
 export function populationSemantics(payload: unknown): 'complete' | 'lower_bound' {

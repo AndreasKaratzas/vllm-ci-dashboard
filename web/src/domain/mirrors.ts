@@ -76,7 +76,7 @@ export function amdMirrorGateMode(row: Rec): MirrorMode {
 }
 
 export function amdMirrorModeTone(row: Rec): Tone {
-  return amdMirrorGateMode(row) === 'required' ? 'is-neutral' : 'is-warning'
+  return amdMirrorGateMode(row) === 'required' ? 'neutral' : 'soft'
 }
 
 export function amdMirrorModes(rows: Rec[] | null | undefined): Record<MirrorMode, number> {

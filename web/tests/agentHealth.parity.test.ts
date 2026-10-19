@@ -125,13 +125,13 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
   )
   const view = v2.computeAgentView(model, options)
   const notes = [
-    'ops-evidence-note is-info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.',
+    'ops-evidence-note info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.',
   ]
-  if (model.completionScopeNote) notes.push('ops-evidence-note is-info ops-agent-completion-scope|' + model.completionScopeNote)
-  if (model.retentionNote) notes.push('ops-evidence-note is-warning|' + model.retentionNote.title + model.retentionNote.body)
+  if (model.completionScopeNote) notes.push('ops-evidence-note info ops-agent-completion-scope|' + model.completionScopeNote)
+  if (model.retentionNote) notes.push('ops-evidence-note soft|' + model.retentionNote.title + model.retentionNote.body)
   const c = model.criteria
   notes.push(
-    'ops-evidence-note is-neutral ops-agent-criteria|What counts as an anomalous (infra-suspect) failure? When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same ' +
+    'ops-evidence-note neutral ops-agent-criteria|What counts as an anomalous (infra-suspect) failure? When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same ' +
       c.dayLabel +
       ', both: passed at least ' +
       c.pct +
@@ -140,7 +140,7 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
       ' graded samples), so the group demonstrably works; andpassed on at least one other physical node that day, so the failure is isolated to this box rather than a broad code break.Groups that fail broadly (real code bugs) and failures inside auto-cancelled / superseded builds are filtered out by default, isolating the signal that points at a specific machine.',
   )
   const empty = v2.agentEmptyText(model, view)
-  if (empty) notes.push('ops-evidence-note is-warning|' + empty)
+  if (empty) notes.push('ops-evidence-note soft|' + empty)
   const sort = v2.effectiveAgentSort(state.sort, state.sortExplicit, options.signal)
   const rows = v2.sortedAgents(view.agents, sort)
   const showSignal = options.signal !== 'all'
@@ -194,7 +194,7 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
         selected,
         node: card.node,
         meta: card.meta,
-        badges: [`ops-badge ${card.patternTone}|${card.pattern}`, ...(card.cross ? ['ops-badge is-danger|cross-pipeline'] : [])],
+        badges: [`ops-badge ${card.patternTone}|${card.pattern}`, ...(card.cross ? ['ops-badge hard|cross-pipeline'] : [])],
         detail: card.detail,
         runs: card.runs.map((r) => [rgb(r.color), r.run.group, r.meta, ...(r.time ? [r.time] : []), r.link].join('|')),
         runLinks: card.runs.filter((r) => r.run.url).map((r) => r.run.url),

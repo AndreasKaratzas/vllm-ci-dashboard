@@ -45,7 +45,7 @@ const model = computed(() => amdHealthModel(health.value))
 const observedAt = computed(() => (ops.value ? analyticsObservedAt('groups', ops.value, health.value) : null))
 const counts = computed<Rec>(() => (health.value.summary || {}).latest_test_group_counts || {})
 
-const SEVERITY_BADGE: Partial<Record<Tone, string>> = { 'is-success': 'Passing', 'is-warning': 'Soft fail', 'is-danger': 'Hard fail' }
+const SEVERITY_BADGE: Partial<Record<Tone, string>> = { pass: 'Passing', soft: 'Soft fail', hard: 'Hard fail' }
 function badgeFor(item: StripItem): string | undefined {
   if (item.id === 'amd-health-build' || item.id === 'amd-health-incidents') return SEVERITY_BADGE[item.tone as Tone]
   if (item.id === 'amd-health-test-groups' && model.value.logical.available) return percent(counts.value.passing, counts.value.total)
@@ -124,10 +124,10 @@ function inspectHardware(index: number) {
 }
 
 const CLUSTER_RING: Record<string, string> = {
-  'is-success': 'before:bg-success',
-  'is-warning': 'before:bg-warning',
-  'is-danger': 'before:bg-destructive',
-  'is-neutral': 'before:bg-muted-foreground/50',
+  pass: 'before:bg-success',
+  soft: 'before:bg-warning',
+  hard: 'before:bg-destructive',
+  neutral: 'before:bg-muted-foreground/50',
 }
 const clusterAria = (c: AmdCluster) => `Open ${c.label}: ${c.renderedCount} AMD job variants`
 

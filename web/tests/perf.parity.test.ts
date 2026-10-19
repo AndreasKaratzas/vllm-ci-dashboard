@@ -134,8 +134,8 @@ function renderPort(data: Rec, state: v2.PerfState, opsGeneratedAt = '2026-09-01
         link(integer(row.model.nightly_count), ''),
         link(integer(row.performanceMetrics), ''),
         link(integer(row.accuracyMetrics), ''),
-        badge(integer(row.regressions), (row.model.latest || {}).build_url, row.regressions ? 'is-danger' : 'is-success'),
-        badge(integer(row.improvements), (row.model.latest || {}).build_url, row.improvements ? 'is-success' : 'is-neutral'),
+        badge(integer(row.regressions), (row.model.latest || {}).build_url, row.regressions ? 'hard' : 'pass'),
+        badge(integer(row.improvements), (row.model.latest || {}).build_url, row.improvements ? 'pass' : 'neutral'),
         link(v2.perfLatestBuildLabel(row.model), (row.model.latest || {}).build_url),
       ]),
     }
@@ -270,7 +270,7 @@ function portHistory(model: Rec, config: Rec, metricName: string, block: Rec) {
     summary: [
       `LATEST ${h.latest}|`,
       `PREVIOUS ${h.previous}|`,
-      `CHANGE ${h.change}|${h.changeTone === 'is-neutral' ? '' : h.changeTone}`,
+      `CHANGE ${h.change}|${h.changeTone === 'neutral' ? '' : h.changeTone}`,
       `POINTS ${h.points}|`,
     ],
     caption: h.series.length ? h.tableTitle : '',

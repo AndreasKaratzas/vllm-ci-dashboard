@@ -57,8 +57,8 @@ const KPI_IDS = ['jobs', 'queues', 'nodes', 'hf', 'outcomes']
 const KPI_TITLES = ['Jobs with DNS observations', 'Affected queues', 'Physical nodes', 'Hugging Face jobs', 'Passed / nonpassing']
 // Classic tones only the first and last summary items; the badge names that tone.
 const BADGES: Record<string, Partial<Record<Tone, string>>> = {
-  jobs: { 'is-warning': 'observed', 'is-success': 'none observed' },
-  outcomes: { 'is-danger': 'hard-failed', 'is-warning': 'soft-failed', 'is-success': 'all passed' },
+  jobs: { soft: 'observed', pass: 'none observed' },
+  outcomes: { hard: 'hard-failed', soft: 'soft-failed', pass: 'all passed' },
 }
 const kpis = computed(() =>
   (view.value?.summary ?? []).map((item, index) => {
@@ -68,7 +68,7 @@ const kpis = computed(() =>
       id,
       title: KPI_TITLES[index]!,
       badge: item.tone ? BADGES[id]?.[item.tone] : undefined,
-      badgeTone: (item.tone || 'is-neutral') as Tone,
+      badgeTone: (item.tone || 'neutral') as Tone,
     }
   }),
 )
@@ -139,7 +139,7 @@ const LEGEND = [
               </SelectContent>
             </Select>
           </div>
-          <ToneBadge class="ml-auto" :tone="view.freshness.stale ? 'is-warning' : 'is-success'" data-testid="dns-freshness">
+          <ToneBadge class="ml-auto" :tone="view.freshness.stale ? 'soft' : 'pass'" data-testid="dns-freshness">
             {{ (view.freshness.stale ? 'Stale - ' : 'Updated ') + age(view.block.end_exclusive) }}
           </ToneBadge>
         </div>

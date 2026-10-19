@@ -101,7 +101,7 @@ const latest = (row: Rec) => amdLatestState(row, props.latestBuild)
                 <TableCell class="text-right tabular-nums">
                   <button type="button" class="hover:underline" @click="emit('inspect', row)">{{ integer(row.current_pass_streak) }}</button>
                 </TableCell>
-                <TableCell><ToneBadge tone="is-neutral">{{ value(row.hardware_variant || row.hardware) }}</ToneBadge></TableCell>
+                <TableCell><ToneBadge tone="neutral">{{ value(row.hardware_variant || row.hardware) }}</ToneBadge></TableCell>
                 <TableCell class="font-mono text-xs">{{ value(row.queue) }}</TableCell>
                 <TableCell>
                   <a v-if="row.latest_url" :href="row.latest_url" target="_blank" rel="noopener" class="hover:underline">Latest AMD job ↗</a>

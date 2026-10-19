@@ -20,8 +20,8 @@ const props = defineProps<{ drawer: DnsEvidenceDrawer | null; sourceAsset?: stri
 const open = defineModel<boolean>('open', { required: true })
 
 const NOTE_CLASS = {
-  'is-warning': 'border-warning/40 bg-warning/10 text-warning',
-  'is-info': 'border-info/40 bg-info/10 text-info',
+  soft: 'border-warning/40 bg-warning/10 text-warning',
+  info: 'border-info/40 bg-info/10 text-info',
 } as Record<string, string>
 
 const fields = computed(() => (props.drawer?.fields ?? []).filter((field) => field.value !== null && field.value !== ''))
