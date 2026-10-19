@@ -1,7 +1,7 @@
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
-import type { Plugin } from 'vite'
+import { searchForWorkspaceRoot, type Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 
 // build_site.py rewrites ?v=<n> in the root index.html on every publication, so
@@ -20,10 +20,18 @@ function cacheBustEntries(): Plugin {
 // live Pages deployment so views render against real published snapshots.
 const LIVE_SITE = 'https://andreaskaratzas.github.io'
 
+// Repository config shared with the Python collectors, imported at build time.
+const CONFIG_DIR = fileURLToPath(new URL('../config', import.meta.url))
+
 export default defineConfig({
   base: './',
   plugins: [vue(), tailwindcss(), cacheBustEntries()],
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  resolve: {
+    alias: {
+      '@config': CONFIG_DIR,
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   build: {
     // The root page is v2; the classic page lives at docs/classic.html.
     outDir: '../docs',
@@ -44,6 +52,7 @@ export default defineConfig({
     },
   },
   server: {
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), CONFIG_DIR] },
     proxy: {
       '/data': {
         target: LIVE_SITE,

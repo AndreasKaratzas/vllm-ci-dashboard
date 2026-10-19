@@ -17,7 +17,7 @@ import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader,
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useOperationSections } from '@/composables/useOperations'
-import { fetchJSON } from '@/data/fetch'
+import { fetchJSON } from '@/data/client'
 import { integer, percent, toneForState, value, type Rec, type Tone } from '@/domain/format'
 import {
   MATRIX_BROWSER_TITLES,
