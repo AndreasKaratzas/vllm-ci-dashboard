@@ -164,6 +164,38 @@ jobs:
               });
             }
 
+  v2-frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '22.23.2'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install v2 dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Classic-parity tests
+        run: npm test
+
+      # Pages publishes the committed docs/v2 bundle, so the hourly publication
+      # lane never needs Node. It must match a fresh build of web/.
+      - name: Verify committed v2 bundle is current
+        run: |
+          npm run build
+          git diff --exit-code -- ../docs/v2
+          test -z "$(git status --porcelain -- ../docs/v2)"
+
   validate-frontend:
     runs-on: ubuntu-24.04
     steps:

@@ -341,16 +341,17 @@ class TestWorkflowYAML:
                     settings = step.get("with", {})
                     observed.append((workflow.name, job_name, settings))
                     if settings.get("cache") == "npm":
-                        assert settings.get("cache-dependency-path") == (
-                            "tools/spellcheck/package-lock.json"
-                        )
+                        assert settings.get("cache-dependency-path") in {
+                            "tools/spellcheck/package-lock.json",
+                            "web/package-lock.json",
+                        }
                         continue
                     assert settings.get("package-manager-cache") is False, (
                         f"{workflow.name}:{job_name}: setup-node without an explicit "
                         "cache must disable automatic package-manager caching"
                     )
 
-        assert len(observed) == 2
+        assert len(observed) == 3
 
     def test_github_script_v9_uses_the_modern_octokit_surface(self):
         """Keep scripts compatible with the github-script v9 client contract."""
