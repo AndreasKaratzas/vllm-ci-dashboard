@@ -21,11 +21,12 @@ import {
   movementBuilds,
   sortLogicalRows,
 } from '@/domain/ciHealth'
+import { amdHealthModel } from '@/domain/analytics'
 import { integer, value, type Rec } from '@/domain/format'
 import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
 import { amdMirrorInventoryView, amdMirrorSummary } from '@/domain/mirrors'
 import { amdNightlyPresentation, latestAmd, nightlyFailureCount } from '@/domain/nightly'
-import { exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
+import { exactJobCatalogDetail, exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 import { hardwareColor, statusVar } from '@/lib/palette'
@@ -60,8 +61,7 @@ const failingTrend = computed(() => {
   return aligned ? trend : undefined
 })
 
-// Newest first, as NightlyMovementChart reads them.
-const movement = computed(() => movementBuilds(amd.value.builds || []).reverse())
+const movement = computed(() => movementBuilds(amd.value.builds || []))
 const movementTotals = computed(() =>
   (['new', 'recurring', 'fixed'] as const).map((key) => movement.value.reduce((sum, build) => sum + (nightlyFailureCount(build, key) ?? 0), 0)),
 )
@@ -161,7 +161,8 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         :spark="variantRate"
         :delta="lastDelta(variantRate, 'up', { unit: ' pts' })"
         :headline="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} job variants passed` : undefined"
-        :footnote="`Across ${integer(variants.length)} retained AMD nightlies`"
+        :footnote="`Across the ${integer(variants.length)} nightlies in the AMD test-health history`"
+        :action="{ label: 'Inspect latest job variants', onOpen: () => sheets.open(exactJobCatalogDetail(amdHealthModel(health).catalogs.variants, latestBuild)) }"
         data-testid="kpi-job-rate"
       />
       <KpiCard
@@ -194,17 +195,21 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
       </KpiCard>
     </StatGrid>
 
-    <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
+    <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
       <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="movement-chart">
         <CardHeader>
           <CardTitle as="h2">Nightly failure movement</CardTitle>
           <CardDescription>
-            {{ movement.length }} retained nightlies · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring, {{ movementTotals[2] }} fixed · fixes are
-            drawn below zero
+            {{ movement.length }} nightlies compared with their predecessor · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring,
+            {{ movementTotals[2] }} fixed · fixes are drawn below zero
           </CardDescription>
         </CardHeader>
         <CardContent class="px-2 sm:px-6">
-          <NightlyMovementChart :builds="movement" :on-select="(build: Rec) => sheets.open(buildEvidenceDetail(build))" />
+          <NightlyMovementChart
+            :builds="movement"
+            :empty-description="`Latest signal #${value(latestBuild)}`"
+            :on-select="(build: Rec) => sheets.open(buildEvidenceDetail(build))"
+          />
         </CardContent>
       </Card>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AreaChart from '@/components/charts/AreaChart.vue'
-import { distinctTicks, shortDay } from '@/components/charts/chart'
+import { niceTicks, shortDay } from '@/components/charts/chart'
 import type { Rec } from '@/domain/format'
 import { perfSparkRows, perfValue } from '@/domain/perf'
 import type { PaletteColor } from '@/lib/palette'
@@ -30,15 +30,16 @@ const rowLabel = (row: Row) => [row.point.build_number ? `Build #${row.point.bui
 const yFormat = (v: number) => perfValue(v, props.unit === 'tok/s' ? undefined : props.unit)
 // Nightlies are irregularly spaced; plotting by index keeps evenly spaced, non-colliding date ticks.
 const xFormat = (index: number) => day(rows.value[Math.round(index)])
-// A padded domain around the values keeps small moves visible; ticks never repeat a rounded label.
-const yDomain = computed<[number, number]>(() => {
+// A padded domain around the values keeps small moves visible; it ends on round ticks, and none repeats a rounded label.
+const roundTicks = computed(() => {
   const values = rows.value.map((row) => row.value)
   const min = Math.min(...values)
   const max = Math.max(...values)
   const pad = (max - min) * 0.15 || Math.abs(max) * 0.05 || 1
-  return [min - pad, max + pad]
+  return niceTicks(min >= 0 ? Math.max(0, min - pad) : min - pad, max + pad, 4)
 })
-const yTicks = computed(() => distinctTicks(yDomain.value, 4, yFormat))
+const yDomain = computed<[number, number]>(() => [roundTicks.value[0]!, roundTicks.value.at(-1)!])
+const yTicks = computed(() => roundTicks.value.filter((tick, i, ticks) => i === 0 || yFormat(tick) !== yFormat(ticks[i - 1]!)))
 </script>
 
 <template>

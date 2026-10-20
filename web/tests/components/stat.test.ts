@@ -4,7 +4,7 @@ import DeltaBadge from '@/components/stat/DeltaBadge.vue'
 import KpiCard from '@/components/stat/KpiCard.vue'
 import Sparkline from '@/components/stat/Sparkline.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
-import { kpiTrend } from '@/components/stat/trend'
+import { kpiTrend, lastDelta } from '@/components/stat/trend'
 import { settle, testRouter, text } from './support'
 
 afterEach(() => {
@@ -158,6 +158,14 @@ describe('KpiCard empty and zero values', () => {
     expect(value.classes()).toContain('text-muted-foreground')
     expect(text(value.element)).toBe('0 jobs')
     expect(mount(KpiCard, { props: { label: 'Failures', value: 3 } }).find('[data-slot=kpi-value]').classes()).not.toContain('text-muted-foreground')
+  })
+})
+
+describe('lastDelta', () => {
+  it('names its baseline and skips unknown points', () => {
+    expect(lastDelta([10, null, 12.34], 'up', { label: 'vs previous nightly' })).toEqual({ value: 2.3, goodWhen: 'up', text: '+2.3', label: 'vs previous nightly' })
+    expect(lastDelta([3, 1], 'down', { unit: '%', label: 'vs last run' })).toMatchObject({ text: '-2.0%', label: 'vs last run' })
+    expect(lastDelta([5, null], 'down')).toBeUndefined()
   })
 })
 

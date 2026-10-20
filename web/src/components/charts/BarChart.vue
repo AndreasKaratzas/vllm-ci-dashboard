@@ -4,7 +4,7 @@ import { VisAxis, VisGroupedBar, VisStackedBar, VisTooltip, VisXYContainer } fro
 import { computed, ref } from 'vue'
 import { ChartContainer } from '@/components/ui/chart'
 import { cn } from '@/lib/utils'
-import { chartConfig, niceTicks, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
+import { barValueTicks, chartConfig, niceTicks, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
 
@@ -55,35 +55,22 @@ const { tooltip, select, inspectItems } = useSeriesInteraction<T>({
   onSelect: () => props.onSelect,
 })
 
+// Unovis counts horizontal categories from the bottom; the first row is drawn on top so the chart reads like its data.
+const position = (index: number) => (horizontal.value ? props.rows.length - 1 - index : index)
 // Horizontal bars get a row each; vertical labels thin out on narrow plots instead of colliding.
 const tickValues = computed(() => {
   const indices = data.value.map((d) => d.index)
   return horizontal.value ? indices : thinTicks(indices, ticks.value)
 })
-const categoryLabel = (index: number) => {
-  const row = props.rows[index]
+const categoryLabel = (tick: number) => {
+  const row = props.rows[position(tick)]
   return row ? props.category(row) : ''
 }
-// The value axis ends on a round tick at or beyond the longest bar; diverging charts with bars on
-// both sides share one scale around zero so their lengths compare honestly.
-const valueTicks = computed(() => {
-  if (props.valueDomain) return niceTicks(props.valueDomain[0], props.valueDomain[1], 4)
-  const totals = props.rows.map((row) => {
-    const values = props.series.map((s) => (props.diverging.includes(s.key) ? -1 : 1) * seriesValue(row, s.key))
-    const up = values.filter((v) => v > 0)
-    const down = values.filter((v) => v < 0)
-    const sum = (vs: number[]) => vs.reduce((a, b) => a + b, 0)
-    return props.stacked ? [sum(down), sum(up)] : [Math.min(0, ...down), Math.max(0, ...up)]
-  })
-  const counts = props.rows.every((row) => props.series.every((s) => Number.isInteger(seriesValue(row, s.key))))
-  let lo = Math.min(0, ...totals.map((t) => t[0]!))
-  let hi = Math.max(0, ...totals.map((t) => t[1]!))
-  if (props.diverging.length && lo < 0 && hi > 0) {
-    hi = Math.max(1, -lo, hi)
-    lo = -hi
-  }
-  return niceTicks(lo, hi, props.diverging.length && ticks.value <= 6 ? 2 : 4, counts ? 1 : 0)
-})
+const valueTicks = computed(() =>
+  props.valueDomain
+    ? niceTicks(props.valueDomain[0], props.valueDomain[1], 4)
+    : barValueTicks(props.rows, props.series, { diverging: props.diverging, stacked: props.stacked, compact: ticks.value <= 6 }),
+)
 const domain = computed<[number, number]>(() => props.valueDomain ?? [valueTicks.value[0]!, valueTicks.value.at(-1)!])
 const inspectTop = computed(() => !!props.onSelect && props.inspectPlacement === 'top')
 const showLegend = computed(() => props.legend ?? props.series.length > 1)
@@ -118,7 +105,7 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed | { datum: I
         >
           <VisStackedBar
             v-if="stacked"
-            :x="(d: Indexed) => d.index"
+            :x="(d: Indexed) => position(d.index)"
             :y="accessors"
             :color="colors"
             :orientation="orientation"
@@ -130,7 +117,7 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed | { datum: I
           />
           <VisGroupedBar
             v-else
-            :x="(d: Indexed) => d.index"
+            :x="(d: Indexed) => position(d.index)"
             :y="accessors"
             :color="colors"
             :orientation="orientation"

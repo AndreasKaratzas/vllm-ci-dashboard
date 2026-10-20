@@ -12,6 +12,8 @@ const props = withDefaults(
     /** Nightlies newest first, as published; the chart reads oldest to newest. */
     builds: Rec[]
     label?: string
+    /** Shown under the empty state when no retained nightly has any movement. */
+    emptyDescription?: string
     class?: string
     onSelect?: (build: Rec) => void
   }>(),
@@ -20,7 +22,7 @@ const props = withDefaults(
 
 // Both failure buckets are failures (red); recurring is the lighter shade so new ones stand out.
 // Fixes are drawn below zero so failures and recoveries read as one movement.
-const SERIES: SeriesSpec[] = [
+const ALL_SERIES: SeriesSpec[] = [
   { key: 'new', label: 'New failure', color: statusVar('hard') },
   { key: 'recurring', label: 'Recurring failure', color: tint(statusVar('hard'), 60) },
   { key: 'fixed', label: 'Fixed', color: statusVar('pass') },
@@ -41,6 +43,8 @@ const rows = computed<Row[]>(() =>
     fixed: nightlyFailureCount(build, 'fixed') ?? 0,
   })),
 )
+// Only movements that happened are drawn and listed in the legend.
+const series = computed(() => ALL_SERIES.filter((s) => rows.value.some((row) => row[s.key as 'new' | 'recurring' | 'fixed'] > 0)))
 // Dates on the axis match the pass-rate chart; the tooltip and Inspect name the build.
 const day = (row: Row) => {
   const ms = Date.parse(String(row.build.created_at || ''))
@@ -56,13 +60,14 @@ const select = computed(() => (props.onSelect ? (row: Row) => props.onSelect!(ro
     title="No failure movement retained"
     description="No retained nightly has a comparable preceding nightly yet."
   />
+  <EmptyState v-else-if="!series.length" title="No failure movement in the retained nightlies" :description="emptyDescription" />
   <BarChart
     v-else
     :rows="rows"
     :category="day"
     :row-label="rowLabel"
     inspect-placement="legend"
-    :series="SERIES"
+    :series="series"
     :diverging="['fixed']"
     :label="label"
     :class="props.class"

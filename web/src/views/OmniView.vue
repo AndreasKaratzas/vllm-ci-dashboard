@@ -10,14 +10,13 @@ import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
 import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import SubNav from '@/components/layout/SubNav.vue'
 import { Button } from '@/components/ui/button'
-import { useClock } from '@/composables/useClock'
 import { useDataset } from '@/composables/useDataset'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
 import type { Rec } from '@/domain/format'
-import { areaFreshness, sourceFreshness } from '@/domain/freshness'
+import { areaSources } from '@/domain/freshness'
 import { OMNI_MAPPING_WINDOWS, OMNI_RANGE_WINDOWS, OMNI_REPOSITORIES, OMNI_ROUTE_DEFAULTS, omniView } from '@/domain/omni'
-import { freshnessChip } from '@/features/freshness/freshness'
+import { useFreshness } from '@/features/freshness/useFreshness'
 import CoverageChip from './omni/CoverageChip.vue'
 import OmniLive from './omni/OmniLive.vue'
 import OmniWorkload from './omni/OmniWorkload.vue'
@@ -38,8 +37,7 @@ const range = useQueryState('range', { default: OMNI_ROUTE_DEFAULTS.omni_range, 
 
 const page = computed(() => (ops.value ? omniView(ops.value, mapping.value, range.value) : null))
 const model = computed(() => (page.value?.available ? page.value : null))
-const now = useClock()
-const freshness = computed(() => (ops.value ? freshnessChip(areaFreshness(sourceFreshness(ops.value, null, now.value), 'omni'), now.value) : undefined))
+const freshness = useFreshness().chip(areaSources('omni'))
 
 const sheets = useSheetStack()
 const show = (detail: Detail) => sheets.open(detail)

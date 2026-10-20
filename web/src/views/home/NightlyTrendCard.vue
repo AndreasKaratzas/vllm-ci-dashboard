@@ -43,7 +43,10 @@ const FAILURES: CompanionBars = {
 
 const RANGE_KEYS = ['all', '30', '14', '7'] as const
 type RangeKey = (typeof RANGE_KEYS)[number]
-const RANGES: SegmentedItem[] = RANGE_KEYS.map((key) => ({ value: key, label: key === 'all' ? 'All' : `Last ${key}` }))
+// A window only appears when it would hide some of the retained nightlies.
+const ranges = computed<SegmentedItem[]>(() =>
+  RANGE_KEYS.filter((key) => key === 'all' || Number(key) < rows.value.length).map((key) => ({ value: key, label: key === 'all' ? 'All' : `Last ${key}` })),
+)
 const rangeParam = useQueryState<RangeKey>('range', { default: 'all', allowed: RANGE_KEYS })
 const range = computed({
   get: () => (rangeParam.value === 'all' ? 0 : Number(rangeParam.value)),
@@ -68,8 +71,8 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
         <span>{{ shown === rows.length ? `All ${shown} retained nightlies` : `Last ${shown} of ${rows.length} retained nightlies` }}</span>
         <span class="hidden @3xl/main:inline"> · hard and soft failures below</span>
       </CardDescription>
-      <CardAction v-if="rows.length > 1">
-        <SegmentedSelect v-model="rangeParam" :items="RANGES" label="Nightly range" :show-label="false" class="w-32 sm:w-auto" />
+      <CardAction v-if="ranges.length > 1">
+        <SegmentedSelect v-model="rangeParam" :items="ranges" label="Nightly range" :show-label="false" class="w-32 sm:w-auto" />
       </CardAction>
     </CardHeader>
     <CardContent class="px-3 sm:px-6">

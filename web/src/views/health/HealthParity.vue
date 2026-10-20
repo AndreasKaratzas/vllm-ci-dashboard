@@ -138,7 +138,7 @@ const inventoryLinks = computed(() => [
         />
       </StatGrid>
 
-      <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
+      <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
         <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="parity-distribution">
           <CardHeader>
             <CardTitle as="h2">Current main CI · {{ integer(summary.upstream_logical_groups) }} logical groups</CardTitle>

@@ -1,5 +1,7 @@
 # Porting a classic view to v2
 
+<!-- cspell:ignore pgrep chromedeps -->
+
 The classic renderer (`docs/assets/js/ops-v2.js`, `amd-mirror-inventory.js`,
 served by `docs/classic.html`) is the behavioral reference. A ported view must
 show the same facts from the same snapshot, in the shadcn-vue style of Home and
@@ -18,17 +20,17 @@ CI Health.
    sure the tests catch them; strengthen the generators until they do. Report
    how many were caught.
 3. **Views** under your area's files (listed below), built from
-   `src/components/ui` (shadcn-vue) and the shared ops components:
-   `DataTable`, `KpiCard`, `RingCard`, `DistributionCard`, `TableSheet`,
-   `ToneBadge`, `ViewState`, `BuildDetailSheet`. Charts use Unovis like
-   `components/ops/NightlyChart.vue` and `components/health/MovementChart.vue`.
+   `src/components/ui` (shadcn-vue) and the design-system components:
+   `stat/KpiCard`, `table/DataTable`, `evidence/EvidenceSheet` (via `SheetStack`),
+   `feedback/StatusBadge`, `feedback/AsyncBoundary`, and the shared features such as
+   `features/nightly/NightlyMovementChart.vue`. Charts use `components/charts`.
    Keep every drill-down the classic view offers (sheets instead of overlays).
 4. **Browser tests** in `tests/browser/v2-<area>.spec.mjs`: read the same facts
    from `classic.html` and from v2 on the fixture site and require them to
    match (see the CI Health tests in `v2-smoke.spec.mjs`). Guard against both
    sides being empty.
-5. **Legacy links**: translate the classic `?ops_*` params for your views in
-   `src/legacy/<area>.ts`, with cases in `tests/legacyLinks.test.ts`.
+5. **Old links**: translate the old `?ops_*` params for your views in
+   `src/app/oldLinks.ts`, with cases in `tests/oldLinks.test.ts`.
 
 ## Data
 
@@ -43,7 +45,7 @@ CI Health.
 ## Rules
 
 - Edit only your area's files plus new files under `src/components/<area>/`.
-  Do not change shared components, `router.ts`, `legacyLinks.ts`, or another
+  Do not change shared components, `router.ts`, `app/oldLinks.ts`, or another
   area's files; if a shared change is unavoidable, describe it in your report.
 - Vue: an omitted optional boolean prop is `false`, not `undefined`; give it a
   default with `withDefaults` when absence should mean true.

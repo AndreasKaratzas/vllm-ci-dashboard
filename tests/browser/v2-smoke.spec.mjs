@@ -32,7 +32,7 @@ test.describe('Home', () => {
 
     await rows.first().getByRole('cell').nth(1).click();
     const sheet = page.getByRole('dialog');
-    await expect(sheet).toContainText('AMD build #30005');
+    await expect(sheet).toContainText('AMD nightly #30005');
     await expect(sheet).toContainText('Job variants observed');
     await expect(sheet.locator('tbody tr')).toHaveCount(2);
 
@@ -63,22 +63,15 @@ test.describe('Home', () => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Inspect AMD nightly pass rate' }).click();
     await page.getByRole('menuitem', { name: /Nightly #30003/ }).click();
-    await expect(page.getByRole('dialog')).toContainText('AMD build #30003');
+    await expect(page.getByRole('dialog')).toContainText('AMD nightly #30003');
   });
 
-  test('the pass-rate range control lives in the card header and keeps its choice in the URL', async ({ page }) => {
-    await page.goto('/');
+  test('the pass-rate range control offers only windows that hide some nightlies', async ({ page }) => {
+    // The fixture retains 5 nightlies, so Last 30/14/7 would all show every one of them.
+    await page.goto('/#/?range=7');
     const trend = page.getByTestId('nightly-trend');
-    const range = trend.getByRole('group', { name: 'Nightly range' });
-    await expect(range.getByRole('button', { name: 'All' })).toHaveAttribute('data-state', 'on');
-    await range.getByRole('button', { name: 'Last 7' }).click();
-    await expect(page).toHaveURL(/range=7/);
     await expect(trend).toContainText('All 5 retained nightlies');
-    await page.goto('/#/?range=14');
-    await expect(page.getByTestId('nightly-trend').getByRole('group', { name: 'Nightly range' }).getByRole('button', { name: 'Last 14' })).toHaveAttribute(
-      'data-state',
-      'on',
-    );
+    await expect(trend.getByRole('group', { name: 'Nightly range' })).toHaveCount(0);
   });
 
   test('the engineering workbench switches between issues and pull requests in the URL', async ({ page }) => {
@@ -112,9 +105,50 @@ test.describe('App shell', () => {
     await page.keyboard.press('Control+k');
     await page.getByRole('option', { name: /#30004/ }).click();
     await expect(page).toHaveURL(/#\/\?build=30004$/);
-    await expect(page.getByRole('dialog')).toContainText('AMD build #30004');
+    await expect(page.getByRole('dialog')).toContainText('AMD nightly #30004');
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/#\/$/);
+  });
+
+  test('the command palette finds test groups and perf models', async ({ page }) => {
+    await page.goto('/');
+    await page.keyboard.press('Control+k');
+    const palette = page.getByRole('dialog');
+    await palette.getByPlaceholder(/Search views/).fill('broken group');
+    await expect(palette.getByRole('group', { name: 'AMD test groups' }).getByRole('option')).toHaveCount(1);
+    await palette.getByRole('option', { name: /broken group/i }).click();
+    await expect(page.getByRole('dialog')).toContainText('Exact AMD job variants');
+    await page.keyboard.press('Escape');
+
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder(/Search views/).fill('MiniMax');
+    await page.getByRole('group', { name: 'Perf models' }).getByRole('option').first().click();
+    await expect(page).toHaveURL(/#\/perf\?model=MiniMaxAI/);
+  });
+
+  test('Omni sub-views appear in the breadcrumb, sidebar and command palette', async ({ page }) => {
+    await page.goto('/#/omni?view=live');
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Live queues');
+    const sidebar = page.locator('[data-sidebar=sidebar]').first();
+    await expect(sidebar.getByRole('link', { name: 'Live queues' })).toHaveAttribute('data-active', 'true');
+    await page.keyboard.press('Control+k');
+    await page.getByRole('option', { name: /Omni CI\s*Incoming workload/ }).click();
+    await expect(page).toHaveURL(/#\/omni$/);
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Incoming workload');
+  });
+
+  test('the phone sidebar closes on Escape and after following a link', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    const sheet = page.locator('[data-sidebar=sidebar][data-mobile=true]');
+    await page.getByRole('button', { name: 'Toggle Sidebar' }).click();
+    await expect(sheet).toHaveAttribute('data-state', 'open');
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await page.getByRole('button', { name: 'Toggle Sidebar' }).click();
+    await sheet.getByRole('link', { name: 'CI Analytics' }).click();
+    await expect(page).toHaveURL(/#\/analytics$/);
+    await expect(sheet).toHaveCount(0);
   });
 
   test('the sidebar marks the page, lists its sections and collapses to icons', async ({ page }) => {

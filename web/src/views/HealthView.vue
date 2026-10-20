@@ -8,15 +8,13 @@ import PageHeader, { type Freshness } from '@/components/layout/PageHeader.vue'
 import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
 import SubNav from '@/components/layout/SubNav.vue'
 import { Button } from '@/components/ui/button'
-import { useClock } from '@/composables/useClock'
 import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
 import { shortDate, type Rec } from '@/domain/format'
-import { freshnessOf, sourceFreshness } from '@/domain/freshness'
 import { ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
-import { freshnessChip } from '@/features/freshness/freshness'
+import { useFreshness } from '@/features/freshness/useFreshness'
 import HealthAbout from './health/HealthAbout.vue'
 import HealthHardware from './health/HealthHardware.vue'
 import HealthMirrors from './health/HealthMirrors.vue'
@@ -30,7 +28,6 @@ const current = computed(() => HEALTH_VIEWS.find((v) => v.value === view.value)!
 const { data: ops, error, loading, retry } = useOperationSections(['nightly', 'amd_test_health', 'test_group_parity'])
 const sheets = useSheetStack()
 watch(view, () => sheets.close())
-const now = useClock()
 
 const amd = computed(() => latestAmd(ops.value))
 const build = computed<Rec>(() => (amd.value.builds || [])[0] || {})
@@ -61,9 +58,9 @@ const header = computed<{ observedAt: unknown; action: { label: string; url: str
   return { observedAt: o.generated_at, action: null }
 })
 
+const sourcesChip = useFreshness().chip(() => current.value.sources)
 const freshness = computed<Freshness | undefined>(() => {
-  if (!ops.value) return undefined
-  const chip = freshnessChip(freshnessOf(sourceFreshness(ops.value, null, now.value), current.value.sources), now.value)
+  const chip = sourcesChip.value
   if (!chip || !header.value.observedAt) return chip
   return { ...chip, detail: `Observed ${shortDate(header.value.observedAt)} · ${chip.detail}` }
 })

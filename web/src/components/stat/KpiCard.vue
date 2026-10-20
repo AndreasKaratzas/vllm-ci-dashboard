@@ -89,9 +89,9 @@ const actionAttrs = computed(() => {
           data-kpi-action
           class="text-left outline-none after:absolute after:inset-0 after:z-10 after:rounded-xl after:content-['']"
         >
-          {{ label }}<span class="sr-only">: {{ action.label }}</span>
+          <span data-slot="kpi-label">{{ label }}</span><span class="sr-only">: {{ action.label }}</span>
         </component>
-        <template v-else>{{ label }}</template>
+        <span v-else data-slot="kpi-label">{{ label }}</span>
       </CardDescription>
       <CardTitle v-if="empty" class="col-span-full pt-1" data-slot="kpi-empty">
         <span class="inline-flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-sm font-medium text-muted-foreground">
@@ -162,7 +162,7 @@ const actionAttrs = computed(() => {
 
     <CardFooter v-if="headline || footnote || action" class="mt-auto flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
       <div v-if="headline || action" class="flex w-full items-center gap-2 font-medium">
-        <span class="line-clamp-2 min-w-0 flex-1">{{ headline ?? action?.label }}</span>
+        <span class="line-clamp-2 min-w-0 flex-1" data-slot="kpi-headline">{{ headline ?? action?.label }}</span>
         <component
           :is="action?.href ? ExternalLink : ChevronRight"
           v-if="action"
@@ -170,7 +170,7 @@ const actionAttrs = computed(() => {
           aria-hidden="true"
         />
       </div>
-      <p v-if="footnote" class="hidden text-muted-foreground @[15rem]/card:line-clamp-2" :title="footnote">{{ footnote }}</p>
+      <p v-if="footnote" class="hidden text-muted-foreground @[15rem]/card:block" data-slot="kpi-footnote">{{ footnote }}</p>
     </CardFooter>
   </Card>
 </template>

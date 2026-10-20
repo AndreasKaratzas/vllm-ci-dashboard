@@ -4,6 +4,7 @@ import { defineComponent, h, ref, type ShallowRef } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
 import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import SubNav from '@/components/layout/SubNav.vue'
+import { currentSubView, pageViews, subViewIds, subViewQuery } from '@/components/layout/navigation'
 import { provideSubviewHeader, useSubviewHeader, type SubviewHeader } from '@/composables/useSubviewHeader'
 import { installLayoutStubs, settle, testRouter, text } from './support'
 
@@ -156,5 +157,28 @@ describe('useSubviewHeader', () => {
       },
     })
     expect(mount(Child).text()).toBe('ok')
+  })
+})
+
+describe('navigation', () => {
+  it('lists the sub-views of every page with sub-views, Omni included', () => {
+    expect(pageViews('omni')?.items.map((item) => item.value)).toEqual(['workload', 'live'])
+    expect(pageViews('home')).toBeUndefined()
+    expect(pageViews(undefined)).toBeUndefined()
+    expect(subViewIds('analytics')).toEqual(['groups', 'latency', 'nightlies', 'dns', 'agent-health'])
+    expect(subViewIds('perf')).toEqual(['performance', 'accuracy'])
+  })
+
+  it('resolves the shown sub-view, falling back to the page default', () => {
+    expect(currentSubView('omni', { view: 'live' })?.label).toBe('Live queues')
+    expect(currentSubView('health', { view: ['parity', 'coverage'] })?.value).toBe('parity')
+    expect(currentSubView('health', { view: 'nope' })?.value).toBe('overview')
+    expect(currentSubView('home', {})).toBeNull()
+  })
+
+  it('keeps the default sub-view URL bare', () => {
+    expect(subViewQuery('omni', 'workload')).toEqual({})
+    expect(subViewQuery('omni', 'live')).toEqual({ view: 'live' })
+    expect(subViewQuery('home', 'anything')).toEqual({})
   })
 })

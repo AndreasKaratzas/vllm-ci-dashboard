@@ -1,373 +1,232 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, ref } from 'vue'
-import AmdCatalogSheet from '@/components/analytics/AmdCatalogSheet.vue'
-import ChartEvidenceSheet, { type EvidencePoint } from '@/components/analytics/ChartEvidenceSheet.vue'
-import DetailSheet, { type DetailRequest } from '@/components/analytics/DetailSheet.vue'
-import LogicalGroupSheet from '@/components/analytics/LogicalGroupSheet.vue'
-import StackedBarChart, { type ChartSeries } from '@/components/analytics/StackedBarChart.vue'
-import StatCard from '@/components/analytics/StatCard.vue'
-import EvidenceSheet from '@/components/evidence/EvidenceSheet.vue'
-import DataTable from '@/components/ops/DataTable.vue'
-import TableSheet from '@/components/ops/TableSheet.vue'
-import ToneBadge from '@/components/ops/ToneBadge.vue'
-import ViewState from '@/components/ops/ViewState.vue'
+import { computed, h } from 'vue'
+import BarChart from '@/components/charts/BarChart.vue'
+import type { ChartRow, SeriesSpec } from '@/components/charts/chart'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import Callout from '@/components/feedback/Callout.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import KpiCard from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
+import { kpiTrend, lastDelta } from '@/components/stat/trend'
+import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useOperationSections } from '@/composables/useOperations'
-import {
-  AMD_TEST_HEALTH_ASSET,
-  OPERATIONS_ASSET,
-  amdHealthModel,
-  analyticsObservedAt,
-  hardwareValueSummary,
-  passRateLabel,
-  type AmdCluster,
-  type CatalogRequest,
-  type StripItem,
-} from '@/domain/analytics'
-import {
-  amdLatestState,
-  amdLogicalSignalLabel,
-  amdLogicalSignalTone,
-  amdLogicalStateLabel,
-  amdLogicalStateTone,
-  amdStateLabel,
-  sortLogicalRows,
-} from '@/domain/ciHealth'
-import { age, integer, percent, shortDate, toneForState, value, type Rec, type Tone } from '@/domain/format'
-import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
-import { exactJobDetail } from '@/features/amd-groups/details'
+import { useSheetStack } from '@/composables/useSheetStack'
+import { useSubviewHeader } from '@/composables/useSubviewHeader'
+import { amdHealthModel, analyticsObservedAt, type BuildHealthPoint, type HardwareCluster } from '@/domain/analytics'
+import { jobVariantHistory, logicalHealthHistory, sortLogicalRows } from '@/domain/ciHealth'
+import { integer, shortDate, type Rec } from '@/domain/format'
+import { currentAmdHealth } from '@/domain/health'
+import { latestAmd } from '@/domain/nightly'
+import { exactJobCatalogColumns, exactJobCatalogDetail, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
+import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import { statusVar } from '@/lib/palette'
+import type { Tone } from '@/lib/tone'
+import AnalyticsAbout from './AnalyticsAbout.vue'
 
-const { data: ops, error, loading, retry } = useOperationSections(['amd_test_health'])
+const { data: ops, error, loading, retry } = useOperationSections(['amd_test_health', 'nightly'])
+const sheets = useSheetStack()
 
 const health = computed(() => currentAmdHealth(ops.value?.amd_test_health))
 const model = computed(() => amdHealthModel(health.value))
-const observedAt = computed(() => (ops.value ? analyticsObservedAt('groups', ops.value, health.value) : null))
-const counts = computed<Rec>(() => (health.value.summary || {}).latest_test_group_counts || {})
-
-const SEVERITY_BADGE: Partial<Record<Tone, string>> = { pass: 'Passing', soft: 'Soft fail', hard: 'Hard fail' }
-function badgeFor(item: StripItem): string | undefined {
-  if (item.id === 'amd-health-build' || item.id === 'amd-health-incidents') return SEVERITY_BADGE[item.tone as Tone]
-  if (item.id === 'amd-health-test-groups' && model.value.logical.available) return percent(counts.value.passing, counts.value.total)
-  return undefined
-}
-
-// Drill-downs
-const catalog = ref<{ open: boolean; request: CatalogRequest | null }>({ open: false, request: null })
-const openCatalog = (request: CatalogRequest) => (catalog.value = { open: true, request })
-const group = ref<{ open: boolean; row: Rec | null }>({ open: false, row: null })
-const openGroup = (row: Rec) => (group.value = { open: true, row })
-const logicalCatalog = ref(false)
-const logical = ref<{ open: boolean; row: Rec | null }>({ open: false, row: null })
-const openLogical = (row: Rec) => (logical.value = { open: true, row })
-const detail = ref<{ open: boolean; detail: DetailRequest | null }>({ open: false, detail: null })
-
-function openStat(item: StripItem) {
-  const m = model.value
-  if (item.id === 'amd-health-test-groups') {
-    if (m.logical.rows.length) logicalCatalog.value = true
-    else
-      detail.value = {
-        open: true,
-        detail: {
-          title: item.label,
-          subtitle: item.scope || 'Operational aggregate',
-          description: item.meta,
-          fields: [
-            ['Value', item.value],
-            ['Observed', item.observed ? shortDate(item.observed) : null],
-            ['Provenance', item.provenance],
-          ],
-          sources: [{ label: 'Open published AMD health data', url: AMD_TEST_HEALTH_ASSET }],
-        },
-      }
-  } else if (item.id === 'amd-health-observed') openCatalog(m.catalogs.variants)
-  else if (item.id === 'amd-health-incidents') openCatalog(m.catalogs.incidents)
-}
-
-// Charts
-const HEALTH_SERIES: ChartSeries[] = [
-  { key: 'passed', label: 'Passing', color: 'var(--success)' },
-  { key: 'soft', label: 'Soft fail', color: 'var(--warning)' },
-  { key: 'hard', label: 'Hard fail', color: 'var(--destructive)' },
-  { key: 'unknown', label: 'Unknown', color: 'var(--muted-foreground)' },
-]
-const HARDWARE_SERIES: ChartSeries[] = [...HEALTH_SERIES.slice(0, 3), { key: 'missing', label: 'Not in latest', color: 'var(--muted-foreground)' }]
-const buildRows = computed(() =>
-  model.value.builds.map((b) => ({ label: b.label, passed: b.passed, soft: b.soft, hard: b.hard, unknown: b.unknown })),
-)
-const hardwareRows = computed(() =>
-  model.value.hardware.map((r) => ({ label: r.label, passed: r.passed, soft: r.soft, hard: r.hard, missing: r.missing })),
-)
-const buildPoints = computed<EvidencePoint[]>(() =>
-  model.value.builds.map((b) => ({ label: b.label, timestamp: b.timestamp, url: b.url ? String(b.url) : null, valueSummary: b.valueSummary })),
-)
-const hardwarePoints = computed<EvidencePoint[]>(() => model.value.hardware.map((r) => ({ label: r.label, valueSummary: hardwareValueSummary(r) })))
-const evidence = ref<{ open: boolean; kind: 'builds' | 'hardware' }>({ open: false, kind: 'builds' })
-
-function inspectBuild(index: number) {
-  const point = model.value.builds[index]
-  if (!point) return
-  detail.value = {
-    open: true,
-    detail: {
-      title: point.label,
-      subtitle: point.url ? 'Source-backed chart observation' : 'Retained chart observation',
-      fields: point.details,
-      sources: [point.url ? { label: 'Open exact source', url: String(point.url) } : { label: 'Open published source data', url: OPERATIONS_ASSET }],
-    },
-  }
-}
-function inspectHardware(index: number) {
-  const row = model.value.hardware[index]
-  if (row) openCatalog({ title: `${row.label} AMD job variants`, subtitle: `Exact job variants assigned to ${row.label}`, rows: row.rows, filter: 'all' })
-}
-
-const CLUSTER_RING: Record<string, string> = {
-  pass: 'before:bg-success',
-  soft: 'before:bg-warning',
-  hard: 'before:bg-destructive',
-  neutral: 'before:bg-muted-foreground/50',
-}
-const clusterAria = (c: AmdCluster) => `Open ${c.label}: ${c.renderedCount} AMD job variants`
-
-// Tables
+const summary = computed<Rec>(() => health.value.summary || {})
 const latestBuild = computed(() => model.value.latestBuild)
-const identity = (row: Rec) =>
-  h('div', { class: 'flex flex-col' }, [
-    h('button', { type: 'button', class: 'text-left font-medium hover:underline', onClick: () => openGroup(row) }, value(row.display_name || row.name || row.job_name)),
-    h('span', { class: 'font-mono text-xs text-muted-foreground' }, `${value(row.hardware_variant || row.hardware, 'unknown')} - ${value(row.queue, 'queue unavailable')}`),
-  ])
-const priorityColumns = computed<ColumnDef<Rec, unknown>[]>(() => [
-  {
-    id: 'variant',
-    header: 'AMD job variant',
-    accessorFn: (row) => [row.display_name, row.name, row.hardware_variant, row.queue].join(' '),
-    cell: ({ row }) => identity(row.original),
-    enableHiding: false,
-    enableSorting: false,
-  },
-  { id: 'queue', header: 'Queue', accessorFn: (row) => value(row.queue), cell: ({ getValue }) => h('span', { class: 'font-mono text-xs' }, String(getValue())), enableSorting: false },
-  {
-    id: 'rate',
-    header: 'Retained-run pass rate',
-    accessorFn: (row) => passRateLabel(row),
-    cell: ({ row }) => h('button', { type: 'button', class: 'tabular-nums hover:underline', onClick: () => openGroup(row.original) }, passRateLabel(row.original)),
-    enableSorting: false,
-  },
-  {
-    id: 'latest',
-    header: 'Latest',
-    accessorFn: (row) => amdStateLabel(amdLatestState(row, latestBuild.value)),
-    cell: ({ row }) => {
-      const latest = amdLatestState(row.original, latestBuild.value)
-      const badge = h(ToneBadge, { tone: toneForState(latest) }, () => amdStateLabel(latest))
-      return row.original.latest_url
-        ? h('a', { href: row.original.latest_url, target: '_blank', rel: 'noopener' }, [badge])
-        : h('button', { type: 'button', onClick: () => openGroup(row.original) }, [badge])
-    },
-    enableSorting: false,
-  },
-  {
-    id: 'counts',
-    header: 'Pass / soft / hard',
-    accessorFn: (row) => `${integer(row.passed)} / ${integer(row.soft_failed)} / ${integer(row.hard_failed)}`,
-    cell: ({ row, getValue }) => h('button', { type: 'button', class: 'tabular-nums hover:underline', onClick: () => openGroup(row.original) }, String(getValue())),
-    enableSorting: false,
-  },
-  {
-    id: 'evidence',
-    header: 'Latest evidence',
-    accessorFn: (row) => `#${value(row.latest_build_number)}`,
-    cell: ({ row, getValue }) =>
-      row.original.latest_url
-        ? h('a', { href: row.original.latest_url, target: '_blank', rel: 'noopener', class: 'font-mono hover:underline' }, String(getValue()))
-        : h('span', { class: 'font-mono text-muted-foreground' }, String(getValue())),
-    enableSorting: false,
-  },
-])
+const context = computed<AmdGroupContext>(() => ({ amdHealth: ops.value?.amd_test_health, latestBuild: latestBuild.value }))
+const nightlies = computed<Rec[]>(() => latestAmd(ops.value).builds || [])
 
-const logicalRows = computed(() => sortLogicalRows(model.value.logical.rows))
-const logicalColumns: ColumnDef<Rec, unknown>[] = [
-  {
-    id: 'label',
-    header: 'Logical AMD test group',
-    accessorFn: (row) =>
-      [row.label, row.logical_key, ...(row.job_variants || []).map((v: Rec) => v.exact_job_name)].join(' '),
-    cell: ({ row }) =>
-      h('button', { type: 'button', class: 'text-left font-medium hover:underline', onClick: () => openLogical(row.original) }, row.original.label || row.original.logical_key),
-    enableHiding: false,
-    enableSorting: false,
-  },
-  {
-    id: 'state',
-    header: 'Latest result',
-    accessorFn: (row) => `${amdLogicalStateLabel(row.state)} ${row.state}`,
-    cell: ({ row }) =>
-      h('button', { type: 'button', onClick: () => openLogical(row.original) }, [
-        h(ToneBadge, { tone: amdLogicalStateTone(row.original.state) }, () => amdLogicalStateLabel(row.original.state)),
-      ]),
-    enableSorting: false,
-  },
-  { id: 'hardware', header: 'Hardware routes', accessorFn: (row) => integer(row.hardware_count), enableSorting: false },
-  { id: 'variants', header: 'Exact job variants', accessorFn: (row) => integer(row.job_variant_count), enableSorting: false },
-  {
-    id: 'routes',
-    header: 'Route outcomes',
-    accessorFn: (row) => (row.hardware_states || []).map((s: Rec) => `${s.hardware} ${s.state}`).join(' '),
-    cell: ({ row }) =>
-      h(
-        'div',
-        { class: 'flex flex-wrap gap-1' },
-        (row.original.hardware_states || []).map((s: Rec) =>
-          h(ToneBadge, { tone: amdLogicalSignalTone(s.state) }, () => `${hardwareDisplayLabel(s.hardware)} · ${amdLogicalSignalLabel(s.state)}`),
-        ),
-      ),
-    enableSorting: false,
-  },
+useSubviewHeader(() => ({
+  observedAt: ops.value ? analyticsObservedAt('groups', ops.value, health.value) : undefined,
+  about: () => h(AnalyticsAbout, { view: 'groups' }),
+}))
+
+// ---- KPIs: the latest signal, trended over the AMD test-health history ----
+const counts = computed<Rec>(() => summary.value.latest_test_group_counts || {})
+const latestCounts = computed<Rec>(() => summary.value.latest_job_variant_state_counts || summary.value.latest_state_counts || {})
+const hard = computed(() => Number(latestCounts.value.hard || latestCounts.value.hard_failed || 0))
+const soft = computed(() => Number(latestCounts.value.soft || latestCounts.value.soft_failed || 0))
+const severity = computed<Tone>(() => (hard.value ? 'hard' : soft.value ? 'soft' : 'pass'))
+const history = computed(() => jobVariantHistory(ops.value?.amd_test_health))
+const logicalTrend = computed(() => logicalHealthHistory(nightlies.value).map((p) => p.rate))
+const failureTrend = computed(() => kpiTrend(history.value.map((p) => p.hard + p.soft), 'down'))
+const variantTrend = computed(() => kpiTrend(history.value.map((p) => p.observed)))
+const strip = computed(() => Object.fromEntries(model.value.strip.map((item) => [item.id, item])))
+const logicalPassing = computed(() => Number(counts.value.passing || 0))
+const logicalTotal = computed(() => Number(counts.value.total || 0))
+
+/** A retained AMD build: its nightly's evidence when the nightly history still has it. */
+function openBuild(number: unknown, fallback: Rec = {}) {
+  const build = nightlies.value.find((b) => Number(b.number) === Number(number)) ?? { number, ...fallback }
+  sheets.open(buildEvidenceDetail(build))
+}
+const openLatest = () => openBuild(latestBuild.value, { created_at: summary.value.latest_observed_at, total_groups: summary.value.latest_job_variant_count })
+const openLogical = () => sheets.open(logicalCatalogDetail('Latest AMD logical test groups', sortLogicalRows(model.value.logical.rows), context.value))
+const openCatalog = (request: (typeof model.value.catalogs)['all']) => sheets.open(exactJobCatalogDetail(request, latestBuild.value))
+
+// ---- Charts: states per build and per hardware variant ----
+const BUILD_SERIES: SeriesSpec[] = [
+  { key: 'passed', label: 'Passing', color: statusVar('pass') },
+  { key: 'soft', label: 'Soft fail', color: statusVar('soft') },
+  { key: 'hard', label: 'Hard fail', color: statusVar('hard') },
+  { key: 'unknown', label: 'Unknown', color: statusVar('unknown') },
 ]
+const HARDWARE_SERIES: SeriesSpec[] = [...BUILD_SERIES.slice(0, 3), { key: 'missing', label: 'Not in latest', color: statusVar('canceled') }]
+type BuildRow = BuildHealthPoint & ChartRow
+type HardwareRow = HardwareCluster & ChartRow
+const buildRows = computed(() => model.value.builds.map((point) => ({ ...point }) as BuildRow))
+const hardwareRows = computed(() => model.value.hardware.map((row) => ({ ...row }) as HardwareRow))
+const buildLabel = (point: BuildHealthPoint) => {
+  const ms = Date.parse(String(point.timestamp || ''))
+  return Number.isFinite(ms) ? `${point.label} · ${shortDate(point.timestamp)}` : point.label
+}
+const inspectBuild = (point: BuildHealthPoint) => openBuild(point.number, { created_at: point.timestamp, total_groups: point.passed + point.soft + point.hard + point.unknown })
+const inspectHardware = (row: HardwareCluster) =>
+  sheets.open(
+    exactJobCatalogDetail({ title: `${row.label} AMD job variants`, subtitle: `Exact job variants assigned to ${row.label}`, rows: row.rows, filter: 'all' }, latestBuild.value),
+  )
+
+const failureColumns = computed(() => exactJobCatalogColumns(latestBuild.value))
 </script>
 
 <template>
-  <ViewState :loading="loading && !ops" :error="error" @retry="retry">
+  <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-groups">
-      <p v-if="observedAt" class="-mt-2 text-xs text-muted-foreground" :title="String(observedAt)">
-        Current main CI AMD MI health · observed {{ shortDate(observedAt) }} · {{ age(observedAt) }}
-      </p>
-      <p v-if="!model.available" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning" data-testid="groups-unavailable">
-        AMD job-variant history is unavailable. No upstream result has been substituted for AMD health.
-      </p>
+      <EmptyState
+        v-if="!model.available"
+        title="AMD job-variant history is unavailable"
+        description="No upstream result has been substituted for AMD health."
+        data-testid="groups-unavailable"
+      />
       <template v-else>
-        <p v-if="model.retentionNote" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">{{ model.retentionNote }}</p>
+        <Callout v-if="model.retentionNote" tone="soft" title="Partial job-variant catalog">{{ model.retentionNote }}</Callout>
 
-        <div
-          class="grid grid-cols-1 gap-4 *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4"
-          data-testid="groups-kpis"
-        >
-          <StatCard
-            v-for="item in model.strip"
-            :key="item.id"
-            :item="item"
-            :badge="badgeFor(item)"
-            :data-testid="`kpi-${item.id}`"
-            @open="openStat(item)"
+        <StatGrid :cols="4" data-testid="groups-kpis">
+          <KpiCard
+            label="Latest AMD nightly"
+            :value="latestBuild ? `#${latestBuild}` : null"
+            :status="{ tone: severity }"
+            :footnote="shortDate(summary.latest_observed_at)"
+            :action="{ label: 'Inspect nightly evidence', onOpen: openLatest }"
+            data-testid="kpi-amd-health-build"
           />
-        </div>
+          <KpiCard
+            variant="ring"
+            label="Logical test groups"
+            :value="model.logical.available ? `${integer(logicalPassing)} passing` : null"
+            :ratio="model.logical.available ? { current: logicalPassing, total: logicalTotal } : undefined"
+            :delta="lastDelta(logicalTrend, 'up', { unit: ' pts' })"
+            :footnote="strip['amd-health-test-groups']?.meta"
+            :action="model.logical.rows.length ? { label: 'Inspect logical test groups', onOpen: openLogical } : undefined"
+            data-testid="kpi-amd-health-test-groups"
+          />
+          <KpiCard
+            label="Latest job variants"
+            :value="Number(strip['amd-health-observed']?.value.replace(/\D/g, '') || 0)"
+            :spark="variantTrend.spark"
+            :delta="variantTrend.delta"
+            :footnote="strip['amd-health-observed']?.meta"
+            :action="{ label: 'Inspect latest job variants', onOpen: () => openCatalog(model.catalogs.variants) }"
+            data-testid="kpi-amd-health-observed"
+          />
+          <KpiCard
+            label="Failure observations"
+            :value="hard + soft"
+            :status="hard + soft ? { tone: severity } : undefined"
+            :spark="failureTrend.spark"
+            :delta="failureTrend.delta"
+            :footnote="strip['amd-health-incidents']?.meta"
+            :action="{ label: 'Inspect failure observations', onOpen: () => openCatalog(model.catalogs.incidents) }"
+            data-testid="kpi-amd-health-incidents"
+          />
+        </StatGrid>
 
-        <p class="rounded-md border border-info/40 bg-info/10 p-3 text-sm text-info">
-          <strong>Main CI AMD gating-job health.</strong>
-          Each row is one exact AMD Buildkite job variant. Soft results are raw warning observations, not confirmed incidents until they
-          recur on two distinct completed builds. The latest count is current-only; older names remain available as history and are not
-          treated as missing failures. Upstream results are not used as AMD passes.
-        </p>
-
-        <div class="grid gap-4 md:gap-6 *:min-w-0 @5xl/main:grid-cols-2">
-          <Card data-testid="build-health-chart">
+        <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-2 *:min-w-0">
+          <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="build-health-chart">
             <CardHeader>
-              <CardTitle>AMD health by nightly</CardTitle>
-              <CardDescription>Passing, soft-failing, hard-failing, and unknown job variants in each retained AMD build</CardDescription>
-              <CardAction v-if="buildPoints.length">
-                <Button variant="outline" size="sm" @click="evidence = { open: true, kind: 'builds' }">Inspect {{ integer(buildPoints.length) }} observations</Button>
-              </CardAction>
+              <CardTitle as="h2">AMD health by nightly</CardTitle>
+              <CardDescription>
+                Job-variant outcomes in each of the {{ integer(model.builds.length) }} nightlies in the AMD test-health history
+              </CardDescription>
             </CardHeader>
             <CardContent class="px-2 sm:px-6">
-              <p v-if="!buildRows.length" class="py-12 text-center text-sm text-muted-foreground">No retained AMD build summaries in this snapshot.</p>
-              <StackedBarChart v-else :rows="buildRows" :series="HEALTH_SERIES" value-label="AMD job variants" @select="inspectBuild" />
+              <EmptyState v-if="!model.builds.length" title="No retained AMD build summaries in this snapshot" />
+              <BarChart
+                v-else
+                :rows="buildRows"
+                :category="(point: BuildRow) => point.label"
+                :row-label="buildLabel"
+                :series="BUILD_SERIES"
+                label="AMD health by nightly"
+                hint="Click for nightly evidence"
+                inspect-placement="legend"
+                :on-select="inspectBuild"
+              />
             </CardContent>
           </Card>
-          <Card data-testid="hardware-health-chart">
+          <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="hardware-health-chart">
             <CardHeader>
-              <CardTitle>Latest health by hardware variant</CardTitle>
-              <CardDescription>Current outcomes for each MI250, MI300, MI325, and MI355 execution variant</CardDescription>
-              <CardAction>
-                <Button variant="outline" size="sm" @click="evidence = { open: true, kind: 'hardware' }">Inspect {{ integer(hardwarePoints.length) }} observations</Button>
-              </CardAction>
+              <CardTitle as="h2">Latest health by hardware variant</CardTitle>
+              <CardDescription>Latest outcome of every retained job variant, by execution variant</CardDescription>
             </CardHeader>
             <CardContent class="px-2 sm:px-6">
-              <StackedBarChart
+              <BarChart
                 :rows="hardwareRows"
+                :category="(row: HardwareRow) => row.label"
                 :series="HARDWARE_SERIES"
-                horizontal
-                :height="Math.max(220, hardwareRows.length * 34 + 70)"
-                value-label="AMD job variants"
-                @select="inspectHardware"
+                orientation="horizontal"
+                label="Latest health by hardware variant"
+                hint="Click for its job variants"
+                inspect-placement="legend"
+                :on-select="inspectHardware"
               />
             </CardContent>
           </Card>
         </div>
 
-        <section class="flex flex-col gap-3">
+        <section class="flex flex-col gap-3" data-testid="catalog">
           <div class="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h3 class="text-lg font-semibold">Retained AMD job-variant catalog</h3>
+              <h2 class="text-base font-semibold">Retained job-variant catalog</h2>
               <p class="text-sm text-muted-foreground">Start with the latest signal, then inspect exact nightly evidence for current or historical variants.</p>
             </div>
-            <Button variant="outline" data-testid="browse-all" @click="openCatalog(model.catalogs.all)">{{ model.browseAllLabel }}</Button>
+            <Button variant="outline" size="sm" data-testid="browse-all" @click="openCatalog(model.catalogs.all)">{{ model.browseAllLabel }}</Button>
           </div>
-          <div class="grid gap-4 @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
-            <button
+          <StatGrid :cols="4">
+            <KpiCard
               v-for="cluster in model.clusters"
               :key="cluster.label"
-              type="button"
-              class="relative flex flex-col gap-1 overflow-hidden rounded-xl border bg-card p-4 text-left shadow-xs transition-colors before:absolute before:inset-x-0 before:top-0 before:h-1 hover:bg-accent/40"
-              :class="CLUSTER_RING[cluster.tone]"
-              :aria-label="clusterAria(cluster)"
+              :label="cluster.label"
+              :value="cluster.renderedCount.startsWith('≥') ? cluster.renderedCount : cluster.count"
+              :status="cluster.label === 'Needs attention' && cluster.count ? { tone: cluster.tone } : undefined"
+              :headline="cluster.description"
+              :footnote="cluster.meta"
+              :action="{ label: `Open ${cluster.label}: ${cluster.renderedCount} AMD job variants`, onOpen: () => openCatalog(cluster.catalog) }"
               data-testid="cluster"
-              @click="openCatalog(cluster.catalog)"
-            >
-              <div class="flex items-baseline justify-between gap-2">
-                <strong data-part="label">{{ cluster.label }}</strong>
-                <span class="text-2xl font-semibold tabular-nums" data-part="count">{{ cluster.renderedCount }}</span>
-              </div>
-              <span class="text-sm" data-part="description">{{ cluster.description }}</span>
-              <span class="text-xs text-muted-foreground" data-part="meta">{{ cluster.meta }}</span>
-            </button>
-          </div>
+            />
+          </StatGrid>
         </section>
 
-        <Card data-testid="priority">
+        <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="priority">
           <CardHeader>
-            <CardTitle>Current AMD failures to inspect</CardTitle>
+            <CardTitle as="h2">Current AMD failures to inspect</CardTitle>
             <CardDescription>{{ model.priorityMeta }}</CardDescription>
           </CardHeader>
-          <CardContent class="flex flex-col gap-2">
-            <p class="text-xs text-muted-foreground">{{ model.priorityCaption }}</p>
+          <CardContent>
             <DataTable
-              :columns="priorityColumns"
-              :data="model.priority"
+              :columns="failureColumns"
+              :rows="model.priority"
               :page-size="10"
+              :on-row-click="(row: Rec) => sheets.open(exactJobDetail(row, latestBuild))"
               search-placeholder="Filter job variant, hardware, or queue"
+              label="Current AMD failures to inspect"
               empty-text="No current AMD failure observations."
             />
+            <p class="mt-3 text-xs text-muted-foreground">{{ model.priorityCaption }}</p>
           </CardContent>
         </Card>
       </template>
-
-      <AmdCatalogSheet v-model:open="catalog.open" :request="catalog.request" :latest-build="latestBuild" @inspect="openGroup" />
-      <EvidenceSheet v-if="group.row" v-model:open="group.open" :detail="exactJobDetail(group.row, latestBuild)" />
-      <TableSheet
-        v-model:open="logicalCatalog"
-        title="Latest AMD logical test groups"
-        subtitle="Build-pinned logical groups; partial and non-passing groups are listed first"
-        :columns="logicalColumns"
-        :rows="logicalRows"
-        search-placeholder="Filter logical test group, result, hardware, or exact job variant"
-      />
-      <LogicalGroupSheet
-        v-model:open="logical.open"
-        :row="logical.row"
-        :inventory="model.logical.inventory"
-        :amd-health="health"
-        @inspect="openGroup"
-      />
-      <ChartEvidenceSheet
-        v-model:open="evidence.open"
-        :title="evidence.kind === 'builds' ? 'AMD nightly job-variant health' : 'Latest AMD health by hardware variant'"
-        :points="evidence.kind === 'builds' ? buildPoints : hardwarePoints"
-        @inspect="(i) => (evidence.kind === 'builds' ? inspectBuild(i) : inspectHardware(i))"
-      />
-      <DetailSheet v-model:open="detail.open" :detail="detail.detail" />
     </div>
-  </ViewState>
+    <SheetStack :sheets="sheets" />
+  </AsyncBoundary>
 </template>

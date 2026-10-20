@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { areaFreshness, coreFreshness, freshnessOf, freshnessRows, queueFreshness, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
+import { areaSources, coreFreshness, freshnessOf, freshnessRows, queueFreshness, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
 import { freshnessChip } from '@/features/freshness/freshness'
 
 const CONFIG = JSON.parse(readFileSync(resolve(__dirname, '../../../config/data_freshness_targets.json'), 'utf8'))
@@ -90,12 +90,13 @@ describe('group freshness', () => {
   it('summarizes the queue and each area, leaving upstream activity informational', () => {
     const rows = sourceFreshness(opsAt(10, { queue_timeseries: 45, amd_test_signal: 5000 }), { generated_at: minutesAgo(10) }, NOW)
     expect(queueFreshness(rows)).toMatchObject({ ageMs: 45 * 60_000, state: 'warn' })
-    const health = areaFreshness(rows, 'health')!
+    const health = freshnessOf(rows, areaSources('health'))!
     expect(health.sources.map((row) => row.key)).not.toContain('amd_test_signal')
     expect(health).toMatchObject({ ageMs: 10 * 60_000, state: 'fresh' })
     expect(byKey(rows).amd_test_signal).toMatchObject({ informational: true, state: 'stale' })
-    expect(areaFreshness(rows, 'perf')).toMatchObject({ ageMs: 10 * 60_000 })
-    expect(areaFreshness(rows, 'nowhere')).toBeNull()
+    expect(areaSources('perf')).toEqual(['perf_eval'])
+    expect(freshnessOf(rows, areaSources('perf'))).toMatchObject({ ageMs: 10 * 60_000 })
+    expect(freshnessOf(rows, areaSources('nowhere'))).toBeNull()
   })
 
   it('reads the published fixture: core age is the oldest core collection', () => {

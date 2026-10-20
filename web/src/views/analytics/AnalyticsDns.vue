@@ -169,8 +169,6 @@ const queueRows = computed<QueueRow[]>(() =>
     }
   }),
 )
-// Horizontal bars stack upwards from the first row; the busiest queue goes on top.
-const chartRows = computed(() => [...queueRows.value].reverse())
 const OUTCOME_SERIES: SeriesSpec[] = [
   { key: 'passed', label: 'Passed after observation', color: statusVar('pass') },
   { key: 'soft', label: 'Soft-failed after observation', color: statusVar('soft') },
@@ -293,7 +291,7 @@ const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in
                 </CardHeader>
                 <CardContent>
                   <BarChart
-                    :rows="chartRows"
+                    :rows="queueRows"
                     :category="(row) => row.card.queue.queue"
                     :series="queueSeries"
                     orientation="horizontal"

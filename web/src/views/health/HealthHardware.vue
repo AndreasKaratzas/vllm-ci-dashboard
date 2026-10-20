@@ -34,7 +34,7 @@ import {
   type MatrixBrowserMode,
   type MatrixSortMode,
 } from '@/domain/healthHardware'
-import { hardwareColor, rateTone, statusVar, toneClasses } from '@/lib/palette'
+import { hardwareColor, hardwareFamily, rateTone, statusVar, toneClasses } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 import { architectureDetail, count, groupHistoryDetail, matrixBrowserDetail, matrixColumns, matrixUnavailableDetail } from './details'
 
@@ -68,6 +68,7 @@ const passing = computed(() => Number(policy.value.passing_groups || 0))
 const failing = computed(() => Number(policy.value.failing_groups || 0))
 const noSignal = computed(() => Number(policy.value.waiting_groups || 0) + Number(policy.value.unknown_groups || 0))
 const included = computed(() => Number(policy.value.included_groups || 0))
+const definitionCount = computed(() => coverageRows.value.length)
 const COUNT_CARDS = computed(() => [
   { mode: 'passing' as const, label: 'Passing', count: passing.value, tone: 'pass' as Tone },
   { mode: 'failing' as const, label: 'Failing', count: failing.value, tone: 'hard' as Tone },
@@ -78,12 +79,22 @@ const segments = computed<ProportionSegment[]>(() => COUNT_CARDS.value.map((c) =
 // Exact-job pass rate per architecture across the retained nightlies.
 const history = computed(() => hardwareVariantHistory(amdHealth.value))
 const trendSeries = computed<SeriesSpec[]>(() =>
-  architectures.value.filter((arch) => history.value.has(String(arch.id).toLowerCase())).map((arch) => ({ key: String(arch.id).toLowerCase(), label: String(arch.label), color: hardwareColor(arch.id) })),
+  architectures.value
+    .filter((arch) => history.value.has(String(arch.id).toLowerCase()))
+    .map((arch) => ({ key: String(arch.id).toLowerCase(), label: String(arch.label), color: hardwareColor(arch.id), dash: FAMILY_DASH[hardwareFamily(arch.id) ?? ''] })),
 )
+// The hardware ramp is one hue; older families also get a dash pattern so lines stay apart.
+const FAMILY_DASH: Record<string, number[] | undefined> = { MI250: [2, 3], MI300: [6, 3], MI325: [10, 3] }
 interface TrendRow extends Rec {
   number: number
   at: number
 }
+// Zoomed to the observed rates (like Home's pass-rate chart) so differences of a point stay visible.
+const trendDomain = computed<[number, number]>(() => {
+  const values = trendRows.value.flatMap((row) => trendSeries.value.map((s) => Number(row[s.key]))).filter(Number.isFinite)
+  const low = values.length ? Math.min(...values) : 0
+  return [Math.max(0, Math.floor((low - 1) / 5) * 5), 100]
+})
 // Only nightlies that every charted architecture ran, so a missing route never reads as 0 %.
 const trendRows = computed<TrendRow[]>(() => {
   const keys = trendSeries.value.map((s) => s.key)
@@ -194,7 +205,7 @@ const archTone = (health: ArchitectureHealth) => rateTone(architectureRate(healt
             :x="(row: TrendRow) => row.at"
             :row-label="(row: TrendRow) => `Nightly #${row.number} · ${shortDay(row.at)}`"
             :series="trendSeries"
-            :y-domain="[0, 100]"
+            :y-domain="trendDomain"
             :y-format="(v: number) => `${Math.round(v)}%`"
             label="Exact-job pass rate by architecture"
           />
@@ -261,7 +272,12 @@ const archTone = (health: ArchitectureHealth) => rateTone(architectureRate(healt
       <Card v-if="viewState !== 'bounded'" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="route-matrix">
         <CardHeader class="@max-2xl/main:has-data-[slot=card-action]:grid-cols-1">
           <CardTitle as="h2">Test-group routes by architecture</CardTitle>
-          <CardDescription data-testid="matrix-sort-description">{{ amdMatrixSortDescription(sort) }}</CardDescription>
+          <CardDescription>
+            <span data-testid="matrix-sort-description">{{ amdMatrixSortDescription(sort) }}</span>
+            <template v-if="definitionCount !== included">
+              · {{ count(definitionCount, 'configured definition') }}; command-equivalent duplicates collapse to the {{ count(included, 'health group') }} counted above
+            </template>
+          </CardDescription>
           <CardAction class="@max-2xl/main:col-start-1 @max-2xl/main:row-span-1 @max-2xl/main:row-start-3 @max-2xl/main:justify-self-start">
             <ToggleGroup v-model="sortModel" type="single" variant="outline" size="sm" aria-label="Sort AMD test matrix">
               <ToggleGroupItem v-for="mode in MATRIX_SORT_MODES" :key="mode.id" :value="mode.id">{{ mode.label }}</ToggleGroupItem>

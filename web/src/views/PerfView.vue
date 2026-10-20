@@ -20,8 +20,8 @@ import { useOperations } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
 import { age, integer, shortDate, type Rec } from '@/domain/format'
-import { areaFreshness, sourceFreshness } from '@/domain/freshness'
-import { freshnessChip } from '@/features/freshness/freshness'
+import { areaSources } from '@/domain/freshness'
+import { useFreshness } from '@/features/freshness/useFreshness'
 import {
   PERF_VIEWS,
   accuracyBlock,
@@ -94,7 +94,7 @@ const hardware = computed(() => (perf.value ? perfHardwareRows(perf.value) : [])
 const latestBuild = computed(() => perfLatestBuild(allModels.value))
 const pipelineUrl = computed(() => (perf.value ? perfPipelineUrl(perf.value) : ''))
 
-const freshness = computed(() => (perf.value ? freshnessChip(areaFreshness(sourceFreshness(ops.value, perf.value, now.value), 'perf'), now.value) : undefined))
+const freshness = useFreshness().chip(areaSources('perf'))
 
 // KPI strings are integer()-formatted; '-' means the summary has no value.
 const count = (formatted: string) => (/\d/.test(formatted) ? Number(formatted.replace(/\D/g, '')) : null)
@@ -315,7 +315,7 @@ const kpis = computed<Kpi[]>(() => (ready.value ? [scopeKpi.value, nightliesKpi.
             :delta="kpi.delta"
             :headline="kpi.headline"
             :footnote="kpi.footnote"
-            :action="kpi.action"
+            :action="kpi.value === 0 ? undefined : kpi.action"
             :data-testid="`kpi-perf-${kpi.id}`"
           />
         </StatGrid>

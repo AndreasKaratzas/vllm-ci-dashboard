@@ -1,6 +1,6 @@
 import { markRaw } from 'vue'
 import type { Detail } from '@/components/evidence/detail'
-import { badge, dotted, drill, link, num, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
+import { badge, dotted, drill, link, num, text, type CellSpec, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
 import {
   amdGroupObservations,
   amdGroupPassRate,
@@ -15,6 +15,7 @@ import {
   observationState,
   observationTimestamp,
 } from '@/domain/ciHealth'
+import { AMD_CATALOG_FILTERS, amdCatalogRows, type CatalogRequest } from '@/domain/analytics'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { hardwareDisplayLabel } from '@/domain/health'
 import { exactPipelineEvidenceUrl } from '@/domain/urls'
@@ -218,4 +219,59 @@ export function exactJobColumns(latestBuild: unknown): ColumnSpec<Rec>[] {
       cell: (row) => link(row.latest_build_number ? `#${row.latest_build_number}` : '—', row.latest_url, true),
     },
   ]
+}
+
+/** Exact job-variant columns plus the retained history behind each variant. */
+export function exactJobCatalogColumns(latestBuild: unknown): ColumnSpec<Rec>[] {
+  return [
+    ...exactJobColumns(latestBuild),
+    {
+      id: 'rate',
+      label: 'Retained-run pass rate',
+      numeric: true,
+      value: (row) => amdGroupPassRate(row) ?? -1,
+      cell: (row) => num(amdGroupPassRate(row), (rate) => `${rate.toFixed(1)}%`),
+    },
+    { id: 'runs', label: 'Runs', numeric: true, hideable: true, value: (row) => Number(row.runs || 0), cell: (row) => num(Number(row.runs || 0)), class: 'hidden md:table-cell' },
+    {
+      id: 'streak',
+      label: 'Pass streak',
+      numeric: true,
+      hideable: true,
+      value: (row) => Number(row.current_pass_streak || 0),
+      cell: (row) => ({ ...num(Number(row.current_pass_streak || 0)), muted: !Number(row.current_pass_streak) }),
+      class: 'hidden md:table-cell',
+    },
+  ]
+}
+
+/** A slice of the retained exact job-variant catalog, filterable by its latest result and history. */
+export function exactJobCatalogDetail(request: CatalogRequest, latestBuild: unknown): Detail {
+  const filter: FilterSpec<Rec> = {
+    id: 'health',
+    label: 'Result',
+    allLabel: 'All retained variants',
+    options: AMD_CATALOG_FILTERS.filter(([id]) => id !== 'all').map(([id, label]) => ({ value: id, label })),
+    initial: request.filter === 'all' ? undefined : request.filter,
+    predicate: (row, mode) => amdCatalogRows([row], latestBuild, mode, '').length > 0,
+  }
+  return {
+    id: `amd-catalog:${request.title}`,
+    title: request.title,
+    subtitle: request.subtitle,
+    tables: [
+      {
+        rows: request.rows,
+        columns: exactJobCatalogColumns(latestBuild),
+        filters: [filter],
+        searchText: (row: Rec) => [row.display_name, row.name, row.job_name, row.hardware_variant, row.hardware, row.queue].join(' '),
+        searchPlaceholder: 'Filter job variant, hardware, or queue',
+        onRowClick: (row: Rec) => exactJobDetail(row, latestBuild),
+        emptyText: 'No matching AMD job variants.',
+        showTotal: true,
+        pageSize: 50,
+      },
+    ],
+    width: 'xl',
+  }
 }

@@ -4,6 +4,8 @@ import type { Freshness } from '@/components/layout/PageHeader.vue'
 /** What a mounted sub-view contributes to its page's header. */
 export interface SubviewHeader {
   freshness?: Freshness
+  /** When the shown data was observed; the page names it in its freshness chip. */
+  observedAt?: unknown
   /** Methodology rendered in the header's About popover. */
   about?: Component
 }

@@ -16,6 +16,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { NAV_TABS } from '@/router'
 import { currentSubView, pageViews, subViewQuery } from './navigation'
@@ -24,6 +25,9 @@ import { SHORTCUT } from './shortcut'
 defineEmits<{ search: [] }>()
 
 const route = useRoute()
+const { setOpenMobile } = useSidebar()
+// The phone sidebar is a sheet over the page; following one of its links closes it.
+const close = () => setOpenMobile(false)
 const ICONS: Record<string, Component> = {
   home: House,
   health: HeartPulse,
@@ -47,7 +51,7 @@ const ACTIVE =
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton size="lg" as-child tooltip="vLLM AMD CI">
-            <RouterLink to="/" class="gap-3">
+            <RouterLink to="/" class="gap-3" @click="close">
               <div class="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-amd text-white shadow-sm" aria-hidden="true">
                 <Cpu class="size-4" />
               </div>
@@ -67,7 +71,7 @@ const ACTIVE =
           <SidebarMenu>
             <SidebarMenuItem v-for="tab in NAV_TABS" :key="tab.name">
               <SidebarMenuButton as-child :tooltip="tab.label" :is-active="route.name === tab.name" :class="ACTIVE">
-                <RouterLink :to="tab.path" :aria-current="route.name === tab.name ? 'page' : undefined">
+                <RouterLink :to="tab.path" :aria-current="route.name === tab.name ? 'page' : undefined" @click="close">
                   <component :is="ICONS[tab.name]" />
                   <span>{{ tab.label }}</span>
                 </RouterLink>
@@ -80,7 +84,7 @@ const ACTIVE =
                     :is-active="currentSubView(tab.name, route.query)?.value === view.value"
                     class="text-muted-foreground data-[active=true]:font-medium data-[active=true]:text-foreground"
                   >
-                    <RouterLink :to="{ path: tab.path, query: subViewQuery(tab.name, view.value) }">
+                    <RouterLink :to="{ path: tab.path, query: subViewQuery(tab.name, view.value) }" @click="close">
                       <span>{{ view.label }}</span>
                     </RouterLink>
                   </SidebarMenuSubButton>

@@ -51,6 +51,18 @@ const barWidth = computed(() => {
       <template v-else>{{ cell.text }}</template>
     </button>
     <StatusBadge v-else-if="cell.tone" :tone="cell.tone" :label="cell.text" />
+    <span v-else-if="cell.links?.length" class="flex flex-wrap gap-x-3 gap-y-1">
+      <a
+        v-for="item in cell.links"
+        :key="item.url"
+        :href="item.url"
+        target="_blank"
+        rel="noopener"
+        class="relative z-10 inline-flex items-center gap-1 font-medium underline-offset-4 hover:underline"
+      >
+        {{ item.label }}<ExternalLink class="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </a>
+    </span>
     <span v-else-if="cell.tags" class="flex flex-wrap gap-1">
       <Badge v-for="tag in cell.tags" :key="tag" variant="outline" class="font-normal text-muted-foreground">{{ tag }}</Badge>
       <span v-if="!cell.tags.length" class="text-muted-foreground">—</span>

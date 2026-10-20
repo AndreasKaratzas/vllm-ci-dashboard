@@ -149,8 +149,6 @@ export const SECTIONS = {
     inputs('queue_timeseries', 'queue_jobs', 'omni_heuristic', 'omni_issue_state', 'workload_mapping', 'capacity_monitor'),
   ),
   diagnostics: section('diagnostics', { on: 'publication' }),
-  // The all-main cohort carries its own clock: analytics.json advances even when a scan keeps the previous cohort.
-  main_ci: section('main_ci', inputs('main_ci')),
 } as const satisfies Record<string, SectionSource>
 
 /** Published files that are linked to but never loaded by the page. */

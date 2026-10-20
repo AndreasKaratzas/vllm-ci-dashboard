@@ -39,16 +39,18 @@ const build = {
 describe('build evidence detail', () => {
   it('summarizes the build and lists every movement bucket', () => {
     const detail = buildEvidenceDetail(build)
-    expect(detail.title).toBe('AMD build #30005')
-    expect(detail.subtitle).toBe('Build result and failure movement evidence')
+    expect(detail.title).toBe('AMD nightly #30005')
+    expect(detail.subtitle).toMatch(/· failure movement against the previous nightly$/)
     expect(detail.fields?.find((f) => f.label === 'Message')?.value).toBe('Fix the thing')
     expect(detail.fields?.find((f) => f.label === 'Buildkite state')).toMatchObject({ value: 'Failed', tone: 'hard' })
     expect(detail.stats?.map((s) => [s.label, s.value])).toEqual([
       ['Job variants observed', '6'],
-      ['Hard failures', '2'],
-      ['Soft failures', '0'],
-      ['New / recurring / fixed', '1 / 1 / 1'],
+      ['New failures', '1'],
+      ['Recurring failures', '1'],
+      ['Fixed', '1'],
     ])
+    expect(detail.stats?.[1]).toMatchObject({ tone: 'hard', toneLabel: 'New' })
+    expect(detail.fields?.find((f) => f.label === 'Current failures')?.value).toBe('2 hard · 0 soft')
     expect(detail.sources).toEqual([{ label: 'Open Buildkite build', url: URL }])
     const table = detail.tables![0]!
     expect(table.rows.map((r: { lifecycle: string }) => r.lifecycle)).toEqual(['New failure', 'Recurring failure', 'Fixed'])
@@ -60,7 +62,7 @@ describe('build evidence detail', () => {
   it('scopes to one severity with its current result and a custom title', () => {
     const detail = buildEvidenceDetail(build, { scope: 'hard', title: 'Hard-failed groups' })
     expect(detail.title).toBe('Hard-failed groups')
-    expect(detail.subtitle).toBe('Current hard failures evidence')
+    expect(detail.subtitle).toMatch(/· Current hard failures evidence$/)
     expect(detail.stats?.map((s) => s.label)).toEqual(['Job variants observed', 'Hard failures', 'Soft failures'])
     expect(detail.tables![0]!.meta).toBe('2 job variants')
     expect(detail.tables![0]!.columns.map((c) => c.label)).toEqual(['Job variant', 'Current result', 'Queue'])
@@ -71,7 +73,7 @@ describe('build evidence detail', () => {
     const blocked = buildEvidenceDetail({ ...build, has_test_results: false, test_jobs_blocked: 4, failure_movement: undefined })
     expect(blocked.notes?.[0]).toMatchObject({ tone: 'hard' })
     expect(blocked.notes?.[0]?.text).toContain('4 test jobs were dependency-blocked')
-    expect(blocked.stats?.map((s) => s.label)).toEqual(['Job variants observed', 'New / recurring / fixed'])
+    expect(blocked.stats?.map((s) => s.label)).toEqual(['Job variants observed'])
     expect(blocked.fields?.find((f) => f.label === 'Test signal')?.value).toBe('Unavailable')
   })
 })

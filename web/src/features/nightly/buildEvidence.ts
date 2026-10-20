@@ -7,7 +7,7 @@ import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
 import { hardwareColor } from '@/lib/palette'
 
 export interface BuildEvidenceOptions {
-  /** Sheet title; defaults to "AMD build #<number>". */
+  /** Sheet title; defaults to "AMD nightly #<number>". */
   title?: string
   /** A severity ('hard' | 'soft') or movement bucket ('new' | 'recurring' | 'fixed'); anything else shows all movement. */
   scope?: string
@@ -32,22 +32,22 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
   const hasSignal = build.has_test_results !== false
   const blocked = Number(build.test_jobs_blocked || 0)
 
+  const movementCount = (key: 'new' | 'recurring' | 'fixed') => (movementAvailable && Array.isArray(movement![key]) ? movement![key].length : null)
+  const countStat = (label: string, count: number | null, tone?: Tone, toneLabel?: string): DetailStat => ({
+    label,
+    value: count === null ? 'Unavailable' : integer(count),
+    tone: count ? tone : undefined,
+    toneLabel: count ? toneLabel : undefined,
+  })
   const stats: DetailStat[] = [{ label: 'Job variants observed', value: integer(build.total_groups) }]
-  if (hasSignal) {
-    stats.push({ label: 'Hard failures', value: integer(failureCount(build, 'failed_groups')) })
-    stats.push({ label: 'Soft failures', value: integer(failureCount(build, 'soft_failed_groups')) })
-  }
-  // A hard or soft scope is already counted above; its table carries the row count.
-  if (!severityScope) {
+  // A hard or soft scope lists current failures; every other scope is about movement against the previous nightly.
+  if (severityScope) {
+    stats.push(countStat('Hard failures', failureCount(build, 'failed_groups')), countStat('Soft failures', failureCount(build, 'soft_failed_groups')))
+  } else if (hasSignal) {
     stats.push(
-      scoped
-        ? { label: evidence.label, value: evidence.available ? integer(evidence.rows.length) : 'Unavailable' }
-        : {
-            label: 'New / recurring / fixed',
-            value: movementAvailable
-              ? `${integer((movement!.new || []).length)} / ${integer((movement!.recurring || []).length)} / ${integer((movement!.fixed || []).length)}`
-              : 'Unavailable',
-          },
+      countStat('New failures', movementCount('new'), 'hard', 'New'),
+      countStat('Recurring failures', movementCount('recurring')),
+      countStat('Fixed', movementCount('fixed')),
     )
   }
 
@@ -107,13 +107,15 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
 
   return {
     id: `build-${value(build.number)}-${evidence.scope}`,
-    title: options.title || (build.number ? `AMD build #${build.number}` : 'AMD build'),
-    subtitle: scoped ? `${evidence.label} evidence` : 'Build result and failure movement evidence',
+    title: options.title || (build.number ? `AMD nightly #${build.number}` : 'AMD nightly'),
+    subtitle: [shortDate(build.created_at), scoped ? `${evidence.label} evidence` : 'failure movement against the previous nightly']
+      .filter((part) => part && part !== '-')
+      .join(' · '),
     notes,
     stats,
     fields: [
       { label: 'Buildkite state', value: state ? state.charAt(0).toUpperCase() + state.slice(1) : null, tone: toneForState(state) },
-      { label: 'Started', value: shortDate(build.created_at) },
+      { label: 'Current failures', value: hasSignal && !severityScope ? `${integer(failureCount(build, 'failed_groups'))} hard · ${integer(failureCount(build, 'soft_failed_groups'))} soft` : null },
       { label: 'Message', value: message || null },
       { label: 'Commit', value: commit ? commit.slice(0, 12) : null, href: commit ? commitUrl(commit) : undefined, mono: true },
       { label: 'Test signal', value: hasSignal ? 'Observed' : 'Unavailable' },

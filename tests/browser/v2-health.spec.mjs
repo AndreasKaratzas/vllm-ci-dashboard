@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { readGolden } from './golden/read.mjs';
 import { collectErrors, expectQuality, setTheme, settleAnimations } from './support/quality.mjs';
+import { routeSection } from './support/sections.mjs';
 
 // CI Health against the golden page facts of the fixture snapshot, plus the
 // quality gates on its drill-down sheets.
@@ -214,7 +215,17 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
     await expect(sheet.getByRole('heading').first()).toHaveText(group.title);
     expect(lower(await detailFields(sheet))).toEqual(lower(group.fields));
     await sheet.getByRole('button', { name: 'Load 30-day run history' }).click();
-    // The fixture ledger is unpublished: the sheet says so instead of offering the load again.
+    // The fixture ledger has no run of this group: the sheet says so instead of offering the load again.
+    await expect(sheet.getByTestId('group-history-empty')).toContainText('has no exact runs for this test group');
+    await expect(sheet.getByRole('button', { name: 'Load 30-day run history' })).toHaveCount(0);
+  });
+
+  test('an unpublished 30-day ledger says so instead of offering the load again', async ({ page }) => {
+    await routeSection(page, 'reliability', { reliability: { available: false } });
+    await page.goto('/#/health?view=coverage');
+    await page.getByTestId('route-matrix').locator('tbody tr').first().click();
+    const sheet = topSheet(page);
+    await sheet.getByRole('button', { name: 'Load 30-day run history' }).click();
     await expect(sheet.getByTestId('group-history-empty')).toContainText('not published in this snapshot');
     await expect(sheet.getByRole('button', { name: 'Load 30-day run history' })).toHaveCount(0);
   });

@@ -27,6 +27,7 @@ from vllm import build_test_group_parity as parity  # noqa: E402
 from vllm import collect_agent_health as agents  # noqa: E402
 from vllm import collect_amd_test_matrix as matrix  # noqa: E402
 from vllm.ci.nightly_latency import build_current_nightly_latency  # noqa: E402
+from vllm.ci.reliability_history import build_all_main_reliability  # noqa: E402
 from vllm.collect_analytics import summarize_pipeline_builds  # noqa: E402
 from vllm.main_ci_definitions import CI_CONFIG, MainCISnapshot  # noqa: E402
 
@@ -118,6 +119,11 @@ def seed_current_ci(data_dir: Path) -> None:
     analytics = {"builds": builds, "generated_at": GENERATED_AT, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"}
     analytics["current_nightly_latency"] = build_current_nightly_latency(
         builds, generated_at=GENERATED_AT, source_available=True,
+    )
+    # A complete all-main cohort gives the main-derived core clock a real collection time.
+    analytics["all_main_reliability"] = build_all_main_reliability(
+        raw, pipeline_slug="ci", window_days=30, generated_at=GENERATED_AT,
+        nightly_pattern="nightly", collection_provenance={"exhaustive": True},
     )
     write_json(data_dir / "analytics.json", {"ci": analytics})
     latest = raw[0]

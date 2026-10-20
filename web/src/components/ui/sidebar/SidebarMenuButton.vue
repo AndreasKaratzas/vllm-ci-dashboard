@@ -24,7 +24,8 @@ const delegatedProps = reactiveOmit(props, "tooltip")
 </script>
 
 <template>
-  <SidebarMenuButtonChild v-if="!tooltip" v-bind="{ ...delegatedProps, ...$attrs }">
+  <!-- A hidden tooltip still opens as a dismissable layer and would swallow Escape meant for the mobile sheet. -->
+  <SidebarMenuButtonChild v-if="!tooltip || state !== 'collapsed' || isMobile" v-bind="{ ...delegatedProps, ...$attrs }">
     <slot />
   </SidebarMenuButtonChild>
 
@@ -34,11 +35,7 @@ const delegatedProps = reactiveOmit(props, "tooltip")
         <slot />
       </SidebarMenuButtonChild>
     </TooltipTrigger>
-    <TooltipContent
-      side="right"
-      align="center"
-      :hidden="state !== 'collapsed' || isMobile"
-    >
+    <TooltipContent side="right" align="center">
       <template v-if="typeof tooltip === 'string'">
         {{ tooltip }}
       </template>

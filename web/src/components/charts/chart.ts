@@ -10,6 +10,8 @@ export interface SeriesSpec {
   key: string
   label: string
   color: PaletteColor
+  /** Line charts: a dash pattern, so series of one hue stay distinguishable without color. */
+  dash?: number[]
 }
 
 export interface InspectItem {
@@ -47,6 +49,33 @@ export function niceTicks(min: number, max: number, count: number, minStep = 0):
   for (let tick = Math.floor(min / step) * step; tick < max + step / 2; tick += step) ticks.push(Math.round(tick * 1e9) / 1e9)
   if (ticks.at(-1)! < max) ticks.push(Math.round((ticks.at(-1)! + step) * 1e9) / 1e9)
   return ticks
+}
+
+/**
+ * The value-axis ticks of a bar chart: round ticks at or beyond the longest bar (or stack). Diverging
+ * charts with bars on both sides share one scale around zero so their lengths compare honestly; with
+ * bars on one side only, the empty side gets no axis. `compact` halves the tick count on narrow plots.
+ */
+export function barValueTicks(
+  rows: ChartRow[],
+  series: SeriesSpec[],
+  { diverging = [], stacked = true, compact = false }: { diverging?: string[]; stacked?: boolean; compact?: boolean } = {},
+): number[] {
+  const sum = (values: number[]) => values.reduce((a, b) => a + b, 0)
+  const totals = rows.map((row) => {
+    const values = series.map((s) => (diverging.includes(s.key) ? -1 : 1) * seriesValue(row, s.key))
+    const up = values.filter((v) => v > 0)
+    const down = values.filter((v) => v < 0)
+    return stacked ? [sum(down), sum(up)] : [Math.min(0, ...down), Math.max(0, ...up)]
+  })
+  const counts = rows.every((row) => series.every((s) => Number.isInteger(seriesValue(row, s.key))))
+  let lo = Math.min(0, ...totals.map((t) => t[0]!))
+  let hi = Math.max(0, ...totals.map((t) => t[1]!))
+  if (diverging.length && lo < 0 && hi > 0) {
+    hi = Math.max(1, -lo, hi)
+    lo = -hi
+  }
+  return niceTicks(lo, hi, diverging.length && compact ? 2 : 4, counts ? 1 : 0)
 }
 
 /** At most `max` of the values, evenly spaced and always keeping the latest one. */

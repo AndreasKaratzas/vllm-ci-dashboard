@@ -3,12 +3,10 @@ import { computed, type Component } from 'vue'
 import PageHeader, { type Freshness } from '@/components/layout/PageHeader.vue'
 import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
 import SubNav from '@/components/layout/SubNav.vue'
-import { useClock } from '@/composables/useClock'
-import { useOperations } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { provideSubviewHeader } from '@/composables/useSubviewHeader'
-import { freshnessOf, sourceFreshness } from '@/domain/freshness'
-import { freshnessChip } from '@/features/freshness/freshness'
+import { shortDate } from '@/domain/format'
+import { useFreshness } from '@/features/freshness/useFreshness'
 import AnalyticsAgentHealth from './analytics/AnalyticsAgentHealth.vue'
 import AnalyticsDns from './analytics/AnalyticsDns.vue'
 import AnalyticsGroups from './analytics/AnalyticsGroups.vue'
@@ -56,11 +54,12 @@ const view = useQueryState('view', { default: SUB_VIEWS.analytics.default, allow
 const current = computed(() => VIEWS.find((v) => v.value === view.value) ?? VIEWS[0]!)
 const subview = provideSubviewHeader()
 
-const { ops } = useOperations()
-const now = useClock()
+const sourceChip = useFreshness().chip(() => [current.value.source])
 const freshness = computed<Freshness | undefined>(() => {
   if (subview.value?.freshness) return subview.value.freshness
-  return ops.value ? freshnessChip(freshnessOf(sourceFreshness(ops.value, null, now.value), [current.value.source]), now.value) : undefined
+  const chip = sourceChip.value
+  const observedAt = subview.value?.observedAt
+  return chip && observedAt ? { ...chip, detail: `Observed ${shortDate(observedAt)} · ${chip.detail}` } : chip
 })
 </script>
 

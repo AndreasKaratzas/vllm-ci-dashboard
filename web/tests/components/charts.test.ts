@@ -7,7 +7,8 @@ import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Timeline from '@/components/charts/Timeline.vue'
-import { distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
+import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import { barValueTicks, distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
 import { useDragRange } from '@/components/charts/dragRange'
 import { escapeHtml, tooltipHtml } from '@/components/charts/tooltip'
 import { SERIES, statusVar } from '@/lib/palette'
@@ -190,6 +191,33 @@ describe('BarChart', () => {
   })
 })
 
+describe('NightlyMovementChart', () => {
+  const nightly = (number: number, counts: { new?: number; recurring?: number; fixed?: number }) => ({
+    number,
+    created_at: `2026-10-0${number % 10}T06:00:00Z`,
+    failure_movement: {
+      policy_id: 'observed-failure-movement-v1',
+      available: true,
+      new: Array.from({ length: counts.new ?? 0 }, () => ({})),
+      recurring: Array.from({ length: counts.recurring ?? 0 }, () => ({})),
+      fixed: Array.from({ length: counts.fixed ?? 0 }, () => ({})),
+    },
+  })
+
+  it('draws and lists only the movements that happened', async () => {
+    const wrapper = mount(NightlyMovementChart, { props: { builds: [nightly(2, { new: 2 }), nightly(1, { fixed: 1 })] }, attachTo: document.body })
+    await settle()
+    expect(text(wrapper.find('[data-slot=chart-legend]').element)).toBe('New failure Fixed')
+    wrapper.unmount()
+  })
+
+  it('shows an empty state when no retained nightly moved', () => {
+    const wrapper = mount(NightlyMovementChart, { props: { builds: [nightly(2, {}), nightly(1, {})], emptyDescription: 'Latest signal #2' } })
+    expect(wrapper.find('[data-slot=bar-chart]').exists()).toBe(false)
+    expect(text(wrapper.find('[data-slot=empty-state]').element)).toBe('No failure movement in the retained nightlies Latest signal #2')
+  })
+})
+
 describe('Donut', () => {
   const slices = [
     { key: 'mi355', label: 'MI355', value: 3, color: SERIES.primary },
@@ -310,6 +338,30 @@ describe('Timeline', () => {
     const wrapper = mount(Timeline, { props: { segments: [], label: 'Failing runs' }, slots: { empty: '<p>No runs</p>' } })
     expect(wrapper.text()).toBe('No runs')
     expect(wrapper.find('[data-testid=timeline]').exists()).toBe(false)
+  })
+})
+
+describe('barValueTicks', () => {
+  const MOVEMENT = [
+    { key: 'new', label: 'New', color: statusVar('hard') },
+    { key: 'fixed', label: 'Fixed', color: statusVar('pass') },
+  ]
+
+  it('shares one scale around zero when diverging bars sit on both sides', () => {
+    expect(barValueTicks([{ new: 12, fixed: 3 }], MOVEMENT, { diverging: ['fixed'] })).toEqual([-20, -10, 0, 10, 20])
+  })
+
+  it('keeps a one-sided diverging chart on a one-sided axis', () => {
+    expect(barValueTicks([{ new: 12, fixed: 0 }], MOVEMENT, { diverging: ['fixed'] })).toEqual([0, 5, 10, 15])
+    expect(barValueTicks([{ new: 0, fixed: 7 }], MOVEMENT, { diverging: ['fixed'] })).toEqual([-8, -6, -4, -2, 0])
+  })
+
+  it('sums stacks, takes the longest bar when grouped, and halves the ticks when compact', () => {
+    const rows = [{ new: 6, fixed: 5 }]
+    const series = MOVEMENT.map((s) => ({ ...s }))
+    expect(barValueTicks(rows, series)).toEqual([0, 5, 10, 15])
+    expect(barValueTicks(rows, series, { stacked: false })).toEqual([0, 2, 4, 6])
+    expect(barValueTicks([{ new: 12, fixed: 3 }], MOVEMENT, { diverging: ['fixed'], compact: true })).toEqual([-20, 0, 20])
   })
 })
 

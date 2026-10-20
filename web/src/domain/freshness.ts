@@ -130,9 +130,11 @@ export function freshnessOf(rows: SourceFreshness[], keys: readonly string[]): F
   return summarize(pick(rows, keys))
 }
 
-/** One page area's collector sources; upstream activity sources are excluded. */
-export function areaFreshness(rows: SourceFreshness[], area: string): FreshnessSummary | null {
-  return summarize(rows.filter((row) => row.area === area && !row.informational))
+/** The collector sources of one page area, for freshnessOf; upstream activity sources are excluded. */
+export function areaSources(area: string): string[] {
+  return Object.entries(TARGETS.sources)
+    .filter(([, target]) => target.area === area && target.kind !== 'upstream_activity')
+    .map(([key]) => key)
 }
 
 /** Rows of the "Data freshness" sheet: worst state first, then by label. */

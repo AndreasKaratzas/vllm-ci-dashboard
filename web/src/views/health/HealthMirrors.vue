@@ -85,7 +85,7 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
 
     <Callout v-if="view.coverageNote" tone="soft" title="Partial detail" data-testid="mirror-coverage-note">{{ view.coverageNote }}</Callout>
 
-    <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] *:min-w-0">
+    <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] *:min-w-0">
       <Card v-if="view.areaChart" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="mirror-areas">
         <CardHeader>
           <CardTitle as="h2">Where the mirror groups live</CardTitle>

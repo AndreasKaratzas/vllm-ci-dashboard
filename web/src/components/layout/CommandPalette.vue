@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Activity, CircleDot, Clock, CornerDownRight, FolderGit2, GitPullRequest, LayoutDashboard, Moon, Sun } from '@lucide/vue'
+import { Activity, Boxes, CircleDot, Clock, CornerDownRight, FolderGit2, Gauge, GitPullRequest, LayoutDashboard, Moon, Sun } from '@lucide/vue'
 import { useMagicKeys, whenever } from '@vueuse/core'
-import { computed } from 'vue'
+import { computed, effectScope, onScopeDispose, shallowRef, watch, type ShallowRef } from 'vue'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
 import {
   CommandDialog,
@@ -11,11 +11,15 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import { useOperations, useWorkItems } from '@/composables/useOperations'
+import { useDataset } from '@/composables/useDataset'
+import { useOperationSections, useOperations, useWorkItems } from '@/composables/useOperations'
 import { useTheme } from '@/composables/useTheme'
+import { amdLogicalInventory, amdLogicalStateLabel, amdLogicalStateTone, sortLogicalRows } from '@/domain/ciHealth'
 import { shortDate, type Rec } from '@/domain/format'
 import { nightlyResultTone } from '@/domain/home'
 import { latestAmd } from '@/domain/nightly'
+import { perfModels, perfQuery, perfState } from '@/domain/perf'
+import { logicalGroupDetail } from '@/features/amd-groups/details'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { toneClasses, TONE_LABEL } from '@/lib/palette'
 import { NAV_TABS } from '@/router'
@@ -48,6 +52,29 @@ const subViews = computed(() =>
 )
 const nightlies = computed<Rec[]>(() => (latestAmd(ops.value).builds || []).filter((b: Rec) => b.number))
 
+// Test groups and perf models come from their pages' datasets, loaded the first time the palette opens.
+const groupsData: ShallowRef<Rec | null> = shallowRef(null)
+const perfData: ShallowRef<Rec | null> = shallowRef(null)
+const scope = effectScope()
+onScopeDispose(() => scope.stop())
+const stopLoading = watch(open, (isOpen) => {
+  if (!isOpen) return
+  scope.run(() => {
+    const groups = useOperationSections(['amd_test_health'])
+    const perf = useDataset('perf_eval')
+    watch(groups.data, (data) => (groupsData.value = data), { immediate: true })
+    watch(perf.data, (data) => (perfData.value = data), { immediate: true })
+  })
+  stopLoading()
+})
+const testGroups = computed<Rec[]>(() => sortLogicalRows(amdLogicalInventory(groupsData.value?.amd_test_health).rows || []))
+const models = computed<string[]>(() => [...new Set(perfModels(perfData.value).map((model) => String(model.model || '')).filter(Boolean))].sort())
+function openGroup(row: Rec) {
+  open.value = false
+  const amdHealth = groupsData.value?.amd_test_health
+  freshness.sheets.open(logicalGroupDetail(row, { amdHealth, latestBuild: (amdHealth?.summary || {}).latest_build_number }))
+}
+
 const REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
 const BUILDKITE = 'https://buildkite.com/vllm/amd-ci'
 
@@ -70,9 +97,9 @@ function run(action: () => void) {
     v-model:open="open"
     class="top-[12vh] translate-y-0 sm:top-[15vh]"
     title="Search the dashboard"
-    description="Jump to a view, nightly, issue, or pull request, or run an action"
+    description="Jump to a view, nightly, test group, perf model, issue, or pull request, or run an action"
   >
-    <CommandInput placeholder="Search views, nightlies, actions…" class="pr-8" />
+    <CommandInput placeholder="Search views, nightlies, test groups, models…" class="pr-8" />
     <CommandList class="max-h-[min(28rem,70vh)]" aria-label="Search results">
       <CommandEmpty>No results found.</CommandEmpty>
       <CommandGroup heading="Views">
@@ -98,6 +125,26 @@ function run(action: () => void) {
           <span class="font-mono">#{{ build.number }}</span>
           <span class="sr-only">{{ TONE_LABEL[nightlyResultTone(build)] }}</span>
           <span class="ml-auto text-xs text-muted-foreground">{{ build.state }} · {{ shortDate(build.created_at) }}</span>
+        </CommandItem>
+      </CommandGroup>
+      <CommandGroup v-if="testGroups.length" heading="AMD test groups">
+        <CommandItem
+          v-for="group in testGroups"
+          :key="group.logical_key || group.label"
+          :value="`test group ${group.label} ${group.logical_key} ${(group.hardware_states || []).map((s: Rec) => s.hardware).join(' ')}`"
+          @select="openGroup(group)"
+        >
+          <Boxes />
+          <span class="truncate">{{ group.label || group.logical_key }}</span>
+          <span class="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span class="size-2 rounded-full" :class="toneClasses(amdLogicalStateTone(group.state), 'fill')" aria-hidden="true" />
+            {{ amdLogicalStateLabel(group.state) }}
+          </span>
+        </CommandItem>
+      </CommandGroup>
+      <CommandGroup v-if="models.length" heading="Perf models">
+        <CommandItem v-for="model in models" :key="model" :value="`perf model ${model}`" @select="go({ path: '/perf', query: perfQuery(perfState({ model })) })">
+          <Gauge /> <span class="truncate">{{ model }}</span>
         </CommandItem>
       </CommandGroup>
       <CommandGroup heading="Actions">

@@ -17,12 +17,13 @@ import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
 import { integer, toneForState, type Rec } from '@/domain/format'
-import { freshnessOf, sourceFreshness } from '@/domain/freshness'
+import { areaSources } from '@/domain/freshness'
 import { HOME_EXCLUDED_ATTENTION, attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
 import { attentionTone, nightlySeries, passRateTrend } from '@/domain/home'
+import { movementBuilds } from '@/domain/ciHealth'
 import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
-import { freshnessChip } from '@/features/freshness/freshness'
+import { useFreshness } from '@/features/freshness/useFreshness'
 import { statusVar } from '@/lib/palette'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
@@ -53,11 +54,7 @@ const retentionMessage = computed(() => ciHealthPublicationRetentionMessage(amd.
 const attention = computed<Rec[]>(() =>
   (ops.value?.attention || []).filter((item: Rec) => !HOME_EXCLUDED_ATTENTION.includes(item.kind)),
 )
-const freshness = computed(() => {
-  const rows = sourceFreshness(ops.value, null, now.value)
-  const keys = [...HOME_INPUTS, ...rows.filter((row) => row.area === 'home' && !row.informational).map((row) => row.key)]
-  return freshnessChip(freshnessOf(rows, keys), now.value, 'Home data')
-})
+const freshness = useFreshness().chip([...HOME_INPUTS, ...areaSources('home')], 'Home data')
 // The headline count carries the outcome; the footnote keeps the build's counts and Buildkite state.
 const nightlyFootnote = computed(() => nightly.value.meta.replace(`; ${nightly.value.movementLabel}`, ''))
 
@@ -207,7 +204,7 @@ watch(sheets.stack, (stack) => {
 
         <NightlyTrendCard :series="series" @select="openBuildNumber" />
 
-        <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] *:min-w-0">
+        <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] *:min-w-0">
           <AttentionCard :items="attention" @inspect="inspectAttention" />
           <Card class="gap-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
             <CardHeader>
@@ -215,7 +212,7 @@ watch(sheets.stack, (stack) => {
               <CardDescription>New and recurring failures above zero, fixes below, per retained nightly</CardDescription>
             </CardHeader>
             <CardContent class="px-3 sm:px-6">
-              <NightlyMovementChart :builds="builds" label="AMD nightly failure movement" :on-select="(build: Rec) => openBuild(build)" />
+              <NightlyMovementChart :builds="movementBuilds(builds)" label="AMD nightly failure movement" :on-select="(build: Rec) => openBuild(build)" />
             </CardContent>
           </Card>
         </div>

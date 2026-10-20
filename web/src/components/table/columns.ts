@@ -14,6 +14,8 @@ export interface CellSpec {
   /** De-emphasized value, e.g. a zero count. */
   muted?: boolean
   sub?: string
+  /** Several external links in one cell, e.g. the exact jobs behind one observation; `text` shows when there are none. */
+  links?: { label: string; url: string }[]
   /** Short labels rendered as outline badges, e.g. issue labels. */
   tags?: string[]
   /** Identity dots before the text (hardware family, series), never a status. */

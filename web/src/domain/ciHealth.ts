@@ -175,15 +175,12 @@ export function latestFailureObservations(amdHealth: Rec | null | undefined): Re
     )
 }
 
-/** Oldest-first nightlies (up to 14) whose failure movement is available. */
+/** The nightlies, newest first as published, whose failure movement against the previous nightly is available. */
 export function movementBuilds(builds: Rec[]): Rec[] {
-  return (builds || [])
-    .filter((row) => {
-      const movement = nightlyFailureMovement(row)
-      return row.has_test_results !== false && Boolean(movement) && movement!.available !== false
-    })
-    .slice(0, 14)
-    .reverse()
+  return (builds || []).filter((row) => {
+    const movement = nightlyFailureMovement(row)
+    return row.has_test_results !== false && Boolean(movement) && movement!.available !== false
+  })
 }
 
 export function testGroupParityState(stateName: string): { label: string; tone: Tone } {

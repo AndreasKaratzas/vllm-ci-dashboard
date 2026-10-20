@@ -156,6 +156,17 @@ const gaps = computed(() => {
     return [{ from: d.x, to: next.x, label: (next.x - d.x) / span > 0.08 ? 'No data' : '' }]
   })
 })
+// Without a given domain the axis ends on a round tick at or above the highest point, so no peak rises past the top label.
+const valueTicks = computed(() => {
+  if (props.yTicks) return props.yTicks
+  if (props.yDomain) return undefined
+  const peak = Math.max(0, ...visible.value.flatMap((row) => props.series.map((s) => seriesValue(row, s.key))))
+  const whole = visible.value.every((row) => props.series.every((s) => Number.isInteger(seriesValue(row, s.key))))
+  return niceTicks(0, peak, 4, whole ? 1 : 0)
+})
+const valueDomain = computed<[number, number] | undefined>(() =>
+  props.yDomain ?? (valueTicks.value ? [valueTicks.value[0]!, valueTicks.value.at(-1)!] : undefined),
+)
 const value = (key: string) => (d: Plotted) => (d.gap ? undefined : seriesValue(d.row, key))
 const areaValue = (key: string) => (d: Plotted) => (d.gap ? undefined : seriesValue(d.row, key) - floor.value)
 
@@ -206,7 +217,7 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
           :margin="bars ? { ...SHARED_MARGIN, top: 8, bottom: 4 } : { left: 4, right: 12, top: 8 }"
           :auto-margin="!bars"
           :x-domain="xDomain"
-          :y-domain="yDomain"
+          :y-domain="valueDomain"
         >
           <VisPlotband
             v-for="(gap, i) in gaps"
@@ -251,7 +262,7 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
             :domain-line="false"
             :grid-line="false"
           />
-          <VisAxis type="y" :num-ticks="yTicks ? undefined : 4" :tick-values="yTicks" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
+          <VisAxis type="y" :num-ticks="valueTicks ? undefined : 4" :tick-values="valueTicks" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair
             ref="crosshairRef"
