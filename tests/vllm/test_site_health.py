@@ -444,6 +444,55 @@ def test_visible_degradation_is_live_not_a_synthetic_outage(
     assert report["publication"]["status"] == status
 
 
+def test_published_unavailable_surface_is_live_degradation():
+    payload = build_site.project_publication_status({
+        "mode": "fallback",
+        "generated_at": (NOW - timedelta(minutes=30)).isoformat(),
+        "degraded_since": {"agent_health": (NOW - timedelta(hours=1)).isoformat()},
+        "degraded_surfaces": ["agent_health"],
+        "fallback_surfaces": ["agent_health"],
+        "unavailable_surfaces": ["agent_health"],
+    })
+
+    report = health.check_site_health(now=NOW, fetch=Fetcher(payload))
+
+    assert payload["unavailable_surfaces"] == ["Agent health"]
+    assert payload["unavailable_surface_count"] == 1
+    assert report["healthy"] is True, report["reasons"]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"unavailable_surfaces": ["Agent health"]},
+        {"unavailable_surfaces": ["Agent health"], "unavailable_surface_count": 2},
+        {"unavailable_surfaces": ["Queue health"], "unavailable_surface_count": 1},
+        {"unavailable_surfaces": [{"surface": "agent_health"}], "unavailable_surface_count": 1},
+        {"unavailable_surfaces": ["Agent health"], "unavailable_surface_count": True},
+    ],
+    ids=["count-missing", "count-mismatch", "not-affected", "not-label", "bool-count"],
+)
+def test_malformed_unavailable_surfaces_fail_closed(overrides):
+    report = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(
+            _publication(
+                mode="fallback",
+                status="degraded",
+                uses_fallback=True,
+                degraded_since=health._iso_utc(NOW - timedelta(hours=1)),
+                affected_surfaces=["Agent health"],
+                affected_surface_count=1,
+                fallback_surface_count=1,
+                **overrides,
+            )
+        ),
+    )
+
+    assert report["healthy"] is False
+    assert "publication-contract" in _codes(report)
+
+
 @pytest.mark.parametrize(
     "blocked_fields",
     [

@@ -2978,6 +2978,24 @@ jobs:
           done
           echo "::warning::Superseded by workflow change on main; nothing was published and Data Collection was re-dispatched on main."
 
+      # Queue and DNS reconciliations cannot recollect a surface they found
+      # unavailable; one full collection repairs or re-attests it.
+      - name: Request full collection for newly unavailable surfaces
+        if: >-
+          (inputs.dns_generation != '' || inputs.queue_generation != '') &&
+          steps.publication-commit.outputs.state_sha != '' &&
+          steps.publication-selector.outputs.collection_required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UNAVAILABLE_SURFACES: ${{ steps.publication-selector.outputs.unavailable_surfaces }}
+        run: |
+          set -euo pipefail
+          if ! gh api --method POST -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            -f ref=main; then
+            echo "::warning::Could not request a full collection for unavailable surfaces $UNAVAILABLE_SURFACES; the scheduled collection repairs them."
+          fi
+
       - name: Preserve only bounded PR previews
         id: preview-preservation
         if: >-

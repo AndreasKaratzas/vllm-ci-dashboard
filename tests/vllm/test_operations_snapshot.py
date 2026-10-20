@@ -509,6 +509,46 @@ def test_shell_core_clock_is_the_oldest_core_collection_including_perf_eval(tmp_
     assert shell["core_generated_at"] is None
 
 
+def test_unavailable_publication_surface_has_no_trustworthy_clock_in_the_shell(tmp_path):
+    data_dir = tmp_path / "ci"
+    data_dir.mkdir()
+    _fixture_data(data_dir)
+    output = tmp_path / "out" / "operations_v2.json"
+    baseline = ops.write_snapshot_bundle(
+        output, ops.build_snapshot(data_dir, generated_at=GENERATED_AT), log=False
+    )["shell"]
+    since = "2026-04-22T10:00:00Z"
+    _write_json(data_dir / "publication_state.json", {
+        "mode": "fallback",
+        "fallback_surfaces": ["ci_analytics"],
+        "unavailable_surfaces": ["ci_analytics"],
+        "unavailable_since": {"ci_analytics": since},
+        "unavailable_reasons": {
+            "ci_analytics": {
+                "reason": "candidate-and-last-known-good-failed",
+                "codes": ["analytics-build-count"],
+            },
+        },
+    })
+
+    shell = ops.write_snapshot_bundle(
+        output, ops.build_snapshot(data_dir, generated_at=GENERATED_AT), log=False
+    )["shell"]
+
+    assert "publication" not in baseline
+    assert shell["publication"] == {"unavailable": [{
+        "surface": "ci_analytics",
+        "since": since,
+        "reason": "candidate-and-last-known-good-failed",
+        "codes": ["analytics-build-count"],
+        "sources": ["analytics", "main_ci"],
+    }]}
+    for name in ("analytics", "main_ci"):
+        assert shell["sources"][name]["timestamp"] is None
+        assert shell["sources"][name]["unavailable_reason"] == "publication_surface_unavailable"
+    assert shell["sources"]["ci_health"] == baseline["sources"]["ci_health"]
+
+
 @pytest.mark.parametrize("suffix", [".json", ".json.gz"])
 def test_scoped_operations_producer_preserves_authority_through_bundle_and_audit(
     tmp_path, monkeypatch, suffix,

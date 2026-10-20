@@ -21,6 +21,9 @@ export interface PublicationStatus {
   affected_surface_count?: number
   fallback_surface_count?: number
   fresh_degraded_surface_count?: number
+  /** Present only while some areas are published as unavailable. */
+  unavailable_surfaces?: unknown[]
+  unavailable_surface_count?: number
 }
 
 const MODE_VIEWS: Record<string, StatusView> = {
@@ -52,12 +55,22 @@ const MODE_VIEWS: Record<string, StatusView> = {
     message:
       'The latest data refresh did not pass publication checks. The dashboard remains on the last published snapshot.',
   },
+  areas_unavailable: {
+    tone: 'warning',
+    title: 'Some dashboard areas are unavailable',
+    message:
+      'Their latest collection and last-known-good snapshot both failed validation, so they show an unavailable state until a new collection passes. Other areas remain published.',
+  },
   unavailable: {
     tone: 'warning',
     title: 'Publication status unavailable',
     message:
       'The dashboard could not verify whether this snapshot is current. Treat displayed data as potentially stale.',
   },
+}
+
+function labels(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((v): v is string => typeof v === 'string' && v.length <= 64))].slice(0, 8) : []
 }
 
 export function safeTimestamp(value: unknown): string {
@@ -99,15 +112,18 @@ export function viewFor(payload: unknown, nowMs: number = Date.now()): StatusVie
     return hasHealthyCurrentContract(status) ? null : MODE_VIEWS.unavailable!
   }
   if (status.mode === 'current' && status.status === 'degraded') return MODE_VIEWS.degraded!
+  if ((status.mode === 'fallback' || status.mode === 'mixed') && labels(status.unavailable_surfaces).length) {
+    return MODE_VIEWS.areas_unavailable!
+  }
   return MODE_VIEWS[status.mode ?? ''] ?? MODE_VIEWS.unavailable!
 }
 
 export function statusDetails(payload: unknown): string[] {
   const status = (payload && typeof payload === 'object' ? payload : {}) as PublicationStatus
   const details: string[] = []
-  const areas = Array.isArray(status.affected_surfaces)
-    ? [...new Set(status.affected_surfaces.filter((v): v is string => typeof v === 'string' && v.length <= 64))].slice(0, 8)
-    : []
+  const areas = labels(status.affected_surfaces)
+  const unavailable = labels(status.unavailable_surfaces)
+  if (unavailable.length) details.push(`Unavailable areas: ${unavailable.join(', ')}.`)
   if (areas.length) {
     details.push(`Affected areas: ${areas.join(', ')}.`)
   } else if (Number.isInteger(status.affected_surface_count) && status.affected_surface_count! > 0) {

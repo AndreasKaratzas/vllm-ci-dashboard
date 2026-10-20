@@ -537,6 +537,29 @@ def test_publication_status_projection_never_exposes_private_diagnostics() -> No
         assert private_value not in serialized
 
 
+def test_publication_status_projection_names_unavailable_surfaces_only_when_present() -> None:
+    current = BUILD_SITE.project_publication_status({
+        "mode": "fallback",
+        "generated_at": "2026-01-01T01:00:00Z",
+        "degraded_surfaces": ["agent_health"],
+        "fallback_surfaces": ["agent_health"],
+    })
+    unavailable = BUILD_SITE.project_publication_status({
+        "mode": "mixed",
+        "generated_at": "2026-01-01T01:00:00Z",
+        "degraded_surfaces": ["agent_health", "queue"],
+        "fresh_degraded_surfaces": ["queue"],
+        "fallback_surfaces": ["agent_health"],
+        "unavailable_surfaces": ["agent_health", "queue", "private/path"],
+        "unavailable_reasons": {"agent_health": {"codes": ["private detail"]}},
+    })
+
+    assert "unavailable_surfaces" not in current
+    assert unavailable["unavailable_surfaces"] == ["Agent health"]
+    assert unavailable["unavailable_surface_count"] == 1
+    assert "private" not in json.dumps(unavailable)
+
+
 def test_publication_status_projection_rejects_an_unknown_mode() -> None:
     with pytest.raises(ValueError, match="Unsupported publication mode"):
         BUILD_SITE.project_publication_status({"mode": "secret/path"})

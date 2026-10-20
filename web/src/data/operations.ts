@@ -22,6 +22,18 @@ export type ManifestSource = (fresh: boolean) => Promise<OperationsManifest>
 
 export class GenerationMismatchError extends Error {}
 
+/** A section derived from a publication surface the selector published as unavailable. */
+export class SectionUnavailableError extends Error {}
+
+/** One `shell.publication.unavailable` row of the manifest. */
+export interface UnavailableSurface {
+  surface: string
+  since?: string | null
+  reason?: string | null
+  codes?: string[]
+  sources: string[]
+}
+
 const MANIFEST_DIR = OPERATIONS_MANIFEST_PATH.slice(0, OPERATIONS_MANIFEST_PATH.lastIndexOf('/') + 1)
 const UNREGISTERED_SECTION: SectionSource = { path: '', refresh: { on: 'publication' } }
 
@@ -36,6 +48,38 @@ function mergeOperationPayload(target: Rec, source: Rec | null | undefined): Rec
 
 function sectionSource(name: string): SectionSource {
   return (SECTIONS as Record<string, SectionSource>)[name] ?? UNREGISTERED_SECTION
+}
+
+function sectionInputs(name: string): readonly string[] {
+  const source = sectionSource(name)
+  return source.inputs ?? (source.refresh.on === 'sources' ? source.refresh.sources : [])
+}
+
+/** Surfaces whose candidate and last-known-good data both failed validation. */
+export function unavailableSurfaces(manifest: OperationsManifest): UnavailableSurface[] {
+  const rows: unknown = manifest.shell.publication?.unavailable
+  if (!Array.isArray(rows)) return []
+  return rows.filter(
+    (row): row is UnavailableSurface => isPlainObject(row) && typeof row.surface === 'string' && Array.isArray(row.sources),
+  )
+}
+
+/** The unavailable surfaces a section derives from; such a section is shown as unavailable, never as data. */
+export function sectionUnavailability(manifest: OperationsManifest, name: string): UnavailableSurface[] {
+  const inputs = sectionInputs(name)
+  return unavailableSurfaces(manifest).filter((row) => row.sources.some((source) => inputs.includes(source)))
+}
+
+function unavailableMessage(rows: UnavailableSurface[]): string {
+  const surfaces = rows.map((row) => row.surface.replaceAll('_', ' ')).join(', ')
+  const since = rows.map((row) => row.since).filter((value): value is string => typeof value === 'string' && !!value).sort()[0]
+  const codes = [...new Set(rows.flatMap((row) => (Array.isArray(row.codes) ? row.codes : [])))].slice(0, 5)
+  return [
+    `Unavailable: the latest ${surfaces} data and its last-known-good snapshot both failed validation`,
+    codes.length ? ` (${codes.join(', ')})` : '',
+    since ? ` since ${since}` : '',
+    '. It returns after a collection passes validation.',
+  ].join('')
 }
 
 export function fetchManifest(fresh = false): Promise<OperationsManifest> {
@@ -69,6 +113,8 @@ function sectionValidator(name: string, descriptor: SectionDescriptor) {
 export async function fetchSection(manifest: OperationsManifest, name: string, fresh = false): Promise<Rec> {
   const descriptor = manifest.sections[name]
   if (!descriptor || !descriptor.path) throw new Error(`Operations section "${name}" is missing from the manifest`)
+  const unavailable = sectionUnavailability(manifest, name)
+  if (unavailable.length) throw new SectionUnavailableError(unavailableMessage(unavailable))
   const source = sectionSource(name)
   const path = MANIFEST_DIR + descriptor.path.replace(/^\/+/, '')
   const published = fetchJSON<Rec>(path, {

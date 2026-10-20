@@ -57,6 +57,38 @@ describe('loadOperations', () => {
   })
 })
 
+describe('unavailable surfaces', () => {
+  it('shows a section derived from an unavailable surface as unavailable instead of its data', async () => {
+    publish(server, { generatedAt: G1, sources: SOURCES })
+    const manifest = manifestOf({ generatedAt: G1, sources: SOURCES })
+    server.set(MANIFEST, {
+      ...manifest,
+      shell: {
+        ...manifest.shell,
+        publication: {
+          unavailable: [
+            {
+              surface: 'ci_analytics',
+              since: G1,
+              reason: 'candidate-and-last-known-good-failed',
+              codes: ['analytics-build-count'],
+              sources: ['analytics', 'main_ci'],
+            },
+          ],
+        },
+      },
+    })
+    for (const name of ['nightly', 'reliability']) {
+      const failure = operations.loadOperations([name])
+      await expect(failure).rejects.toBeInstanceOf(operations.SectionUnavailableError)
+      await expect(failure).rejects.toThrow(/ci analytics data and its last-known-good snapshot both failed validation \(analytics-build-count\) since 2026-10-19T10:00:00Z/)
+      expect(server.count(sectionPath(name))).toBe(0)
+    }
+    const parity = await operations.loadOperations(['test_group_parity'])
+    expect(parity.test_group_parity).toEqual({ label: `test_group_parity@${G1}` })
+  })
+})
+
 describe('section cache', () => {
   it('downloads the manual reliability section once per page across publications', async () => {
     publish(server, { generatedAt: G1, sources: SOURCES })

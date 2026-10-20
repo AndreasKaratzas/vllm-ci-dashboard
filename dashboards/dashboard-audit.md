@@ -20,8 +20,11 @@ AMD coverage; they are not executed-hardware observations.
 `audit_dashboard_data.py` verifies current pipeline/hardware scope, source pins,
 coverage arithmetic, runtime logical counts, exact evidence links, five-nightly
 latency samples, shard durations, medians, retained public sections, and bounded
-publication proofs. Global/code defects stop publication; collector failures can
-restore a validated last-known-good source transaction within its explicit TTL.
+publication proofs. Global/code, integrity and byte-budget defects stop
+publication. Every other finding belongs to one source surface, which restores
+its validated last-known-good transaction within an explicit TTL; when that
+also fails or expires, the surface is published as unavailable and the rest of
+the dashboard still publishes.
 The latency audit also reconstructs each job's definition family from that
 build's source catalog and rejects timing rows that merge distinct families,
 even when their durations and build membership are internally consistent.

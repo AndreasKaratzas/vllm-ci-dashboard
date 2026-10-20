@@ -393,6 +393,13 @@ def project_publication_status(publication_state: object) -> dict:
     elif mode != "current" or affected_labels:
         status = "degraded"
 
+    # Surfaces whose candidate and last-known-good data both failed: the site
+    # shows them as unavailable instead of their data.
+    unavailable_labels = [
+        label
+        for label in _safe_surface_labels(publication_state.get("unavailable_surfaces"))
+        if label in fallback_labels
+    ]
     return {
         "schema_version": 1,
         "status": status,
@@ -409,7 +416,14 @@ def project_publication_status(publication_state: object) -> dict:
         "affected_surface_count": len(affected_labels),
         "fallback_surface_count": len(fallback_labels),
         "fresh_degraded_surface_count": len(fresh_labels),
-    }
+    } | (
+        {
+            "unavailable_surfaces": unavailable_labels,
+            "unavailable_surface_count": len(unavailable_labels),
+        }
+        if unavailable_labels
+        else {}
+    )
 
 
 def materialize_publication_status(

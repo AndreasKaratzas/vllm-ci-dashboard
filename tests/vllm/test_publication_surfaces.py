@@ -1828,7 +1828,7 @@ def test_selector_expands_fallback_until_retry_cohort_is_consistent(
     assert audit_runs == [False, True, True]
 
 
-def test_selector_fails_closed_when_fallback_audit_cannot_make_progress(
+def test_selector_fails_closed_when_the_audit_rejects_an_unavailable_surface(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1893,9 +1893,239 @@ def test_selector_fails_closed_when_fallback_audit_cannot_make_progress(
     state = json.loads(state_path.read_text())
     assert state["mode"] == "blocked"
     assert state["fallback_surfaces"] == ["ci_core"]
+    assert state["unavailable_surfaces"] == ["ci_core"]
     assert state["final_errors"][0]["code"] == "matrix-summary-mismatch"
     assert json.loads(source.read_text())["build"] == 101
-    assert audit_runs == [False, True]
+    assert audit_runs == [False, True, True]
+
+
+AGENT_HEALTH_RELATIVE = "data/vllm/ci/agent_health.json"
+QUEUE_JOBS_RELATIVE = "data/vllm/ci/queue_jobs.json"
+INCIDENT_CODES = (
+    "operations-agent-health-accounting",
+    "operations-agent-health-infra-flag",
+    "operations-agent-health-started-coverage",
+)
+
+
+def _current_state_payload() -> dict:
+    return {
+        "schema_version": 2,
+        "surface_contract_version": selector_module.SURFACE_CONTRACT_VERSION,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "baseline_ref": "0" * 40,
+        "mode": "current",
+        "degraded_surfaces": [],
+        "fresh_degraded_surfaces": [],
+        "fallback_surfaces": [],
+        "degraded_since": {},
+        "fallback_since": {},
+        "fallback_max_age_hours": 36,
+        "restored_paths": {},
+        "restored_manifest": {},
+    }
+
+
+def _agent_health_contract_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    baseline_contract: str,
+    extra_findings: tuple[Finding, ...] = (),
+) -> tuple[Path, str, Path, list[str]]:
+    """Agent health plus live queue, audited by a producer-contract check.
+
+    The audit fake inherits the real attested-state validation and the real
+    unavailable-surface acceptance; only the data checks are scripted.
+    """
+    repo = tmp_path / "repo"
+    agent_health = repo / AGENT_HEALTH_RELATIVE
+    agent_health.parent.mkdir(parents=True)
+    agent_health.write_text(json.dumps({"contract": baseline_contract}) + "\n")
+    (repo / QUEUE_JOBS_RELATIVE).write_text('{"generation":"baseline"}\n')
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps(_current_state_payload()))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated publication")
+    baseline = _git(repo, "rev-parse", "HEAD")
+
+    specs = {
+        "agent_health": SurfaceSpec(required_paths=(AGENT_HEALTH_RELATIVE,)),
+        "queue": SurfaceSpec(required_paths=(QUEUE_JOBS_RELATIVE,)),
+    }
+    audit_runs: list[str] = []
+
+    class ProducerContractAudit(DashboardAudit):
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self):
+            self.fallback_surfaces()
+            audit_runs.append("run")
+            contract = json.loads((self.root / AGENT_HEALTH_RELATIVE).read_text())
+            if contract["contract"] != "current":
+                for code in INCIDENT_CODES:
+                    self.error(
+                        code,
+                        "agent-health rows predate the attribution contract",
+                        "data/vllm/ci/operations_v2.json",
+                    )
+            self.report.findings.extend(
+                Finding(f.severity, f.code, f.message, f.path, dict(f.context))
+                for f in extra_findings
+            )
+            self.accept_unavailable_surfaces()
+            return self.report
+
+    for module in (selector_module, audit_module, surfaces_module):
+        monkeypatch.setattr(module, "SURFACE_SPECS", specs)
+    monkeypatch.setattr(selector_module, "DashboardAudit", ProducerContractAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    return repo, baseline, state_path, audit_runs
+
+
+def _outputs(path: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1) for line in path.read_text().splitlines() if "=" in line
+    )
+
+
+def test_queue_reconcile_publishes_with_old_contract_agent_health_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, state_path, audit_runs = _agent_health_contract_repo(
+        tmp_path, monkeypatch, baseline_contract="old"
+    )
+    (repo / QUEUE_JOBS_RELATIVE).write_text('{"generation":"candidate"}\n')
+    outputs = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+
+    state = selector_module.select_publication(
+        repo, baseline, state_path, refresh_only_surface="queue"
+    )
+
+    assert state["mode"] == "fallback"
+    assert state["fallback_surfaces"] == ["agent_health"]
+    assert state["unavailable_surfaces"] == ["agent_health"]
+    assert state["unavailable_reasons"] == {
+        "agent_health": {
+            "reason": "candidate-and-last-known-good-failed",
+            "codes": list(INCIDENT_CODES),
+        }
+    }
+    assert set(state["unavailable_since"]) == {"agent_health"}
+    assert state["final_errors"] == []
+    assert {record["code"] for record in state["final_degradations"]} == set(INCIDENT_CODES)
+    assert all(
+        record["context"]["unavailable_surfaces"] == ["agent_health"]
+        for record in state["final_degradations"]
+    )
+    assert json.loads((repo / QUEUE_JOBS_RELATIVE).read_text()) == {"generation": "candidate"}
+    assert json.loads(state_path.read_text())["unavailable_surfaces"] == ["agent_health"]
+    emitted = _outputs(outputs)
+    assert emitted["blocked"] == "false"
+    assert emitted["unavailable_surfaces"] == "agent_health"
+    assert emitted["collection_required"] == "true"
+    assert audit_runs == ["run", "run", "run"]
+
+    # The next reconciliation carries the declaration and its clock forward
+    # without requesting another collection.
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "published with agent health unavailable")
+    next_baseline = _git(repo, "rev-parse", "HEAD")
+    (repo / QUEUE_JOBS_RELATIVE).write_text('{"generation":"next"}\n')
+    outputs.write_text("")
+
+    carried = selector_module.select_publication(
+        repo, next_baseline, state_path, refresh_only_surface="queue"
+    )
+
+    assert carried["unavailable_surfaces"] == ["agent_health"]
+    assert carried["unavailable_since"] == state["unavailable_since"]
+    assert carried["fallback_since"] == state["fallback_since"]
+    assert _outputs(outputs)["collection_required"] == "false"
+
+
+def test_unavailable_surface_still_blocks_on_a_global_finding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    global_error = Finding(
+        "error",
+        "workflow-hourly-step-missing",
+        "the hourly workflow lost a publication step",
+        ".github/workflows/hourly-master.yml",
+    )
+    repo, baseline, state_path, _ = _agent_health_contract_repo(
+        tmp_path,
+        monkeypatch,
+        baseline_contract="old",
+        extra_findings=(global_error,),
+    )
+    (repo / QUEUE_JOBS_RELATIVE).write_text('{"generation":"candidate"}\n')
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    with pytest.raises(RuntimeError, match="global or unrouted errors"):
+        selector_module.select_publication(
+            repo, baseline, state_path, refresh_only_surface="queue"
+        )
+
+    state = json.loads(state_path.read_text())
+    assert state["mode"] == "blocked"
+    assert "unavailable_surfaces" not in state
+    assert state["final_errors"][0]["code"] == "workflow-hourly-step-missing"
+
+
+def test_byte_budget_failure_never_publishes_a_surface_as_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    budget_error = Finding(
+        "error",
+        "public-file-budget",
+        "agent health exceeds its public byte budget",
+        AGENT_HEALTH_RELATIVE,
+    )
+    repo, baseline, state_path, _ = _agent_health_contract_repo(
+        tmp_path,
+        monkeypatch,
+        baseline_contract="current",
+        extra_findings=(budget_error,),
+    )
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    with pytest.raises(RuntimeError, match="last-known-good surface selection still fails"):
+        selector_module.select_publication(repo, baseline, state_path)
+
+    state = json.loads(state_path.read_text())
+    assert state["mode"] == "blocked"
+    assert state["fallback_surfaces"] == ["agent_health"]
+    assert "unavailable_surfaces" not in state
+
+
+def test_last_known_good_is_preferred_when_it_passes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, baseline, state_path, _ = _agent_health_contract_repo(
+        tmp_path, monkeypatch, baseline_contract="current"
+    )
+    (repo / AGENT_HEALTH_RELATIVE).write_text('{"contract":"old"}\n')
+    outputs = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+
+    state = selector_module.select_publication(repo, baseline, state_path)
+
+    assert state["mode"] == "fallback"
+    assert state["fallback_surfaces"] == ["agent_health"]
+    assert "unavailable_surfaces" not in state
+    assert json.loads((repo / AGENT_HEALTH_RELATIVE).read_text()) == {"contract": "current"}
+    assert _outputs(outputs)["unavailable_surfaces"] == ""
+    assert _outputs(outputs)["collection_required"] == "false"
 
 
 def test_active_retry_reconciliation_is_debounced_after_coherent_fallback(
@@ -3717,7 +3947,7 @@ def test_tampered_restored_manifest_disables_fallback(
     }
 
 
-def test_prior_fallback_start_persists_until_hard_expiration(
+def test_expired_fallback_is_published_unavailable_instead_of_blocking(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3773,25 +4003,31 @@ def test_prior_fallback_start_persists_until_hard_expiration(
         {"ci": SurfaceSpec(required_paths=("data/source.json",))},
     )
     monkeypatch.setattr(selector_module, "DashboardAudit", CleanAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
 
-    with pytest.raises(RuntimeError, match="fallback exceeded its hard limit"):
-        selector_module.select_publication(
-            repo,
-            baseline,
-            state_path,
-            forced_degraded=("ci",),
-        )
+    selector_module.select_publication(
+        repo,
+        baseline,
+        state_path,
+        forced_degraded=("ci",),
+    )
 
-    blocked = json.loads(state_path.read_text())
-    assert blocked["schema_version"] == 2
-    assert blocked["mode"] == "blocked"
-    assert blocked["fresh_degraded_surfaces"] == []
-    assert blocked["fallback_surfaces"] == ["ci"]
-    assert blocked["degraded_since"] == {"ci": original_since}
-    assert blocked["fallback_since"] == {"ci": original_since}
-    assert blocked["final_errors"][0]["code"] == "publication-fallback-expired"
-    assert source.read_text() == '{"version":"candidate"}\n'
+    published = json.loads(state_path.read_text())
+    assert published["schema_version"] == 2
+    assert published["mode"] == "fallback"
+    assert published["fresh_degraded_surfaces"] == []
+    assert published["fallback_surfaces"] == ["ci"]
+    assert published["degraded_since"] == {"ci": original_since}
+    assert published["fallback_since"] == {"ci": original_since}
+    assert published["unavailable_surfaces"] == ["ci"]
+    assert published["unavailable_reasons"] == {
+        "ci": {
+            "reason": "last-known-good-expired",
+            "codes": ["publication-fallback-expired"],
+        }
+    }
+    assert source.read_text() == '{"version":"baseline"}\n'
 
 
 def test_clean_candidate_recovers_after_prior_fallback_expired(
@@ -4761,3 +4997,215 @@ def test_v6_runtime_parity_and_optional_override_retire_only_after_full_old_proo
         relative: descriptor for relative, descriptor in entries.items() if relative not in retired}
     for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
         assert migrated[field] == original[field]
+
+
+def _audit_finding_codes() -> set[str]:
+    """Every error or degradation code the dashboard audit can emit."""
+    import ast
+    import re
+
+    slug = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)+")
+    source = (ROOT / "scripts/vllm/audit_dashboard_data.py").read_text()
+    codes: set[str] = set()
+    families: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        for keyword in node.keywords:
+            value = keyword.value
+            if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+                continue
+            if keyword.arg == "code" and slug.fullmatch(value.value):
+                codes.add(value.value)
+            if keyword.arg == "code_prefix":
+                families.add(value.value)
+        if name in {"error", "degradation", "report_cross_surface_build_mismatch"} and node.args:
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                if slug.fullmatch(first.value):
+                    codes.add(first.value)
+            elif isinstance(first, ast.JoinedStr) and isinstance(first.values[0], ast.Constant):
+                families.add(str(first.values[0].value).rstrip("-"))
+    for family in families:
+        codes.update(
+            f"{family}-{suffix}"
+            for suffix in ("version", "basis", "pct", "alias", "math")
+        )
+    return codes
+
+
+def test_every_audit_finding_code_is_attributed_or_explicitly_global() -> None:
+    codes = _audit_finding_codes()
+    assert len(codes) > 300
+
+    unattributed = sorted(code for code in codes if surfaces_module.finding_code_route(code) is None)
+
+    assert unattributed == []
+    assert not surfaces_module.GLOBAL_FINDING_CODES & surfaces_module.PATH_ROUTED_FINDING_CODES
+    assert surfaces_module.PATH_ROUTED_FINDING_CODES <= codes
+    assert surfaces_module.GLOBAL_FINDING_CODES <= codes | set(
+        surfaces_module.OPERATIONS_FINDING_SURFACES
+    )
+
+
+def test_global_codes_block_even_when_their_path_names_a_surface_file() -> None:
+    lineage = Finding(
+        "error", "private-analytics-lineage", "analytics lost its private lineage",
+        "data/vllm/ci/analytics.json",
+    )
+    owned_shape = Finding("error", "publication-source-shape", "bad shape", AGENT_HEALTH_RELATIVE)
+    unowned_shape = Finding("error", "publication-source-shape", "bad shape", "data/vllm/unowned.json")
+
+    assert finding_surfaces(lineage) == frozenset()
+    assert finding_surfaces(owned_shape) == frozenset({"agent_health"})
+    assert finding_surfaces(unowned_shape) == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("code", "path"),
+    [
+        ("public-file-budget", AGENT_HEALTH_RELATIVE),
+        ("storage-retention-invalid", "data/vllm/ci/ci_health.json"),
+        ("dns-health-payload-budget", "data/vllm/ci/dns_failures.json"),
+        ("operations-health-payload-budget", "data/vllm/ci/operations_v2.json"),
+    ],
+    ids=["public-file", "retention", "dns", "operations"],
+)
+def test_byte_bounds_can_restore_but_never_mark_a_surface_unavailable(code, path) -> None:
+    finding = Finding("error", code, "over budget", path)
+
+    assert finding_surfaces(finding)
+    assert surfaces_module.unavailable_finding_surfaces(finding) == frozenset()
+
+
+def _write_unavailable_agent_health(root: Path, *, since: str, payload: bytes) -> Path:
+    agent_health = root / AGENT_HEALTH_RELATIVE
+    agent_health.parent.mkdir(parents=True, exist_ok=True)
+    agent_health.write_bytes(payload)
+    state = {
+        **_current_state_payload(),
+        "mode": "fallback",
+        "degraded_surfaces": ["agent_health"],
+        "fallback_surfaces": ["agent_health"],
+        "degraded_since": {"agent_health": since},
+        "fallback_since": {"agent_health": since},
+        "restored_paths": {"agent_health": [AGENT_HEALTH_RELATIVE]},
+        "restored_manifest": {
+            "agent_health": {AGENT_HEALTH_RELATIVE: _manifest_descriptor(payload)}
+        },
+        "unavailable_surfaces": ["agent_health"],
+        "unavailable_since": {"agent_health": since},
+        "unavailable_reasons": {
+            "agent_health": {
+                "reason": "candidate-and-last-known-good-failed",
+                "codes": list(INCIDENT_CODES),
+            }
+        },
+    }
+    state_path = root / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps(state))
+    return state_path
+
+
+@pytest.fixture
+def agent_health_specs(monkeypatch: pytest.MonkeyPatch) -> None:
+    specs = {
+        "agent_health": SurfaceSpec(required_paths=(AGENT_HEALTH_RELATIVE,)),
+        "queue": SurfaceSpec(required_paths=(QUEUE_JOBS_RELATIVE,)),
+    }
+    for module in (audit_module, surfaces_module):
+        monkeypatch.setattr(module, "SURFACE_SPECS", specs)
+
+
+def _audit_with_incident_findings(root: Path) -> DashboardAudit:
+    audit = DashboardAudit(root)
+    for code in INCIDENT_CODES:
+        audit.error(code, "old attribution contract", "data/vllm/ci/operations_v2.json")
+    audit.error("operations-bundle-schema", "bundle schema changed", "data/vllm/ci/operations_v2_manifest.json")
+    audit.accept_unavailable_surfaces()
+    return audit
+
+
+def test_audit_accepts_only_findings_owned_by_an_attested_unavailable_surface(
+    tmp_path: Path,
+    agent_health_specs: None,
+) -> None:
+    since = "2026-01-01T00:00:00Z"
+    _write_unavailable_agent_health(tmp_path, since=since, payload=b'{"contract":"old"}\n')
+
+    audit = _audit_with_incident_findings(tmp_path)
+
+    # Days past the 36-hour silent-fallback bound: unavailability is declared,
+    # not silent, so it does not expire into a global stop.
+    assert [finding.code for finding in audit.report.errors] == ["operations-bundle-schema"]
+    assert sorted(finding.code for finding in audit.report.degradations) == list(INCIDENT_CODES)
+    assert audit.unavailable_surfaces() == frozenset({"agent_health"})
+
+
+def test_audit_ignores_an_unavailable_declaration_without_a_valid_restore_proof(
+    tmp_path: Path,
+    agent_health_specs: None,
+) -> None:
+    _write_unavailable_agent_health(
+        tmp_path,
+        since=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        payload=b'{"contract":"old"}\n',
+    )
+    (tmp_path / AGENT_HEALTH_RELATIVE).write_text('{"contract":"tampered"}\n')
+
+    audit = _audit_with_incident_findings(tmp_path)
+
+    codes = [finding.code for finding in audit.report.errors]
+    assert "publication-fallback-manifest-mismatch" in codes
+    assert set(INCIDENT_CODES) <= set(codes)
+    assert audit.unavailable_surfaces() == frozenset()
+
+
+def test_audit_rejects_an_unavailable_surface_outside_the_fallback_lane(
+    tmp_path: Path,
+    agent_health_specs: None,
+) -> None:
+    state_path = _write_unavailable_agent_health(
+        tmp_path,
+        since=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        payload=b'{"contract":"old"}\n',
+    )
+    state = json.loads(state_path.read_text())
+    state["unavailable_surfaces"] = ["queue"]
+    state["unavailable_since"] = {"queue": state["fallback_since"]["agent_health"]}
+    state["unavailable_reasons"] = {"queue": state["unavailable_reasons"]["agent_health"]}
+    state_path.write_text(json.dumps(state))
+
+    audit = _audit_with_incident_findings(tmp_path)
+
+    assert "publication-state-invalid" in [finding.code for finding in audit.report.errors]
+    assert audit.unavailable_surfaces() == frozenset()
+    assert set(INCIDENT_CODES) <= {finding.code for finding in audit.report.errors}
+
+
+def test_live_data_surface_map_names_existing_tests_and_excuses_only_unavailable_owners() -> None:
+    import ast
+
+    from tests.vllm.conftest import LIVE_DATA_TEST_SURFACES, excused_live_data_failure
+
+    for key, owners in LIVE_DATA_TEST_SURFACES.items():
+        assert owners and owners <= set(SURFACE_SPECS), key
+        filename, class_name, *method = key.split("::")
+        tree = ast.parse((ROOT / "tests/vllm" / filename).read_text())
+        classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name]
+        assert classes, key
+        if method:
+            assert any(
+                isinstance(node, ast.FunctionDef) and node.name == method[0]
+                for node in classes[0].body
+            ), key
+
+    schema = "tests/vllm/test_data_schemas.py::TestCiHealth::test_top_level_keys[amd]"
+    assert excused_live_data_failure(schema, frozenset({"ci_core", "queue"})) == frozenset({"ci_core"})
+    assert excused_live_data_failure(schema, frozenset({"ci_analytics"})) == frozenset()
+    assert excused_live_data_failure(
+        "tests/vllm/test_dashboard_audit.py::test_dashboard_audit_current_data_has_no_errors",
+        frozenset(SURFACE_SPECS),
+    ) == frozenset()
