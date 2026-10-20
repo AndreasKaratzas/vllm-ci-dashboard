@@ -22,17 +22,19 @@ const props = defineProps<{
 defineEmits<{ node: [AgentNodeHistory] }>()
 
 const NODES = 4
-const hot = computed(() => props.verdict.hotNodes.length > 0)
+// Hurting, then uncorroborated node-suspect nodes count their recent days; without either, the window's worst nodes count the whole window.
+const recentNodes = computed(() => (props.verdict.hotNodes.length ? props.verdict.hotNodes : props.verdict.watchNodes))
 type NodeRow = { node: AgentNodeHistory; hard: number; soft: number }
-// Hurting nodes count their recent days; without one, the window's worst nodes count the whole window.
 const nodes = computed<NodeRow[]>(() =>
-  (hot.value ? props.verdict.hotNodes : props.matrix.nodes).slice(0, NODES).map((node) => {
-    const cells = hot.value ? node.cells.slice(-props.matrix.recentDays) : node.cells
+  (recentNodes.value.length ? recentNodes.value : props.matrix.nodes).slice(0, NODES).map((node) => {
+    const cells = recentNodes.value.length ? node.cells.slice(-props.matrix.recentDays) : node.cells
     return { node, hard: cells.reduce((sum, cell) => sum + cell.signalHard, 0), soft: cells.reduce((sum, cell) => sum + cell.signalSoft, 0) }
   }),
 )
 const series = computed(() => STATE_SERIES.filter((s) => nodes.value.some((row) => row[s.key as 'hard' | 'soft'] > 0)))
-const nodesTitle = computed(() => (hot.value ? 'Hurting CI now' : `Worst nodes in ${props.windowId}`))
+const nodesTitle = computed(() =>
+  props.verdict.hotNodes.length ? 'Failing jobs themselves' : props.verdict.watchNodes.length ? 'Node-suspect, uncorroborated' : `Worst nodes in ${props.windowId}`,
+)
 const GLOW = { hard: 'from-status-hard/12', soft: 'from-status-soft/12', pass: 'from-brand/6' } as const
 </script>
 

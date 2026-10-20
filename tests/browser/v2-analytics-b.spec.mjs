@@ -14,6 +14,16 @@ const golden = readGolden('analytics-b');
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/tests/fixtures');
 const DNS = readFileSync(resolve(fixtures, 'dns_pages.json'), 'utf8');
 const AGENT = JSON.stringify({ amd_agent_health: JSON.parse(readFileSync(resolve(fixtures, 'agent_health_live.json'), 'utf8')) });
+// The golden page called the node signal "infra-suspect" under its retired rule; failure attribution renamed it.
+const RENAMES = JSON.parse(readFileSync(resolve(fixtures, 'agent_signal_renames.json'), 'utf8'));
+const renamed = (value) =>
+  typeof value === 'string'
+    ? RENAMES.reduce((text, [from, to]) => text.split(from).join(to), value)
+    : Array.isArray(value)
+      ? value.map(renamed)
+      : value && typeof value === 'object'
+        ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, renamed(item)]))
+        : value;
 
 async function routeDns(page) {
   const fulfill = (route) => route.fulfill({ body: DNS, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' } });
@@ -244,13 +254,13 @@ test.describe('CI agent health matches the golden page facts', () => {
     test(name, async ({ page }) => {
       if (routed) await routeAgent(page);
       const { failRate, facts } = await v2Agent(page, query);
-      expect(facts).toEqual(expectedAgent(golden[`agent ${name}`], failRate));
+      expect(facts).toEqual(expectedAgent(renamed(golden[`agent ${name}`]), failRate));
     });
   }
 
   test('node evidence and sorting match the golden page', async ({ page }) => {
     await routeAgent(page);
-    const { evidenceTitle, evidenceLinks, sortedNodes } = golden['agent drill-downs'];
+    const { evidenceTitle, evidenceLinks, sortedNodes } = renamed(golden['agent drill-downs']);
     // More rows than one v2 page, so the comparison walks the DataTable pagination.
     expect(sortedNodes.length).toBeGreaterThan(15);
     await v2Agent(page, 'agent_window=14d');
@@ -261,7 +271,7 @@ test.describe('CI agent health matches the golden page facts', () => {
     const [, node] = evidenceTitle.match(/ failures on (.+)$/);
     await expect(sheet.locator('h2')).toHaveText(node);
     await expect(sheet.getByText(evidenceTitle.charAt(0).toUpperCase() + evidenceTitle.slice(1))).toBeVisible();
-    const runs = sheet.locator('[data-slot="evidence-table"]').filter({ hasText: 'Retained infra-suspect failing runs' });
+    const runs = sheet.locator('[data-slot="evidence-table"]').filter({ hasText: 'Retained node-suspect failing runs' });
     expect(await runs.locator('tbody tr td:first-child a').evaluateAll((as) => as.map((a) => a.getAttribute('href')))).toEqual(evidenceLinks);
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
@@ -281,7 +291,7 @@ test.describe('CI agent health matches the golden page facts', () => {
     await routeAgent(page);
     await page.goto('/?ops_analytics_view=agent-health&ops_agent_window=30d&ops_agent_signal=hard#ci-analytics');
     await expect(page).toHaveURL(/#\/analytics\?view=agent-health&agent_window=30d&agent_signal=hard$/);
-    await expect(page.getByTestId('agent-signal-caption')).toHaveText('Showing every hard failure on the node — not just the infra-suspect subset.');
+    await expect(page.getByTestId('agent-signal-caption')).toHaveText('Showing every hard failure on the node — not just the node-suspect subset.');
   });
 
   test('dragging across a node run timeline zooms to the selected range', async ({ page }) => {
@@ -324,7 +334,7 @@ test.describe('CI agent health tells the fleet story', () => {
   test('the verdict names the hurting nodes, and each opens its sheet', async ({ page }) => {
     await page.goto('/#/analytics?view=agent-health&agent_window=14d');
     const verdict = page.getByTestId('agent-verdict');
-    await expect(verdict.getByTestId('agent-verdict-headline')).toHaveText(/^(\d+ nodes? (is|are) hurting CI right now|Isolated failures, no repeat offender|No node is hurting CI right now)$/);
+    await expect(verdict.getByTestId('agent-verdict-headline')).toHaveText(/^(\d+ nodes? (is|are) failing jobs themselves|No node is failing jobs repeatedly|No node is hurting CI right now)$/);
     const tone = await verdict.getAttribute('data-tone');
     await expect(verdict.getByTestId('agent-verdict-badge')).toHaveText({ hard: 'Hurting', soft: 'Watch', pass: 'Healthy' }[tone]);
     const hot = verdict.getByTestId('agent-hot-nodes');
@@ -338,6 +348,18 @@ test.describe('CI agent health tells the fleet story', () => {
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
     await expect(page).not.toHaveURL(/agent_node=/);
+  });
+
+  test('the attribution card says which failures were not node faults and opens each cause', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
+    const card = page.getByTestId('agent-attribution');
+    await expect(card.getByTestId('agent-attribution-summary')).toHaveText(
+      /^≥?[\d,]+ of ≥?[\d,]+ failures in 14d were build-wide, test or shared-infrastructure failures, not node faults; ≥?[\d,]+ (is|are) attributed to a node\.$/,
+    );
+    await card.getByRole('button', { name: /Test or code/ }).first().click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('h2')).toHaveText('Test or code failures');
+    await expect(sheet.getByText('The test group also failed on other nodes within a day.')).toBeVisible();
   });
 
   test('agent_node follows a node sheet opened from inside another sheet', async ({ page }) => {
@@ -471,7 +493,7 @@ test.describe('CI agent health tells the fleet story', () => {
 test.describe('chart marks look clickable', () => {
   for (const [name, url, chart] of [
     ['DNS queue bars', '/#/analytics?view=dns&dns_window=720h', 'DNS observations by queue and final job outcome'],
-    ['Agent queue bars', '/#/analytics?view=agent-health&agent_window=14d', 'Retained infra-suspect failures by queue'],
+    ['Agent queue bars', '/#/analytics?view=agent-health&agent_window=14d', 'Retained node-suspect failures by queue'],
   ]) {
     test(`${name} show a pointer, a tooltip and a hover state, and open a sheet`, async ({ page }) => {
       const errors = collectErrors(page);
@@ -512,7 +534,8 @@ const SHEETS = [
   ['agent failing nodes', '/#/analytics?view=agent-health&agent_window=3d&agent_gpu=MI355&agent_nightly=1&agent_excl_cancel=0', (page) => page.getByTestId('kpi-agent-unreliable').locator('[data-kpi-action]').click()],
   ['agent day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-column"]').nth(8).click()],
   ['agent node day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-row"] ~ button[data-slot="heatmap-cell"]').first().click()],
-  ['agent queue', '/#/analytics?view=agent-health&agent_window=14d', inspect('Retained infra-suspect failures by queue', 0)],
+  ['agent queue', '/#/analytics?view=agent-health&agent_window=14d', inspect('Retained node-suspect failures by queue', 0)],
+  ['agent attribution', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.getByTestId('agent-attribution').getByRole('button', { name: /Unexplained/ }).first().click()],
   [
     'agent test group',
     '/#/analytics?view=agent-health&agent_window=14d',
@@ -522,7 +545,7 @@ const SHEETS = [
         await card.getByRole('combobox').click();
         await page.getByRole('option', { name: 'Test group' }).click();
       } else await card.getByRole('radio', { name: 'Test group' }).or(card.getByRole('button', { name: 'Test group', exact: true })).click();
-      await inspect('Retained infra-suspect failures by test group', 0)(page);
+      await inspect('Retained node-suspect failures by test group', 0)(page);
     },
   ],
   [

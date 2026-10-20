@@ -112,6 +112,7 @@ const proof = {version: 1, basis: 'terminal_jobs_by_started_at', requested_days:
 const partialScope = {...oldCoverage, retention: {...oldCoverage.retention, pipeline_scope: proof}};
 assert.equal(sourceComplete(partialScope), false);
 assert.equal(sourceComplete(partialScope, '2026-10-07'), true);
+assert.equal(sourceComplete({...partialScope, retention: {...partialScope.retention, pipeline_scope: {...proof, attempt_policy: 'every_executed_attempt'}}}, '2026-10-07'), true);
 assert.equal(sourceComplete(partialScope, '2026-10-05'), false);
 assert.equal(sourceComplete(partialScope, '2026-10-01'), false);
 assert.equal(sourceComplete(partialScope, '2026-10-09'), false);
@@ -2262,7 +2263,7 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
     ):
         assert retired_contract not in OPS_JS
     assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=38' in INDEX
+    assert 'assets/js/ops-v2.js?v=39' in INDEX
     assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS

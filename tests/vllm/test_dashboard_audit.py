@@ -5389,7 +5389,7 @@ def _agent_started_coverage_fixture(days=3, dropped=0, version=1):
                 "exhaustive": True, "complete_window": days == 60 and dropped == 0,
                 "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
                 "active_build_states": ["creating", "scheduled", "running", "failing", "blocked", "canceling"],
-                "attempt_policy": "latest_attempt_per_step",
+                "attempt_policy": "every_executed_attempt",
                 "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
             },
         },

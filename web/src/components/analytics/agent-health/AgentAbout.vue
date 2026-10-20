@@ -1,20 +1,34 @@
 <script setup lang="ts">
-import type { AgentModel } from '@/domain/agentHealth'
+import { HURTING_NODE_FAILURES, type AgentModel } from '@/domain/agentHealth'
 
 defineProps<{ model: AgentModel }>()
 </script>
 
 <template>
   <p>
-    Terminal runs from CI main builds on AMD MI GPU hardware are attributed to the physical node from the Buildkite agent tag. The timeline and
-    co-failure clustering follow the selected failure signal.
+    Every terminal attempt of a CI main job on AMD MI GPU hardware, including attempts Buildkite superseded with an automatic retry, is attributed to the
+    physical node from the Buildkite agent tag. The timeline and co-failure clustering follow the selected failure signal.
   </p>
   <p v-if="model.completionScopeNote" data-testid="agent-completion-scope">{{ model.completionScopeNote }}</p>
-  <p class="font-medium text-foreground">What counts as an infra-suspect failure?</p>
-  <p>A soft or hard failure is node-attributable when its exact test group, on that same {{ model.criteria.dayLabel }}, both:</p>
-  <ol class="list-decimal pl-5">
-    <li>passed at least {{ model.criteria.pct }} of its gradable runs (needs ≥ {{ model.criteria.samples }} graded samples), so the group works; and</li>
-    <li>passed on at least one other physical node that day, so the failure is isolated to this machine rather than a broad code break.</li>
+  <p class="font-medium text-foreground">When is a failure the node's fault?</p>
+  <p>Each failing attempt is explained by the first rule that matches:</p>
+  <ol class="list-decimal pl-5" data-testid="agent-attribution-rules">
+    <li>
+      The agent died mid-job, or the job's containers never started: shared infrastructure when the same happened on {{ model.rules.burstNodes }} or more nodes
+      within {{ model.rules.burstMinutes }} minutes. Otherwise a lost agent is the node's, and a job that never started is unexplained.
+    </li>
+    <li>
+      {{ model.rules.upstreamSharePct }}% or more of the same build's CUDA jobs and of its AMD jobs failed (of at least {{ model.rules.upstreamMinJobs }} each,
+      torch-nightly builds aside) and the step never passed: build-wide. So is a failure in a build that failed on {{ model.rules.buildWideOtherNodes }} or more
+      other nodes, or shared infrastructure when the step passed on a retry. Never for a node that failed nearly all of its {{ model.rules.outlierFailures }} or
+      more jobs in that build while the jobs beside it passed.
+    </li>
+    <li>
+      The retry failed on another node: test or code. So is a failure whose CUDA job running the same test failed on the same commit (torch-nightly builds
+      aside) while the AMD job never passed, or whose test group failed on other nodes within {{ model.rules.recurrenceHours }} hours, or passed on no other
+      node, unless the node is that build's outlier.
+    </li>
+    <li>Otherwise it is unexplained, and the node's when unexplained failures hit {{ model.rules.repeatGroups }} or more test groups on it within {{ model.rules.repeatHours }} hours.</li>
   </ol>
-  <p>Groups that fail broadly and failures inside auto-cancelled or superseded builds are filtered out by default.</p>
+  <p>The node-suspect signal keeps the node and unexplained failures. A node is hurting CI once {{ HURTING_NODE_FAILURES }} recent failures are attributed to it.</p>
 </template>
