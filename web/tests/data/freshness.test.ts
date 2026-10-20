@@ -25,9 +25,14 @@ const byKey = (rows: ReturnType<typeof sourceFreshness>) => Object.fromEntries(r
 
 describe('source freshness', () => {
   it('covers exactly the configured sources, labelled from the config', () => {
-    const rows = sourceFreshness(MANIFEST.shell, { generated_at: minutesAgo(5) }, NOW)
+    const rows = sourceFreshness(opsAt(5), null, NOW)
     expect(rows.map((row) => row.key)).toEqual(Object.keys(CONFIG.sources))
     expect(byKey(rows).analytics!.label).toBe(CONFIG.sources.analytics.label)
+  })
+
+  it('skips a main-derived clock that a manifest written before it does not list', () => {
+    const rows = sourceFreshness(MANIFEST.shell, null, NOW)
+    expect(rows.map((row) => row.key)).toEqual(Object.keys(CONFIG.sources).filter((key) => !CONFIG.core.main_derived_sources.includes(key)))
   })
 
   it('applies the core warn and stale thresholds at their boundaries', () => {
@@ -68,7 +73,13 @@ describe('group freshness', () => {
   it('reports core data as old as its oldest core source', () => {
     const rows = sourceFreshness(opsAt(10, { workload_mapping: 160 }), { generated_at: minutesAgo(30) }, NOW)
     expect(coreFreshness(rows)).toMatchObject({ timestamp: minutesAgo(160), ageMs: 160 * 60_000, state: 'warn' })
-    expect(coreFreshness(rows)!.sources.map((row) => row.key).sort()).toEqual([...CONFIG.core.sources].sort())
+    expect(coreFreshness(rows)!.sources.map((row) => row.key).sort()).toEqual([...CONFIG.core.sources, ...CONFIG.core.main_derived_sources].sort())
+  })
+
+  it('holds the all-main cohort clock to the core targets, so a stuck cohort makes core data stale', () => {
+    const rows = sourceFreshness(opsAt(10, { main_ci: CONFIG.core.stale_minutes + 1 }), { generated_at: minutesAgo(10) }, NOW)
+    expect(byKey(rows).main_ci).toMatchObject({ warnMinutes: CONFIG.core.warn_minutes, staleMinutes: CONFIG.core.stale_minutes, state: 'stale' })
+    expect(coreFreshness(rows)).toMatchObject({ ageMs: (CONFIG.core.stale_minutes + 1) * 60_000, state: 'stale' })
   })
 
   it('reports core data as stale with no age when a core source is missing', () => {

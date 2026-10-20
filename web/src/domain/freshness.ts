@@ -5,6 +5,8 @@ export type FreshnessState = 'fresh' | 'warn' | 'stale'
 
 interface GroupTarget {
   sources: string[]
+  /** Core clocks of data derived from all main builds; skipped while the manifest does not publish them yet. */
+  main_derived_sources?: string[]
   warn_minutes: number
   stale_minutes: number
 }
@@ -25,6 +27,8 @@ interface FreshnessTargets {
 }
 
 const TARGETS: FreshnessTargets = targets
+const MAIN_DERIVED = TARGETS.core.main_derived_sources ?? []
+const CORE_SOURCES = [...TARGETS.core.sources, ...MAIN_DERIVED]
 const MINUTE_MS = 60_000
 const SEVERITY: Record<FreshnessState, number> = { fresh: 0, warn: 1, stale: 2 }
 
@@ -53,8 +57,8 @@ export interface FreshnessSummary {
 }
 
 function limits(key: string, target: SourceTarget) {
-  const group = [TARGETS.core, TARGETS.queue].find((candidate) => candidate.sources.includes(key))
-  if (group) return { warnMinutes: group.warn_minutes, staleMinutes: group.stale_minutes }
+  if (CORE_SOURCES.includes(key)) return { warnMinutes: TARGETS.core.warn_minutes, staleMinutes: TARGETS.core.stale_minutes }
+  if (TARGETS.queue.sources.includes(key)) return { warnMinutes: TARGETS.queue.warn_minutes, staleMinutes: TARGETS.queue.stale_minutes }
   const limit = target.collector_limit_minutes ?? TARGETS.default_collector_limit_minutes
   return { warnMinutes: limit, staleMinutes: limit }
 }
@@ -77,7 +81,9 @@ function stateOf(ageMs: number | null, warnMinutes: number, staleMinutes: number
  */
 export function sourceFreshness(ops: Rec | null | undefined, perf: Rec | null | undefined, nowMs: number): SourceFreshness[] {
   const records: Rec = ops?.sources ?? {}
-  return Object.entries(TARGETS.sources).map(([key, target]) => {
+  // A manifest written before a main-derived clock existed does not list it; Site Health skips it too.
+  const listed = Object.entries(TARGETS.sources).filter(([key]) => !MAIN_DERIVED.includes(key) || key in records)
+  return listed.map(([key, target]) => {
     const record: Rec = records[key] ?? (key === 'perf_eval' && perf ? { timestamp: perf.generated_at, timestamp_source: 'payload' } : {})
     const timestamp = record.timestamp || record.generated_at || null
     const observedMs = parse(timestamp)
@@ -110,9 +116,9 @@ function summarize(rows: SourceFreshness[]): FreshnessSummary | null {
 
 const pick = (rows: SourceFreshness[], keys: readonly string[]) => rows.filter((row) => keys.includes(row.key))
 
-/** Core collector data: as old as its oldest core source. */
+/** Core collector data, including the all-main cohort clocks: as old as its oldest core source. */
 export function coreFreshness(rows: SourceFreshness[]): FreshnessSummary | null {
-  return summarize(pick(rows, TARGETS.core.sources))
+  return summarize(pick(rows, CORE_SOURCES))
 }
 
 export function queueFreshness(rows: SourceFreshness[]): FreshnessSummary | null {
