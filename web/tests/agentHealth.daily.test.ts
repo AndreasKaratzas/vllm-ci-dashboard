@@ -190,7 +190,9 @@ describe('agentFleetVerdict', () => {
     )
     expect(verdict).toMatchObject({ tone: 'hard', label: 'Hurting', headline: '2 nodes are hurting CI right now', recentFailures: 4, recentNodes: 3 })
     expect(verdict.hotNodes.map((n) => n.node_raw)).toEqual(['a', 'b'])
-    expect(verdict.detail).toBe('4 infra-suspect failures on 3 nodes in the last 3 days; these repeat on one node or cluster into co-failure events.')
+    expect(verdict.detail).toBe('4 infra-suspect failures on 3 nodes in the last 3 days. 2 nodes repeat failures or cluster them into co-failure events and account for 3 of them.')
+    const one = agentFleetVerdict(matrix([node('a', [cell(0), cell(0), cell(1), cell(1)]), node('c', [cell(3), cell(0), cell(0), cell(1)])]), complete, options)
+    expect(one.detail).toBe('3 infra-suspect failures on 2 nodes in the last 3 days. One node repeats failures or clusters them into co-failure events and accounts for 2 of them.')
   })
 
   it('watches isolated recent failures and names the share of the worst nodes', () => {

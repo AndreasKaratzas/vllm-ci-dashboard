@@ -7,7 +7,6 @@ import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
 import Heatmap from '@/components/charts/Heatmap.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
-import RankedBars from '@/components/charts/RankedBars.vue'
 import Timeline from '@/components/charts/Timeline.vue'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { barValueTicks, distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
@@ -86,6 +85,11 @@ describe('timeTicks', () => {
     const { values, label } = timeTicks([at('2026-10-16T05:29:00Z'), at('2026-10-19T05:09:00Z')], 8)
     expect(values.map(label)).toEqual(['12:00', 'Oct 17', '12:00', 'Oct 18', '12:00', 'Oct 19'])
     expect(new Set(values.slice(1).map((v, i) => v - values[i]!))).toEqual(new Set([12 * 3_600_000]))
+  })
+
+  it('ticks on round minutes when zoomed into one event', () => {
+    const { values, label } = timeTicks([at('2026-10-14T08:14:00Z'), at('2026-10-14T08:52:00Z')], 6)
+    expect(values.map(label)).toEqual(['08:20', '08:30', '08:40', '08:50'])
   })
 
   it('switches to whole days on long windows', () => {
@@ -405,7 +409,6 @@ describe('Heatmap', () => {
     dot: 'var(--hw-mi355)' as never,
     cells: values.map((value, i) => ({ value, marker: i === marker })),
     total: values.reduce((a, b) => a + b, 0),
-    segments: [{ value: values.reduce((a, b) => a + b, 0), color: statusVar('hard'), label: 'Hard' }],
   })
   const rows = [row('node-a', [0, 4, 1], 1), row('node-b', [2, 0, 0])]
   const summary = { id: 'fleet', label: 'All nodes', cells: [2, 4, 1].map((value) => ({ value })), total: 7 }
@@ -418,7 +421,7 @@ describe('Heatmap', () => {
     // Summary row (max 4), then node rows (max 4).
     expect(cells.map(color)).toEqual([3, 5, 2, 0, 5, 2, 3, 0, 0].map((level) => `var(--heat-${level})`))
     expect(wrapper.findAll('[data-slot=heatmap-marker]')).toHaveLength(1)
-    expect(text(wrapper.find('[data-slot=heatmap-legend]').element)).toContain('max 4 per cell')
+    expect(text(wrapper.find('[data-slot=heatmap-legend]').element)).toContain('max 4 per cell; All nodes on its own scale, max 4')
     // Without handlers nothing is a button.
     expect(wrapper.find('button').exists()).toBe(false)
   })
@@ -452,40 +455,27 @@ describe('Heatmap', () => {
     wrapper.unmount()
   })
 
+  it('keeps one cell in the tab order and moves between failing cells with the arrow keys', async () => {
+    const wrapper = mount(Heatmap, { props: { columns, rows, summary, label: 'Failures', onCell: () => {} }, attachTo: document.body })
+    const stops = () => wrapper.findAll('button[data-slot=heatmap-cell]').filter((b) => b.attributes('tabindex') === '0').map((b) => b.attributes('data-spot'))
+    expect(stops()).toEqual(['0:0'])
+    const at = (spot: string) => wrapper.find(`[data-spot="${spot}"]`)
+    await at('0:0').trigger('focus')
+    await at('0:0').trigger('keydown', { key: 'End' })
+    expect(document.activeElement).toBe(at('0:2').element)
+    // Down from the summary's last day lands on node-a's nearest failing day; empty cells are skipped.
+    await at('0:2').trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(at('1:2').element)
+    await at('1:2').trigger('focus')
+    await at('1:2').trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(at('2:0').element)
+    await at('2:0').trigger('focus')
+    expect(stops()).toEqual(['2:0'])
+    wrapper.unmount()
+  })
+
   it('names its rows with the given action and unit', () => {
     const wrapper = mount(Heatmap, { props: { columns, rows: [row('n', [1, 0, 0])], label: 'Runs', unit: ['run', 'runs'] as [string, string], rowAction: 'open the node', onRow: () => {} } })
     expect(wrapper.find('button[data-slot=heatmap-row]').attributes('aria-label')).toBe('n: 1 run, open the node')
-  })
-})
-
-describe('RankedBars', () => {
-  const items = [
-    { key: 'q1', label: 'queue-1', value: 6, segments: [{ value: 4, color: statusVar('hard'), label: 'hard' }, { value: 2, color: statusVar('soft'), label: 'soft' }], meta: '3 nodes' },
-    { key: 'q2', label: 'short', title: 'the full name', value: 3 },
-  ]
-
-  it('scales bars to the largest value and splits stacked parts', () => {
-    const wrapper = mount(RankedBars, { props: { items, label: 'Queues', color: SERIES.primary } })
-    const bars = wrapper.findAll('[data-slot=ranked-item] > span:nth-child(2) > span')
-    expect(bars.map((b) => b.attributes('style'))).toEqual(['width: 100%;', 'width: 50%;'])
-    expect(bars[0]!.findAll('span').map((s) => s.attributes('style'))).toEqual([
-      'flex-grow: 4; background-color: var(--status-hard);',
-      'flex-grow: 2; background-color: var(--status-soft);',
-    ])
-    expect(bars[1]!.find('span').attributes('style')).toContain('var(--series-1)')
-    expect(wrapper.find('button').exists()).toBe(false)
-    expect(wrapper.findAll('[data-slot=ranked-item]')[1]!.attributes('title')).toBe('the full name')
-  })
-
-  it('reads out each item and selects it', async () => {
-    const onSelect = vi.fn()
-    const wrapper = mount(RankedBars, { props: { items, label: 'Queues', action: 'open the queue', onSelect } })
-    const buttons = wrapper.findAll('button')
-    expect(buttons.map((b) => b.attributes('aria-label'))).toEqual([
-      'queue-1: 6 (4 hard, 2 soft), 3 nodes; open the queue',
-      'the full name: 3; open the queue',
-    ])
-    await buttons[1]!.trigger('click')
-    expect(onSelect).toHaveBeenCalledWith(items[1])
   })
 })

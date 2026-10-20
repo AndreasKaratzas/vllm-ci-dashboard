@@ -1,22 +1,13 @@
 <script setup lang="ts">
 import { ChevronDown, Search, ServerCrash, SlidersHorizontal } from '@lucide/vue'
-import { refDebounced } from '@vueuse/core'
+import { refDebounced, useMediaQuery } from '@vueuse/core'
 import { computed, h, ref, watch } from 'vue'
 import AgentAbout from '@/components/analytics/agent-health/AgentAbout.vue'
 import CofailureCard from '@/components/analytics/agent-health/CofailureCard.vue'
-import {
-  FAILURE_SERIES,
-  dayDetail,
-  eventDetail,
-  failingNodesDetail,
-  loadDetail,
-  loadItems,
-  nodeDayDetail,
-  nodeDetail,
-} from '@/components/analytics/agent-health/details'
+import { dayDetail, eventDetail, failingNodesDetail, nodeDayDetail, nodeDetail, nodeOfDetail } from '@/components/analytics/agent-health/details'
 import FleetVerdict from '@/components/analytics/agent-health/FleetVerdict.vue'
+import LoadChart from '@/components/analytics/agent-health/LoadChart.vue'
 import { shortDay } from '@/components/charts/chart'
-import RankedBars, { type RankedItem } from '@/components/charts/RankedBars.vue'
 import Heatmap, { type HeatmapColumn, type HeatmapRow } from '@/components/charts/Heatmap.vue'
 import SheetStack from '@/components/evidence/SheetStack.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
@@ -60,13 +51,12 @@ import {
   signalNoun,
   signalTerm,
   type AgentDay,
-  type AgentLoad,
   type AgentNodeHistory,
   type AgentRow,
   type CofailEvent,
 } from '@/domain/agentHealth'
 import { integer, value, type Rec } from '@/domain/format'
-import { hardwareColor, heatColor } from '@/lib/palette'
+import { SERIES, hardwareColor } from '@/lib/palette'
 
 const { data: ops, error, loading, retry } = useOperationSections(['amd_agent_health'])
 const sheets = useSheetStack()
@@ -153,9 +143,7 @@ function nodeSheet(agent: AgentRow) {
   return nodeDetail(model.value!, view.value!, options.value!, agent, historyByNode.value.get(agent.node_raw) ?? null)
 }
 function openNode(agent: AgentRow) {
-  if (!model.value || !view.value || !options.value) return
-  query.node.value = agent.node_raw
-  sheets.open(nodeSheet(agent))
+  if (model.value && view.value && options.value) sheets.open(nodeSheet(agent))
 }
 const openNodeRaw = (nodeRaw: string) => {
   const agent = agentsByNode.value.get(nodeRaw)
@@ -169,14 +157,11 @@ function openDay(index: number) {
   const day = days.value[index]
   if (day && matrix.value && view.value && options.value) sheets.open(dayDetail(day, matrix.value, view.value.fRuns, options.value))
 }
-function openLoad(kind: 'queue' | 'group', load: AgentLoad) {
-  if (options.value) sheets.open(loadDetail(kind, load, options.value, nodeSheetRaw))
-}
 function openEvent(event: CofailEvent) {
   selectedEventKey.value = eventKey(event)
   sheets.open(eventDetail(event, agentsByNode.value.get(event.node_raw)?._runs))
 }
-// agent_node names the node whose sheet is open, so a link reopens it; closing every sheet clears it.
+// agent_node names the topmost open node sheet, however it was reached, so a link reopens it.
 watch(
   () => [view.value, query.node.value] as const,
   ([current, node]) => {
@@ -184,12 +169,9 @@ watch(
   },
   { immediate: true },
 )
-watch(
-  () => sheets.stack.value.length,
-  (length) => {
-    if (!length) query.node.value = ''
-  },
-)
+watch(sheets.stack, (stack) => {
+  query.node.value = stack.map(nodeOfDetail).findLast(Boolean) ?? ''
+})
 
 // ---- KPIs with their daily history ----
 const fullDays = computed(() => days.value.slice(0, -1))
@@ -291,10 +273,6 @@ const heatRow = (node: AgentNodeHistory): HeatmapRow => ({
     ],
   })),
   total: node.signal,
-  segments: [
-    { value: node.signalHard, color: FAILURE_SERIES[0]!.color, label: 'Hard' },
-    { value: node.signalSoft, color: FAILURE_SERIES[1]!.color, label: 'Soft' },
-  ],
 })
 const heatRows = computed(() => (matrix.value?.nodes ?? []).slice(0, showAllNodes.value ? undefined : TOP_NODES).map(heatRow))
 const fleetRow = computed<HeatmapRow>(() => ({
@@ -316,8 +294,8 @@ function openCell(row: HeatmapRow, index: number) {
   else if (history && day && view.value && options.value) sheets.open(nodeDayDetail(history, day, view.value.fRuns, options.value))
 }
 
-// ---- Queues and test groups ----
-const LOAD_ROWS = 8
+// Below sm the page shows fewer events and table rows per screen, so it stays short.
+const wide = useMediaQuery('(min-width: 40rem)')
 
 // ---- Node table ----
 const textOrder = (pick: (row: AgentRow) => unknown) => (a: AgentRow, b: AgentRow) => {
@@ -325,6 +303,8 @@ const textOrder = (pick: (row: AgentRow) => unknown) => (a: AgentRow, b: AgentRo
   const y = String(pick(b) || '').toLowerCase()
   return x < y ? -1 : x > y ? 1 : 0
 }
+// The ranking column's header wraps on a phone, so the unwrapped node names and the counts both fit.
+const RANK_HEADER = 'whitespace-normal'
 const columns = computed<ColumnSpec<AgentRow>[]>(() => {
   const m = model.value
   const v = view.value
@@ -345,7 +325,7 @@ const columns = computed<ColumnSpec<AgentRow>[]>(() => {
   const bar = (id: 'failures' | 'infra_suspect', shown: string) => (row: AgentRow) => ({
     text: shown,
     muted: !row[id],
-    ...(id === ranked && row[id] > 0 ? { bar: { value: row[id], max: id === 'failures' ? failureMax : signalMax, color: heatColor(4) } } : {}),
+    ...(id === ranked && row[id] > 0 ? { bar: { value: row[id], max: id === 'failures' ? failureMax : signalMax, color: SERIES.primary } } : {}),
   })
   return [
     {
@@ -353,8 +333,9 @@ const columns = computed<ColumnSpec<AgentRow>[]>(() => {
       label: 'Physical node',
       value: (row) => row.node,
       compare: textOrder((row) => row.node),
-      cell: (row) => ({ text: row.node_raw, mono: true, nowrap: true, dots: row.identified ? [hardwareColor(row.hardware)] : undefined }),
+      cell: (row) => ({ text: row.node_raw, mono: true, dots: row.identified ? [hardwareColor(row.hardware)] : undefined }),
       hideable: false,
+      class: 'whitespace-nowrap',
     },
     { id: 'hardware', label: 'GPU', value: (row) => value(row.hardware), compare: textOrder((row) => row.hardware), class: 'hidden md:table-cell' },
     { ...count('runs', 'Runs', (row) => cells(row).runs), class: 'hidden md:table-cell' },
@@ -365,13 +346,13 @@ const columns = computed<ColumnSpec<AgentRow>[]>(() => {
       value: (row) => row.failures,
       cell: (row) => ({ ...bar('failures', cells(row).failures)(row), sub: cells(row).split ?? undefined }),
       numeric: true,
-      class: o.signal === 'all' ? undefined : 'hidden sm:table-cell',
+      class: o.signal === 'all' ? RANK_HEADER : 'hidden sm:table-cell',
     },
     ...(o.signal === 'all'
       ? []
-      : [{ id: 'infra_suspect', label: signalColumnLabel(o.signal), value: (row: AgentRow) => row.infra_suspect, cell: (row: AgentRow) => bar('infra_suspect', cells(row).signal)(row), numeric: true }]),
+      : [{ id: 'infra_suspect', label: signalColumnLabel(o.signal), value: (row: AgentRow) => row.infra_suspect, cell: (row: AgentRow) => bar('infra_suspect', cells(row).signal)(row), numeric: true, class: RANK_HEADER }]),
     { ...count('distinct_groups', 'Groups', (row) => cells(row).groups), class: 'hidden lg:table-cell' },
-    count('cofailure_event_count', 'Co-fail', (row) => cells(row).cofail),
+    { ...count('cofailure_event_count', 'Co-fail', (row) => cells(row).cofail), class: 'hidden sm:table-cell' },
   ]
 })
 // Without node-specific accounting every Fail % cell would read "Unavailable", so the column is left out.
@@ -391,11 +372,11 @@ const defaultSort = computed(() => ({ id: options.value?.signal === 'all' ? 'fai
 const tableDescription = computed(() => (model.value && view.value && options.value ? agentTableDescription(model.value, view.value, options.value) : ''))
 
 // ---- Co-failure events ----
-const EVENTS_SHOWN = 6
+const EVENTS_SHOWN = computed(() => (wide.value ? 6 : 3))
 const showAllEvents = ref(false)
 const selectedEventKey = ref('')
 const events = computed(() => (view.value && options.value ? eventsSection(view.value, options.value, '') : null))
-const shownEvents = computed(() => (events.value?.events ?? []).slice(0, showAllEvents.value ? undefined : EVENTS_SHOWN))
+const shownEvents = computed(() => (events.value?.events ?? []).slice(0, showAllEvents.value ? undefined : EVENTS_SHOWN.value))
 const eventsSummary = computed(() => {
   const o = options.value
   if (!o || !view.value) return ''
@@ -446,13 +427,11 @@ const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in
           v-if="verdict && matrix && view.agents.length"
           :verdict="verdict"
           :matrix="matrix"
-          :queues="queues"
           :signal="options.signal"
           :window-id="options.windowId"
           :trend="days.map((day) => day.signal)"
           :span="heatSpan"
           @node="(node: AgentNodeHistory) => openNodeRaw(node.node_raw)"
-          @queue="(load: AgentLoad) => openLoad('queue', load)"
         />
 
         <StatGrid :cols="4">
@@ -501,7 +480,6 @@ const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in
                 marker-label="Co-failure event"
                 row-action="open the node"
                 cell-action="open the runs"
-                :selected="query.node.value"
                 data-testid="agent-heatmap"
                 @cell="openCell"
                 @row="(row: HeatmapRow) => openNodeRaw(row.id)"
@@ -523,39 +501,7 @@ const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in
           </Card>
         </div>
 
-        <div v-if="view.agents.length && (queues.length || groups.length)" class="grid grid-cols-1 items-start gap-4 *:min-w-0 md:gap-6 @4xl/main:grid-cols-2">
-          <Card :class="['gap-4', ENTER]">
-            <CardHeader>
-              <CardTitle>Failures by queue</CardTitle>
-              <CardDescription>Retained {{ noun }} per Buildkite queue in {{ options.windowId }}. Select a queue for its nodes and runs.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <RankedBars
-                :items="loadItems(queues.slice(0, LOAD_ROWS), 'queue')"
-                label="Failures by queue"
-                mono
-                action="open the queue's nodes and runs"
-                data-testid="agent-queues"
-                @select="(item: RankedItem) => openLoad('queue', queues.find((q) => q.key === item.key)!)"
-              />
-            </CardContent>
-          </Card>
-          <Card :class="['gap-4', ENTER]">
-            <CardHeader>
-              <CardTitle>Test groups hit most</CardTitle>
-              <CardDescription>Retained {{ noun }} per test group in {{ options.windowId }}. Select a group for the nodes it failed on.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <RankedBars
-                :items="loadItems(groups.slice(0, LOAD_ROWS), 'group')"
-                label="Failures by test group"
-                action="open the nodes it failed on"
-                data-testid="agent-groups"
-                @select="(item: RankedItem) => openLoad('group', groups.find((g) => g.key === item.key)!)"
-              />
-            </CardContent>
-          </Card>
-        </div>
+        <LoadChart v-if="view.agents.length && queues.length" :queues="queues" :groups="groups" :options="options" :node="nodeSheetRaw" :class="ENTER" @open="(detail) => sheets.open(detail)" />
 
         <div ref="tableCard" class="scroll-mt-20">
           <Card :class="['gap-4', ENTER]">
@@ -575,7 +521,7 @@ const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in
                 :rows="view.agents"
                 :default-sort="defaultSort"
                 :searchable="false"
-                :page-size="15"
+                :page-size="wide ? 15 : 8"
                 label="AMD nodes by reliability"
                 :empty-text="`Per-node AMD reliability in ${options.windowId}. No matching observations.`"
                 @row-click="(agent: AgentRow) => openNode(agent)"

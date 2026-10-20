@@ -321,27 +321,37 @@ test.describe('CI agent health tells the fleet story', () => {
     await routeAgent(page);
   });
 
-  test('the verdict names the hurting nodes and queues, and each opens its sheet', async ({ page }) => {
+  test('the verdict names the hurting nodes, and each opens its sheet', async ({ page }) => {
     await page.goto('/#/analytics?view=agent-health&agent_window=14d');
     const verdict = page.getByTestId('agent-verdict');
     await expect(verdict.getByTestId('agent-verdict-headline')).toHaveText(/^(\d+ nodes? (is|are) hurting CI right now|Isolated failures, no repeat offender|No node is hurting CI right now)$/);
     const tone = await verdict.getAttribute('data-tone');
     await expect(verdict.getByTestId('agent-verdict-badge')).toHaveText({ hard: 'Hurting', soft: 'Watch', pass: 'Healthy' }[tone]);
-    const hot = verdict.getByTestId('agent-hot-node');
-    expect(await hot.count()).toBeGreaterThan(0);
-    const label = await hot.first().getAttribute('aria-label');
-    await hot.first().click();
+    const hot = verdict.getByTestId('agent-hot-nodes');
+    await hot.getByRole('button', { name: /^Inspect / }).click();
+    const first = page.getByRole('menuitem').first();
+    const node = (await first.locator('span').first().textContent()).trim();
+    await first.click();
     const sheet = page.getByRole('dialog');
-    await expect(sheet.locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(label.split(':')[0])}`));
-    await expect(page).toHaveURL(/agent_node=/);
+    await expect(sheet.locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(node)}`));
+    await expect(page).toHaveURL(new RegExp(`agent_node=${escapeRegExp(encodeURIComponent(node))}`));
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
     await expect(page).not.toHaveURL(/agent_node=/);
-    const queue = verdict.getByTestId('agent-hot-queues').getByRole('button').first();
-    const queueName = (await queue.getAttribute('aria-label')).split(':')[0];
-    await queue.click();
-    await expect(sheet.locator('h2')).toHaveText(queueName);
-    await expect(sheet.getByText('Retained failing runs')).toBeVisible();
+  });
+
+  test('agent_node follows a node sheet opened from inside another sheet', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
+    await page.getByTestId('agent-load').getByRole('button', { name: /^Inspect / }).click();
+    await page.getByRole('menuitem').first().click();
+    const sheet = page.getByRole('dialog');
+    const nodeRow = sheet.locator('[data-slot="evidence-table"]').first().locator('tbody tr').first();
+    const node = (await nodeRow.locator('td').first().textContent()).trim();
+    await expect(page).not.toHaveURL(/agent_node=/);
+    await nodeRow.click();
+    await expect(page).toHaveURL(new RegExp(`agent_node=${escapeRegExp(encodeURIComponent(node))}`));
+    await page.getByRole('button', { name: 'Back' }).click();
+    await expect(page).not.toHaveURL(/agent_node=/);
   });
 
   test('the node and day grid ranks the worst nodes and drills into node, day, and node-day', async ({ page }) => {
@@ -383,6 +393,20 @@ test.describe('CI agent health tells the fleet story', () => {
     }
   });
 
+  test('on a phone a long window opens the grid on its newest days', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/#/analytics?view=agent-health&agent_window=60d');
+    const scroller = page.getByTestId('agent-heatmap').locator('[data-slot="heatmap-scroll"]');
+    await expect(scroller).toBeVisible();
+    const position = () => scroller.evaluate((el) => ({ left: el.scrollLeft, max: el.scrollWidth - el.clientWidth }));
+    const { left, max } = await position();
+    expect(max).toBeGreaterThan(0);
+    expect(left).toBeGreaterThanOrEqual(max - 1);
+    await expect(page.getByTestId('agent-heatmap').locator('[data-slot="heatmap-older"]')).toBeVisible();
+    await scroller.evaluate((el) => el.scrollTo({ left: 0 }));
+    await expect(page.getByTestId('agent-heatmap').locator('[data-slot="heatmap-older"]')).toHaveCount(0);
+  });
+
   test('a link with agent_node reopens that node, and the signal filter reshapes the grid', async ({ page }) => {
     await page.goto('/#/analytics?view=agent-health&agent_window=14d');
     const first = page.getByTestId('agent-heatmap').locator('[data-slot="heatmap-row"]').first();
@@ -401,11 +425,16 @@ test.describe('CI agent health tells the fleet story', () => {
 
   test('queues and test groups rank their failures and open their sheets', async ({ page }) => {
     await page.goto('/#/analytics?view=agent-health&agent_window=14d');
-    for (const [id, table] of [['agent-queues', 'Test groups'], ['agent-groups', 'Nodes']]) {
-      const items = page.getByTestId(id).getByRole('button');
+    const card = page.getByTestId('agent-load');
+    for (const [kind, id, table] of [['Queue', 'agent-queues', 'Test groups'], ['Test group', 'agent-groups', 'Nodes']]) {
+      await card.getByRole('radio', { name: kind, exact: true }).or(card.getByRole('button', { name: kind, exact: true })).click();
+      await expect(card.getByTestId(id)).toBeVisible();
+      await card.getByRole('button', { name: /^Inspect / }).click();
+      const items = page.getByRole('menuitem');
       expect(await items.count()).toBeGreaterThan(0);
-      const values = await page.getByTestId(id).locator('[data-slot="ranked-item"] .tabular-nums.font-semibold').allTextContents();
-      expect(values.map(Number)).toEqual([...values.map(Number)].sort((a, b) => b - a));
+      // Each entry reads "hard · soft"; the bars rank by their sum.
+      const totals = (await items.locator('span:last-child').allTextContents()).map((t) => t.split(' · ').reduce((sum, v) => sum + Number(v), 0));
+      expect(totals).toEqual([...totals].sort((a, b) => b - a));
       await items.first().click();
       const sheet = page.getByRole('dialog');
       await expect(sheet.locator('[data-slot="evidence-table"]').filter({ hasText: table }).first()).toBeVisible();
@@ -442,6 +471,7 @@ test.describe('CI agent health tells the fleet story', () => {
 test.describe('chart marks look clickable', () => {
   for (const [name, url, chart] of [
     ['DNS queue bars', '/#/analytics?view=dns&dns_window=720h', 'DNS observations by queue and final job outcome'],
+    ['Agent queue bars', '/#/analytics?view=agent-health&agent_window=14d', 'Retained infra-suspect failures by queue'],
   ]) {
     test(`${name} show a pointer, a tooltip and a hover state, and open a sheet`, async ({ page }) => {
       const errors = collectErrors(page);
@@ -482,8 +512,19 @@ const SHEETS = [
   ['agent failing nodes', '/#/analytics?view=agent-health&agent_window=3d&agent_gpu=MI355&agent_nightly=1&agent_excl_cancel=0', (page) => page.getByTestId('kpi-agent-unreliable').locator('[data-kpi-action]').click()],
   ['agent day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-column"]').nth(8).click()],
   ['agent node day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-row"] ~ button[data-slot="heatmap-cell"]').first().click()],
-  ['agent queue', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.getByTestId('agent-queues').getByRole('button').first().click()],
-  ['agent test group', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.getByTestId('agent-groups').getByRole('button').first().click()],
+  ['agent queue', '/#/analytics?view=agent-health&agent_window=14d', inspect('Retained infra-suspect failures by queue', 0)],
+  [
+    'agent test group',
+    '/#/analytics?view=agent-health&agent_window=14d',
+    async (page) => {
+      const card = page.getByTestId('agent-load');
+      if (page.viewportSize().width < 640) {
+        await card.getByRole('combobox').click();
+        await page.getByRole('option', { name: 'Test group' }).click();
+      } else await card.getByRole('radio', { name: 'Test group' }).or(card.getByRole('button', { name: 'Test group', exact: true })).click();
+      await inspect('Retained infra-suspect failures by test group', 0)(page);
+    },
+  ],
   [
     'agent run',
     '/#/analytics?view=agent-health&agent_window=14d',

@@ -1,34 +1,38 @@
 <script setup lang="ts">
-import { ChevronRight } from '@lucide/vue'
 import { computed } from 'vue'
-import RankedBars, { type RankedItem } from '@/components/charts/RankedBars.vue'
+import BarChart from '@/components/charts/BarChart.vue'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import Sparkline from '@/components/stat/Sparkline.vue'
 import { Card } from '@/components/ui/card'
-import { signalNoun, type AgentFleetVerdict, type AgentLoad, type AgentNodeDayMatrix, type AgentNodeHistory, type AgentSignal } from '@/domain/agentHealth'
+import { signalNoun, type AgentFleetVerdict, type AgentNodeDayMatrix, type AgentNodeHistory, type AgentSignal } from '@/domain/agentHealth'
 import { integer } from '@/domain/format'
-import { hardwareColor, heatColor, heatLevel } from '@/lib/palette'
 import { cn } from '@/lib/utils'
-import { loadItems } from './details'
+import { STATE_SERIES } from './details'
 
-// The page's answer first: is the fleet healthy, and which nodes and queues are hurting CI right now.
+// The page's answer first: is the fleet healthy, and which nodes are hurting CI right now.
 const props = defineProps<{
   verdict: AgentFleetVerdict
   matrix: AgentNodeDayMatrix
-  queues: AgentLoad[]
   signal: AgentSignal
   windowId: string
   /** Fleet signal failures per day of the window, oldest first. */
   trend: number[]
   span: string
 }>()
-defineEmits<{ node: [AgentNodeHistory]; queue: [AgentLoad] }>()
+defineEmits<{ node: [AgentNodeHistory] }>()
 
-const STRIP = 7
+const NODES = 4
 const hot = computed(() => props.verdict.hotNodes.length > 0)
-const nodes = computed(() => (hot.value ? props.verdict.hotNodes : props.matrix.nodes).slice(0, 4))
-const queues = computed(() => props.queues.slice(0, 3))
-const strip = (node: AgentNodeHistory) => node.cells.slice(-STRIP)
+type NodeRow = { node: AgentNodeHistory; hard: number; soft: number }
+// Hurting nodes count their recent days; without one, the window's worst nodes count the whole window.
+const nodes = computed<NodeRow[]>(() =>
+  (hot.value ? props.verdict.hotNodes : props.matrix.nodes).slice(0, NODES).map((node) => {
+    const cells = hot.value ? node.cells.slice(-props.matrix.recentDays) : node.cells
+    return { node, hard: cells.reduce((sum, cell) => sum + cell.signalHard, 0), soft: cells.reduce((sum, cell) => sum + cell.signalSoft, 0) }
+  }),
+)
+const series = computed(() => STATE_SERIES.filter((s) => nodes.value.some((row) => row[s.key as 'hard' | 'soft'] > 0)))
+const nodesTitle = computed(() => (hot.value ? 'Hurting CI now' : `Worst nodes in ${props.windowId}`))
 const GLOW = { hard: 'from-status-hard/12', soft: 'from-status-soft/12', pass: 'from-brand/6' } as const
 </script>
 
@@ -61,50 +65,29 @@ const GLOW = { hard: 'from-status-hard/12', soft: 'from-status-soft/12', pass: '
           </div>
         </dl>
         <div v-if="trend.some((v) => v > 0)" class="mt-auto flex max-w-md flex-col gap-1 pt-2" data-testid="agent-verdict-trend">
-          <Sparkline :values="trend" :label="`Fleet ${signalNoun(signal)} per day, ${span}`" :color="heatColor(4)" />
+          <Sparkline :values="trend" :label="`Fleet ${signalNoun(signal)} per day, ${span}`" />
           <span class="flex justify-between text-[11px] text-muted-foreground"><span>Fleet {{ signalNoun(signal) }} per day</span><span>{{ span }}</span></span>
         </div>
       </div>
 
-      <div class="grid min-w-0 gap-5 sm:grid-cols-2 @4xl/main:grid-cols-1 @6xl/main:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <section class="flex min-w-0 flex-col gap-2" aria-labelledby="agent-hot-title">
-          <h3 id="agent-hot-title" class="text-xs font-medium text-muted-foreground">{{ hot ? 'Hurting CI now' : `Worst nodes in ${windowId}` }}</h3>
-          <p v-if="!nodes.length" class="text-sm text-muted-foreground">No node failed in this window.</p>
-          <ul v-else class="flex flex-col gap-1">
-            <li v-for="node in nodes" :key="node.node_raw">
-              <button
-                type="button"
-                class="group/hot flex w-full items-center gap-2.5 rounded-lg border bg-card/60 px-2.5 py-2 text-left transition-colors outline-none hover:border-foreground/20 hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50"
-                :aria-label="`${node.node}: ${integer(node.recent)} recent, ${integer(node.signal)} in ${windowId}; open the node`"
-                data-testid="agent-hot-node"
-                @click="$emit('node', node)"
-              >
-                <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: hardwareColor(node.hardware) }" aria-hidden="true" />
-                <span class="min-w-0 flex-1 truncate font-mono text-xs font-medium">{{ node.node_raw }}</span>
-                <span class="hidden shrink-0 gap-[2px] sm:flex" aria-hidden="true">
-                  <span v-for="cell in strip(node)" :key="cell.day" class="size-2.5 rounded-[2px]" :style="{ backgroundColor: heatColor(heatLevel(cell.signal, matrix.max)) }" />
-                </span>
-                <span class="w-8 shrink-0 text-right text-sm font-semibold tabular-nums">{{ integer(hot ? node.recent : node.signal) }}</span>
-                <ChevronRight class="size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/hot:translate-x-0.5 group-hover/hot:text-foreground" aria-hidden="true" />
-              </button>
-            </li>
-          </ul>
-        </section>
-        <section class="flex min-w-0 flex-col gap-2" aria-labelledby="agent-queue-title">
-          <h3 id="agent-queue-title" class="text-xs font-medium text-muted-foreground">Hardest-hit queues in {{ windowId }}</h3>
-          <p v-if="!queues.length" class="text-sm text-muted-foreground">No retained failing runs.</p>
-          <RankedBars
-            v-else
-            :items="loadItems(queues, 'queue')"
-            label="Hardest-hit queues"
-            mono
-            action="open the queue"
-            class="-mx-2.5"
-            data-testid="agent-hot-queues"
-            @select="(item: RankedItem) => $emit('queue', queues.find((q) => q.key === item.key)!)"
-          />
-        </section>
-      </div>
+      <section class="flex min-w-0 flex-col gap-2" aria-labelledby="agent-hot-title" data-testid="agent-hot-nodes">
+        <h3 id="agent-hot-title" class="text-xs font-medium text-muted-foreground">{{ nodesTitle }}</h3>
+        <p v-if="!nodes.length" class="text-sm text-muted-foreground">No node failed in this window.</p>
+        <BarChart
+          v-else
+          :rows="nodes"
+          :category="(row: NodeRow) => row.node.node_raw"
+          :series="series"
+          orientation="horizontal"
+          :category-width="150"
+          :label="`${nodesTitle}: ${signalNoun(signal)} per node`"
+          :value-format="integer"
+          legend
+          inspect-placement="legend"
+          hint="Click for the node"
+          @select="(row: NodeRow) => $emit('node', row.node)"
+        />
+      </section>
     </div>
   </Card>
 </template>

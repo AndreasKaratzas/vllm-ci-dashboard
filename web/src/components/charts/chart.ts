@@ -98,13 +98,14 @@ export function distinctTicks([min, max]: [number, number], count: number, forma
   return ticks
 }
 
-const HOUR = 3_600_000
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
 const DAY_MS = 24 * HOUR
-const TIME_STEPS = [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY_MS, 2 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS, 28 * DAY_MS]
+const TIME_STEPS = [5 * MINUTE, 10 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY_MS, 2 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS, 28 * DAY_MS]
 const CLOCK = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' })
 
 /**
- * At most `count` ticks on round UTC times (whole hours, midnights) inside the domain, evenly
+ * At most `count` ticks on round UTC times (whole minutes and hours, midnights) inside the domain, evenly
  * spaced, with a label that names the day at midnight and the clock time otherwise.
  */
 export function timeTicks([min, max]: [number, number], count: number): { values: number[]; label: (value: number) => string } {

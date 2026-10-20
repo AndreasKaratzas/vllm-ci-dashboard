@@ -79,6 +79,7 @@ function containerConfig() {
         rowMaxLabelWidth: Math.min(220, Math.round(plotWidth * 0.4)),
         rowLabelTextAlign: 'left',
         showEmptySegments: true,
+        rowFillEmptySpace: false,
         lineCursor: () => (props.onSelect ? 'pointer' : 'default'),
         events: { [Timeline.selectors.line]: { click: (d: TimelineSegment) => props.onSelect?.(d) } },
       })),

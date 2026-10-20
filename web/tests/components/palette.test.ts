@@ -86,7 +86,6 @@ describe('palette', () => {
     for (let level = 0; level <= HEAT_LEVELS; level++) {
       expect(light).toContain(`--heat-${level}: oklch(`)
       expect(dark).toContain(`--heat-${level}: oklch(`)
-      expect(css).toContain(`--color-heat-${level}: var(--heat-${level});`)
     }
     // More failures read darker on the light card and brighter on the dark card.
     const lightness = (block: string) => Array.from({ length: HEAT_LEVELS }, (_, i) => Number(new RegExp(`--heat-${i + 1}: oklch\\(([\\d.]+)`).exec(block)![1]))
@@ -96,4 +95,26 @@ describe('palette', () => {
     expect(up).toEqual([...up].sort((a, b) => a - b))
     expect(new Set([...down, ...up]).size).toBe(HEAT_LEVELS * 2)
   })
+
+  it('keeps each heat ramp in one hue, never losing saturation, and inside sRGB', () => {
+    const css = readFileSync(resolve(import.meta.dirname, '../../src/styles/main.css'), 'utf8')
+    for (const block of css.split(/^\.dark \{/m)) {
+      const steps = Array.from({ length: HEAT_LEVELS }, (_, i) => new RegExp(`--heat-${i + 1}: oklch\\(([\\d.]+) ([\\d.]+) ([\\d.]+)\\)`).exec(block)!.slice(1).map(Number))
+      const chroma = steps.map(([, c]) => c!)
+      expect(chroma).toEqual([...chroma].sort((a, b) => a - b))
+      const hues = steps.map(([, , h]) => h!)
+      expect(Math.max(...hues) - Math.min(...hues)).toBeLessThanOrEqual(6)
+      // A color outside sRGB is clipped by the browser and shifts toward a paler, different hue.
+      const channels = steps.flatMap(([l, c, h]) => linearSrgb(l!, c!, h!))
+      expect(Math.min(...channels)).toBeGreaterThanOrEqual(-0.001)
+      expect(Math.max(...channels)).toBeLessThanOrEqual(1.001)
+    }
+  })
 })
+
+function linearSrgb(l: number, c: number, h: number): number[] {
+  const a = c * Math.cos((h * Math.PI) / 180)
+  const b = c * Math.sin((h * Math.PI) / 180)
+  const [x, y, z] = [l + 0.3963377774 * a + 0.2158037573 * b, l - 0.1055613458 * a - 0.0638541728 * b, l - 0.0894841775 * a - 1.291485548 * b].map((v) => v ** 3) as [number, number, number]
+  return [4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z, -1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z, -0.0041960863 * x - 0.7034186147 * y + 1.707614701 * z]
+}

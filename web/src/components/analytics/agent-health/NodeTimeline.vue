@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { agentTimeline, clampTimelineRange, zoomTimeline, type AgentRun, type TimelineRange } from '@/domain/agentHealth'
 import { duration, shortDate, value } from '@/domain/format'
 import { statusVar } from '@/lib/palette'
-import { RUN_LEGEND, runDetail, runTone, stateLabel } from './details'
+import { STATE_SERIES, runDetail, runTone, stateLabel } from './details'
 
 // One node's failing runs in time; drag or zoom to narrow the window, select a run for its log.
 const props = defineProps<{ runs: AgentRun[]; node: string; range?: TimelineRange | null }>()
@@ -35,7 +35,7 @@ const segments = computed<TimelineSegment[]>(() =>
     ],
   })),
 )
-const legend = computed(() => RUN_LEGEND.filter((item) => timeline.value.rows.some((row) => runTone(row.run.state) === item.key)))
+const legend = computed(() => STATE_SERIES.filter((item) => timeline.value.rows.some((row) => runTone(row.run.state) === item.key)))
 const open = (index: number) => timeline.value.rows[index] && emit('drill', runDetail(timeline.value.rows[index]!.run))
 const zoomBy = (factor: number) => (zoom.value = zoomTimeline(zoom.value, timeline.value.bounds, factor))
 // Below sm the lanes would be too narrow to read, so the same runs are listed newest first.

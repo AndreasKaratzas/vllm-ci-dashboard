@@ -43,35 +43,11 @@
   "eventsDescription": "3 event(s) in 7d. Two or more infra-suspect failures on one node within 3h (retries of the same test group within a build count once): \"concurrent\" (overlapping) points to contention or an ephemeral fault; \"sequential\" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.",
   "eventsEmpty": null,
   "eventsTitle": "Co-failure events",
-  "headers": [
-    "Physical node",
-    "GPU",
-    "Runs",
-    "Fail %",
-    "Test group failures",
-    "Infra-suspect failures ▼",
-    "Groups",
-    "Co-fail",
-    "Evidence"
-  ],
   "kpis": [
     "IDENTIFIED AMD NODES|25|7,197 exact runs in 7d|ops-status-item ops-linked-metric info",
     "NODES WITH FAILURES|11|85 exact infra-suspect failures in aggregate|ops-status-item ops-linked-metric soft",
     "NODE COVERAGE|100.0%|7,197 / 7,197 exact runs identified|ops-status-item ops-linked-metric pass",
     "CO-FAILURE EVENTS|3|0 retained concurrent · 0 retained cross-pipeline|ops-status-item ops-linked-metric hard"
-  ],
-  "nodeOptions": [
-    "crsuse2-m2m-292|crsuse2-m2m-292 (MI355) (5 infra-suspect, 1 co-failures)",
-    "mi350x-gpu-dpx-3fipow|mi350x-gpu-dpx-3fipow (MI355) (3 infra-suspect, 1 co-failures)",
-    "mi350x-gpu-dpx-3yagqv|mi350x-gpu-dpx-3yagqv (MI355) (2 infra-suspect, 1 co-failures)",
-    "crsuse2-m2m-302|crsuse2-m2m-302 (MI355) (3 infra-suspect, 0 co-failures)",
-    "crsuse2-m2m-156|crsuse2-m2m-156 (MI355) (2 infra-suspect, 0 co-failures)",
-    "crsuse2-m2m-163|crsuse2-m2m-163 (MI355) (2 infra-suspect, 0 co-failures)",
-    "crsuse2-m2m-328|crsuse2-m2m-328 (MI355) (2 infra-suspect, 0 co-failures)",
-    "mi350x-gpu-dpx-3fvokn|mi350x-gpu-dpx-3fvokn (MI355) (2 infra-suspect, 0 co-failures)",
-    "crsuse2-m2m-160|crsuse2-m2m-160 (MI355) (1 infra-suspect, 0 co-failures)",
-    "mi350x-gpu-dpx-3fvo59|mi350x-gpu-dpx-3fvo59 (MI355) (1 infra-suspect, 0 co-failures)",
-    "mi350x-gpu-dpx-3yaa86|mi350x-gpu-dpx-3yaa86 (MI355) (1 infra-suspect, 0 co-failures)"
   ],
   "notes": [
     "ops-evidence-note info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: \"infra-suspect\" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.",
@@ -81,6 +57,72 @@
   ],
   "panelMeta": "25 node(s) in 7d, sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. Terminal runs from CI builds created in the selected UTC window form the run and failure-rate denominator. Actual job timestamps remain in timelines. Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown. Click a node (or Evidence) to load its timeline; sort by any column.",
   "rows": [
+    [
+      "bu-1 (MI355)",
+      "MI355",
+      "118",
+      "2.5%",
+      "33 hard · 0 soft",
+      "0",
+      "0",
+      "0",
+      "not retained"
+    ],
+    [
+      "bu-50 (MI355)",
+      "MI355",
+      "67",
+      "0.0%",
+      "0",
+      "0",
+      "0",
+      "0",
+      "not retained"
+    ],
+    [
+      "crsuse2-m2m-156 (MI355)",
+      "MI355",
+      "342",
+      "0.9%",
+      "33 hard · 0 soft",
+      "2",
+      "2",
+      "0",
+      "runs ↗"
+    ],
+    [
+      "crsuse2-m2m-160 (MI355)",
+      "MI355",
+      "252",
+      "1.2%",
+      "33 hard · 0 soft",
+      "1",
+      "1",
+      "0",
+      "runs ↗"
+    ],
+    [
+      "crsuse2-m2m-163 (MI355)",
+      "MI355",
+      "218",
+      "0.9%",
+      "22 hard · 0 soft",
+      "2",
+      "1",
+      "0",
+      "runs ↗"
+    ],
+    [
+      "crsuse2-m2m-165 (MI355)",
+      "MI355",
+      "269",
+      "0.4%",
+      "11 hard · 0 soft",
+      "0",
+      "0",
+      "0",
+      "not retained"
+    ],
     [
       "crsuse2-m2m-292 (MI355)",
       "MI355",
@@ -102,73 +144,6 @@
       "1",
       "0",
       "runs ↗"
-    ],
-    [
-      "mi350x-gpu-dpx-3fipow (MI355)",
-      "MI355",
-      "515",
-      "1.4%",
-      "77 hard · 0 soft",
-      "3",
-      "2",
-      "1",
-      "runs ↗"
-    ],
-    [
-      "crsuse2-m2m-156 (MI355)",
-      "MI355",
-      "342",
-      "0.9%",
-      "33 hard · 0 soft",
-      "2",
-      "2",
-      "0",
-      "runs ↗"
-    ],
-    [
-      "crsuse2-m2m-163 (MI355)",
-      "MI355",
-      "218",
-      "0.9%",
-      "22 hard · 0 soft",
-      "2",
-      "1",
-      "0",
-      "runs ↗"
-    ],
-    [
-      "crsuse2-m2m-328 (MI355)",
-      "MI355",
-      "237",
-      "0.8%",
-      "22 hard · 0 soft",
-      "2",
-      "2",
-      "0",
-      "runs ↗"
-    ],
-    [
-      "mi350x-gpu-dpx-3fvokn (MI355)",
-      "MI355",
-      "710",
-      "0.8%",
-      "66 hard · 0 soft",
-      "2",
-      "2",
-      "0",
-      "runs ↗"
-    ],
-    [
-      "mi350x-gpu-dpx-3yagqv (MI355)",
-      "MI355",
-      "573",
-      "0.9%",
-      "55 hard · 0 soft",
-      "2",
-      "1",
-      "1",
-      "runs ↗"
     ]
-  ],
-  "selectedNode": "crsuse2-m2m-292"
+  ]
 }

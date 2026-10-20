@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayDetail, eventDetail, loadDetail, loadItems, nodeDayDetail, nodeDetail } from '@/components/analytics/agent-health/details'
+import { dayDetail, eventDetail, loadDetail, nodeDayDetail, nodeDetail, nodeOfDetail } from '@/components/analytics/agent-health/details'
 import NodeDays from '@/components/analytics/agent-health/NodeDays.vue'
 import NodeTimeline from '@/components/analytics/agent-health/NodeTimeline.vue'
 import { agentDailySeries, agentHealthModel, agentLoadBy, agentNodeDayMatrix, agentOptions, computeAgentView, type AgentRouteState } from '@/domain/agentHealth'
@@ -68,9 +68,7 @@ describe('agent-health sheets', () => {
     expect(detail.tables![0]!.onRowClick!(detail.tables![0]!.rows[0])).toMatchObject({ id: `agent-node:${opened[0]}` })
     const [group] = agentLoadBy(view.fRuns, (run) => run.group)
     expect(loadDetail('group', group!, options, () => undefined).tables!.map((t) => t.title)).toEqual(['Nodes', 'Retained failing runs'])
-    const [item] = loadItems([{ ...group!, key: 'AMD: :amd: (MI355) Fusion' }], 'group')
-    expect(item).toMatchObject({ label: '(MI355) Fusion', title: 'AMD: :amd: (MI355) Fusion', value: group!.failures })
-    expect(item!.segments!.map((s) => s.value)).toEqual([group!.hard, group!.soft])
-    expect(loadItems([queue!], 'queue')[0]!.meta).toMatch(/^\d+ nodes? · \d+ groups?$/)
+    // agent_node follows node sheets only, whichever list opened them.
+    expect([detail, detail.tables![0]!.onRowClick!(detail.tables![0]!.rows[0]) as typeof detail].map(nodeOfDetail)).toEqual(['', opened[0]])
   })
 })

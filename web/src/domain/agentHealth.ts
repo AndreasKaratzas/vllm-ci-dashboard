@@ -623,10 +623,6 @@ export function signalColumnLabel(signal: AgentSignal): string {
   return signal === 'infra' ? 'Infra-suspect failures' : 'Hard failures'
 }
 
-export function defaultSortKey(signal: AgentSignal): string {
-  return signal === 'all' ? 'failures' : 'infra_suspect'
-}
-
 export function signalCaption(signal: AgentSignal): string {
   if (signal === 'infra')
     return 'Showing infra-suspect failures — anomalous, node-attributable (a group that otherwise passes that day, including on another node).'
@@ -856,36 +852,6 @@ export function agentKpis(model: AgentModel, view: AgentView, options: Pick<Agen
   ]
 }
 
-export interface AgentSort {
-  key: string
-  dir: 'asc' | 'desc'
-}
-
-/** renderTable's sort normalization: the signal default until a header is clicked; no signal column under "all". */
-export function effectiveAgentSort(sort: AgentSort, sortExplicit: boolean, signal: AgentSignal): AgentSort {
-  let next = sortExplicit ? { ...sort } : { key: defaultSortKey(signal), dir: 'desc' as const }
-  if (signal === 'all' && next.key === 'infra_suspect') next = { ...next, key: 'failures' }
-  return next
-}
-
-/** onSort: toggle the active column, or start a new one (text columns ascending). */
-export function nextAgentSort(sort: AgentSort, key: string): AgentSort {
-  if (sort.key === key) return { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
-  return { key, dir: key === 'node' || key === 'hardware' ? 'asc' : 'desc' }
-}
-
-export function sortedAgents(agents: AgentRow[], sort: AgentSort): AgentRow[] {
-  const dir = sort.dir === 'asc' ? 1 : -1
-  return agents.slice().sort((a, b) => {
-    let x: unknown = (a as unknown as Rec)[sort.key]
-    let y: unknown = (b as unknown as Rec)[sort.key]
-    if (typeof x === 'number' || typeof y === 'number') return ((Number(x) || 0) - (Number(y) || 0)) * dir
-    x = String(x || '').toLowerCase()
-    y = String(y || '').toLowerCase()
-    return (x as string) < (y as string) ? -dir : (x as string) > (y as string) ? dir : 0
-  })
-}
-
 export interface AgentCells {
   runs: string
   failRate: string
@@ -942,23 +908,6 @@ export function agentEmptyText(model: AgentModel, view: AgentView): string | nul
   if (!model.nodeDays.length) return 'No AMD node data has been collected yet. It populates as collect_agent_health.py captures the Buildkite agent k8s:node tag.'
   if (!view.agents.length) return 'No AMD runs match the current window and filter.'
   return null
-}
-
-export function timelineAgents(view: AgentView): AgentRow[] {
-  return view.agents
-    .filter((agent) => agent.identified && agent._runs.length)
-    .sort((a, b) => b.cofailure_event_count - a.cofailure_event_count || b.infra_suspect - a.infra_suspect)
-}
-
-export function nodeOptionLabel(agent: AgentRow, signal: AgentSignal): string {
-  return agent.node + ' (' + agent.infra_suspect + ' ' + signalTerm(signal) + ', ' + agent.cofailure_event_count + ' co-failures)'
-}
-
-/** renderNodeSelect: keep the selected node if it has a timeline, else the first candidate. */
-export function resolveSelectedNode(view: AgentView, selectedNode: string): string {
-  const nodes = timelineAgents(view)
-  if (!nodes.some((agent) => agent.node_raw === selectedNode)) return nodes.length ? nodes[0]!.node_raw : ''
-  return selectedNode
 }
 
 export interface TimelineRow {
@@ -1374,6 +1323,7 @@ export function agentFleetVerdict(matrix: AgentNodeDayMatrix, view: AgentView, o
   const hotNodes = matrix.nodes
     .filter((node) => node.recent >= 2 || node.recentCofail > 0)
     .sort((a, b) => b.recent - a.recent || b.recentCofail - a.recentCofail || b.signal - a.signal)
+  const hotFailures = hotNodes.reduce((sum, node) => sum + node.recent, 0)
   const span = matrix.recentDays === 1 ? 'today' : `in the last ${matrix.recentDays} days`
   const concentration =
     topShare !== null && matrix.nodes.length > 5 ? ` The 5 worst nodes carry ${Math.round(topShare * 100)}% of the ${options.windowId} ${noun}.` : ''
@@ -1382,7 +1332,7 @@ export function agentFleetVerdict(matrix: AgentNodeDayMatrix, view: AgentView, o
       tone: 'hard',
       label: 'Hurting',
       headline: `${nodesWord(hotNodes.length)} ${hotNodes.length === 1 ? 'is' : 'are'} hurting CI right now`,
-      detail: `${capitalize(bound)}${failuresWord(recentFailures, noun)} on ${nodesWord(recentNodes.length)} ${span}; these repeat on one node or cluster into co-failure events.${concentration}`,
+      detail: `${capitalize(bound)}${failuresWord(recentFailures, noun)} on ${nodesWord(recentNodes.length)} ${span}. ${hotNodes.length === 1 ? 'One node repeats failures or clusters them into co-failure events and accounts' : `${nodesWord(hotNodes.length)} repeat failures or cluster them into co-failure events and account`} for ${integer(hotFailures)} of them.${concentration}`,
       hotNodes,
       recentFailures,
       recentNodes: recentNodes.length,

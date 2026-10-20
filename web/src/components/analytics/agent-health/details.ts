@@ -1,5 +1,3 @@
-import type { LegendItem } from '@/components/charts/Legend.vue'
-import type { RankedItem } from '@/components/charts/RankedBars.vue'
 import { shortDay, type SeriesSpec } from '@/components/charts/chart'
 import type { Detail } from '@/components/evidence/detail'
 import { link, mono, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
@@ -26,7 +24,7 @@ import {
   type CofailEvent,
 } from '@/domain/agentHealth'
 import { duration, integer, shortDate, value } from '@/domain/format'
-import { hardwareColor, heatColor, statusVar } from '@/lib/palette'
+import { SERIES, hardwareColor, statusVar } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 import NodeDays from './NodeDays.vue'
 import NodeTimeline from './NodeTimeline.vue'
@@ -40,38 +38,28 @@ export const stateLabel = (state: string) => STATE_LABEL[String(state || '').toL
 /** The run states agentStateColor distinguishes, as tones. */
 export const runTone = (state: string): Tone => STATE_TONE[String(state || '').toLowerCase()] ?? 'neutral'
 
-/** Signal failures split by run state; hard and soft are test state, so they wear the status colors. */
-export const FAILURE_SERIES: SeriesSpec[] = [
-  { key: 'signalHard', label: 'Hard fail', color: statusVar('hard') },
-  { key: 'signalSoft', label: 'Soft fail', color: statusVar('soft') },
-]
-export const RUN_LEGEND: LegendItem[] = [
+/** Failures split by run state, read from the `hard` and `soft` keys; hard and soft are test state, so they wear the status colors. */
+export const STATE_SERIES: SeriesSpec[] = [
   { key: 'hard', label: 'Hard fail', color: statusVar('hard') },
   { key: 'soft', label: 'Soft fail', color: statusVar('soft') },
 ]
 
-/** Retained failures per queue or test group as ranked bars split into hard and soft. */
-export function loadItems(loads: AgentLoad[], kind: 'queue' | 'group'): RankedItem[] {
-  return loads.map((load) => ({
-    key: load.key,
-    // Group names repeat the AMD prefix of every AMD job; the full name stays in the tooltip and sheet.
-    label: kind === 'group' ? load.key.replace(/^(AMD:\s*)?:amd:\s*/, '') : load.key,
-    title: load.key,
-    value: load.failures,
-    segments: [
-      { value: load.hard, color: FAILURE_SERIES[0]!.color, label: 'hard' },
-      { value: load.soft, color: FAILURE_SERIES[1]!.color, label: 'soft' },
-    ],
-    meta: kind === 'queue' ? `${plural(load.nodes, 'node')} · ${plural(load.groups, 'group')}` : plural(load.nodes, 'node'),
-  }))
-}
+const NODE_SHEET = 'agent-node:'
+/** The physical node a node sheet shows; empty for every other sheet. */
+export const nodeOfDetail = (detail: Detail) => (detail.id.startsWith(NODE_SHEET) ? detail.id.slice(NODE_SHEET.length) : '')
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 const plural = (count: number, word: string) => `${integer(count)} ${word}${count === 1 ? '' : 's'}`
 const dayName = (day: string) => shortDay(Date.parse(`${day}T00:00:00Z`))
 /** A failure count with an inline bar against the largest count in its table. */
-const countBar = (count: number, max: number): CellSpec => ({ text: integer(count), muted: count === 0, bar: { value: count, max, color: heatColor(4) } })
+const countBar = (count: number, max: number): CellSpec => ({ text: integer(count), muted: count === 0, bar: { value: count, max, color: SERIES.primary } })
 const nodeCell = (label: string, hardware: string): CellSpec => ({ text: label, mono: true, dots: [hardwareColor(hardware)] })
+/** The node column of a sheet table: never wraps, so a narrow sheet hides the lower-priority columns instead. */
+const NODE_COLUMN = { hideable: false, class: 'whitespace-nowrap' } as const
+/** Columns a narrow screen leaves out. */
+const WIDE_ONLY = 'hidden sm:table-cell'
+/** A long count header wraps on a phone instead of pushing the count out of view. */
+const WRAP_HEADER = 'whitespace-normal'
 
 /** When a co-failure event started, how long it spanned, and how many test groups failed in it. */
 export function eventMeta(event: CofailEvent): string {
@@ -84,10 +72,10 @@ function runColumns(withNode: boolean): ColumnSpec<AgentRun>[] {
     { id: 'group', label: 'Test group', value: (run) => value(run.group), cell: (run) => link(run.group, run.url), hideable: false },
     { id: 'started', label: 'Started', value: (run) => run._start ?? 0, cell: (run) => text(shortDate(run.started_at)) },
     { id: 'state', label: 'State', value: (run) => run.state, cell: (run) => ({ text: stateLabel(run.state) }) },
-    ...(withNode ? [{ id: 'node', label: 'Physical node', value: (run: AgentRun) => value(run.node_raw), cell: (run: AgentRun) => nodeCell(run.node_raw, run.hardware) }] : []),
-    { id: 'queue', label: 'Queue', value: (run) => value(run.queue), cell: (run) => mono(run.queue) },
-    { id: 'build', label: 'Build', value: (run) => Number(run.build_number) || 0, cell: (run) => mono(`${value(run.pipeline)} #${value(run.build_number)}`) },
-    { id: 'duration', label: 'Duration', value: (run) => minutes(run) ?? -1, cell: (run) => text(duration(minutes(run))), numeric: true },
+    ...(withNode ? [{ id: 'node', label: 'Physical node', value: (run: AgentRun) => value(run.node_raw), cell: (run: AgentRun) => nodeCell(run.node_raw, run.hardware), class: WIDE_ONLY }] : []),
+    { id: 'queue', label: 'Queue', value: (run) => value(run.queue), cell: (run) => mono(run.queue), class: WIDE_ONLY },
+    { id: 'build', label: 'Build', value: (run) => Number(run.build_number) || 0, cell: (run) => mono(`${value(run.pipeline)} #${value(run.build_number)}`), class: WIDE_ONLY },
+    { id: 'duration', label: 'Duration', value: (run) => minutes(run) ?? -1, cell: (run) => text(duration(minutes(run))), numeric: true, class: WIDE_ONLY },
   ]
 }
 
@@ -97,10 +85,10 @@ const newestFirst = (runs: AgentRun[]) => runs.slice().sort((a, b) => (b._start 
 function loadColumns(id: string, label: string, rows: AgentLoad[], keyCell: (load: AgentLoad) => CellSpec, extra: ColumnSpec<AgentLoad>[] = []): ColumnSpec<AgentLoad>[] {
   const max = Math.max(1, ...rows.map((row) => row.failures))
   return [
-    { id, label, value: (load) => load.key, cell: keyCell, hideable: false },
+    { id, label, value: (load) => load.key, cell: keyCell, ...(id === 'node' ? NODE_COLUMN : { hideable: false }) },
     { id: 'failures', label: 'Failures', value: (load) => load.failures, cell: (load) => countBar(load.failures, max), numeric: true },
-    { id: 'hard', label: 'Hard', value: (load) => load.hard, cell: (load) => ({ text: integer(load.hard), muted: !load.hard }), numeric: true },
-    { id: 'soft', label: 'Soft', value: (load) => load.soft, cell: (load) => ({ text: integer(load.soft), muted: !load.soft }), numeric: true },
+    { id: 'hard', label: 'Hard', value: (load) => load.hard, cell: (load) => ({ text: integer(load.hard), muted: !load.hard }), numeric: true, class: WIDE_ONLY },
+    { id: 'soft', label: 'Soft', value: (load) => load.soft, cell: (load) => ({ text: integer(load.soft), muted: !load.soft }), numeric: true, class: WIDE_ONLY },
     ...extra,
   ]
 }
@@ -163,7 +151,7 @@ export function nodeDetail(
   const groups = agentLoadBy(agent._runs, (run) => run.group)
   const events = view.events.filter((event) => event.node_raw === agent.node_raw)
   return {
-    id: `agent-node:${agent.node_raw}`,
+    id: `${NODE_SHEET}${agent.node_raw}`,
     title: agent.node,
     subtitle: `${capitalized(evidence.title)} over ${options.windowId}; each run links to its Buildkite log`,
     stats: [
@@ -292,9 +280,9 @@ export function dayDetail(day: AgentDay, matrix: AgentNodeDayMatrix, runs: Agent
         title: 'Nodes failing on this day',
         meta: plural(nodes.length, 'node'),
         columns: [
-          { id: 'node', label: 'Physical node', value: (node: AgentNodeHistory) => node.node_raw, cell: (node: AgentNodeHistory) => nodeCell(node.node_raw, node.hardware), hideable: false },
-          { id: 'signal', label: signal, value: (node: AgentNodeHistory) => node.cells[at]!.signal, cell: (node: AgentNodeHistory) => countBar(node.cells[at]!.signal, max), numeric: true },
-          { id: 'runs', label: 'Runs', value: (node: AgentNodeHistory) => node.cells[at]!.runs, numeric: true },
+          { id: 'node', label: 'Physical node', value: (node: AgentNodeHistory) => node.node_raw, cell: (node: AgentNodeHistory) => nodeCell(node.node_raw, node.hardware), ...NODE_COLUMN },
+          { id: 'signal', label: signal, value: (node: AgentNodeHistory) => node.cells[at]!.signal, cell: (node: AgentNodeHistory) => countBar(node.cells[at]!.signal, max), numeric: true, class: WRAP_HEADER },
+          { id: 'runs', label: 'Runs', value: (node: AgentNodeHistory) => node.cells[at]!.runs, numeric: true, class: WIDE_ONLY },
         ],
         rows: nodes,
         pageSize: 10,
@@ -334,7 +322,7 @@ export function loadDetail(kind: 'queue' | 'group', load: AgentLoad, options: Ag
         title: 'Nodes',
         meta: plural(nodes.length, 'node'),
         columns: loadColumns('node', 'Physical node', nodes, (row) => nodeCell(row.key, hardware.get(row.key) ?? ''), [
-          { id: 'groups', label: 'Groups', value: (row) => row.groups, numeric: true },
+          { id: 'groups', label: 'Groups', value: (row) => row.groups, numeric: true, class: WIDE_ONLY },
         ]),
         rows: nodes,
         pageSize: 10,
@@ -362,15 +350,16 @@ export function failingNodesDetail(options: AgentOptions, view: AgentView, signa
     tables: [
       {
         columns: [
-          { id: 'node', label: 'Physical node', value: (agent: AgentRow) => agent.node, cell: (agent: AgentRow) => nodeCell(agent.node, agent.hardware), hideable: false },
+          { id: 'node', label: 'Physical node', value: (agent: AgentRow) => agent.node, cell: (agent: AgentRow) => nodeCell(agent.node, agent.hardware), ...NODE_COLUMN },
           {
             id: 'signal',
             label,
             value: (agent: AgentRow) => agent.infra_suspect,
             cell: (agent: AgentRow) => ({ ...countBar(agent.infra_suspect, max), text: signalText(agent) }),
             numeric: true,
+            class: WRAP_HEADER,
           },
-          { id: 'cofail', label: 'Co-failure events', value: (agent: AgentRow) => agent.cofailure_event_count, numeric: true },
+          { id: 'cofail', label: 'Co-failure events', value: (agent: AgentRow) => agent.cofailure_event_count, numeric: true, class: WIDE_ONLY },
         ],
         rows,
         pageSize: 25,
