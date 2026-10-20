@@ -18,7 +18,7 @@ import {
   SidebarMenuSubItem,
 } from '@/components/ui/sidebar'
 import { NAV_TABS } from '@/router'
-import { currentSubView, SUB_VIEWS, subViewQuery } from './navigation'
+import { currentSubView, pageViews, subViewQuery } from './navigation'
 import { SHORTCUT } from './shortcut'
 
 defineEmits<{ search: [] }>()
@@ -72,8 +72,8 @@ const ACTIVE =
                   <span>{{ tab.label }}</span>
                 </RouterLink>
               </SidebarMenuButton>
-              <SidebarMenuSub v-if="route.name === tab.name && SUB_VIEWS[tab.name]">
-                <SidebarMenuSubItem v-for="view in SUB_VIEWS[tab.name]!.items" :key="view.value">
+              <SidebarMenuSub v-if="route.name === tab.name && pageViews(tab.name)">
+                <SidebarMenuSubItem v-for="view in pageViews(tab.name)!.items" :key="view.value">
                   <SidebarMenuSubButton
                     as-child
                     size="sm"

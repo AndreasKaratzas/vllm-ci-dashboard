@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="T extends ChartRow">
 import { VisAxis, VisLine, VisScatter, VisXYContainer } from '@unovis/vue'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
 import { cn } from '@/lib/utils'
 import { chartConfig, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'

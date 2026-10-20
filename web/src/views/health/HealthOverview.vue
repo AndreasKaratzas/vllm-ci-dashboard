@@ -4,10 +4,10 @@ import { useRoute } from 'vue-router'
 import Donut, { type DonutSlice } from '@/components/charts/Donut.vue'
 import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
 import Callout from '@/components/feedback/Callout.vue'
-import MovementChart from '@/components/health/MovementChart.vue'
 import KpiCard from '@/components/stat/KpiCard.vue'
 import Sparkline from '@/components/stat/Sparkline.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
+import { lastDelta } from '@/components/stat/trend'
 import DataTable from '@/components/table/DataTable.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { SheetStack } from '@/composables/useSheetStack'
@@ -24,11 +24,11 @@ import {
 import { integer, value, type Rec } from '@/domain/format'
 import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
 import { amdMirrorInventoryView, amdMirrorSummary } from '@/domain/mirrors'
-import { amdNightlyPresentation, latestAmd } from '@/domain/nightly'
+import { amdNightlyPresentation, latestAmd, nightlyFailureCount } from '@/domain/nightly'
 import { exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
+import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 import { hardwareColor, statusVar } from '@/lib/palette'
-import { movementBuildDetail } from './details'
-import { pointDelta, trendDelta } from './trend'
 
 const props = defineProps<{ ops: Rec; sheets: SheetStack }>()
 const route = useRoute()
@@ -60,7 +60,11 @@ const failingTrend = computed(() => {
   return aligned ? trend : undefined
 })
 
-const movement = computed(() => movementBuilds(amd.value.builds || []))
+// Newest first, as NightlyMovementChart reads them.
+const movement = computed(() => movementBuilds(amd.value.builds || []).reverse())
+const movementTotals = computed(() =>
+  (['new', 'recurring', 'fixed'] as const).map((key) => movement.value.reduce((sum, build) => sum + (nightlyFailureCount(build, key) ?? 0), 0)),
+)
 
 // Mirror configuration on main: a separate, physical count.
 const mirrorInventory = computed<Rec>(() => (props.ops.test_group_parity || {}).mirror_inventory || {})
@@ -144,7 +148,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         label="Logical runtime health"
         :value="logical.available ? `${integer(passingAny)} passing` : null"
         :ratio="logical.available ? { current: passingAny, total: Number(counts.total || 0) } : undefined"
-        :delta="trendDelta(logicalTrend, 'up', 'pts')"
+        :delta="lastDelta(logicalTrend, 'up', { unit: ' pts' })"
         :footnote="logical.meta"
         :action="{ label: 'Inspect all logical test groups', onOpen: () => openCatalog('Latest AMD logical test groups', logicalRows) }"
         headline="Inspect groups"
@@ -155,7 +159,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         :value="latestVariants && latestVariants.observed ? (latestVariants.passed / latestVariants.observed) * 100 : null"
         :format="(v: number) => `${v.toFixed(1)}%`"
         :spark="variantRate"
-        :delta="trendDelta(variantRate, 'up', 'pts')"
+        :delta="lastDelta(variantRate, 'up', { unit: ' pts' })"
         :headline="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} job variants passed` : undefined"
         :footnote="`Across ${integer(variants.length)} retained AMD nightlies`"
         data-testid="kpi-job-rate"
@@ -164,7 +168,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         label="Failing exact jobs"
         :value="failures.length"
         :spark="failingTrend"
-        :delta="failingTrend ? pointDelta(failingTrend, 'down') : undefined"
+        :delta="failingTrend ? lastDelta(failingTrend, 'down') : undefined"
         :footnote="`${integer(hardFailures)} hard fail · ${integer(failures.length - hardFailures)} soft fail in signal #${value(latestBuild)}`"
         :action="{ label: 'Inspect failing exact jobs', onOpen: openFailures }"
         headline="Inspect failing jobs"
@@ -191,7 +195,18 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
     </StatGrid>
 
     <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
-      <MovementChart :builds="movement" :latest-signal="latestBuild" @select="(build) => sheets.open(movementBuildDetail(build))" />
+      <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="movement-chart">
+        <CardHeader>
+          <CardTitle as="h2">Nightly failure movement</CardTitle>
+          <CardDescription>
+            {{ movement.length }} retained nightlies · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring, {{ movementTotals[2] }} fixed · fixes are
+            drawn below zero
+          </CardDescription>
+        </CardHeader>
+        <CardContent class="px-2 sm:px-6">
+          <NightlyMovementChart :builds="movement" :on-select="(build: Rec) => sheets.open(buildEvidenceDetail(build))" />
+        </CardContent>
+      </Card>
 
       <Card data-testid="logical-outcomes" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300">
         <CardHeader>

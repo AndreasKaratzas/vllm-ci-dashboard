@@ -5,6 +5,7 @@ import SheetStack from '@/components/evidence/SheetStack.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
 import Callout from '@/components/feedback/Callout.vue'
 import PageHeader, { type Freshness } from '@/components/layout/PageHeader.vue'
+import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
 import SubNav from '@/components/layout/SubNav.vue'
 import { Button } from '@/components/ui/button'
 import { useClock } from '@/composables/useClock'
@@ -23,7 +24,7 @@ import HealthOverview from './health/HealthOverview.vue'
 import HealthParity from './health/HealthParity.vue'
 import { HEALTH_VIEWS, type HealthViewId } from './health/views'
 
-const view = useQueryState<HealthViewId>('view', { default: 'overview', allowed: HEALTH_VIEWS.map((v) => v.value) })
+const view = useQueryState<HealthViewId>('view', { default: SUB_VIEWS.health.default as HealthViewId, allowed: subViewIds<HealthViewId>('health') })
 const current = computed(() => HEALTH_VIEWS.find((v) => v.value === view.value)!)
 
 const { data: ops, error, loading, retry } = useOperationSections(['nightly', 'amd_test_health', 'test_group_parity'])
@@ -80,7 +81,7 @@ const freshness = computed<Freshness | undefined>(() => {
         </Button>
       </template>
     </PageHeader>
-    <SubNav :items="HEALTH_VIEWS" default-value="overview" label="CI Health sections" />
+    <SubNav :items="SUB_VIEWS.health.items" :default-value="SUB_VIEWS.health.default" label="CI Health sections" />
     <Callout v-if="retentionMessage" tone="soft" title="Partial build history">{{ retentionMessage }}</Callout>
 
     <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">

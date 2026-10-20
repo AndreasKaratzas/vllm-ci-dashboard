@@ -19,7 +19,7 @@ import { latestAmd } from '@/domain/nightly'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { toneClasses, TONE_LABEL } from '@/lib/palette'
 import { NAV_TABS } from '@/router'
-import { SUB_VIEWS, subViewQuery } from './navigation'
+import { pageViews, subViewQuery } from './navigation'
 
 const open = defineModel<boolean>('open', { required: true })
 const router = useRouter()
@@ -38,7 +38,7 @@ whenever(() => (keys['Meta+K']?.value || keys['Ctrl+K']?.value) ?? false, () => 
 
 const subViews = computed(() =>
   NAV_TABS.flatMap((tab) =>
-    (SUB_VIEWS[tab.name]?.items ?? []).map((view) => ({
+    (pageViews(tab.name)?.items ?? []).map((view) => ({
       key: `${tab.name}-${view.value}`,
       tab: tab.label,
       label: view.label,

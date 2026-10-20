@@ -6,6 +6,7 @@ import type { Detail } from '@/components/evidence/detail'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
+import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
 import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import SubNav from '@/components/layout/SubNav.vue'
 import { Button } from '@/components/ui/button'
@@ -22,10 +23,6 @@ import OmniLive from './omni/OmniLive.vue'
 import OmniWorkload from './omni/OmniWorkload.vue'
 import { toDetail } from './omni/present'
 
-const VIEWS = [
-  { value: 'workload', label: 'Incoming workload' },
-  { value: 'live', label: 'Live queues' },
-] as const
 const MAPPING_OPTIONS = OMNI_MAPPING_WINDOWS.map((w) => ({ value: w.id, label: w.label }))
 const RANGE_OPTIONS = OMNI_RANGE_WINDOWS.map((w) => ({ value: w.id, label: w.label }))
 const DESCRIPTION = `Incoming ${OMNI_REPOSITORIES.omni} workload and its impact on the AMD queues shared with ${OMNI_REPOSITORIES.main}.`
@@ -35,7 +32,7 @@ const dataset = useDataset<Rec>({ sections: ['omni', 'queue'] })
 const ops = dataset.data
 const error = computed(() => (ops.value === null ? dataset.error.value : null))
 
-const view = useQueryState<(typeof VIEWS)[number]['value']>('view', { default: 'workload', allowed: VIEWS.map((v) => v.value) })
+const view = useQueryState('view', { default: SUB_VIEWS.omni.default, allowed: subViewIds('omni') })
 const mapping = useQueryState('mapping', { default: OMNI_ROUTE_DEFAULTS.omni_mapping_range, allowed: MAPPING_OPTIONS.map((o) => o.value) })
 const range = useQueryState('range', { default: OMNI_ROUTE_DEFAULTS.omni_range, allowed: RANGE_OPTIONS.map((o) => o.value) })
 
@@ -71,7 +68,7 @@ const show = (detail: Detail) => sheets.open(detail)
       </template>
     </PageHeader>
 
-    <SubNav :items="[...VIEWS]" default-value="workload" label="Omni CI views" />
+    <SubNav :items="SUB_VIEWS.omni.items" :default-value="SUB_VIEWS.omni.default" label="Omni CI views" />
 
     <AsyncBoundary :loading="dataset.loading.value && !ops" :error="error" :refreshing="dataset.refreshing.value" @retry="dataset.refresh">
       <EmptyState

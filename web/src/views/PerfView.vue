@@ -5,10 +5,12 @@ import SheetStack from '@/components/evidence/SheetStack.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
+import { SUB_VIEWS } from '@/components/layout/navigation'
 import SubNav from '@/components/layout/SubNav.vue'
 import type { Delta } from '@/components/stat/DeltaBadge.vue'
 import KpiCard, { type KpiAction } from '@/components/stat/KpiCard.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
+import { lastDelta } from '@/components/stat/trend'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -92,21 +94,12 @@ const hardware = computed(() => (perf.value ? perfHardwareRows(perf.value) : [])
 const latestBuild = computed(() => perfLatestBuild(allModels.value))
 const pipelineUrl = computed(() => (perf.value ? perfPipelineUrl(perf.value) : ''))
 
-const VIEWS = [
-  { value: 'performance', label: 'Performance' },
-  { value: 'accuracy', label: 'Accuracy' },
-]
-
 const freshness = computed(() => (perf.value ? freshnessChip(areaFreshness(sourceFreshness(ops.value, perf.value, now.value), 'perf'), now.value) : undefined))
 
 // KPI strings are integer()-formatted; '-' means the summary has no value.
 const count = (formatted: string) => (/\d/.test(formatted) ? Number(formatted.replace(/\D/g, '')) : null)
+const PRECEDING = { label: 'vs the preceding nightly' }
 const spark = (pick: (nightly: (typeof recent.value)[number]) => number) => recent.value.map(pick)
-function lastDelta(values: number[], goodWhen: 'up' | 'down'): Delta | undefined {
-  if (values.length < 2) return undefined
-  const value = values.at(-1)! - values.at(-2)!
-  return { value, text: `${value > 0 ? '+' : ''}${integer(value)}`, goodWhen, label: 'vs the preceding nightly' }
-}
 
 function selectModel(name: string) {
   sheets.close()
@@ -159,7 +152,7 @@ function changeKpi(tone: 'hard' | 'pass'): Kpi {
     label: tone === 'hard' ? 'Regressions' : 'Improvements',
     value: list.length,
     spark: spark(pick),
-    delta: lastDelta(spark(pick), tone === 'hard' ? 'down' : 'up'),
+    delta: lastDelta(spark(pick), tone === 'hard' ? 'down' : 'up', PRECEDING),
     headline: largest ? `Largest: ${largest.label}, ${perfShortModel(largest.model.model)}` : `None${inFilter.value} vs previous nightly`,
     footnote: largest ? `${blockDelta(largest.block).text} · ${changeWhere(largest).split(' · ').slice(1).join(' · ')}` : `Across ${integer(measured.value)} models${inFilter.value}`,
     action: { label: `Inspect ${tone === 'hard' ? 'regressed' : 'improved'} metrics`, onOpen: () => openChanges(tone) },
@@ -218,7 +211,7 @@ const scopeKpi = computed<Kpi>(() => {
     label: 'AMD models',
     value: filterActive.value ? scoped.value.length : count(ready.value!.kpis.models),
     spark: spark((n) => n.models),
-    delta: lastDelta(spark((n) => n.models), 'up'),
+    delta: lastDelta(spark((n) => n.models), 'up', PRECEDING),
     headline: latest ? `${integer(latest.models)} in the latest nightly` : undefined,
     footnote: 'nightly model families',
     action: { label: 'Inspect model families', onOpen: () => perf.value && sheets.open(familiesDetail(perf.value, selectModel)) },
@@ -264,7 +257,7 @@ const kpis = computed<Kpi[]>(() => (ready.value ? [scopeKpi.value, nightliesKpi.
       </template>
     </PageHeader>
 
-    <SubNav :items="VIEWS" default-value="performance" label="Performance views" />
+    <SubNav :items="SUB_VIEWS.perf.items" :default-value="SUB_VIEWS.perf.default" label="Performance views" />
 
     <AsyncBoundary
       :loading="dataset.loading.value && !perf"

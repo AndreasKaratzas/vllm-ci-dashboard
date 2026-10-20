@@ -5,14 +5,23 @@ export interface KpiTrend {
   delta?: Delta
 }
 
+const known = (values: (number | null)[]) => values.filter((v): v is number => v !== null && Number.isFinite(v))
+
 /**
- * A KPI's sparkline and the change of its last point against the one before; nothing without two
- * known points. `unit` is appended to the delta text with one decimal (e.g. ' pts').
+ * The change of the last known value against the one before; nothing without two known values.
+ * A `unit` (e.g. ' pts') shows the change with one decimal; `label` names the baseline.
  */
-export function kpiTrend(values: (number | null)[], goodWhen?: Delta['goodWhen'], unit = ''): KpiTrend {
-  const known = values.filter((v): v is number => v !== null && Number.isFinite(v))
-  if (known.length < 2) return {}
-  const change = Math.round((known.at(-1)! - known.at(-2)!) * 10) / 10
-  const shown = unit ? change.toFixed(1) : String(change)
-  return { spark: known, delta: { value: change, goodWhen, text: `${change > 0 ? '+' : ''}${shown}${unit}` } }
+export function lastDelta(values: (number | null)[], goodWhen?: Delta['goodWhen'], options: { unit?: string; label?: string } = {}): Delta | undefined {
+  const points = known(values)
+  if (points.length < 2) return undefined
+  const change = Math.round((points.at(-1)! - points.at(-2)!) * 10) / 10
+  const shown = options.unit === undefined ? change.toLocaleString('en-US') : `${change.toFixed(1)}${options.unit}`
+  return { value: change, goodWhen, text: `${change > 0 ? '+' : ''}${shown}`, label: options.label }
+}
+
+/** A KPI's sparkline and its last change; nothing without two known points. */
+export function kpiTrend(values: (number | null)[], goodWhen?: Delta['goodWhen'], unit?: string): KpiTrend {
+  const points = known(values)
+  if (points.length < 2) return {}
+  return { spark: points, delta: lastDelta(points, goodWhen, { unit }) }
 }

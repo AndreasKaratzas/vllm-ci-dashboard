@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
 import PageHeader, { type Freshness } from '@/components/layout/PageHeader.vue'
+import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
 import SubNav from '@/components/layout/SubNav.vue'
 import { useClock } from '@/composables/useClock'
 import { useOperations } from '@/composables/useOperations'
@@ -15,54 +16,43 @@ import AnalyticsLatency from './analytics/AnalyticsLatency.vue'
 import AnalyticsNightlies from './analytics/AnalyticsNightlies.vue'
 
 interface AnalyticsSubview {
-  value: string
-  label: string
   description: string
   component: Component
   /** The manifest source whose collection age the header shows, unless the sub-view publishes its own. */
   source: string
 }
 
-// Each sub-view owns its data loading and its file under views/analytics/.
-const VIEWS: AnalyticsSubview[] = [
-  {
-    value: 'groups',
-    label: 'AMD test health',
+// Each sub-view owns its data loading and its file under views/analytics/; ids and labels live in SUB_VIEWS.
+const INFO: Record<string, AnalyticsSubview> = {
+  groups: {
     description: 'AMD test-group health on main CI across nightlies, hardware, and exact job variants.',
     component: AnalyticsGroups,
     source: 'analytics',
   },
-  {
-    value: 'latency',
-    label: 'AMD nightly latency',
+  latency: {
     description: 'Recent main CI AMD MI test-group timing against the upstream baseline.',
     component: AnalyticsLatency,
     source: 'analytics',
   },
-  {
-    value: 'nightlies',
-    label: 'AMD nightlies',
+  nightlies: {
     description: 'Main CI AMD MI nightly outcomes and their failing test groups.',
     component: AnalyticsNightlies,
     source: 'analytics',
   },
-  {
-    value: 'dns',
-    label: 'DNS health',
+  dns: {
     description: 'DNS resolver failures seen in AMD CI job logs, by queue and physical node, with exact Buildkite evidence.',
     component: AnalyticsDns,
     source: 'dns',
   },
-  {
-    value: 'agent-health',
-    label: 'CI agent health',
+  'agent-health': {
     description: 'Failures attributed to physical AMD CI nodes, their clustering in time, and the runs behind them.',
     component: AnalyticsAgentHealth,
     source: 'agent_health',
   },
-]
+}
+const VIEWS = SUB_VIEWS.analytics.items.map((item) => ({ ...item, ...INFO[item.value]! }))
 
-const view = useQueryState('view', { default: 'groups', allowed: VIEWS.map((v) => v.value) })
+const view = useQueryState('view', { default: SUB_VIEWS.analytics.default, allowed: subViewIds('analytics') })
 const current = computed(() => VIEWS.find((v) => v.value === view.value) ?? VIEWS[0]!)
 const subview = provideSubviewHeader()
 
@@ -81,7 +71,7 @@ const freshness = computed<Freshness | undefined>(() => {
         <component :is="subview.about" />
       </template>
     </PageHeader>
-    <SubNav :items="VIEWS" default-value="groups" label="CI Analytics sections" />
+    <SubNav :items="SUB_VIEWS.analytics.items" :default-value="SUB_VIEWS.analytics.default" label="CI Analytics sections" />
     <component :is="current.component" :key="current.value" />
   </div>
 </template>

@@ -1,8 +1,8 @@
 import { markRaw } from 'vue'
-import type { Detail, DetailNote } from '@/components/evidence/detail'
+import type { Detail } from '@/components/evidence/detail'
 import { dotted, drill, link, mono, num, text, type CellSpec, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
 import { ROUTE_MODE_LABELS, testGroupDefinitionState, testGroupParityState } from '@/domain/ciHealth'
-import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
+import { integer, value, type Rec } from '@/domain/format'
 import { hardwareDisplayLabel } from '@/domain/health'
 import {
   MATRIX_BROWSER_TITLES,
@@ -24,8 +24,6 @@ import {
   type MatrixBrowserMode,
 } from '@/domain/healthHardware'
 import { amdMirrorDetail, amdMirrorGateMode, amdMirrorLabel, amdMirrorSourceUrl, mirrorAreaSearchText, mirrorDevicesLabel, type MirrorMode } from '@/domain/mirrors'
-import { nightlyBuildEvidence, nightlyFailureMovement } from '@/domain/nightly'
-import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
 import CommandsBlock from '@/features/amd-groups/CommandsBlock.vue'
 import { hardwareCell, resultCell } from '@/features/amd-groups/details'
 import GroupHistory from '@/features/amd-groups/GroupHistory.vue'
@@ -326,71 +324,6 @@ export function matrixColumns(architectures: Rec[], ops: Rec | null): ColumnSpec
       }),
     ),
   ]
-}
-
-// --- Nightly failure movement ---
-
-const MOVEMENT_TONE: Record<string, Tone> = { 'New failure': 'hard', 'Recurring failure': 'soft', Fixed: 'pass' }
-
-/** One retained nightly's failure movement against the previous nightly. */
-export function movementBuildDetail(build: Rec): Detail {
-  const pipeline = build.source_pipeline || 'ci'
-  const movement = nightlyFailureMovement(build)
-  const evidence = nightlyBuildEvidence(build)
-  const size = (key: string) => (movement && Array.isArray(movement[key]) ? movement[key].length : 0)
-  const blocked = Number(build.test_jobs_blocked || 0)
-  const notes: DetailNote[] = []
-  if (build.has_test_results === false) {
-    notes.push({
-      tone: blocked ? 'hard' : 'soft',
-      text: blocked
-        ? `This nightly failed before test execution. ${count(blocked, 'test job')} were dependency-blocked, so no pass/fail movement is inferred.`
-        : 'This build has no parsed test-group signal. No pass/fail movement is inferred.',
-    })
-  }
-  const buildUrl = exactPipelineBuildUrl(build, pipeline)
-  return {
-    id: `nightly-movement:${build.number}`,
-    title: build.number ? `AMD nightly #${build.number}` : 'AMD nightly',
-    subtitle: `${shortDate(build.created_at)} · failure movement against the previous nightly`,
-    notes,
-    stats: evidence.available
-      ? [
-          { label: 'New failures', value: integer(size('new')), tone: size('new') ? 'hard' : undefined, toneLabel: 'New' },
-          { label: 'Recurring failures', value: integer(size('recurring')) },
-          { label: 'Fixed', value: integer(size('fixed')) },
-        ]
-      : [],
-    fields: [
-      { label: 'State', value: value(build.state) },
-      { label: 'Job variants observed', value: integer(build.total_groups) },
-      { label: 'Dependency-blocked test jobs', value: blocked ? integer(blocked) : null },
-    ],
-    sources: buildUrl ? [{ label: 'Open Buildkite build', url: buildUrl }] : [],
-    empty: evidence.available ? undefined : 'Failure movement is unavailable for this build.',
-    tables: evidence.available
-      ? [
-          {
-            title: 'Job variants that changed',
-            rows: evidence.rows,
-            pageSize: 25,
-            emptyText: 'No failure movement in this nightly.',
-            searchPlaceholder: 'Filter job variant, change, or queue',
-            columns: [
-              {
-                id: 'variant',
-                label: 'Job variant',
-                value: (row: Rec) => String(row.display_name || row.name || ''),
-                cell: (row: Rec) => link(row.display_name || row.name, exactPipelineEvidenceUrl(row, pipeline) || null),
-              },
-              { id: 'change', label: 'Change', value: (row: Rec) => String(row.lifecycle), cell: (row: Rec) => ({ text: String(row.lifecycle), tone: MOVEMENT_TONE[row.lifecycle] ?? toneForState(row.lifecycle) }) },
-              { id: 'queue', label: 'Queue', value: (row: Rec) => value(row.queue), cell: (row: Rec) => mono(row.queue) },
-            ] satisfies ColumnSpec<Rec>[],
-          },
-        ]
-      : [],
-    width: 'lg',
-  }
 }
 
 // --- AMD mirrors ---

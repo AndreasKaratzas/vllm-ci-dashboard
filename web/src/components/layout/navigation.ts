@@ -1,4 +1,5 @@
 import type { LocationQuery } from 'vue-router'
+import { PERF_VIEWS, type PerfView } from '@/domain/perf'
 import type { SubNavItem } from './SubNav.vue'
 
 export interface SubViews {
@@ -8,8 +9,15 @@ export interface SubViews {
   items: SubNavItem[]
 }
 
-/** Sub-views of each top-level page, keyed by route name; the breadcrumb and command palette read them. */
-export const SUB_VIEWS: Record<string, SubViews> = {
+const PERF_VIEW_LABEL: Record<PerfView, string> = { performance: 'Performance', accuracy: 'Accuracy' }
+
+export type SubViewPage = 'health' | 'analytics' | 'perf' | 'omni'
+
+/**
+ * Sub-views of each top-level page, keyed by route name: the one list the pages' SubNav, their URL
+ * state, the breadcrumb, the sidebar and the command palette all read.
+ */
+export const SUB_VIEWS: Record<SubViewPage, SubViews> = {
   health: {
     param: 'view',
     default: 'overview',
@@ -34,16 +42,27 @@ export const SUB_VIEWS: Record<string, SubViews> = {
   perf: {
     param: 'view',
     default: 'performance',
+    items: PERF_VIEWS.map((value) => ({ value, label: PERF_VIEW_LABEL[value] })),
+  },
+  omni: {
+    param: 'view',
+    default: 'workload',
     items: [
-      { value: 'performance', label: 'Performance' },
-      { value: 'accuracy', label: 'Accuracy' },
+      { value: 'workload', label: 'Incoming workload' },
+      { value: 'live', label: 'Live queues' },
     ],
   },
 }
 
+/** The sub-views of a route, if it has any. */
+export const pageViews = (name: unknown): SubViews | undefined => (SUB_VIEWS as Record<string, SubViews | undefined>)[String(name ?? '')]
+
+/** The sub-view ids of one page, for URL state validation. */
+export const subViewIds = <T extends string = string>(page: SubViewPage): T[] => SUB_VIEWS[page].items.map((item) => item.value as T)
+
 /** The sub-view a route shows, falling back to the page default; null for pages without sub-views. */
 export function currentSubView(name: unknown, query: LocationQuery): SubNavItem | null {
-  const views = SUB_VIEWS[String(name ?? '')]
+  const views = pageViews(name)
   if (!views) return null
   const raw = query[views.param]
   const value = Array.isArray(raw) ? raw[0] : raw
@@ -52,6 +71,6 @@ export function currentSubView(name: unknown, query: LocationQuery): SubNavItem 
 
 /** Route location of one sub-view; the default sub-view keeps the URL bare. */
 export function subViewQuery(name: string, value: string): LocationQuery {
-  const views = SUB_VIEWS[name]
+  const views = pageViews(name)
   return !views || value === views.default ? {} : { [views.param]: value }
 }
