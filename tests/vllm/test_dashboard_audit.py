@@ -5822,6 +5822,19 @@ def test_current_retry_transaction_rejects_unproven_completed_evidence(tmp_path,
     assert expected in {finding.code for finding in audit.report.errors}
 
 
+def test_retry_transaction_accepts_an_amd_complete_signal_from_a_running_build(tmp_path):
+    output, health, analytics = _completed_current_retry_fixture(tmp_path)
+    analytics["ci"]["builds"][1].update(state="failing", source_state="failing", finished_at=None)
+    (output / "analytics.json").write_text(json.dumps(analytics))
+    assert DashboardAudit(tmp_path, allow_publication_fallback=False).audit_current_completed_ci_transaction() is False
+
+    health["amd"]["latest_test_signal_build"]["amd_complete"] = True
+    (output / "ci_health.json").write_text(json.dumps(health))
+    audit = DashboardAudit(tmp_path, allow_publication_fallback=False)
+    assert audit.audit_current_completed_ci_transaction() is True
+    assert audit.report.errors == []
+
+
 def test_completed_retry_preserves_exact_amd_signal_before_newer_no_result_nightly(tmp_path):
     output, health, analytics = _completed_current_retry_fixture(tmp_path)
     analytics["ci"]["builds"][0].update(state="passed", finished_at="2026-10-08T08:00:00Z")

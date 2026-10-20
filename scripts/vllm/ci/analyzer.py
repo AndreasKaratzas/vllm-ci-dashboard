@@ -917,11 +917,13 @@ def compute_build_summary(
     pipeline_key: str,
     previous: Optional[BuildSummary] = None,
     skip_job_patterns: tuple[str, ...] = (),
+    scope_complete: bool = False,
 ) -> BuildSummary:
     """Compute a BuildSummary from a build dict and its test results.
 
     Uses actual test counts extracted from summary entries (e.g.,
-    '__passed__ (136)' counts as 136, not 1).
+    '__passed__ (136)' counts as 136, not 1). ``scope_complete`` means every
+    in-scope job is final even if the build still runs out-of-scope jobs.
     """
     # The two current dashboard sides share a CI build but have independent
     # AMD/CUDA GPU rosters. Preserve that scope in every denominator.
@@ -1191,7 +1193,8 @@ def compute_build_summary(
 
     summary_state = build.get("state", "")
     executed_latest_jobs = [job for job in latest_jobs if job.get("state") not in {"skipped", "not_run"}]
-    if build.get("hardware_scope") == "amd_mi_gpu" and summary_state in cfg.TERMINAL_STATES:
+    amd_scope = build.get("hardware_scope") == "amd_mi_gpu"
+    if amd_scope and (summary_state in cfg.TERMINAL_STATES or scope_complete):
         summary_state = "failed" if jobs_failed - jobs_soft_failed > 0 else (
             "passed" if executed_latest_jobs and all(
                 job.get("state") == "passed" or job.get("soft_failed") is True for job in executed_latest_jobs
@@ -1205,7 +1208,12 @@ def compute_build_summary(
         commit=build.get("commit", "")[:12],
         created_at=created,
         state=summary_state,
-        source_state=build.get("state", "") if build.get("hardware_scope") == "amd_mi_gpu" else "",
+        source_state=build.get("state", "") if amd_scope else "",
+        amd_complete=scope_complete if amd_scope else None,
+        non_amd_jobs_active=(
+            int((build.get("scope_completion") or {}).get("out_of_scope_jobs_active") or 0)
+            if amd_scope else None
+        ),
         total_tests=total,
         passed=passed,
         failed=failed,

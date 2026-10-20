@@ -2890,6 +2890,47 @@ def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
     ]
 
 
+def test_amd_complete_running_nightly_matches_its_finished_projection():
+    name = "mi300_1: Shared build"
+
+    def soft_build(number: int, date: str) -> dict:
+        return _build(number, date, [
+            _job(name, "soft_fail", f"https://buildkite.com/vllm/ci/builds/{number}/steps/s",
+                 job_id=f"s-{number}", step_key="shared", soft_failed=True),
+            _job("mi300_1: Passing", "passed", f"https://buildkite.com/vllm/ci/builds/{number}/steps/p",
+                 job_id=f"p-{number}", step_key="passing"),
+        ])
+
+    previous = soft_build(17, "2026-04-20")
+    running = soft_build(18, "2026-04-21")
+    running.update(state="failing", source_state="failing", finished_at=None)
+    health = {"builds": [{"number": 18, "has_test_results": True, "amd_complete": True,
+                          "non_amd_jobs_active": 2, "state": "passed"}]}
+
+    row = ops._nightly_pipeline("ci", {"builds": [running, previous]}, health)["builds"][0]
+
+    assert (row["state"], row["source_state"], row["amd_complete"], row["non_amd_jobs_active"]) == (
+        "passed", "failing", True, 2,
+    )
+    assert row["transition_eligible"] is True and row["total_groups"] == 2
+    assert [item["soft_streak"] for item in row["transitions"]["new"]] == [2]
+    assert [item["name"] for item in row["failure_movement"]["recurring"]] == [name]
+
+    finished = {**running, "state": "passed", "source_state": "failed", "finished_at": "2026-04-21T20:00:00Z"}
+    health["builds"][0].update(non_amd_jobs_active=0, source_state="failed")
+    final = ops._nightly_pipeline("ci", {"builds": [finished, previous]}, health)["builds"][0]
+    changed = {"source_state", "non_amd_jobs_active"}
+    assert {key: value for key, value in final.items() if key not in changed} == {
+        key: value for key, value in row.items() if key not in changed
+    }
+
+    health["builds"][0]["state"] = "canceled"
+    canceled = ops._nightly_pipeline("ci", {"builds": [running, previous]}, health)["builds"][0]
+    assert (canceled["transition_eligible"], canceled["transition_ineligible_reason"]) == (
+        False, "build_state_not_completed",
+    )
+
+
 def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():
     name = "mi300_1: Transition policy"
 

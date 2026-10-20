@@ -1344,7 +1344,10 @@ class TestCacheCoversAllJobs:
                 summary_only_build, jsonl, "amd", 7791
             ) is False
             m.assert_called_once_with("amd", 7791)
-        assert summary_only_build == {**full_detail, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "source_pipeline": "ci"}
+        assert summary_only_build == {
+            **full_detail, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "source_pipeline": "ci",
+            "scope_completion": {"roster_open": True, "out_of_scope_jobs_active": 0},
+        }
 
     def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
         # If Buildkite is flaky we must not make collection fail outright
@@ -2095,3 +2098,127 @@ def test_current_mi_health_pass_ignores_skipped_optional_but_preserves_parent_st
     assert summary.state == "passed"
     assert summary.source_state == "failed"
     assert summary.passed == summary.total_tests == 1
+
+
+class TestAmdCompleteWhileBuildRuns:
+    """AMD evidence is final once only non-AMD jobs keep the shared build running."""
+
+    @staticmethod
+    def _build(state: str = "failing", *, amd_state: str = "passed", extra: tuple = ()) -> dict:
+        return {
+            "number": 96078,
+            "state": state,
+            "commit": "b" * 40,
+            "branch": "main",
+            "created_at": "2026-10-20T06:00:07Z",
+            "web_url": "https://buildkite.com/vllm/ci/builds/96078",
+            "jobs": [
+                {"type": "script", "id": "boot", "name": "bootstrap", "state": "passed",
+                 "agent_query_rules": ["queue=small_cpu_queue_premerge"]},
+                {**_job("mi300_1: Model tests", state=amd_state), "id": "amd-1"},
+                {**_job("mi355_1: Kernels", state="failed"), "id": "amd-2"},
+                {**_job(":nvidia: (H200) Accuracy Eval", state="running"), "id": "cuda-1"},
+                *extra,
+            ],
+        }
+
+    @staticmethod
+    def _scoped(build: dict) -> dict:
+        _scope_nightly_build(build, "amd")
+        return build
+
+    def test_running_build_with_only_non_amd_jobs_left_is_amd_complete(self):
+        build = self._scoped(self._build())
+        assert build["scope_completion"] == {"roster_open": False, "out_of_scope_jobs_active": 1}
+        assert _is_complete_nightly_build(build)
+        assert _completed_result_entries([(96078, "2026-10-20", [object()])], [build])
+
+    @pytest.mark.parametrize("change", [
+        "amd_running", "amd_blocked", "amd_retry_running", "block_step", "upload_running", "no_upload",
+    ])
+    def test_running_build_stays_provisional_while_amd_jobs_can_change(self, change):
+        extra: tuple = ()
+        amd_state = "passed"
+        if change == "amd_running":
+            amd_state = "running"
+        elif change == "amd_blocked":
+            amd_state = "blocked"
+        elif change == "amd_retry_running":
+            extra = ({**_job("mi355_1: Kernels", state="running"), "id": "amd-2b"},)
+        elif change == "block_step":
+            extra = ({"type": "manual", "id": "more", "label": "Run more jobs", "state": "blocked"},)
+        elif change == "upload_running":
+            extra = ({"type": "script", "id": "up", "name": ":rocket: Upload the picked jobs", "state": "blocked",
+                      "agent_query_rules": ["queue=small_cpu_queue_premerge"]},)
+        build = self._build(amd_state=amd_state, extra=extra)
+        if change == "amd_retry_running":
+            build["jobs"][2]["retried_in_job_id"] = "amd-2b"
+        if change == "no_upload":
+            build["jobs"].pop(0)
+        assert not _is_complete_nightly_build(self._scoped(build))
+
+    def test_scope_completion_is_computed_once_from_the_unscoped_roster(self):
+        build = self._scoped(self._build())
+        _scope_nightly_build(build, "amd")
+        assert build["scope_completion"] == {"roster_open": False, "out_of_scope_jobs_active": 1}
+
+    def test_summary_marks_amd_complete_and_keeps_buildkite_state(self):
+        build = self._scoped(self._build())
+        summary = compute_build_summary(build, [], "amd", scope_complete=True).to_dict()
+        assert (summary["state"], summary["source_state"]) == ("failed", "failing")
+        assert (summary["amd_complete"], summary["non_amd_jobs_active"], summary["is_running"]) == (True, 1, False)
+
+    def test_amd_complete_results_publish_once_and_survive_build_completion(self, tmp_path):
+        path = tmp_path / "test_results" / "2026-10-20_amd.jsonl"
+
+        def collect(build: dict):
+            rows = []
+            for job_id, name in (("amd-1", "mi300_1: Model tests"), ("amd-2", "mi355_1: Kernels")):
+                row = _record(name, build_num=96078, job_id=job_id)
+                row["date"] = "2026-10-20"
+                rows.append(TestResult(**row))
+            summary = {key: value for key, value in build.items() if key != "jobs"}
+            with (
+                patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+                patch("collect_ci.fetch_build_detail", return_value=json.loads(json.dumps(build))) as detail,
+                patch("collect_ci.parse_job_results", side_effect=lambda job, *args, **kwargs: [
+                    row for row in rows if row.job_id == job["id"]
+                ]) as parse,
+            ):
+                builds, results = collect_pipeline("amd", 8, tmp_path)
+            return builds, results, detail.call_count, parse.call_count
+
+        running = self._build()
+        builds, first, details, parsed = collect(running)
+        assert (details, parsed) == (1, 2)
+        assert sorted(row.job_id for row in first[96078]) == ["amd-1", "amd-2"]
+        published = path.read_text()
+
+        builds, again, details, parsed = collect(running)
+        assert (details, parsed) == (1, 0)
+        assert again == first and path.read_text() == published
+
+        finished = self._build(state="failed")
+        finished["jobs"][3]["state"] = "passed"
+        finished["finished_at"] = "2026-10-20T20:00:00Z"
+        builds, final, details, parsed = collect(finished)
+        assert (details, parsed) == (1, 0)
+        assert final == first and path.read_text() == published
+        assert _is_complete_nightly_build(builds[0])
+
+    def test_amd_retry_after_publication_reverts_to_provisional(self, tmp_path):
+        path = tmp_path / "test_results" / "2026-10-20_amd.jsonl"
+        row = _record("mi300_1: Model tests", build_num=96078, job_id="amd-1")
+        row["date"] = "2026-10-20"
+        _write_jsonl(path, [row])
+        retrying = self._build(extra=({**_job("mi355_1: Kernels", state="running"), "id": "amd-2b"},))
+        retrying["jobs"][2]["retried_in_job_id"] = "amd-2b"
+        summary = {key: value for key, value in retrying.items() if key != "jobs"}
+        with (
+            patch("collect_ci.fetch_nightly_builds", return_value=[summary]),
+            patch("collect_ci.fetch_build_detail", return_value=retrying),
+            patch("collect_ci.parse_job_results") as parse,
+        ):
+            _, results = collect_pipeline("amd", 8, tmp_path)
+        assert results == {} and not path.exists()
+        parse.assert_not_called()
