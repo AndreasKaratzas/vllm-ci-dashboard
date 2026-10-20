@@ -3,9 +3,10 @@
 
 The collector attributes every failing attempt to the node, the build, the test,
 shared infrastructure, or an unknown cause (collect_agent_health._attribute_failures).
-Like the dashboard's "Hurting" verdict, the watcher alerts on identified nodes
-with at least two logical failures attributed to the node itself within the
-collector's three-day node-repeat window, excluding canceled builds.
+The watcher counts exactly what the dashboard's default "Hurting" verdict counts:
+failing attempts attributed to an identified node, in builds created on the
+collector's UTC day or the two days before it (the dashboard's RECENT_DAYS),
+excluding canceled builds, and alerts on nodes with at least two.
 """
 
 from __future__ import annotations
@@ -47,8 +48,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 AGENT_HEALTH = ROOT / "data" / "vllm" / "ci" / "agent_health.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_agent_health_issues.json"
 
-# collect_agent_health.NODE_REPEAT_WINDOW: node evidence is corroborated over three days.
-LOOKBACK = timedelta(hours=72)
+# web/src/domain/agentHealth.ts RECENT_DAYS: the collector's UTC day and the two before it.
+RECENT_DAYS = 3
+LOOKBACK = timedelta(days=RECENT_DAYS)
 MAX_DATA_AGE = timedelta(hours=3)
 MIN_NODE_ATTRIBUTED = 2
 MAX_ISSUE_EVENTS = 12
@@ -189,7 +191,7 @@ def _window_runs(payload: dict) -> list[dict]:
     end = _parse_ts(payload.get("generated_at"))
     if end is None:
         return []
-    start = end - LOOKBACK
+    first_day = (end - timedelta(days=RECENT_DAYS - 1)).strftime("%Y-%m-%d")
     runs = []
     for raw in payload.get("failing_runs") or []:
         if not isinstance(raw, dict):
@@ -201,13 +203,13 @@ def _window_runs(payload: dict) -> list[dict]:
         if (
             raw.get("p") != "ci"
             or not amd_gpu_hardware(str(raw.get("q") or ""))
-            or raw.get("ng") is True
             or raw.get("bc") == 1
             or not node
             or node == "(unidentified)"
             or state not in {"hard", "soft"}
             or started is None
-            or started < start
+            or not isinstance(raw.get("d"), str)
+            or raw["d"] < first_day
             or started > end + timedelta(minutes=15)
         ):
             continue
@@ -232,15 +234,9 @@ def _window_runs(payload: dict) -> list[dict]:
 
 
 def _node_event(node: str, runs: list[dict]) -> dict | None:
-    # Match the UI: retries of one pipeline/build/group are one logical failure,
-    # and the latest attempt is retained.
-    logical: dict[tuple[str, Any, str], dict] = {}
-    for run in runs:
-        key = (run["pipeline"], run["build_number"], run["group"])
-        current = logical.get(key)
-        if current is None or run["started_at"] > current["started_at"]:
-            logical[key] = run
-    runs = sorted(logical.values(), key=lambda row: row["started_at"])
+    # Every attempt counts, as on the dashboard: a node fault usually fails one
+    # attempt and Buildkite retries it, so the retry chain is not one failure.
+    runs = sorted(runs, key=lambda row: row["started_at"])
     node_attributed = sum(run["attribution"] == "node" for run in runs)
     if node_attributed < MIN_NODE_ATTRIBUTED:
         return None
@@ -326,6 +322,7 @@ def _issue_title(events: list[dict]) -> str:
 REASON_TEXT = {
     "agent_lost": "agent lost mid-job",
     "node_repeats": "different groups fail only on this node",
+    "job_never_started": "containers never started, on this node alone",
     "isolated": "unexplained one-off",
 }
 
@@ -339,7 +336,7 @@ def _attribution_summary(payload: dict) -> str:
     return (
         f"Of {total} failing attempts in the window, {counts['node']} are attributed to a node, "
         f"{counts['build']} to build-wide breakage, {counts['test']} to their test group (it also fails "
-        f"on other nodes or passes nowhere else), {counts['infra']} to shared infrastructure, and "
+        f"on other nodes or passes nowhere else), {counts['infra']} to shared infrastructure or a passing outage, and "
         f"{counts['unknown']} are unexplained one-offs."
     )
 
@@ -351,18 +348,18 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
     lines = [
         "## AMD CI agent-health alert",
         "",
-        f"**{len(nodes)} physical nodes have {failure_count} node-suspect logical failures.**",
+        f"**{len(nodes)} physical nodes have {failure_count} node-suspect failing attempts.**",
         "",
         _attribution_summary(payload),
         "",
         "Signal rules:",
         "",
-        "- Live window: the three days ending at the collector timestamp.",
-        "- Attribution: a failure is explained elsewhere when it is build-wide (failing steps on five or more nodes in one build), shared infrastructure (agents lost on three or more nodes within 30 minutes, or containers that never started), or the test's (its retry or its test group failed on another node within a day, or the group passed on no other node).",
-        "- Node evidence: the agent was lost mid-job on this node alone, or unexplained failures hit at least two test groups on the node within three days.",
+        "- Live window: builds created on the collector's UTC day and the two days before it, as on the dashboard.",
+        "- Attribution: a failure is explained elsewhere when it is build-wide (the build failed on four or more other nodes; shared infrastructure instead when the step passed on a retry), shared infrastructure (agents lost, or containers that never started, on three or more nodes within 30 minutes), or the test's (its retry or its test group failed on another node within a day, or the group passed on no other node). A node that failed nearly every job it ran in a build while the jobs beside it passed is never explained by the build or by its test groups.",
+        "- Node evidence: the agent was lost mid-job on this node alone, or unexplained failures (including containers that never started on this node alone) hit at least two test groups on the node within three days.",
         "- Scope: identified AMD MI GPU nodes from every terminal ci/main attempt, including attempts superseded by a retry, in the published UTC build-creation cohort; canceled builds are excluded.",
-        "- Retry handling: one pipeline/build/test-group chain counts once per node.",
-        "- Alert threshold: at least two logical failures attributed to the node; its unexplained failures are listed alongside.",
+        "- Retry handling: every attempt counts, because a node fault usually fails one attempt and passes on the retry elsewhere.",
+        "- Alert threshold: at least two failing attempts attributed to the node; its unexplained failures are listed alongside.",
         "",
         f"Collected at **{generated_at}**. [Open CI agent health]({_dashboard_url()}).",
         "",
@@ -398,7 +395,7 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
                 f"{_md(run['queue'])}, {run['started_at'].strftime('%Y-%m-%d %H:%M:%S UTC')}"
             )
         if len(event["runs"]) > MAX_RUNS_PER_EVENT:
-            lines.append(f"- {len(event['runs']) - MAX_RUNS_PER_EVENT} additional logical failures retained in state")
+            lines.append(f"- {len(event['runs']) - MAX_RUNS_PER_EVENT} additional failing attempts retained in state")
 
     if len(events) > MAX_ISSUE_EVENTS:
         lines.extend(["", f"{len(events) - MAX_ISSUE_EVENTS} additional nodes are retained in watcher state."])

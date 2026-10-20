@@ -29,7 +29,7 @@ from vllm import build_operations_snapshot as ops
 from vllm import collect_agent_health as ah
 from vllm.audit_dashboard_data import DashboardAudit
 from vllm.buildkite_request_guard import BuildkiteRequestAllowanceExhausted
-from vllm.constants import amd_gpu_hardware
+from vllm.constants import AGENT_HEALTH_ATTRIBUTIONS, AGENT_HEALTH_NODE_SUSPECT, amd_gpu_hardware
 from vllm.main_ci_definitions import annotate_runtime_source_scope as exact_source_join
 from vllm.main_ci_definitions import prewarm_runtime_snapshots as exact_source_prime
 from vllm.ci import buildkite_client
@@ -244,13 +244,33 @@ def test_observe_reads_retry_lineage_and_agent_loss():
     assert (canceled["agent_lost"], canceled["never_started"]) == (False, False)
 
 
-def test_attribution_blames_a_build_that_fails_on_five_nodes():
+def test_attribution_blames_a_build_that_fails_on_four_other_nodes():
     wide = [_attempt(f"w{i}", f"n{i}", f"G{i}", 1, "failed", 1) for i in range(5)]
-    narrow = [_attempt(f"x{i}", f"m{i}", f"H{i}", 2, "failed", 1) for i in range(4)]
-    rows = wide + narrow + [p for i in range(5) for p in _passes(f"G{i}", ["p"])] + [p for i in range(4) for p in _passes(f"H{i}", ["p"])]
+    # Five failing steps on four nodes: each node has only three other failing nodes.
+    narrow = [_attempt(f"x{i}", f"m{min(i, 3)}", f"H{i}", 2, "failed", 1) for i in range(5)]
+    # A build-wide failure whose step passed on a retry was a passing outage, not the code.
+    outage = [_attempt(f"t{i}", f"o{i}", f"T{i}", 3, "failed", 1, superseded=True) for i in range(5)]
+    outage += [_attempt(f"t{i}-retry", f"q{i}", f"T{i}", 3, "passed", 2, retry_of=f"t{i}") for i in range(5)]
+    rows = wide + narrow + outage + [p for i in range(5) for p in _passes(f"G{i}", ["p"])] + [p for i in range(5) for p in _passes(f"H{i}", ["p"])]
     verdicts = _attributed(rows)
     assert {verdicts[f"w{i}"] for i in range(5)} == {("build", "high", "build_wide")}
-    assert {verdicts[f"x{i}"][0] for i in range(4)} == {"unknown"}
+    assert {verdicts[f"x{i}"] for i in range(3)} == {("unknown", "low", "isolated")}
+    assert verdicts["x3"] == verdicts["x4"] == ("node", "medium", "node_repeats")
+    assert {verdicts[f"t{i}"] for i in range(5)} == {("infra", "medium", "build_wide_transient")}
+
+
+def test_attribution_never_hides_a_node_that_fails_every_job_in_a_build_wide_failure():
+    # Node bh fails all four jobs it runs while 40 jobs beside it on other nodes pass;
+    # four other nodes fail one job each, so the build fails on five nodes.
+    hole = [_attempt(f"bh{i}", "bh", f"B{i}", 50, "failed", 1) for i in range(4)]
+    others = [_attempt(f"o{i}", f"o{i}", f"O{i}", 50, "failed", 1) for i in range(4)]
+    beside = [_attempt(f"p{i}", f"p{i % 10}", f"P{i}", 50, "passed", 1) for i in range(40)]
+    # B0 also failed on another node in another build, which alone would explain it as the test's.
+    recurrence = [_attempt("elsewhere", "z", "B0", 51, "failed", 3), *_passes("B0", ["y"], hour=3, build=52)]
+    passes = [p for group in ("B1", "B2", "B3", "O0", "O1", "O2", "O3") for p in _passes(group, ["y"], hour=3, build=52)]
+    verdicts = _attributed(hole + others + beside + recurrence + passes)
+    assert {verdicts[f"bh{i}"] for i in range(4)} == {("node", "high", "node_repeats")}
+    assert {verdicts[f"o{i}"] for i in range(4)} == {("build", "high", "build_wide")}
 
 
 def test_attribution_blames_the_test_when_it_fails_on_other_nodes():
@@ -272,8 +292,14 @@ def test_attribution_blames_the_test_when_it_fails_on_other_nodes():
         *_passes("Only", ["a"]),
         *_passes("Far", ["c"]),
         *_passes("Far", ["c"], hour=30),
+        # Recurrence must come from another build: the same build failing a group on
+        # two nodes outside a retry chain says nothing about the test elsewhere.
+        _attempt("s1", "d", "Same", 5, "failed", 1),
+        _attempt("s2", "e", "Same", 5, "failed", 1),
+        *_passes("Same", ["c"]),
     ]
     verdicts = _attributed(rows)
+    assert verdicts["s1"] == verdicts["s2"] == ("unknown", "low", "isolated")
     assert verdicts["r1"] == verdicts["r2"] == ("test", "high", "failed_on_retry_elsewhere")
     assert verdicts["g1"] == ("test", "medium", "group_fails_elsewhere")
     assert verdicts["h1"] == ("test", "high", "group_fails_elsewhere")
@@ -308,16 +334,26 @@ def test_attribution_separates_lost_agents_from_cluster_events():
         _attempt("l2", "a", "Other", 2, "failed", 20),
         # Agents lost on three nodes within half an hour are a cluster event.
         *[_attempt(f"z{i}", f"z{i}", f"Burst{i}", 3 + i, "failed", 10, exit_status=-1, signal_reason="agent_stop") for i in range(3)],
-        # Containers that never connected never ran a test.
+        # Containers that never connected on three nodes within half an hour are a cluster event.
+        *[_attempt(f"s{i}", f"s{i}", f"Start{i}", 20 + i, "failed", 30, exit_status=-1, signal_reason="process_run_error") for i in range(3)],
+        # On one node alone they are unexplained: one symptom, however many groups never started,
+        # that corroborates the node's other unexplained failures.
         _attempt("n1", "b", "Never", 9, "failed", 1, exit_status=-1, signal_reason="process_run_error"),
+        _attempt("n2", "b", "Never2", 9, "failed", 1, exit_status=-1, signal_reason="process_run_error"),
+        _attempt("c1", "c", "Never", 10, "failed", 50, exit_status=-1, signal_reason="process_run_error"),
+        _attempt("c2", "c", "Again", 11, "failed", 52),
         *_passes("Other", ["p"]),
+        *_passes("Again", ["p"], hour=52),
     ]
     verdicts = _attributed(rows)
     assert verdicts["l1"] == ("node", "medium", "agent_lost")
     assert verdicts["l2"] == ("node", "medium", "node_repeats")
     assert {verdicts[f"z{i}"] for i in range(3)} == {("infra", "high", "agent_loss_burst")}
-    assert verdicts["n1"] == ("infra", "medium", "job_never_started")
-    assert not any(row.get("node_suspect") for row in rows if row["job_id"] in {"z0", "z1", "z2", "n1"})
+    assert {verdicts[f"s{i}"] for i in range(3)} == {("infra", "high", "start_failure_burst")}
+    assert verdicts["n1"] == verdicts["n2"] == ("unknown", "low", "job_never_started")
+    assert verdicts["c1"] == verdicts["c2"] == ("node", "medium", "node_repeats")
+    assert not any(row.get("node_suspect") for row in rows if row["job_id"] in {"z0", "z1", "z2", "s0", "s1", "s2"})
+    assert all(row["node_suspect"] for row in rows if row["job_id"] in {"n1", "n2", "c1", "c2"})
 
 
 def test_failing_row_and_accounting_carry_the_attribution():
@@ -1876,7 +1912,11 @@ def test_agent_health_compacts_newest_day_links_but_preserves_exact_accounting()
 
 def test_agent_health_audit_requires_an_attribution_consistent_with_the_node_suspect_flag():
     day = "2026-07-14"
-    payload = ah._prepare_generation([_retained_node_day(day)], [_retained_failure(day, index) for index in range(4)], NOW)["payload"]
+    failures = [
+        {**_retained_failure(day, index), "a": attribution, "i": int(attribution in AGENT_HEALTH_NODE_SUSPECT)}
+        for index, attribution in enumerate(AGENT_HEALTH_ATTRIBUTIONS)
+    ]
+    payload = ah._prepare_generation([_retained_node_day(day)], failures, NOW)["payload"]
 
     def errors(candidate):
         audit = DashboardAudit(Path("."))
@@ -1886,7 +1926,7 @@ def test_agent_health_audit_requires_an_attribution_consistent_with_the_node_sus
     assert not {"operations-agent-health-infra-flag", "operations-agent-health-accounting"} & errors(payload)
     for key, field, value in (("failing_runs", "a", "bogus"), ("failing_runs", "i", 0), ("failure_accounting", "a", "bogus")):
         broken = deepcopy(payload)
-        broken[key][1][field] = value
+        broken[key][0][field] = value
         expected = "operations-agent-health-infra-flag" if key == "failing_runs" else "operations-agent-health-accounting"
         assert expected in errors(broken), (key, field, value)
 

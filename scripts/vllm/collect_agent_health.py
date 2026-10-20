@@ -25,7 +25,7 @@ and emits compact artifacts:
   2. **Failing runs** — every hard/soft failing attempt, including attempts that
      Buildkite superseded with an automatic retry (``rt``), because a node fault
      usually fails one attempt and passes on the retry elsewhere. Each row
-     carries an **attribution** (``a``: node / build / test / unknown, with
+     carries an **attribution** (``a``: node / build / test / infra / unknown, with
      confidence ``ac`` and rule ``ar``) derived from cheap cross-run evidence;
      ``i`` marks the failures that may be the node's fault (node or unknown).
      See ``_attribute_failures``.
@@ -76,7 +76,7 @@ from vllm.ci.analytics_cache import (
     write_runtime_source_indexes,
 )
 from vllm.ci.log_parser import node_from_agent
-from vllm.constants import amd_gpu_hardware
+from vllm.constants import AGENT_HEALTH_NODE_SUSPECT, amd_gpu_hardware
 from vllm.pipelines import _job_queue, is_cpu_only_job
 from vllm.dashboard_storage_budget import writer_max_bytes
 from vllm.pipelines import (
@@ -115,9 +115,17 @@ DEFAULT_COFAILURE_WINDOW_MINS = 180
 UNIDENTIFIED_NODE = "(unidentified)"
 
 # Failure attribution (see _attribute_failures). A build whose failing steps
-# span this many physical nodes cannot be explained by one bad node.
+# span this many physical nodes besides the failing attempt's own cannot be
+# explained by one bad node.
 BUILD_WIDE_MIN_FAILING_STEPS = 5
-BUILD_WIDE_MIN_FAILING_NODES = 5
+BUILD_WIDE_MIN_OTHER_NODES = 4
+# A node that fails nearly every job it runs in a build while the jobs running
+# beside it on other nodes pass is the build's outlier: its failures are never
+# build-wide, however many other nodes failed in that build.
+OUTLIER_MIN_FAILURES = 3
+OUTLIER_MIN_FAILURE_RATE = 0.75
+OUTLIER_MAX_PEER_FAILURE_RATE = 0.10
+OUTLIER_MIN_PEERS = 10
 # A test group failing on another node within this window is a test or code
 # problem, not a property of the node.
 RECURRENCE_WINDOW = timedelta(hours=24)
@@ -125,11 +133,10 @@ RECURRENCE_WINDOW = timedelta(hours=24)
 # corroborate a node fault; one flaky group repeating does not.
 NODE_REPEAT_WINDOW = timedelta(hours=72)
 NODE_REPEAT_MIN_GROUPS = 2
-# Agents lost on this many nodes within the window are a cluster or registry
-# event (pods terminated, containers never connected), not one node.
-AGENT_LOSS_BURST_MIN_NODES = 3
-AGENT_LOSS_BURST_WINDOW = timedelta(minutes=30)
-ATTRIBUTIONS = ("node", "build", "test", "infra", "unknown")
+# Agents lost, or containers that never started, on this many nodes within the
+# window are a cluster or registry event, not one node.
+BURST_MIN_NODES = 3
+BURST_WINDOW = timedelta(minutes=30)
 # Every executed attempt is a run on its node. Buildkite's documented
 # ``include_retried_jobs`` keeps superseded attempts in the embedded roster.
 ATTEMPT_POLICY = "every_executed_attempt"
@@ -770,14 +777,23 @@ def _attribute_failures(obs: list[dict]) -> None:
 
     Rules, first match wins, all from the embedded build rosters:
 
-    - infra/high ``agent_loss_burst``: the agent died mid-job (exit -1 without
-      a cancellation) while agents on AGENT_LOSS_BURST_MIN_NODES nodes died
-      within AGENT_LOSS_BURST_WINDOW of it.
-    - node/medium ``agent_lost``: the agent died mid-job on this node alone.
-    - infra/medium ``job_never_started``: the pod's containers never connected
-      (``process_run_error``), a cluster or image-pull failure before any test.
-    - build/high ``build_wide``: the build's failing steps span at least
-      BUILD_WIDE_MIN_FAILING_NODES nodes; one node cannot cause that.
+    - ``agent_lost``: the agent died mid-job (exit -1 without a cancellation),
+      and ``job_never_started``: the pod's containers never connected
+      (``process_run_error``). Either is infra/high (``agent_loss_burst``,
+      ``start_failure_burst``) when the same happened on BURST_MIN_NODES nodes
+      within BURST_WINDOW. Otherwise a lost agent is node/medium and a job that
+      never started is unexplained, and all of a node's jobs that never started
+      count as one test group toward ``node_repeats``.
+    - ``build_wide``: the build's BUILD_WIDE_MIN_FAILING_STEPS or more failing
+      steps span BUILD_WIDE_MIN_OTHER_NODES nodes besides this one; one node
+      cannot cause that. Build/high, or
+      infra/medium ``build_wide_transient`` when the step passed on a retry
+      (an outage such as a Hugging Face Hub error, not a code regression).
+      Never applies to the build's outlier nodes, which fail at least
+      OUTLIER_MIN_FAILURES and OUTLIER_MIN_FAILURE_RATE of their jobs in the
+      build while at most OUTLIER_MAX_PEER_FAILURE_RATE of the (at least
+      OUTLIER_MIN_PEERS) jobs running beside them on other nodes fail. Their
+      test groups failing elsewhere does not explain them either.
     - test/high ``failed_on_retry_elsewhere``: another attempt of the same step
       failed on a different node.
     - test ``group_fails_elsewhere``: the test group failed on another node in
@@ -805,61 +821,100 @@ def _attribute_failures(obs: list[dict]) -> None:
         id(r): _aware_timestamp(r["started_at"]) or datetime.min.replace(tzinfo=timezone.utc)
         for r in obs
     }
-    lost = [r for r in failing if r["agent_lost"]]
-    lost_at = {id(r): _aware_timestamp(r["finished_at"]) or started[id(r)] for r in lost}
+    finished = {id(r): _aware_timestamp(r["finished_at"]) or started[id(r)] for r in obs}
     steps = {r["job_id"]: step_of(r) for r in obs if r["job_id"]}
+
+    def step(row: dict) -> str:
+        return steps.get(row["job_id"], row["job_id"])
+
+    passed_steps = {step(r) for r in obs if r["state"] == "pass"}
+    build_runs: dict[tuple, list[dict]] = defaultdict(list)
     build_steps: dict[tuple, set] = defaultdict(set)
     build_nodes: dict[tuple, set] = defaultdict(set)
     step_failures: dict[str, list[dict]] = defaultdict(list)
     group_failures: dict[str, list[dict]] = defaultdict(list)
     group_passes: dict[str, list[dict]] = defaultdict(list)
-    for r in failing:
-        build = (r["pipeline"], r["build_number"])
-        build_steps[build].add(steps.get(r["job_id"], r["job_id"]))
-        if r["identified"]:
-            build_nodes[build].add(r["node"])
-        step_failures[steps.get(r["job_id"], r["job_id"])].append(r)
-        group_failures[r["group"]].append(r)
     for r in obs:
+        build_runs[(r["pipeline"], r["build_number"])].append(r)
         if r["state"] == "pass":
             group_passes[r["group"]].append(r)
+    for r in failing:
+        build = (r["pipeline"], r["build_number"])
+        build_steps[build].add(step(r))
+        if r["identified"]:
+            build_nodes[build].add(r["node"])
+        step_failures[step(r)].append(r)
+        group_failures[r["group"]].append(r)
+
+    def outliers(build: tuple) -> set:
+        runs = [r for r in build_runs[build] if r["identified"]]
+        found = set()
+        for node in build_nodes[build]:
+            own = [r for r in runs if r["node"] == node]
+            fails = [r for r in own if r["state"] in ("hard", "soft")]
+            if len(fails) < OUTLIER_MIN_FAILURES or len(fails) < OUTLIER_MIN_FAILURE_RATE * len(own):
+                continue
+            lo = min(started[id(r)] for r in fails)
+            hi = max(finished[id(r)] for r in fails)
+            peers = [
+                r for r in runs
+                if r["node"] != node and started[id(r)] <= hi and finished[id(r)] >= lo
+            ]
+            if len(peers) >= OUTLIER_MIN_PEERS and (
+                sum(r["state"] in ("hard", "soft") for r in peers) <= OUTLIER_MAX_PEER_FAILURE_RATE * len(peers)
+            ):
+                found.add(node)
+        return found
+
+    build_outliers = {build: outliers(build) for build in build_nodes}
 
     def near(rows: list[dict], row: dict, window: timedelta) -> list[dict]:
         at = started[id(row)]
         return [other for other in rows if abs(started[id(other)] - at) <= window]
 
+    def burst(rows: list[dict], row: dict) -> bool:
+        return len({
+            other["node"] for other in rows
+            if abs(finished[id(other)] - finished[id(row)]) <= BURST_WINDOW
+        }) >= BURST_MIN_NODES
+
+    lost = [r for r in failing if r["agent_lost"]]
+    never_started = [r for r in failing if r["never_started"]]
     suspects: list[dict] = []
     for r in failing:
         build = (r["pipeline"], r["build_number"])
+        outlier = r["node"] in build_outliers.get(build, ())
         elsewhere = {
             other["node"] for other in near(group_failures[r["group"]], r, RECURRENCE_WINDOW)
             if other["node"] != r["node"] and other["build_number"] != r["build_number"]
         }
         if r["agent_lost"]:
-            burst = {
-                other["node"] for other in lost
-                if abs(lost_at[id(other)] - lost_at[id(r)]) <= AGENT_LOSS_BURST_WINDOW
-            }
-            if len(burst) >= AGENT_LOSS_BURST_MIN_NODES:
-                verdict = ("infra", "high", "agent_loss_burst")
-            else:
-                verdict = ("node", "medium", "agent_lost")
-                suspects.append(r)
+            verdict = ("infra", "high", "agent_loss_burst") if burst(lost, r) else ("node", "medium", "agent_lost")
         elif r["never_started"]:
-            verdict = ("infra", "medium", "job_never_started")
-        elif (len(build_steps[build]) >= BUILD_WIDE_MIN_FAILING_STEPS
-              and len(build_nodes[build]) >= BUILD_WIDE_MIN_FAILING_NODES):
-            verdict = ("build", "high", "build_wide")
-        elif any(other["node"] != r["node"] for other in step_failures[steps.get(r["job_id"], r["job_id"])]):
+            verdict = (
+                ("infra", "high", "start_failure_burst") if burst(never_started, r)
+                else ("unknown", "low", "job_never_started")
+            )
+        elif not outlier and len(build_steps[build]) >= BUILD_WIDE_MIN_FAILING_STEPS and (
+            len(build_nodes[build] - {r["node"]}) >= BUILD_WIDE_MIN_OTHER_NODES
+        ):
+            verdict = (
+                ("infra", "medium", "build_wide_transient") if step(r) in passed_steps
+                else ("build", "high", "build_wide")
+            )
+        elif any(other["node"] != r["node"] for other in step_failures[step(r)]):
             verdict = ("test", "high", "failed_on_retry_elsewhere")
-        elif elsewhere:
+        elif not outlier and elsewhere:
             verdict = ("test", "high" if len(elsewhere) >= 2 else "medium", "group_fails_elsewhere")
-        elif not any(other["node"] != r["node"] for other in near(group_passes[r["group"]], r, RECURRENCE_WINDOW)):
+        elif not outlier and not any(
+            other["node"] != r["node"] for other in near(group_passes[r["group"]], r, RECURRENCE_WINDOW)
+        ):
             verdict = ("test", "medium", "group_not_passing_elsewhere")
         else:
             verdict = ("unknown", "low", "isolated")
-            suspects.append(r)
         r["attribution"], r["confidence"], r["reason"] = verdict
+        if r["attribution"] in AGENT_HEALTH_NODE_SUSPECT:
+            suspects.append(r)
 
     by_node: dict[str, list[dict]] = defaultdict(list)
     for r in suspects:
@@ -867,14 +922,18 @@ def _attribute_failures(obs: list[dict]) -> None:
             by_node[r["node"]].append(r)
     for rows in by_node.values():
         for r in rows:
-            corroborating = near(rows, r, NODE_REPEAT_WINDOW)
-            groups = {other["group"] for other in corroborating}
-            if r["reason"] != "agent_lost" and len(groups) >= NODE_REPEAT_MIN_GROUPS:
+            # Jobs that never started fail before any test, so however many groups
+            # they belong to they are one symptom, not corroboration of each other.
+            groups = {
+                "" if other["never_started"] else other["group"]
+                for other in near(rows, r, NODE_REPEAT_WINDOW)
+            }
+            if r["attribution"] == "unknown" and len(groups) >= NODE_REPEAT_MIN_GROUPS:
                 r["attribution"], r["confidence"], r["reason"] = (
                     "node", "high" if len(groups) > NODE_REPEAT_MIN_GROUPS else "medium", "node_repeats",
                 )
     for r in failing:
-        r["node_suspect"] = r["attribution"] in ("node", "unknown")
+        r["node_suspect"] = r["attribution"] in AGENT_HEALTH_NODE_SUSPECT
 
 
 def _rollup_rows(obs: list[dict]) -> dict[tuple[str, str], dict]:
@@ -1187,12 +1246,13 @@ def _assemble(
         "hardware_types": hardware_types,
         "attribution_rules": {
             "build_wide_min_failing_steps": BUILD_WIDE_MIN_FAILING_STEPS,
-            "build_wide_min_failing_nodes": BUILD_WIDE_MIN_FAILING_NODES,
+            "build_wide_min_other_nodes": BUILD_WIDE_MIN_OTHER_NODES,
+            "outlier_min_failures": OUTLIER_MIN_FAILURES,
             "recurrence_window_hours": int(RECURRENCE_WINDOW.total_seconds() // 3600),
             "node_repeat_window_hours": int(NODE_REPEAT_WINDOW.total_seconds() // 3600),
             "node_repeat_min_groups": NODE_REPEAT_MIN_GROUPS,
-            "agent_loss_burst_min_nodes": AGENT_LOSS_BURST_MIN_NODES,
-            "agent_loss_burst_window_minutes": int(AGENT_LOSS_BURST_WINDOW.total_seconds() // 60),
+            "burst_min_nodes": BURST_MIN_NODES,
+            "burst_window_minutes": int(BURST_WINDOW.total_seconds() // 60),
         },
         "total_runs": total_runs,
         "node_day_count": len(node_days),

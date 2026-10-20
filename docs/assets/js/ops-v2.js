@@ -1493,7 +1493,7 @@
       || scope.requested_days < 1 || scope.requested_days > 60
       || scope.basis !== (isCreatedCohort ? 'terminal_jobs_by_build_created_at' : 'terminal_jobs_by_started_at')
       || scope.exhaustive !== true
-      || scope.attempt_policy !== 'latest_attempt_per_step'
+      || (scope.attempt_policy !== 'latest_attempt_per_step' && scope.attempt_policy !== 'every_executed_attempt')
       || scope.terminal_time_policy !== 'finished_at_or_terminal_build_bound_for_canceled'
       || typeof scope.complete_window !== 'boolean'
       || !scope.discovery_legs || typeof scope.discovery_legs !== 'object' || Array.isArray(scope.discovery_legs)

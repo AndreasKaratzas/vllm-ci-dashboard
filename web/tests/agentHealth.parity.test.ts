@@ -61,7 +61,7 @@ function classicDom(health: Rec, sel: Selection) {
   })
   const host = document.createElement('div')
   document.body.append(host)
-  classic.renderAmdAgentHealth!(host, forClassic(health))
+  classic.renderAmdAgentHealth!(host, health)
   const input = host.querySelector('.ops-agent-search') as HTMLInputElement | null
   if (sel.search && input) {
     input.value = sel.search
@@ -78,17 +78,10 @@ async function settle() {
 const byContent = (rows: (string | null)[][]) => rows.slice().sort((a, b) => (a.join('|') < b.join('|') ? -1 : a.join('|') > b.join('|') ? 1 : 0))
 
 /**
- * The classic renderer predates failure attribution: it reads the retired attempt policy and calls
- * the node signal "infra-suspect" with the old rule's wording. These adapters keep every count,
- * row, and event comparable; only the renamed signal and its rewritten captions
- * (fixtures/agent_signal_renames.json, shared with the browser specs) differ.
+ * The classic renderer predates failure attribution: it calls the node signal "infra-suspect" with
+ * the old rule's wording. Every count, row, and event stays comparable; only the renamed signal and
+ * its rewritten captions (fixtures/agent_signal_renames.json, shared with the browser specs) differ.
  */
-function forClassic(health: Rec): Rec {
-  const copy = structuredClone(health)
-  const scope = copy.retention?.pipeline_scope
-  if (scope?.attempt_policy === 'every_executed_attempt') scope.attempt_policy = 'latest_attempt_per_step'
-  return copy
-}
 const CLASSIC_WORDING = readFixture<[string, string][]>('agent_signal_renames.json')
 function classicWording<T>(value: T): T {
   if (typeof value === 'string') return CLASSIC_WORDING.reduce((text, [from, to]) => text.split(from).join(to), value as string) as T
@@ -293,10 +286,10 @@ describe('CI agent health domain matches the classic renderer', () => {
   }, 60_000)
 
   it('agrees on the classic helpers for the real snapshot', () => {
-    parity('agentSourceCoverage', v2.agentSourceCoverage(fixture), classic.agentSourceCoverage!(forClassic(fixture)))
+    parity('agentSourceCoverage', v2.agentSourceCoverage(fixture), classic.agentSourceCoverage!(fixture))
     parity('agentPipelineScopeLabel', v2.agentPipelineScopeLabel(fixture), classic.agentPipelineScopeLabel!(fixture))
     for (const day of [undefined, '2026-10-01', '2026-10-12', '2026-10-13', '2026-10-19', '2026-10-20', 'bad']) {
-      parity('agentSourceHistoryComplete', v2.agentSourceHistoryComplete(fixture, day), classic.agentSourceHistoryComplete!(forClassic(fixture), day))
+      parity('agentSourceHistoryComplete', v2.agentSourceHistoryComplete(fixture, day), classic.agentSourceHistoryComplete!(fixture, day))
     }
     for (const signal of ['infra', 'hard', 'all', 'x']) {
       for (const startDay of ['', '2026-10-12', '2026-10-18']) {

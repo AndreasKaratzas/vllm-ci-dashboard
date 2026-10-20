@@ -223,9 +223,12 @@ describe('agentFleetVerdict', () => {
     const verdict = agentFleetVerdict(matrix(nodes), { failureDetailIncomplete: true } as AgentView, options, breakdown(1, 0, 0, 0))
     expect(verdict).toMatchObject({ tone: 'soft', label: 'Watch', headline: 'No node is failing jobs repeatedly', recentFailures: 1, recentNodes: 1, hotNodes: [] })
     expect(verdict.topShare).toBeCloseTo(10 / 11)
+    // Node a's one recent failure is attributed to it (a lost agent): below the bar, but not uncorroborated.
     expect(verdict.detail).toBe(
-      'At least 1 node-suspect failure on 1 node in the last 3 days, none corroborated by a second test group or a lost agent. The 5 worst nodes carry 91% of the 7d node-suspect failures.',
+      'At least 1 node-suspect failure on 1 node in the last 3 days, 1 of them is attributed to a node (a lost agent, or unexplained failures of several test groups), but no node has 2. The 5 worst nodes carry 91% of the 7d node-suspect failures.',
     )
+    const unexplained = agentFleetVerdict(matrix([node('a', [cell(0), cell(0), cell(0), cell(1)])]), complete, options, breakdown(0, 1, 0, 0))
+    expect(unexplained.detail).toBe('1 node-suspect failure on 1 node in the last 3 days, none corroborated by a second test group or a lost agent.')
   })
 
   it('is healthy without recent node-suspect failures and says what the failures were', () => {

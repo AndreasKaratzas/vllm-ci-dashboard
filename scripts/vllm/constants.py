@@ -27,6 +27,11 @@ BK_CLUSTER_UUID = "9cecc6b1-94cd-43d1-a256-ab438083f4f5"
 # to scope which builds to walk.
 AMD_PIPELINES: tuple[str, ...] = ("ci",)
 
+# Causes collect_agent_health attributes a failing AMD CI attempt to; the
+# node-suspect ones may be the node's fault.
+AGENT_HEALTH_ATTRIBUTIONS: tuple[str, ...] = ("node", "build", "test", "infra", "unknown")
+AGENT_HEALTH_NODE_SUSPECT: tuple[str, ...] = ("node", "unknown")
+
 # ---------------------------------------------------------------------------
 # Queue taxonomy
 # ---------------------------------------------------------------------------

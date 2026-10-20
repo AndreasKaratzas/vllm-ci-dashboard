@@ -60,6 +60,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     ignored_watcher_state_paths,
 )
 from vllm.dashboard_storage_budget import group_max_bytes, writer_max_bytes  # noqa: E402
+from vllm.constants import AGENT_HEALTH_ATTRIBUTIONS, AGENT_HEALTH_NODE_SUSPECT  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
@@ -68,7 +69,6 @@ CI = VLLM / "ci"
 
 AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
-AGENT_ATTRIBUTIONS = ("node", "build", "test", "unknown")
 OPERATIONS_SOURCE_MAX_AGE_HOURS = 6
 OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "analytics",
@@ -4510,8 +4510,8 @@ class DashboardAudit:
         bad_flag = [
             {key: _mapping(run).get(key) for key in ("i", "a")}
             for run in failing
-            if _mapping(run).get("a") not in AGENT_ATTRIBUTIONS
-            or _mapping(run).get("i") != int(_mapping(run).get("a") in ("node", "unknown"))
+            if _mapping(run).get("a") not in AGENT_HEALTH_ATTRIBUTIONS
+            or _mapping(run).get("i") != int(_mapping(run).get("a") in AGENT_HEALTH_NODE_SUSPECT)
         ]
         if bad_flag:
             self.error(
@@ -4531,8 +4531,8 @@ class DashboardAudit:
                     not row.get("d")
                     or not row.get("nd")
                     or row.get("s") not in ("hard", "soft")
-                    or row.get("a") not in AGENT_ATTRIBUTIONS
-                    or row.get("i") != int(row.get("a") in ("node", "unknown"))
+                    or row.get("a") not in AGENT_HEALTH_ATTRIBUTIONS
+                    or row.get("i") != int(row.get("a") in AGENT_HEALTH_NODE_SUSPECT)
                     or row.get("ng") not in (0, 1)
                     or row.get("bc") not in (0, 1)
                     or not _is_nonnegative_int(count)

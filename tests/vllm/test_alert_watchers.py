@@ -16,6 +16,7 @@ from vllm.ci.reliability_history import (
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
+from vllm.constants import AGENT_HEALTH_NODE_SUSPECT
 
 
 class FakeIssueClient:
@@ -1273,7 +1274,7 @@ def _agent_row(
         "g": group,
         "s": state,
         "ng": False,
-        "i": int(attribution in ("node", "unknown")),
+        "i": int(attribution in AGENT_HEALTH_NODE_SUSPECT),
         "a": attribution,
         "ac": "medium",
         "ar": reason,
@@ -1291,17 +1292,19 @@ def test_agent_health_alert_requires_two_failures_attributed_to_the_node():
     payload = {
         "generated_at": "2026-07-17T12:00:00Z",
         "failing_runs": [
-            # Retries of one build/group count once; unexplained failures join the event,
-            # and node evidence two days apart still corroborates.
-            _agent_row("gpu1", "group-a", "2026-07-15T13:00:00Z", build=1, job="a1"),
-            _agent_row("gpu1", "group-a", "2026-07-15T13:05:00Z", build=1, job="a2"),
-            _agent_row("gpu1", "group-b", "2026-07-17T10:10:00Z", build=2, job="b"),
+            # Every attempt counts, as on the dashboard: an agent lost on the first attempt
+            # stays the node's when the retry on the same node is unexplained, unexplained
+            # failures join the event, and nightly builds count like any other.
+            _agent_row("gpu1", "group-a", "2026-07-15T13:00:00Z", build=1, job="a1", reason="agent_lost"),
+            _agent_row("gpu1", "group-a", "2026-07-15T13:25:00Z", build=1, job="a2", attribution="unknown", reason="isolated"),
+            _agent_row("gpu1", "group-b", "2026-07-17T10:10:00Z", build=2, job="b") | {"ng": True},
             _agent_row("gpu1", "group-c", "2026-07-17T10:20:00Z", build=3, job="c", attribution="unknown", reason="isolated"),
             _agent_row("gpu1", "canceled", "2026-07-17T10:30:00Z", build=4, canceled=1),
             _agent_row("(unidentified)", "unknown", "2026-07-17T10:40:00Z", build=5),
-            # Build-wide and test failures never make a node event.
+            # Build-wide, test and shared-infrastructure failures never make a node event.
             _agent_row("gpu2", "one", "2026-07-17T10:00:00Z", build=6, attribution="build", reason="build_wide"),
             _agent_row("gpu2", "two", "2026-07-17T10:10:00Z", build=7, attribution="test", reason="group_fails_elsewhere"),
+            _agent_row("gpu2", "three", "2026-07-17T10:20:00Z", build=8, attribution="infra", reason="start_failure_burst"),
             # One node-attributed failure among unexplained ones is not enough.
             _agent_row("gpu3", "one", "2026-07-17T10:00:00Z", build=8, attribution="node", reason="agent_lost"),
             _agent_row("gpu3", "two", "2026-07-17T10:10:00Z", build=9, attribution="unknown", reason="isolated"),
@@ -1313,15 +1316,17 @@ def test_agent_health_alert_requires_two_failures_attributed_to_the_node():
     assert len(events) == 1
     event = events[0]
     assert event["node"] == "gpu1"
-    assert (event["failure_count"], event["node_attributed"], event["group_count"]) == (3, 2, 3)
-    assert {run["job_id"] for run in event["runs"]} == {"a2", "b", "c"}
+    assert (event["failure_count"], event["node_attributed"], event["group_count"]) == (4, 2, 3)
+    assert {run["job_id"] for run in event["runs"]} == {"a1", "a2", "b", "c"}
 
 
 def test_agent_health_alert_uses_the_three_day_window_and_node_suspect_signal_only():
     payload = {
         "generated_at": "2026-07-17T12:00:00Z",
         "failing_runs": [
-            _agent_row("gpu1", "old", "2026-07-14T11:59:00Z", build=1),
+            # The dashboard's recent days are build-creation days: a build created on
+            # 07-14 is outside them even if its job ran within 72 hours.
+            _agent_row("gpu1", "old", "2026-07-14T23:59:00Z", build=1) | {"t": "2026-07-15T00:10:00Z"},
             _agent_row("gpu1", "not-node", "2026-07-17T10:00:00Z", build=2, attribution="test", reason="failed_on_retry_elsewhere"),
             _agent_row("gpu1", "one", "2026-07-17T10:05:00Z", build=3),
         ],
@@ -1351,7 +1356,7 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
     assert "steps/canvas?jid=job-a&tab=output" in body
     assert "ops_analytics_view=agent-health" in body
     assert "ops_agent_node=gpu-chi-1" in body
-    assert "at least two logical failures attributed to the node" in body
+    assert "at least two failing attempts attributed to the node" in body
     assert "Of 3 failing attempts in the window, 2 are attributed to a node, 1 to build-wide breakage" in body
     assert "node (different groups fail only on this node)" in body
     assert "node (agent lost mid-job)" in body
@@ -1362,7 +1367,6 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
 @pytest.mark.parametrize("field,value", [
     ("p", "amd-ci"), ("p", "other"), ("q", "gpu_1_queue"),
     ("q", "amd_cpu"), ("q", "amd_unknown"), ("q", "amd_mi355B_8"),
-    ("ng", True),
 ])
 def test_agent_health_alert_excludes_foreign_and_non_gpu_execution(field, value):
     rows = [_agent_row("gpu1", f"group-{index}", "2026-07-17T10:00:00Z", build=index)

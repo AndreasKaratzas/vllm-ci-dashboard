@@ -56,8 +56,10 @@ export const ATTRIBUTION_LABEL: Record<AgentAttribution, string> = {
 export const ATTRIBUTION_REASON: Record<string, string> = {
   agent_lost: 'The agent died mid-job on this node alone.',
   agent_loss_burst: 'Agents died on three or more nodes within half an hour.',
-  job_never_started: 'The job’s containers never started.',
-  build_wide: 'The same build failed on five or more nodes.',
+  job_never_started: 'The job’s containers never started, on this node alone.',
+  start_failure_burst: 'Jobs’ containers never started on three or more nodes within half an hour.',
+  build_wide: 'The same build failed on four or more other nodes, and the step never passed.',
+  build_wide_transient: 'The same build failed on four or more other nodes, and the step passed on a retry: a passing outage.',
   failed_on_retry_elsewhere: 'The automatic retry failed on another node too.',
   group_fails_elsewhere: 'The test group also failed on other nodes within a day.',
   group_not_passing_elsewhere: 'The test group passed on no other node within a day.',
@@ -420,7 +422,8 @@ export interface AgentModel {
 
 /** The collector's published attribution thresholds (see AgentAbout). */
 export interface AttributionRules {
-  buildWideNodes: number
+  buildWideOtherNodes: number
+  outlierFailures: number
   recurrenceHours: number
   repeatHours: number
   repeatGroups: number
@@ -432,12 +435,13 @@ function attributionRules(raw: unknown): AttributionRules {
   const rules = (raw && typeof raw === 'object' ? raw : {}) as Rec
   const count = (value: unknown, fallback: number) => (Number.isSafeInteger(value) && (value as number) > 0 ? (value as number) : fallback)
   return {
-    buildWideNodes: count(rules.build_wide_min_failing_nodes, 5),
+    buildWideOtherNodes: count(rules.build_wide_min_other_nodes, 4),
+    outlierFailures: count(rules.outlier_min_failures, 3),
     recurrenceHours: count(rules.recurrence_window_hours, 24),
     repeatHours: count(rules.node_repeat_window_hours, 72),
     repeatGroups: count(rules.node_repeat_min_groups, 2),
-    burstNodes: count(rules.agent_loss_burst_min_nodes, 3),
-    burstMinutes: count(rules.agent_loss_burst_window_minutes, 30),
+    burstNodes: count(rules.burst_min_nodes, 3),
+    burstMinutes: count(rules.burst_window_minutes, 30),
   }
 }
 
@@ -1492,12 +1496,16 @@ export function agentFleetVerdict(
   }
   if (watchNodes.length) {
     const suspect = watchNodes.reduce((sum, node) => sum + node.recentSuspect, 0)
+    const attributed = watchNodes.reduce((sum, node) => sum + node.recentNode, 0)
+    const corroboration = attributed
+      ? `${integer(attributed)} of them ${attributed === 1 ? 'is' : 'are'} attributed to a node (a lost agent, or unexplained failures of several test groups), but no node has ${HURTING_NODE_FAILURES}.`
+      : 'none corroborated by a second test group or a lost agent.'
     return {
       ...base,
       tone: 'soft',
       label: 'Watch',
       headline: 'No node is failing jobs repeatedly',
-      detail: `${capitalize(bound)}${failuresWord(suspect, 'node-suspect failures')} on ${nodesWord(watchNodes.length)} ${span}, none corroborated by a second test group or a lost agent.${explained}${concentration}`,
+      detail: `${capitalize(bound)}${failuresWord(suspect, 'node-suspect failures')} on ${nodesWord(watchNodes.length)} ${span}, ${corroboration}${explained}${concentration}`,
     }
   }
   return {

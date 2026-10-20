@@ -13,10 +13,18 @@ defineProps<{ model: AgentModel }>()
   <p class="font-medium text-foreground">When is a failure the node's fault?</p>
   <p>Each failing attempt is explained by the first rule that matches:</p>
   <ol class="list-decimal pl-5" data-testid="agent-attribution-rules">
-    <li>The agent died mid-job: shared infrastructure when agents on {{ model.rules.burstNodes }} or more nodes died within {{ model.rules.burstMinutes }} minutes, otherwise the node.</li>
-    <li>The job's containers never started: shared infrastructure.</li>
-    <li>The same build failed on {{ model.rules.buildWideNodes }} or more nodes: build-wide.</li>
-    <li>The retry failed on another node, the test group failed on other nodes within {{ model.rules.recurrenceHours }} hours, or it passed on no other node: test or code.</li>
+    <li>
+      The agent died mid-job, or the job's containers never started: shared infrastructure when the same happened on {{ model.rules.burstNodes }} or more nodes
+      within {{ model.rules.burstMinutes }} minutes. Otherwise a lost agent is the node's, and a job that never started is unexplained.
+    </li>
+    <li>
+      The same build failed on {{ model.rules.buildWideOtherNodes }} or more other nodes: build-wide, or shared infrastructure when the step passed on a retry.
+      Never for a node that failed nearly all of its {{ model.rules.outlierFailures }} or more jobs in that build while the jobs beside it passed.
+    </li>
+    <li>
+      The retry failed on another node: test or code. So is a failure whose test group failed on other nodes within {{ model.rules.recurrenceHours }} hours, or
+      passed on no other node, unless the node is that build's outlier.
+    </li>
     <li>Otherwise it is unexplained, and the node's when unexplained failures hit {{ model.rules.repeatGroups }} or more test groups on it within {{ model.rules.repeatHours }} hours.</li>
   </ol>
   <p>The node-suspect signal keeps the node and unexplained failures. A node is hurting CI once {{ HURTING_NODE_FAILURES }} recent failures are attributed to it.</p>
