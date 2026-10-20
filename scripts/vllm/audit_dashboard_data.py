@@ -125,6 +125,9 @@ SHARD_TERMINAL_BUILD_STATES = frozenset({
     "broken",
     "blocked",
 })
+# A build in these states has final AMD evidence only when the collector
+# proves every AMD job settled (``amd_complete``); only non-AMD jobs still run.
+AMD_COMPLETE_RUNNING_BUILD_STATES = frozenset({"running", "failing", "canceling"})
 SHARD_RESULT_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}_amd\.jsonl")
 PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
@@ -1893,8 +1896,11 @@ class DashboardAudit:
                 return invalid("provisional evidence must not reference a result_file")
             return evidence, "provisional"
 
-        if build_state.casefold() not in SHARD_TERMINAL_BUILD_STATES:
-            return invalid("complete evidence must identify a terminal build state")
+        if build_state.casefold() not in SHARD_TERMINAL_BUILD_STATES and not (
+            build_state.casefold() in AMD_COMPLETE_RUNNING_BUILD_STATES
+            and evidence.get("amd_complete") is True
+        ):
+            return invalid("complete evidence must identify a terminal or AMD-complete running build state")
         if (
             not result_file
             or Path(result_file).name != result_file
@@ -5309,15 +5315,21 @@ class DashboardAudit:
             commit = str(selected.get("commit") or "").casefold()
             created = _parse_timestamp(selected.get("created_at"))
             finished = _parse_timestamp(selected.get("finished_at"))
+            amd_complete = (
+                _mapping(_mapping(health.get(side)).get("latest_test_signal_build")).get("amd_complete") is True
+                and finished is None
+                and selected.get("source_state", selected.get("state")) in AMD_COMPLETE_RUNNING_BUILD_STATES
+            )
             if (
                 type(number) is not int or number <= 0
-                or selected.get("source_state", selected.get("state")) not in {"passed", "failed"}
+                or (selected.get("source_state", selected.get("state")) not in {"passed", "failed"} and not amd_complete)
                 or selected.get("branch") != "main"
                 or not re.search(UPSTREAM_NIGHTLY_NAME_PATTERN, str(selected.get("message") or ""), re.I)
                 or not _buildkite_url_matches(selected.get("web_url"), "ci", number)
                 or not FULL_COMMIT_SHA_RE.fullmatch(commit)
-                or created is None or finished is None or clock is None
-                or not created <= finished <= clock
+                or created is None or clock is None
+                or (finished is None and not amd_complete)
+                or not created <= (finished or created) <= clock
                 or sum(_mapping(row).get("number") == number for row in builds) != 1
             ):
                 self.error("analytics-completed-cohort", f"{side} current retry evidence requires its exact completed main-ci nightly analytics roster", analytics_path)

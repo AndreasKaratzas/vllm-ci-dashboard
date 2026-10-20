@@ -59,7 +59,8 @@ export function nightlyResultTone(build: Rec | null | undefined): Tone {
 /** Why a nightly has no pass rate, or null when it has one. */
 export function noSignalLabel(build: Rec | null | undefined): string | null {
   if (nightlyCounts(build)) return null
-  return Number(build?.test_jobs_blocked || 0) ? 'Infra blocked' : 'No test signal'
+  if (Number(build?.test_jobs_blocked || 0)) return 'Infra blocked'
+  return build?.active_retry === true ? 'AMD retry running' : 'No test signal'
 }
 
 const AXIS_STEPS = [1, 2, 5, 10, 20, 25]
