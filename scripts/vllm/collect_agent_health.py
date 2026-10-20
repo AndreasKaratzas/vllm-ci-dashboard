@@ -126,14 +126,24 @@ OUTLIER_MIN_FAILURES = 3
 OUTLIER_MIN_FAILURE_RATE = 0.75
 OUTLIER_MAX_PEER_FAILURE_RATE = 0.10
 OUTLIER_MIN_PEERS = 10
-# CUDA jobs run the same commit in the same build. When this share of its (at
-# least UPSTREAM_MIN_JOBS) final CUDA attempts failed, the commit is broken for
-# every accelerator and the AMD failures beside it are not the nodes' fault.
+# CUDA jobs run the same commit in the same build. When this share of the
+# build's (at least UPSTREAM_MIN_JOBS) final CUDA attempts failed and so did
+# this share of its (as many) final AMD attempts, the commit is broken for every
+# accelerator and the AMD failures beside it are not the nodes' fault. Failing
+# CUDA jobs beside healthy AMD jobs say nothing about the AMD nodes.
 UPSTREAM_MIN_JOBS = 20
 UPSTREAM_BUILD_WIDE_MIN_SHARE = 0.3
+# Builds run with this env flag test torch nightly on CUDA, and about half of
+# their CUDA jobs fail while their AMD jobs pass: their CUDA jobs are no
+# evidence about the commit.
+TORCH_NIGHTLY_ENV = "TORCH_NIGHTLY"
 # An inline AMD mirror's step key is the upstream key with this prefix
-# (vllm.main_ci_definitions.amd_source_steps).
+# (vllm.main_ci_definitions.amd_source_steps). The mirror counts only when its
+# job runs the same test (same name without the hardware and shard number):
+# some mirror keys hold a different AMD test.
 AMD_MIRROR_KEY_PREFIX = "amd-"
+_TEST_NAME_PREFIX_RE = re.compile(r"^.*?:(?:amd|nvidia):\s*(?:\([^)]*\)\s*)?", re.IGNORECASE)
+_TEST_NAME_SHARD_RE = re.compile(r"\s+(?:shard\s+)?\d+(?:/\d+)?$", re.IGNORECASE)
 # A test group failing on another node within this window is a test or code
 # problem, not a property of the node.
 RECURRENCE_WINDOW = timedelta(hours=24)
@@ -278,24 +288,43 @@ def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -
     }
 
 
-def _upstream_context(build: dict) -> dict:
-    """Summarize the CUDA jobs of one build for the AMD failures beside them.
+def _test_name(name: object) -> str:
+    """A job's test, without its hardware label and shard number."""
+    text = _TEST_NAME_SHARD_RE.sub("", _TEST_NAME_PREFIX_RE.sub("", str(name or "").strip()))
+    return " ".join(re.split(r"[\W_]+", text.casefold())).strip()
 
-    ``jobs``/``failed`` count final executed attempts; ``failed_steps`` holds
-    the step keys with any failing attempt.
+
+def _upstream_context(build: dict) -> dict:
+    """Summarize the CUDA and AMD jobs of one build for the AMD failures in it.
+
+    ``jobs``/``failed`` count final executed CUDA attempts, ``amd_jobs``/
+    ``amd_failed`` final executed AMD GPU attempts; ``failed_steps`` holds the
+    (step key, test name) of every failing CUDA attempt. A torch-nightly build
+    contributes no CUDA evidence.
     """
-    jobs = failed = 0
+    jobs = failed = amd_jobs = amd_failed = 0
     failed_steps = set()
+    torch_nightly = str((build.get("env") or {}).get(TORCH_NIGHTLY_ENV) or "").strip() not in ("", "0")
     for job in build.get("jobs") or []:
-        if not is_upstream_cuda_ci_job(job) or _is_non_execution_job(job) or not job.get("started_at"):
+        if _is_non_execution_job(job) or not job.get("started_at"):
+            continue
+        cuda = is_upstream_cuda_ci_job(job)
+        if not cuda and (is_cpu_only_job(job) or not amd_gpu_hardware(_queue_of(job))):
             continue
         state = _run_state(job)
-        if state in ("hard", "soft") and job.get("step_key"):
-            failed_steps.add(str(job["step_key"]))
+        if cuda and state in ("hard", "soft") and job.get("step_key") and not torch_nightly:
+            failed_steps.add((str(job["step_key"]), _test_name(job.get("name"))))
         if state in ("pass", "soft", "hard") and not (job.get("retried") or job.get("retried_in_job_id")):
-            jobs += 1
-            failed += state == "hard"
-    return {"jobs": jobs, "failed": failed, "failed_steps": frozenset(failed_steps)}
+            if not cuda:
+                amd_jobs += 1
+                amd_failed += state == "hard"
+            elif not torch_nightly:
+                jobs += 1
+                failed += state == "hard"
+    return {
+        "jobs": jobs, "failed": failed, "amd_jobs": amd_jobs, "amd_failed": amd_failed,
+        "failed_steps": frozenset(failed_steps),
+    }
 
 
 def _incremental_slices(
@@ -817,12 +846,14 @@ def _attribute_failures(obs: list[dict]) -> None:
       never started is unexplained, and all of a node's jobs that never started
       count as one test group toward ``node_repeats``.
     - ``upstream_build_wide``: at least UPSTREAM_BUILD_WIDE_MIN_SHARE of the
-      build's (at least UPSTREAM_MIN_JOBS) final CUDA attempts failed, so the
-      commit is broken on every accelerator. Build/high.
+      build's (at least UPSTREAM_MIN_JOBS) final CUDA attempts failed, and so
+      did as large a share of its (as many) final AMD attempts, so the commit
+      is broken on every accelerator. Build/high. Never for a step that
+      passed on a retry, and torch-nightly builds have no CUDA evidence.
     - ``build_wide``: the build's BUILD_WIDE_MIN_FAILING_STEPS or more failing
       steps span BUILD_WIDE_MIN_OTHER_NODES nodes besides this one; one node
       cannot cause that. Build/high.
-      Either is infra/medium ``build_wide_transient`` when the step passed on
+      It is infra/medium ``build_wide_transient`` when the step passed on
       a retry (an outage such as a Hugging Face Hub error, not a code
       regression). Neither applies to the build's outlier nodes, which fail
       at least OUTLIER_MIN_FAILURES and OUTLIER_MIN_FAILURE_RATE of their
@@ -833,9 +864,10 @@ def _attribute_failures(obs: list[dict]) -> None:
     - test/high ``failed_on_retry_elsewhere``: another attempt of the same step
       failed on a different node.
     - test/high ``upstream_mirror_failed``: the CUDA step this AMD step mirrors
-      failed in the same build or in another collected build of the same
-      commit, and the AMD step never passed (a pass on a retry points back
-      at the node).
+      (same step key after the amd- prefix, same test name; shards are not
+      matched, as the two sides shard differently) failed in the same build
+      or in another collected build of the same commit, and the AMD step
+      never passed (a pass on a retry points back at the node).
     - test ``group_fails_elsewhere``: the test group failed on another node in
       another build within RECURRENCE_WINDOW (high with two or more nodes).
     - test/medium ``group_not_passing_elsewhere``: the group did not pass on any
@@ -910,8 +942,11 @@ def _attribute_failures(obs: list[dict]) -> None:
 
     def upstream_broken(row: dict) -> bool:
         context = row.get("upstream") or {}
-        jobs = context.get("jobs", 0)
-        return jobs >= UPSTREAM_MIN_JOBS and context.get("failed", 0) >= UPSTREAM_BUILD_WIDE_MIN_SHARE * jobs
+        return step(row) not in passed_steps and all(
+            context.get(jobs, 0) >= UPSTREAM_MIN_JOBS
+            and context.get(failed, 0) >= UPSTREAM_BUILD_WIDE_MIN_SHARE * context.get(jobs, 0)
+            for jobs, failed in (("jobs", "failed"), ("amd_jobs", "amd_failed"))
+        )
 
     commit_failed_steps: dict[str, set] = defaultdict(set)
     for r in obs:
@@ -922,7 +957,7 @@ def _attribute_failures(obs: list[dict]) -> None:
         key = row.get("step_key") or ""
         if not key.startswith(AMD_MIRROR_KEY_PREFIX):
             return False
-        mirror = key[len(AMD_MIRROR_KEY_PREFIX):]
+        mirror = (key[len(AMD_MIRROR_KEY_PREFIX):], _test_name(row.get("group")))
         return mirror in (row.get("upstream") or {}).get("failed_steps", ()) or (
             mirror in commit_failed_steps.get(row.get("commit") or "", ())
         )

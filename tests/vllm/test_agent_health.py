@@ -282,36 +282,79 @@ def _cuda_roster(failed, passed, *, prefix="cuda", key="step"):
     ]
 
 
+def _amd_roster(failed, passed):
+    """Final AMD attempts of the same build."""
+    return [
+        dict(_job(f"amd{i}", f"A{i}", "failed" if i < failed else "passed", "amd_mi300_1", f"gpu-{i % 9}",
+                  "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), step_key=f"amd-step-{i}")
+        for i in range(failed + passed)
+    ]
+
+
+def _context(cuda, amd, *, cuda_jobs=(), env=None):
+    """``cuda``/``amd``: (failed, passed) final attempts of one build."""
+    jobs = [*_cuda_roster(*cuda), *_amd_roster(*amd), *cuda_jobs]
+    return ah._upstream_context({**_build(), "jobs": jobs, **({"env": env} if env else {})})
+
+
 def _with_upstream(rows, context, commit="b" * 40):
     for row in rows:
         row.update(upstream=context, commit=commit)
     return rows
 
 
-def test_upstream_context_counts_final_cuda_attempts_only():
-    retried = dict(_job("c-old", "lora", "failed", "h200_35gb", "h200-1", "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-                   step_key="lora", retried=True, retried_in_job_id="c-new")
-    retry = dict(_job("c-new", "lora", "passed", "h200_35gb", "h200-2", "2026-07-14T09:06:00Z", "2026-07-14T09:10:00Z"),
-                 step_key="lora", retry_source={"job_id": "c-old"})
-    soft = dict(_job("c-soft", "opt", "failed", "b200-k8s", "b200-1", "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z",
-                     soft=True), step_key="optional")
-    never_ran = dict(_job("c-wait", "w", "canceled", "h200_18gb", "", "", ""), step_key="waiting")
+def test_upstream_context_counts_final_attempts_of_both_sides():
+    def cuda(job_id, name, state, key, start="2026-07-14T09:00:00Z", **extra):
+        return dict(_job(job_id, name, state, "h200_35gb", "h200-1", start, "2026-07-14T09:05:00Z"), step_key=key, **extra)
+
+    retried = cuda("c-old", ":nvidia: (H200) LoRA Shard 2/4", "failed", "lora", retried_in_job_id="c-new")
+    retry = cuda("c-new", ":nvidia: (H200) LoRA Shard 2/4", "passed", "lora", retry_source={"job_id": "c-old"})
+    soft = dict(cuda("c-soft", "opt", "failed", "optional"), soft_failed=True)
+    never_ran = cuda("c-wait", "w", "canceled", "waiting", start="")
+    not_started = cuda("c-lost", "x", "failed", "lost", start="")
     amd = dict(_job("a1", "amd", "failed", "amd_mi300_1", "gpu1", "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
                step_key="amd-lora")
+    amd_old = dict(amd, id="a0", retried=True)
+    amd_soft = dict(amd, id="a2", soft_failed=True)
     cpu = dict(_job("cpu1", "build image", "failed", "cpu_queue_postmerge_us_east_1", "cpu-1",
                     "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), step_key="image-build")
-    build = {**_build(), "jobs": [*_cuda_roster(2, 3), retried, retry, soft, never_ran, amd, cpu]}
+    build = {**_build(), "jobs": [*_cuda_roster(2, 3), retried, retry, soft, never_ran, not_started, amd, amd_old, amd_soft, cpu]}
+    failed_steps = frozenset({("step-0", "n0"), ("step-1", "n1"), ("lora", "lora"), ("optional", "opt")})
     assert ah._upstream_context(build) == {
-        "jobs": 7, "failed": 2, "failed_steps": frozenset({"step-0", "step-1", "lora", "optional"}),
+        "jobs": 7, "failed": 2, "amd_jobs": 2, "amd_failed": 1, "failed_steps": failed_steps,
     }
+    # Torch-nightly builds test torch nightly on CUDA: their CUDA jobs are no evidence.
+    for flag, cuda_jobs in (("1", 0), ("0", 7)):
+        context = ah._upstream_context({**build, "env": {"TORCH_NIGHTLY": flag}})
+        assert (context["jobs"], context["amd_jobs"], bool(context["failed_steps"])) == (cuda_jobs, 2, bool(cuda_jobs))
 
 
-def test_attribution_blames_the_build_when_its_cuda_jobs_fail_too():
-    # Shaped like build 96047: 56 of 61 final CUDA attempts failed on a broken commit, while
-    # the AMD failures that had finished landed on too few nodes to look build-wide.
-    broken = ah._upstream_context({**_build(), "jobs": _cuda_roster(56, 5)})
-    healthy = ah._upstream_context({**_build(), "jobs": _cuda_roster(2, 95)})
-    small = ah._upstream_context({**_build(), "jobs": _cuda_roster(9, 10)})
+def test_test_name_drops_hardware_and_shard():
+    assert ah._test_name(":amd: (MI300) Attention Kernels Shard 6") == ah._test_name(":nvidia: (L4) Attention Kernels Shard 7/7")
+    assert ah._test_name("mi300_1: :amd: (MI300) Gemm-RS/AR") == ah._test_name(":nvidia: (B200) Gemm-RS-AR") == "gemm rs ar"
+    assert ah._test_name(":nvidia: (H200 MIG 18GB) Basic Correctness Models 2") == "basic correctness models"
+    assert ah._test_name(":amd: (MI355) Multimodal Models (Standard) 2: qwen3 + gemma") == "multimodal models standard 2 qwen3 gemma"
+    assert ah._test_name(":amd: (MI355) MoRI EP Numerics") != ah._test_name(":nvidia: (B200) FusedMoE Layer Kernels")
+
+
+def test_attribution_blames_the_build_when_both_sides_fail_broadly():
+    # Shaped like build 96047: 56 of 61 final CUDA and 54 of 63 final AMD attempts failed on a
+    # broken commit, while the AMD failures that had finished landed on too few nodes to look
+    # build-wide.
+    cases = {
+        "x": _context((56, 5), (54, 9)),
+        # Exactly the minimum share of exactly the minimum number of jobs, on each side.
+        "e": _context((6, 14), (6, 14)),
+        # Two percent of CUDA failing, or too few CUDA jobs to judge.
+        "y": _context((2, 95), (54, 9)),
+        "z": _context((6, 13), (54, 9)),
+        "s": _context((5, 15), (54, 9)),
+        # CUDA broken while the AMD jobs pass: a torch-nightly run, or a CUDA-only breakage.
+        "h": _context((146, 138), (1, 189)),
+        "u": _context((56, 5), (6, 13)),
+        "v": _context((56, 5), (5, 15)),
+        "t": _context((146, 138), (54, 9), env={"TORCH_NIGHTLY": "1"}),
+    }
 
     def amd_failures(prefix, build, context):
         rows = [_attempt(f"{prefix}{i}", prefix + node, f"{prefix}G{i}", build, "failed", 1)
@@ -320,23 +363,27 @@ def test_attribution_blames_the_build_when_its_cuda_jobs_fail_too():
         rows += [p for i in range(4) for p in _passes(f"{prefix}G{i}", ["p"])]
         return _with_upstream(rows, context, commit=prefix * 40)
 
-    verdicts = _attributed(amd_failures("x", 1, broken) + amd_failures("y", 2, healthy) + amd_failures("z", 3, small))
-    assert {verdicts[f"x{i}"] for i in range(4)} == {("build", "high", "upstream_build_wide")}
-    # Two percent of CUDA failing, or too few CUDA jobs to judge, leaves the node evidence alone.
-    assert {verdicts[f"y{i}"] for i in range(4)} == {("node", "medium", "node_repeats")}
-    assert {verdicts[f"z{i}"] for i in range(4)} == {("node", "medium", "node_repeats")}
+    verdicts = _attributed([row for n, (prefix, context) in enumerate(cases.items()) for row in amd_failures(prefix, n + 1, context)])
+    for prefix in cases:
+        expected = ("build", "high", "upstream_build_wide") if prefix in "xe" else ("node", "medium", "node_repeats")
+        assert {verdicts[f"{prefix}{i}"] for i in range(4)} == {expected}, prefix
 
-    # A step that passed on a retry in that build was a passing outage.
-    outage = _with_upstream([
-        _attempt("t1", "c", "T", 4, "failed", 1, superseded=True),
-        _attempt("t2", "d", "T", 4, "passed", 2, retry_of="t1"),
-    ], broken)
-    assert _attributed(outage)["t1"] == ("infra", "medium", "build_wide_transient")
+    # A step that passed on a retry on another node is no code breakage, so its failures keep
+    # counting toward the node (89821: two groups on one node, each passing on a retry).
+    retried = _with_upstream([
+        _attempt("t1", "c", "T1", 20, "failed", 1, superseded=True),
+        _attempt("t1r", "d", "T1", 20, "passed", 2, retry_of="t1"),
+        _attempt("t2", "c", "T2", 20, "failed", 1, superseded=True),
+        _attempt("t2r", "e", "T2", 20, "passed", 2, retry_of="t2"),
+    ], cases["x"])
+    assert _attributed(retried) == {"t1": ("node", "medium", "node_repeats"), "t2": ("node", "medium", "node_repeats")}
 
 
 def test_attribution_keeps_a_black_hole_node_when_cuda_fails_too():
-    # Most CUDA jobs failed, and so did the CUDA mirror of every step the node ran.
-    broken = ah._upstream_context({**_build(), "jobs": _cuda_roster(56, 5, key="mirror")})
+    # Most CUDA and AMD jobs failed, and so did the CUDA mirror of every step the node ran.
+    broken = ah._upstream_context({**_build(), "jobs": [
+        *[dict(job, name=f"B{i}") for i, job in enumerate(_cuda_roster(56, 5, key="mirror"))], *_amd_roster(54, 9),
+    ]})
     hole = [dict(_attempt(f"bh{i}", "bh", f"B{i}", 50, "failed", 1), step_key=f"amd-mirror-{i}") for i in range(4)]
     beside = [_attempt(f"p{i}", f"p{i % 10}", f"P{i}", 50, "passed", 1) for i in range(40)]
     passes = [p for i in range(4) for p in _passes(f"B{i}", ["y"], hour=3, build=52)]
@@ -345,37 +392,52 @@ def test_attribution_keeps_a_black_hole_node_when_cuda_fails_too():
 
 
 def test_attribution_blames_the_test_when_its_cuda_mirror_fails():
-    lora = dict(_job("c1", "lora", "failed", "h200_35gb", "h200-1", "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"),
-                step_key="lora")
-    same_build = ah._upstream_context({**_build(), "jobs": [lora, *_cuda_roster(0, 40)]})
-    other_build = ah._upstream_context({**_build(), "jobs": [dict(lora, step_key="spec-decode"), *_cuda_roster(0, 40)]})
-    quiet = ah._upstream_context({**_build(), "jobs": _cuda_roster(0, 40)})
+    def cuda(key, name):
+        return dict(_job(f"c-{key}", f":nvidia: (H200) {name}", "failed", "h200_35gb", "h200-1",
+                         "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), step_key=key)
 
-    def failure(job, node, key, build, context, commit, **kwargs):
-        row = _attempt(job, node, f"G-{job}", build, "failed", 1, **kwargs)
+    same_build = _context((0, 40), (0, 40), cuda_jobs=[cuda("lora", "LoRA Shard 3/4"), cuda("quant", "Quantization")])
+    other_build = _context((0, 40), (0, 40), cuda_jobs=[cuda("spec-decode", "Spec Decode")])
+    torch_nightly = _context((0, 40), (0, 40), cuda_jobs=[cuda("sampler", "Sampler")], env={"TORCH_NIGHTLY": "1"})
+    quiet = _context((0, 40), (0, 40))
+
+    def failure(job, node, key, test, build, context, commit, **kwargs):
+        row = _attempt(job, node, f":amd: (MI300) {test}", build, "failed", 1, **kwargs)
         return _with_upstream([dict(row, step_key=key)], context, commit)[0]
 
+    def passes(*tests):
+        return [p for test in tests for p in _passes(f":amd: (MI300) {test}", ["p"])]
+
     rows = [
-        # The mirror failed in the same build, or in another build of the same commit.
-        failure("m1", "a", "amd-lora", 1, same_build, "c" * 40),
-        failure("m2", "b", "amd-spec-decode", 2, quiet, "d" * 40),
+        # The mirror failed in the same build (on another shard), or in another build of the same commit.
+        failure("m1", "a", "amd-lora", "LoRA Shard 1", 1, same_build, "c" * 40),
+        failure("m2", "b", "amd-spec-decode", "Spec Decode", 2, quiet, "d" * 40),
         _with_upstream([_attempt("d-cuda", "q", "G-d", 3, "passed", 1)], other_build, "d" * 40)[0],
         # A native AMD step has no CUDA mirror, and a passing mirror explains nothing.
-        failure("n1", "c", "lora", 4, same_build, "e" * 40),
-        failure("n2", "c", "amd-v1-sample", 5, same_build, "e" * 40),
+        failure("n1", "c", "lora", "LoRA Shard 5", 4, same_build, "e" * 40),
+        failure("n2", "c", "amd-v1-sample", "V1 Sample", 5, same_build, "e" * 40),
+        # A different AMD test under the mirror key, or a torch-nightly build's CUDA mirror, explains nothing.
+        failure("v1", "v", "amd-quant", "Quantization FP8", 8, same_build, "e" * 40),
+        failure("v2", "v", "amd-sampler", "Sampler", 9, quiet, "s" * 40),
+        _with_upstream([_attempt("s-cuda", "q", "G-s", 10, "passed", 1)], torch_nightly, "s" * 40)[0],
         # The AMD step passed on a retry elsewhere, so its CUDA mirror failing does not
         # explain this attempt (a GPU still held by another job on this node, say).
-        failure("h1", "h", "amd-lora", 6, same_build, "f" * 40, superseded=True),
-        _with_upstream([dict(_attempt("h2", "k", "G-h1", 6, "passed", 2, retry_of="h1"), step_key="amd-lora")],
-                       same_build, "f" * 40)[0],
-        failure("h3", "h", "amd-other", 7, quiet, "g" * 40),
-        *_passes("G-m1", ["p"]), *_passes("G-m2", ["p"]), *_passes("G-n1", ["p"]), *_passes("G-n2", ["p"]),
-        *_passes("G-h3", ["p"]),
+        failure("h1", "h", "amd-lora", "LoRA Shard 2", 6, same_build, "f" * 40, superseded=True),
+        _with_upstream([dict(_attempt("h2", "k", ":amd: (MI300) LoRA Shard 2", 6, "passed", 2, retry_of="h1"),
+                             step_key="amd-lora")], same_build, "f" * 40)[0],
+        failure("h3", "h", "amd-other", "Other", 7, quiet, "g" * 40),
+        # A retry failing on another node is checked first.
+        failure("r1", "r", "amd-lora", "LoRA Shard 4", 11, same_build, "c" * 40, superseded=True),
+        _with_upstream([dict(_attempt("r2", "w", ":amd: (MI300) LoRA Shard 4", 11, "failed", 2, retry_of="r1"),
+                             step_key="amd-lora")], same_build, "c" * 40)[0],
+        *passes("LoRA Shard 1", "Spec Decode", "LoRA Shard 5", "V1 Sample", "Quantization FP8", "Sampler", "Other"),
     ]
     verdicts = _attributed(rows)
     assert verdicts["m1"] == verdicts["m2"] == ("test", "high", "upstream_mirror_failed")
     assert verdicts["n1"] == verdicts["n2"] == ("node", "medium", "node_repeats")
+    assert verdicts["v1"] == verdicts["v2"] == ("node", "medium", "node_repeats")
     assert verdicts["h1"] == verdicts["h3"] == ("node", "medium", "node_repeats")
+    assert verdicts["r1"] == verdicts["r2"] == ("test", "high", "failed_on_retry_elsewhere")
 
 
 def test_attribution_blames_the_test_when_it_fails_on_other_nodes():
@@ -1010,14 +1072,15 @@ def test_long_creation_cohort_excludes_builds_created_after_its_decision_clock(m
 def test_observations_carry_the_cuda_jobs_of_their_build(monkeypatch):
     build = _window_build(1, "2026-07-14T08:00:00Z", job_state="failed")
     build["jobs"][0]["step_key"] = "amd-step-0"
-    build["jobs"] += _cuda_roster(30, 10)
+    build["jobs"] += _cuda_roster(30, 10) + _amd_roster(29, 10)
     monkeypatch.setattr(ah, "_paginate", _window_page([build], []))
     rows = ah._fetch_pipeline_observations("ci", 14, query_time=NOW, day_basis="build-created")
-    assert [(row["job_id"], row["step_key"], row["commit"]) for row in rows] == [("1", "amd-step-0", "a" * 40)]
-    assert rows[0]["upstream"] == ah._upstream_context(build)
-    assert (rows[0]["upstream"]["jobs"], rows[0]["upstream"]["failed"]) == (40, 30)
+    assert len(rows) == 40 and {(row["commit"], row["upstream"] == ah._upstream_context(build)) for row in rows} == {("a" * 40, True)}
+    row = next(row for row in rows if row["job_id"] == "1")
+    assert row["step_key"] == "amd-step-0"
+    assert [row["upstream"][key] for key in ("jobs", "failed", "amd_jobs", "amd_failed")] == [40, 30, 40, 30]
     ah._attribute_failures(rows)
-    assert (rows[0]["attribution"], rows[0]["reason"]) == ("build", "upstream_build_wide")
+    assert (row["attribution"], row["reason"]) == ("build", "upstream_build_wide")
 
 
 def test_main_created_cohort_has_exact_branch_queries_proof_and_original_execution_times(monkeypatch, tmp_path):

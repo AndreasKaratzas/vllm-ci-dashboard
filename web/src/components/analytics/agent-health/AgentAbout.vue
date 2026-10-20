@@ -18,13 +18,15 @@ defineProps<{ model: AgentModel }>()
       within {{ model.rules.burstMinutes }} minutes. Otherwise a lost agent is the node's, and a job that never started is unexplained.
     </li>
     <li>
-      {{ model.rules.upstreamSharePct }}% or more of the same build's CUDA jobs failed (of at least {{ model.rules.upstreamMinJobs }}), or the same build failed
-      on {{ model.rules.buildWideOtherNodes }} or more other nodes: build-wide, or shared infrastructure when the step passed on a retry. Never for a node that
-      failed nearly all of its {{ model.rules.outlierFailures }} or more jobs in that build while the jobs beside it passed.
+      {{ model.rules.upstreamSharePct }}% or more of the same build's CUDA jobs and of its AMD jobs failed (of at least {{ model.rules.upstreamMinJobs }} each,
+      torch-nightly builds aside) and the step never passed: build-wide. So is a failure in a build that failed on {{ model.rules.buildWideOtherNodes }} or more
+      other nodes, or shared infrastructure when the step passed on a retry. Never for a node that failed nearly all of its {{ model.rules.outlierFailures }} or
+      more jobs in that build while the jobs beside it passed.
     </li>
     <li>
-      The retry failed on another node: test or code. So is a failure whose CUDA mirror job failed on the same commit while the AMD job never passed, or
-      whose test group failed on other nodes within {{ model.rules.recurrenceHours }} hours, or passed on no other node, unless the node is that build's outlier.
+      The retry failed on another node: test or code. So is a failure whose CUDA job running the same test failed on the same commit (torch-nightly builds
+      aside) while the AMD job never passed, or whose test group failed on other nodes within {{ model.rules.recurrenceHours }} hours, or passed on no other
+      node, unless the node is that build's outlier.
     </li>
     <li>Otherwise it is unexplained, and the node's when unexplained failures hit {{ model.rules.repeatGroups }} or more test groups on it within {{ model.rules.repeatHours }} hours.</li>
   </ol>
