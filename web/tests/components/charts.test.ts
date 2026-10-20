@@ -5,7 +5,9 @@ import AreaChart from '@/components/charts/AreaChart.vue'
 import BarChart from '@/components/charts/BarChart.vue'
 import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
+import Heatmap from '@/components/charts/Heatmap.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
+import RankedBars from '@/components/charts/RankedBars.vue'
 import Timeline from '@/components/charts/Timeline.vue'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { barValueTicks, distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
@@ -392,5 +394,98 @@ describe('BarChart interaction', () => {
     const still = mount(BarChart<Row>, { props: { rows, category: (r: Row) => shortDay(r.day), series: [failures[0]!], label: 'Failures' } })
     expect(still.find('[role=img]').attributes('data-clickable')).toBeUndefined()
     expect(still.find('[data-slot=chart-legend]').exists()).toBe(false)
+  })
+})
+
+describe('Heatmap', () => {
+  const columns = ['2026-10-10', '2026-10-11', '2026-10-12'].map((day, i) => ({ id: day, label: String(10 + i), title: `Oct ${10 + i}` }))
+  const row = (id: string, values: number[], marker = -1) => ({
+    id,
+    label: id,
+    dot: 'var(--hw-mi355)' as never,
+    cells: values.map((value, i) => ({ value, marker: i === marker })),
+    total: values.reduce((a, b) => a + b, 0),
+    segments: [{ value: values.reduce((a, b) => a + b, 0), color: statusVar('hard'), label: 'Hard' }],
+  })
+  const rows = [row('node-a', [0, 4, 1], 1), row('node-b', [2, 0, 0])]
+  const summary = { id: 'fleet', label: 'All nodes', cells: [2, 4, 1].map((value) => ({ value })), total: 7 }
+
+  it('colors cells by heat step, with the summary on its own scale', () => {
+    const wrapper = mount(Heatmap, { props: { columns, rows, summary, label: 'Failures' } })
+    const color = (el: { attributes: (name: string) => string | undefined }) => /background-color: ([^;]+)/.exec(el.attributes('style') ?? '')?.[1]
+    const cells = wrapper.findAll('[data-slot=heatmap-cell]')
+    expect(cells).toHaveLength(9)
+    // Summary row (max 4), then node rows (max 4).
+    expect(cells.map(color)).toEqual([3, 5, 2, 0, 5, 2, 3, 0, 0].map((level) => `var(--heat-${level})`))
+    expect(wrapper.findAll('[data-slot=heatmap-marker]')).toHaveLength(1)
+    expect(text(wrapper.find('[data-slot=heatmap-legend]').element)).toContain('max 4 per cell')
+    // Without handlers nothing is a button.
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
+
+  it('makes non-empty cells, row labels and day headers buttons that report what they open', async () => {
+    const onCell = vi.fn()
+    const onRow = vi.fn()
+    const onColumn = vi.fn()
+    const wrapper = mount(Heatmap, { props: { columns, rows, summary, label: 'Failures', markerLabel: 'Co-failure event', cellAction: 'open the runs', onCell, onRow, onColumn }, attachTo: document.body })
+    const cells = wrapper.findAll('button[data-slot=heatmap-cell]')
+    // Empty cells stay plain and hidden from assistive tech; the summary row is clickable too.
+    expect(cells).toHaveLength(6)
+    expect(cells[3]!.attributes('aria-label')).toBe('node-a · Oct 11: 4 failures, Co-failure event, open the runs')
+    await cells[3]!.trigger('click')
+    expect(onCell).toHaveBeenCalledWith(rows[0], 1)
+    await cells[3]!.trigger('mouseenter')
+    const tip = wrapper.find('[data-slot=heatmap-tooltip]')
+    expect(text(tip.element)).toContain('node-a · Oct 11')
+    expect(text(tip.element)).toContain('Click to open the runs')
+    await cells[3]!.trigger('mouseleave')
+    expect(wrapper.find('[data-slot=heatmap-tooltip]').exists()).toBe(false)
+    const labels = wrapper.findAll('button[data-slot=heatmap-row]')
+    expect(labels.map((b) => b.attributes('aria-label'))).toEqual(['node-a: 5 failures, open the row', 'node-b: 2 failures, open the row'])
+    await labels[1]!.trigger('click')
+    expect(onRow).toHaveBeenCalledWith(rows[1])
+    expect(wrapper.find('[data-slot=heatmap-summary]').element.tagName).toBe('SPAN')
+    const headers = wrapper.findAll('button[data-slot=heatmap-column]')
+    expect(headers.map((b) => b.attributes('aria-label'))).toEqual(['Oct 10: open the day', 'Oct 11: open the day', 'Oct 12: open the day'])
+    await headers[2]!.trigger('click')
+    expect(onColumn).toHaveBeenCalledWith(2)
+    wrapper.unmount()
+  })
+
+  it('names its rows with the given action and unit', () => {
+    const wrapper = mount(Heatmap, { props: { columns, rows: [row('n', [1, 0, 0])], label: 'Runs', unit: ['run', 'runs'] as [string, string], rowAction: 'open the node', onRow: () => {} } })
+    expect(wrapper.find('button[data-slot=heatmap-row]').attributes('aria-label')).toBe('n: 1 run, open the node')
+  })
+})
+
+describe('RankedBars', () => {
+  const items = [
+    { key: 'q1', label: 'queue-1', value: 6, segments: [{ value: 4, color: statusVar('hard'), label: 'hard' }, { value: 2, color: statusVar('soft'), label: 'soft' }], meta: '3 nodes' },
+    { key: 'q2', label: 'short', title: 'the full name', value: 3 },
+  ]
+
+  it('scales bars to the largest value and splits stacked parts', () => {
+    const wrapper = mount(RankedBars, { props: { items, label: 'Queues', color: SERIES.primary } })
+    const bars = wrapper.findAll('[data-slot=ranked-item] > span:nth-child(2) > span')
+    expect(bars.map((b) => b.attributes('style'))).toEqual(['width: 100%;', 'width: 50%;'])
+    expect(bars[0]!.findAll('span').map((s) => s.attributes('style'))).toEqual([
+      'flex-grow: 4; background-color: var(--status-hard);',
+      'flex-grow: 2; background-color: var(--status-soft);',
+    ])
+    expect(bars[1]!.find('span').attributes('style')).toContain('var(--series-1)')
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.findAll('[data-slot=ranked-item]')[1]!.attributes('title')).toBe('the full name')
+  })
+
+  it('reads out each item and selects it', async () => {
+    const onSelect = vi.fn()
+    const wrapper = mount(RankedBars, { props: { items, label: 'Queues', action: 'open the queue', onSelect } })
+    const buttons = wrapper.findAll('button')
+    expect(buttons.map((b) => b.attributes('aria-label'))).toEqual([
+      'queue-1: 6 (4 hard, 2 soft), 3 nodes; open the queue',
+      'the full name: 3; open the queue',
+    ])
+    await buttons[1]!.trigger('click')
+    expect(onSelect).toHaveBeenCalledWith(items[1])
   })
 })

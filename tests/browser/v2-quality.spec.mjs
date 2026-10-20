@@ -19,6 +19,8 @@ const ROUTES = [
   '/#/analytics?view=dns&dns_window=720h&dns_scope=canonical',
   '/#/analytics?view=agent-health',
   '/#/analytics?view=agent-health&agent_window=14d&agent_signal=all',
+  '/#/analytics?view=agent-health&agent_window=60d&agent_signal=hard&agent_cofail=1440',
+  '/#/analytics?view=agent-health&agent_window=14d&agent_signal=all&agent_node=fixture-3f6181c2',
   '/#/perf',
   '/#/perf?view=accuracy',
   '/#/perf?device=mi300x',

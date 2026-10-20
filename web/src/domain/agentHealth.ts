@@ -1130,17 +1130,62 @@ export type AgentDay = {
   cofailEvents: number
 }
 
+interface NodeDayFailures {
+  day: string
+  nodeRaw: string
+  hard: number
+  soft: number
+  signalHard: number
+  signalSoft: number
+}
+
+/**
+ * Hard and soft failures per UTC day and node from the compact failure accounting, or from the
+ * retained failing runs when there is none, with the part matching the failure signal.
+ */
+function agentNodeDayFailures(model: AgentModel, options: AgentOptions): NodeDayFailures[] {
+  const out: NodeDayFailures[] = []
+  if (model.failureAccounting.length) {
+    const rows = model.failureAccounting.filter((row) => matchesFilter(options, row.h, row.nd))
+    const startDay = agentWindowStartDay(model, options.windowId)
+    const accounting = { startDay, nightlyOnly: options.nightlyOnly, excludeCancelled: options.excludeCancelled, signal: options.signal }
+    const byState = agentFailureAccountingCounts(rows, accounting, (row) => JSON.stringify([row.d, row.nd, row.s]))
+    byState.forEach((counts, key) => {
+      const [day, nodeRaw, state] = JSON.parse(key) as [string, string, string]
+      const hard = state === 'hard'
+      out.push({ day, nodeRaw, hard: counts.hard, soft: counts.soft, signalHard: hard ? counts.signal : 0, signalSoft: hard ? 0 : counts.signal })
+    })
+    return out
+  }
+  const inScope = agentRunInScope(model, options)
+  for (const run of model.failing) {
+    if (!inScope(run) || (run.state !== 'hard' && run.state !== 'soft')) continue
+    const hard = Number(run.state === 'hard')
+    const soft = Number(run.state === 'soft')
+    const matched = signalMatch(options.signal, run)
+    out.push({ day: String(run.day), nodeRaw: run.node_raw, hard, soft, signalHard: matched ? hard : 0, signalSoft: matched ? soft : 0 })
+  }
+  return out
+}
+
+/** Every UTC day of the selected window, oldest first. */
+function agentWindowDays(model: AgentModel, windowId: string): string[] {
+  const days: string[] = []
+  const endDay = new Date(model.endMs).toISOString().slice(0, 10)
+  for (let ms = Date.parse(agentWindowStartDay(model, windowId) + 'T00:00:00Z'); ms <= Date.parse(endDay + 'T00:00:00Z'); ms += 86400000) {
+    days.push(new Date(ms).toISOString().slice(0, 10))
+  }
+  return days
+}
+
 /**
  * Per UTC day of the selected window (the creation day for the build-created cohort): the page's
  * node_days runs, its compact failure accounting (retained failing runs when there is none), and
  * its co-failure events.
  */
 export function agentDailySeries(model: AgentModel, view: AgentView, options: AgentOptions): AgentDay[] {
-  const startDay = agentWindowStartDay(model, options.windowId)
-  const endDay = new Date(model.endMs).toISOString().slice(0, 10)
   const days = new Map<string, AgentDay & { nodeSet: Set<string>; failingSet: Set<string> }>()
-  for (let ms = Date.parse(startDay + 'T00:00:00Z'); ms <= Date.parse(endDay + 'T00:00:00Z'); ms += 86400000) {
-    const day = new Date(ms).toISOString().slice(0, 10)
+  for (const day of agentWindowDays(model, options.windowId)) {
     days.set(day, { day, runs: 0, identifiedRuns: 0, nodes: 0, failingNodes: 0, hard: 0, soft: 0, signalHard: 0, signalSoft: 0, signal: 0, cofailEvents: 0, nodeSet: new Set(), failingSet: new Set() })
   }
   for (const { nd, bucket } of agentScopedNodeDays(model, options)) {
@@ -1152,35 +1197,251 @@ export function agentDailySeries(model: AgentModel, view: AgentView, options: Ag
       entry.nodeSet.add(nd.nd)
     }
   }
-  const add = (day: string, nodeRaw: string, counts: { hard: number; soft: number }, signal: { hard: number; soft: number }) => {
-    const entry = days.get(day)
-    if (!entry) return
+  for (const counts of agentNodeDayFailures(model, options)) {
+    const entry = days.get(counts.day)
+    if (!entry) continue
     entry.hard += counts.hard
     entry.soft += counts.soft
-    entry.signalHard += signal.hard
-    entry.signalSoft += signal.soft
-    entry.signal += signal.hard + signal.soft
-    if (signal.hard + signal.soft && nodeRaw !== '(unidentified)') entry.failingSet.add(nodeRaw)
-  }
-  if (model.failureAccounting.length) {
-    const rows = model.failureAccounting.filter((row) => matchesFilter(options, row.h, row.nd))
-    const accounting = { startDay, nightlyOnly: options.nightlyOnly, excludeCancelled: options.excludeCancelled, signal: options.signal }
-    const byState = agentFailureAccountingCounts(rows, accounting, (row) => JSON.stringify([row.d, row.nd, row.s]))
-    byState.forEach((counts, key) => {
-      const [day, nodeRaw, state] = JSON.parse(key) as [string, string, string]
-      add(day, nodeRaw, counts, state === 'hard' ? { hard: counts.signal, soft: 0 } : { hard: 0, soft: counts.signal })
-    })
-  } else {
-    const inScope = agentRunInScope(model, options)
-    for (const run of model.failing) {
-      if (!inScope(run) || (run.state !== 'hard' && run.state !== 'soft')) continue
-      const counts = { hard: Number(run.state === 'hard'), soft: Number(run.state === 'soft') }
-      add(String(run.day), run.node_raw, counts, signalMatch(options.signal, run) ? counts : { hard: 0, soft: 0 })
-    }
+    entry.signalHard += counts.signalHard
+    entry.signalSoft += counts.signalSoft
+    entry.signal += counts.signalHard + counts.signalSoft
+    if (counts.signalHard + counts.signalSoft && counts.nodeRaw !== '(unidentified)') entry.failingSet.add(counts.nodeRaw)
   }
   for (const event of view.events) {
     const entry = days.get(event.started_at.slice(0, 10))
     if (entry) entry.cofailEvents += 1
   }
   return [...days.values()].map(({ nodeSet, failingSet, ...entry }) => ({ ...entry, nodes: nodeSet.size, failingNodes: failingSet.size }))
+}
+
+/** One node on one UTC day of the window. */
+export type AgentNodeDayCell = {
+  day: string
+  runs: number
+  hard: number
+  soft: number
+  signalHard: number
+  signalSoft: number
+  /** Failures matching the signal. */
+  signal: number
+  /** Co-failure events that started on this node that day. */
+  cofailEvents: number
+}
+
+/** One identified node across the window: its daily cells and the totals the page ranks it by. */
+export interface AgentNodeHistory {
+  node: string
+  node_raw: string
+  hardware: string
+  cells: AgentNodeDayCell[]
+  signal: number
+  signalHard: number
+  signalSoft: number
+  /** Days with at least one failure matching the signal. */
+  activeDays: number
+  /** Signal failures in the last RECENT_DAYS days of the window. */
+  recent: number
+  /** Co-failure events that started in the last RECENT_DAYS days of the window. */
+  recentCofail: number
+  cofailEvents: number
+}
+
+export interface AgentNodeDayMatrix {
+  days: string[]
+  /** Identified nodes with a signal failure or a co-failure event, worst first. */
+  nodes: AgentNodeHistory[]
+  /** The largest single node-day signal count. */
+  max: number
+  /** How many of the last days count as "right now". */
+  recentDays: number
+}
+
+/** "Right now" is the current UTC day and the two before it. */
+export const RECENT_DAYS = 3
+
+/**
+ * Per identified node and UTC day: runs (node_days), hard/soft and signal failures (compact
+ * accounting, or retained runs without it), and co-failure events. Nodes rank by signal failures,
+ * then by the number of days they failed on, then by co-failure events.
+ */
+export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: AgentOptions): AgentNodeDayMatrix {
+  const days = agentWindowDays(model, options.windowId)
+  const index = new Map(days.map((day, i) => [day, i]))
+  const recentFrom = Math.max(0, days.length - RECENT_DAYS)
+  const agents = new Map(view.agents.map((agent) => [agent.node_raw, agent]))
+  const nodes = new Map<string, AgentNodeHistory>()
+  const cellOf = (nodeRaw: string, day: string, hardware = ''): AgentNodeDayCell | null => {
+    const at = index.get(day)
+    if (at === undefined || nodeRaw === '(unidentified)' || !nodeRaw) return null
+    let node = nodes.get(nodeRaw)
+    if (!node) {
+      const agent = agents.get(nodeRaw)
+      const hw = agent?.hardware || hardware
+      node = {
+        node: agent?.node ?? agentNodeLabel(nodeRaw, hw),
+        node_raw: nodeRaw,
+        hardware: hw,
+        cells: days.map((d) => ({ day: d, runs: 0, hard: 0, soft: 0, signalHard: 0, signalSoft: 0, signal: 0, cofailEvents: 0 })),
+        signal: 0,
+        signalHard: 0,
+        signalSoft: 0,
+        activeDays: 0,
+        recent: 0,
+        recentCofail: 0,
+        cofailEvents: 0,
+      }
+      nodes.set(nodeRaw, node)
+    }
+    return node.cells[at]!
+  }
+  for (const counts of agentNodeDayFailures(model, options)) {
+    const cell = cellOf(counts.nodeRaw, counts.day)
+    if (!cell) continue
+    cell.hard += counts.hard
+    cell.soft += counts.soft
+    cell.signalHard += counts.signalHard
+    cell.signalSoft += counts.signalSoft
+    cell.signal += counts.signalHard + counts.signalSoft
+  }
+  for (const event of view.events) {
+    const cell = cellOf(event.node_raw, event.started_at.slice(0, 10), event.hardware)
+    if (cell) cell.cofailEvents += 1
+  }
+  for (const { nd, bucket } of agentScopedNodeDays(model, options)) {
+    const node = nodes.get(nd.nd)
+    const at = index.get(String(nd.d))
+    if (node && at !== undefined) node.cells[at]!.runs += bucket[0]
+  }
+  let max = 0
+  const ranked = [...nodes.values()].filter((node) => {
+    node.cells.forEach((cell, i) => {
+      node.signal += cell.signal
+      node.signalHard += cell.signalHard
+      node.signalSoft += cell.signalSoft
+      node.cofailEvents += cell.cofailEvents
+      if (cell.signal) node.activeDays += 1
+      if (i >= recentFrom) {
+        node.recent += cell.signal
+        node.recentCofail += cell.cofailEvents
+      }
+      max = Math.max(max, cell.signal)
+    })
+    return node.signal > 0 || node.cofailEvents > 0
+  })
+  ranked.sort(
+    (a, b) =>
+      b.signal - a.signal ||
+      b.activeDays - a.activeDays ||
+      b.cofailEvents - a.cofailEvents ||
+      (a.node_raw < b.node_raw ? -1 : a.node_raw > b.node_raw ? 1 : 0),
+  )
+  return { days, nodes: ranked, max, recentDays: Math.min(RECENT_DAYS, days.length) }
+}
+
+/** The plural noun of the failure signal: "infra-suspect failures", "hard failures", or "failures". */
+export function signalNoun(signal: AgentSignal): string {
+  return signal === 'all' ? 'failures' : signalTerm(signal) + ' failures'
+}
+
+export interface AgentFleetVerdict {
+  tone: 'pass' | 'soft' | 'hard'
+  label: string
+  headline: string
+  detail: string
+  /** Nodes with two or more recent signal failures or a recent co-failure event, worst first. */
+  hotNodes: AgentNodeHistory[]
+  recentFailures: number
+  recentNodes: number
+  /** Share of the window's signal failures on the five worst nodes; null without failures. */
+  topShare: number | null
+}
+
+const nodesWord = (count: number) => integer(count) + (count === 1 ? ' node' : ' nodes')
+const failuresWord = (count: number, noun: string) => integer(count) + ' ' + (count === 1 ? noun.replace(/s$/, '') : noun)
+
+/**
+ * Whether the fleet is healthy right now: hurting when a node repeats a signal failure or has a
+ * co-failure event in the recent days, watch when failures are isolated, healthy without any.
+ */
+export function agentFleetVerdict(matrix: AgentNodeDayMatrix, view: AgentView, options: Pick<AgentOptions, 'signal' | 'windowId'>): AgentFleetVerdict {
+  const noun = signalNoun(options.signal)
+  const bound = view.failureDetailIncomplete ? 'at least ' : ''
+  const recentNodes = matrix.nodes.filter((node) => node.recent > 0)
+  const recentFailures = recentNodes.reduce((sum, node) => sum + node.recent, 0)
+  const total = matrix.nodes.reduce((sum, node) => sum + node.signal, 0)
+  const top = matrix.nodes.slice(0, 5).reduce((sum, node) => sum + node.signal, 0)
+  const topShare = total ? top / total : null
+  const hotNodes = matrix.nodes
+    .filter((node) => node.recent >= 2 || node.recentCofail > 0)
+    .sort((a, b) => b.recent - a.recent || b.recentCofail - a.recentCofail || b.signal - a.signal)
+  const span = matrix.recentDays === 1 ? 'today' : `in the last ${matrix.recentDays} days`
+  const concentration =
+    topShare !== null && matrix.nodes.length > 5 ? ` The 5 worst nodes carry ${Math.round(topShare * 100)}% of the ${options.windowId} ${noun}.` : ''
+  if (hotNodes.length) {
+    return {
+      tone: 'hard',
+      label: 'Hurting',
+      headline: `${nodesWord(hotNodes.length)} ${hotNodes.length === 1 ? 'is' : 'are'} hurting CI right now`,
+      detail: `${capitalize(bound)}${failuresWord(recentFailures, noun)} on ${nodesWord(recentNodes.length)} ${span}; these repeat on one node or cluster into co-failure events.${concentration}`,
+      hotNodes,
+      recentFailures,
+      recentNodes: recentNodes.length,
+      topShare,
+    }
+  }
+  if (recentFailures) {
+    return {
+      tone: 'soft',
+      label: 'Watch',
+      headline: 'Isolated failures, no repeat offender',
+      detail: `${capitalize(bound)}${failuresWord(recentFailures, noun)} on ${nodesWord(recentNodes.length)} ${span}, none repeating on one node.${concentration}`,
+      hotNodes,
+      recentFailures,
+      recentNodes: recentNodes.length,
+      topShare,
+    }
+  }
+  return {
+    tone: 'pass',
+    label: 'Healthy',
+    headline: 'No node is hurting CI right now',
+    detail: `No ${noun} ${span}` + (total ? `; ${bound}${integer(total)} earlier in ${options.windowId}.` : ` or earlier in ${options.windowId}.`),
+    hotNodes,
+    recentFailures,
+    recentNodes: 0,
+    topShare,
+  }
+}
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+export type AgentLoad = {
+  key: string
+  failures: number
+  hard: number
+  soft: number
+  nodes: number
+  groups: number
+  runs: AgentRun[]
+}
+
+/** Retained signal-matching failing runs grouped by a key (queue, test group), most failures first. */
+export function agentLoadBy(runs: AgentRun[], keyOf: (run: AgentRun) => string): AgentLoad[] {
+  const groups = new Map<string, AgentRun[]>()
+  for (const run of runs) {
+    const key = keyOf(run) || '(unknown)'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(run)
+  }
+  return [...groups.entries()]
+    .map(([key, list]) => ({
+      key,
+      failures: list.length,
+      hard: list.filter((run) => run.state === 'hard').length,
+      soft: list.filter((run) => run.state === 'soft').length,
+      nodes: new Set(list.map((run) => run.node_raw)).size,
+      groups: new Set(list.map((run) => run.group)).size,
+      runs: list.slice().sort((a, b) => (b._start ?? 0) - (a._start ?? 0)),
+    }))
+    .sort((a, b) => b.failures - a.failures || b.nodes - a.nodes || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }

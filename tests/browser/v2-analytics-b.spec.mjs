@@ -195,6 +195,8 @@ async function v2Agent(page, query) {
   const host = page.getByTestId('analytics-agent-health');
   await expect(host.getByTestId('kpi-agent-nodes')).toBeVisible();
   const { rows } = await v2AllRows(host);
+  const more = host.getByTestId('agent-events-more');
+  if (await more.count()) await more.click();
   const facts = await host.evaluate((root) => ({
     // A KPI without an established value shows an in-card empty state where the golden page printed "Unavailable".
     kpis: ['agent-nodes', 'agent-unreliable', 'agent-coverage', 'agent-cofail'].map((id) => {
@@ -203,24 +205,32 @@ async function v2Agent(page, query) {
       return [value, card.querySelector('[data-slot="card-footer"] p').textContent.trim()];
     }),
     failRate: [...root.querySelectorAll('thead th')].some((th) => th.textContent.trim() === 'Fail %'),
-    selectedNode: (() => {
-      const trigger = root.querySelector('[data-testid="agent-node-select"]');
-      return trigger.hasAttribute('data-placeholder') ? '' : trigger.textContent.trim();
-    })(),
     cards: [...root.querySelectorAll('[data-testid="cofailure-node"]')].map((b) => b.textContent.trim()),
   }));
   const description = await popoverText(page, 'About the node table', 'agent-table-description');
   const events = await popoverText(page, 'About co-failure events', 'agent-events-description');
   const { failRate, ...rest } = facts;
-  return { failRate, facts: { kpis: rest.kpis, description, rows, selectedNode: rest.selectedNode, events, cards: rest.cards } };
+  return { failRate, facts: { kpis: rest.kpis, description, rows: rows.map(nodeLabel), events, cards: rest.cards } };
+}
+
+// The node column shows the physical node beside its GPU column where the golden page printed "node (GPU)".
+function nodeLabel(row) {
+  const [node, gpu] = row;
+  return [node !== '(unidentified)' && gpu !== '—' ? `${node} (${gpu})` : node, ...row.slice(1)];
 }
 
 // Without node-specific accounting every golden Fail % cell read "Unavailable"; the page leaves that column out.
+// The golden page's Evidence column is the row itself (a row opens the node), and its node select moved into the node sheet.
 function expectedAgent(expected, failRate) {
-  if (failRate) return expected;
-  expect(expected.rows.every((row) => row[3] === 'Unavailable')).toBe(true);
-  return { ...expected, rows: expected.rows.map((row) => row.filter((_, i) => i !== 3)) };
+  const { selectedNode, ...rest } = expected;
+  expect(typeof selectedNode).toBe('string');
+  const rows = rest.rows.map((row) => row.slice(0, -1));
+  if (failRate) return { ...rest, rows };
+  expect(rows.every((row) => row[3] === 'Unavailable')).toBe(true);
+  return { ...rest, rows: rows.map((row) => row.filter((_, i) => i !== 3)) };
 }
+
+const agentHost = (page) => page.getByTestId('analytics-agent-health');
 
 test.describe('CI agent health matches the golden page facts', () => {
   const cases = [
@@ -238,30 +248,25 @@ test.describe('CI agent health matches the golden page facts', () => {
     });
   }
 
-  test('node evidence, node focus, and sorting match the golden page', async ({ page }) => {
+  test('node evidence and sorting match the golden page', async ({ page }) => {
     await routeAgent(page);
-    const { evidenceTitle, evidenceLinks, sortedNodes, focusedEvents } = golden['agent drill-downs'];
+    const { evidenceTitle, evidenceLinks, sortedNodes } = golden['agent drill-downs'];
     // More rows than one v2 page, so the comparison walks the DataTable pagination.
     expect(sortedNodes.length).toBeGreaterThan(15);
     await v2Agent(page, 'agent_window=14d');
-    const v2host = page.getByTestId('analytics-agent-health');
-    await v2host.locator('table tbody tr').first().getByRole('button', { name: /^\d+ runs?$/ }).click();
+    const v2host = agentHost(page);
+    await v2host.locator('table tbody tr').first().click();
     const sheet = page.getByRole('dialog');
     // The sheet is titled by the node; the golden drawer title opens its subtitle.
     const [, node] = evidenceTitle.match(/ failures on (.+)$/);
     await expect(sheet.locator('h2')).toHaveText(node);
     await expect(sheet.getByText(evidenceTitle.charAt(0).toUpperCase() + evidenceTitle.slice(1))).toBeVisible();
-    expect(await sheet.locator('tbody tr td:first-child a').evaluateAll((as) => as.map((a) => a.getAttribute('href')))).toEqual(evidenceLinks);
+    const runs = sheet.locator('[data-slot="evidence-table"]').filter({ hasText: 'Retained infra-suspect failing runs' });
+    expect(await runs.locator('tbody tr td:first-child a').evaluateAll((as) => as.map((a) => a.getAttribute('href')))).toEqual(evidenceLinks);
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
     await v2host.locator('thead').getByRole('button', { name: 'Physical node' }).click();
-    expect((await v2AllRows(v2host)).rows.map((r) => r[0])).toEqual(sortedNodes);
-    await v2host.locator('table tbody tr').first().locator('td').first().getByRole('button').click();
-    await expect(v2host.getByTestId('agent-events-title')).toHaveText('Co-failure events · one node');
-    expect(await popoverText(page, 'About co-failure events', 'agent-events-description')).toBe(focusedEvents);
-    await expect(v2host.getByTestId('agent-events-title')).toHaveText('Co-failure events · one node');
-    await expect(page).toHaveURL(/agent_node=/);
-    await expect(v2host.getByTestId('timeline')).toBeVisible();
+    expect((await v2AllRows(v2host)).rows.map(nodeLabel).map((r) => r[0])).toEqual(sortedNodes);
   });
 
   test('rejects the legacy all-branch cohort', async ({ page }) => {
@@ -279,12 +284,15 @@ test.describe('CI agent health matches the golden page facts', () => {
     await expect(page.getByTestId('agent-signal-caption')).toHaveText('Showing every hard failure on the node — not just the infra-suspect subset.');
   });
 
-  test('dragging across the run timeline zooms to the selected range', async ({ page }) => {
+  test('dragging across a node run timeline zooms to the selected range', async ({ page }) => {
     await routeAgent(page);
-    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
-    const host = page.getByTestId('analytics-agent-health');
-    await expect(host.getByText(golden['agent drill-downs'].zoomHint)).toBeVisible();
-    const chart = host.getByTestId('timeline');
+    // The golden page's default timeline node, whose runs span several days.
+    const node = golden['agent live section, default week'].selectedNode.split(' ')[0];
+    await page.goto(`/#/analytics?view=agent-health&agent_window=14d&agent_node=${node}`);
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(node)}`));
+    await expect(sheet.getByText(golden['agent drill-downs'].zoomHint)).toBeVisible();
+    const chart = sheet.getByTestId('timeline');
     await expect(chart.locator('svg')).toBeVisible();
     await chart.scrollIntoViewIfNeeded();
     const ticks = async () => (await chart.locator('svg .tick text').allTextContents()).filter(Boolean);
@@ -303,15 +311,137 @@ test.describe('CI agent health matches the golden page facts', () => {
     await expect(chart.getByTestId('timeline-selection')).toHaveCount(0);
     await expect.poll(ticks).not.toEqual(before);
     expect(popups).toHaveLength(0);
-    await host.getByRole('button', { name: 'Reset the timeline to the full window' }).click();
+    await sheet.getByRole('button', { name: 'Reset the timeline to the full window' }).click();
     await expect.poll(ticks).toEqual(before);
+  });
+});
+
+test.describe('CI agent health tells the fleet story', () => {
+  test.beforeEach(async ({ page }) => {
+    await routeAgent(page);
+  });
+
+  test('the verdict names the hurting nodes and queues, and each opens its sheet', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
+    const verdict = page.getByTestId('agent-verdict');
+    await expect(verdict.getByTestId('agent-verdict-headline')).toHaveText(/^(\d+ nodes? (is|are) hurting CI right now|Isolated failures, no repeat offender|No node is hurting CI right now)$/);
+    const tone = await verdict.getAttribute('data-tone');
+    await expect(verdict.getByTestId('agent-verdict-badge')).toHaveText({ hard: 'Hurting', soft: 'Watch', pass: 'Healthy' }[tone]);
+    const hot = verdict.getByTestId('agent-hot-node');
+    expect(await hot.count()).toBeGreaterThan(0);
+    const label = await hot.first().getAttribute('aria-label');
+    await hot.first().click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(label.split(':')[0])}`));
+    await expect(page).toHaveURL(/agent_node=/);
+    await page.keyboard.press('Escape');
+    await expect(sheet).toHaveCount(0);
+    await expect(page).not.toHaveURL(/agent_node=/);
+    const queue = verdict.getByTestId('agent-hot-queues').getByRole('button').first();
+    const queueName = (await queue.getAttribute('aria-label')).split(':')[0];
+    await queue.click();
+    await expect(sheet.locator('h2')).toHaveText(queueName);
+    await expect(sheet.getByText('Retained failing runs')).toBeVisible();
+  });
+
+  test('the node and day grid ranks the worst nodes and drills into node, day, and node-day', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
+    const grid = page.getByTestId('agent-heatmap');
+    const rows = grid.locator('[data-slot="heatmap-row"]');
+    await expect(rows.first()).toBeVisible();
+    // Rows are ranked worst first by their window total.
+    const totals = (await grid.locator('[data-slot="heatmap-total"]').allTextContents()).slice(1).map((t) => Number(t.replace(/\D/g, '')));
+    expect(totals.length).toBe(await rows.count());
+    expect(totals).toEqual([...totals].sort((a, b) => b - a));
+    // Every cell with failures is a button that names its node, day, and count, with a hover tooltip.
+    const cell = grid.locator('button[data-slot="heatmap-cell"]').nth(1);
+    await expect(cell).toHaveAttribute('aria-label', /^.+ · [A-Z][a-z]{2} \d+: \d+ .*failures?.*, open the runs$/);
+    await cell.hover();
+    await expect(grid.locator('[data-slot="heatmap-tooltip"]')).toBeVisible();
+    expect(await cell.evaluate((el) => getComputedStyle(el).cursor)).toBe('pointer');
+    await cell.click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('h2')).toHaveText(/ on [A-Z][a-z]{2} \d+$/);
+    await page.keyboard.press('Escape');
+    // A day header opens the day with the nodes that failed on it.
+    await grid.locator('[data-slot="heatmap-column"]').last().click();
+    await expect(sheet.getByText('Nodes failing on this day')).toBeVisible();
+    await page.keyboard.press('Escape');
+    // A row label opens the node.
+    const name = (await rows.first().getAttribute('aria-label')).split(':')[0];
+    await rows.first().click();
+    await expect(sheet.locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(name)}`));
+    await expect(sheet.getByText('Test groups failing on this node')).toBeVisible();
+    await page.keyboard.press('Escape');
+    // The grid shows the top nodes and expands to all of them.
+    const more = page.getByTestId('agent-heatmap-more');
+    if (await more.count()) {
+      const shown = await rows.count();
+      await more.click();
+      await expect.poll(() => rows.count()).toBeGreaterThan(shown);
+      await expect(more).toHaveAttribute('aria-expanded', 'true');
+    }
+  });
+
+  test('a link with agent_node reopens that node, and the signal filter reshapes the grid', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
+    const first = page.getByTestId('agent-heatmap').locator('[data-slot="heatmap-row"]').first();
+    const node = (await first.getAttribute('aria-label')).split(':')[0];
+    await page.goto(`/#/analytics?view=agent-health&agent_window=14d&agent_node=${encodeURIComponent(node)}`);
+    await expect(page.getByRole('dialog').locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(node)}`));
+    await page.keyboard.press('Escape');
+    const total = async () => Number((await page.getByTestId('agent-heatmap').locator('[data-slot="heatmap-total"]').first().textContent()).replace(/\D/g, ''));
+    const infra = await total();
+    const signals = page.getByRole('group', { name: 'Failure signal' });
+    await signals.getByRole('radio', { name: 'All' }).or(signals.getByRole('button', { name: 'All' })).click();
+    await expect(page).toHaveURL(/agent_signal=all/);
+    await expect.poll(total).toBeGreaterThanOrEqual(infra);
+    await expect(page.getByTestId('agent-heatmap-card')).toContainText('Failures by node and day');
+  });
+
+  test('queues and test groups rank their failures and open their sheets', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d');
+    for (const [id, table] of [['agent-queues', 'Test groups'], ['agent-groups', 'Nodes']]) {
+      const items = page.getByTestId(id).getByRole('button');
+      expect(await items.count()).toBeGreaterThan(0);
+      const values = await page.getByTestId(id).locator('[data-slot="ranked-item"] .tabular-nums.font-semibold').allTextContents();
+      expect(values.map(Number)).toEqual([...values.map(Number)].sort((a, b) => b - a));
+      await items.first().click();
+      const sheet = page.getByRole('dialog');
+      await expect(sheet.locator('[data-slot="evidence-table"]').filter({ hasText: table }).first()).toBeVisible();
+      // A node row inside opens that node above the list; Back returns to it.
+      const title = await sheet.locator('h2').textContent();
+      const nodeRow = sheet.locator('[data-slot="evidence-table"]').first().locator('tbody tr').first();
+      const node = await nodeRow.locator('td').first().textContent();
+      await nodeRow.click();
+      await expect(page.getByRole('dialog').locator('h2')).toHaveText(new RegExp(`^${escapeRegExp(node.trim())}`));
+      await page.getByRole('button', { name: 'Back' }).click();
+      await expect(page.getByRole('dialog').locator('h2')).toHaveText(title);
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+  });
+
+  test('co-failure events show a few and expand to all', async ({ page }) => {
+    await page.goto('/#/analytics?view=agent-health&agent_window=14d&agent_signal=all');
+    const cards = page.getByTestId('cofailure-card');
+    await expect(cards.first()).toBeVisible();
+    const more = page.getByTestId('agent-events-more');
+    await expect(cards).toHaveCount(6);
+    await more.click();
+    expect(await cards.count()).toBeGreaterThan(6);
+    await page.getByTestId('cofailure-node').first().click();
+    // The event sheet carries its node's timeline, zoomed to the event.
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toContainText('co-failure');
+    await expect(sheet.getByText('Node timeline around the event')).toBeVisible();
+    await expect(sheet.getByTestId('agent-node-timeline')).toBeVisible();
   });
 });
 
 test.describe('chart marks look clickable', () => {
   for (const [name, url, chart] of [
     ['DNS queue bars', '/#/analytics?view=dns&dns_window=720h', 'DNS observations by queue and final job outcome'],
-    ['agent day bars', '/#/analytics?view=agent-health&agent_window=14d', 'Failures per day'],
   ]) {
     test(`${name} show a pointer, a tooltip and a hover state, and open a sheet`, async ({ page }) => {
       const errors = collectErrors(page);
@@ -350,17 +480,23 @@ const SHEETS = [
   ['DNS interval logs', '/#/analytics?view=dns&dns_window=720h', inspect('DNS observations over time', 4)],
   ['agent node', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('table tbody tr').first().click()],
   ['agent failing nodes', '/#/analytics?view=agent-health&agent_window=3d&agent_gpu=MI355&agent_nightly=1&agent_excl_cancel=0', (page) => page.getByTestId('kpi-agent-unreliable').locator('[data-kpi-action]').click()],
-  ['agent day', '/#/analytics?view=agent-health&agent_window=14d', inspect('Failures per day', 8)],
+  ['agent day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-column"]').nth(8).click()],
+  ['agent node day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-row"] ~ button[data-slot="heatmap-cell"]').first().click()],
+  ['agent queue', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.getByTestId('agent-queues').getByRole('button').first().click()],
+  ['agent test group', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.getByTestId('agent-groups').getByRole('button').first().click()],
   [
     'agent run',
     '/#/analytics?view=agent-health&agent_window=14d',
     async (page) => {
-      // Below sm the timeline is a list of runs.
-      if (page.viewportSize().width < 640) await page.getByTestId('agent-run-list').getByRole('button').first().click();
+      await page.locator('table tbody tr').first().click();
+      const sheet = page.getByRole('dialog');
+      // Below sm the node's timeline is a list of runs.
+      if (page.viewportSize().width < 640) await sheet.getByTestId('agent-run-list').getByRole('button').first().click();
       else {
-        await page.getByRole('button', { name: /^Inspect Failing runs on / }).click();
+        await sheet.getByRole('button', { name: /^Inspect Failing runs on / }).click();
         await page.getByRole('menuitem').first().click();
       }
+      await expect(page.getByRole('button', { name: 'Back' })).toBeVisible();
     },
   ],
   ['agent co-failure event', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.getByTestId('cofailure-node').first().click()],
