@@ -4,6 +4,7 @@ import { integer, shortDate, toneForState, value, type Rec, type Tone } from '@/
 import { nightlyBuildEvidence, nightlyFailureMovement } from '@/domain/nightly'
 import { commitUrl } from '@/domain/perf'
 import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
+import { hardwareColor } from '@/lib/palette'
 
 export interface BuildEvidenceOptions {
   /** Sheet title; defaults to "AMD build #<number>". */
@@ -92,7 +93,7 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
       id: 'queue',
       label: 'Queue',
       value: (row) => String(row.queue || ''),
-      cell: (row) => (row.queue ? { ...mono(row.queue), hardware: String(row.queue) } : mono(row.queue)),
+      cell: (row) => (row.queue ? { ...mono(row.queue), dot: hardwareColor(String(row.queue)) } : mono(row.queue)),
       class: 'whitespace-nowrap',
     },
   ]

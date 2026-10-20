@@ -129,6 +129,11 @@ export function areaFreshness(rows: SourceFreshness[], area: string): FreshnessS
   return summarize(rows.filter((row) => row.area === area && !row.informational))
 }
 
+/** The named sources of one view (e.g. the inputs of a sub-page), as old as the oldest of them. */
+export function sourcesFreshness(rows: SourceFreshness[], keys: readonly string[]): FreshnessSummary | null {
+  return summarize(pick(rows, keys))
+}
+
 /** Rows of the "Data freshness" sheet: worst state first, then by label. */
 export function freshnessRows(ops: Rec | null | undefined, perf: Rec | null | undefined, nowMs: number): SourceFreshness[] {
   return sourceFreshness(ops, perf, nowMs).sort(

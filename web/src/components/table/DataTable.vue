@@ -26,6 +26,8 @@ const props = withDefaults(
     label?: string
     /** Show the column visibility menu; defaults to on whenever a column is hideable. */
     columnMenu?: boolean
+    /** Count rows as "shown of total" so filtered views keep the population visible. */
+    showTotal?: boolean
     onRowClick?: (row: T) => void
   }>(),
   { filters: () => [], pageSize: 10, searchable: true, columnMenu: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
@@ -108,7 +110,7 @@ function activate(row: T, event: Event) {
           <SelectValue :placeholder="filter.label" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem :value="ALL">All {{ filter.label.toLowerCase() }}</SelectItem>
+          <SelectItem :value="ALL">{{ filter.allLabel ?? `All ${filter.label.toLowerCase()}` }}</SelectItem>
           <SelectItem v-for="option in filter.options" :key="option.value" :value="option.value">{{ option.label }}</SelectItem>
         </SelectContent>
       </Select>
@@ -183,7 +185,9 @@ function activate(row: T, event: Event) {
     </div>
 
     <div v-if="pageSize" class="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-      <span class="tabular-nums">{{ sorted.length.toLocaleString('en-US') }} rows</span>
+      <span class="tabular-nums" data-slot="row-count">
+        {{ sorted.length.toLocaleString('en-US') }}<template v-if="showTotal"> of {{ rows.length.toLocaleString('en-US') }}</template> {{ !showTotal && sorted.length === 1 ? 'row' : 'rows' }}
+      </span>
       <div v-if="pageCount > 1" class="flex items-center gap-2">
         <span class="tabular-nums">Page {{ page + 1 }} of {{ pageCount }}</span>
         <Button variant="outline" size="icon-sm" :disabled="page === 0" aria-label="Previous page" @click="page--"><ChevronLeft /></Button>

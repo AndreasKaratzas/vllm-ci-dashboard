@@ -4,7 +4,15 @@ import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 
 // Each area adds its routes (every sub-view) once it is on the design system;
 // every listed route is checked light and dark, on desktop and on a phone.
-const ROUTES = ['/#/', '/#/?work=prs', '/#/?range=7'];
+const ROUTES = [
+  '/#/',
+  '/#/?work=prs',
+  '/#/?range=7',
+  '/#/health',
+  '/#/health?view=parity',
+  '/#/health?view=coverage',
+  '/#/health?view=mirrors',
+];
 
 for (const theme of ['light', 'dark']) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {

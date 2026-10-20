@@ -3,7 +3,6 @@ import { ExternalLink } from '@lucide/vue'
 import type { Detail } from '@/components/evidence/detail'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import { Badge } from '@/components/ui/badge'
-import { hardwareColor } from '@/lib/palette'
 import type { CellSpec } from './columns'
 
 const props = defineProps<{ cell: CellSpec }>()
@@ -44,9 +43,8 @@ function open() {
       <Badge v-for="tag in cell.tags" :key="tag" variant="outline" class="font-normal text-muted-foreground">{{ tag }}</Badge>
       <span v-if="!cell.tags.length" class="text-muted-foreground">—</span>
     </span>
-    <span v-else-if="cell.hardware" class="inline-flex items-center gap-1.5" :class="cell.mono && 'font-mono text-xs'">
-      <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: hardwareColor(cell.hardware) }" aria-hidden="true" />
-      {{ cell.text }}
+    <span v-else-if="cell.dot" class="inline-flex items-center gap-1.5" :class="cell.mono && 'font-mono text-xs'">
+      <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: cell.dot }" aria-hidden="true" />{{ cell.text }}
     </span>
     <span v-else :class="[cell.mono && 'font-mono text-xs', (cell.muted || cell.text === '—') && 'text-muted-foreground']">{{ cell.text }}</span>
     <span v-if="cell.sub" class="text-xs text-muted-foreground">{{ cell.sub }}</span>

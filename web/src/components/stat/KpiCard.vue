@@ -81,7 +81,7 @@ const actionAttrs = computed(() => {
           v-if="action"
           v-bind="actionAttrs"
           data-kpi-action
-          class="text-left outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+          class="text-left outline-none after:absolute after:inset-0 after:z-10 after:rounded-xl after:content-['']"
         >
           {{ label }}<span class="sr-only">: {{ action.label }}</span>
         </component>
@@ -128,6 +128,10 @@ const actionAttrs = computed(() => {
           {{ ratio.current.toLocaleString('en-US') }} / {{ ratio.total.toLocaleString('en-US') }}
         </span>
       </div>
+    </div>
+
+    <div v-if="$slots.default" class="relative px-4 @[15rem]/card:px-6" data-slot="kpi-content">
+      <slot />
     </div>
 
     <div v-if="spark && spark.length > 1" class="px-4 @[15rem]/card:px-6">
