@@ -24,9 +24,11 @@ const props = withDefaults(
     searchPlaceholder?: string
     emptyText?: string
     label?: string
+    /** Show the column visibility menu; defaults to on whenever a column is hideable. */
+    columnMenu?: boolean
     onRowClick?: (row: T) => void
   }>(),
-  { filters: () => [], pageSize: 10, searchable: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
+  { filters: () => [], pageSize: 10, searchable: true, columnMenu: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
 )
 const emit = defineEmits<{ drill: [Detail] }>()
 
@@ -37,7 +39,7 @@ const page = ref(0)
 const filterValues = reactive<Record<string, string>>(Object.fromEntries(props.filters.map((f) => [f.id, f.initial ?? ALL])))
 
 const visibleColumns = computed(() => props.columns.filter((c) => !hidden.value.has(c.id)))
-const hideable = computed(() => props.columns.filter((c, i) => (c.hideable ?? i > 0)))
+const hideable = computed(() => (props.columnMenu ? props.columns.filter((c, i) => (c.hideable ?? i > 0)) : []))
 
 const filtered = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -97,7 +99,7 @@ function activate(row: T, event: Event) {
 <template>
   <div class="flex min-w-0 flex-col gap-3" data-slot="data-table">
     <div v-if="searchable || filters.length || hideable.length || $slots.toolbar" class="flex flex-wrap items-center gap-2">
-      <div v-if="searchable" class="relative w-full sm:max-w-xs">
+      <div v-if="searchable" class="relative min-w-40 flex-1 sm:max-w-xs">
         <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <Input v-model="query" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" class="h-8 pl-8" />
       </div>
@@ -113,7 +115,7 @@ function activate(row: T, event: Event) {
       <slot name="toolbar" />
       <DropdownMenu v-if="hideable.length">
         <DropdownMenuTrigger as-child>
-          <Button variant="outline" size="sm" class="ml-auto"><Columns3 /> <span class="hidden lg:inline">Columns</span></Button>
+          <Button variant="outline" size="sm" class="ml-auto"><Columns3 /> <span class="sr-only lg:not-sr-only">Columns</span></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuCheckboxItem
@@ -137,7 +139,7 @@ function activate(row: T, event: Event) {
               v-for="column in visibleColumns"
               :key="column.id"
               :aria-sort="column.sortable === false ? undefined : ariaSort(column.id)"
-              :class="column.numeric && 'text-right'"
+              :class="cn(column.numeric && 'text-right', column.class)"
             >
               <button
                 v-if="column.sortable !== false"
@@ -166,7 +168,7 @@ function activate(row: T, event: Event) {
             @keydown.enter="(e: KeyboardEvent) => activate(row, e)"
             @keydown.space="(e: KeyboardEvent) => activate(row, e)"
           >
-            <TableCell v-for="column in visibleColumns" :key="column.id" :class="cn('whitespace-normal', column.numeric && 'text-right tabular-nums')">
+            <TableCell v-for="column in visibleColumns" :key="column.id" :class="cn('whitespace-normal', column.numeric && 'text-right tabular-nums', column.class)">
               <Cell :cell="cellOf(column, row)" @drill="(d) => emit('drill', d)" />
             </TableCell>
             <TableCell v-if="onRowClick" class="w-8 pr-3 text-muted-foreground">

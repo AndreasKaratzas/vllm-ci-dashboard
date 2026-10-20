@@ -45,7 +45,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             <dt class="text-xs text-muted-foreground">{{ stat.label }}</dt>
             <dd class="flex flex-wrap items-center gap-2">
               <span class="text-xl font-semibold tabular-nums">{{ stat.value }}</span>
-              <StatusBadge v-if="stat.tone && stat.tone !== 'pass'" :tone="stat.tone" />
+              <StatusBadge v-if="stat.tone && stat.tone !== 'pass'" :tone="stat.tone" :label="stat.toneLabel" />
             </dd>
             <dd v-if="stat.meta" class="text-xs text-muted-foreground">{{ stat.meta }}</dd>
           </div>
@@ -54,7 +54,19 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
         <dl v-if="fields.length" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
           <template v-for="field in fields" :key="field.label">
             <dt class="text-muted-foreground">{{ field.label }}</dt>
-            <dd class="font-medium break-words">{{ field.value }}</dd>
+            <dd class="font-medium break-words" :class="field.mono && 'font-mono text-xs leading-5'">
+              <StatusBadge v-if="field.tone" :tone="field.tone" :label="String(field.value)" />
+              <a
+                v-else-if="field.href"
+                :href="field.href"
+                target="_blank"
+                rel="noopener"
+                class="inline-flex items-center gap-1 underline-offset-4 hover:underline"
+              >
+                {{ field.value }} <ExternalLink class="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </a>
+              <template v-else>{{ field.value }}</template>
+            </dd>
           </template>
         </dl>
 
@@ -72,6 +84,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             :rows="table.rows"
             :search-text="table.searchText"
             :searchable="table.rows.length > 10"
+            :column-menu="table.rows.length > 10"
             :page-size="table.pageSize ?? 25"
             :empty-text="table.emptyText"
             :label="table.title"

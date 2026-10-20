@@ -1,38 +1,50 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, ref } from 'vue'
+import { ExternalLink } from '@lucide/vue'
+import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import BuildDetailSheet from '@/components/ops/BuildDetailSheet.vue'
-import DataTable from '@/components/ops/DataTable.vue'
-import KpiCard from '@/components/ops/KpiCard.vue'
-import NightlyChart from '@/components/ops/NightlyChart.vue'
-import ToneBadge from '@/components/ops/ToneBadge.vue'
-import ViewState from '@/components/ops/ViewState.vue'
+import ProportionBar from '@/components/charts/ProportionBar.vue'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import Callout from '@/components/feedback/Callout.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
+import KpiCard from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useOperations, useWorkItems } from '@/composables/useOperations'
-import { integer, observedCountLabel, percent, shortDate, toneForState, type Rec, type Tone } from '@/domain/format'
+import { useClock } from '@/composables/useClock'
+import { useOperationSections } from '@/composables/useOperations'
+import { useQueryState } from '@/composables/useQueryState'
+import { useSheetStack } from '@/composables/useSheetStack'
+import { integer, toneForState, type Rec } from '@/domain/format'
+import { freshnessOf, sourceFreshness } from '@/domain/freshness'
 import { HOME_EXCLUDED_ATTENTION, attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
-import { nightlySeries, passRateTrend } from '@/domain/home'
-import {
-  amdNightlyPresentation,
-  ciHealthPublicationRetentionMessage,
-  latestAmd,
-  nightlyFailureCount,
-  type MovementKey,
-} from '@/domain/nightly'
+import { attentionTone, nightlySeries, passRateTrend } from '@/domain/home'
+import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
+import { freshnessChip } from '@/features/freshness/freshness'
+import { statusVar } from '@/lib/palette'
+import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import AttentionCard from './home/AttentionCard.vue'
+import NightlyTable from './home/NightlyTable.vue'
+import NightlyTrendCard from './home/NightlyTrendCard.vue'
+import WorkbenchCard from './home/WorkbenchCard.vue'
+
+// Collector inputs of the KPIs and charts; the workbench's project board is the 'home' area source.
+const HOME_INPUTS = ['analytics', 'ci_health', 'test_group_parity'] as const
 
 const router = useRouter()
-const { ops, error, loading, retry } = useOperations()
-const work = useWorkItems()
+const now = useClock()
+const { data: ops, error, loading, retry } = useOperationSections(['nightly'])
+const sheets = useSheetStack()
 
 const amd = computed(() => latestAmd(ops.value))
 const builds = computed<Rec[]>(() => amd.value.builds || [])
 const latestBuild = computed<Rec>(() => builds.value[0] || {})
+const latestUrl = computed(() => exactPipelineBuildUrl(latestBuild.value, 'ci'))
 const nightly = computed(() =>
-  amdNightlyPresentation(latestBuild.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at),
+  amdNightlyPresentation(latestBuild.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
 )
 const series = computed(() => nightlySeries(builds.value))
 const passRate = computed(() => passRateTrend(builds.value))
@@ -41,86 +53,38 @@ const retentionMessage = computed(() => ciHealthPublicationRetentionMessage(amd.
 const attention = computed<Rec[]>(() =>
   (ops.value?.attention || []).filter((item: Rec) => !HOME_EXCLUDED_ATTENTION.includes(item.kind)),
 )
-const recentBuilds = computed(() => builds.value.slice(0, 7))
+const freshness = computed(() => {
+  const rows = sourceFreshness(ops.value, null, now.value)
+  const keys = [...HOME_INPUTS, ...rows.filter((row) => row.area === 'home' && !row.informational).map((row) => row.key)]
+  return freshnessChip(freshnessOf(rows, keys), now.value, 'Home data')
+})
+// The headline count carries the outcome; the footnote keeps the build's counts and Buildkite state.
+const nightlyFootnote = computed(() => nightly.value.meta.replace(`; ${nightly.value.movementLabel}`, ''))
 
-const nightlyTrend = computed<'up' | 'down' | null>(() =>
-  nightly.value.incidentDelta === null || nightly.value.incidentDelta === 0 ? null : nightly.value.incidentDelta > 0 ? 'up' : 'down',
-)
-const passRateCard = computed(() => {
-  const trend = passRate.value
-  if (!trend) return { value: 'No signal', badge: undefined, tone: 'neutral' as Tone, trend: null, detail: 'Latest nightly has no parsed test groups' }
-  const delta = trend.deltaPoints
-  return {
-    value: percent(trend.latest.passed, trend.latest.total),
-    badge: delta === null ? 'first signal' : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts`,
-    tone: (delta === null || Math.abs(delta) < 0.05 ? 'neutral' : delta > 0 ? 'pass' : 'hard') as Tone,
-    trend: delta === null || Math.abs(delta) < 0.05 ? null : delta > 0 ? ('up' as const) : ('down' as const),
-    detail: `${integer(trend.latest.passed)} of ${integer(trend.latest.total)} job variants passed in #${trend.latest.number}`,
-  }
-})
-const parityCard = computed(() => {
-  const p = parity.value
-  const available = p.main_complete_groups !== undefined
-  return {
-    value: available ? percent(p.main_complete_groups, p.applicable_groups) : 'Unavailable',
-    badge: available ? `${integer(p.main_missing_groups)} missing` : undefined,
-    tone: (Number(p.action_groups) ? 'soft' : 'pass') as Tone,
-    detail: available
-      ? `${integer(p.main_complete_groups)} / ${integer(p.applicable_groups)} upstream test groups covered on main`
-      : 'Current main CI parity inventory unavailable',
-  }
-})
-const attentionTone = computed<Tone>(() => {
-  const tones = attention.value.map((item) => toneForState(item.severity))
-  return tones.includes('hard') ? 'hard' : tones.includes('soft') ? 'soft' : 'pass'
-})
-
-const workKind = ref<'issues' | 'prs'>('issues')
-const workRows = computed<Rec[]>(() => (workKind.value === 'prs' ? work.value?.prs : work.value?.issues) ?? [])
-const workColumns = computed<ColumnDef<Rec, unknown>[]>(() => [
-  {
-    id: 'title',
-    header: workKind.value === 'prs' ? 'Pull request' : 'Issue',
-    accessorFn: (row) => `#${row.number} ${row.title}`,
-    cell: ({ row }) =>
-      h('a', { href: row.original.html_url, target: '_blank', rel: 'noopener', class: 'font-medium hover:underline' }, `#${row.original.number} ${row.original.title}`),
-    enableHiding: false,
-  },
-  {
-    id: 'assignee',
-    header: 'Assignee',
-    accessorFn: (row) => row.author || (row.assignees || [])[0] || '',
-    cell: ({ getValue }) => {
-      const who = String(getValue() || '')
-      return who
-        ? h('a', { href: `https://github.com/${encodeURIComponent(who)}`, target: '_blank', rel: 'noopener', class: 'hover:underline' }, who)
-        : h('span', { class: 'text-muted-foreground' }, 'Unassigned')
-    },
-  },
-  {
-    id: 'state',
-    header: 'State',
-    accessorFn: (row) => (row.merged ? 'merged' : row.state),
-    cell: ({ getValue }) => h(ToneBadge, { tone: toneForState(getValue()) }, () => String(getValue())),
-  },
-  {
-    id: 'labels',
-    header: 'Labels',
-    accessorFn: (row) => (row.custom_tags || row.labels || []).slice(0, 4).join(', '),
-    cell: ({ getValue }) => h('span', { class: 'text-muted-foreground' }, String(getValue() || '-')),
-    enableSorting: false,
-  },
-  {
-    id: 'updated',
-    header: 'Updated',
-    accessorFn: (row) => row.updated_at || '',
-    cell: ({ getValue }) => h('span', { class: 'text-muted-foreground whitespace-nowrap' }, shortDate(getValue())),
-  },
+const parityAvailable = computed(() => parity.value.main_complete_groups !== undefined && Number(parity.value.applicable_groups) > 0)
+const parityRate = computed(() => (Number(parity.value.main_complete_groups) / Number(parity.value.applicable_groups)) * 100)
+const parityMissing = computed(() => Number(parity.value.main_missing_groups || 0))
+const paritySegments = computed(() => [
+  { key: 'covered', label: 'Covered', count: Number(parity.value.main_complete_groups || 0), color: statusVar('pass') },
+  { key: 'missing', label: 'Missing', count: parityMissing.value, color: statusVar('soft') },
 ])
+const attentionSegments = computed(() =>
+  (['hard', 'soft'] as const).map((tone) => ({
+    key: tone,
+    label: tone === 'hard' ? 'Critical' : 'Warning',
+    count: attention.value.filter((item) => toneForState(item.severity) === tone).length,
+    color: statusVar(tone),
+  })),
+)
+const breakdown = (segments: { label: string; count: number }[]) =>
+  segments
+    .filter((segment) => segment.count)
+    .map((segment) => `${integer(segment.count)} ${segment.label.toLowerCase()}`)
+    .join(' · ')
+const pointsText = (delta: number) => `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts`
 
-const detail = ref<{ open: boolean; build: Rec | null; title?: string; scope?: string }>({ open: false, build: null })
-function openBuild(build: Rec, title?: string, scope?: string) {
-  detail.value = { open: true, build, title, scope }
+function openBuild(build: Rec, scope?: string, title?: string) {
+  sheets.open(buildEvidenceDetail(build, { scope, title }))
 }
 function openBuildNumber(number: number) {
   const build = builds.value.find((b) => Number(b.number) === number)
@@ -131,165 +95,135 @@ function inspectAttention(item: Rec) {
   else if (item.kind === 'omni_waiting') void router.push({ name: 'omni' })
   else if (latestBuild.value.number) {
     const scope = item.kind === 'nightly_hard_failures' ? 'hard' : item.kind === 'nightly_soft_failures' ? 'soft' : undefined
-    openBuild(latestBuild.value, attentionLabel(item), scope)
+    openBuild(latestBuild.value, scope, attentionLabel(item))
   }
 }
-function testSignal(build: Rec) {
-  if (build.has_test_results !== false) return { label: 'Observed', tone: 'pass' as const }
-  return { label: Number(build.test_jobs_blocked || 0) ? 'Infra blocked' : 'Unavailable', tone: 'hard' as const }
+function showAttention() {
+  const list = document.getElementById('needs-attention')
+  list?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  list?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
 }
-function movementCount(build: Rec, key: MovementKey) {
-  const count = nightlyFailureCount(build, key)
-  return count === null ? '-' : integer(count)
-}
+
+// ?build=<number> (from the command palette) opens that nightly's evidence; closing it clears the parameter.
+const buildParam = useQueryState('build', { default: '' })
+watch(
+  [buildParam, builds],
+  ([number]) => {
+    if (number && !sheets.stack.value.length) openBuildNumber(Number(number))
+  },
+  { immediate: true },
+)
+watch(sheets.stack, (stack) => {
+  if (!stack.length && buildParam.value) buildParam.value = ''
+})
 </script>
 
 <template>
-  <ViewState :loading="loading && !ops" :error="error" @retry="retry">
-    <div class="flex flex-col gap-4 md:gap-6">
-      <div>
-        <h2 class="text-2xl font-semibold tracking-tight">Command Center</h2>
-        <p class="text-sm text-muted-foreground">
-          Current AMD operations with observed nightly failure movement and direct paths to source evidence.
+  <div class="flex flex-col gap-4 md:gap-6">
+    <PageHeader
+      title="Home"
+      description="AMD nightly health, upstream parity, and open ROCm CI work at a glance."
+      :freshness="freshness"
+    >
+      <template #about>
+        <p><strong class="text-foreground">Pass rate</strong> is the share of job variants that passed in a nightly with parsed test results; nightlies without a test signal are left out of the trend.</p>
+        <p>
+          <strong class="text-foreground">Failure movement</strong> compares each nightly with the preceding eligible one: every current hard or soft failure is
+          new or recurring, and a previous failure that now passes is fixed. Missing or skipped jobs are omitted.
         </p>
+        <p><strong class="text-foreground">Upstream parity</strong> is the share of applicable upstream test groups with an AMD route on main CI.</p>
+        <p>Queue signals are not listed here; they live on Omni CI and CI Analytics.</p>
+      </template>
+      <template #actions>
+        <Button v-if="latestUrl" variant="outline" size="sm" class="h-8" as="a" :href="latestUrl" target="_blank" rel="noopener">
+          Nightly #{{ latestBuild.number }} <ExternalLink />
+        </Button>
+      </template>
+    </PageHeader>
+
+    <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
+      <div class="flex flex-col gap-4 md:gap-6">
+        <Callout v-if="retentionMessage" tone="soft" title="Partial history">{{ retentionMessage }}</Callout>
+
+        <StatGrid>
+          <KpiCard
+            label="Latest AMD nightly"
+            :value="nightly.hasSignal ? nightly.incidentCount : null"
+            unit="failing"
+            :delta="nightly.incidentDelta !== null ? { value: nightly.incidentDelta, goodWhen: 'down', text: nightly.movementLabel } : undefined"
+            :status="nightly.incidentDelta === null ? { tone: nightly.tone, label: nightly.label } : undefined"
+            :spark="series.map((row) => row.hard + row.soft)"
+            :headline="nightly.label"
+            :footnote="nightlyFootnote"
+            :action="latestUrl ? { label: `Open #${latestBuild.number} on Buildkite`, href: latestUrl } : undefined"
+            data-testid="kpi-nightly"
+          />
+          <KpiCard
+            v-if="passRate"
+            label="Latest pass rate"
+            :value="passRate.latest.passRate * 100"
+            :format="(value: number) => `${value.toFixed(1)}%`"
+            :delta="passRate.deltaPoints !== null ? { value: Number(passRate.deltaPoints.toFixed(1)), goodWhen: 'up', text: pointsText(passRate.deltaPoints) } : undefined"
+            :spark="series.map((row) => row.passRate * 100)"
+            headline="Open nightly evidence"
+            :footnote="`${integer(passRate.latest.passed)} of ${integer(passRate.latest.total)} job variants passed in #${passRate.latest.number}`"
+            :action="{ label: 'Open nightly evidence', onOpen: () => openBuildNumber(passRate!.latest.number) }"
+            data-testid="kpi-pass-rate"
+          />
+          <EmptyState v-else title="No pass rate yet" description="The latest nightly has no parsed test groups." class="py-6" data-testid="kpi-pass-rate" />
+          <KpiCard
+            v-if="parityAvailable"
+            label="Upstream test-group parity"
+            :value="parityRate"
+            :format="(value: number) => `${value.toFixed(1)}%`"
+            :status="{ tone: Number(parity.action_groups) ? 'soft' : 'pass', label: `${integer(parityMissing)} missing` }"
+            headline="Open upstream parity"
+            :footnote="`${integer(parity.main_complete_groups)} / ${integer(parity.applicable_groups)} upstream test groups covered on main`"
+            :action="{ label: 'Open upstream parity', to: { name: 'health', query: { view: 'parity' } } }"
+            data-testid="kpi-parity"
+          >
+            <template #visual>
+              <ProportionBar :segments="paritySegments" :max="Number(parity.applicable_groups)" label="Upstream test groups on main" :legend="false" />
+              <p class="mt-1.5 text-xs text-muted-foreground tabular-nums">{{ breakdown(paritySegments) }}</p>
+            </template>
+          </KpiCard>
+          <EmptyState v-else title="Parity unavailable" description="The current main CI parity inventory is not published." class="py-6" data-testid="kpi-parity" />
+          <KpiCard
+            label="Needs attention"
+            :value="attention.length"
+            :unit="attention.length === 1 ? 'signal' : 'signals'"
+            :status="attention.length ? { tone: attentionTone(attention), label: 'Active' } : undefined"
+            :headline="attention.length ? 'Review active signals' : undefined"
+            :footnote="attention.length ? attentionLabel(attention[0]!) : 'No active AMD nightly or route signals'"
+            :action="attention.length ? { label: 'Review active signals', onOpen: showAttention } : undefined"
+            data-testid="kpi-attention"
+          >
+            <template v-if="attention.length" #visual>
+              <ProportionBar :segments="attentionSegments" label="Active signals by severity" :legend="false" />
+              <p class="mt-1.5 text-xs text-muted-foreground tabular-nums">{{ breakdown(attentionSegments) }}</p>
+            </template>
+          </KpiCard>
+        </StatGrid>
+
+        <NightlyTrendCard :series="series" @select="openBuildNumber" />
+
+        <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] *:min-w-0">
+          <AttentionCard :items="attention" @inspect="inspectAttention" />
+          <Card class="gap-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
+            <CardHeader>
+              <CardTitle class="text-base">Failure movement</CardTitle>
+              <CardDescription>New and recurring failures above zero, fixes below, per retained nightly</CardDescription>
+            </CardHeader>
+            <CardContent class="px-3 sm:px-6">
+              <NightlyMovementChart :builds="builds" label="AMD nightly failure movement" :on-select="(build: Rec) => openBuild(build)" />
+            </CardContent>
+          </Card>
+        </div>
+
+        <NightlyTable :builds="builds" @open="openBuild" />
+        <WorkbenchCard />
       </div>
-      <p v-if="retentionMessage" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-        {{ retentionMessage }}
-      </p>
-
-      <div
-        class="grid grid-cols-1 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card"
-      >
-        <KpiCard
-          label="Latest AMD nightly"
-          :value="nightly.label"
-          :badge="nightly.movementLabel"
-          :badge-tone="nightly.movementTone"
-          :trend="nightlyTrend"
-          :headline="latestBuild.number ? `Open #${latestBuild.number} on Buildkite` : undefined"
-          :href="exactPipelineBuildUrl(latestBuild, 'ci') || undefined"
-          :detail="nightly.meta"
-          data-testid="kpi-nightly"
-        />
-        <KpiCard
-          label="Latest pass rate"
-          :value="passRateCard.value"
-          :badge="passRateCard.badge"
-          :badge-tone="passRateCard.tone"
-          :trend="passRateCard.trend"
-          headline="Open nightly evidence"
-          :detail="passRateCard.detail"
-          @open="passRate && openBuildNumber(passRate.latest.number)"
-        />
-        <KpiCard
-          label="Upstream test-group parity"
-          :value="parityCard.value"
-          :badge="parityCard.badge"
-          :badge-tone="parityCard.tone"
-          headline="Open Upstream parity →"
-          :detail="parityCard.detail"
-          @open="router.push({ name: 'health' })"
-        />
-        <KpiCard
-          label="Needs attention"
-          :value="`${attention.length} signals`"
-          :badge="attention.length ? 'active' : 'clear'"
-          :badge-tone="attentionTone"
-          :detail="attention.length ? attention.map(attentionLabel)[0] : 'No active AMD nightly or route signals'"
-        />
-      </div>
-
-      <NightlyChart :series="series" @select="openBuildNumber" />
-
-      <div class="grid gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Needs attention</CardTitle>
-            <CardDescription>{{ attention.length }} active signals</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div class="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader class="bg-muted">
-                  <TableRow>
-                    <TableHead>Operational signal</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead class="text-right">Count</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow v-for="item in attention" :key="item.kind" class="cursor-pointer" data-testid="attention-row" @click="inspectAttention(item)">
-                    <TableCell class="font-medium whitespace-normal">{{ attentionLabel(item) }}</TableCell>
-                    <TableCell><ToneBadge :tone="toneForState(item.severity)">{{ item.severity }}</ToneBadge></TableCell>
-                    <TableCell class="text-right tabular-nums">{{ integer(item.count) }}</TableCell>
-                  </TableRow>
-                  <TableRow v-if="!attention.length">
-                    <TableCell colspan="3" class="h-20 text-center text-muted-foreground">No active signals.</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>AMD nightly failure movement</CardTitle>
-            <CardDescription>Latest seven completed observations · counts open their job variants</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div class="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader class="bg-muted">
-                  <TableRow>
-                    <TableHead>Build</TableHead>
-                    <TableHead>Test signal</TableHead>
-                    <TableHead class="text-right">New</TableHead>
-                    <TableHead class="text-right">Recurring</TableHead>
-                    <TableHead class="text-right">Fixed</TableHead>
-                    <TableHead>Observed</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow v-for="build in recentBuilds" :key="build.number" data-testid="nightly-row">
-                    <TableCell class="font-mono">
-                      <a :href="exactPipelineBuildUrl(build, 'ci') || undefined" target="_blank" rel="noopener" class="hover:underline">#{{ build.number }}</a>
-                    </TableCell>
-                    <TableCell>
-                      <button type="button" @click="openBuild(build)">
-                        <ToneBadge :tone="testSignal(build).tone">{{ testSignal(build).label }}</ToneBadge>
-                      </button>
-                    </TableCell>
-                    <TableCell v-for="key in ['new', 'recurring', 'fixed'] as const" :key="key" class="text-right tabular-nums">
-                      <button type="button" class="hover:underline" @click="openBuild(build, undefined, key)">{{ movementCount(build, key) }}</button>
-                    </TableCell>
-                    <TableCell class="whitespace-nowrap text-muted-foreground">{{ shortDate(build.created_at) }}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader class="flex flex-row flex-wrap items-center justify-between gap-2">
-          <div>
-            <CardTitle>Engineering workbench</CardTitle>
-            <CardDescription>Open ROCm CI issues and pull requests</CardDescription>
-          </div>
-          <Tabs v-model="workKind">
-            <TabsList>
-              <TabsTrigger value="issues">Issues ({{ observedCountLabel(work?.issues.length ?? 0, work?.issuesSemantics ?? 'lower_bound') }})</TabsTrigger>
-              <TabsTrigger value="prs">PRs ({{ observedCountLabel(work?.prs.length ?? 0, work?.prsSemantics ?? 'lower_bound') }})</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </CardHeader>
-        <CardContent>
-          <DataTable :key="workKind" :columns="workColumns" :data="workRows" search-placeholder="Filter title, assignee, label…" />
-        </CardContent>
-      </Card>
-    </div>
-    <BuildDetailSheet v-model:open="detail.open" :build="detail.build" :title="detail.title" :scope="detail.scope" />
-  </ViewState>
+    </AsyncBoundary>
+    <SheetStack :sheets="sheets" />
+  </div>
 </template>

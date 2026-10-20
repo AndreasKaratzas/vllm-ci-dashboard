@@ -21,6 +21,11 @@ export function statusVar(status: Tone | StatusFill): PaletteColor {
   return token(`status-${status in TONE_FILL ? TONE_FILL[status as Tone] : status}`)
 }
 
+/** The same color at a lower strength, for a secondary state of one meaning (e.g. recurring vs new failures). */
+export function tint(color: PaletteColor, percent: number): PaletteColor {
+  return `color-mix(in oklch, ${color} ${percent}%, transparent)` as PaletteColor
+}
+
 export const SERIES = {
   primary: token('series-1'),
   secondary: token('series-2'),
@@ -55,7 +60,7 @@ export type TonePart = 'badge' | 'text' | 'icon' | 'fill' | 'stroke' | 'surface'
 // Literal class strings so Tailwind's scanner emits every one of them. Pass is
 // the quiet default (no tint); 'info' deliberately renders neutral.
 const QUIET: Record<TonePart, string> = {
-  badge: 'border-border bg-muted text-muted-foreground',
+  badge: 'border-border bg-muted text-foreground',
   text: 'text-muted-foreground',
   icon: 'text-muted-foreground',
   fill: 'bg-status-unknown',

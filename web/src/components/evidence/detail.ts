@@ -12,11 +12,18 @@ export interface DetailStat {
   value: string
   meta?: string
   tone?: Tone
+  /** Badge text when the tone's default label does not fit, e.g. "Stale". */
+  toneLabel?: string
 }
 
 export interface DetailField {
   label: string
   value: string | number | null | undefined
+  /** Render the value as a status badge of this tone. */
+  tone?: Tone
+  /** Render the value as an external link. */
+  href?: string
+  mono?: boolean
 }
 
 export interface DetailSource {

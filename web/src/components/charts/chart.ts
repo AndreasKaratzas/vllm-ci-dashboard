@@ -63,7 +63,8 @@ interface SeriesInteraction<T extends ChartRow> {
   rows: () => T[]
   series: () => SeriesSpec[]
   title: (row: T) => string
-  format: (value: number) => string
+  /** Formats one series value; the series lets mixed charts format each series its own way. */
+  format: (value: number, series: SeriesSpec) => string
   hint: () => string | undefined
   onSelect: () => ((row: T, index: number) => void) | undefined
 }
@@ -74,7 +75,7 @@ interface SeriesInteraction<T extends ChartRow> {
  */
 export function useSeriesInteraction<T extends ChartRow>(opts: SeriesInteraction<T>) {
   let hovered: T | null = null
-  const describe = (row: T) => opts.series().map((s) => ({ label: s.label, value: opts.format(seriesValue(row, s.key)), color: s.color }))
+  const describe = (row: T) => opts.series().map((s) => ({ label: s.label, value: opts.format(seriesValue(row, s.key), s), color: s.color }))
   // Unovis reports an undefined x whenever the pointer is outside the plot area.
   function track(x: number | Date | undefined, row: T | undefined) {
     hovered = x === undefined ? null : (row ?? null)
@@ -90,4 +91,14 @@ export function useSeriesInteraction<T extends ChartRow>(opts: SeriesInteraction
   const inspectItems = (rows: T[]): InspectItem[] =>
     rows.map((row) => ({ label: opts.title(row), detail: describe(row).map((d) => d.value).join(' · ') }))
   return { track, tooltip, select, selectHovered: () => select(hovered), inspectItems }
+}
+
+/** Whole-number ticks covering [lo, hi] in at most about `count` steps, and the domain they span. */
+export function integerTicks(lo: number, hi: number, count = 4): { ticks: number[]; domain: [number, number] } {
+  const step = Math.max(1, Math.ceil((Math.max(hi, 0) - Math.min(lo, 0) || 1) / count))
+  const start = Math.floor(Math.min(lo, 0) / step) * step
+  const end = Math.max(step, Math.ceil(Math.max(hi, 0) / step) * step)
+  const ticks: number[] = []
+  for (let value = start; value <= end; value += step) ticks.push(value)
+  return { ticks, domain: [start, end] }
 }

@@ -89,13 +89,13 @@ const actionAttrs = computed(() => {
       </CardDescription>
       <CardTitle
         v-if="variant === 'default'"
-        class="font-semibold tabular-nums"
+        class="col-span-full font-semibold tabular-nums"
         :class="[missing && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
         data-slot="kpi-value"
       >
         {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
       </CardTitle>
-      <CardAction v-if="delta || status" class="@max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5">
+      <CardAction v-if="delta || status" class="row-span-1 @max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5">
         <StatusBadge v-if="status" :tone="status.tone" :label="status.label" />
         <DeltaBadge v-if="delta" :delta="delta" />
       </CardAction>
@@ -133,8 +133,11 @@ const actionAttrs = computed(() => {
     <div v-if="spark && spark.length > 1" class="px-4 @[15rem]/card:px-6">
       <Sparkline :values="spark" :label="`${label} trend over ${spark.length} points`" />
     </div>
+    <div v-else-if="$slots.visual" class="flex min-h-10 flex-col justify-center px-4 @[15rem]/card:px-6" data-slot="kpi-visual">
+      <slot name="visual" />
+    </div>
 
-    <CardFooter v-if="headline || footnote || action" class="flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
+    <CardFooter v-if="headline || footnote || action" class="mt-auto flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
       <div v-if="headline || action" class="flex w-full items-center gap-2 font-medium">
         <span class="line-clamp-2 min-w-0 flex-1">{{ headline ?? action?.label }}</span>
         <component
