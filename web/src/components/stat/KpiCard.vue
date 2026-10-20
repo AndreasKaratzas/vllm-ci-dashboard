@@ -162,7 +162,7 @@ const actionAttrs = computed(() => {
 
     <CardFooter v-if="headline || footnote || action" class="mt-auto flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
       <div v-if="headline || action" class="flex w-full items-center gap-2 font-medium">
-        <span class="line-clamp-2 min-w-0 flex-1" data-slot="kpi-headline">{{ headline ?? action?.label }}</span>
+        <span class="min-w-0 flex-1" data-slot="kpi-headline">{{ headline ?? action?.label }}</span>
         <component
           :is="action?.href ? ExternalLink : ChevronRight"
           v-if="action"

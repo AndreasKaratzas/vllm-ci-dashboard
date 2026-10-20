@@ -41,10 +41,10 @@ useSubviewHeader(() => ({
 const oldestFirst = computed(() => [...movement.value].reverse())
 const trend = (key: Movement, goodWhen: 'up' | 'down') => kpiTrend(oldestFirst.value.map((b) => nightlyFailureCount(b, key)), goodWhen)
 const variantsTrend = computed(() => kpiTrend([...model.value.rows].reverse().map((b) => (b.total_groups === undefined ? null : Number(b.total_groups)))))
-const MOVEMENT: { key: Movement; label: string; goodWhen: 'up' | 'down'; meta: string }[] = [
-  { key: 'new', label: 'New failures', goodWhen: 'down', meta: 'Not failing in the preceding observed nightly' },
-  { key: 'recurring', label: 'Recurring failures', goodWhen: 'down', meta: 'Failed in the preceding observed nightly too' },
-  { key: 'fixed', label: 'Fixed', goodWhen: 'up', meta: 'Failed previously and passed now' },
+const MOVEMENT: { key: Movement; label: string; column: string; goodWhen: 'up' | 'down'; meta: string }[] = [
+  { key: 'new', label: 'New failures', column: 'New', goodWhen: 'down', meta: 'Not failing in the preceding observed nightly' },
+  { key: 'recurring', label: 'Recurring failures', column: 'Recurring', goodWhen: 'down', meta: 'Failed in the preceding observed nightly too' },
+  { key: 'fixed', label: 'Fixed', column: 'Fixed', goodWhen: 'up', meta: 'Failed previously and passed now' },
 ]
 const latestCount = (key: Movement) => (model.value.latestMovement ? (model.value.latestMovement[key] || []).length : null)
 const stateLabel = (state: unknown) => {
@@ -65,10 +65,23 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     cell: (row) => link(`#${value(row.number)}`, exactPipelineBuildUrl(row, 'ci'), true),
     hideable: false,
   },
-  { id: 'state', label: 'State', value: (row) => value(row.state, 'unknown'), cell: (row) => badge(stateLabel(row.state), toneForState(row.state)) },
+  {
+    id: 'state',
+    label: 'State',
+    value: (row) => value(row.state, 'unknown'),
+    cell: (row) => badge(stateLabel(row.state), toneForState(row.state)),
+    class: 'hidden sm:table-cell',
+  },
   { id: 'variants', label: 'Job variants', numeric: true, value: (row) => Number(row.total_groups || 0), cell: (row) => ({ text: integer(row.total_groups) }), class: 'hidden md:table-cell' },
   ...MOVEMENT.map(
-    (m): ColumnSpec<Rec> => ({ id: m.key, label: m.label, numeric: true, value: (row) => nightlyFailureCount(row, m.key) ?? -1, cell: (row) => countCell(row, m.key) }),
+    (m): ColumnSpec<Rec> => ({
+      id: m.key,
+      label: m.column,
+      numeric: true,
+      value: (row) => nightlyFailureCount(row, m.key) ?? -1,
+      cell: (row) => countCell(row, m.key),
+      class: m.key === 'fixed' ? 'hidden sm:table-cell' : undefined,
+    }),
   ),
   { id: 'started', label: 'Started', value: (row) => String(row.created_at || ''), cell: (row) => ({ text: shortDate(row.created_at), nowrap: true }), class: 'hidden md:table-cell' },
 ])
@@ -124,7 +137,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="nightlies-table">
         <CardHeader>
           <CardTitle as="h2">{{ model.name }} nightlies</CardTitle>
-          <CardDescription>{{ integer(model.rows.length) }} retained nightlies · counts open their exact job variants</CardDescription>
+          <CardDescription>{{ integer(model.rows.length) }} retained nightlies · failure movement counts open their exact job variants</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable

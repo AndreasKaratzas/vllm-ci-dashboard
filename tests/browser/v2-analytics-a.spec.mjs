@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { readGolden } from './golden/read.mjs';
+import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 
 // CI Analytics "AMD test health", "AMD nightly latency", and "AMD nightlies"
 // against the golden page facts of the fixture snapshot.
@@ -184,4 +185,118 @@ test.describe('CI Analytics matches the golden page facts', () => {
     await expect(page).toHaveURL(/#\/analytics$/);
     await expect(page.getByTestId('analytics-groups')).toBeVisible();
   });
+});
+
+test.describe('CI Analytics AMD tabs behave consistently', () => {
+  test('a nightly has one evidence sheet whichever tab or control opens it', async ({ page }) => {
+    const sheetText = async () => {
+      const dialog = page.getByRole('dialog');
+      await expect(dialog.locator('[data-slot="evidence-stats"]')).toBeVisible();
+      const text = clean(await dialog.innerText());
+      await closeSheets(page);
+      return text;
+    };
+    await page.goto('/#/analytics?view=nightlies');
+    const view = page.getByTestId('analytics-nightlies');
+    const number = clean(await view.getByTestId('kpi-nightly-latest').locator('[data-slot="kpi-value"]').innerText());
+    await view.getByTestId('kpi-nightly-latest').click();
+    const fromKpi = await sheetText();
+    expect(fromKpi).toContain(`AMD nightly ${number}`);
+    await view.getByTestId('nightlies-table').locator('tbody tr').first().locator('td').nth(1).click();
+    expect(await sheetText()).toBe(fromKpi);
+    const chart = view.getByTestId('nightlies-chart');
+    await chart.getByRole('button', { name: /^Inspect / }).click();
+    await page.getByRole('menuitem').filter({ hasText: number }).click();
+    expect(await sheetText()).toBe(fromKpi);
+
+    await page.goto('/#/analytics');
+    const groups = page.getByTestId('analytics-groups');
+    if (clean(await groups.getByTestId('kpi-amd-health-build').locator('[data-slot="kpi-value"]').innerText()) === number) {
+      await groups.getByTestId('kpi-amd-health-build').click();
+      expect(await sheetText()).toBe(fromKpi);
+    }
+  });
+
+  test('zero movement counts are plain text and only real counts open evidence', async ({ page }) => {
+    await page.goto('/#/analytics?view=nightlies');
+    const rows = page.getByTestId('nightlies-table').locator('tbody tr');
+    await expect(rows.first()).toBeVisible();
+    const cells = await rows.evaluateAll((trs) =>
+      trs.flatMap((tr) => [...tr.querySelectorAll('td')].slice(3, 6).map((td) => [td.innerText.trim(), td.querySelectorAll('button').length])),
+    );
+    expect(cells.length).toBeGreaterThan(0);
+    for (const [text, buttons] of cells) expect([text, buttons]).toEqual([text, /^[1-9]/.test(text) ? 1 : 0]);
+    for (const key of ['new', 'recurring', 'fixed']) {
+      const card = page.getByTestId(`kpi-nightly-${key}`);
+      const value = clean(await card.locator('[data-slot="kpi-value"]').innerText());
+      await expect(card.locator('[data-kpi-action]')).toHaveCount(/^[1-9]/.test(value) ? 1 : 0);
+    }
+  });
+
+  test('the nightly movement axis thins its date ticks so labels never overlap', async ({ page }) => {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/#/analytics?view=nightlies');
+      const ticks = page.getByTestId('nightlies-chart').locator('[class*="-axis"] .tick text');
+      await expect(ticks.first()).toBeVisible();
+      const boxes = (await ticks.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect())))
+        .filter((box) => box.width > 0 && box.height < 30)
+        .map((box) => ({ left: box.left, right: box.right, top: Math.round(box.top) }));
+      const rows = Object.values(Object.groupBy(boxes, (box) => box.top)).filter((row) => row.length > 1);
+      for (const row of rows) {
+        row.sort((a, b) => a.left - b.left);
+        for (let index = 1; index < row.length; index += 1) expect(row[index].left).toBeGreaterThanOrEqual(row[index - 1].right);
+      }
+    }
+  });
+
+  test('phone tables show every visible column without sideways scrolling', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const [route, id] of [
+      ['/#/analytics', 'priority'],
+      ['/#/analytics?view=latency', 'latency-table'],
+      ['/#/analytics?view=nightlies', 'nightlies-table'],
+    ]) {
+      await page.goto(route);
+      const table = page.getByTestId(id).locator('table');
+      await expect(table.locator('tbody tr').first()).toBeVisible();
+      const overflow = await table.evaluate((node) => node.parentElement.scrollWidth - node.parentElement.clientWidth);
+      expect(overflow, `${id} scrolls sideways`).toBeLessThanOrEqual(0);
+    }
+  });
+});
+
+// Every drill-down of the three AMD tabs, light and dark, desktop and phone.
+const SHEETS = [
+  ['latest AMD nightly', '/#/analytics', (page) => page.getByTestId('kpi-amd-health-build').click()],
+  ['logical test groups', '/#/analytics', (page) => page.getByTestId('kpi-amd-health-test-groups').click()],
+  ['job-variant catalog', '/#/analytics', (page) => page.getByTestId('browse-all').click()],
+  ['exact job variant', '/#/analytics', (page) => page.getByTestId('priority').locator('tbody tr').first().click()],
+  ['hardware variant', '/#/analytics', (page) => inspect(page, page.getByTestId('hardware-health-chart'), '')],
+  ['latency group', '/#/analytics?view=latency', (page) => page.getByTestId('latency-table').locator('tbody tr').first().click()],
+  ['nightly evidence', '/#/analytics?view=nightlies', (page) => page.getByTestId('nightlies-table').locator('tbody tr').first().click()],
+  [
+    'nightly movement scope',
+    '/#/analytics?view=nightlies',
+    (page) => page.getByTestId('nightlies-table').locator('tbody td button').first().click(),
+  ],
+];
+test.describe('CI Analytics AMD drill-down sheets meet the quality gates', () => {
+  for (const theme of ['light', 'dark']) {
+    for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+      for (const [name, url, open] of SHEETS) {
+        test(`${name} (${theme}, ${viewport.width}px)`, async ({ page }) => {
+          await setTheme(page, theme);
+          await page.setViewportSize(viewport);
+          const errors = collectErrors(page);
+          await page.goto(url);
+          await page.locator('[data-slot="page-header"]').first().waitFor();
+          await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+          await open(page);
+          await expect(page.getByRole('dialog').last()).toHaveAttribute('data-state', 'open');
+          await expectQuality(page, errors);
+        });
+      }
+    }
+  }
 });
