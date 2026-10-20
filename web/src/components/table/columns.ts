@@ -12,6 +12,9 @@ export interface CellSpec {
   tone?: Tone
   mono?: boolean
   sub?: string
+  /** Color dots before the text, e.g. one per hardware family. */
+  dots?: PaletteColor[]
+  nowrap?: boolean
   /** A trend drawn after the text; fewer than two values draw nothing. */
   spark?: { values: number[]; label: string; color?: PaletteColor }
 }

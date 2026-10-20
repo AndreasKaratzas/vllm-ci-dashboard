@@ -10,6 +10,8 @@ const ROUTES = [
   '/#/perf?device=mi300x',
   '/#/perf?model=MiniMaxAI%2FMiniMax-M2.5',
   '/#/perf?view=accuracy&model=MiniMaxAI%2FMiniMax-M2.5',
+  '/#/perf?view=accuracy&device=mi300x',
+  '/#/perf?model=zai-org%2FGLM-5.2-FP8&device=mi300x',
 ];
 
 for (const theme of ['light', 'dark']) {

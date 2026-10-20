@@ -39,7 +39,13 @@ function open() {
       <template v-else>{{ cell.text }}</template>
     </button>
     <StatusBadge v-else-if="cell.tone" :tone="cell.tone" :label="cell.text" />
-    <span v-else :class="[cell.mono && 'font-mono text-xs', cell.text === '—' && 'text-muted-foreground']">{{ cell.text }}</span>
+    <span v-else-if="cell.dots?.length" class="inline-flex items-center gap-1.5" :class="cell.nowrap && 'sm:whitespace-nowrap'">
+      <span class="inline-flex shrink-0 -space-x-0.5" aria-hidden="true">
+        <span v-for="(color, index) in cell.dots" :key="index" class="size-2 rounded-full ring-2 ring-card" :style="{ backgroundColor: color }" />
+      </span>
+      {{ cell.text }}
+    </span>
+    <span v-else :class="[cell.mono && 'font-mono text-xs', cell.text === '—' && 'text-muted-foreground', cell.nowrap && 'sm:whitespace-nowrap']">{{ cell.text }}</span>
     <Sparkline v-if="cell.spark" :values="cell.spark.values" :label="cell.spark.label" :color="cell.spark.color" class="h-8! w-28" />
     <span v-if="cell.sub" class="text-xs text-muted-foreground">{{ cell.sub }}</span>
   </span>

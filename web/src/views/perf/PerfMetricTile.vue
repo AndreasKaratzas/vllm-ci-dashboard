@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import DeltaBadge from '@/components/stat/DeltaBadge.vue'
 import Sparkline from '@/components/stat/Sparkline.vue'
 import { perfSparkRows, type PerfTile } from '@/domain/perf'
 import type { PaletteColor } from '@/lib/palette'
-import PerfDeltaBadge from './PerfDeltaBadge.vue'
+import { blockDelta, deltaText } from './details'
 
 const props = defineProps<{ tile: PerfTile; color: PaletteColor; selected: boolean }>()
 defineEmits<{ select: [] }>()
@@ -11,7 +12,7 @@ defineEmits<{ select: [] }>()
 const values = computed(() => perfSparkRows(props.tile.block.series).map((point) => Number(point.value)))
 const STATE: Partial<Record<string, string>> = { hard: 'regressed', pass: 'improved' }
 const name = computed(
-  () => `${props.tile.label}: ${props.tile.value}, ${props.tile.delta.label} ${STATE[props.tile.tone] ?? ''}. ${props.tile.direction}.`,
+  () => `${props.tile.label}: ${props.tile.value}, ${deltaText(props.tile.delta.label)}${STATE[props.tile.tone] ? ` ${STATE[props.tile.tone]}` : ''}. ${props.tile.direction}.`,
 )
 </script>
 
@@ -28,7 +29,7 @@ const name = computed(
     <span class="line-clamp-2 min-h-8 text-xs font-medium text-muted-foreground group-hover/tile:text-foreground" :title="tile.label" data-testid="perf-tile-label">{{ tile.label }}</span>
     <span class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
       <span class="text-xl font-semibold tabular-nums" data-testid="perf-tile-value">{{ tile.value }}</span>
-      <PerfDeltaBadge :delta="tile.delta" data-testid="perf-tile-delta" />
+      <DeltaBadge :delta="blockDelta(tile.block)" data-testid="perf-tile-delta" />
     </span>
     <Sparkline v-if="values.length > 1" :values="values" :label="`${tile.label} trend`" :color="color" class="h-8!" />
     <span class="text-xs text-muted-foreground" data-testid="perf-tile-direction">{{ tile.direction }}</span>

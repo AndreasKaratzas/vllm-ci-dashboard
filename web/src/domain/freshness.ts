@@ -1,5 +1,6 @@
 import targets from '@config/data_freshness_targets.json'
-import type { Rec } from './format'
+import type { Tone } from '@/lib/tone'
+import { age, shortDate, type Rec } from './format'
 
 export type FreshnessState = 'fresh' | 'warn' | 'stale'
 
@@ -129,4 +130,28 @@ export function freshnessRows(ops: Rec | null | undefined, perf: Rec | null | un
   return sourceFreshness(ops, perf, nowMs).sort(
     (left, right) => SEVERITY[right.state] - SEVERITY[left.state] || left.label.localeCompare(right.label),
   )
+}
+
+/** How a freshness state renders: within target is quiet, past target is attention, stale is a hard signal. */
+export const FRESHNESS_TONE: Record<FreshnessState, Tone> = { fresh: 'pass', warn: 'soft', stale: 'hard' }
+
+/** A minute target as people say it: "45 min", "2.5 h", "3 h". */
+export function minutesLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`
+  return `${Number((minutes / 60).toFixed(1))} h`
+}
+
+/** The PageHeader freshness chip for one area's collector sources. */
+export function pageFreshness(summary: FreshnessSummary | null, nowMs: number): { text: string; tone: Tone; detail: string } | undefined {
+  if (!summary) return undefined
+  const files = summary.sources.map((source) => (source.path ? source.path.split('/').pop() : source.label)).join(', ')
+  const source = summary.sources[0]
+  const target = source
+    ? ` Target: collected within ${minutesLabel(source.warnMinutes)}${source.staleMinutes > source.warnMinutes ? `, stale after ${minutesLabel(source.staleMinutes)}` : ''}.`
+    : ''
+  return {
+    text: summary.timestamp ? `Collected ${age(summary.timestamp, nowMs)}` : 'Collection time unknown',
+    tone: FRESHNESS_TONE[summary.state],
+    detail: summary.timestamp ? `${files} was generated ${shortDate(summary.timestamp)}.${target}` : `${files} carries no generation time.${target}`,
+  }
 }

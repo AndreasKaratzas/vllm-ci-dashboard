@@ -7,7 +7,7 @@ import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import type { Detail } from './detail'
+import type { Detail, DetailTable } from './detail'
 
 const props = withDefaults(defineProps<{ detail: Detail; depth?: number }>(), { depth: 0 })
 const open = defineModel<boolean>('open', { required: true })
@@ -17,6 +17,10 @@ const WIDTH = { md: 'sm:max-w-xl', lg: 'sm:max-w-3xl', xl: 'sm:max-w-5xl' } as c
 const width = computed(() => WIDTH[props.detail.width ?? 'lg'])
 const fields = computed(() => (props.detail.fields ?? []).filter((f) => f.value !== null && f.value !== undefined && f.value !== ''))
 const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url))
+function openRow(table: DetailTable, row: unknown) {
+  const next = table.onRowClick?.(row)
+  if (next) emit('drill', next)
+}
 </script>
 
 <template>
@@ -75,6 +79,7 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             :page-size="table.pageSize ?? 25"
             :empty-text="table.emptyText"
             :label="table.title"
+            :on-row-click="table.onRowClick && ((row: unknown) => openRow(table, row))"
             @drill="(d) => emit('drill', d)"
           />
         </section>

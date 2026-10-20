@@ -7,9 +7,13 @@ import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 // copies from the frozen repository snapshot; the goldens were read from it.
 const golden = readGolden('perf');
 const models = golden.summary.rows.map((row) => row[0]);
-const OVERVIEW_COLUMNS = ['Model', 'Hardware', 'Nightlies', 'Perf metrics', 'Accuracy', 'Regressions', 'Improvements', 'Latest build'];
+const OVERVIEW_COLUMNS = ['Model', 'Hardware', 'Nightlies', 'Perf metrics', 'Accuracy', 'Regressions', 'Improvements', 'Build'];
 
 const squash = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+// The page omits the collector's "?" placeholders for unrecorded lengths and the sign of a rounded zero.
+const configTitle = (label) =>
+  label.replace(/\?\s*in\s*\/\s*/, '').replace(/\s*\/\s*\?\s*out/, '').replace(/^\?\s*(in|out)\s*/, '').replace(/^@\s*conc\b/, 'Concurrency');
+const zero = (text) => text.replace(/^[-+](0\.0%)$/, '$1');
 const sheets = (page) => page.locator('[data-slot="evidence-sheet"]');
 
 async function tableRows(table) {
@@ -72,15 +76,20 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await page.goto('/#/perf');
     const overview = page.getByTestId('perf-overview');
     await expect(overview.locator('tbody tr').first()).toBeVisible();
-    for (const [id, item] of [['models', strip[0]], ['nightlies', strip[1]], ['hardware', strip[3]]]) {
+    for (const [id, item] of [['models', strip[0]], ['nightlies', strip[1]]]) {
       const card = page.getByTestId(`kpi-perf-${id}`);
       await expect(card).toContainText(new RegExp(item.label, 'i'));
       await expect(card.locator('[data-slot="kpi-value"]')).toHaveText(item.value);
-      await expect(card).toContainText(item.meta);
+      await expect(card.getByText(item.meta)).toBeVisible();
     }
     // Metric points are the Nightlies card's headline.
-    await expect(page.getByTestId('kpi-perf-nightlies')).toContainText(`${strip[2].value} ${strip[2].label}`);
-    await expect(page.getByTestId('kpi-perf-nightlies')).toContainText(strip[2].meta);
+    await expect(page.getByTestId('kpi-perf-nightlies').getByText(`${strip[2].value} ${strip[2].label}`)).toBeVisible();
+    await expect(page.getByTestId('kpi-perf-nightlies').getByText(strip[2].meta)).toBeVisible();
+    // The hardware fact lives in the AMD hardware panel, which is also the hardware filter.
+    const hardware = page.getByTestId('perf-hardware-coverage');
+    await expect(hardware.getByText(new RegExp(`^${strip[3].label}$`, 'i'))).toBeVisible();
+    await expect(hardware.getByTestId('perf-hardware-label')).toHaveText(strip[3].value);
+    await expect(hardware.getByText(strip[3].meta)).toBeVisible();
 
     expect(await columnRows(overview.locator('table'), OVERVIEW_COLUMNS)).toEqual(expectedRows);
     await expect(overview).toContainText(`${expectedRows.length} retained model families`);
@@ -92,8 +101,8 @@ test.describe('Perf Eval matches the golden page facts', () => {
     const families = await sheet.locator('tbody tr td:first-child').allInnerTexts();
     expect(families.map(squash)).toEqual([...models].reverse());
 
-    // A family opens its model.
-    await sheet.getByRole('button', { name: models[2] }).click();
+    // A family row opens its model.
+    await sheet.locator('tbody tr', { hasText: models[2] }).locator('td').first().click();
     await expect(page.getByTestId('perf-model-title')).toHaveText(models[2]);
     expect(errors).toEqual([]);
   });
@@ -112,7 +121,7 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await expect(sheet).toContainText(`${regressions} metrics`);
     await expect(sheet.locator('tbody tr')).toHaveCount(regressions);
     // A listed metric drills into its history, with Back to the list.
-    await sheet.locator('tbody tr').first().getByRole('button').first().click();
+    await sheet.locator('tbody tr').first().locator('td').first().click();
     await expect(sheets(page).last().getByTestId('perf-chart')).toBeVisible();
     await sheets(page).last().getByRole('button', { name: 'Back' }).click();
     await expect(sheets(page)).toHaveCount(1);
@@ -131,7 +140,12 @@ test.describe('Perf Eval matches the golden page facts', () => {
       expect(squash(await page.getByTestId('perf-model-title').innerText())).toBe(expected.title);
       expect(await page.getByTestId('perf-provenance').locator('> *').allTextContents()).toEqual(expected.provenance);
       expect(squash(await page.getByTestId('perf-nightlies').innerText())).toBe(expected.nightlies);
-      expect(await v2Tiles(page)).toEqual(expected.configs);
+      const configs = expected.configs.map((config) => ({
+        ...config,
+        label: configTitle(config.label),
+        tiles: config.tiles.map((tile) => tile.split('|').map((part, i) => (i === 1 ? zero(part) : part)).join('|')),
+      }));
+      expect(await v2Tiles(page)).toEqual(configs);
     }
   });
 
@@ -143,13 +157,15 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await tile.click();
     await expect(tile).toHaveAttribute('aria-pressed', 'true');
     const sheet = await openFirstHistory(page);
-    await expect(sheet).toContainText(title);
+    const [owner, config] = title.split(' - ');
+    await expect(sheet.locator('[data-slot="sheet-description"]')).toHaveText(`${owner} · ${configTitle(config)}`);
     const v2Stats = await sheet.locator('dl').first().locator('> div').evaluateAll((items) =>
       items.map((item) => `${item.children[0].textContent.trim().toUpperCase()}|${item.children[1].querySelector('span').textContent.trim()}`),
     );
-    expect(v2Stats).toEqual(stats);
+    expect(v2Stats).toEqual(stats.map((stat) => stat.replace(/^CHANGE\|(.*)$/, (_, change) => `CHANGE|${zero(change)}`)));
     expect(squash(await sheet.locator('section h3').innerText())).toBe(caption);
-    expect(await tableRows(sheet.locator('table'))).toEqual(rows);
+    // Rows open their observation, so each ends with the row chevron cell.
+    expect((await tableRows(sheet.locator('table'))).map((row) => row.slice(0, rows[0].length))).toEqual(rows);
 
     // A point on the history chart opens that observation.
     await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
@@ -162,8 +178,12 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await page.keyboard.press('Escape');
     await expect(sheets(page)).toHaveCount(1);
 
-    // Runtime image drill-down.
-    await sheet.locator('tbody tr').first().locator('td').last().getByRole('button').click();
+    // A history row opens its observation; its image cell opens the runtime image.
+    await sheet.locator('tbody tr').first().locator('td').nth(1).click();
+    await expect(sheets(page).last()).toContainText('Open exact source');
+    await sheets(page).last().getByRole('button', { name: 'Back' }).click();
+    await expect(sheets(page)).toHaveCount(1);
+    await sheet.locator('tbody tr').first().locator('td').nth(4).getByRole('button').click();
     await expect(sheets(page).last()).toContainText('Runtime image');
     await expect(sheets(page).last()).toContainText(rows[0][4]);
   });
@@ -179,12 +199,18 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await expect(accuracy.locator('tbody tr').first()).toBeVisible();
     expect((await tableRows(accuracy.locator('table'))).map((row) => row.slice(0, 8))).toEqual(rows);
     await accuracy.locator('tbody tr').first().click();
-    await expect(sheets(page)).toContainText(`${model.name} - Accuracy`);
+    await expect(sheets(page).locator('[data-slot="sheet-description"]')).toHaveText(`${model.name} · Accuracy`);
+
+    // The Accuracy view without a model lists every model's accuracy tasks.
+    await page.goto('/#/perf?view=accuracy');
+    const total = families.reduce((sum, m) => sum + m.accuracy, 0);
+    await expect(page.getByTestId('perf-accuracy').locator('tbody tr')).toHaveCount(total);
+    await expect(page.getByTestId('kpi-perf-accuracy').locator('[data-slot="kpi-value"]')).toHaveText(String(total));
 
     // A model filtered by hardware it never ran on renders the empty state.
     const single = families.find((m) => !m.hardware.includes('MI300X'));
     await page.goto(`/#/perf?model=${encodeURIComponent(single.name)}&device=mi300x`);
-    await expect(page.getByTestId('perf-empty')).toContainText(empty);
+    await expect(page.getByTestId('perf-empty').getByText(empty, { exact: true })).toBeVisible();
     // The regression count covers the filtered models only.
     await expect(page.getByTestId('kpi-perf-regressions').locator('[data-slot="kpi-value"]')).toHaveText('0');
     await expect(page.getByTestId('kpi-perf-regressions')).toContainText('in filter');
@@ -198,7 +224,11 @@ test.describe('Perf Eval matches the golden page facts', () => {
 
     await page.goto(`/#/perf?model=${encodeURIComponent(model)}`);
     await page.getByTestId('perf-model-title').click();
-    expect(await fieldPairs(sheets(page))).toEqual(golden['model drawer'].fields);
+    // Hardware reads as the page names it (MI300X / MI355X) rather than the payload's lowercase ids.
+    const fields = golden['model drawer'].fields.map((field) =>
+      field.startsWith('Hardware|') ? `Hardware|${field.slice(9).toUpperCase().split(', ').join(' / ')}` : field,
+    );
+    expect(await fieldPairs(sheets(page))).toEqual(fields);
   });
 
   test('chart points open the same observation drawer', async ({ page }) => {
@@ -234,6 +264,26 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await expect(sheets(page)).toHaveCount(1);
   });
 
+  test('chart bars and the hardware panel are obviously clickable and agree with the filter', async ({ page }) => {
+    await page.goto('/#/perf');
+    const bar = page.getByTestId('perf-changes-chart').locator('[data-slot="bar-chart"] path[class*="bar"]').first();
+    // Bars grow in from zero width; wait until the entry transition has drawn them.
+    await expect.poll(async () => (await bar.boundingBox())?.width ?? 0).toBeGreaterThan(8);
+    await bar.hover();
+    expect(await bar.evaluate((el) => getComputedStyle(el).cursor)).toBe('pointer');
+    await bar.click();
+    await expect(page).toHaveURL(/model=/);
+
+    await page.goto('/#/perf');
+    await page.getByTestId('perf-hardware-coverage').getByRole('button', { name: /^MI300X/ }).click();
+    await expect(page).toHaveURL(/device=mi300x/);
+    await expect(page.getByTestId('perf-hardware-coverage').getByRole('button', { name: /^MI300X/ })).toHaveAttribute('aria-pressed', 'true');
+    // Every listed change ran on the filtered GPU or is a device-free accuracy metric.
+    const subs = await page.getByTestId('perf-movers').locator('tbody tr td:first-child').allInnerTexts();
+    expect(subs.length).toBeGreaterThan(0);
+    for (const sub of subs) expect(sub).toMatch(/MI300X|Accuracy/);
+  });
+
   test('view and hardware changes push history entries', async ({ page }) => {
     await page.goto(`/#/perf?model=${encodeURIComponent(models[0])}`);
     await expect(page.getByTestId('perf-tile').first()).toBeVisible();
@@ -262,7 +312,12 @@ const SHEETS = [
   }],
   ['model families', '/#/perf', (page) => page.getByTestId('kpi-perf-models').getByRole('button').click()],
   ['regressed metrics', '/#/perf', (page) => page.getByTestId('kpi-perf-regressions').getByRole('button').click()],
-  ['hardware', '/#/perf', (page) => page.getByTestId('kpi-perf-hardware').getByRole('button').click()],
+  ['hardware', '/#/perf', (page) => page.getByTestId('perf-hardware-details').click()],
+  ['nightlies', '/#/perf', (page) => page.getByTestId('kpi-perf-nightlies').getByRole('button').click()],
+  ['accuracy observation', '/#/perf?view=accuracy', async (page) => {
+    await page.getByTestId('perf-accuracy-chart').first().getByRole('button', { name: /^Inspect/ }).click();
+    await page.getByRole('menuitem').last().click();
+  }],
   ['model drawer', `/#/perf?model=${MODEL}`, (page) => page.getByTestId('perf-model-title').click()],
 ];
 

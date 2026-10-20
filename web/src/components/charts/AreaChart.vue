@@ -23,14 +23,16 @@ const props = withDefaults(
     series: SeriesSpec[]
     label: string
     rowLabel?: (row: T) => string
+    xFormat?: (value: number) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
+    yTicks?: number[]
     ranges?: RangeOption[]
     hint?: string
     class?: string
     onSelect?: (row: T, index: number) => void
   }>(),
-  { yFormat: plainNumber },
+  { xFormat: shortDay, yFormat: plainNumber },
 )
 const range = defineModel<number>('range', { default: 0 })
 
@@ -41,7 +43,9 @@ const gradientId = (key: string) => `${uid}-${key}`
 
 const visible = computed(() => (range.value > 0 ? props.rows.slice(-range.value) : props.rows))
 const xValue = (row: T) => Number(props.x(row))
-const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : shortDay(xValue(row)))
+// Areas stack on their baseline, so a domain that excludes zero fills from its floor rather than from zero.
+const floor = computed(() => (props.yDomain && props.yDomain[0] > 0 ? props.yDomain[0] : 0))
+const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : props.xFormat(xValue(row)))
 const svgDefs = computed(() =>
   props.series
     .map(
@@ -72,7 +76,8 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
 
 <template>
   <div class="flex min-w-0 flex-col gap-2" data-slot="area-chart">
-    <div v-if="ranges?.length || onSelect" class="flex items-center justify-end gap-2">
+    <div v-if="ranges?.length || onSelect || $slots.header" class="flex min-h-7 flex-wrap items-center justify-end gap-2">
+      <div v-if="$slots.header" class="mr-auto min-w-0"><slot name="header" /></div>
       <template v-if="ranges?.length">
         <ToggleGroup v-model="rangeModel" type="single" variant="outline" size="sm" class="hidden sm:flex" :aria-label="`${label} range`">
           <ToggleGroupItem v-for="option in ranges" :key="option.value" :value="String(option.value)">{{ option.label }}</ToggleGroupItem>
@@ -95,7 +100,8 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
             v-for="s in series"
             :key="`area-${s.key}`"
             :x="xValue"
-            :y="(row: T) => seriesValue(row, s.key)"
+            :y="(row: T) => seriesValue(row, s.key) - floor"
+            :baseline="() => floor"
             :color="`url(#${gradientId(s.key)})`"
             curve-type="monotoneX"
             :duration="300"
@@ -110,8 +116,8 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
             curve-type="monotoneX"
             :duration="300"
           />
-          <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="shortDay" :tick-line="false" :domain-line="false" :grid-line="false" />
-          <VisAxis type="y" :num-ticks="4" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
+          <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis type="y" :num-ticks="yTicks ? undefined : 4" :tick-values="yTicks" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair :template="tooltip" :onCrosshairMove="track" :color="series.map((s) => s.color)" />
         </VisXYContainer>

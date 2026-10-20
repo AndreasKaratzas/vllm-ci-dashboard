@@ -34,6 +34,8 @@ export interface DetailTable<T = unknown> {
   searchText?: (row: T) => string
   emptyText?: string
   pageSize?: number | false
+  /** Makes rows clickable; a returned Detail opens above the current sheet. */
+  onRowClick?: (row: T) => Detail | void
 }
 
 /** Everything an evidence sheet shows; domain builders return it and stay UI-free. */

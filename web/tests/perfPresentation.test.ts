@@ -1,19 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import type { Rec } from '@/domain/format'
 import {
+  perfAccuracyOnly,
   perfChanges,
+  perfConfigTitle,
   perfHardwareRows,
   perfLatestBuild,
   perfModelRows,
   perfModels,
   perfModelTrend,
   perfNightlyActivity,
+  perfPointVerdict,
+  perfScopedModels,
   perfShortModel,
 } from '@/domain/perf'
 import { readFixture } from './support/fixtures'
 
 const perf = readFixture<Rec>('perf_eval.json')
 const models = perfModels(perf)
+// The collector's thresholds (collect_perf_eval.py); the fixture predates their publication.
+const THRESHOLDS = perf.thresholds ?? { perf_rel: 0.02, accuracy_abs: 0.005 }
 
 describe('Perf Eval presentation helpers', () => {
   it('lists exactly the regressions and improvements the overview counts, largest first', () => {
@@ -52,5 +58,39 @@ describe('Perf Eval presentation helpers', () => {
     const dual = models.find((m) => m.devices.length > 1)!
     expect(perfModelTrend(dual, 'mi355x')?.device).toBe('mi355x')
     expect(perfModelTrend(dual, 'mi250')).toBeNull()
+  })
+
+  it('applies the collector threshold rule, matching every latest status, to each nightly', () => {
+    const blocks = models.flatMap((model) => [
+      ...(model.perf_configs || []).flatMap((config: Rec) => Object.values(config.metrics || {}).map((block) => ({ block: block as Rec, relative: true }))),
+      ...(model.accuracy_tasks || []).map((task: Rec) => ({ block: { ...task, direction: task.direction || 'higher' }, relative: false })),
+    ])
+    for (const { block, relative } of blocks) {
+      expect(perfPointVerdict(block.previous, block.latest, block.direction, relative, THRESHOLDS)).toBe(block.status)
+    }
+    // The newest nightly's counts are every series' last step, as the latest statuses are.
+    const nightlies = perfNightlyActivity(models, THRESHOLDS)
+    const steps = blocks.map(({ block, relative }) => {
+      const series = (block.series as Rec[]).filter((point) => Number.isFinite(Number(point.value)))
+      return series.length < 2 ? 'neutral' : perfPointVerdict(series.at(-2)!.value, series.at(-1)!.value, block.direction, relative, THRESHOLDS)
+    })
+    expect(nightlies.at(-1)!.regressions).toBe(steps.filter((step) => step === 'bad').length)
+    expect(nightlies.at(-1)!.improvements).toBe(steps.filter((step) => step === 'good').length)
+    expect(nightlies.some((n) => n.regressions !== nightlies.at(-1)!.regressions)).toBe(true)
+    expect(perfNightlyActivity(models).every((n) => n.regressions === 0 && n.improvements === 0)).toBe(true)
+    expect(perfPointVerdict(100, 103, 'higher', true, { perf_rel: 0.02 })).toBe('good')
+    expect(perfPointVerdict(100, 101, 'lower', true, { perf_rel: 0.02 })).toBe('neutral')
+    expect(perfPointVerdict(0.8, 0.79, 'higher', false, { accuracy_abs: 0.005 })).toBe('bad')
+  })
+
+  it('scopes models to the hardware filter and titles configurations without placeholders', () => {
+    const dual = models.find((m) => m.devices.length > 1)!
+    const scoped = perfScopedModels(models, { model: 'all', device: 'mi300x' })
+    expect(scoped.map((m) => m.model)).toContain(dual.model)
+    expect(scoped.flatMap((m) => m.perf_configs).every((c: Rec) => c.device === 'mi300x')).toBe(true)
+    expect(perfAccuracyOnly(scoped).every((m) => m.perf_configs.length === 0)).toBe(true)
+    expect(perfConfigTitle({ label: '? in / ? out @ conc 128 (MI300X)' })).toBe('Concurrency 128 (MI300X)')
+    expect(perfConfigTitle({ label: '8K in / 1K out @ conc 16 (MI355X)' })).toBe('8K in / 1K out @ conc 16 (MI355X)')
+    expect(perfConfigTitle({ label: '? in / 1K out @ conc 1 (MI355X)' })).toBe('1K out @ conc 1 (MI355X)')
   })
 })

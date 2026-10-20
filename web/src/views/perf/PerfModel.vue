@@ -6,10 +6,11 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Rec } from '@/domain/format'
 import type { PerfModelSection } from '@/domain/perf'
+import type { PointContext } from './details'
 import PerfConfigCard from './PerfConfigCard.vue'
 
 defineProps<{ section: PerfModelSection }>()
-defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec]; point: [Rec, unknown] }>()
+defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec]; point: [Rec, PointContext] }>()
 </script>
 
 <template>
@@ -19,7 +20,7 @@ defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec]; point: [Rec, unkno
         <CardTitle class="flex flex-wrap items-center gap-2 text-xl">
           <button
             type="button"
-            class="min-w-0 text-left break-words underline-offset-4 decoration-muted-foreground/50 hover:underline focus-visible:underline focus-visible:outline-none"
+            class="min-w-0 rounded-sm text-left break-words underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 hover:decoration-solid focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
             data-testid="perf-model-title"
             @click="$emit('model', section.model)"
           >
@@ -44,9 +45,10 @@ defineEmits<{ model: [Rec]; history: [Rec, Rec, string, Rec]; point: [Rec, unkno
       v-for="(config, index) in section.configs"
       :key="index"
       :section="config"
+      :default-open="index === 0"
       :style="{ animationDelay: `${index * 40}ms` }"
       @history="(cfg, metric, block) => $emit('history', section.model, cfg, metric, block)"
-      @point="(point, unit) => $emit('point', point, unit)"
+      @point="(point, block) => $emit('point', point, { model: section.model, config: config.config, block, relative: true })"
     />
   </section>
 </template>
