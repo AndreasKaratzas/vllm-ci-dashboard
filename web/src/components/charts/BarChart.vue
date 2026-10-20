@@ -64,8 +64,8 @@ const categoryLabel = (index: number) => {
   const row = props.rows[index]
   return row ? props.category(row) : ''
 }
-// The value axis ends on a round tick at or beyond the longest bar; diverging charts share one
-// scale on both sides of zero so their lengths compare honestly.
+// The value axis ends on a round tick at or beyond the longest bar; diverging charts with bars on
+// both sides share one scale around zero so their lengths compare honestly.
 const valueTicks = computed(() => {
   if (props.valueDomain) return niceTicks(props.valueDomain[0], props.valueDomain[1], 4)
   const totals = props.rows.map((row) => {
@@ -78,7 +78,7 @@ const valueTicks = computed(() => {
   const counts = props.rows.every((row) => props.series.every((s) => Number.isInteger(seriesValue(row, s.key))))
   let lo = Math.min(0, ...totals.map((t) => t[0]!))
   let hi = Math.max(0, ...totals.map((t) => t[1]!))
-  if (props.diverging.length) {
+  if (props.diverging.length && lo < 0 && hi > 0) {
     hi = Math.max(1, -lo, hi)
     lo = -hi
   }

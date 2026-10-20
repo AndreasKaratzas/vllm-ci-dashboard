@@ -22,7 +22,7 @@ const props = withDefaults(
 // Fixes are drawn below zero so failures and recoveries read as one movement.
 const SERIES: SeriesSpec[] = [
   { key: 'new', label: 'New failure', color: statusVar('hard') },
-  { key: 'recurring', label: 'Recurring failure', color: tint(statusVar('hard'), 45) },
+  { key: 'recurring', label: 'Recurring failure', color: tint(statusVar('hard'), 60) },
   { key: 'fixed', label: 'Fixed', color: statusVar('pass') },
 ]
 
