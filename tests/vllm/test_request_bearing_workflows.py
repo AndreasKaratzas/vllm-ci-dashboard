@@ -322,3 +322,110 @@ def test_legacy_ci_entrypoint_has_no_independent_buildkite_token_path() -> None:
     assert "BUILDKITE_TOKEN" not in text
     assert "hourly-master.yml/dispatches" in text
     assert workflow["jobs"]["collect"]["timeout-minutes"] <= 5
+
+
+def _run_step(step: dict, tmp_path: Path, env: dict[str, str], stubs: dict[str, str]):
+    import os
+    import subprocess
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for name, body in stubs.items():
+        (bin_dir / name).write_text(f"#!/usr/bin/env bash\n{body}\n")
+        (bin_dir / name).chmod(0o755)
+    output = tmp_path / "github_output"
+    output.write_text("")
+    result = subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={**os.environ, **env, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "GITHUB_OUTPUT": str(output), "GITHUB_ENV": str(tmp_path / "github_env"),
+             "RUNNER_TEMP": str(tmp_path), "GITHUB_REPOSITORY": "owner/repo"},
+        capture_output=True, text=True, check=False,
+    )
+    return result, output.read_text()
+
+
+def test_workflow_drift_supersedes_publication_and_redispatches_once(tmp_path: Path) -> None:
+    workflow = load("hourly-master.yml")
+    steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+    by_id = {step.get("id"): step for step in steps}
+    publish = by_id["publication-commit"]
+    assert "--default-branch main" in publish["run"]
+    publish_env = {name: "x" for name in (
+        "DASHBOARD_CANDIDATE_STATE_SHA", "DASHBOARD_CANDIDATE_STATE_TREE",
+        "DASHBOARD_CURRENT_STATE_SHA", "DASHBOARD_PREVIOUS_STATE_SHA", "PUBLICATION_CODE_SHA",
+    )}
+    for status, superseded, failed in ((0, False, False), (3, True, False), (1, False, True)):
+        result, output = _run_step(publish, tmp_path, publish_env, {"python": f"exit {status}"})
+        assert (result.returncode != 0) == failed
+        assert ("superseded=true" in output) == superseded
+        assert ("state_sha=" in output) == (status == 0)
+
+    gate = "steps.publication-commit.outputs.superseded != 'true'"
+    for step_id in ("preview-preservation", "post-deploy-validation", "final-deploy-validation"):
+        assert gate in by_id[step_id]["if"], step_id
+    incident = next(step for step in steps if step.get("name") == "Create hourly validation incident")
+    assert f"(failure() || {gate})" in incident["if"]
+    mark_success = next(step for step in steps if step.get("name") == "Mark durable Data Collection success")
+    assert "steps.publication-commit.outputs.state_sha != ''" in mark_success["if"]
+
+    redispatch = next(
+        step for step in steps
+        if step.get("name") == "Re-dispatch collection superseded by workflow change on main"
+    )
+    assert "steps.publication-commit.outputs.superseded == 'true'" in redispatch["if"]
+    assert steps.index(redispatch) < steps.index(by_id["preview-preservation"])
+    for name in workflow[True]["workflow_dispatch"]["inputs"]:
+        assert f"{name}: ${name}" in redispatch["run"], name
+    assert '"repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches"' in redispatch["run"]
+    assert '{ref: "main"' in redispatch["run"]
+
+    dispatched = tmp_path / "dispatched"
+    stubs = {
+        "python": 'printf "%s\\n" "$@" > "$RUNNER_TEMP/python-args"; '
+                  'echo x >> "$RUNNER_TEMP/marks"; '
+                  '[ "$(wc -l < "$RUNNER_TEMP/marks")" -gt "${MARK_FAILS:-0}" ] || exit 1; '
+                  'echo "newly_superseded=$NEWLY" >> "${@: -1}"',
+        "jq": 'printf "%s\\n" "$@" > "$RUNNER_TEMP/jq-args"; echo payload',
+        "gh": f'[ -z "$GH_FAILS" ] || exit 1; cat >> "{dispatched}"; echo >> "{dispatched}"',
+        "sleep": "exit 0",
+    }
+    inputs = {"ci_days": "13", "skip_tests": "true", "reset_perf_eval": "false",
+              "dns_generation": "dns-g", "queue_generation": "queue-g",
+              "watchdog_generation": "2026-10-20T00:32:36Z", "recovery_key": "0" * 64}
+    env = {"REQUEST_MODE": "reserved", "ACTUAL_REQUEST_STARTS": "62",
+           "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID": "data-1-1",
+           "HOURLY_CI_DAYS": inputs["ci_days"], "HOURLY_SKIP_TESTS": inputs["skip_tests"],
+           "HOURLY_RESET_PERF_EVAL": inputs["reset_perf_eval"],
+           "HOURLY_DNS_GENERATION_INPUT": inputs["dns_generation"],
+           "HOURLY_QUEUE_GENERATION_INPUT": inputs["queue_generation"],
+           "HOURLY_WATCHDOG_GENERATION_INPUT": inputs["watchdog_generation"],
+           "RAW_RECOVERY_KEY": inputs["recovery_key"], "GH_FAILS": ""}
+
+    def run(**overrides: str):
+        (tmp_path / "marks").unlink(missing_ok=True)
+        return _run_step(redispatch, tmp_path, {**env, "NEWLY": "true", **overrides}, stubs)[0]
+
+    result = run()
+    assert result.returncode == 0, result.stderr
+    jq_args = (tmp_path / "jq-args").read_text().splitlines()
+    passed = {jq_args[i + 1]: jq_args[i + 2] for i, arg in enumerate(jq_args) if arg == "--arg"}
+    assert passed == inputs
+    assert "mark-superseded" in (tmp_path / "python-args").read_text()
+    assert dispatched.read_text() == "payload\n"
+    # A mark already present before this step ran dispatches nothing.
+    result = run(NEWLY="false")
+    assert result.returncode == 0 and dispatched.read_text() == "payload\n"
+    # A failed try whose ledger push landed is this run's own mark: still dispatch.
+    result = run(NEWLY="false", MARK_FAILS="1")
+    assert result.returncode == 0 and dispatched.read_text() == "payload\n" * 2
+    result = run(MARK_FAILS="3")
+    assert result.returncode != 0 and dispatched.read_text() == "payload\n" * 2
+    # A dispatch that keeps failing turns the run red for the watchdog to recover.
+    result = run(GH_FAILS="1")
+    assert result.returncode != 0 and "could not re-dispatch" in result.stdout
+    # Targeted DNS/queue repairs hold no ledger reservation and dispatch directly.
+    (tmp_path / "python-args").unlink()
+    result = run(REQUEST_MODE="")
+    assert result.returncode == 0 and dispatched.read_text() == "payload\n" * 3
+    assert not (tmp_path / "python-args").exists()

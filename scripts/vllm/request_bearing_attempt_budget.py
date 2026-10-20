@@ -302,7 +302,9 @@ def _normalize_attempt(
     if (
         not isinstance(raw, dict)
         or not fields <= set(raw)
-        or set(raw) - fields - {"collection_evidence", "pending_collection_evidence"}
+        or set(raw) - fields - {
+            "collection_evidence", "pending_collection_evidence", "superseded_at",
+        }
     ):
         raise AttemptBudgetError(f"attempt {index} has an unexpected shape")
     attempt_id = raw.get("id")
@@ -341,7 +343,19 @@ def _normalize_attempt(
     succeeded_raw = raw.get("succeeded_at")
     durable_ref = raw.get("durable_ref")
     actual = raw.get("actual_request_starts")
-    if succeeded_raw is None:
+    superseded_raw = raw.get("superseded_at")
+    if superseded_raw is not None:
+        superseded = _timestamp(superseded_raw, label=f"attempt {index} superseded_at")
+        if (
+            source != "runtime" or succeeded_raw is not None or durable_ref is not None
+            or superseded < reserved_at or superseded > updated_at
+        ):
+            raise AttemptBudgetError(f"attempt {index} superseded fields are invalid")
+        actual = _nonnegative_int(actual, label=f"attempt {index} actual_request_starts")
+        if actual > allowance:
+            raise AttemptBudgetError(f"attempt {index} actual starts exceed allowance")
+        succeeded_at = None
+    elif succeeded_raw is None:
         if durable_ref is not None or actual is not None:
             raise AttemptBudgetError(f"attempt {index} incomplete success fields disagree")
         succeeded_at = None
@@ -370,6 +384,8 @@ def _normalize_attempt(
         "durable_ref": durable_ref,
         "actual_request_starts": actual,
     }
+    if superseded_raw is not None:
+        normalized["superseded_at"] = _iso(superseded)
     if "collection_evidence" in raw:
         if policy.producer != "data_collection" or source != "runtime" or succeeded_at is None:
             raise AttemptBudgetError("collection evidence requires a published Data Collection attempt")
@@ -740,8 +756,15 @@ def _request_mode(
     or incomplete rows (30, 60, 120, 120 minutes with the shipped policy), so
     a persistent collector bug leaves cap headroom for the first run after its
     fix. Other producers retry at their fixed failed-retry interval.
+
+    A superseded row (its candidate was built from code that main replaced
+    before publication) neither gates nor extends the failure streak; it still
+    holds its slot in the rolling cap below.
     """
-    newest_first = sorted(attempts, key=lambda row: (row["reserved_at"], row["id"]), reverse=True)
+    newest_first = sorted(
+        (row for row in attempts if "superseded_at" not in row),
+        key=lambda row: (row["reserved_at"], row["id"]), reverse=True,
+    )
     if newest_first:
         latest = newest_first[0]
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
@@ -1107,6 +1130,8 @@ def mark_success(
     row = matches[0]
     if not row["request_start_bound_proven"] or row["source"] != "runtime":
         raise AttemptBudgetError("only a guarded runtime attempt can be marked successful")
+    if "superseded_at" in row:
+        raise AttemptBudgetError("a superseded attempt cannot be marked successful")
     evidence = None
     if policy.producer == "data_collection":
         if row.get("durable_ref") == durable_ref and "collection_evidence" in row:
@@ -1152,6 +1177,57 @@ def mark_success(
         "attempt_id": attempt_id,
         "succeeded_at": row["succeeded_at"],
         "actual_request_starts": actual_request_starts,
+    }
+
+
+def mark_superseded(
+    root: Path,
+    policy: AttemptPolicy,
+    *,
+    attempt_id: str,
+    actual_request_starts: int,
+    now: datetime,
+    remote: str,
+) -> dict[str, object]:
+    """Record that main replaced this attempt's code before it could publish.
+
+    Only the first call reports ``newly_superseded=true``; the caller dispatches
+    at most one replacement collection per attempt on that signal.
+    """
+    if not SAFE_ID_RE.fullmatch(attempt_id):
+        raise AttemptBudgetError("attempt id is invalid")
+    if actual_request_starts < 0 or actual_request_starts > policy.request_start_allowance:
+        raise AttemptBudgetError("actual request starts exceed the reserved allowance")
+    observed_sha = _remote_sha(root, remote, policy)
+    if observed_sha is None:
+        raise AttemptBudgetError("attempt ledger branch disappeared before supersession marking")
+    established = _fetch_observed(root, remote, observed_sha, policy)
+    attempts = _active_attempts(established.ledger, now=now, policy=policy)
+    matches = [row for row in attempts if row["id"] == attempt_id]
+    if len(matches) != 1:
+        raise AttemptBudgetError("matching active attempt reservation is not unique")
+    row = matches[0]
+    if not row["request_start_bound_proven"] or row["source"] != "runtime":
+        raise AttemptBudgetError("only a guarded runtime attempt can be superseded")
+    if row["succeeded_at"] is not None:
+        raise AttemptBudgetError("a published attempt cannot be superseded")
+    if "superseded_at" in row:
+        if row["actual_request_starts"] != actual_request_starts:
+            raise AttemptBudgetError("attempt was already superseded with different evidence")
+        return {
+            "budget_sha": established.commit_sha,
+            "attempt_id": attempt_id,
+            "newly_superseded": "false",
+        }
+    row["superseded_at"] = _iso(now)
+    row["actual_request_starts"] = actual_request_starts
+    ledger = _new_ledger(attempts, now=now, policy=policy)
+    created = _create_commit(root, ledger, policy)
+    _push(root, remote, created.commit_sha, observed_sha, policy)
+    return {
+        "budget_sha": created.commit_sha,
+        "attempt_id": attempt_id,
+        "newly_superseded": "true",
     }
 
 
@@ -1204,6 +1280,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     success.add_argument("--remote", default="origin")
     success.add_argument("--github-output", type=Path)
 
+    superseded = subparsers.add_parser("mark-superseded")
+    superseded.add_argument("--attempt-id", required=True)
+    superseded.add_argument("--actual-request-starts", type=int, required=True)
+    superseded.add_argument("--now")
+    superseded.add_argument("--remote", default="origin")
+    superseded.add_argument("--github-output", type=Path)
+
     validate = subparsers.add_parser("validate-ref")
     validate.add_argument("--ref", required=True)
     validate.add_argument("--github-output", type=Path)
@@ -1249,6 +1332,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 durable_ref=args.durable_ref,
                 actual_request_starts=args.actual_request_starts,
                 require_collection_evidence=args.require_collection_evidence,
+                now=_clock(args.now),
+                remote=args.remote,
+            )
+        elif args.command == "mark-superseded":
+            outputs = mark_superseded(
+                root,
+                policy,
+                attempt_id=args.attempt_id,
+                actual_request_starts=args.actual_request_starts,
                 now=_clock(args.now),
                 remote=args.remote,
             )
