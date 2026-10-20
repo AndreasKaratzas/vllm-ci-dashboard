@@ -430,6 +430,16 @@ tree and overlays only bounded whole `pr-preview/pr-N` cohorts. The combined
 tree is re-bounded and its preview inventory digest is verified after deploy,
 so retired canonical files disappear without silently deleting valid previews.
 
+A state commit carries the `.github/workflows` tree of its pinned code, and
+GitHub refuses a `GITHUB_TOKEN` push whose workflow files differ from `main`.
+So `dashboard_state.py rotate --default-branch main` compares that tree with
+the fetched `main` tip before pushing, and treats GitHub's exact
+"without `workflows` permission" rejection the same way. Either case exits 3
+without moving a ref: the run warns, skips Pages and the incident issue, and
+re-dispatches the same inputs on `main`. A full run first marks its ledger row
+`superseded_at`. The row keeps its slot in the 25-hour cap but no longer gates
+the next run or extends the failure backoff. Only the first mark dispatches.
+
 ## Current main CI and view retirement
 
 Current CI execution metrics use only AMD MI GPU jobs from the `ci` pipeline.
