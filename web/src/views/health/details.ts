@@ -313,7 +313,7 @@ export function matrixColumns(architectures: Rec[], ops: Rec | null): ColumnSpec
   const open = (row: Rec) => groupHistoryDetail(row, ops)
   return [
     { id: 'title', label: 'Group', sortable: false, hideable: false, value: (row) => String(row.title ?? ''), cell: (row) => drill(row.title, () => open(row)) },
-    { id: 'area', label: 'Area', sortable: false, value: (row) => value(row.area) },
+    { id: 'area', label: 'Area', sortable: false, value: (row) => value(row.area), class: 'hidden md:table-cell' },
     ...architectures.map(
       (arch): ColumnSpec<Rec> => ({
         id: `arch-${arch.id}`,
@@ -321,6 +321,8 @@ export function matrixColumns(architectures: Rec[], ops: Rec | null): ColumnSpec
         sortable: false,
         value: (row) => (archCell(row, arch.id).exists ? archCell(row, arch.id).latest_state || 'unknown' : ''),
         cell: (row) => (archCell(row, arch.id).exists ? resultCell(archCell(row, arch.id).latest_state) : text(null)),
+        // Phones keep each route's status icon; its label stays for screen readers.
+        class: 'max-sm:px-1 max-sm:[&_[data-slot=badge]>span]:sr-only',
       }),
     ),
   ]
@@ -350,11 +352,11 @@ export function mirrorDetail(row: Rec, inventory: Rec | null): Detail {
 export function mirrorInventoryColumns(inventory: Rec | null): ColumnSpec<Rec>[] {
   return [
     { id: 'label', label: 'Source test group', hideable: false, value: (row) => amdMirrorLabel(row), cell: (row) => drill(amdMirrorLabel(row), () => mirrorDetail(row, inventory)) },
-    { id: 'area', label: 'Test area', value: (row) => value(row.area) },
-    { id: 'device', label: 'AMD device', value: (row) => hardwareDisplayLabel(row.device), cell: (row) => hardwareCell(row.device) },
-    { id: 'width', label: 'GPU width', numeric: true, value: (row) => Number(row.num_devices ?? -1), cell: (row) => num(row.num_devices ?? null) },
+    { id: 'area', label: 'Test area', value: (row) => value(row.area), class: 'hidden lg:table-cell' },
+    { id: 'device', label: 'AMD device', value: (row) => hardwareDisplayLabel(row.device), cell: (row) => hardwareCell(row.device), class: 'hidden sm:table-cell' },
+    { id: 'width', label: 'GPU width', numeric: true, value: (row) => Number(row.num_devices ?? -1), cell: (row) => num(row.num_devices ?? null), class: 'hidden md:table-cell' },
     { id: 'mode', label: 'Mode', value: (row) => amdMirrorGateMode(row), cell: (row) => dotted(amdMirrorGateMode(row), ROUTE_MODE_COLOR[amdMirrorGateMode(row)]) },
-    { id: 'source', label: 'Source', sortable: false, value: () => '', cell: (row) => link('Pinned YAML', amdMirrorSourceUrl(inventory, row) || null) },
+    { id: 'source', label: 'Source', sortable: false, value: () => '', cell: (row) => link('Pinned YAML', amdMirrorSourceUrl(inventory, row) || null), class: 'hidden md:table-cell' },
   ]
 }
 

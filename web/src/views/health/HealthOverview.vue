@@ -24,11 +24,11 @@ import { amdHealthModel } from '@/domain/analytics'
 import { integer, rateText, value, type Rec } from '@/domain/format'
 import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
 import { amdMirrorInventoryView, amdMirrorSummary } from '@/domain/mirrors'
-import { latestAmd, nightlyCountLabel, nightlyFailureCount, pendingNightly } from '@/domain/nightly'
+import { latestAmd, latestNightly, nightlyCountLabel, nightlyFailureCount } from '@/domain/nightly'
 import { exactJobCatalogDetail, exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
 import MainCiSignal from '@/features/main-ci/MainCiSignal.vue'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
-import PendingNightlyCallout from '@/features/nightly/PendingNightlyCallout.vue'
+import LatestNightlyCallout from '@/features/nightly/LatestNightlyCallout.vue'
 import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
 import { hardwareColor, statusVar } from '@/lib/palette'
 
@@ -42,7 +42,7 @@ const latestBuild = computed(() => summary.value.latest_build_number)
 const counts = computed<Rec>(() => summary.value.latest_test_group_counts || {})
 const logical = computed(() => logicalTestGroupPresentation(counts.value))
 const logicalRows = computed<Rec[]>(() => amdLogicalInventory(props.ops.amd_test_health).rows || [])
-const pending = computed(() => pendingNightly(amd.value.builds))
+const notice = computed(() => latestNightly(amd.value.builds))
 const context = computed<AmdGroupContext>(() => ({ amdHealth: props.ops.amd_test_health, latestBuild: latestBuild.value }))
 
 // Logical health: the ring plus its trend over retained nightlies.
@@ -138,7 +138,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
     <MainCiSignal />
-    <PendingNightlyCallout v-if="pending" :pending="pending" :on-open="() => sheets.open(pendingEvidenceDetail(pending!))" />
+    <LatestNightlyCallout v-if="notice" :nightly="notice" :on-open="() => sheets.open(pendingEvidenceDetail(notice!))" />
 
     <StatGrid :cols="4">
       <KpiCard
@@ -253,6 +253,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
           :rows="failures"
           :page-size="8"
           :on-row-click="(row: Rec) => sheets.open(exactJobDetail(row, latestBuild))"
+          @drill="sheets.open"
           search-placeholder="Filter job variant, hardware, or queue"
           label="Latest AMD failure observations"
           empty-text="No non-passing AMD job variants in the latest signal."

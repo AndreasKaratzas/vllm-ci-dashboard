@@ -4,7 +4,7 @@ import { readGolden } from './golden/read.mjs';
 import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 import { routeSection } from './support/sections.mjs';
 
-// CI Analytics "AMD test health", "AMD nightly latency", and "AMD nightlies"
+// CI Analytics "AMD test health", "AMD nightly latency", "Slowdowns" and "AMD nightlies"
 // against the golden page facts of the fixture snapshot.
 const golden = readGolden('analytics-a');
 
@@ -229,30 +229,30 @@ test.describe('CI Analytics AMD tabs behave consistently', () => {
     const early = { ...failed[0], build_number: running, url: failed[0].url.replace(`/builds/${previous.number}/`, `/builds/${running}/`) };
     cohort.builds.unshift({ ...base, number: running, state: 'failing', has_test_results: false, total_groups: 0, failed_groups: [early], soft_failed_groups: [] });
     await routeSection(page, 'nightly', body);
-    const callout = `Nightly #${running} has no test results yet`;
+    const callout = `Nightly #${running} is still running its AMD jobs`;
     const source = `Counts come from #${previous.number}, the newest nightly with test results.`;
 
     // Every page counts from the newest nightly with results and says so the same way.
     await page.goto('/#/');
-    await expect(page.getByTestId('pending-nightly')).toContainText(callout);
-    await expect(page.getByTestId('pending-nightly')).toContainText(source);
+    await expect(page.getByTestId('latest-nightly')).toContainText(callout);
+    await expect(page.getByTestId('latest-nightly')).toContainText(source);
     await expect(page.getByTestId('kpi-nightly')).toContainText(`#${previous.number}`);
     await expect(page.getByTestId('kpi-pass-rate')).toContainText(`in #${previous.number}`);
-    await page.getByTestId('pending-nightly').getByRole('button', { name: 'Failures so far' }).click();
+    await page.getByTestId('latest-nightly').getByRole('button', { name: 'Failures so far' }).click();
     const earlySheet = page.getByRole('dialog');
     await expect(earlySheet).toContainText('Provisional');
     await expect(earlySheet.locator('tbody tr')).toHaveCount(1);
     await expect(earlySheet.locator('tbody tr').getByRole('link')).toHaveAttribute('href', early.url);
     await closeSheets(page);
     await page.goto('/#/health');
-    await expect(page.getByTestId('pending-nightly')).toContainText(source);
+    await expect(page.getByTestId('latest-nightly')).toContainText(source);
     await expect(page.getByRole('link', { name: `Open AMD nightly #${previous.number}` })).toBeVisible();
     await page.goto('/#/analytics?view=nightlies');
     const view = page.getByTestId('analytics-nightlies');
-    await expect(view.getByTestId('pending-nightly')).toContainText(source);
+    await expect(view.getByTestId('latest-nightly')).toContainText(source);
     const latest = view.getByTestId('kpi-nightly-latest');
     await expect(latest.locator('[data-slot="kpi-value"]')).toHaveText(`#${running}`);
-    await expect(latest).toContainText('No test signal');
+    await expect(latest).toContainText('Awaiting results');
     await expect(view.getByTestId('nightlies-note')).toHaveCount(0);
     const variants = view.getByTestId('kpi-nightly-variants');
     await expect(variants.locator('[data-slot="kpi-value"]')).toHaveText(String(previous.total_groups));
@@ -296,6 +296,79 @@ test.describe('CI Analytics AMD tabs behave consistently', () => {
   });
 });
 
+test.describe('CI Analytics Slowdowns', () => {
+  test('lists active slowdowns with amber increases, external links and a collapsed settled table', async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.goto('/#/analytics?view=slowdowns');
+    await expect(page.getByTestId('kpi-slowdowns-active').locator('[data-slot=kpi-value]')).toHaveText(/^2\s*steps$/);
+    await expect(page.getByTestId('kpi-slowdowns-largest')).toContainText('(MI300) Routed Alpha');
+    await expect(page.getByTestId('kpi-slowdowns-issue').getByRole('link')).toHaveAttribute('href', 'https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/553');
+    const rows = page.getByTestId('slowdowns-active').locator('tbody tr');
+    await expect(rows).toHaveCount(2);
+    expect((await cellTexts(rows)).map((cells) => cells[0])).toEqual(['(MI300) Routed Alpha amd_mi300_1', '(MI300) Attention Kernels (2 shards) amd_mi300_1']);
+    // Increases are attention, never failures.
+    const badges = rows.locator('[data-tone]');
+    await expect(badges).toHaveCount(2);
+    for (const tone of await badges.evaluateAll((nodes) => nodes.map((node) => node.dataset.tone))) expect(tone).toBe('soft');
+    await expect(page.getByTestId('slowdowns-active').locator('[data-tone="hard"]')).toHaveCount(0);
+    const since = rows.first().getByRole('link', { name: /#31013 → #31014/ });
+    await expect(since).toHaveAttribute('href', 'https://buildkite.com/vllm/ci/builds/31014');
+    await expect(since).toHaveAttribute('target', '_blank');
+    const compare = rows.first().getByRole('link', { name: 'vLLM commits' });
+    await expect(compare).toHaveAttribute('href', /^https:\/\/github\.com\/vllm-project\/vllm\/compare\/[0-9a-f]{40}\.\.\.[0-9a-f]{40}$/);
+    await expect(compare).toHaveAttribute('target', '_blank');
+
+    const settled = page.getByTestId('slowdowns-settled');
+    await expect(settled.locator('table')).toHaveCount(0);
+    await settled.getByRole('button', { name: /Settled · 1/ }).click();
+    await expect(settled.locator('tbody tr')).toHaveCount(1);
+    await expect(settled).toContainText('Environment');
+    expect(errors).toEqual([]);
+  });
+
+  test('a slowdown opens its builds before and since, with the onset marked', async ({ page }) => {
+    await page.goto('/#/analytics?view=slowdowns');
+    await page.getByTestId('slowdowns-active').locator('tbody tr').first().locator('td').last().click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toContainText('(MI300) Routed Alpha');
+    await expect(sheet.locator('[data-slot="evidence-stats"]')).toContainText('Increase');
+    await expect(sheet.locator('[data-slot="slowdown-plot"]')).toBeVisible();
+    await expect(sheet.locator('[data-slot="slowdown-plot"] g[class*="-point"]:not([class*="-point-group"])')).toHaveCount(28);
+    await expect(sheet).toContainText('Slower from here');
+    await expect(sheet.getByRole('link', { name: /First slow build/ })).toHaveAttribute('href', 'https://buildkite.com/vllm/ci/builds/31014');
+    await expect(sheet.getByRole('link', { name: /Compare vLLM commits/ })).toHaveAttribute('href', /vllm-project\/vllm\/compare/);
+    await sheet.getByRole('button', { name: 'Inspect Sampled builds' }).click();
+    await expect(page.getByRole('menuitem')).toHaveCount(28);
+  });
+
+  test('the latency tab, Main CI and Home point to slowdowns', async ({ page }) => {
+    await page.goto('/#/analytics?view=latency');
+    await page.getByTestId('latency-slowdowns').getByRole('link', { name: /Open slowdowns/ }).click();
+    await expect(page).toHaveURL(/view=slowdowns/);
+    await page.goto('/#/main');
+    await expect(page.getByTestId('main-slowdowns-panel').locator('tbody tr')).toHaveCount(2);
+    await page.goto('/#/');
+    await page.getByTestId('attention-row').filter({ hasText: 'running slower' }).click();
+    await expect(page).toHaveURL(/#\/analytics\?view=slowdowns$/);
+  });
+
+  test('says why slowdowns are unavailable', async ({ page }) => {
+    const main = await (await page.request.get('/data/vllm/ci/operations_v2/main_ci.json')).json();
+    main.main_ci.slowdowns = { available: false, reason: 'duration_watcher_state_stale', rows: [] };
+    await routeSection(page, 'main_ci', main);
+    await page.goto('/#/analytics?view=slowdowns');
+    await expect(page.getByTestId('slowdowns-unavailable')).toContainText('did not evaluate the builds of this collection');
+    await expect(page.getByTestId('slowdowns-unavailable')).toContainText('duration_watcher_state_stale');
+  });
+
+  test('fits a phone without sideways scrolling', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/#/analytics?view=slowdowns');
+    await expect(page.getByTestId('slowdowns-active').locator('tbody tr')).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
 // Every drill-down of the three AMD tabs, light and dark, desktop and phone.
 const SHEETS = [
   ['latest AMD nightly', '/#/analytics', (page) => page.getByTestId('kpi-amd-health-build').click()],
@@ -304,6 +377,7 @@ const SHEETS = [
   ['exact job variant', '/#/analytics', (page) => page.getByTestId('priority').locator('tbody tr').first().click()],
   ['hardware variant', '/#/analytics', (page) => inspect(page, page.getByTestId('hardware-health-chart'), '')],
   ['latency group', '/#/analytics?view=latency', (page) => page.getByTestId('latency-table').locator('tbody tr').first().click()],
+  ['slowdown', '/#/analytics?view=slowdowns', (page) => page.getByTestId('slowdowns-active').locator('tbody tr').first().locator('td').last().click()],
   ['nightly evidence', '/#/analytics?view=nightlies', (page) => page.getByTestId('nightlies-table').locator('tbody tr').first().click()],
   [
     'nightly movement scope',

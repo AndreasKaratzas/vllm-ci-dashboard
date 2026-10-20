@@ -289,6 +289,7 @@ const archTone = (health: ArchitectureHealth) => rateTone(architectureRate(healt
             :rows="coverageRows"
             :page-size="8"
             :on-row-click="(row: Rec) => sheets.open(groupHistoryDetail(row, ops))"
+            @drill="sheets.open"
             search-placeholder="Filter test group or area"
             label="Test-group routes by architecture"
             empty-text="No configured AMD test groups."

@@ -633,9 +633,9 @@ function nightlyCells(row: Rec) {
     '#' + row.number,
     value(row.state, 'unknown'),
     integer(row.total_groups),
-    v2.nightlyCountLabel(row, 'new'),
-    v2.nightlyCountLabel(row, 'recurring'),
-    v2.nightlyCountLabel(row, 'fixed'),
+    v2.movementCountText(row, 'new'),
+    v2.movementCountText(row, 'recurring'),
+    v2.movementCountText(row, 'fixed'),
     shortDate(row.created_at),
   ]
 }
@@ -684,7 +684,7 @@ describe('AMD nightlies match the classic renderer', () => {
     await expectGoldenFile('analytics', 'nightlies', { rows: model.rows.map(nightlyCells) })
     expect(model.rows.length).toBeGreaterThan(5)
     expect(chartBuilds.length).toBeGreaterThan(5)
-    expect(model.rows.some((row) => v2.nightlyCountLabel(row, 'new') === '-')).toBe(true)
+    expect(model.rows.some((row) => v2.movementCountText(row, 'new') === '-')).toBe(true)
     // Drop the no-signal head so the latest build carries movement.
     const withMovement = await compareNightlies(nightlyOps(fixture.nightly.pipelines[0].builds.slice(1)), 'from second')
     expect(withMovement.chartBuilds.at(-1)).toBe(withMovement.model.latest)

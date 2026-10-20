@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import { Card, CardAction, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { rateText } from '@/domain/format'
 import { rateTone, toneClasses } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 import { cn } from '@/lib/utils'
@@ -121,7 +122,7 @@ const actionAttrs = computed(() => {
     </CardHeader>
 
     <div v-if="variant === 'ring'" class="flex flex-col items-start gap-3 px-4 @[15rem]/card:flex-row @[15rem]/card:items-center @[15rem]/card:gap-4 @[15rem]/card:px-6">
-      <div class="relative size-20 shrink-0 @[250px]/card:size-24" role="img" :aria-label="percent === null ? `${label}: unavailable` : `${label}: ${percent.toFixed(1)}%`">
+      <div class="relative size-20 shrink-0 @[250px]/card:size-24" role="img" :aria-label="percent === null ? `${label}: unavailable` : `${label}: ${rateText(percent)}`">
         <svg viewBox="0 0 100 100" class="size-full -rotate-90" aria-hidden="true">
           <circle cx="50" cy="50" :r="RADIUS" class="fill-none stroke-muted" stroke-width="10" />
           <circle
@@ -138,7 +139,7 @@ const actionAttrs = computed(() => {
           />
         </svg>
         <span class="absolute inset-0 flex items-center justify-center text-lg font-semibold tabular-nums" :class="percent === null && 'text-muted-foreground'" data-slot="kpi-value">
-          {{ percent === null ? '—' : `${percent.toFixed(1)}%` }}
+          {{ rateText(percent) }}
         </span>
       </div>
       <div class="flex min-w-0 flex-col gap-0.5">

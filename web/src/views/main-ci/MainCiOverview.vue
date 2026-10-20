@@ -36,6 +36,8 @@ import {
 import MainCiKpis from '@/features/main-ci/MainCiKpis.vue'
 import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
 import type { MainCi } from '@/features/main-ci/useMainCi'
+import { slowdowns, type Slowdown } from '@/domain/slowdowns'
+import { slowdownColumns, slowdownDetail } from '@/features/slowdowns/details'
 
 const props = defineProps<{ mainCi: MainCi; sheets: SheetStack }>()
 const now = useClock()
@@ -72,6 +74,9 @@ const INCIDENT_ROWS = 10
 const incidentCols = computed(() => incidentColumns(ctx.value, incidents.value.active, now.value).filter((column) => ['group', 'severity', 'opened', 'since'].includes(column.id)))
 const flakyCols = computed(() => flakyColumns(ctx.value).filter((column) => ['group', 'flips', 'rate'].includes(column.id)))
 const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['group', 'recovered'].includes(column.id)))
+const slow = computed(() => slowdowns(ctx.value.record))
+const openSlowdown = (row: Slowdown) => props.sheets.open(slowdownDetail(row, slow.value, now.value))
+const slowdownCols = computed(() => slowdownColumns(openSlowdown, now.value, { compact: true }))
 </script>
 
 <template>
@@ -179,4 +184,27 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
       </CardContent>
     </Card>
   </div>
+
+  <Card v-if="slow.available" class="gap-4" data-testid="main-slowdowns-panel">
+    <CardHeader>
+      <CardTitle class="text-base">Slower test steps</CardTitle>
+      <CardDescription>
+        {{ slow.active.length ? `${counted(slow.active.length, 'step')} still slower than before, largest increase first` : 'Every AMD MI test step on main runs at its usual level' }}
+      </CardDescription>
+      <CardAction>
+        <Button variant="ghost" size="sm" as-child><RouterLink :to="{ name: 'analytics', query: { view: 'slowdowns' } }">All slowdowns</RouterLink></Button>
+      </CardAction>
+    </CardHeader>
+    <CardContent v-if="slow.active.length" class="px-4 sm:px-6">
+      <DataTable
+        :columns="slowdownCols"
+        :rows="slow.active.slice(0, PANEL_ROWS)"
+        :page-size="false"
+        :searchable="false"
+        :column-menu="false"
+        label="Active slowdowns"
+        :on-row-click="openSlowdown"
+      />
+    </CardContent>
+  </Card>
 </template>

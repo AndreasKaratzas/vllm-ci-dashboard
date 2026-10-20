@@ -1,7 +1,7 @@
 import type { Detail, DetailNote, DetailStat } from '@/components/evidence/detail'
 import { badge, link, mono, type ColumnSpec } from '@/components/table/columns'
 import { integer, shortDate, toneForState, value, type Rec, type Tone } from '@/domain/format'
-import { nightlyBuildEvidence, nightlyFailureMovement, nightlyRunning, type PendingNightly } from '@/domain/nightly'
+import { amdCompleteLabel, nightlyBuildEvidence, nightlyFailureMovement, nightlyRunning, type LatestNightly } from '@/domain/nightly'
 import { commitUrl } from '@/domain/perf'
 import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
 import { hardwareColor } from '@/lib/palette'
@@ -55,6 +55,10 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
   }
 
   const notes: DetailNote[] = []
+  const amdComplete = amdCompleteLabel(build)
+  if (amdComplete) {
+    notes.push({ tone: 'info', title: 'AMD results are final', text: `${amdComplete}. Every AMD job is final; these counts change only if an AMD job is retried by hand.` })
+  }
   if (provisional.length) {
     notes.push({
       tone: 'neutral',
@@ -111,7 +115,10 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
   ]
 
   const commit = typeof build.commit === 'string' ? build.commit : ''
+  // `state` is the AMD outcome; `source_state` is what Buildkite reports for the whole build.
   const state = String(build.state || '')
+  const sourceState = String(build.source_state || state)
+  const title = (text: string) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : null)
   const message = typeof build.message === 'string' ? build.message.split('\n')[0]!.trim() : ''
   const buildUrl = exactPipelineBuildUrl(build, pipeline)
   const label = scoped ? evidence.label : 'Failure movement'
@@ -125,7 +132,8 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
     notes,
     stats,
     fields: [
-      { label: 'Buildkite state', value: state ? state.charAt(0).toUpperCase() + state.slice(1) : null, tone: toneForState(state) },
+      { label: 'AMD outcome', value: hasSignal && state !== sourceState ? title(state) : null, tone: toneForState(state) },
+      { label: 'Buildkite state', value: title(sourceState), tone: toneForState(sourceState) },
       { label: 'Current failures', value: hasSignal && !severityScope ? `${integer(failureCount(build, 'failed_groups'))} hard · ${integer(failureCount(build, 'soft_failed_groups'))} soft` : null },
       { label: 'Message', value: message || null },
       { label: 'Commit', value: commit ? commit.slice(0, 12) : null, href: commit ? commitUrl(commit) : undefined, mono: true },
@@ -157,6 +165,6 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
 }
 
 /** The failures a nightly without test results already shows, hard ones when it has any. */
-export function pendingEvidenceDetail(pending: PendingNightly): Detail {
-  return buildEvidenceDetail(pending.latest, { scope: pending.hard ? 'hard' : 'soft', title: `Nightly #${pending.latest.number} failures so far` })
+export function pendingEvidenceDetail(nightly: LatestNightly): Detail {
+  return buildEvidenceDetail(nightly.latest, { scope: nightly.hard ? 'hard' : 'soft', title: `Nightly #${nightly.latest.number} failures so far` })
 }

@@ -22,10 +22,10 @@ const context = (row: Row): PointContext => ({ model: row.model, config: { label
 
 const columns: ColumnSpec<Row>[] = [
   { id: 'model', label: 'Model', value: (row) => row.model.model, cell: (row) => ({ text: row.model.model, nowrap: true }), hideable: false },
-  { id: 'task', label: 'Task', value: (row) => String(row.task.task ?? ''), cell: (row) => text(row.task.task) },
-  { id: 'metric', label: 'Metric', value: (row) => String(row.task.metric ?? ''), cell: (row) => mono(row.task.metric) },
-  { id: 'latest', label: 'Latest', numeric: true, value: (row) => Number(row.task.latest), cell: (row) => text(perfValue(row.task.latest, 'ratio')) },
-  { id: 'delta', label: 'vs previous', numeric: true, value: (row) => Number(row.task.delta_pct), cell: (row) => text(deltaText(perfDelta(row.task).label)) },
+  { id: 'task', label: 'Task', value: (row) => String(row.task.task ?? ''), cell: (row) => text(row.task.task), class: 'hidden sm:table-cell' },
+  { id: 'metric', label: 'Metric', value: (row) => String(row.task.metric ?? ''), cell: (row) => mono(row.task.metric), class: 'hidden md:table-cell' },
+  { id: 'latest', label: 'Latest', numeric: true, value: (row) => Number(row.task.latest), cell: (row) => text(perfValue(row.task.latest, 'ratio')), class: 'hidden sm:table-cell' },
+  { id: 'delta', label: 'vs previous', numeric: true, value: (row) => Number(row.task.delta_pct), cell: (row) => text(deltaText(perfDelta(row.task).label)), class: 'hidden md:table-cell' },
   {
     id: 'status',
     label: 'Status',
@@ -37,12 +37,14 @@ const columns: ColumnSpec<Row>[] = [
     label: 'Latest build',
     value: (row) => Number((row.model.latest || {}).build_number || 0),
     cell: (row) => link(perfLatestBuildLabel(row.model), (row.model.latest || {}).build_url, true),
+    class: 'hidden lg:table-cell',
   },
   {
     id: 'history',
     label: 'History',
     value: (row) => (row.task.series || []).length,
     sortable: false,
+    class: 'hidden lg:table-cell',
     cell: (row) => ({
       text: `${integer((row.task.series || []).length)} points`,
       spark: { values: perfSparkRows(row.task.series).map((point) => Number(point.value)), label: `${row.task.task} trend`, color: SERIES.primary },

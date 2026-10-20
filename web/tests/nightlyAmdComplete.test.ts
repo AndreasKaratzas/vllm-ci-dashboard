@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { noSignalLabel } from '@/domain/home'
-import { amdCompleteLabel, amdNightlyPresentation } from '@/domain/nightly'
+import { amdCompleteLabel, amdNightlyPresentation, nightlyState } from '@/domain/nightly'
+import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 
 const NOW = Date.parse('2026-10-20T15:00:00Z')
 const amdComplete = (extra = {}) => ({
@@ -50,6 +50,17 @@ describe('AMD-complete nightlies', () => {
       tone: 'info',
       meta: '#96078 - an AMD job was retried; results return once the retry settles; latest test signal #96001',
     })
-    expect(noSignalLabel(retrying)).toBe('AMD retry running')
+    expect(nightlyState(retrying)?.label).toBe('AMD retry running')
+  })
+
+  it('keeps the AMD outcome apart from the Buildkite state on the evidence sheet', () => {
+    const detail = buildEvidenceDetail(amdComplete({ url: 'https://buildkite.com/vllm/ci/builds/96078' }))
+    const fields = Object.fromEntries((detail.fields ?? []).map((field) => [field.label, field.value]))
+    expect(fields).toMatchObject({ 'AMD outcome': 'Failed', 'Buildkite state': 'Failing' })
+    expect(detail.notes?.[0]).toMatchObject({ tone: 'info', title: 'AMD results are final' })
+    expect(detail.notes?.[0]?.text).toContain('AMD jobs complete · build still running (2 non-AMD jobs).')
+    const finished = buildEvidenceDetail(amdComplete({ state: 'passed', source_state: 'passed', amd_complete: false }))
+    expect(finished.fields?.find((field) => field.label === 'AMD outcome')?.value).toBeNull()
+    expect(finished.notes?.some((note) => note.title === 'AMD results are final')).toBe(false)
   })
 })

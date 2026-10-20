@@ -64,13 +64,14 @@ function modelChanges(row: PerfModelRow, tone: 'hard' | 'pass') {
 const countCell = (row: PerfModelRow, count: number, tone: 'hard' | 'pass'): CellSpec => (count ? { text: integer(count), detail: () => modelChanges(row, tone) } : text(integer(count)))
 
 const columns = computed<ColumnSpec<PerfModelRow>[]>(() => [
-  { id: 'model', label: 'Model', value: (row) => row.model.model, cell: (row) => ({ text: row.model.model, nowrap: true }), hideable: false },
+  { id: 'model', label: 'Model', value: (row) => row.model.model, cell: (row) => ({ text: row.model.model, nowrap: true }), hideable: false, class: '[overflow-wrap:anywhere]' },
   { id: 'regressions', label: 'Regressions', numeric: true, value: (row) => row.regressions, cell: (row) => countCell(row, row.regressions, 'hard') },
-  { id: 'improvements', label: 'Improvements', numeric: true, value: (row) => row.improvements, cell: (row) => countCell(row, row.improvements, 'pass') },
+  { id: 'improvements', label: 'Improvements', numeric: true, value: (row) => row.improvements, cell: (row) => countCell(row, row.improvements, 'pass'), class: 'hidden sm:table-cell' },
   {
     id: 'trend',
     label: 'Trend',
     sortable: false,
+    class: 'hidden lg:table-cell',
     value: () => '',
     cell: (row) => {
       const trend = perfModelTrend(row.model, props.device)
@@ -82,15 +83,17 @@ const columns = computed<ColumnSpec<PerfModelRow>[]>(() => [
     label: 'Hardware',
     value: (row) => perfHardwareLabel(row.model),
     cell: (row) => ({ text: perfHardwareLabel(row.model), dots: deviceDots(row.model.devices || []) }),
+    class: 'hidden md:table-cell',
   },
-  { id: 'nightlies', label: 'Nightlies', numeric: true, value: (row) => Number(row.model.nightly_count || 0), cell: (row) => text(integer(row.model.nightly_count)) },
-  { id: 'performance', label: 'Perf metrics', numeric: true, value: (row) => row.performanceMetrics, cell: (row) => text(integer(row.performanceMetrics)) },
-  { id: 'accuracy', label: 'Accuracy', numeric: true, value: (row) => row.accuracyMetrics, cell: (row) => text(integer(row.accuracyMetrics)) },
+  { id: 'nightlies', label: 'Nightlies', numeric: true, value: (row) => Number(row.model.nightly_count || 0), cell: (row) => text(integer(row.model.nightly_count)), class: 'hidden xl:table-cell' },
+  { id: 'performance', label: 'Perf metrics', numeric: true, value: (row) => row.performanceMetrics, cell: (row) => text(integer(row.performanceMetrics)), class: 'hidden xl:table-cell' },
+  { id: 'accuracy', label: 'Accuracy', numeric: true, value: (row) => row.accuracyMetrics, cell: (row) => text(integer(row.accuracyMetrics)), class: 'hidden xl:table-cell' },
   {
     id: 'latest',
     label: 'Build',
     value: (row) => Number((row.model.latest || {}).build_number || 0),
     cell: (row) => link(perfLatestBuildLabel(row.model), (row.model.latest || {}).build_url, true),
+    class: 'hidden lg:table-cell',
   },
 ])
 </script>

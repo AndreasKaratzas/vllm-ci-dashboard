@@ -163,7 +163,7 @@ function rules(value: unknown): SlowdownRules | null {
 }
 
 /** Tenths of a minute below an hour: a 7.6m to 11.2m step must not read as 7.6m to 11m. */
-const minutes = (value: number): string => (value < 60 ? `${value.toFixed(1)}m` : duration(value))
+export const minutes = (value: number): string => (value < 60 ? `${value.toFixed(1)}m` : duration(value))
 
 const byIncrease = (a: Slowdown, b: Slowdown) => b.increaseMins - a.increaseMins || a.name.localeCompare(b.name)
 
@@ -200,6 +200,11 @@ export function levelsLabel(row: Slowdown): string {
   return `${minutes(row.baselineMins)} (${row.baselineRuns} runs) → ${minutes(row.recentMins)} (${row.recentRuns} runs)`
 }
 
+/** "12.3m → 15.6m", the table form of levelsLabel. */
+export function levelsText(row: Slowdown): string {
+  return `${minutes(row.baselineMins)} → ${minutes(row.recentMins)}`
+}
+
 export function stepLabel(row: Slowdown): string {
   return row.jobs > 1 ? `${row.name} (${row.jobs} shards)` : row.name
 }
@@ -210,9 +215,24 @@ export function causeLabel(row: Slowdown): string {
     : 'vLLM commits between the last fast and first slow build (tests, source or CI definition)'
 }
 
+/** The cause in a table cell; causeLabel says what it means. */
+export function causeShort(row: Slowdown): string {
+  return row.cause === 'environment' ? 'Environment' : 'vLLM commits'
+}
+
 /** "#94275 → #94303" (last fast build → first slow build). */
 export function changeLabel(row: Slowdown): string {
   return row.lastGood ? `#${row.lastGood.number} → #${row.onset.number}` : `#${row.onset.number}`
+}
+
+/** The Buildkite page of one sampled build, on the pipeline the onset build links to. */
+export function sampleUrl(row: Slowdown, build: number): string {
+  return /\/builds\/\d+/.test(row.onset.url) ? row.onset.url.replace(/\/builds\/\d+/, `/builds/${build}`) : ''
+}
+
+/** Agent minutes the slowdowns add to a main build that runs every slowed step (steps run in parallel, so not wall time). */
+export function addedMinutes(rows: Slowdown[]): number {
+  return rows.reduce((sum, row) => sum + row.increaseMins, 0)
 }
 
 export function onsetAge(row: Slowdown, nowMs?: number): string {

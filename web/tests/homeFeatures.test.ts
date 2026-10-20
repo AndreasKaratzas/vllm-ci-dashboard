@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { currentSubView, subViewQuery } from '@/components/layout/navigation'
 import { rateAxis } from '@/components/charts/chart'
-import { attentionTone, nightlyResultTone, noSignalLabel, nightlySeries, type NightlyCounts } from '@/domain/home'
+import { attentionTone, nightlyResultTone, nightlySeries, type NightlyCounts } from '@/domain/home'
 import { sourceFreshness } from '@/domain/freshness'
 import { freshnessChip, freshnessDetail } from '@/features/freshness/freshness'
 import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -90,9 +90,10 @@ describe('build evidence detail', () => {
     expect(detail.tables![0]!.rows).toEqual(buildEvidenceDetail(build, { scope: 'hard' }).tables![0]!.rows)
     // Movement stays unavailable until the nightly has results.
     expect(buildEvidenceDetail(running).tables).toEqual([])
-    const sofar = pendingEvidenceDetail({ latest: running, signal: undefined, running: true, hard: 2, soft: 0 })
+    const state = { kind: 'awaiting', label: 'Awaiting results', tone: 'info', detail: '' } as const
+    const sofar = pendingEvidenceDetail({ latest: running, state, signal: undefined, hard: 2, soft: 0 })
     expect(sofar).toMatchObject({ title: 'Nightly #30005 failures so far', id: 'build-30005-hard' })
-    expect(pendingEvidenceDetail({ latest: running, signal: undefined, running: true, hard: 0, soft: 1 }).id).toBe('build-30005-soft')
+    expect(pendingEvidenceDetail({ latest: running, state, signal: undefined, hard: 0, soft: 1 }).id).toBe('build-30005-soft')
   })
 
   it('says why its counts differ from the per-group counts of main CI', () => {
@@ -106,9 +107,8 @@ describe('home tones and domains', () => {
     expect(nightlyResultTone({ ...build, failed_groups: [], soft_failed_groups: [job('s', 'soft')] })).toBe('soft')
     expect(nightlyResultTone({ ...build, failed_groups: [] })).toBe('pass')
     expect(nightlyResultTone({ has_test_results: false, test_jobs_blocked: 2 })).toBe('hard')
-    expect(noSignalLabel({ has_test_results: false, test_jobs_blocked: 2 })).toBe('Infra blocked')
-    expect(noSignalLabel({ has_test_results: false })).toBe('No test signal')
-    expect(noSignalLabel(build)).toBeNull()
+    expect(nightlyResultTone({ has_test_results: false, state: 'failed' })).toBe('soft')
+    expect(nightlyResultTone({ has_test_results: false, state: 'running' })).toBe('info')
   })
 
   it('keeps small pass-rate changes visible and ranks attention severity', () => {

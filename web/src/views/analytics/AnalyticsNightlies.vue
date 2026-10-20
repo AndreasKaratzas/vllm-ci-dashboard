@@ -17,11 +17,11 @@ import { analyticsObservedAt, nightliesModel } from '@/domain/analytics'
 import { movementBuilds } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
-import { amdNightlyPresentation, hasTestSignal, latestAmd, nightlyCountLabel, nightlyFailureCount, pendingNightly, signalNightly } from '@/domain/nightly'
+import { amdNightlyPresentation, hasTestSignal, latestAmd, latestNightly, nightlyCountLabel, nightlyFailureCount, nightlyState, signalNightly } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
-import PendingNightlyCallout from '@/features/nightly/PendingNightlyCallout.vue'
+import LatestNightlyCallout from '@/features/nightly/LatestNightlyCallout.vue'
 import AnalyticsAbout from './AnalyticsAbout.vue'
 
 type Movement = 'new' | 'recurring' | 'fixed'
@@ -35,11 +35,12 @@ const latest = computed(() => model.value.latest)
 const movement = computed(() => movementBuilds(model.value.rows))
 // The latest nightly may still be running; counts come from the newest nightly with test results.
 const signal = computed<Rec | undefined>(() => signalNightly(model.value.rows))
-const pending = computed(() => pendingNightly(model.value.rows))
+const notice = computed(() => latestNightly(model.value.rows))
 const now = useClock()
 const presentation = computed(() =>
   amdNightlyPresentation(latest.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
 )
+const latestStatus = computed(() => (notice.value && notice.value.state.kind !== 'amd-complete' ? notice.value.state : presentation.value))
 const open = (build: Rec, scope?: Movement) => sheets.open(buildEvidenceDetail(build, { scope }))
 
 useSubviewHeader(() => ({
@@ -79,7 +80,12 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     id: 'state',
     label: 'State',
     value: (row) => value(row.state, 'unknown'),
-    cell: (row) => badge(stateLabel(row.state), toneForState(row.state)),
+    cell: (row) => {
+      const state = nightlyState(row)
+      return state && state.kind !== 'amd-complete'
+        ? badge(state.label, state.tone)
+        : { ...badge(stateLabel(row.state), toneForState(row.state)), sub: state?.detail }
+    },
     class: 'hidden sm:table-cell',
   },
   { id: 'variants', label: 'Job variants', numeric: true, value: (row) => Number(row.total_groups || 0), cell: (row) => ({ text: integer(row.total_groups) }), class: 'hidden md:table-cell' },
@@ -103,14 +109,14 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       <Callout v-if="!movement.length" tone="soft" title="Failure movement unavailable" data-testid="nightlies-note">
         No retained nightly publishes failure movement; refresh the operations snapshot to publish observed-failure-movement-v1 data.
       </Callout>
-      <PendingNightlyCallout v-if="pending" :pending="pending" :on-open="() => sheets.open(pendingEvidenceDetail(pending!))" />
+      <LatestNightlyCallout v-if="notice" :nightly="notice" :on-open="() => sheets.open(pendingEvidenceDetail(notice!))" />
 
       <StatGrid :cols="5" data-testid="nightlies-kpis">
         <KpiCard
           label="Latest nightly"
           :value="latest.number ? `#${latest.number}` : null"
-          :status="latest.number ? { tone: presentation.tone, label: presentation.label } : undefined"
-          :footnote="latest.created_at ? shortDate(latest.created_at) : 'No completed nightly'"
+          :status="latest.number ? { tone: latestStatus.tone, label: latestStatus.label } : undefined"
+          :footnote="latest.created_at ? [shortDate(latest.created_at), notice?.state.kind === 'amd-complete' ? notice.state.detail : ''].filter(Boolean).join(' · ') : 'No completed nightly'"
           :action="latest.number ? { label: 'Inspect nightly evidence', onOpen: () => open(latest) } : undefined"
           data-testid="kpi-nightly-latest"
         />

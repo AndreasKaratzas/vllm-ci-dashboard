@@ -4,8 +4,8 @@ import { link, rateCell, text, type CellSpec, type ColumnSpec } from '@/componen
 import DataTable from '@/components/table/DataTable.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { integer, shortDate, type Rec } from '@/domain/format'
-import { nightlyCounts, nightlyResultTone, noSignalLabel } from '@/domain/home'
-import { nightlyCountLabel, nightlyFailureCount, type MovementKey } from '@/domain/nightly'
+import { nightlyCounts } from '@/domain/home'
+import { nightlyCountLabel, nightlyFailureCount, nightlyState, type MovementKey } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 
 const props = defineProps<{ builds: Rec[] }>()
@@ -51,12 +51,12 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     numeric: true,
     value: (build) => nightlyCounts(build)?.passRate ?? -1,
     cell: (build) => {
-      const missing = noSignalLabel(build)
-      if (missing) return { text: missing, tone: nightlyResultTone(build) }
-      const counts = nightlyCounts(build)!
-      return rateCell(counts.passRate * 100, `${integer(counts.passed)} / ${integer(counts.total)}`)
+      const counts = nightlyCounts(build)
+      const state = nightlyState(build)
+      if (!counts) return { text: state?.label ?? 'No test signal', tone: state?.tone ?? 'neutral' }
+      return rateCell(counts.passRate * 100, [`${integer(counts.passed)} / ${integer(counts.total)}`, state?.label].filter(Boolean).join(' · '))
     },
-    class: 'whitespace-nowrap',
+    class: 'sm:whitespace-nowrap',
   },
   ...(['hard', 'soft'] as const).map(
     (scope): ColumnSpec<Rec> => ({

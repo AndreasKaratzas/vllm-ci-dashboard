@@ -18,6 +18,7 @@ const ROUTES = [
   '/#/health?view=mirrors',
   '/#/analytics',
   '/#/analytics?view=latency',
+  '/#/analytics?view=slowdowns',
   '/#/analytics?view=nightlies',
   '/#/analytics?view=dns',
   '/#/analytics?view=dns&dns_window=720h&dns_scope=canonical',
@@ -62,6 +63,13 @@ test('phone tables show every visible column without sideways scrolling', async 
     ['/#/main?view=flaky', ['main-flaky', 'main-retry']],
     ['/#/analytics', ['priority']],
     ['/#/analytics?view=latency', ['latency-table']],
+    ['/#/analytics?view=slowdowns', ['slowdowns-active']],
+    ['/#/main', ['main-slowdowns-panel']],
+    ['/#/health?view=coverage', ['route-matrix']],
+    ['/#/health?view=mirrors', ['mirror-inventory']],
+    ['/#/perf', ['perf-overview']],
+    ['/#/perf?view=accuracy', ['perf-accuracy']],
+    ['/#/omni?view=live', ['omni-live-jobs']],
     ['/#/analytics?view=nightlies', ['nightlies-table']],
   ]) {
     await page.goto(route);

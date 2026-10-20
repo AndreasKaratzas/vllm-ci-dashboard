@@ -59,6 +59,7 @@ describe('main CI summary', () => {
     hard_incidents: 46,
     alerting_flaky_groups: 12,
     alerting_retry_groups: 17,
+    active_slowdowns: 3,
   }
 
   it('reads the flat manifest headline before the section loads', () => {
@@ -70,6 +71,7 @@ describe('main CI summary', () => {
       latest: { number: 96108, amd: { passed: 11, hard: 0, notRun: 0 } },
       last24h: { amdBuilds: 61, greenBuilds: 35, passRate: 93.36 },
       activeIncidents: 46,
+      activeSlowdowns: 3,
       flakyGroups: null,
       alertingFlaky: 12,
     })

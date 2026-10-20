@@ -323,22 +323,55 @@ export function nightlyRunning(build: Rec | null | undefined): boolean {
   return state === 'failing' || IN_PROGRESS_STATES.includes(state)
 }
 
-/** The newest nightly when it has no test results yet, with the failures already observed in it. */
-export interface PendingNightly {
+/**
+ * Why a nightly's results are not the plain final outcome of a finished build: its AMD jobs are final
+ * while Buildkite still runs it ('amd-complete'), or it has no AMD results because its AMD jobs still
+ * run ('awaiting'), an AMD job is being retried ('retry'), its AMD jobs never started ('blocked') or it
+ * finished without parsed AMD results ('no-results'). Labels match amdNightlyPresentation.
+ */
+export type NightlyStateKind = 'amd-complete' | 'awaiting' | 'retry' | 'blocked' | 'no-results'
+
+export interface NightlyState {
+  kind: NightlyStateKind
+  label: string
+  tone: Tone
+  /** One sentence for a tooltip or a table's second line. */
+  detail: string
+}
+
+export function nightlyState(build: Rec | null | undefined): NightlyState | null {
+  if (!build) return null
+  if (hasTestSignal(build)) {
+    const complete = amdCompleteLabel(build)
+    return complete ? { kind: 'amd-complete', label: 'AMD jobs complete', tone: 'info', detail: complete } : null
+  }
+  const blocked = Number(build.test_jobs_blocked || 0)
+  if (blocked) return { kind: 'blocked', label: 'Infra blocked', tone: 'hard', detail: `${integer(blocked)} AMD test jobs never started` }
+  if (build.active_retry === true)
+    return { kind: 'retry', label: 'AMD retry running', tone: 'info', detail: 'An AMD job was retried; results return once the retry settles' }
+  if (nightlyRunning(build)) return { kind: 'awaiting', label: 'Awaiting results', tone: 'info', detail: 'Buildkite is running the AMD jobs; no parsed results yet' }
+  return { kind: 'no-results', label: 'No test signal', tone: 'soft', detail: 'Finished without parsed AMD test results' }
+}
+
+/** The newest nightly whenever its state needs saying, with the nightly the counts come from. */
+export interface LatestNightly {
   latest: Rec
+  state: NightlyState
+  /** The newest nightly with test results: the latest itself when it is AMD-complete. */
   signal: Rec | undefined
-  running: boolean
+  /** Failures already observed in the latest nightly. */
   hard: number
   soft: number
 }
 
-export function pendingNightly(builds: Rec[] | null | undefined): PendingNightly | null {
+export function latestNightly(builds: Rec[] | null | undefined): LatestNightly | null {
   const latest = (builds || [])[0]
-  if (!latest || !Number(latest.number) || hasTestSignal(latest)) return null
+  const state = latest && Number(latest.number) ? nightlyState(latest) : null
+  if (!latest || !state) return null
   return {
     latest,
+    state,
     signal: signalNightly(builds),
-    running: nightlyRunning(latest),
     hard: Array.isArray(latest.failed_groups) ? latest.failed_groups.length : 0,
     soft: Array.isArray(latest.soft_failed_groups) ? latest.soft_failed_groups.length : 0,
   }

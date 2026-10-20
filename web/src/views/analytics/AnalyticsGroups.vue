@@ -19,9 +19,10 @@ import { amdHealthModel, analyticsObservedAt, type BuildHealthPoint, type Hardwa
 import { jobVariantHistory, logicalHealthHistory, sortLogicalRows } from '@/domain/ciHealth'
 import { integer, shortDate, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
-import { latestAmd } from '@/domain/nightly'
+import { latestAmd, latestNightly } from '@/domain/nightly'
 import { exactJobCatalogColumns, exactJobCatalogDetail, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
-import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
+import LatestNightlyCallout from '@/features/nightly/LatestNightlyCallout.vue'
 import { statusVar } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 import AnalyticsAbout from './AnalyticsAbout.vue'
@@ -35,6 +36,7 @@ const summary = computed<Rec>(() => health.value.summary || {})
 const latestBuild = computed(() => model.value.latestBuild)
 const context = computed<AmdGroupContext>(() => ({ amdHealth: ops.value?.amd_test_health, latestBuild: latestBuild.value }))
 const nightlies = computed<Rec[]>(() => latestAmd(ops.value).builds || [])
+const notice = computed(() => latestNightly(nightlies.value))
 
 useSubviewHeader(() => ({
   observedAt: ops.value ? analyticsObservedAt('groups', ops.value, health.value) : undefined,
@@ -102,6 +104,7 @@ const failureColumns = computed(() => exactJobCatalogColumns(latestBuild.value))
       />
       <template v-else>
         <Callout v-if="model.retentionNote" tone="soft" title="Partial job-variant catalog">{{ model.retentionNote }}</Callout>
+        <LatestNightlyCallout v-if="notice" :nightly="notice" :on-open="() => sheets.open(pendingEvidenceDetail(notice!))" />
 
         <StatGrid :cols="4" data-testid="groups-kpis">
           <KpiCard
@@ -222,6 +225,7 @@ const failureColumns = computed(() => exactJobCatalogColumns(latestBuild.value))
               :rows="model.priority"
               :page-size="10"
               :on-row-click="(row: Rec) => sheets.open(exactJobDetail(row, latestBuild))"
+              @drill="sheets.open"
               search-placeholder="Filter job variant, hardware, or queue"
               label="Current AMD failures to inspect"
               empty-text="No current AMD failure observations."

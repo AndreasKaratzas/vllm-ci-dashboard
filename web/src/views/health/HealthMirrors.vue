@@ -171,6 +171,7 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
           :filters="filters"
           :search-text="mirrorInventorySearchText"
           :on-row-click="(row: Rec) => sheets.open(mirrorDetail(row, inventory))"
+          @drill="sheets.open"
           search-placeholder="Filter test group, area, YAML file, device, mode, or key"
           label="AMD mirror inventory"
           show-total
