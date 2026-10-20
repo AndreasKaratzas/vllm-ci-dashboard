@@ -316,6 +316,20 @@ def test_projection_is_allowlisted_and_strips_pii(tmp_path):
     }
 
 
+def test_rest_step_key_survives_the_cache_so_group_identity_is_stable():
+    from vllm.ci.reliability_history import nightly_signal_id
+
+    fresh = _build()
+    job = fresh["jobs"][0]
+    job["step"] = {"id": "step-101", "signature": None}
+    job["step_key"] = "gpu-test"
+
+    (cached,) = cache.sanitize_builds([fresh], "ci")
+
+    assert cached["jobs"][0]["step"] == {"id": "step-101", "key": "gpu-test"}
+    assert nightly_signal_id(cached["jobs"][0], "ci") == nightly_signal_id(job, "ci")
+
+
 def test_upstream_daily_kind_round_trips_without_becoming_canonical_nightly(tmp_path):
     daily = _build()
     daily["message"] = "Full CI run - daily by private@example.com"

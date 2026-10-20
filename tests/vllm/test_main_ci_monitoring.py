@@ -125,11 +125,11 @@ def test_reliability_records_per_build_amd_counts_and_final_outcome_history():
     assert reliability["builds"][0]["amd_jobs"] == {
         "passed": 2, "soft": 1, "hard": 1, "unknown": 1, "not_run": 1, "retried": 1,
     }
-    assert _group(reliability, "Retried")["outcome_history"] == {"builds": [101], "results": "r"}
+    assert _group(reliability, "Retried")["outcome_history"] == {"builds": [101], "results": "r", "wall_mins": [9.0]}
     assert _group(reliability, "Stable")["outcome_history"]["results"] == "p"
     assert _group(reliability, "Broken")["outcome_history"]["results"] == "f"
     assert _group(reliability, "Soft")["outcome_history"]["results"] == "s"
-    assert _group(reliability, "Blocked")["outcome_history"] == {"builds": [], "results": ""}
+    assert _group(reliability, "Blocked")["outcome_history"] == {"builds": [], "results": "", "wall_mins": []}
 
 
 def _flaky_builds(start, count, *, outcome):
