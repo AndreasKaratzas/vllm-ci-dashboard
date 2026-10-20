@@ -11,13 +11,22 @@ export interface SubViews {
 
 const PERF_VIEW_LABEL: Record<PerfView, string> = { performance: 'Performance', accuracy: 'Accuracy' }
 
-export type SubViewPage = 'health' | 'analytics' | 'perf' | 'omni'
+export type SubViewPage = 'main' | 'health' | 'analytics' | 'perf' | 'omni'
 
 /**
  * Sub-views of each top-level page, keyed by route name: the one list the pages' SubNav, their URL
  * state, the breadcrumb, the sidebar and the command palette all read.
  */
 export const SUB_VIEWS: Record<SubViewPage, SubViews> = {
+  main: {
+    param: 'view',
+    default: 'overview',
+    items: [
+      { value: 'overview', label: 'Overview' },
+      { value: 'incidents', label: 'Incidents' },
+      { value: 'flaky', label: 'Flaky groups' },
+    ],
+  },
   health: {
     param: 'view',
     default: 'overview',

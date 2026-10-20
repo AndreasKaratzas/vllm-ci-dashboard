@@ -51,6 +51,24 @@ export function niceTicks(min: number, max: number, count: number, minStep = 0):
   return ticks
 }
 
+const RATE_STEPS = [1, 2, 5, 10, 20, 25]
+
+/**
+ * A percentage axis up to 100 that puts the lowest rate mid-plot, so changes of a point stay
+ * visible, with at most five round ticks and the bottom of the domain on a tick. Every pass-rate
+ * chart uses it, so their zoom reads the same.
+ */
+export function rateAxis(percentages: number[]): { domain: [number, number]; ticks: number[] } {
+  const known = percentages.filter(Number.isFinite)
+  const lowest = known.length ? Math.min(...known) : 0
+  const floor = known.length ? Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))) : 0
+  const step = RATE_STEPS.find((candidate) => (100 - floor) / candidate <= 4) ?? 25
+  const start = Math.floor(floor / step) * step
+  const ticks: number[] = []
+  for (let value = start; value <= 100; value += step) ticks.push(value)
+  return { domain: [start, 100], ticks }
+}
+
 /**
  * The value-axis ticks of a bar chart: round ticks at or beyond the longest bar (or stack). Diverging
  * charts with bars on both sides share one scale around zero so their lengths compare honestly; with

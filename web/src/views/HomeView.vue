@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ExternalLink } from '@lucide/vue'
+import { ChevronRight, ExternalLink } from '@lucide/vue'
 import { computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import SheetStack from '@/components/evidence/SheetStack.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
@@ -16,29 +16,40 @@ import { useClock } from '@/composables/useClock'
 import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
-import { integer, toneForState, type Rec } from '@/domain/format'
+import { integer, reasonText, toneForState, type Rec } from '@/domain/format'
 import { areaSources } from '@/domain/freshness'
 import { HOME_EXCLUDED_ATTENTION, attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
 import { attentionTone, nightlySeries, passRateTrend } from '@/domain/home'
 import { movementBuilds } from '@/domain/ciHealth'
-import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
+import { buildsBetween, type TrendPoint } from '@/domain/mainCi'
+import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd, nightlyCountLabel } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { statusVar } from '@/lib/palette'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import { trendPointDetail } from '@/features/main-ci/details'
+import MainCiKpis from '@/features/main-ci/MainCiKpis.vue'
+import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
+import { useMainCi } from '@/features/main-ci/useMainCi'
 import AttentionCard from './home/AttentionCard.vue'
 import NightlyTable from './home/NightlyTable.vue'
 import NightlyTrendCard from './home/NightlyTrendCard.vue'
 import WorkbenchCard from './home/WorkbenchCard.vue'
 
 // Collector inputs of the KPIs and charts; the workbench's project board is the 'home' area source.
-const HOME_INPUTS = ['analytics', 'ci_health', 'test_group_parity'] as const
+const HOME_INPUTS = ['main_ci', 'analytics', 'ci_health', 'test_group_parity'] as const
 
 const router = useRouter()
 const now = useClock()
 const { data: ops, error, loading, retry } = useOperationSections(['nightly'])
 const sheets = useSheetStack()
+const mainCi = useMainCi()
+const mainSummary = computed(() => (mainCi.published.value && mainCi.summary.value?.available ? mainCi.summary.value : null))
+const latestMain = computed(() => mainCi.builds.value[0] ?? mainSummary.value?.latest ?? null)
+function openMainPoint(point: TrendPoint, label: string) {
+  sheets.open(trendPointDetail(point, buildsBetween(mainCi.builds.value, point.from, point.to), label, mainCi.ctx.value))
+}
 
 const amd = computed(() => latestAmd(ops.value))
 const builds = computed<Rec[]>(() => amd.value.builds || [])
@@ -119,11 +130,15 @@ watch(sheets.stack, (stack) => {
   <div class="flex flex-col gap-4 md:gap-6">
     <PageHeader
       title="Home"
-      description="AMD nightly health, upstream parity, and open ROCm CI work at a glance."
+      description="AMD CI health on vLLM main first, then the nightly, upstream parity, and open ROCm CI work."
       :freshness="freshness"
     >
       <template #about>
-        <p><strong class="text-foreground">Pass rate</strong> is the share of job variants that passed in a nightly with parsed test results; nightlies without a test signal are left out of the trend.</p>
+        <p>
+          <strong class="text-foreground">Main CI</strong> is every completed AMD MI build on vLLM main, the source of truth; its pass rate counts the final AMD job
+          attempt per test group, and incidents are failures the main-failure watcher confirmed.
+        </p>
+        <p><strong class="text-foreground">Nightly pass rate</strong> is the share of job variants that passed in a nightly with parsed test results; nightlies without a test signal are left out of the trend.</p>
         <p>
           <strong class="text-foreground">Failure movement</strong> compares each nightly with the preceding eligible one: every current hard or soft failure is
           new or recurring, and a previous failure that now passes is fixed. Missing or skipped jobs are omitted.
@@ -132,6 +147,9 @@ watch(sheets.stack, (stack) => {
         <p>Queue signals are not listed here; they live on Omni CI and CI Analytics.</p>
       </template>
       <template #actions>
+        <Button v-if="latestMain?.url" variant="outline" size="sm" class="h-8" as="a" :href="latestMain.url" target="_blank" rel="noopener">
+          Main #{{ latestMain.number }} <ExternalLink />
+        </Button>
         <Button v-if="latestUrl" variant="outline" size="sm" class="h-8" as="a" :href="latestUrl" target="_blank" rel="noopener">
           Nightly #{{ latestBuild.number }} <ExternalLink />
         </Button>
@@ -140,6 +158,37 @@ watch(sheets.stack, (stack) => {
 
     <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
       <div class="flex flex-col gap-4 md:gap-6">
+        <section class="flex flex-col gap-4 md:gap-6" aria-labelledby="home-main-heading" data-testid="home-main">
+          <h2 id="home-main-heading" class="sr-only">Main CI</h2>
+          <template v-if="mainSummary">
+            <MainCiKpis
+              :summary="mainSummary"
+              :record="mainCi.ctx.value.record ?? mainCi.record.value"
+              :builds="mainCi.builds.value"
+              :actions="{
+                latest: latestMain ? { label: 'Open build evidence', to: { name: 'main', query: { build: String(latestMain.number) } } } : undefined,
+                rate: { label: 'Open main CI', to: { name: 'main' } },
+                incidents: { label: 'Open incidents', to: { name: 'main', query: { view: 'incidents' } } },
+                flaky: { label: 'Open flaky groups', to: { name: 'main', query: { view: 'flaky' } } },
+              }"
+            />
+            <MainCiTrendCard v-if="mainCi.loaded.value" :record="mainCi.ctx.value.record" @select="openMainPoint" />
+            <AsyncBoundary v-else :loading="!mainCi.error.value" :error="mainCi.error.value" skeleton="chart" @retry="mainCi.retry" />
+          </template>
+          <Callout v-else-if="mainCi.summary.value && !mainCi.summary.value.available" tone="soft" title="Main CI data is unavailable" data-testid="home-main-unavailable">
+            {{ reasonText(mainCi.summary.value.reason) }}. Nightly signals below remain current.
+          </Callout>
+        </section>
+
+        <div class="flex flex-wrap items-end justify-between gap-2 pt-2" data-testid="home-nightly-heading">
+          <div class="flex flex-col gap-1">
+            <h2 class="text-lg font-semibold tracking-tight">AMD nightly</h2>
+            <p class="text-sm text-muted-foreground">The scheduled full run once a day on main, with failure movement against the previous nightly.</p>
+          </div>
+          <Button variant="ghost" size="sm" as-child>
+            <RouterLink :to="{ name: 'analytics', query: { view: 'nightlies' } }">All nightlies <ChevronRight /></RouterLink>
+          </Button>
+        </div>
         <Callout v-if="retentionMessage" tone="soft" title="Partial history">{{ retentionMessage }}</Callout>
 
         <StatGrid>
@@ -202,14 +251,12 @@ watch(sheets.stack, (stack) => {
           </KpiCard>
         </StatGrid>
 
-        <NightlyTrendCard :series="series" @select="openBuildNumber" />
-
-        <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] *:min-w-0">
-          <AttentionCard :items="attention" @inspect="inspectAttention" />
+        <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-2 *:min-w-0">
+          <NightlyTrendCard :series="series" @select="openBuildNumber" />
           <Card class="gap-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
             <CardHeader>
               <CardTitle class="text-base">Failure movement</CardTitle>
-              <CardDescription>New and recurring failures above zero, fixes below, per retained nightly</CardDescription>
+              <CardDescription>New and recurring failures above zero, fixes below · {{ nightlyCountLabel(movementBuilds(builds).length, 'builds') }}</CardDescription>
             </CardHeader>
             <CardContent class="px-3 sm:px-6">
               <NightlyMovementChart :builds="movementBuilds(builds)" label="AMD nightly failure movement" :on-select="(build: Rec) => openBuild(build)" />
@@ -217,6 +264,7 @@ watch(sheets.stack, (stack) => {
           </Card>
         </div>
 
+        <AttentionCard :items="attention" @inspect="inspectAttention" />
         <NightlyTable :builds="builds" @open="openBuild" />
         <WorkbenchCard />
       </div>

@@ -70,7 +70,7 @@ test.describe('Home', () => {
     // The fixture retains 5 nightlies, so Last 30/14/7 would all show every one of them.
     await page.goto('/#/?range=7');
     const trend = page.getByTestId('nightly-trend');
-    await expect(trend).toContainText('All 5 retained nightlies');
+    await expect(trend).toContainText('All 5 nightlies (build summaries)');
     await expect(trend.getByRole('group', { name: 'Nightly range' })).toHaveCount(0);
   });
 
@@ -103,7 +103,7 @@ test.describe('App shell', () => {
     await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Upstream parity');
 
     await page.keyboard.press('Control+k');
-    await page.getByRole('option', { name: /#30004/ }).click();
+    await page.getByRole('group', { name: 'AMD nightlies' }).getByRole('option', { name: /#30004/ }).click();
     await expect(page).toHaveURL(/#\/\?build=30004$/);
     await expect(page.getByRole('dialog')).toContainText('AMD nightly #30004');
     await page.keyboard.press('Escape');
@@ -116,7 +116,7 @@ test.describe('App shell', () => {
     const palette = page.getByRole('dialog');
     await palette.getByPlaceholder(/Search views/).fill('broken group');
     await expect(palette.getByRole('group', { name: 'AMD test groups' }).getByRole('option')).toHaveCount(1);
-    await palette.getByRole('option', { name: /broken group/i }).click();
+    await palette.getByRole('group', { name: 'AMD test groups' }).getByRole('option', { name: /broken group/i }).click();
     await expect(page.getByRole('dialog')).toContainText('Exact AMD job variants');
     await page.keyboard.press('Escape');
 

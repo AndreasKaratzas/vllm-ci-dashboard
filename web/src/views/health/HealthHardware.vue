@@ -2,7 +2,7 @@
 import { ChevronRight, ServerOff } from '@lucide/vue'
 import { computed } from 'vue'
 import LineChart from '@/components/charts/LineChart.vue'
-import { shortDay, type SeriesSpec } from '@/components/charts/chart'
+import { rateAxis, shortDay, type SeriesSpec } from '@/components/charts/chart'
 import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
 import Callout from '@/components/feedback/Callout.vue'
@@ -18,6 +18,7 @@ import { useQueryState } from '@/composables/useQueryState'
 import type { SheetStack } from '@/composables/useSheetStack'
 import { hardwareVariantHistory } from '@/domain/ciHealth'
 import { integer, percent, type Rec } from '@/domain/format'
+import { nightlyCountLabel } from '@/domain/nightly'
 import {
   MATRIX_SORT_MODES,
   amdMatrixSortDescription,
@@ -89,12 +90,8 @@ interface TrendRow extends Rec {
   number: number
   at: number
 }
-// Zoomed to the observed rates (like Home's pass-rate chart) so differences of a point stay visible.
-const trendDomain = computed<[number, number]>(() => {
-  const values = trendRows.value.flatMap((row) => trendSeries.value.map((s) => Number(row[s.key]))).filter(Number.isFinite)
-  const low = values.length ? Math.min(...values) : 0
-  return [Math.max(0, Math.floor((low - 1) / 5) * 5), 100]
-})
+// The shared pass-rate zoom, so differences of a point stay visible as on Home.
+const trendAxis = computed(() => rateAxis(trendRows.value.flatMap((row) => trendSeries.value.map((s) => Number(row[s.key])))))
 // Only nightlies that every charted architecture ran, so a missing route never reads as 0 %.
 const trendRows = computed<TrendRow[]>(() => {
   const keys = trendSeries.value.map((s) => s.key)
@@ -195,17 +192,18 @@ const archTone = (health: ArchitectureHealth) => rateTone(architectureRate(healt
       <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="hardware-trend">
         <CardHeader>
           <CardTitle as="h2">Exact-job pass rate by architecture</CardTitle>
-          <CardDescription>Share of exact main CI AMD jobs that passed in each retained nightly, per GPU family</CardDescription>
+          <CardDescription>Share of exact main CI AMD jobs that passed per GPU family · {{ nightlyCountLabel(trendRows.length, 'jobs') }}</CardDescription>
         </CardHeader>
         <CardContent class="px-2 sm:px-6">
-          <EmptyState v-if="trendRows.length < 2" title="Not enough retained nightlies for a trend" description="The chart appears once two nightlies with exact job outcomes are retained." />
+          <EmptyState v-if="trendRows.length < 2" title="Not enough nightlies for a trend" description="The chart appears once two nightlies have per-job results." />
           <LineChart
             v-else
             :rows="trendRows"
             :x="(row: TrendRow) => row.at"
             :row-label="(row: TrendRow) => `Nightly #${row.number} · ${shortDay(row.at)}`"
             :series="trendSeries"
-            :y-domain="trendDomain"
+            :y-domain="trendAxis.domain"
+            :y-ticks="trendAxis.ticks"
             :y-format="(v: number) => `${Math.round(v)}%`"
             label="Exact-job pass rate by architecture"
           />
