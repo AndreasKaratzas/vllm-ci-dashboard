@@ -94,7 +94,8 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
       label: 'Queue',
       value: (row) => String(row.queue || ''),
       cell: (row) => (row.queue ? { ...mono(row.queue), dots: [hardwareColor(row.queue)] } : mono(row.queue)),
-      class: 'whitespace-nowrap',
+      // Phones keep the job and its change; the queue is in the job's own evidence.
+      class: 'hidden whitespace-nowrap sm:table-cell',
     },
   ]
 

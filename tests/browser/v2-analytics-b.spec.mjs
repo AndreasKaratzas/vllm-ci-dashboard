@@ -313,16 +313,24 @@ test.describe('chart marks look clickable', () => {
     ['DNS queue bars', '/#/analytics?view=dns&dns_window=720h', 'DNS observations by queue and final job outcome'],
     ['agent day bars', '/#/analytics?view=agent-health&agent_window=14d', 'Failures per day'],
   ]) {
-    test(`${name} show a pointer and open a sheet`, async ({ page }) => {
+    test(`${name} show a pointer, a tooltip and a hover state, and open a sheet`, async ({ page }) => {
+      const errors = collectErrors(page);
       await routeDns(page);
       await routeAgent(page);
       await page.goto(url);
-      const bar = page.getByRole('img', { name: chart, exact: true }).locator('path[class*="-bar"]').first();
+      const plot = page.getByRole('img', { name: chart, exact: true });
+      const groups = plot.locator('g[class*="-barGroup"]');
+      expect(await groups.count()).toBeGreaterThan(1);
+      const bar = groups.first().locator('path[class*="-bar"]').first();
       await bar.scrollIntoViewIfNeeded();
       await bar.hover({ force: true });
       expect(await bar.evaluate((el) => getComputedStyle(el).cursor)).toBe('pointer');
+      await expect(plot.locator('[class*="-tooltip"]')).toBeVisible();
+      await expect.poll(() => groups.nth(1).evaluate((el) => Number(getComputedStyle(el).opacity))).toBeLessThan(1);
+      expect(Number(await groups.first().evaluate((el) => getComputedStyle(el).opacity))).toBe(1);
       await bar.click({ force: true });
       await expect(page.getByRole('dialog')).toBeVisible();
+      expect(errors).toEqual([]);
     });
   }
 });

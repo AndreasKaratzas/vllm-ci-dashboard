@@ -270,7 +270,7 @@ test.describe('Omni CI matches the golden page facts', () => {
 
     // Toggling a window renders the golden facts of that window.
     await reload(page);
-    await page.getByTestId('omni-mapping-range').locator('[aria-label="1 month"]').click();
+    await page.getByTestId('omni-mapping-range').getByRole('button', { name: '1 month' }).click();
     await expect(page).toHaveURL(/#\/omni\?mapping=1m$/);
     const toggled = await v2Facts(page, '/#/omni?mapping=1m');
     expectWorkload(toggled, golden['mapping 1m']);
@@ -279,7 +279,7 @@ test.describe('Omni CI matches the golden page facts', () => {
 
     // The live view keeps its own window in the URL.
     await reload(page, '/#/omni?view=live');
-    await page.getByTestId('omni-range').locator('[aria-label="3 hours"]').click();
+    await page.getByTestId('omni-range').getByRole('button', { name: '3 hours' }).click();
     await expect(page).toHaveURL(/#\/omni\?view=live&range=3h$/);
   });
 });

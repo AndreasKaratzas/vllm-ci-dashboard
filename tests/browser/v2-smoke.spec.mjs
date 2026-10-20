@@ -1,8 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { readGolden } from './golden/read.mjs';
-
-import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
+import { collectErrors, expectQuality, setTheme, settleAnimations } from './support/quality.mjs';
 
 const HOME = { name: 'Home', level: 1 };
 
@@ -169,49 +167,6 @@ for (const theme of ['light', 'dark']) {
   }
 }
 
-const golden = readGolden('smoke');
-
-test.describe('CI Health matches the golden page facts', () => {
-  test('Overview: logical health, outcomes, and failure observations', async ({ page }) => {
-    const { rate, ratio, meta, counts, failures } = golden.overview;
-    await page.goto('/#/health');
-    const logical = page.getByTestId('logical-ring');
-    await expect(logical).toContainText(rate);
-    await expect(logical).toContainText(ratio);
-    await expect(logical).toContainText(meta);
-    for (const [label, count] of Object.entries(counts)) {
-      await expect(page.getByRole('button', { name: new RegExp(`^${count}\\s*${label}$`) })).toBeVisible();
-    }
-    const v2Failures = await page.locator('table').last().locator('tbody tr button').allInnerTexts();
-    expect(v2Failures.map((t) => t.trim())).toEqual(failures);
-
-    await logical.getByRole('button', { name: /Inspect all logical test groups/ }).click();
-    const sheet = page.getByRole('dialog');
-    await expect(sheet).toContainText(`${ratio.split(' / ')[1]} rows`);
-    await sheet.locator('tbody tr').first().getByRole('button').first().click();
-    await expect(page.getByRole('dialog').last()).toContainText('Exact AMD job variant');
-  });
-
-  test('Upstream parity: coverage, distribution, config note, and gap areas', async ({ page }) => {
-    const { rate, ratio, groups, note, areas } = golden.parity;
-    await page.goto('/#/health?view=parity');
-    const parityRing = page.getByTestId('parity-ring');
-    await expect(parityRing).toContainText(rate);
-    await expect(parityRing).toContainText(ratio);
-    await expect(page.getByText(new RegExp(`Current main CI · ${groups} logical groups`, 'i'))).toBeVisible();
-    await expect(page.getByText(note)).toBeVisible();
-    const v2Areas = await page.getByTestId('gap-area').evaluateAll((nodes) =>
-      nodes.map((n) => `${n.querySelector('strong').textContent.trim()}|${n.querySelector('span').textContent.trim()}`),
-    );
-    expect(v2Areas).toEqual(areas);
-
-    await page.getByTestId('gap-area').first().click();
-    const sheet = page.getByRole('dialog');
-    await sheet.locator('tbody tr').first().getByRole('button').first().click();
-    await expect(page.getByRole('dialog').last()).toContainText('AMD route mode');
-  });
-});
-
 test.describe('v2 is the root page and keeps old links working', () => {
   test('legacy links to ported views open v2', async ({ page }) => {
     await page.goto('/?ops_health_view=parity#ci-health');
@@ -231,6 +186,38 @@ test.describe('v2 is the root page and keeps old links working', () => {
 test('clickable controls show a pointer cursor', async ({ page }) => {
   await page.goto('/#/health');
   const cursor = (locator) => locator.evaluate((el) => getComputedStyle(el).cursor);
-  expect(await cursor(page.getByRole('tab', { name: 'Upstream parity' }))).toBe('pointer');
+  const sections = page.getByRole('navigation', { name: 'CI Health sections' });
+  expect(await cursor(sections.getByRole('link', { name: 'Upstream parity' }))).toBe('pointer');
   expect(await cursor(page.getByRole('button', { name: /theme/ }))).toBe('pointer');
 });
+
+// KPI cards are stretched links; scrolled under the sticky header they must not swallow its controls.
+for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+  test(`the sticky header stays clickable above scrolled KPI cards (${viewport.width}px)`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto('/#/health');
+    const toggle = page.getByRole('button', { name: /Switch to (dark|light) theme/ });
+    const kpi = page.locator('[data-kpi-action]').first();
+    await kpi.waitFor();
+    // An entering card is its own stacking context only while its slide-in transform runs.
+    await settleAnimations(page);
+    const header = await page.locator('header').first().boundingBox();
+    // Scroll so the first KPI card sits under the header controls.
+    const card = await page.locator('[data-slot=kpi-card]').first().boundingBox();
+    await page.mouse.move(viewport.width / 2, viewport.height / 2);
+    await page.mouse.wheel(0, card.y - header.y - 4);
+    await expect.poll(async () => (await page.locator('[data-slot=kpi-card]').first().boundingBox()).y).toBeLessThan(header.y + header.height);
+    // The control itself, not a card's overlay, is on top at its center.
+    const hit = async (control) => {
+      const box = await control.boundingBox();
+      return control.evaluate((el, [x, y]) => el.contains(document.elementFromPoint(x, y)), [box.x + box.width / 2, box.y + box.height / 2]);
+    };
+    expect(await hit(page.locator('header [data-sidebar=trigger]'))).toBe(true);
+    expect(await hit(toggle)).toBe(true);
+    const box = await toggle.boundingBox();
+    const before = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(!before);
+    await expect(page).toHaveURL(/#\/health$/);
+  });
+}

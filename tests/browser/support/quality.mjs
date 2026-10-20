@@ -25,8 +25,6 @@ export async function expectPointerCursors(page) {
         const box = node.getBoundingClientRect();
         return box.width > 0 && box.height > 0 && getComputedStyle(node).visibility !== 'hidden';
       })
-      // The sidebar rail is an edge handle: its resize cursor points the way the sidebar will move.
-      .filter((node) => !(node.dataset.sidebar === 'rail' && /^[ew]-resize$/.test(getComputedStyle(node).cursor)))
       .filter((node) => getComputedStyle(node).cursor !== 'pointer')
       .map((node) => `${node.tagName.toLowerCase()}[${node.getAttribute('role') ?? ''}] ${node.textContent.trim().slice(0, 40)}`),
   );
