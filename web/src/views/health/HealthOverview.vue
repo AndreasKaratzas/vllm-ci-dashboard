@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Donut, { type DonutSlice } from '@/components/charts/Donut.vue'
 import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
 import Callout from '@/components/feedback/Callout.vue'
 import MovementChart from '@/components/health/MovementChart.vue'
-import BuildDetailSheet from '@/components/ops/BuildDetailSheet.vue'
 import KpiCard from '@/components/stat/KpiCard.vue'
+import Sparkline from '@/components/stat/Sparkline.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
 import DataTable from '@/components/table/DataTable.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -27,6 +27,7 @@ import { amdMirrorInventoryView, amdMirrorSummary } from '@/domain/mirrors'
 import { amdNightlyPresentation, latestAmd } from '@/domain/nightly'
 import { exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
 import { hardwareColor, statusVar } from '@/lib/palette'
+import { movementBuildDetail } from './details'
 import { pointDelta, trendDelta } from './trend'
 
 const props = defineProps<{ ops: Rec; sheets: SheetStack }>()
@@ -49,13 +50,17 @@ const passingAny = computed(() => Number(counts.value.passing || 0))
 // Exact job variants of the latest signal and their history.
 const variants = computed(() => jobVariantHistory(props.ops.amd_test_health))
 const variantRate = computed(() => variants.value.map((p) => (p.observed ? (p.passed / p.observed) * 100 : 0)))
-const variantFailing = computed(() => variants.value.map((p) => p.hard + p.soft))
 const latestVariants = computed(() => variants.value.at(-1))
 const failures = computed(() => latestFailureObservations(props.ops.amd_test_health))
 const hardFailures = computed(() => failures.value.filter((row) => amdLatestState(row, latestBuild.value) === 'hard').length)
+// The failing-job trend is shown only when its latest point is the number on the card.
+const failingTrend = computed(() => {
+  const trend = variants.value.map((p) => p.hard + p.soft)
+  const aligned = latestVariants.value && Number(latestVariants.value.number) === Number(latestBuild.value) && trend.at(-1) === failures.value.length
+  return aligned ? trend : undefined
+})
 
 const movement = computed(() => movementBuilds(amd.value.builds || []))
-const buildDetail = ref<{ open: boolean; build: Rec | null }>({ open: false, build: null })
 
 // Mirror configuration on main: a separate, physical count.
 const mirrorInventory = computed<Rec>(() => (props.ops.test_group_parity || {}).mirror_inventory || {})
@@ -94,7 +99,7 @@ const hardwareRoutes = computed(() => {
       segments: [
         { key: 'passing', label: 'passing', count: tally.passing, color: statusVar('pass') },
         { key: 'failing', label: 'failing', count: tally.failing, color: statusVar('hard') },
-        { key: 'other', label: 'no pass signal', count: tally.other, color: statusVar('neutral') },
+        { key: 'other', label: 'no signal', count: tally.other, color: statusVar('neutral') },
       ] satisfies ProportionSegment[],
     }))
 })
@@ -139,11 +144,10 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         label="Logical runtime health"
         :value="logical.available ? `${integer(passingAny)} passing` : null"
         :ratio="logical.available ? { current: passingAny, total: Number(counts.total || 0) } : undefined"
-        :spark="logicalTrend"
         :delta="trendDelta(logicalTrend, 'up', 'pts')"
         :footnote="logical.meta"
         :action="{ label: 'Inspect all logical test groups', onOpen: () => openCatalog('Latest AMD logical test groups', logicalRows) }"
-        headline="Inspect all logical test groups"
+        headline="Inspect groups"
         data-testid="logical-ring"
       />
       <KpiCard
@@ -152,18 +156,18 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         :format="(v: number) => `${v.toFixed(1)}%`"
         :spark="variantRate"
         :delta="trendDelta(variantRate, 'up', 'pts')"
-        :footnote="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} exact Buildkite job variants passed` : 'No retained exact job outcomes'"
+        :headline="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} job variants passed` : undefined"
+        :footnote="`Across ${integer(variants.length)} retained AMD nightlies`"
         data-testid="kpi-job-rate"
       />
       <KpiCard
         label="Failing exact jobs"
         :value="failures.length"
-        :spark="variantFailing"
-        :delta="pointDelta(variantFailing, 'down')"
-        :status="failures.length ? { tone: hardFailures ? 'hard' : 'soft', label: `${integer(hardFailures)} hard` } : undefined"
-        :footnote="`${integer(hardFailures)} hard · ${integer(failures.length - hardFailures)} soft in signal #${value(latestBuild)}`"
+        :spark="failingTrend"
+        :delta="failingTrend ? pointDelta(failingTrend, 'down') : undefined"
+        :footnote="`${integer(hardFailures)} hard fail · ${integer(failures.length - hardFailures)} soft fail in signal #${value(latestBuild)}`"
         :action="{ label: 'Inspect failing exact jobs', onOpen: openFailures }"
-        headline="Inspect failing exact jobs"
+        headline="Inspect failing jobs"
         data-testid="kpi-failing-jobs"
       />
       <KpiCard
@@ -175,40 +179,46 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         data-testid="mirror-summary"
       >
         <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-3">
-            <Donut v-if="mirrorSlices.length" :slices="mirrorSlices" size="sm" :legend="false" :label="`Mirror groups by GPU family: ${mirrorSlices.map((s) => `${s.label} ${s.value}`).join(', ')}`" />
-            <ul class="flex min-w-0 flex-col gap-1 text-sm">
-              <li v-for="slice in mirrorSlices" :key="slice.key" class="flex items-center gap-1.5">
-                <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: slice.color }" aria-hidden="true" />
-                <span class="font-medium tabular-nums">{{ integer(slice.value) }}</span>
-                <span class="text-muted-foreground">{{ slice.label }}</span>
-              </li>
-            </ul>
-          </div>
+          <Donut
+            v-if="mirrorSlices.length"
+            :slices="mirrorSlices"
+            size="sm"
+            :label="`Mirror groups by GPU family: ${mirrorSlices.map((s) => `${s.label} ${s.value}`).join(', ')}`"
+          />
           <p class="text-xs text-muted-foreground" data-testid="mirror-summary-facts">{{ mirror.facts }}</p>
         </div>
       </KpiCard>
     </StatGrid>
 
-    <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
-      <MovementChart :builds="movement" :latest-signal="latestBuild" @select="(build) => (buildDetail = { open: true, build })" />
+    <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] *:min-w-0">
+      <MovementChart :builds="movement" :latest-signal="latestBuild" @select="(build) => sheets.open(movementBuildDetail(build))" />
 
       <Card data-testid="logical-outcomes" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300">
         <CardHeader>
           <CardTitle as="h2">Logical group outcomes</CardTitle>
-          <CardDescription>Signal #{{ value(latestBuild) }} · hardware-distinct jobs combine only for the same source-aligned group</CardDescription>
+          <CardDescription>Signal #{{ value(latestBuild) }} · a group passes when one hardware route passes</CardDescription>
         </CardHeader>
         <CardContent class="flex flex-col gap-6">
           <ProportionBar :segments="outcomeSegments" label="Logical group outcomes" :on-select="openOutcome" />
-          <div v-if="hardwareRoutes.length" class="flex flex-col gap-3">
-            <h3 class="text-sm font-medium text-muted-foreground">Routes by hardware</h3>
-            <div v-for="row in hardwareRoutes" :key="row.hardware" class="grid grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-3 text-sm">
+          <div v-if="hardwareRoutes.length" class="flex flex-col gap-3 border-t pt-5">
+            <div class="flex items-baseline justify-between gap-2">
+              <h3 class="text-sm font-medium">Routes by hardware</h3>
+              <span class="text-xs text-muted-foreground">passing / configured routes</span>
+            </div>
+            <div v-for="row in hardwareRoutes" :key="row.hardware" class="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm" data-testid="hardware-route">
               <span class="inline-flex items-center gap-1.5 font-medium">
                 <span class="size-2 rounded-full" :style="{ backgroundColor: hardwareColor(row.hardware) }" aria-hidden="true" />{{ row.label }}
               </span>
               <ProportionBar :segments="row.segments" :label="`${row.label} routes`" :legend="false" />
-              <span class="text-xs text-muted-foreground tabular-nums">{{ integer(row.segments[0]!.count) }}/{{ integer(row.total) }}</span>
+              <span class="w-10 text-right text-xs text-muted-foreground tabular-nums">{{ integer(row.segments[0]!.count) }}/{{ integer(row.total) }}</span>
             </div>
+          </div>
+          <div v-if="logicalTrend.length > 1" class="flex flex-col gap-2 border-t pt-5" data-testid="logical-trend">
+            <div class="flex items-baseline justify-between gap-2">
+              <h3 class="text-sm font-medium">Logical pass rate across nightlies</h3>
+              <span class="text-xs text-muted-foreground tabular-nums">{{ logicalTrend[0]!.toFixed(1) }}% → {{ logicalTrend.at(-1)!.toFixed(1) }}%</span>
+            </div>
+            <Sparkline :values="logicalTrend" :label="`Logical pass rate over ${logicalTrend.length} retained nightlies`" />
           </div>
         </CardContent>
       </Card>
@@ -231,7 +241,5 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         />
       </CardContent>
     </Card>
-
-    <BuildDetailSheet v-model:open="buildDetail.open" :build="buildDetail.build" />
   </div>
 </template>

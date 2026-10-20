@@ -1,8 +1,8 @@
 import { markRaw } from 'vue'
-import type { Detail } from '@/components/evidence/detail'
-import { badge, dotted, drill, link, mono, num, text, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
+import type { Detail, DetailNote } from '@/components/evidence/detail'
+import { dotted, drill, link, mono, num, text, type CellSpec, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
 import { ROUTE_MODE_LABELS, testGroupDefinitionState, testGroupParityState } from '@/domain/ciHealth'
-import { integer, toneForState, value, type Rec } from '@/domain/format'
+import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { hardwareDisplayLabel } from '@/domain/health'
 import {
   MATRIX_BROWSER_TITLES,
@@ -24,11 +24,27 @@ import {
   type MatrixBrowserMode,
 } from '@/domain/healthHardware'
 import { amdMirrorDetail, amdMirrorGateMode, amdMirrorLabel, amdMirrorSourceUrl, mirrorAreaSearchText, mirrorDevicesLabel, type MirrorMode } from '@/domain/mirrors'
+import { nightlyBuildEvidence, nightlyFailureMovement } from '@/domain/nightly'
+import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
 import CommandsBlock from '@/features/amd-groups/CommandsBlock.vue'
-import { hardwareCell } from '@/features/amd-groups/details'
+import { hardwareCell, resultCell } from '@/features/amd-groups/details'
 import GroupHistory from '@/features/amd-groups/GroupHistory.vue'
-import { SERIES, statusVar, tint, type PaletteColor } from '@/lib/palette'
+import { SERIES, tint, type PaletteColor } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
+
+/** "1 file", "2 files". */
+export function count(n: unknown, singular: string, pluralForm = `${singular}s`): string {
+  return `${integer(n)} ${Number(n) === 1 ? singular : pluralForm}`
+}
+
+/** A configured route's mode is configuration, not a test state: one series hue, lighter means less binding. */
+export const ROUTE_MODE_COLOR: Record<MirrorMode, PaletteColor> = {
+  required: SERIES.secondary,
+  optional: tint(SERIES.secondary, 55),
+  'soft fail': tint(SERIES.secondary, 35),
+}
+
+const GATE_MODE: Record<string, MirrorMode> = { required: 'required', optional: 'optional', soft_fail: 'soft fail' }
 
 // --- Upstream parity ---
 
@@ -42,6 +58,14 @@ export function parityStateBadge(state: string) {
   return { label: presentation.label.replace(/^[●■]\s*/, ''), tone: parityTone(presentation.tone) }
 }
 
+const PARITY_SHORT: Record<string, string> = { existing: 'Covered', action: 'Open gap', unsupported: 'Not targeted' }
+
+function routeModeCell(row: Rec): CellSpec {
+  const mode = GATE_MODE[row.gate_kind]
+  const label = ROUTE_MODE_LABELS[row.gate_kind] || null
+  return mode && label ? dotted(label, ROUTE_MODE_COLOR[mode]) : text(label)
+}
+
 export function parityGroupDetail(row: Rec, source: Rec): Detail {
   const definition: Rec = row.definition_resolution || {}
   const commit = source.main_commit || source.commit_sha || ''
@@ -50,10 +74,10 @@ export function parityGroupDetail(row: Rec, source: Rec): Detail {
   return {
     id: `parity:${row.id}`,
     title: String(row.title || 'Upstream logical test group'),
-    subtitle: 'Configured AMD routes against upstream source definitions',
+    subtitle: `${value(row.area)} · configured AMD routes against upstream source definitions`,
     description: row.assessment || 'No source-derived assessment is available.',
     stats: [
-      { label: 'Configured coverage', value: state.label, tone: state.tone },
+      { label: 'Configured coverage', value: PARITY_SHORT[row.state] || state.label, tone: state.tone, badge: PARITY_SHORT[row.state] || state.label },
       { label: 'AMD route mode', value: ROUTE_MODE_LABELS[row.gate_kind] || 'Unavailable' },
       { label: 'Upstream CUDA variants', value: value(row.cuda_variants) },
     ],
@@ -86,25 +110,26 @@ export function parityInventoryDetail(id: string, title: string, rows: Rec[], so
       hideable: false,
     },
     { id: 'area', label: 'Area', value: (row) => value(row.area) },
-    { id: 'cuda', label: 'CUDA variants', value: (row) => value(row.cuda_variants) },
+    { id: 'cuda', label: 'CUDA variants', value: (row) => value(row.cuda_variants), cell: (row) => mono(row.cuda_variants) },
     {
       id: 'coverage',
       label: 'Configured coverage',
       value: (row) => parityStateBadge(row.state).label,
-      cell: (row) => badge(parityStateBadge(row.state).label, parityStateBadge(row.state).tone),
+      cell: (row) => ({ text: parityStateBadge(row.state).label, tone: parityStateBadge(row.state).tone }),
     },
+    { id: 'mode', label: 'Route mode', value: (row) => ROUTE_MODE_LABELS[row.gate_kind] || '', cell: routeModeCell },
     { id: 'definition', label: 'Current CI definition', value: (row) => testGroupDefinitionState(row) },
-    { id: 'assessment', label: 'ROCm counterpart or assessment', sortable: false, value: (row) => value(row.assessment), cell: (row) => text(row.assessment) },
   ]
   return {
     id: `parity-inventory:${id}`,
     title,
-    subtitle: `${integer(rows.length)} current upstream logical test groups`,
+    subtitle: `${count(rows.length, 'current upstream logical test group')}; each opens its ROCm assessment`,
     tables: [
       {
         rows,
         columns,
         rowDetail: (row: Rec) => parityGroupDetail(row, source),
+        searchText: (row: Rec) => [row.id, row.title, row.reviewed_title, row.area, row.cuda_variants, parityStateBadge(row.state).label, row.assessment].join(' '),
         searchPlaceholder: 'Filter test group, area, CUDA variant, status, or assessment',
         pageSize: 25,
       },
@@ -117,23 +142,33 @@ export function parityInventoryDetail(id: string, title: string, rows: Rec[], so
 
 export const MATRIX_PATH = 'data/vllm/ci/amd_test_matrix.json'
 
+const routeSignal = (group: Rec) => `${integer(group.passedCells)} passing · ${integer(group.incidentCells)} failing`
+
 /** One configured test group's status and exact AMD route evidence. */
 export function matrixGroupEvidenceDetail(group: Rec, matrix: Rec | null): Detail {
   const detail = matrixGroupDetail(group, matrix)
   const tone = matrixHealthTone(group.status)
+  const commands = detail.evidence.filter((row) => (row.commands || []).length).length
   return {
     id: `matrix-group:${group.title}`,
     title: detail.title,
-    subtitle: 'Test-group status and exact AMD route evidence',
-    notes: [{ tone, title: matrixHealthStatusLabel(group.status), text: detail.note }],
+    subtitle: `${matrixGateKindLabel(group)} · test-group status and exact AMD route evidence`,
+    stats: [
+      { label: 'Status', value: matrixHealthStatusLabel(group.status), tone, badge: matrixHealthStatusLabel(group.status) },
+      { label: 'Passing routes', value: integer(group.passedCells) },
+      { label: 'Failing routes', value: integer(group.incidentCells), tone: Number(group.incidentCells) ? 'hard' : undefined, badge: 'Failing' },
+      { label: 'Source definitions', value: integer(group.definitionCount) },
+    ],
+    notes: [{ tone: 'neutral', text: detail.note }],
     fields: detail.fields,
     sources: detail.sources,
     sections: detail.commandsText
-      ? [{ title: 'Executed commands', meta: detail.commandsCaption, component: markRaw(CommandsBlock), props: { text: detail.commandsText } }]
+      ? [{ title: 'Executed commands', meta: count(commands, 'architecture definition') + ' with published commands', component: markRaw(CommandsBlock), props: { text: detail.commandsText } }]
       : [],
     tables: [
       {
-        title: detail.evidenceCaption,
+        title: 'Exact AMD definitions',
+        meta: count(detail.evidence.length, 'definition'),
         rows: detail.evidence,
         pageSize: 10,
         searchPlaceholder: 'Filter definition, pool, or result',
@@ -142,7 +177,7 @@ export function matrixGroupEvidenceDetail(group: Rec, matrix: Rec | null): Detai
           { id: 'definition', label: 'Definition', value: (row: Rec) => String(row.definition), cell: (row: Rec) => link(row.definition, row.url) },
           { id: 'hardware', label: 'Hardware', value: (row: Rec) => String(row.architecture).toUpperCase(), cell: (row: Rec) => hardwareCell(row.architecture) },
           { id: 'queue', label: 'Agent pool', value: (row: Rec) => value(row.queue), cell: (row: Rec) => mono(value(row.queue)) },
-          { id: 'result', label: 'Latest result', value: (row: Rec) => String(row.result), cell: (row: Rec) => badge(String(row.result), toneForState(row.result)) },
+          { id: 'result', label: 'Latest result', value: (row: Rec) => String(row.result), cell: (row: Rec) => resultCell(row.result) },
           { id: 'identity', label: 'Command identity', value: (row: Rec) => row.commandIdentity || '', cell: (row: Rec) => mono(row.commandIdentity || null) },
           { id: 'source', label: 'Source', sortable: false, value: () => '', cell: (row: Rec) => link(row.sourceUrl ? 'Source' : null, row.sourceUrl) },
         ] satisfies ColumnSpec<Rec>[],
@@ -190,12 +225,17 @@ export function matrixBrowserDetail(mode: MatrixBrowserMode, groups: Rec[], subt
         pageSize: 50,
         columns: [
           { id: 'title', label: 'Test group', value: (g: Rec) => String(g.title ?? ''), cell: (g: Rec) => drill(g.title, () => open(g)), hideable: false },
-          { id: 'status', label: 'Status', value: (g: Rec) => matrixHealthStatusLabel(g.status), cell: (g: Rec) => badge(matrixHealthStatusLabel(g.status), matrixHealthTone(g.status)) },
+          { id: 'status', label: 'Status', value: (g: Rec) => matrixHealthStatusLabel(g.status), cell: (g: Rec) => ({ text: matrixHealthStatusLabel(g.status), tone: matrixHealthTone(g.status) }) },
           { id: 'classification', label: 'Classification', value: (g: Rec) => matrixGateKindLabel(g) },
-          { id: 'hardware', label: 'Hardware', value: (g: Rec) => g.architectures.map((a: string) => a.toUpperCase()).join(', ') || '-' },
-          { id: 'reason', label: 'Classification reason', value: (g: Rec) => g.classificationReason || '-', cell: (g: Rec) => ({ text: g.classificationReason || '-' }) },
-          { id: 'signal', label: 'Route signal', value: (g: Rec) => `${integer(g.passedCells)} pass - ${integer(g.incidentCells)} non-passing` },
-          { id: 'evidence', label: 'Evidence', numeric: true, value: (g: Rec) => `${integer(matrixGroupEvidence(g).filter((e) => e.url).length)} jobs` },
+          {
+            id: 'hardware',
+            label: 'Hardware',
+            value: (g: Rec) => g.architectures.map((a: string) => a.toUpperCase()).join(', '),
+            cell: (g: Rec) => (g.architectures.length === 1 ? hardwareCell(g.architectures[0]) : text(g.architectures.map((a: string) => a.toUpperCase()).join(', '))),
+          },
+          { id: 'reason', label: 'Classification reason', value: (g: Rec) => g.classificationReason || '', cell: (g: Rec) => text(g.classificationReason) },
+          { id: 'signal', label: 'Route signal', value: routeSignal },
+          { id: 'evidence', label: 'Evidence', numeric: true, value: (g: Rec) => count(matrixGroupEvidence(g).filter((e) => e.url).length, 'job') },
         ] satisfies ColumnSpec<Rec>[],
       },
     ],
@@ -222,12 +262,14 @@ export function groupHistoryDetail(row: Rec, ops: Rec | null): Detail {
   return {
     id: `group-history:${row.title}`,
     title: state.kind === 'aggregate' ? state.name : String(state.row.name || 'Group evidence'),
-    subtitle: 'Test-group detail · historical outcomes, latency, and exact Buildkite evidence',
+    subtitle: `${value(row.area)} · historical outcomes, latency, and exact Buildkite evidence`,
     fields: state.kind === 'aggregate' ? state.fields.map((f) => ({ label: f.label, value: f.value as string | null })) : [],
     sections: [{ component: markRaw(GroupHistory), props: { group, ops } }],
     width: 'xl',
   }
 }
+
+const archCell = (row: Rec, id: string): Rec => (row.cells || {})[id] || {}
 
 export function architectureDetail(health: ArchitectureHealth, rows: Rec[], ops: Rec | null): Detail {
   const browser = architectureBrowser(health, rows)
@@ -239,8 +281,8 @@ export function architectureDetail(health: ArchitectureHealth, rows: Rec[], ops:
     subtitle: browser.subtitle,
     stats: [
       { label: 'Passing routes', value: integer(health.passed) },
-      { label: 'Non-passing routes', value: integer(health.incident), tone: health.incident ? 'hard' : undefined },
-      { label: 'Unobserved routes', value: integer(health.unknown) },
+      { label: 'Failing routes', value: integer(health.incident), tone: health.incident ? 'hard' : undefined, badge: 'Failing' },
+      { label: 'No-signal routes', value: integer(health.unknown) },
     ],
     tables: [
       {
@@ -251,20 +293,14 @@ export function architectureDetail(health: ArchitectureHealth, rows: Rec[], ops:
         columns: [
           { id: 'title', label: 'Test group', value: (row: Rec) => String(row.title ?? ''), cell: (row: Rec) => drill(row.title, () => open(row)) },
           { id: 'area', label: 'Area', value: (row: Rec) => value(row.area) },
-          {
-            id: 'latest',
-            label: 'Latest result',
-            value: (row: Rec) => ((row.cells || {})[id] || {}).latest_state || 'unobserved',
-            cell: (row: Rec) => badge(((row.cells || {})[id] || {}).latest_state || 'unobserved', toneForState(((row.cells || {})[id] || {}).latest_state)),
-          },
+          { id: 'latest', label: 'Latest result', value: (row: Rec) => archCell(row, id).latest_state || 'unobserved', cell: (row: Rec) => resultCell(archCell(row, id).latest_state) },
           {
             id: 'build',
             label: 'Build',
-            value: (row: Rec) => Number(((row.cells || {})[id] || {}).latest_build_number || 0),
+            value: (row: Rec) => Number(archCell(row, id).latest_build_number || 0),
             cell: (row: Rec) => {
-              const cell = (row.cells || {})[id] || {}
-              const url = architectureCellUrl(cell)
-              return url ? link(`#${value(cell.latest_build_number)}`, url, true) : text('-')
+              const url = architectureCellUrl(archCell(row, id))
+              return url ? link(`#${value(archCell(row, id).latest_build_number)}`, url, true) : text(null)
             },
           },
         ] satisfies ColumnSpec<Rec>[],
@@ -274,7 +310,7 @@ export function architectureDetail(health: ArchitectureHealth, rows: Rec[], ops:
   }
 }
 
-/** Columns of the route matrix: one per configured architecture. */
+/** Columns of the route matrix: one per configured architecture; a route that is not configured stays blank. */
 export function matrixColumns(architectures: Rec[], ops: Rec | null): ColumnSpec<Rec>[] {
   const open = (row: Rec) => groupHistoryDetail(row, ops)
   return [
@@ -285,35 +321,93 @@ export function matrixColumns(architectures: Rec[], ops: Rec | null): ColumnSpec
         id: `arch-${arch.id}`,
         label: String(arch.label),
         sortable: false,
-        value: (row) => {
-          const cell = (row.cells || {})[arch.id] || {}
-          return cell.exists ? cell.latest_state || 'unknown' : '-'
-        },
-        cell: (row) => {
-          const cell = (row.cells || {})[arch.id] || {}
-          return cell.exists ? badge(cell.latest_state || 'unknown', toneForState(cell.latest_state)) : text('-')
-        },
+        value: (row) => (archCell(row, arch.id).exists ? archCell(row, arch.id).latest_state || 'unknown' : ''),
+        cell: (row) => (archCell(row, arch.id).exists ? resultCell(archCell(row, arch.id).latest_state) : text(null)),
       }),
     ),
   ]
 }
 
-// --- AMD mirrors ---
+// --- Nightly failure movement ---
 
-/** Required is the full series hue, optional a lighter step of it; soft fail is a soft-fail state. */
-export const MIRROR_MODE_COLOR: Record<MirrorMode, PaletteColor> = {
-  required: SERIES.primary,
-  optional: tint(SERIES.primary, 45),
-  'soft fail': statusVar('soft'),
+const MOVEMENT_TONE: Record<string, Tone> = { 'New failure': 'hard', 'Recurring failure': 'soft', Fixed: 'pass' }
+
+/** One retained nightly's failure movement against the previous nightly. */
+export function movementBuildDetail(build: Rec): Detail {
+  const pipeline = build.source_pipeline || 'ci'
+  const movement = nightlyFailureMovement(build)
+  const evidence = nightlyBuildEvidence(build)
+  const size = (key: string) => (movement && Array.isArray(movement[key]) ? movement[key].length : 0)
+  const blocked = Number(build.test_jobs_blocked || 0)
+  const notes: DetailNote[] = []
+  if (build.has_test_results === false) {
+    notes.push({
+      tone: blocked ? 'hard' : 'soft',
+      text: blocked
+        ? `This nightly failed before test execution. ${count(blocked, 'test job')} were dependency-blocked, so no pass/fail movement is inferred.`
+        : 'This build has no parsed test-group signal. No pass/fail movement is inferred.',
+    })
+  }
+  const buildUrl = exactPipelineBuildUrl(build, pipeline)
+  return {
+    id: `nightly-movement:${build.number}`,
+    title: build.number ? `AMD nightly #${build.number}` : 'AMD nightly',
+    subtitle: `${shortDate(build.created_at)} · failure movement against the previous nightly`,
+    notes,
+    stats: evidence.available
+      ? [
+          { label: 'New failures', value: integer(size('new')), tone: size('new') ? 'hard' : undefined, badge: 'New' },
+          { label: 'Recurring failures', value: integer(size('recurring')) },
+          { label: 'Fixed', value: integer(size('fixed')) },
+        ]
+      : [],
+    fields: [
+      { label: 'State', value: value(build.state) },
+      { label: 'Job variants observed', value: integer(build.total_groups) },
+      { label: 'Dependency-blocked test jobs', value: blocked ? integer(blocked) : null },
+    ],
+    sources: buildUrl ? [{ label: 'Open Buildkite build', url: buildUrl }] : [],
+    empty: evidence.available ? undefined : 'Failure movement is unavailable for this build.',
+    tables: evidence.available
+      ? [
+          {
+            title: 'Job variants that changed',
+            rows: evidence.rows,
+            pageSize: 25,
+            emptyText: 'No failure movement in this nightly.',
+            searchPlaceholder: 'Filter job variant, change, or queue',
+            columns: [
+              {
+                id: 'variant',
+                label: 'Job variant',
+                value: (row: Rec) => String(row.display_name || row.name || ''),
+                cell: (row: Rec) => link(row.display_name || row.name, exactPipelineEvidenceUrl(row, pipeline) || null),
+              },
+              { id: 'change', label: 'Change', value: (row: Rec) => String(row.lifecycle), cell: (row: Rec) => ({ text: String(row.lifecycle), tone: MOVEMENT_TONE[row.lifecycle] ?? toneForState(row.lifecycle) }) },
+              { id: 'queue', label: 'Queue', value: (row: Rec) => value(row.queue), cell: (row: Rec) => mono(row.queue) },
+            ] satisfies ColumnSpec<Rec>[],
+          },
+        ]
+      : [],
+    width: 'lg',
+  }
 }
+
+// --- AMD mirrors ---
 
 export function mirrorDetail(row: Rec, inventory: Rec | null): Detail {
   const detail = amdMirrorDetail(row, inventory)
+  const mode = amdMirrorGateMode(row)
   return {
     id: `mirror:${row.yaml_file}#${row.yaml_index}:${row.key}`,
     title: detail.title,
-    subtitle: detail.subtitle,
+    subtitle: `${value(row.area)} · ${detail.subtitle}`,
     description: detail.description,
+    stats: [
+      { label: 'AMD device', value: hardwareDisplayLabel(row.device) },
+      { label: 'GPU width', value: row.num_devices === null || row.num_devices === undefined ? '—' : integer(row.num_devices) },
+      { label: 'Route mode', value: mode.charAt(0).toUpperCase() + mode.slice(1) },
+    ],
     fields: detail.fields,
     sources: detail.sources,
     width: 'md',
@@ -326,7 +420,7 @@ export function mirrorInventoryColumns(inventory: Rec | null): ColumnSpec<Rec>[]
     { id: 'area', label: 'Test area', value: (row) => value(row.area) },
     { id: 'device', label: 'AMD device', value: (row) => hardwareDisplayLabel(row.device), cell: (row) => hardwareCell(row.device) },
     { id: 'width', label: 'GPU width', numeric: true, value: (row) => Number(row.num_devices ?? -1), cell: (row) => num(row.num_devices ?? null) },
-    { id: 'mode', label: 'Mode', value: (row) => amdMirrorGateMode(row), cell: (row) => dotted(amdMirrorGateMode(row), MIRROR_MODE_COLOR[amdMirrorGateMode(row)]) },
+    { id: 'mode', label: 'Mode', value: (row) => amdMirrorGateMode(row), cell: (row) => dotted(amdMirrorGateMode(row), ROUTE_MODE_COLOR[amdMirrorGateMode(row)]) },
     { id: 'source', label: 'Source', sortable: false, value: () => '', cell: (row) => link('Pinned YAML', amdMirrorSourceUrl(inventory, row) || null) },
   ]
 }

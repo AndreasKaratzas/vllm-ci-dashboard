@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { parityConfigNote } from '@/domain/ciHealth'
 import { integer, type Rec } from '@/domain/format'
 import { currentTestGroupParity } from '@/domain/health'
 import { mirrorCommit } from '@/domain/mirrors'
@@ -21,7 +20,7 @@ const commit = computed(() => mirrorCommit((props.ops?.test_group_parity || {}).
     <p>Failure movement compares each nightly with the previous one: new and recurring failures count up, fixes count down.</p>
   </template>
   <template v-else-if="view === 'parity'">
-    <p data-testid="parity-config-note">{{ parityConfigNote(paritySummary, parity.source || {}) }}</p>
+    <p>Coverage counts configured routes in the current main CI definitions, not runtime results.</p>
     <p>Hardware- or backend-specific upstream groups are classified as not targeted and stay outside the parity denominator.</p>
     <p v-if="rocmInventory.logical_groups || rocmInventory.physical_definitions">
       Separate ROCm inventory on main: {{ integer(rocmInventory.logical_groups) }} logical AMD test groups from

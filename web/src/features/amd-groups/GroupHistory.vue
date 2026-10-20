@@ -47,6 +47,15 @@ function load() {
 }
 const loading = computed(() => !!ledger.value && (ledger.value.loading.value || ledger.value.refreshing.value))
 const failed = computed(() => !!ledger.value?.error.value && !loading.value)
+// A loaded ledger that still has no runs for this group ends the request instead of offering it again.
+const loadedWithout = computed(() => {
+  const data = ledger.value?.data.value
+  if (!data || loading.value || failed.value) return null
+  const reliability = data.reliability
+  return reliability && reliability.available !== false
+    ? 'The 30-day run ledger has no exact runs for this test group.'
+    : 'The 30-day run ledger is not published in this snapshot.'
+})
 const expanded = computed<Rec | null>(() => {
   const data = ledger.value?.data.value
   return data ? { ...(props.ops ?? {}), reliability: data.reliability } : null
@@ -146,9 +155,13 @@ const incidents = computed(() => observations.value.filter(isIncidentObservation
       <EmptyState
         :icon="History"
         title="No exact per-run observations in this snapshot"
-        :description="state.canLoadHistory ? 'The aggregate is available. Load the 30-day ledger for outcome, completion and queue-wait history.' : 'The retained ledger has no exact runs for this group.'"
+        :description="
+          loadedWithout ??
+          (state.canLoadHistory ? 'The aggregate is available. Load the 30-day ledger for outcome, completion and queue-wait history.' : 'The retained ledger has no exact runs for this group.')
+        "
+        data-testid="group-history-empty"
       >
-        <template v-if="state.canLoadHistory" #action>
+        <template v-if="state.canLoadHistory && !loadedWithout" #action>
           <Button size="sm" :disabled="loading" @click="load">
             <RefreshCw :class="loading && 'motion-safe:animate-spin'" />
             {{ loading ? 'Loading run history…' : failed ? 'Retry loading run history' : 'Load 30-day run history' }}

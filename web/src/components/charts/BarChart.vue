@@ -19,6 +19,8 @@ const props = withDefaults(
     /** Series keys drawn below the baseline (e.g. regressions against improvements). */
     diverging?: string[]
     valueFormat?: (value: number) => string
+    /** Whole-number value ticks, for counts. */
+    integerTicks?: boolean
     hint?: string
     class?: string
     onSelect?: (row: T, index: number) => void
@@ -54,6 +56,16 @@ const categoryLabel = (index: number) => {
   const row = props.rows[index]
   return row ? props.category(row) : ''
 }
+const valueTicks = computed(() => {
+  if (!props.integerTicks) return undefined
+  const sums = data.value.map((d) => accessors.value.map((accessor) => accessor(d)))
+  const max = Math.max(0, ...sums.map((values) => (props.stacked ? values.filter((v) => v > 0).reduce((a, b) => a + b, 0) : Math.max(0, ...values))))
+  const min = Math.min(0, ...sums.map((values) => (props.stacked ? values.filter((v) => v < 0).reduce((a, b) => a + b, 0) : Math.min(0, ...values))))
+  const step = Math.max(1, Math.ceil((max - min) / 4))
+  const ticks: number[] = []
+  for (let tick = Math.ceil(min / step) * step; tick <= max; tick += step) ticks.push(tick)
+  return ticks
+})
 const height = computed(() => (horizontal.value ? `${Math.max(160, props.rows.length * 32 + 40)}px` : undefined))
 const barSelector = computed(() => (props.stacked ? StackedBar.selectors.bar : GroupedBar.selectors.bar))
 const events = computed(() => ({ [barSelector.value]: { click: (d: Indexed) => select(d.row) } }))
@@ -101,7 +113,7 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed) => tooltip(
             :domain-line="false"
             :grid-line="false"
           />
-          <VisAxis :type="horizontal ? 'x' : 'y'" :num-ticks="4" :tick-format="(v: number) => valueFormat(Math.abs(v))" :tick-line="false" :domain-line="false" />
+          <VisAxis :type="horizontal ? 'x' : 'y'" :num-ticks="4" :tick-values="valueTicks" :tick-format="(v: number) => valueFormat(Math.abs(v))" :tick-line="false" :domain-line="false" />
           <VisTooltip :triggers="triggers" />
         </VisXYContainer>
       </ChartContainer>

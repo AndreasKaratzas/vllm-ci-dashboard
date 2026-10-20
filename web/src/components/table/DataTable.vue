@@ -184,7 +184,7 @@ function activate(row: T, event: Event) {
 
     <div v-if="pageSize" class="flex items-center justify-between gap-2 text-sm text-muted-foreground">
       <span class="tabular-nums" data-slot="row-count">
-        {{ sorted.length.toLocaleString('en-US') }}<template v-if="showTotal"> of {{ rows.length.toLocaleString('en-US') }}</template> rows
+        {{ sorted.length.toLocaleString('en-US') }}<template v-if="showTotal"> of {{ rows.length.toLocaleString('en-US') }}</template> {{ !showTotal && sorted.length === 1 ? 'row' : 'rows' }}
       </span>
       <div v-if="pageCount > 1" class="flex items-center gap-2">
         <span class="tabular-nums">Page {{ page + 1 }} of {{ pageCount }}</span>

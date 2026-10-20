@@ -13,6 +13,8 @@ export interface DetailStat {
   value: string
   meta?: string
   tone?: Tone
+  /** Status badge label when the tone's default label would misname the state (e.g. "Attention"). */
+  badge?: string
 }
 
 export interface DetailField {

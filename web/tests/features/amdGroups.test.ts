@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { exactJobDetail, logicalGroupDetail } from '@/features/amd-groups/details'
+import { hardwareVariantHistory } from '@/domain/ciHealth'
+import { exactJobDetail, logicalGroupDetail, resultLabel } from '@/features/amd-groups/details'
 import GroupHistory from '@/features/amd-groups/GroupHistory.vue'
 import { installLayoutStubs, settle, text } from '../components/support'
 
@@ -46,5 +47,20 @@ describe('AMD group drill-downs', () => {
     expect(wrapper.findAll('[data-testid=outcome-strip] a')).toHaveLength(2)
     expect(text(wrapper.element)).not.toContain('Load 30-day run history')
     wrapper.unmount()
+  })
+
+  it('tallies exact job outcomes per build and hardware family, ignoring unknown results', () => {
+    const scope = { source_pipeline: 'ci', job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu' }
+    const row = (hardware: string, states: string[]) => ({
+      name: `Kernels ${hardware}`,
+      hardware,
+      exact_job_name: `${hardware}_1: :amd: Kernels`,
+      queue: `amd_${hardware}_1`,
+      observations: states.map((state, i) => ({ ...job(30001 + i, state), hardware })),
+    })
+    const history = hardwareVariantHistory({ ...scope, group_catalog: [row('mi300', ['passed', 'failed']), row('mi355', ['failed', 'unknown'])] })
+    expect(history.get('mi300')!.map((p) => [p.number, p.passed, p.observed])).toEqual([[30001, 1, 1], [30002, 0, 1]])
+    expect(history.get('mi355')!.map((p) => [p.number, p.passed, p.observed])).toEqual([[30001, 0, 1]])
+    expect(['passed', 'failed', 'soft_fail', 'unobserved'].map(resultLabel)).toEqual(['Passed', 'Hard fail', 'Soft fail', 'No signal'])
   })
 })

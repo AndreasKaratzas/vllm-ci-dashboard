@@ -315,3 +315,33 @@ export function parityConfigNote(summary: Rec, source: Rec): string {
     (/^[0-9a-f]{40}$/.test(commit) ? ` Source: main CI at ${commit.slice(0, 12)}.` : '')
   )
 }
+
+export interface HardwarePassPoint {
+  number: number
+  observedAt: string | null
+  observed: number
+  passed: number
+}
+
+/** Exact job outcomes per retained AMD build for each hardware family (lower-case id), oldest build first. */
+export function hardwareVariantHistory(amdHealth: Rec | null | undefined): Map<string, HardwarePassPoint[]> {
+  const byHardware = new Map<string, Map<number, HardwarePassPoint>>()
+  for (const row of amdHealthGroups(currentAmdHealth(amdHealth))) {
+    for (const observation of amdGroupObservations(row)) {
+      const number = Number(observation.build_number)
+      const state = observationState(observation)
+      const passed = state === 'passed'
+      if (!Number.isFinite(number) || number <= 0 || (!passed && !isIncidentObservation(observation))) continue
+      const hardware = String(observation.hardware || row.hardware || 'unknown').toLowerCase()
+      const builds = byHardware.get(hardware) ?? new Map<number, HardwarePassPoint>()
+      const point = builds.get(number) ?? { number, observedAt: null, observed: 0, passed: 0 }
+      const when = observationTimestamp(observation)
+      if (when && (!point.observedAt || when < point.observedAt)) point.observedAt = when
+      point.observed += 1
+      if (passed) point.passed += 1
+      builds.set(number, point)
+      byHardware.set(hardware, builds)
+    }
+  }
+  return new Map([...byHardware].map(([hardware, builds]) => [hardware, [...builds.values()].sort((a, b) => a.number - b.number)]))
+}

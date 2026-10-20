@@ -81,7 +81,7 @@ const actionAttrs = computed(() => {
           v-if="action"
           v-bind="actionAttrs"
           data-kpi-action
-          class="text-left outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+          class="text-left outline-none after:absolute after:inset-0 after:z-10 after:rounded-xl after:content-['']"
         >
           {{ label }}<span class="sr-only">: {{ action.label }}</span>
         </component>

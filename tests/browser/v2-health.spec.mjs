@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { readGolden } from './golden/read.mjs';
-import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
+import { collectErrors, expectQuality, setTheme, settleAnimations } from './support/quality.mjs';
 
 // CI Health against the golden page facts of the fixture snapshot, plus the
 // quality gates on its drill-down sheets.
@@ -43,6 +43,36 @@ async function detailFields(scope) {
 }
 const lower = (fields) => fields.map(([label, value]) => [label.toLowerCase(), value]);
 
+// The golden facts were captured from the classic page. The design system names
+// one result the same way everywhere and mutes a blank cell, so each golden cell
+// is compared through that fixed vocabulary; the facts themselves are unchanged.
+const RESULT = { passed: 'Passed', failed: 'Hard fail', unknown: 'No signal', unobserved: 'No signal', '-': '—' };
+const shown = (cell) =>
+  RESULT[cell] ??
+  cell
+    .replace(/^(\d+) pass - (\d+) non-passing$/, '$1 passing · $2 failing')
+    .replace(/^1 jobs$/, '1 job')
+    .replace(/^(\d+) non-passing$/, '$1 failing')
+    .replace(/^(\d+) unobserved$/, '$1 no signal');
+const shownRows = (rows) => rows.map((row) => row.map(shown));
+
+// Serves a 30-day ledger built from the fixture's exact-job catalog, so the evidence branch renders.
+// The manifest's digest of the published (empty) ledger is dropped so the substitute validates.
+async function routeLedger(page) {
+  await page.route('**/operations_v2_manifest.json?*', async (route) => {
+    const manifest = await (await route.fetch()).json();
+    delete manifest.sections.reliability.sha256;
+    await route.fulfill({ json: manifest });
+  });
+  await page.route('**/operations_v2/reliability.json?*', async (route) => {
+    const response = await page.request.get('/data/vllm/ci/operations_v2/amd_test_health.json');
+    const { amd_test_health: amd } = await response.json();
+    await route.fulfill({
+      json: { reliability: { available: true, source_pipeline: 'ci', job_scope: 'amd_gpu', hardware_scope: 'amd_mi_gpu', group_catalog: amd.group_catalog } },
+    });
+  });
+}
+
 const kpiValue = (card) => card.locator('[data-slot=kpi-value]');
 const kpiOpen = (card) => card.locator('[data-kpi-action]');
 
@@ -83,9 +113,7 @@ test.describe('CI Health Overview and Upstream parity match the golden page fact
     await expect(ring).toContainText(rate);
     await expect(ring).toContainText(ratio);
     await expect(page.getByText(new RegExp(`Current main CI · ${groups} logical groups`, 'i'))).toBeVisible();
-    await page.getByRole('button', { name: 'About this view' }).click();
     await expect(page.getByTestId('parity-config-note')).toHaveText(note);
-    await page.keyboard.press('Escape');
     const v2Areas = await page.getByTestId('gap-area').evaluateAll((nodes) =>
       nodes.map((n) => `${n.querySelector('[data-testid=gap-area-label]').textContent.trim()}|${n.querySelector('[data-testid=gap-area-count]').textContent.trim()}`),
     );
@@ -106,8 +134,11 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
     await page.goto('/#/health?view=coverage');
     await expect(page.getByTestId('hardware-policy-meta')).toHaveText(expected.meta);
     await expect(kpiValue(page.getByTestId('hardware-rate'))).toHaveText(expected.rate);
-    for (const [label, count] of expected.stats) {
-      const mode = { 'Test groups': 'all', Passing: 'passing', Failing: 'failing', 'No signal': 'no-signal' }[label];
+    const stats = Object.fromEntries(expected.stats);
+    // The configured total is the denominator of the pass-rate ring.
+    await expect(page.getByTestId('hardware-rate')).toContainText(`${stats.Passing} / ${stats['Test groups']}`);
+    for (const [label, count] of expected.stats.filter(([label]) => label !== 'Test groups')) {
+      const mode = { Passing: 'passing', Failing: 'failing', 'No signal': 'no-signal' }[label];
       const card = page.getByTestId(`hardware-stat-${mode}`);
       await expect(card.locator('[data-slot=card-description]')).toContainText(label);
       await expect(kpiValue(card)).toHaveText(count);
@@ -121,11 +152,11 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
     const metrics = await page.getByTestId('architecture-metrics').evaluateAll((nodes) =>
       nodes.map((n) => [...n.querySelectorAll('span')].map((s) => s.textContent.trim())),
     );
-    expect(metrics).toEqual(expected.architectures.map((a) => a.metrics));
+    expect(metrics).toEqual(expected.architectures.map((a) => a.metrics.map(shown)));
 
     const matrix = page.getByTestId('route-matrix');
     await expect(matrix.getByTestId('matrix-sort-description')).toHaveText(expected.description);
-    expect(await tableRows(matrix, expected.rows[0].length)).toEqual(expected.rows);
+    expect(await tableRows(matrix, expected.rows[0].length)).toEqual(shownRows(expected.rows));
     expect(errors).toEqual([]);
   });
 
@@ -134,10 +165,10 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
       const expected = golden[`coverage sorted by ${sort}`];
       await page.goto('/#/health?view=coverage');
       const label = { name: 'Test group', area: 'Test area' }[sort];
-      await page.getByTestId('route-matrix').getByRole('radio', { name: label, exact: true }).or(page.getByTestId('route-matrix').getByRole('button', { name: label, exact: true })).click();
+      await page.getByTestId('route-matrix').getByRole('button', { name: label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`sort=${sort}`));
       await expect(page.getByTestId('matrix-sort-description')).toHaveText(expected.description);
-      expect(await tableRows(page.getByTestId('route-matrix'), expected.rows[0].length)).toEqual(expected.rows);
+      expect(await tableRows(page.getByTestId('route-matrix'), expected.rows[0].length)).toEqual(shownRows(expected.rows));
       await page.goto(`/#/health?view=coverage&sort=${sort}`);
       await expect(page.getByTestId('matrix-sort-description')).toHaveText(expected.description);
     });
@@ -146,12 +177,13 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
   test('drill-downs: group browser filters, group evidence, architecture routes, and test-group detail', async ({ page }) => {
     const { browsers, evidence, architecture, group } = golden['coverage drill-downs'];
     await page.goto('/#/health?view=coverage');
+    const kpiOf = (mode) => page.getByTestId(mode === 'all' ? 'hardware-rate' : `hardware-stat-${mode}`);
     for (const [mode, browser] of Object.entries(browsers)) {
-      await kpiOpen(page.getByTestId(`hardware-stat-${mode}`)).click();
+      await kpiOpen(kpiOf(mode)).click();
       const sheet = topSheet(page);
       await expect(sheet.getByRole('heading').first()).toHaveText(browser.title);
       await expect(sheet.locator('[data-slot=row-count]')).toHaveText(browser.count);
-      expect(await tableRows(sheet, 7)).toEqual(browser.rows);
+      expect(await tableRows(sheet, 7)).toEqual(shownRows(browser.rows));
       await closeSheets(page);
     }
     // Changing a filter in place matches the golden browser of that mode.
@@ -159,7 +191,7 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
     await page.getByRole('combobox', { name: 'Filter configured test-group status' }).click();
     await page.getByRole('option', { name: 'Passing', exact: true }).click();
     await expect(topSheet(page).locator('[data-slot=row-count]')).toHaveText(browsers.passing.count);
-    expect(await tableRows(topSheet(page), 7)).toEqual(browsers.passing.rows);
+    expect(await tableRows(topSheet(page), 7)).toEqual(shownRows(browsers.passing.rows));
     await page.getByRole('combobox', { name: 'Filter configured test-group status' }).click();
     await page.getByRole('option', { name: 'Failing', exact: true }).click();
     await expect(topSheet(page).locator('[data-slot=row-count]')).toHaveText(browsers.failing.count);
@@ -168,22 +200,41 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
     const detail = topSheet(page);
     await expect(detail.getByRole('heading').first()).toHaveText(evidence.title);
     expect(lower(await detailFields(detail))).toEqual(lower(evidence.fields));
-    expect((await tableRows(detail, 4)).map((cells) => [cells[0], cells[2], cells[3]])).toEqual(evidence.definitions);
+    expect((await tableRows(detail, 4)).map((cells) => [cells[0], cells[2], cells[3]])).toEqual(shownRows(evidence.definitions));
     await closeSheets(page);
 
     await page.getByTestId('architecture-row').first().click();
     let sheet = topSheet(page);
     await expect(sheet.getByRole('heading').first()).toHaveText(architecture.title);
     await expect(sheet).toContainText(architecture.subtitle);
-    expect(await tableRows(sheet, 4)).toEqual(architecture.rows);
+    expect(await tableRows(sheet, 4)).toEqual(shownRows(architecture.rows));
     await sheet.locator('tbody tr').first().getByRole('button').first().click();
     await expect(sheets(page)).toHaveCount(2);
     sheet = topSheet(page);
     await expect(sheet.getByRole('heading').first()).toHaveText(group.title);
     expect(lower(await detailFields(sheet))).toEqual(lower(group.fields));
     await sheet.getByRole('button', { name: 'Load 30-day run history' }).click();
-    // The fixture ledger has no retained rows, so the load is offered again.
-    await expect(sheet.getByRole('button', { name: 'Load 30-day run history' })).toBeVisible();
+    // The fixture ledger is unpublished: the sheet says so instead of offering the load again.
+    await expect(sheet.getByTestId('group-history-empty')).toContainText('not published in this snapshot');
+    await expect(sheet.getByRole('button', { name: 'Load 30-day run history' })).toHaveCount(0);
+  });
+
+  test('a loaded 30-day ledger shows the outcome trend, cohort toggle, and filters', async ({ page }) => {
+    const errors = collectErrors(page);
+    await routeLedger(page);
+    await page.goto('/#/health?view=coverage');
+    await page.getByTestId('route-matrix').locator('tbody tr').first().click();
+    await topSheet(page).getByRole('button', { name: 'Load 30-day run history' }).click();
+    const sheet = topSheet(page);
+    await expect(sheet.getByTestId('outcome-strip').locator('a')).not.toHaveCount(0);
+    await expect(sheet.locator('[data-slot=line-chart]')).not.toHaveCount(0);
+    await sheet.getByRole('button', { name: 'Nightly only' }).click();
+    await sheet.getByRole('button', { name: 'All main' }).click();
+    await expect(sheet.getByRole('button', { name: 'All main' })).toHaveAttribute('aria-pressed', 'true');
+    await sheet.getByRole('combobox', { name: 'Result' }).click();
+    await page.getByRole('option', { name: 'Failures only' }).click();
+    await expect(sheet.locator('[data-slot=row-count]')).toContainText(' of ');
+    expect(errors).toEqual([]);
   });
 });
 
@@ -204,7 +255,10 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
     await expect(page.locator('[data-slot=freshness-detail]')).toContainText(`${expected.observed} ·`);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('mirror-hero')).toContainText(expected.meta);
-    const legend = await page.getByTestId('mirror-hardware').evaluateAll((nodes) => nodes.map((n) => [...n.children].slice(1).map((c) => c.textContent.trim())));
+    const legend = await page
+      .getByTestId('mirror-families')
+      .locator('[data-slot=donut-legend-item]')
+      .evaluateAll((nodes) => nodes.map((n) => ['legend-value', 'legend-label'].map((slot) => n.querySelector(`[data-slot=${slot}]`).textContent.trim())));
     expect(legend).toEqual(expected.legend);
     expect(await texts(page.getByTestId('mirror-mode').locator('[data-slot=kpi-value]'))).toEqual(expected.modes);
     expect(await texts(page.getByTestId('mirror-fact').locator('strong'))).toEqual(expected.facts);
@@ -234,7 +288,8 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
     expect(await detail.locator('a').evaluateAll((nodes) => nodes.map((n) => n.getAttribute('href')))).toEqual(drawer.sources);
     await closeSheets(page);
 
-    await page.getByRole('button', { name: areaBrowser.label }).click();
+    // The golden label "Browse all 1 test-area files" now reads with the right plural.
+    await page.getByRole('button', { name: areaBrowser.label.replace(/^Browse all 1 test-area files$/, 'Browse 1 test-area file').replace(/^Browse all /, 'Browse ') }).click();
     const sheet = topSheet(page);
     await expect(sheet.getByRole('heading').first()).toHaveText(areaBrowser.title);
     await expect(sheet.locator('[data-slot=row-count]')).toHaveText(areaBrowser.count);
@@ -267,29 +322,44 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
 });
 
 // Every main drill-down sheet passes the same gates as the pages.
+const drillRow = (page) => topSheet(page).locator('tbody tr').first().click();
 const SHEETS = [
   ['logical catalog', '/#/health', (page) => kpiOpen(page.getByTestId('logical-ring')).click()],
+  ['logical group', '/#/health', async (page) => { await kpiOpen(page.getByTestId('logical-ring')).click(); await drillRow(page); }, 2],
   ['exact job', '/#/health', (page) => page.getByTestId('latest-failures').locator('tbody tr').first().click()],
+  ['nightly movement', '/#/health', async (page) => { await page.getByTestId('movement-chart').getByRole('button', { name: /Inspect/ }).click(); await page.getByRole('menuitem').last().click(); }],
   ['parity inventory', '/#/health?view=parity', (page) => kpiOpen(page.getByTestId('parity-ring')).click()],
-  ['group browser', '/#/health?view=coverage', (page) => kpiOpen(page.getByTestId('hardware-stat-all')).click()],
+  ['parity group', '/#/health?view=parity', async (page) => { await page.getByTestId('gap-area').first().click(); await drillRow(page); }, 2],
+  ['group browser', '/#/health?view=coverage', (page) => kpiOpen(page.getByTestId('hardware-rate')).click()],
+  ['group evidence', '/#/health?view=coverage', async (page) => { await kpiOpen(page.getByTestId('hardware-stat-failing')).click(); await drillRow(page); }, 2],
   ['architecture routes', '/#/health?view=coverage', (page) => page.getByTestId('architecture-row').first().click()],
   ['group history', '/#/health?view=coverage', (page) => page.getByTestId('route-matrix').locator('tbody tr').first().click()],
+  ['group history ledger', '/#/health?view=coverage', async (page) => {
+    await routeLedger(page);
+    await page.reload();
+    await page.getByTestId('route-matrix').locator('tbody tr').first().click();
+    await topSheet(page).getByRole('button', { name: 'Load 30-day run history' }).click();
+    await topSheet(page).locator('[data-slot=line-chart]').first().waitFor();
+  }],
+  ['complete route matrix', '/#/health?view=coverage', (page) => page.getByRole('button', { name: 'Browse complete route matrix' }).click()],
   ['mirror detail', '/#/health?view=mirrors', (page) => page.getByTestId('mirror-inventory').locator('tbody tr').first().click()],
+  ['mirror areas', '/#/health?view=mirrors', (page) => page.getByRole('button', { name: /^Browse .*test-area file/ }).click()],
 ];
 
 for (const theme of ['light', 'dark']) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
     test(`CI Health sheets meet the quality gates (${theme}, ${viewport.width}px)`, async ({ page }) => {
+      test.setTimeout(120_000);
       await setTheme(page, theme);
       await page.setViewportSize(viewport);
       const errors = collectErrors(page);
-      for (const [name, route, open] of SHEETS) {
+      for (const [name, route, open, depth = 1] of SHEETS) {
         await page.goto(route);
         await page.getByRole('heading', { level: 2 }).first().waitFor();
+        await settleAnimations(page);
         await open(page);
-        await expect(sheets(page), name).toHaveCount(1);
+        await expect(sheets(page), name).toHaveCount(depth);
         await topSheet(page).getByRole('heading').first().waitFor();
-        await page.waitForTimeout(300);
         await expectQuality(page, errors);
         await closeSheets(page);
       }

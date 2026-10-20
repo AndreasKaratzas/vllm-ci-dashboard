@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ChevronRight, ServerOff } from '@lucide/vue'
 import { computed } from 'vue'
+import LineChart from '@/components/charts/LineChart.vue'
+import { shortDay, type SeriesSpec } from '@/components/charts/chart'
 import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
 import Callout from '@/components/feedback/Callout.vue'
@@ -14,6 +16,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useDataset } from '@/composables/useDataset'
 import { useQueryState } from '@/composables/useQueryState'
 import type { SheetStack } from '@/composables/useSheetStack'
+import { hardwareVariantHistory } from '@/domain/ciHealth'
 import { integer, percent, type Rec } from '@/domain/format'
 import {
   MATRIX_SORT_MODES,
@@ -32,7 +35,8 @@ import {
   type MatrixSortMode,
 } from '@/domain/healthHardware'
 import { hardwareColor, rateTone, statusVar, toneClasses } from '@/lib/palette'
-import { architectureDetail, groupHistoryDetail, matrixBrowserDetail, matrixColumns, matrixUnavailableDetail } from './details'
+import type { Tone } from '@/lib/tone'
+import { architectureDetail, count, groupHistoryDetail, matrixBrowserDetail, matrixColumns, matrixUnavailableDetail } from './details'
 
 const props = defineProps<{ ops: Rec; sheets: SheetStack }>()
 
@@ -60,19 +64,39 @@ const coverageRows = computed(() => sortAmdMatrixRows(matrix.value?.rows || [], 
 const archHealth = computed(() => architectureHealth(architectures.value, coverageRows.value))
 const columns = computed(() => matrixColumns(architectures.value, props.ops))
 
+const passing = computed(() => Number(policy.value.passing_groups || 0))
+const failing = computed(() => Number(policy.value.failing_groups || 0))
 const noSignal = computed(() => Number(policy.value.waiting_groups || 0) + Number(policy.value.unknown_groups || 0))
 const included = computed(() => Number(policy.value.included_groups || 0))
-const STAT_COUNT: Record<string, () => number> = {
-  all: () => included.value,
-  passing: () => Number(policy.value.passing_groups || 0),
-  failing: () => Number(policy.value.failing_groups || 0),
-  'no-signal': () => noSignal.value,
-}
-const segments = computed<ProportionSegment[]>(() => [
-  { key: 'passing', label: 'Passing', count: STAT_COUNT.passing!(), color: statusVar('pass') },
-  { key: 'failing', label: 'Failing', count: STAT_COUNT.failing!(), color: statusVar('hard') },
-  { key: 'no-signal', label: 'No signal', count: noSignal.value, color: statusVar('neutral') },
+const COUNT_CARDS = computed(() => [
+  { mode: 'passing' as const, label: 'Passing', count: passing.value, tone: 'pass' as Tone },
+  { mode: 'failing' as const, label: 'Failing', count: failing.value, tone: 'hard' as Tone },
+  { mode: 'no-signal' as const, label: 'No signal', count: noSignal.value, tone: 'neutral' as Tone },
 ])
+const segments = computed<ProportionSegment[]>(() => COUNT_CARDS.value.map((c) => ({ key: c.mode, label: c.label, count: c.count, color: statusVar(c.tone) })))
+
+// Exact-job pass rate per architecture across the retained nightlies.
+const history = computed(() => hardwareVariantHistory(amdHealth.value))
+const trendSeries = computed<SeriesSpec[]>(() =>
+  architectures.value.filter((arch) => history.value.has(String(arch.id).toLowerCase())).map((arch) => ({ key: String(arch.id).toLowerCase(), label: String(arch.label), color: hardwareColor(arch.id) })),
+)
+interface TrendRow extends Rec {
+  number: number
+  at: number
+}
+// Only nightlies that every charted architecture ran, so a missing route never reads as 0 %.
+const trendRows = computed<TrendRow[]>(() => {
+  const keys = trendSeries.value.map((s) => s.key)
+  const builds = new Map<number, TrendRow>()
+  for (const key of keys) {
+    for (const point of history.value.get(key) ?? []) {
+      const row = builds.get(point.number) ?? { number: point.number, at: Date.parse(point.observedAt || '') || 0 }
+      row[key] = (point.passed / point.observed) * 100
+      builds.set(point.number, row)
+    }
+  }
+  return [...builds.values()].filter((row) => keys.every((key) => key in row)).sort((a, b) => a.number - b.number)
+})
 
 function openBrowser(mode: MatrixBrowserMode) {
   const state = matrixBrowserState(matrix.value)
@@ -104,9 +128,10 @@ function openMatrix() {
 
 const routeSegments = (health: ArchitectureHealth): ProportionSegment[] => [
   { key: 'passed', label: 'passing', count: health.passed, color: statusVar('pass') },
-  { key: 'incident', label: 'non-passing', count: health.incident, color: statusVar('hard') },
-  { key: 'unknown', label: 'unobserved', count: health.unknown, color: statusVar('neutral') },
+  { key: 'incident', label: 'failing', count: health.incident, color: statusVar('hard') },
+  { key: 'unknown', label: 'no signal', count: health.unknown, color: statusVar('neutral') },
 ]
+const archTone = (health: ArchitectureHealth) => rateTone(architectureRate(health).passRate)
 </script>
 
 <template>
@@ -121,47 +146,68 @@ const routeSegments = (health: ArchitectureHealth): ProportionSegment[] => [
         <Callout v-if="overview.unavailable" tone="soft" title="Best-hardware metric unavailable">
           Complete best-hardware detail is unavailable or storage-bounded; rates and drill-downs stay hidden.
         </Callout>
-        <template v-else>
-          <StatGrid :cols="5">
-            <KpiCard
-              label="Pass rate"
-              :value="overview.rate === '-' ? null : overview.rate"
-              :status="{ tone: rateTone(policy.pass_percentage), label: `${overview.stats[1]!.count} / ${overview.stats[0]!.count}` }"
-              footnote="One fixed best-hardware policy"
-              :headline="overview.browseLabel"
-              :action="{ label: overview.browseLabel, onOpen: () => openBrowser('all') }"
-              data-testid="hardware-rate"
+        <StatGrid v-else :cols="4">
+          <KpiCard
+            variant="ring"
+            label="Best-hardware pass rate"
+            :value="`${integer(passing)} passing`"
+            :ratio="{ current: passing, total: included }"
+            :footnote="`${count(included, 'configured test group')}; a group passes on its best AMD route`"
+            headline="Browse test groups"
+            :action="{ label: overview.browseLabel, onOpen: () => openBrowser('all') }"
+            data-testid="hardware-rate"
+          />
+          <KpiCard
+            v-for="card in COUNT_CARDS"
+            :key="card.mode"
+            :label="card.label"
+            :value="card.count"
+            :footnote="`${percent(card.count, included)} of configured groups`"
+            :headline="`Inspect ${card.label.toLowerCase()}`"
+            :action="{ label: `Inspect ${card.label.toLowerCase()} test groups`, onOpen: () => openBrowser(card.mode) }"
+            :data-testid="`hardware-stat-${card.mode}`"
+          >
+            <ProportionBar
+              :segments="[{ key: card.mode, label: card.label, count: card.count, color: statusVar(card.tone) }]"
+              :max="included || 1"
+              :label="`${card.label} share of configured test groups`"
+              :legend="false"
             />
-            <KpiCard
-              v-for="stat in overview.stats"
-              :key="stat.mode"
-              :label="stat.label"
-              :value="STAT_COUNT[stat.mode]!()"
-              :status="stat.mode === 'failing' && STAT_COUNT.failing!() ? { tone: 'hard', label: percent(STAT_COUNT.failing!(), included) } : undefined"
-              :footnote="stat.mode === 'all' ? 'Deduplicated by the best-hardware policy' : `${percent(STAT_COUNT[stat.mode]!(), included)} of configured groups`"
-              :headline="`Inspect ${stat.label.toLowerCase()}`"
-              :action="{ label: `Inspect ${stat.label.toLowerCase()}`, onOpen: () => openBrowser(stat.mode) }"
-              :data-testid="`hardware-stat-${stat.mode}`"
-            />
-          </StatGrid>
-        </template>
+          </KpiCard>
+        </StatGrid>
       </section>
 
       <Callout v-if="viewState === 'bounded'" tone="soft" title="Storage-bounded snapshot" data-testid="hardware-bounded">
         AMD detail is storage-bounded; architecture rates and routes are hidden.
       </Callout>
 
-      <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-2 *:min-w-0">
+      <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="hardware-trend">
+        <CardHeader>
+          <CardTitle as="h2">Exact-job pass rate by architecture</CardTitle>
+          <CardDescription>Share of exact main CI AMD jobs that passed in each retained nightly, per GPU family</CardDescription>
+        </CardHeader>
+        <CardContent class="px-2 sm:px-6">
+          <EmptyState v-if="trendRows.length < 2" title="Not enough retained nightlies for a trend" description="The chart appears once two nightlies with exact job outcomes are retained." />
+          <LineChart
+            v-else
+            :rows="trendRows"
+            :x="(row: TrendRow) => row.at"
+            :row-label="(row: TrendRow) => `Nightly #${row.number} · ${shortDay(row.at)}`"
+            :series="trendSeries"
+            :y-domain="[0, 100]"
+            :y-format="(v: number) => `${Math.round(v)}%`"
+            label="Exact-job pass rate by architecture"
+          />
+        </CardContent>
+      </Card>
+
+      <div class="grid grid-cols-1 gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] items-start *:min-w-0">
         <Card v-if="!overview.unavailable" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="hardware-distribution">
           <CardHeader>
             <CardTitle as="h2">Best-hardware outcome</CardTitle>
             <CardDescription data-testid="hardware-policy-meta">{{ overview.meta }}</CardDescription>
           </CardHeader>
           <CardContent class="flex flex-col gap-4">
-            <div class="flex items-baseline gap-2">
-              <span class="text-4xl font-semibold tracking-tight tabular-nums">{{ integer(STAT_COUNT.passing!()) }}</span>
-              <span class="text-sm text-muted-foreground">of {{ integer(included) }} configured test groups pass on their best AMD route</span>
-            </div>
             <ProportionBar :segments="segments" label="Best-hardware outcome" :on-select="(s) => openBrowser(s.key as MatrixBrowserMode)" />
             <p class="text-xs text-muted-foreground">{{ overview.facts }}</p>
           </CardContent>
@@ -170,7 +216,7 @@ const routeSegments = (health: ArchitectureHealth): ProportionSegment[] => [
         <Card v-if="viewState !== 'bounded'" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="architecture-routes">
           <CardHeader>
             <CardTitle as="h2">AMD architecture routes</CardTitle>
-            <CardDescription>Hardware routes per architecture; the best-hardware policy deduplicates them into test groups</CardDescription>
+            <CardDescription>Latest result of every configured route per architecture</CardDescription>
           </CardHeader>
           <CardContent class="flex flex-col gap-1 px-3">
             <EmptyState v-if="!archHealth.length" title="No architectures are configured in this matrix" />
@@ -178,8 +224,8 @@ const routeSegments = (health: ArchitectureHealth): ProportionSegment[] => [
               v-for="health in archHealth"
               :key="health.architecture.id"
               type="button"
-              class="group/arch grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-accent/80"
-              :aria-label="`Inspect ${health.architecture.label}: ${integer(health.passed)} passing routes, ${integer(health.incident)} non-passing routes, ${integer(health.unknown)} unobserved routes`"
+              class="group/arch grid grid-cols-[minmax(0,6.5rem)_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-lg px-3 py-3 text-left transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:bg-accent/80"
+              :aria-label="`Inspect ${health.architecture.label}: ${integer(health.passed)} passing, ${integer(health.incident)} failing, ${integer(health.unknown)} no-signal routes`"
               data-testid="architecture-row"
               @click="openArchitecture(health)"
             >
@@ -187,20 +233,20 @@ const routeSegments = (health: ArchitectureHealth): ProportionSegment[] => [
                 <span class="h-8 w-1 shrink-0 rounded-full" :style="{ backgroundColor: hardwareColor(health.architecture.id) }" aria-hidden="true" />
                 <span class="flex min-w-0 flex-col">
                   <strong class="font-semibold" data-testid="architecture-label">{{ health.architecture.label }}</strong>
-                  <span class="text-xs text-muted-foreground" data-testid="architecture-configured">{{ integer(architectureRate(health).configured) }} configured routes</span>
+                  <span class="text-xs text-muted-foreground" data-testid="architecture-configured">{{ count(architectureRate(health).configured, 'configured route') }}</span>
                 </span>
               </span>
               <span class="flex min-w-0 flex-col gap-1.5">
                 <ProportionBar :segments="routeSegments(health)" :max="architectureRate(health).configured" :label="`${health.architecture.label} routes`" :legend="false" />
                 <span class="flex flex-wrap gap-x-3 text-xs text-muted-foreground" data-testid="architecture-metrics">
                   <span :class="health.passed ? 'text-foreground' : undefined">{{ integer(health.passed) }} passing</span>
-                  <span :class="health.incident ? toneClasses('hard', 'text') : undefined">{{ integer(health.incident) }} non-passing</span>
-                  <span>{{ integer(health.unknown) }} unobserved</span>
+                  <span :class="health.incident ? toneClasses('hard', 'text') : undefined">{{ integer(health.incident) }} failing</span>
+                  <span>{{ integer(health.unknown) }} no signal</span>
                 </span>
               </span>
               <span class="flex items-center gap-2">
                 <span class="flex flex-col items-end">
-                  <strong class="text-lg font-semibold tabular-nums" :class="architectureRate(health).tone === 'pass' ? 'text-foreground' : toneClasses(architectureRate(health).tone, 'text')" data-testid="architecture-rate">
+                  <strong class="text-lg font-semibold tabular-nums" :class="archTone(health) === 'pass' ? 'text-foreground' : toneClasses(archTone(health), 'text')" data-testid="architecture-rate">
                     {{ architectureRate(health).label }}
                   </strong>
                   <span class="text-xs text-muted-foreground">passing</span>

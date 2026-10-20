@@ -19,6 +19,7 @@ import { integer, shortDate, toneForState, value, type Rec } from '@/domain/form
 import { hardwareDisplayLabel } from '@/domain/health'
 import { exactPipelineEvidenceUrl } from '@/domain/urls'
 import { hardwareColor } from '@/lib/palette'
+import type { Tone } from '@/lib/tone'
 import OutcomeStrip from './OutcomeStrip.vue'
 
 /** What the AMD-group drill-downs need from the page: the amd_test_health section and its signal build. */
@@ -33,6 +34,20 @@ export function hardwareCell(hardware: unknown): CellSpec {
   return dotted(hardwareDisplayLabel(hardware), hardwareColor(hardware))
 }
 
+const RESULT_LABEL: Partial<Record<Tone, string>> = { pass: 'Passed', soft: 'Soft fail', hard: 'Hard fail' }
+
+/** One run or route result, named the same way everywhere: Passed, Soft fail, Hard fail, or No signal. */
+export function resultLabel(state: unknown): string {
+  return RESULT_LABEL[toneForState(state)] ?? 'No signal'
+}
+
+export function resultCell(state: unknown): CellSpec {
+  const tone = toneForState(state)
+  return { text: resultLabel(state), tone: RESULT_LABEL[tone] ? tone : 'neutral' }
+}
+
+const plural = (n: unknown, word: string) => `${integer(n)} ${Number(n) === 1 ? word : `${word}s`}`
+
 /** One exact main CI AMD gating job (a Buildkite job variant) and its retained outcomes. */
 export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
   const observations = amdGroupObservations(row)
@@ -42,20 +57,21 @@ export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
   return {
     id: `amd-job:${row.id || jobName(row)}`,
     title: jobName(row),
-    subtitle: `${value(row.hardware_variant || row.hardware)} · ${value(row.queue)} · exact main CI AMD gating-job evidence`,
+    subtitle: `${hardwareDisplayLabel(row.hardware_variant || row.hardware)} · ${value(row.queue)} · exact main CI AMD gating job`,
     stats: [
       {
         label: 'Latest AMD result',
         value: amdStateLabel(latest),
         tone: toneForState(latest),
+        badge: amdStateLabel(latest),
         meta: row.latest_build_number ? `#${row.latest_build_number} · ${shortDate(row.latest_observed_at)}` : 'No retained latest result',
       },
       {
         label: 'Retained-run pass rate',
         value: passRate === null ? '—' : `${passRate.toFixed(1)}%`,
-        meta: `${integer(row.passed)} passed · ${integer(row.soft_failed)} soft · ${integer(row.hard_failed)} hard`,
+        meta: `${integer(row.passed)} passed · ${integer(row.soft_failed)} soft fail · ${integer(row.hard_failed)} hard fail`,
       },
-      { label: 'Current pass streak', value: integer(row.current_pass_streak), meta: `${integer(row.runs)} retained AMD nightlies` },
+      { label: 'Current pass streak', value: integer(row.current_pass_streak), meta: `of ${integer(row.runs)} retained AMD ${Number(row.runs) === 1 ? 'nightly' : 'nightlies'}` },
       {
         label: 'Non-passing runs',
         value: integer(incidents.length),
@@ -67,7 +83,7 @@ export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
       ? [
           {
             title: 'Main CI AMD gating-job outcomes',
-            meta: `${integer(observations.length)} exact job runs, oldest to newest`,
+            meta: `${plural(observations.length, 'exact job run')}, oldest to newest`,
             component: markRaw(OutcomeStrip),
             props: { observations },
           },
@@ -77,11 +93,11 @@ export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
       ? [
           {
             title: 'Failure evidence',
-            meta: `${integer(incidents.length)} exact AMD jobs`,
+            meta: plural(incidents.length, 'exact AMD job'),
             rows: incidents.slice().reverse(),
             pageSize: 10,
             columns: [
-              { id: 'result', label: 'Result', value: (o: Rec) => observationState(o), cell: (o: Rec) => badge(observationState(o).replaceAll('_', ' '), toneForState(observationState(o))) },
+              { id: 'result', label: 'Result', value: (o: Rec) => observationState(o), cell: (o: Rec) => resultCell(observationState(o)) },
               { id: 'observed', label: 'Observed', value: (o: Rec) => String(observationTimestamp(o) || ''), cell: (o: Rec) => text(shortDate(observationTimestamp(o))) },
               { id: 'build', label: 'Build', value: (o: Rec) => Number(o.build_number || 0), cell: (o: Rec) => link(o.build_number ? `#${o.build_number}` : '—', exactPipelineEvidenceUrl(o, 'ci'), true) },
             ] satisfies ColumnSpec<Rec>[],
@@ -103,9 +119,9 @@ export function logicalGroupDetail(row: Rec, context: AmdGroupContext): Detail {
   return {
     id: `amd-logical:${row.logical_key || row.label}`,
     title: String(row.label || row.logical_key || 'Logical AMD test group'),
-    subtitle: `${amdLogicalStateLabel(row.state)} · ${integer(row.hardware_count)} hardware routes · ${integer(row.job_variant_count)} exact job variants`,
+    subtitle: `${plural(row.hardware_count, 'hardware route')} · ${plural(row.job_variant_count, 'exact job variant')}`,
     stats: [
-      { label: 'Latest result', value: amdLogicalStateLabel(row.state), tone: amdLogicalStateTone(row.state) },
+      { label: 'Latest result', value: amdLogicalStateLabel(row.state), tone: amdLogicalStateTone(row.state), badge: amdLogicalStateLabel(row.state) },
       { label: 'Hardware routes', value: integer(row.hardware_count), meta: routes.map((s) => hardwareDisplayLabel(s.hardware)).join(' · ') || undefined },
       { label: 'Exact job variants', value: integer(row.job_variant_count) },
     ],
@@ -198,7 +214,6 @@ export function exactJobColumns(latestBuild: unknown): ColumnSpec<Rec>[] {
     {
       id: 'build',
       label: 'Build',
-      numeric: true,
       value: (row) => Number(row.latest_build_number || 0),
       cell: (row) => link(row.latest_build_number ? `#${row.latest_build_number}` : '—', row.latest_url, true),
     },

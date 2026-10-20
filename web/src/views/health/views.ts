@@ -14,7 +14,7 @@ export const HEALTH_VIEWS: HealthView[] = [
     value: 'overview',
     label: 'Overview',
     description: 'Latest main CI AMD gating-job outcomes and failure movement across retained nightlies.',
-    sources: ['ci_health'],
+    sources: ['ci_health', 'test_group_parity'],
   },
   {
     value: 'parity',
