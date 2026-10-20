@@ -7,7 +7,7 @@ import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Timeline from '@/components/charts/Timeline.vue'
-import { distinctTicks, shortDay, useSeriesInteraction } from '@/components/charts/chart'
+import { distinctTicks, niceTicks, shortDay, useSeriesInteraction } from '@/components/charts/chart'
 import { useDragRange } from '@/components/charts/dragRange'
 import { escapeHtml, tooltipHtml } from '@/components/charts/tooltip'
 import { SERIES, statusVar } from '@/lib/palette'
@@ -278,5 +278,35 @@ describe('Timeline', () => {
     const wrapper = mount(Timeline, { props: { segments: [], label: 'Failing runs' }, slots: { empty: '<p>No runs</p>' } })
     expect(wrapper.text()).toBe('No runs')
     expect(wrapper.find('[data-testid=timeline]').exists()).toBe(false)
+  })
+})
+
+describe('niceTicks', () => {
+  it('ends on a round tick at or beyond the largest value', () => {
+    expect(niceTicks(0, 188, 4)).toEqual([0, 50, 100, 150, 200])
+    expect(niceTicks(0, 14, 4)).toEqual([0, 5, 10, 15])
+    expect(niceTicks(0, 150, 4)).toEqual([0, 50, 100, 150])
+    expect(niceTicks(-7, 12, 4)).toEqual([-10, -5, 0, 5, 10, 15])
+  })
+
+  it('never steps finer than the minimum step, and spans an empty range', () => {
+    expect(niceTicks(0, 2, 4, 1)).toEqual([0, 1, 2])
+    expect(niceTicks(0, 1, 4)).toEqual([0, 0.25, 0.5, 0.75, 1])
+    expect(niceTicks(0, 0, 4, 1)).toEqual([0, 1])
+  })
+})
+
+describe('BarChart interaction', () => {
+  it('gives clickable bars a pointer and keeps a legend when one series encodes a state', () => {
+    const clickable = mount(BarChart<Row>, {
+      props: { rows, category: (r: Row) => shortDay(r.day), series: [failures[0]!], label: 'Failures', legend: true, onSelect: () => {} },
+    })
+    const plot = clickable.find('[role=img]')
+    expect(plot.attributes('data-clickable')).toBe('')
+    expect(plot.classes()).toContain('[--vis-stacked-bar-cursor:pointer]')
+    expect(clickable.find('[data-slot=chart-legend]').text()).toContain('Hard')
+    const still = mount(BarChart<Row>, { props: { rows, category: (r: Row) => shortDay(r.day), series: [failures[0]!], label: 'Failures' } })
+    expect(still.find('[role=img]').attributes('data-clickable')).toBeUndefined()
+    expect(still.find('[data-slot=chart-legend]').exists()).toBe(false)
   })
 })

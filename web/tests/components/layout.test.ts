@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { defineComponent, h, ref, type ShallowRef } from 'vue'
 import PageHeader from '@/components/layout/PageHeader.vue'
+import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import SubNav from '@/components/layout/SubNav.vue'
+import { provideSubviewHeader, useSubviewHeader, type SubviewHeader } from '@/composables/useSubviewHeader'
 import { installLayoutStubs, settle, testRouter, text } from './support'
 
 installLayoutStubs()
@@ -73,5 +76,85 @@ describe('SubNav', () => {
     const first = wrapper.findAll('a')[0]!
     expect(first.attributes('aria-current')).toBe('page')
     expect(first.classes()).toEqual(expect.arrayContaining(['hover:text-foreground', 'focus-visible:ring-3']))
+  })
+})
+
+describe('SegmentedSelect', () => {
+  const items = [
+    { value: '7d', label: '7d', title: 'Last 7 days' },
+    { value: '30d', label: '30d', title: 'Last 30 days' },
+  ]
+
+  it('offers the same choice as a toggle group from sm up and a select below, under one label', () => {
+    const wrapper = mount(SegmentedSelect, { props: { label: 'Window', items, modelValue: '7d' } })
+    const group = wrapper.find('[role=group]')
+    expect(group.attributes('aria-label')).toBe('Window')
+    expect(group.classes()).toEqual(expect.arrayContaining(['hidden', 'sm:flex']))
+    const toggles = wrapper.findAll('[data-slot=toggle-group-item]')
+    expect(toggles.map((t) => [t.text(), t.attributes('title'), t.attributes('data-state')])).toEqual([
+      ['7d', 'Last 7 days', 'on'],
+      ['30d', 'Last 30 days', 'off'],
+    ])
+    const select = wrapper.find('[role=combobox]')
+    expect(select.attributes('aria-label')).toBe('Window')
+    expect(select.classes()).toContain('sm:hidden')
+    expect(wrapper.find('[data-slot=segmented-select] > span').text()).toBe('Window')
+  })
+
+  it('updates the model from a toggle and never clears it', async () => {
+    const wrapper = mount(SegmentedSelect, { props: { label: 'Window', items, modelValue: '7d' } })
+    await wrapper.findAll('[data-slot=toggle-group-item]')[1]!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['30d']])
+    await wrapper.setProps({ modelValue: '30d' })
+    await wrapper.findAll('[data-slot=toggle-group-item]')[1]!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([['30d']])
+  })
+
+  it('can leave the visible label to the surrounding control', () => {
+    const wrapper = mount(SegmentedSelect, { props: { label: 'Chart range', items, modelValue: '7d', showLabel: false } })
+    expect(wrapper.text()).not.toContain('Chart range')
+    expect(wrapper.find('[role=group]').attributes('aria-label')).toBe('Chart range')
+  })
+})
+
+describe('useSubviewHeader', () => {
+  function host(child: ReturnType<typeof defineComponent>) {
+    let header!: ShallowRef<SubviewHeader | null>
+    const show = ref(true)
+    const Page = defineComponent({
+      setup() {
+        header = provideSubviewHeader()
+        return () => h('div', show.value ? [h(child)] : [])
+      },
+    })
+    return { wrapper: mount(Page), header: () => header.value, show }
+  }
+
+  it('publishes the mounted sub-view header, follows its changes, and clears it on unmount', async () => {
+    const text = ref('Collected 5m ago')
+    const Child = defineComponent({
+      setup() {
+        useSubviewHeader(() => ({ freshness: { text: text.value, tone: 'pass', detail: 'd' } }))
+        return () => h('span')
+      },
+    })
+    const { header, show } = host(Child)
+    expect(header()?.freshness?.text).toBe('Collected 5m ago')
+    text.value = 'Collected 6m ago'
+    await settle()
+    expect(header()?.freshness?.text).toBe('Collected 6m ago')
+    show.value = false
+    await settle()
+    expect(header()).toBeNull()
+  })
+
+  it('is a no-op outside a page that provides a header', () => {
+    const Child = defineComponent({
+      setup() {
+        useSubviewHeader(() => ({}))
+        return () => h('span', 'ok')
+      },
+    })
+    expect(mount(Child).text()).toBe('ok')
   })
 })

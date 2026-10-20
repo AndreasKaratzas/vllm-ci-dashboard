@@ -4,7 +4,12 @@ import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 
 // Each area adds its routes (every sub-view) once it is on the design system;
 // every listed route is checked light and dark, on desktop and on a phone.
-const ROUTES = ['/#/analytics?view=dns', '/#/analytics?view=agent-health'];
+const ROUTES = [
+  '/#/analytics?view=dns',
+  '/#/analytics?view=dns&dns_window=720h&dns_scope=canonical',
+  '/#/analytics?view=agent-health',
+  '/#/analytics?view=agent-health&agent_window=14d&agent_signal=all',
+];
 
 for (const theme of ['light', 'dark']) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {

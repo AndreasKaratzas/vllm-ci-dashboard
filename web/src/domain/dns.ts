@@ -457,17 +457,25 @@ export function queueDnsEvidenceWindowRow(row: Rec, windowId: string, windows: R
   }
 }
 
-export function queueDnsEvidenceForNode(payload: Rec | null | undefined, windowId: string, queue: string, nodeRaw: string): Rec[] {
+/** The valid retained evidence of one window whose raw item passes `keep`, one row per job attempt. */
+function queueDnsWindowEvidence(payload: Rec | null | undefined, windowId: string, keep: (row: Rec) => boolean): Rec[] {
   const deduplicated = new Map<string, Rec>()
   for (const row of ((payload || {}).evidence || {}).items || []) {
-    if (!row || row.queue !== queue) continue
-    if (String(row.node || '').trim() !== String(nodeRaw || '').trim()) continue
+    if (!row || !keep(row)) continue
     const selected = queueDnsEvidenceWindowRow(row, windowId, (payload || {}).windows || {})
     if (!selected) continue
     const key = String(selected.id || [selected.pipeline, selected.build_number, selected.job_id].join('/'))
     deduplicated.set(key, selected)
   }
-  return Array.from(deduplicated.values()).sort(
+  return Array.from(deduplicated.values())
+}
+
+export function queueDnsEvidenceForNode(payload: Rec | null | undefined, windowId: string, queue: string, nodeRaw: string): Rec[] {
+  return queueDnsWindowEvidence(
+    payload,
+    windowId,
+    (row) => row.queue === queue && String(row.node || '').trim() === String(nodeRaw || '').trim(),
+  ).sort(
     (left, right) => queueTimestamp(right.last_at || right.first_at) - queueTimestamp(left.last_at || left.first_at),
   )
 }
@@ -880,4 +888,61 @@ export function createDnsLoader(fetcher: DnsFetcher, onUpgrade?: (payload: Rec) 
     },
     lastRefreshAt: () => lastRefreshAt,
   }
+}
+
+export type DnsActivityPoint = {
+  start: number
+  jobs: number
+  passed: number
+  soft: number
+  hard: number
+  /** Jobs whose final outcome is not a known state. */
+  unknown: number
+  queues: number
+  nodes: number
+  huggingface: number
+}
+
+export interface DnsActivity {
+  bucketMs: number
+  points: DnsActivityPoint[]
+  /** Retained jobs counted in the points. */
+  retained: number
+  /** Every affected job of the window and scope is retained, so the points add up to the totals. */
+  complete: boolean
+}
+
+const MINUTE_MS = 60 * 1000
+const DNS_ACTIVITY_BUCKETS_MS = [5, 15, 60, 180, 360, 1440].map((minutes) => minutes * MINUTE_MS)
+const OUTCOME_KEY = { pass: 'passed', soft: 'soft', hard: 'hard' } as const
+
+/**
+ * The retained exact evidence of the presented window and scope, bucketed by when each job was
+ * first observed (about one bucket per day for 30 days, finer for shorter windows).
+ */
+export function dnsActivity(payload: Rec, view: DnsPresentation): DnsActivity | null {
+  const start = queueTimestamp(view.block?.start)
+  const end = queueTimestamp(view.block?.end_exclusive)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  const bucketMs = DNS_ACTIVITY_BUCKETS_MS.find((ms) => (end - start) / ms <= 31) ?? DNS_ACTIVITY_BUCKETS_MS.at(-1)!
+  const buckets: (DnsActivityPoint & { queueSet: Set<string>; nodeSet: Set<string> })[] = []
+  for (let at = start; at < end; at += bucketMs) {
+    buckets.push({ start: at, jobs: 0, passed: 0, soft: 0, hard: 0, unknown: 0, queues: 0, nodes: 0, huggingface: 0, queueSet: new Set(), nodeSet: new Set() })
+  }
+  const queues = new Set(view.cards.map((card) => card.queue.queue))
+  let retained = 0
+  for (const row of queueDnsWindowEvidence(payload, view.windowId, (item) => queues.has(item.queue))) {
+    const at = queueTimestamp(row.first_at)
+    const bucket = at >= start && at < end ? buckets[Math.floor((at - start) / bucketMs)] : undefined
+    if (!bucket) continue
+    retained += 1
+    bucket.jobs += 1
+    const tone = queueDnsOutcomePresentation(row.state).tone
+    bucket[tone in OUTCOME_KEY ? OUTCOME_KEY[tone as keyof typeof OUTCOME_KEY] : 'unknown'] += 1
+    bucket.queueSet.add(row.queue)
+    bucket.nodeSet.add(String(row.node || '').trim() || '(unidentified)')
+    if (row.target_categories.includes('huggingface_hub')) bucket.huggingface += 1
+  }
+  const points = buckets.map(({ queueSet, nodeSet, ...point }) => ({ ...point, queues: queueSet.size, nodes: nodeSet.size }))
+  return { bucketMs, points, retained, complete: retained >= view.totals.affectedJobs }
 }

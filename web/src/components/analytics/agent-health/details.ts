@@ -16,6 +16,7 @@ import {
   type AgentView,
   type CofailEvent,
 } from '@/domain/agentHealth'
+import { shortDay } from '@/components/charts/chart'
 import { duration, integer, shortDate, value } from '@/domain/format'
 import type { Tone } from '@/lib/tone'
 
@@ -27,6 +28,14 @@ const STATE_TONE: Record<string, Tone> = { hard: 'hard', soft: 'soft', pass: 'pa
 export const stateLabel = (state: string) => STATE_LABEL[String(state || '').toLowerCase()] ?? value(state, 'Unknown')
 /** The run states agentStateColor distinguishes, as tones. */
 export const runTone = (state: string): Tone => STATE_TONE[String(state || '').toLowerCase()] ?? 'neutral'
+
+const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+const plural = (count: number, word: string) => `${integer(count)} ${word}${count === 1 ? '' : 's'}`
+
+/** When a co-failure event started, how long it spanned, and how many test groups failed in it. */
+export function eventMeta(event: CofailEvent): string {
+  return `${shortDate(event.started_at)} · ${duration(event.span_mins)} span · ${plural(event.group_count, 'group')}`
+}
 
 /** Failing runs, newest first; the test group links to its Buildkite log. */
 function runColumns(withNode: boolean): ColumnSpec<AgentRun>[] {
@@ -74,11 +83,11 @@ export function nodeDetail(model: AgentModel, view: AgentView, options: AgentOpt
   const cells = agentCells(model, view, agent)
   return {
     id: `agent-node:${agent.node_raw}`,
-    title: evidence.title,
-    subtitle: evidence.subtitle,
+    title: agent.node,
+    subtitle: `${capitalized(evidence.title)} over ${options.windowId}; each run links to its Buildkite log`,
     stats: [
       { label: 'Runs', value: cells.runs },
-      { label: 'Fail %', value: cells.failRate },
+      ...(cells.failRate === 'Unavailable' ? [] : [{ label: 'Fail %', value: cells.failRate }]),
       { label: 'Test group failures', value: cells.failures, meta: cells.split ?? undefined },
       ...(options.signal === 'all' ? [] : [{ label: signalColumnLabel(options.signal), value: cells.signal }]),
       { label: 'Groups', value: cells.groups },
@@ -110,7 +119,7 @@ export function eventDetail(event: CofailEvent): Detail {
   return {
     id: `agent-event:${event.node_raw}@${event._startMs}`,
     title: card.node,
-    subtitle: `${card.pattern === 'concurrent' ? 'Concurrent' : 'Sequential'} co-failure · ${card.meta}`,
+    subtitle: `${card.pattern === 'concurrent' ? 'Concurrent' : 'Sequential'} co-failure · ${eventMeta(event)}`,
     description:
       card.pattern === 'concurrent'
         ? 'The runs overlapped in time, which points to contention or an ephemeral host or network fault.'
@@ -127,7 +136,7 @@ export function eventDetail(event: CofailEvent): Detail {
       { label: 'Test groups', value: integer(event.group_count) },
       { label: 'Pipelines', value: event.pipelines.join(', ') },
     ],
-    notes: event.cross_pipeline ? [{ tone: 'hard', text: 'The failures span more than one pipeline.' }] : [],
+    notes: event.cross_pipeline ? [{ tone: 'neutral', text: 'The failures span more than one pipeline.' }] : [],
     sources: SOURCES,
     tables: [{ title: 'Runs in this event', columns: runColumns(false), rows: event.runs, pageSize: false }],
     width: 'xl',
@@ -136,13 +145,18 @@ export function eventDetail(event: CofailEvent): Detail {
 
 /** The retained failing runs of one UTC day. */
 export function dayDetail(day: AgentDay, runs: AgentRun[], options: AgentOptions): Detail {
+  const signal = options.signal === 'all' ? 'Failures' : signalColumnLabel(options.signal)
   return {
     id: `agent-day:${day.day}`,
-    title: `${signalTerm(options.signal)} failures on ${day.day}`,
-    subtitle: `${integer(day.hard)} hard and ${integer(day.soft)} soft in compact accounting; the table lists the retained runs`,
+    title: `${capitalized(signalTerm(options.signal))} failures on ${shortDay(Date.parse(`${day.day}T00:00:00Z`))}`,
+    subtitle: `UTC day ${day.day}. Counts come from the compact failure accounting; the table lists the retained runs.`,
     stats: [
-      { label: 'Signal failures', value: integer(day.signal) },
+      { label: signal, value: integer(day.signal) },
+      { label: 'All hard failures', value: integer(day.hard) },
+      { label: 'All soft failures', value: integer(day.soft) },
       { label: 'Failing nodes', value: integer(day.failingNodes) },
+    ],
+    fields: [
       { label: 'Runs', value: integer(day.runs) },
       { label: 'Co-failure events', value: integer(day.cofailEvents) },
     ],

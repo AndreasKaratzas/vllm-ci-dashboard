@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { areaFreshness, coreFreshness, freshnessRows, queueFreshness, sourceFreshness } from '@/domain/freshness'
+import { areaFreshness, coreFreshness, freshnessRows, queueFreshness, sourceChip, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
 
 const CONFIG = JSON.parse(readFileSync(resolve(__dirname, '../../../config/data_freshness_targets.json'), 'utf8'))
 const MANIFEST = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/operations_v2_manifest.json'), 'utf8'))
@@ -115,5 +115,39 @@ describe('data freshness sheet rows', () => {
     })
     expect(rows.find((row) => row.key === 'agent_health')!.published).toBe(false)
     expect(rows.find((row) => row.key === 'perf_eval')!.path).toBe('perf_eval/perf_eval.json')
+  })
+})
+
+describe('source chip', () => {
+  const row = (over: Partial<SourceFreshness>): SourceFreshness => ({
+    key: 'dns',
+    label: 'DNS observations',
+    area: 'analytics',
+    informational: false,
+    timestamp: minutesAgo(90),
+    ageMs: 90 * 60_000,
+    state: 'warn',
+    warnMinutes: 60,
+    staleMinutes: 180,
+    path: 'data/vllm/ci/dns_failures.json',
+    timestampSource: 'payload',
+    published: true,
+    ...over,
+  })
+
+  it('states the age, the tone of the state, and the target the source is held to', () => {
+    const chip = sourceChip(row({}), NOW)
+    expect(chip.tone).toBe('soft')
+    expect(chip.text).toMatch(/^Collected /)
+    expect(chip.detail).toContain('DNS observations was collected')
+    expect(chip.detail).toContain('Target within 60 minutes; stale after 180 minutes.')
+    expect(chip.detail).toContain('Source: data/vllm/ci/dns_failures.json.')
+    expect([sourceChip(row({ state: 'fresh' }), NOW).tone, sourceChip(row({ state: 'stale' }), NOW).tone]).toEqual(['pass', 'hard'])
+  })
+
+  it('names a single limit once and an unknown collection time plainly', () => {
+    const chip = sourceChip(row({ timestamp: null, state: 'stale', warnMinutes: 180, path: null }), NOW)
+    expect(chip.text).toBe('Collection time unknown')
+    expect(chip.detail).toBe('DNS observations was collected at an unknown time. Stale after 180 minutes.')
   })
 })

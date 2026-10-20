@@ -55,7 +55,7 @@ export type TonePart = 'badge' | 'text' | 'icon' | 'fill' | 'stroke' | 'surface'
 // Literal class strings so Tailwind's scanner emits every one of them. Pass is
 // the quiet default (no tint); 'info' deliberately renders neutral.
 const QUIET: Record<TonePart, string> = {
-  badge: 'border-border bg-muted text-foreground',
+  badge: 'border-border bg-muted text-foreground/80',
   text: 'text-muted-foreground',
   icon: 'text-muted-foreground',
   fill: 'bg-status-unknown',

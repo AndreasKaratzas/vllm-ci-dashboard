@@ -4,7 +4,7 @@ import { VisAxis, VisGroupedBar, VisStackedBar, VisTooltip, VisXYContainer } fro
 import { computed, ref } from 'vue'
 import { ChartContainer } from '@/components/ui/chart'
 import { cn } from '@/lib/utils'
-import { chartConfig, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
+import { chartConfig, niceTicks, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
 
@@ -19,6 +19,8 @@ const props = withDefaults(
     /** Series keys drawn below the baseline (e.g. regressions against improvements). */
     diverging?: string[]
     valueFormat?: (value: number) => string
+    /** Show the legend even for a single series, e.g. when its color encodes a state. */
+    legend?: boolean
     hint?: string
     class?: string
     onSelect?: (row: T, index: number) => void
@@ -54,6 +56,19 @@ const categoryLabel = (index: number) => {
   const row = props.rows[index]
   return row ? props.category(row) : ''
 }
+// The value axis ends on a round tick at or beyond the longest bar.
+const valueTicks = computed(() => {
+  const totals = props.rows.map((row) => {
+    const values = props.series.map((s) => (props.diverging.includes(s.key) ? -1 : 1) * seriesValue(row, s.key))
+    const up = values.filter((v) => v > 0)
+    const down = values.filter((v) => v < 0)
+    const sum = (vs: number[]) => vs.reduce((a, b) => a + b, 0)
+    return props.stacked ? [sum(down), sum(up)] : [Math.min(0, ...down), Math.max(0, ...up)]
+  })
+  const counts = props.rows.every((row) => props.series.every((s) => Number.isInteger(seriesValue(row, s.key))))
+  return niceTicks(Math.min(0, ...totals.map((t) => t[0]!)), Math.max(0, ...totals.map((t) => t[1]!)), 4, counts ? 1 : 0)
+})
+const valueDomain = computed<[number, number]>(() => [valueTicks.value[0]!, valueTicks.value.at(-1)!])
 const height = computed(() => (horizontal.value ? `${Math.max(160, props.rows.length * 32 + 40)}px` : undefined))
 const barSelector = computed(() => (props.stacked ? StackedBar.selectors.bar : GroupedBar.selectors.bar))
 const events = computed(() => ({ [barSelector.value]: { click: (d: Indexed) => select(d.row) } }))
@@ -65,9 +80,22 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed) => tooltip(
     <div v-if="onSelect" class="flex justify-end">
       <ChartInspect :items="inspectItems(rows)" :label="label" @select="(i) => select(rows[i])" />
     </div>
-    <div ref="host" role="img" :aria-label="label" :class="onSelect && '[&_[data-vis-xy-container]_rect]:cursor-pointer'">
+    <!-- Clickable bars get a pointer and dim the other categories while one is hovered. -->
+    <div
+      ref="host"
+      role="img"
+      :aria-label="label"
+      :data-clickable="onSelect ? '' : undefined"
+      class="[&_[class*=-barGroup]]:transition-opacity [&_[class*=-barGroup]]:duration-150 [&_svg:has([class*=-barGroup]:hover)_[class*=-barGroup]:not(:hover)]:opacity-50"
+      :class="onSelect && '[--vis-grouped-bar-cursor:pointer] [--vis-stacked-bar-cursor:pointer]'"
+    >
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto w-full', !horizontal && 'h-[250px]', props.class)" :style="{ height }">
-        <VisXYContainer :data="data" :margin="{ left: 4, right: 12, top: 8 }">
+        <VisXYContainer
+          :data="data"
+          :margin="{ left: 4, right: 12, top: 8 }"
+          :x-domain="horizontal ? valueDomain : undefined"
+          :y-domain="horizontal ? undefined : valueDomain"
+        >
           <VisStackedBar
             v-if="stacked"
             :x="(d: Indexed) => d.index"
@@ -101,11 +129,11 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed) => tooltip(
             :domain-line="false"
             :grid-line="false"
           />
-          <VisAxis :type="horizontal ? 'x' : 'y'" :num-ticks="4" :tick-format="(v: number) => valueFormat(Math.abs(v))" :tick-line="false" :domain-line="false" />
+          <VisAxis :type="horizontal ? 'x' : 'y'" :tick-values="valueTicks" :tick-format="(v: number) => valueFormat(Math.abs(v))" :tick-line="false" :domain-line="false" />
           <VisTooltip :triggers="triggers" />
         </VisXYContainer>
       </ChartContainer>
     </div>
-    <Legend v-if="series.length > 1" :items="series" />
+    <Legend v-if="legend || series.length > 1" :items="series" />
   </div>
 </template>

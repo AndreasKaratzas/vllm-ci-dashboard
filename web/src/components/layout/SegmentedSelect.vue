@@ -10,13 +10,13 @@ export interface SegmentedItem {
 }
 
 // One single-choice filter: a segmented toggle from sm up, a select below sm.
-defineProps<{ label: string; items: SegmentedItem[] }>()
+withDefaults(defineProps<{ label: string; items: SegmentedItem[]; showLabel?: boolean }>(), { showLabel: true })
 const model = defineModel<string>({ required: true })
 </script>
 
 <template>
   <div class="flex min-w-0 flex-col gap-1.5" data-slot="segmented-select">
-    <span class="text-xs font-medium text-muted-foreground" aria-hidden="true">{{ label }}</span>
+    <span v-if="showLabel" class="text-xs font-medium text-muted-foreground" aria-hidden="true">{{ label }}</span>
     <ToggleGroup
       :model-value="model"
       type="single"

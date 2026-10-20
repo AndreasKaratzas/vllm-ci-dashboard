@@ -155,7 +155,13 @@ interface AccountingOptions {
   signal?: string
 }
 
-export function agentFailureAccountingCounts(rows: unknown, options: AccountingOptions) {
+/** Whether a compact failure-accounting row counts toward the selected failure signal. */
+export function accountingSignal(row: Rec, signal: string | undefined): boolean {
+  return (signal === 'infra' && !!row.i) || (signal === 'hard' && row.s === 'hard') || signal === 'all'
+}
+
+/** Hard, soft, and signal failure counts per node, or per any other key of the accounting row. */
+export function agentFailureAccountingCounts(rows: unknown, options: AccountingOptions, keyOf: (row: Rec) => string = (row) => row.nd) {
   const totals = new Map<string, { hard: number; soft: number; signal: number }>()
   for (const row of (Array.isArray(rows) ? rows : []) as Rec[]) {
     if (String(row.d || '') < String(options.startDay || '')) continue
@@ -163,14 +169,14 @@ export function agentFailureAccountingCounts(rows: unknown, options: AccountingO
     if (options.excludeCancelled && row.bc) continue
     const count = Math.max(0, Number(row.c) || 0)
     if (!count || !row.nd || !['hard', 'soft'].includes(row.s)) continue
-    let entry = totals.get(row.nd)
+    const key = keyOf(row)
+    let entry = totals.get(key)
     if (!entry) {
       entry = { hard: 0, soft: 0, signal: 0 }
-      totals.set(row.nd, entry)
+      totals.set(key, entry)
     }
     entry[row.s as 'hard' | 'soft'] += count
-    if ((options.signal === 'infra' && row.i) || (options.signal === 'hard' && row.s === 'hard') || options.signal === 'all')
-      entry.signal += count
+    if (accountingSignal(row, options.signal)) entry.signal += count
   }
   return totals
 }
@@ -198,8 +204,7 @@ export function agentAggregateFailureCounts(rows: unknown, options: AccountingOp
     const count = Math.max(0, Number(row.c) || 0)
     if (!count || !['hard', 'soft'].includes(row.s)) continue
     totals[row.s as 'hard' | 'soft'] += count
-    if ((options.signal === 'infra' && row.i) || (options.signal === 'hard' && row.s === 'hard') || options.signal === 'all')
-      totals.signal += count
+    if (accountingSignal(row, options.signal)) totals.signal += count
   }
   return totals
 }
@@ -629,18 +634,46 @@ export function signalCaption(signal: AgentSignal): string {
   return 'Showing all failures (hard + soft) on the node.'
 }
 
-export function computeAgentView(model: AgentModel, options: AgentOptions): AgentView {
-  const { health, nodeDays, failing, failureAccounting, nodeAccountingTotals, failureAccountingTotals, endMs, buildCreatedCohort } = model
-  const { windowId, gpu, search, nightlyOnly, excludeCancelled, signal, cofailMins } = options
-  const days = AGENT_WINDOW_DAYS[windowId] || 7
-  const startMs = endMs - days * 86400000
-  const startDay = new Date(startMs).toISOString().slice(0, 10)
+/** The first UTC day of the selected window. */
+function agentWindowStartDay(model: AgentModel, windowId: string): string {
+  return new Date(model.endMs - (AGENT_WINDOW_DAYS[windowId] || 7) * 86400000).toISOString().slice(0, 10)
+}
+
+/** Whether a retained failing run passes every page filter except the failure signal. */
+function agentRunInScope(model: AgentModel, options: AgentOptions): (run: AgentRun) => boolean {
+  const { endMs, buildCreatedCohort } = model
+  const startMs = endMs - (AGENT_WINDOW_DAYS[options.windowId] || 7) * 86400000
+  const startDay = agentWindowStartDay(model, options.windowId)
   function runInWindow(run: AgentRun) {
     if (run._start === null || run._start > endMs) return false
     if (!buildCreatedCohort) return run._start >= startMs
     const day = typeof run.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(run.day) ? Date.parse(run.day + 'T00:00:00Z') : NaN
     return Number.isFinite(day) && new Date(day).toISOString().slice(0, 10) === run.day && (run.day as string) >= startDay && day <= endMs
   }
+  return (run) =>
+    runInWindow(run) &&
+    !(options.nightlyOnly && !run.nightly) &&
+    !(options.excludeCancelled && run.build_canceled) &&
+    matchesFilter(options, run.hardware, run.node_raw)
+}
+
+/** node_days rows in the window and filters that have runs, with the bucket of the selected build scope. */
+function agentScopedNodeDays(model: AgentModel, options: AgentOptions): { nd: Rec; bucket: Rec }[] {
+  const startDay = agentWindowStartDay(model, options.windowId)
+  const out: { nd: Rec; bucket: Rec }[] = []
+  for (const nd of model.nodeDays) {
+    if (String(nd.d) < startDay || !matchesFilter(options, nd.h, nd.nd)) continue
+    const bucket = options.nightlyOnly ? nd.n : nd.a
+    if (bucket && bucket[0]) out.push({ nd, bucket })
+  }
+  return out
+}
+
+export function computeAgentView(model: AgentModel, options: AgentOptions): AgentView {
+  const { health, failing, failureAccounting, nodeAccountingTotals, failureAccountingTotals } = model
+  const { gpu, search, nightlyOnly, excludeCancelled, signal, cofailMins } = options
+  const startDay = agentWindowStartDay(model, options.windowId)
+  const inScope = agentRunInScope(model, options)
   const sourceHistoryIncomplete = !agentSourceHistoryComplete(health, startDay)
   const nodeDetailIncomplete = model.operationsNodeRetention.complete === false || sourceHistoryIncomplete
   const failureDetailIncomplete = model.operationsAccountingRetention.complete === false || sourceHistoryIncomplete
@@ -649,11 +682,7 @@ export function computeAgentView(model: AgentModel, options: AgentOptions): Agen
   const byNode = new Map<string, { node_raw: string; hardware: string; runs: number; soft: number; hard: number; canceled: number }>()
   let totalRuns = 0
   let identifiedRuns = 0
-  for (const nd of nodeDays) {
-    if (String(nd.d) < startDay) continue
-    if (!filter(nd.h, nd.nd)) continue
-    const bucket = nightlyOnly ? nd.n : nd.a
-    if (!bucket || !bucket[0]) continue
+  for (const { nd, bucket } of agentScopedNodeDays(model, options)) {
     const split = bucket.length >= 4
     const soft = split ? bucket[1] || 0 : 0
     const hard = split ? bucket[2] || 0 : bucket[1] || 0
@@ -690,13 +719,7 @@ export function computeAgentView(model: AgentModel, options: AgentOptions): Agen
     identifiedRuns = aggregateRuns.identifiedRuns
   }
 
-  const fRuns = failing.filter((r) => {
-    if (!signalMatch(signal, r)) return false
-    if (!runInWindow(r)) return false
-    if (nightlyOnly && !r.nightly) return false
-    if (excludeCancelled && r.build_canceled) return false
-    return filter(r.hardware, r.node_raw)
-  })
+  const fRuns = failing.filter((r) => signalMatch(signal, r) && inScope(r))
   const runsByNode = new Map<string, AgentRun[]>()
   for (const r of fRuns) {
     if (!runsByNode.has(r.node_raw)) runsByNode.set(r.node_raw, [])
@@ -713,10 +736,7 @@ export function computeAgentView(model: AgentModel, options: AgentOptions): Agen
     })
   } else {
     for (const r of failing) {
-      if (!runInWindow(r)) continue
-      if (nightlyOnly && !r.nightly) continue
-      if (excludeCancelled && r.build_canceled) continue
-      if (!filter(r.hardware, r.node_raw)) continue
+      if (!inScope(r)) continue
       let f = failByNode.get(r.node_raw)
       if (!f) {
         f = { hard: 0, soft: 0 }
@@ -1111,47 +1131,52 @@ export type AgentDay = {
 }
 
 /**
- * Per UTC day of the selected window (the creation day for the build-created cohort), the
- * same filters as the page applied to node_days and the compact failure accounting.
+ * Per UTC day of the selected window (the creation day for the build-created cohort): the page's
+ * node_days runs, its compact failure accounting (retained failing runs when there is none), and
+ * its co-failure events.
  */
 export function agentDailySeries(model: AgentModel, view: AgentView, options: AgentOptions): AgentDay[] {
-  const daysBack = AGENT_WINDOW_DAYS[options.windowId] || 7
-  const startDay = new Date(model.endMs - daysBack * 86400000).toISOString().slice(0, 10)
+  const startDay = agentWindowStartDay(model, options.windowId)
   const endDay = new Date(model.endMs).toISOString().slice(0, 10)
   const days = new Map<string, AgentDay & { nodeSet: Set<string>; failingSet: Set<string> }>()
   for (let ms = Date.parse(startDay + 'T00:00:00Z'); ms <= Date.parse(endDay + 'T00:00:00Z'); ms += 86400000) {
     const day = new Date(ms).toISOString().slice(0, 10)
     days.set(day, { day, runs: 0, identifiedRuns: 0, nodes: 0, failingNodes: 0, hard: 0, soft: 0, signalHard: 0, signalSoft: 0, signal: 0, cofailEvents: 0, nodeSet: new Set(), failingSet: new Set() })
   }
-  const filter = (hardware: unknown, nodeRaw: unknown) => matchesFilter(options, hardware, nodeRaw)
-  for (const nd of model.nodeDays) {
+  for (const { nd, bucket } of agentScopedNodeDays(model, options)) {
     const entry = days.get(String(nd.d))
-    const bucket = options.nightlyOnly ? nd.n : nd.a
-    if (!entry || !filter(nd.h, nd.nd) || !bucket || !bucket[0]) continue
+    if (!entry) continue
     entry.runs += bucket[0]
     if (nd.nd !== '(unidentified)') {
       entry.identifiedRuns += bucket[0]
       entry.nodeSet.add(nd.nd)
     }
   }
-  const count = (day: unknown, nodeRaw: string, stateName: string, signal: boolean, n: number) => {
-    const entry = days.get(String(day))
-    if (!entry || !n || (stateName !== 'hard' && stateName !== 'soft')) return
-    entry[stateName] += n
-    if (!signal) return
-    entry[stateName === 'hard' ? 'signalHard' : 'signalSoft'] += n
-    entry.signal += n
-    if (nodeRaw !== '(unidentified)') entry.failingSet.add(nodeRaw)
+  const add = (day: string, nodeRaw: string, counts: { hard: number; soft: number }, signal: { hard: number; soft: number }) => {
+    const entry = days.get(day)
+    if (!entry) return
+    entry.hard += counts.hard
+    entry.soft += counts.soft
+    entry.signalHard += signal.hard
+    entry.signalSoft += signal.soft
+    entry.signal += signal.hard + signal.soft
+    if (signal.hard + signal.soft && nodeRaw !== '(unidentified)') entry.failingSet.add(nodeRaw)
   }
-  const signalOf = (infra: unknown, stateName: unknown) =>
-    (options.signal === 'infra' && !!infra) || (options.signal === 'hard' && stateName === 'hard') || options.signal === 'all'
   if (model.failureAccounting.length) {
-    for (const row of model.failureAccounting) {
-      if (!filter(row.h, row.nd) || (options.nightlyOnly && !row.ng) || (options.excludeCancelled && row.bc)) continue
-      count(row.d, row.nd, row.s, signalOf(row.i, row.s), Math.max(0, Number(row.c) || 0))
-    }
+    const rows = model.failureAccounting.filter((row) => matchesFilter(options, row.h, row.nd))
+    const accounting = { startDay, nightlyOnly: options.nightlyOnly, excludeCancelled: options.excludeCancelled, signal: options.signal }
+    const byState = agentFailureAccountingCounts(rows, accounting, (row) => JSON.stringify([row.d, row.nd, row.s]))
+    byState.forEach((counts, key) => {
+      const [day, nodeRaw, state] = JSON.parse(key) as [string, string, string]
+      add(day, nodeRaw, counts, state === 'hard' ? { hard: counts.signal, soft: 0 } : { hard: 0, soft: counts.signal })
+    })
   } else {
-    for (const run of view.fRuns) count(run.day, run.node_raw, run.state, true, 1)
+    const inScope = agentRunInScope(model, options)
+    for (const run of model.failing) {
+      if (!inScope(run) || (run.state !== 'hard' && run.state !== 'soft')) continue
+      const counts = { hard: Number(run.state === 'hard'), soft: Number(run.state === 'soft') }
+      add(String(run.day), run.node_raw, counts, signalMatch(options.signal, run) ? counts : { hard: 0, soft: 0 })
+    }
   }
   for (const event of view.events) {
     const entry = days.get(event.started_at.slice(0, 10))

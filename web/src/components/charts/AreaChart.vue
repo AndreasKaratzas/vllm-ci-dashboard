@@ -3,8 +3,7 @@ import { VisArea, VisAxis, VisLine, VisXYContainer } from '@unovis/vue'
 import { useId } from 'reka-ui'
 import { computed, ref } from 'vue'
 import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import { cn } from '@/lib/utils'
 import { chartConfig, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
@@ -23,6 +22,7 @@ const props = withDefaults(
     series: SeriesSpec[]
     label: string
     rowLabel?: (row: T) => string
+    xFormat?: (value: number) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
     ranges?: RangeOption[]
@@ -30,7 +30,7 @@ const props = withDefaults(
     class?: string
     onSelect?: (row: T, index: number) => void
   }>(),
-  { yFormat: plainNumber },
+  { xFormat: shortDay, yFormat: plainNumber },
 )
 const range = defineModel<number>('range', { default: 0 })
 
@@ -41,7 +41,7 @@ const gradientId = (key: string) => `${uid}-${key}`
 
 const visible = computed(() => (range.value > 0 ? props.rows.slice(-range.value) : props.rows))
 const xValue = (row: T) => Number(props.x(row))
-const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : shortDay(xValue(row)))
+const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : props.xFormat(xValue(row)))
 const svgDefs = computed(() =>
   props.series
     .map(
@@ -52,7 +52,7 @@ const svgDefs = computed(() =>
     )
     .join(''),
 )
-const rangeText = computed(() => props.ranges?.find((r) => r.value === range.value)?.label ?? '')
+const rangeItems = computed(() => (props.ranges ?? []).map((option) => ({ value: String(option.value), label: option.label })))
 const rangeModel = computed({
   get: () => String(range.value),
   set: (value: string) => {
@@ -73,19 +73,7 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
 <template>
   <div class="flex min-w-0 flex-col gap-2" data-slot="area-chart">
     <div v-if="ranges?.length || onSelect" class="flex items-center justify-end gap-2">
-      <template v-if="ranges?.length">
-        <ToggleGroup v-model="rangeModel" type="single" variant="outline" size="sm" class="hidden sm:flex" :aria-label="`${label} range`">
-          <ToggleGroupItem v-for="option in ranges" :key="option.value" :value="String(option.value)">{{ option.label }}</ToggleGroupItem>
-        </ToggleGroup>
-        <Select v-model="rangeModel">
-          <SelectTrigger size="sm" class="w-36 sm:hidden" :aria-label="`${label} range`">
-            <SelectValue>{{ rangeText }}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in ranges" :key="option.value" :value="String(option.value)">{{ option.label }}</SelectItem>
-          </SelectContent>
-        </Select>
-      </template>
+      <SegmentedSelect v-if="ranges?.length" v-model="rangeModel" :items="rangeItems" :label="`${label} range`" :show-label="false" class="w-36 sm:w-auto" />
       <ChartInspect v-if="onSelect" :items="inspectItems(visible)" :label="label" @select="(i) => select(visible[i])" />
     </div>
     <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer'" @click="selectHovered">
@@ -110,7 +98,7 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
             curve-type="monotoneX"
             :duration="300"
           />
-          <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="shortDay" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis type="x" :x="xValue" :tick-values="thinTicks(visible.map(xValue), ticks)" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
           <VisAxis type="y" :num-ticks="4" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair :template="tooltip" :on-crosshair-move="track" :color="series.map((s) => s.color)" />

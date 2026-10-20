@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, ExternalLink } from '@lucide/vue'
+import { ChevronRight, CircleDashed, ExternalLink } from '@lucide/vue'
 import { TransitionPresets, usePreferredReducedMotion, useTransition } from '@vueuse/core'
 import { computed } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
@@ -32,6 +32,8 @@ const props = withDefaults(
     action?: KpiAction
     variant?: 'default' | 'ring'
     ratio?: { current: number; total: number }
+    /** Shown in place of the value and trend when the metric cannot be established; the footnote gives the reason. */
+    empty?: string
   }>(),
   { variant: 'default', format: (value: number) => Math.round(value).toLocaleString('en-US') },
 )
@@ -48,6 +50,8 @@ const display = computed(() => {
   return Number.isFinite(props.value) ? props.format(tweened.value) : '—'
 })
 const missing = computed(() => display.value === '—')
+// Zero counts render muted like missing values.
+const muted = computed(() => missing.value || props.value === 0)
 
 const RADIUS = 42
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
@@ -87,10 +91,15 @@ const actionAttrs = computed(() => {
         </component>
         <template v-else>{{ label }}</template>
       </CardDescription>
+      <CardTitle v-if="empty" class="pt-1" data-slot="kpi-empty">
+        <span class="inline-flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-sm font-medium text-muted-foreground">
+          <CircleDashed class="size-4 shrink-0" aria-hidden="true" />{{ empty }}
+        </span>
+      </CardTitle>
       <CardTitle
-        v-if="variant === 'default'"
+        v-else-if="variant === 'default'"
         class="font-semibold tabular-nums"
-        :class="[missing && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
+        :class="[muted && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
         data-slot="kpi-value"
       >
         {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
@@ -123,14 +132,14 @@ const actionAttrs = computed(() => {
         </span>
       </div>
       <div class="flex min-w-0 flex-col gap-0.5">
-        <span class="text-xl font-semibold break-words tabular-nums" :class="missing && 'text-muted-foreground'">{{ display }}</span>
+        <span class="text-xl font-semibold break-words tabular-nums" :class="muted && 'text-muted-foreground'">{{ display }}</span>
         <span v-if="ratio" class="text-xs text-muted-foreground tabular-nums">
           {{ ratio.current.toLocaleString('en-US') }} / {{ ratio.total.toLocaleString('en-US') }}
         </span>
       </div>
     </div>
 
-    <div v-if="spark && spark.length > 1" class="px-4 @[15rem]/card:px-6">
+    <div v-if="spark && spark.length > 1 && !empty" class="px-4 @[15rem]/card:px-6">
       <Sparkline :values="spark" :label="`${label} trend over ${spark.length} points`" />
     </div>
 

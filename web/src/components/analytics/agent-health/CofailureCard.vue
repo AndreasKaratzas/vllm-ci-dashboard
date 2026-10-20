@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ChevronRight, ExternalLink } from '@lucide/vue'
+import { ChevronRight, ExternalLink, GitFork, Layers, StepForward } from '@lucide/vue'
 import { computed } from 'vue'
-import StatusBadge from '@/components/feedback/StatusBadge.vue'
+import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { cofailureCard, type CofailEvent } from '@/domain/agentHealth'
 import { toneClasses } from '@/lib/palette'
 import { cn } from '@/lib/utils'
-import { runTone, stateLabel } from './details'
+import { eventMeta, runTone, stateLabel } from './details'
 
 const props = defineProps<{ event: CofailEvent; selected: boolean }>()
 defineEmits<{ open: [] }>()
@@ -34,9 +34,11 @@ const card = computed(() => cofailureCard(props.event, false))
       <ChevronRight class="ml-auto size-4 shrink-0 text-muted-foreground transition-transform group-hover/event:translate-x-0.5 group-hover/event:text-foreground" aria-hidden="true" />
     </div>
     <div class="flex flex-wrap items-center gap-1.5">
-      <StatusBadge :tone="card.patternTone" :label="card.pattern" />
-      <StatusBadge v-if="card.cross" tone="hard" label="cross-pipeline" />
-      <span class="text-xs text-muted-foreground" data-testid="cofailure-meta">{{ card.meta }}</span>
+      <Badge variant="outline" class="gap-1 font-normal text-foreground">
+        <component :is="card.pattern === 'concurrent' ? Layers : StepForward" aria-hidden="true" />{{ card.pattern }}
+      </Badge>
+      <Badge v-if="card.cross" variant="outline" class="gap-1 font-normal text-foreground"><GitFork aria-hidden="true" />cross-pipeline</Badge>
+      <span class="text-xs text-muted-foreground" data-testid="cofailure-meta">{{ eventMeta(event) }}</span>
     </div>
     <ul class="flex flex-col gap-1">
       <li v-for="(item, index) in card.runs" :key="index" class="flex min-w-0 items-center gap-2 text-xs" data-testid="cofailure-run">

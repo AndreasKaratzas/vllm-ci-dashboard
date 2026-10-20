@@ -17,14 +17,9 @@ const REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
 <template>
   <Alert
     v-if="view"
+    :variant="view.tone === 'critical' ? 'destructive' : 'default'"
     :role="view.tone === 'critical' ? 'alert' : 'status'"
-    :class="
-      view.tone === 'critical'
-        ? 'border-status-hard/30 bg-status-hard/8 text-status-hard-fg *:data-[slot=alert-description]:text-status-hard-fg'
-        : view.tone === 'warning'
-          ? 'border-status-soft/40 bg-status-soft/8 text-status-soft-fg *:data-[slot=alert-description]:text-status-soft-fg'
-          : ''
-    "
+    :class="view.tone === 'warning' ? 'border-status-soft/40 text-status-soft-fg' : view.tone === 'critical' ? 'text-status-hard-fg *:data-[slot=alert-description]:text-status-hard-fg' : ''"
     data-testid="publication-banner"
   >
     <TriangleAlert />
