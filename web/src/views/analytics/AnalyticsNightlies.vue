@@ -15,7 +15,7 @@ import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import { analyticsObservedAt, nightliesModel } from '@/domain/analytics'
 import { movementBuilds } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
-import { latestAmd, nightlyFailureCount } from '@/domain/nightly'
+import { latestAmd, nightlyCountLabel, nightlyFailureCount } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -127,7 +127,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="nightlies-chart">
         <CardHeader>
           <CardTitle as="h2">Nightly failure movement</CardTitle>
-          <CardDescription>{{ integer(movement.length) }} nightlies compared with their predecessor · fixes are drawn below zero</CardDescription>
+          <CardDescription>{{ nightlyCountLabel(movement.length, 'builds') }} compared with their predecessor · fixes are drawn below zero</CardDescription>
         </CardHeader>
         <CardContent class="px-2 sm:px-6">
           <NightlyMovementChart :builds="movement" :on-select="(build: Rec) => open(build)" />
@@ -137,7 +137,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="nightlies-table">
         <CardHeader>
           <CardTitle as="h2">{{ model.name }} nightlies</CardTitle>
-          <CardDescription>{{ integer(model.rows.length) }} retained nightlies · failure movement counts open their exact job variants</CardDescription>
+          <CardDescription>{{ nightlyCountLabel(model.rows.length, 'builds') }} · failure movement counts open their exact job variants</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
