@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { readGolden } from './golden/read.mjs';
 import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
+import { routeSection } from './support/sections.mjs';
 
 // CI Analytics "AMD test health", "AMD nightly latency", and "AMD nightlies"
 // against the golden page facts of the fixture snapshot.
@@ -215,6 +216,32 @@ test.describe('CI Analytics AMD tabs behave consistently', () => {
       await groups.getByTestId('kpi-amd-health-build').click();
       expect(await sheetText()).toBe(fromKpi);
     }
+  });
+
+  test('a nightly without test results leaves the counts to the newest nightly with results', async ({ page }) => {
+    const body = await (await page.request.get('/data/vllm/ci/operations_v2/nightly.json')).json();
+    const cohort = body.nightly.pipelines[0];
+    const previous = cohort.builds[0];
+    const { failure_movement: _movement, failed_groups: _failed, soft_failed_groups: _soft, ...base } = previous;
+    cohort.builds.unshift({ ...base, number: previous.number + 1, state: 'failing', has_test_results: false, total_groups: 0 });
+    await routeSection(page, 'nightly', body);
+
+    await page.goto('/#/');
+    const homeStatus = clean(await page.getByTestId('kpi-nightly').innerText());
+    expect(homeStatus).toContain('No test signal');
+    await page.goto('/#/analytics?view=nightlies');
+    const view = page.getByTestId('analytics-nightlies');
+    const latest = view.getByTestId('kpi-nightly-latest');
+    await expect(latest.locator('[data-slot="kpi-value"]')).toHaveText(`#${previous.number + 1}`);
+    await expect(latest).toContainText('No test signal');
+    await expect(latest.locator('[data-slot="kpi-headline"]')).toHaveText(`Counts from #${previous.number}, the newest with test results`);
+    await expect(view.getByTestId('nightlies-note')).toHaveCount(0);
+    const variants = view.getByTestId('kpi-nightly-variants');
+    await expect(variants.locator('[data-slot="kpi-value"]')).toHaveText(String(previous.total_groups));
+    const recurring = view.getByTestId('kpi-nightly-recurring');
+    await expect(recurring.locator('[data-slot="kpi-value"]')).toHaveText(String(previous.failure_movement.recurring.length));
+    await recurring.click();
+    await expect(page.getByRole('dialog')).toContainText(`AMD nightly #${previous.number}`);
   });
 
   test('zero movement counts are plain text and only real counts open evidence', async ({ page }) => {

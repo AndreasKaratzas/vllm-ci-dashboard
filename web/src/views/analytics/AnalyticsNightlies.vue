@@ -11,11 +11,13 @@ import DataTable from '@/components/table/DataTable.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useOperationSections } from '@/composables/useOperations'
 import { useSheetStack } from '@/composables/useSheetStack'
+import { useClock } from '@/composables/useClock'
 import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import { analyticsObservedAt, nightliesModel } from '@/domain/analytics'
 import { movementBuilds } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
-import { latestAmd, nightlyCountLabel, nightlyFailureCount } from '@/domain/nightly'
+import { currentAmdHealth } from '@/domain/health'
+import { amdNightlyPresentation, latestAmd, nightlyCountLabel, nightlyFailureCount } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -23,13 +25,19 @@ import AnalyticsAbout from './AnalyticsAbout.vue'
 
 type Movement = 'new' | 'recurring' | 'fixed'
 
-const { data: ops, error, loading, retry } = useOperationSections(['nightly'])
+const { data: ops, error, loading, retry } = useOperationSections(['nightly', 'amd_test_health'])
 const sheets = useSheetStack()
 
 const amd = computed(() => latestAmd(ops.value))
 const model = computed(() => nightliesModel(amd.value))
 const latest = computed(() => model.value.latest)
 const movement = computed(() => movementBuilds(model.value.rows))
+// The latest nightly may still be running; counts come from the newest nightly with test results.
+const signal = computed<Rec | undefined>(() => movement.value[0])
+const now = useClock()
+const presentation = computed(() =>
+  amdNightlyPresentation(latest.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
+)
 const open = (build: Rec, scope?: Movement) => sheets.open(buildEvidenceDetail(build, { scope }))
 
 useSubviewHeader(() => ({
@@ -40,13 +48,19 @@ useSubviewHeader(() => ({
 // Oldest first, for the sparklines; only nightlies with comparable movement count.
 const oldestFirst = computed(() => [...movement.value].reverse())
 const trend = (key: Movement, goodWhen: 'up' | 'down') => kpiTrend(oldestFirst.value.map((b) => nightlyFailureCount(b, key)), goodWhen)
-const variantsTrend = computed(() => kpiTrend([...model.value.rows].reverse().map((b) => (b.total_groups === undefined ? null : Number(b.total_groups)))))
+const variantsTrend = computed(() => kpiTrend(
+    [...model.value.rows]
+      .filter((b) => b.has_test_results !== false)
+      .reverse()
+      .map((b) => (b.total_groups === undefined ? null : Number(b.total_groups))),
+  ))
 const MOVEMENT: { key: Movement; label: string; column: string; goodWhen: 'up' | 'down'; meta: string }[] = [
   { key: 'new', label: 'New failures', column: 'New', goodWhen: 'down', meta: 'Not failing in the preceding observed nightly' },
   { key: 'recurring', label: 'Recurring failures', column: 'Recurring', goodWhen: 'down', meta: 'Failed in the preceding observed nightly too' },
   { key: 'fixed', label: 'Fixed', column: 'Fixed', goodWhen: 'up', meta: 'Failed previously and passed now' },
 ]
-const latestCount = (key: Movement) => (model.value.latestMovement ? (model.value.latestMovement[key] || []).length : null)
+const latestCount = (key: Movement) => (signal.value ? nightlyFailureCount(signal.value, key) : null)
+const signalNote = computed(() => (signal.value && signal.value !== latest.value ? `Counts from #${value(signal.value.number)}, the newest with test results` : undefined))
 const stateLabel = (state: unknown) => {
   const text = value(state, 'unknown')
   return text.charAt(0).toUpperCase() + text.slice(1)
@@ -90,22 +104,23 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
 <template>
   <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-nightlies">
-      <Callout v-if="!model.latestMovement" tone="soft" title="Failure movement unavailable" data-testid="nightlies-note">
-        The latest nightly publishes no failure movement; refresh the operations snapshot to publish observed-failure-movement-v1 data.
+      <Callout v-if="!signal" tone="soft" title="Failure movement unavailable" data-testid="nightlies-note">
+        No retained nightly publishes failure movement; refresh the operations snapshot to publish observed-failure-movement-v1 data.
       </Callout>
 
       <StatGrid :cols="5" data-testid="nightlies-kpis">
         <KpiCard
           label="Latest nightly"
           :value="latest.number ? `#${latest.number}` : null"
-          :status="latest.number ? { tone: toneForState(latest.state), label: stateLabel(latest.state) } : undefined"
+          :status="latest.number ? { tone: presentation.tone, label: presentation.label } : undefined"
+          :headline="signalNote"
           :footnote="latest.created_at ? shortDate(latest.created_at) : 'No completed nightly'"
           :action="latest.number ? { label: 'Inspect nightly evidence', onOpen: () => open(latest) } : undefined"
           data-testid="kpi-nightly-latest"
         />
         <KpiCard
           label="Job variants observed"
-          :value="latest.total_groups === undefined ? null : Number(latest.total_groups)"
+          :value="signal?.total_groups === undefined ? null : Number(signal.total_groups)"
           :spark="variantsTrend.spark"
           :delta="variantsTrend.delta"
           footnote="Exact jobs in the latest completed nightly"
@@ -118,8 +133,8 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
           :value="latestCount(m.key)"
           :spark="trend(m.key, m.goodWhen).spark"
           :delta="trend(m.key, m.goodWhen).delta"
-          :footnote="model.latestMovement ? m.meta : 'Unavailable in this snapshot'"
-          :action="latest.number && latestCount(m.key) ? { label: `Inspect ${m.label.toLowerCase()}`, onOpen: () => open(latest, m.key) } : undefined"
+          :footnote="signal ? m.meta : 'Unavailable in this snapshot'"
+          :action="signal && latestCount(m.key) ? { label: `Inspect ${m.label.toLowerCase()}`, onOpen: () => open(signal!, m.key) } : undefined"
           :data-testid="`kpi-nightly-${m.key}`"
         />
       </StatGrid>
