@@ -166,7 +166,7 @@ function activate(row: T, event: Event) {
             v-for="(row, index) in pageRows"
             :key="index"
             :tabindex="onRowClick ? 0 : undefined"
-            :class="cn(onRowClick && 'group/row cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none active:bg-accent/80')"
+            :class="cn(onRowClick ? 'group/row cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none active:bg-accent/80' : 'hover:bg-transparent')"
             :data-clickable="onRowClick ? '' : undefined"
             @click="(e: MouseEvent) => activate(row, e)"
             @keydown.enter="(e: KeyboardEvent) => activate(row, e)"

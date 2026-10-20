@@ -34,6 +34,15 @@ const DAY_TIME = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeri
 export const shortDayTime = (value: number | Date) => DAY_TIME.format(new Date(value))
 
 export const plainNumber = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
+/** Pass-rate axis labels and tooltips: one decimal at most ("99.5%", "100%"). */
+export const ratePercent = (value: number) => `${Number(value.toFixed(1))}%`
+
+/**
+ * Classes that give every mark of a clickable chart a pointer. Unovis sets each component's cursor
+ * from a --vis-*-cursor variable in CSS outside any cascade layer, which beats Tailwind's cursor utilities.
+ */
+export const CLICKABLE_MARKS =
+  'cursor-pointer [--vis-area-cursor:pointer] [--vis-line-cursor:pointer] [--vis-plotband-cursor:pointer] [--vis-stacked-bar-cursor:pointer] [--vis-grouped-bar-cursor:pointer] [--vis-scatter-cursor:pointer]'
 
 /**
  * Round ticks from at or below `min` to at or beyond `max`: about `count` steps of 1, 2, 2.5 or 5
@@ -49,6 +58,24 @@ export function niceTicks(min: number, max: number, count: number, minStep = 0):
   for (let tick = Math.floor(min / step) * step; tick < max + step / 2; tick += step) ticks.push(Math.round(tick * 1e9) / 1e9)
   if (ticks.at(-1)! < max) ticks.push(Math.round((ticks.at(-1)! + step) * 1e9) / 1e9)
   return ticks
+}
+
+const RATE_STEPS = [1, 2, 5, 10, 20, 25]
+
+/**
+ * A percentage axis up to 100 that puts the lowest rate mid-plot, so changes of a point stay
+ * visible, with at most five round ticks and the bottom of the domain on a tick. Every pass-rate
+ * chart uses it, so their zoom reads the same.
+ */
+export function rateAxis(percentages: number[]): { domain: [number, number]; ticks: number[] } {
+  const known = percentages.filter(Number.isFinite)
+  const lowest = known.length ? Math.min(...known) : 0
+  const floor = known.length ? Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))) : 0
+  const step = RATE_STEPS.find((candidate) => (100 - floor) / candidate <= 4) ?? 25
+  const start = Math.floor(floor / step) * step
+  const ticks: number[] = []
+  for (let value = start; value <= 100; value += step) ticks.push(value)
+  return { domain: [start, 100], ticks }
 }
 
 /**

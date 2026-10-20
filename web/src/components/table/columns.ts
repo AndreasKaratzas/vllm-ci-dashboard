@@ -1,5 +1,6 @@
 import type { Detail } from '@/components/evidence/detail'
-import type { PaletteColor } from '@/lib/palette'
+import { rateText } from '@/domain/format'
+import { hardwareColor, hardwareFamily, rateStatus, type PaletteColor } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 export interface CellSpec {
@@ -64,4 +65,11 @@ export const num = (value: number | null | undefined, format: (n: number) => str
 export const link = (value: unknown, url: string | null | undefined, isMono = false): CellSpec => ({ text: show(value), href: url || undefined, mono: isMono })
 export const badge = (value: unknown, tone: Tone): CellSpec => ({ text: show(value), tone })
 export const dotted = (value: unknown, color: PaletteColor, sub?: string): CellSpec => ({ text: show(value), dots: [color], sub })
+/** A GPU family with its identity dot, read from the hardware label or else its queue (amd_mi355_dpx -> MI355). */
+export function hardwareCell(hardware: string, queue?: string): CellSpec {
+  const family = hardwareFamily(hardware) ?? hardwareFamily(queue)
+  return { text: family ?? (hardware.toUpperCase() || '—'), dots: [hardwareColor(family ?? hardware)], nowrap: true }
+}
 export const drill = (value: unknown, detail: () => Detail): CellSpec => ({ text: show(value), detail })
+/** A pass rate in percent: quiet at a pass, a status badge naming the band otherwise. */
+export const rateCell = (percent: number | null | undefined, sub?: string): CellSpec => ({ text: rateText(percent), tone: rateStatus(percent)?.tone, sub, nowrap: true })

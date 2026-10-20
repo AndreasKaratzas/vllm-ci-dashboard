@@ -12,7 +12,7 @@ import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
 import { shortDate, type Rec } from '@/domain/format'
-import { ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
+import { ciHealthPublicationRetentionMessage, latestAmd, signalNightly } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import HealthAbout from './health/HealthAbout.vue'
@@ -30,7 +30,8 @@ const sheets = useSheetStack()
 watch(view, () => sheets.close())
 
 const amd = computed(() => latestAmd(ops.value))
-const build = computed<Rec>(() => (amd.value.builds || [])[0] || {})
+// Overview counts from the newest nightly with test results, so its header opens that nightly.
+const build = computed<Rec>(() => signalNightly(amd.value.builds) || (amd.value.builds || [])[0] || {})
 const retentionMessage = computed(() => ciHealthPublicationRetentionMessage(amd.value))
 
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/
@@ -39,7 +40,7 @@ const header = computed<{ observedAt: unknown; action: { label: string; url: str
   const parity: Rec = o.test_group_parity || {}
   if (view.value === 'overview') {
     const url = exactPipelineBuildUrl(build.value, 'ci')
-    return { observedAt: url ? build.value.created_at || o.generated_at : o.generated_at, action: url ? { label: `Open main CI AMD nightly #${build.value.number}`, url } : null }
+    return { observedAt: url ? build.value.created_at || o.generated_at : o.generated_at, action: url ? { label: `Open AMD nightly #${build.value.number}`, url } : null }
   }
   if (view.value === 'parity') {
     const source: Rec = parity.source || {}

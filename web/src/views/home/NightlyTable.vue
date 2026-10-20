@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { link, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
+import { link, rateCell, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
 import DataTable from '@/components/table/DataTable.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { integer, shortDate, type Rec } from '@/domain/format'
 import { nightlyCounts, nightlyResultTone, noSignalLabel } from '@/domain/home'
-import { nightlyFailureCount, type MovementKey } from '@/domain/nightly'
+import { nightlyCountLabel, nightlyFailureCount, type MovementKey } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 
 const props = defineProps<{ builds: Rec[] }>()
@@ -54,7 +54,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       const missing = noSignalLabel(build)
       if (missing) return { text: missing, tone: nightlyResultTone(build) }
       const counts = nightlyCounts(build)!
-      return { text: `${(counts.passRate * 100).toFixed(1)}%`, sub: `${integer(counts.passed)} / ${integer(counts.total)}` }
+      return rateCell(counts.passRate * 100, `${integer(counts.passed)} / ${integer(counts.total)}`)
     },
     class: 'whitespace-nowrap',
   },
@@ -65,6 +65,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       numeric: true,
       value: (build) => severityCount(build, scope) ?? -1,
       cell: (build) => countCell(build, scope, severityCount(build, scope)),
+      class: scope === 'soft' ? 'hidden sm:table-cell' : undefined,
     }),
   ),
   ...(['new', 'recurring', 'fixed'] as const).map(
@@ -84,8 +85,8 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
 <template>
   <Card class="gap-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300">
     <CardHeader>
-      <CardTitle class="text-base">Retained nightlies</CardTitle>
-      <CardDescription>{{ integer(props.builds.length) }} AMD nightlies · open a row for its evidence, or a count for its job variants</CardDescription>
+      <CardTitle class="text-base">AMD nightlies</CardTitle>
+      <CardDescription>{{ nightlyCountLabel(props.builds.length, 'builds') }} · open a row for its evidence, or a count for its job variants</CardDescription>
     </CardHeader>
     <CardContent class="px-4 sm:px-6" data-testid="nightly-table">
       <DataTable
@@ -93,9 +94,9 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
         :rows="props.builds"
         :page-size="10"
         :search-text="(build: Rec) => shortDate(build.created_at)"
-        label="Retained AMD nightlies"
+        label="AMD nightlies"
         search-placeholder="Filter build or date…"
-        empty-text="No nightly is retained in this snapshot."
+        empty-text="No AMD nightly build summary in this snapshot."
         :on-row-click="(build: Rec) => emit('open', build)"
       />
     </CardContent>

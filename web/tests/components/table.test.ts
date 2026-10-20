@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Cell from '@/components/table/Cell.vue'
 import DataTable from '@/components/table/DataTable.vue'
-import { badge, drill, link, mono, num, text as textCell, type ColumnSpec } from '@/components/table/columns'
+import { badge, drill, link, mono, num, rateCell, text as textCell, type ColumnSpec } from '@/components/table/columns'
 import { SERIES } from '@/lib/palette'
 import { installLayoutStubs, settle, text } from './support'
 
@@ -26,6 +26,17 @@ const columns: ColumnSpec<Group>[] = [
 const firstColumn = (wrapper: ReturnType<typeof mount>) => wrapper.findAll('tbody tr').map((tr) => text(tr.find('td').element))
 
 describe('DataTable', () => {
+  it('highlights rows on hover only when they open something', async () => {
+    const plain = mount(DataTable<Group>, { props: { columns, rows: groups } })
+    expect(plain.find('tbody tr').classes()).toContain('hover:bg-transparent')
+    expect(plain.find('tbody tr').attributes('data-clickable')).toBeUndefined()
+    const clickable = mount(DataTable<Group>, { props: { columns, rows: groups, onRowClick: () => {} } })
+    expect(clickable.find('tbody tr').classes()).not.toContain('hover:bg-transparent')
+    expect(clickable.find('tbody tr').classes()).toContain('cursor-pointer')
+    plain.unmount()
+    clickable.unmount()
+  })
+
   it('pages rows and reports the count', async () => {
     const wrapper = mount(DataTable<Group>, { props: { columns, rows: groups }, attachTo: document.body })
     expect(wrapper.findAll('tbody tr')).toHaveLength(10)
@@ -144,6 +155,15 @@ describe('DataTable on phones', () => {
     expect(wrapper.findAll('td')[1]!.classes()).toEqual(expect.arrayContaining(['hidden', 'sm:table-cell']))
     expect(wrapper.text()).toContain('1 row')
     expect(wrapper.text()).not.toContain('1 rows')
+  })
+})
+
+describe('rateCell', () => {
+  it('stays quiet at a pass and badges the band below it', () => {
+    expect(rateCell(99.4, '315 / 317')).toEqual({ text: '99.4%', tone: undefined, sub: '315 / 317', nowrap: true })
+    expect(rateCell(95.4)).toMatchObject({ text: '95.4%', tone: 'soft' })
+    expect(rateCell(60)).toMatchObject({ text: '60.0%', tone: 'hard' })
+    expect(rateCell(null)).toMatchObject({ text: '—', tone: undefined })
   })
 })
 

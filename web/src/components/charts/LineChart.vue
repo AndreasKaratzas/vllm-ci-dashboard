@@ -3,7 +3,7 @@ import { VisAxis, VisLine, VisScatter, VisXYContainer } from '@unovis/vue'
 import { ref } from 'vue'
 import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
 import { cn } from '@/lib/utils'
-import { chartConfig, niceTicks, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
+import { CLICKABLE_MARKS, chartConfig, niceTicks, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
 
@@ -17,6 +17,8 @@ const props = withDefaults(
     rowLabel?: (row: T) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
+    /** Explicit y-axis ticks, e.g. a zoomed rate axis; defaults to round ticks over the domain. */
+    yTicks?: number[]
     compact?: boolean
     hint?: string
     class?: string
@@ -45,7 +47,7 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
     <div v-if="onSelect" class="flex justify-end">
       <ChartInspect :items="inspectItems(rows)" :label="label" @select="(i) => select(rows[i])" />
     </div>
-    <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer'" @click="selectHovered">
+    <div ref="host" role="img" :aria-label="label" :class="onSelect && CLICKABLE_MARKS" :data-clickable="onSelect ? '' : undefined" data-slot="line-plot" @click="selectHovered">
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto w-full', compact ? 'h-16' : 'h-[220px]', props.class)" cursor>
         <VisXYContainer :data="rows" :margin="compact ? { top: 4, bottom: 4, left: 4, right: 4 } : { left: 4, right: 12, top: 8 }" :y-domain="yDomain">
           <template v-for="s in series" :key="s.key">
@@ -54,7 +56,7 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
           </template>
           <template v-if="!compact">
             <VisAxis type="x" :x="xValue" :tick-values="thinTicks(rows.map(xValue), ticks)" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
-            <VisAxis type="y" :num-ticks="yDomain ? undefined : 4" :tick-values="yDomain ? niceTicks(yDomain[0], yDomain[1], 4) : undefined" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
+            <VisAxis type="y" :num-ticks="yDomain ? undefined : 4" :tick-values="yTicks ?? (yDomain ? niceTicks(yDomain[0], yDomain[1], 4) : undefined)" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           </template>
           <ChartTooltip />
           <ChartCrosshair

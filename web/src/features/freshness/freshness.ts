@@ -2,7 +2,7 @@ import type { Detail, DetailStat } from '@/components/evidence/detail'
 import type { Freshness } from '@/components/layout/PageHeader.vue'
 import { badge, mono, text, type ColumnSpec } from '@/components/table/columns'
 import { shortDay } from '@/components/charts/chart'
-import { age } from '@/domain/format'
+import { age, reasonText } from '@/domain/format'
 import {
   coreFreshness,
   queueFreshness,
@@ -36,17 +36,28 @@ function target(row: SourceFreshness): string {
   return row.warnMinutes === row.staleMinutes ? minutesText(row.staleMinutes) : `${minutesText(row.warnMinutes)} / ${minutesText(row.staleMinutes)}`
 }
 
+/** "2h ago", or why a source has no collection time. */
+function collected(row: SourceFreshness, nowMs: number): string {
+  if (row.timestamp) return age(row.timestamp, nowMs)
+  return row.unavailableReason ? `unavailable: ${reasonText(row.unavailableReason).toLowerCase()}` : 'without a timestamp'
+}
+
 /** One line per source: "CI health 2h ago (target 2h 30m / 3h)". */
 export function sourceLines(sources: SourceFreshness[], nowMs: number): string[] {
-  return sources.map((row) => `${row.label} ${row.timestamp ? age(row.timestamp, nowMs) : 'without a timestamp'} (target ${target(row)})`)
+  return sources.map((row) => `${row.label} ${collected(row, nowMs)} (target ${target(row)})`)
+}
+
+/** " · 1 missing" when some sources have no timestamp but others do. */
+export function missingSuffix(summary: Pick<FreshnessSummary, 'timestamp' | 'missing'>): string {
+  return summary.timestamp && summary.missing.length ? ` · ${summary.missing.length} missing` : ''
 }
 
 /** The PageHeader chip for the sources a page shows: "<prefix> 2h ago" with the worst state's tone. */
 export function freshnessChip(summary: FreshnessSummary | null, nowMs: number, prefix = 'Collected'): Freshness | undefined {
   if (!summary) return undefined
-  const oldest = summary.sources.length > 1 ? ' The age is the oldest of these collector sources.' : ''
+  const oldest = summary.sources.length > 1 ? ' The age is the oldest of these collector sources that have a timestamp.' : ''
   return {
-    text: summary.timestamp ? `${prefix} ${sourceAge(summary, nowMs)}` : `${prefix} at an unknown time`,
+    text: summary.timestamp ? `${prefix} ${sourceAge(summary, nowMs)}${missingSuffix(summary)}` : `${prefix} at an unknown time`,
     tone: FRESHNESS_TONE[summary.state],
     detail: `${sourceLines(summary.sources, nowMs).join(' · ')}.${oldest}`,
   }
@@ -76,7 +87,10 @@ const COLUMNS = (nowMs: number): ColumnSpec<SourceFreshness>[] => [
     id: 'collected',
     label: 'Collected',
     value: (row) => row.ageMs ?? Number.MAX_SAFE_INTEGER,
-    cell: (row) => (row.timestamp ? text(age(row.timestamp, nowMs), shortDay(Date.parse(row.timestamp))) : text('No timestamp')),
+    cell: (row) =>
+      row.timestamp
+        ? text(age(row.timestamp, nowMs), shortDay(Date.parse(row.timestamp)))
+        : text(row.unavailableReason ? 'Unavailable' : 'No timestamp', row.unavailableReason ? reasonText(row.unavailableReason) : undefined),
     class: 'whitespace-nowrap',
   },
   {

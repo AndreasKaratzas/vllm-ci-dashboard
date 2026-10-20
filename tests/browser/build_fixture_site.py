@@ -16,6 +16,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+from hashlib import sha1
 from uuid import NAMESPACE_URL, uuid5
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -113,6 +114,124 @@ def raw_nightlies() -> list[dict]:
     return builds
 
 
+# Main builds between the nightlies: four a day for seven days. Small builds (odd slots) run three
+# groups, full builds all six. Routed Beta breaks with nightly #30001, Broken Group fails throughout,
+# Attention Kernels Shard 2 flips, Basic Models passes only after a retry, and the newest build
+# soft-fails Attention Kernels Shard 1.
+MAIN_FIRST = datetime(2026, 10, 2, 1, tzinfo=timezone.utc)
+MAIN_HOURS = (1, 7, 13, 19)
+MAIN_DAYS = 7
+SMALL_BUILD = ("routed-alpha", "attention-2", "basic-models")
+FLAKY_SLOTS = {9, 14, 18, 22, 25}
+RETRY_SLOTS = {5, 12, 17, 23}
+HEADLINES = (
+    "[Bugfix] Guard empty prefix cache hits in the scheduler (#61{:03d})",
+    "[ROCm] Tune AITER fused MoE block sizes for MI355 (#61{:03d})",
+    "[CI] Shard the distributed tests automatically (#61{:03d})",
+    "[Model] Add tool-call parser for a new chat template (#61{:03d})",
+)
+WATCHER_ISSUE = 512
+
+
+def main_commit(slot: int) -> str:
+    return sha1(f"browser-main-{slot}".encode()).hexdigest()
+
+
+def main_job(number: int, started: datetime, device: str, title: str, key: str, state: str, suffix: str = "", **extra) -> dict:
+    job = {
+        "id": str(uuid5(NAMESPACE_URL, f"browser-ci/{number}/{key}{suffix}")), "type": "script", "state": state,
+        "name": f"{device}_1: :amd: ({device.upper()}) {title}",
+        "agent_query_rules": [f"queue=amd_{device}_1"],
+        "step": {"key": "attention" if key.startswith("attention") else key},
+        "started_at": started.isoformat(), "finished_at": (started + timedelta(minutes=20)).isoformat(),
+        **extra,
+    }
+    if key.startswith("attention"):
+        job.update(parallel_group_index=int(key[-1]) - 1, parallel_group_total=2)
+    return job
+
+
+def raw_main_builds(nightly_starts: list[datetime]) -> list[dict]:
+    builds = []
+    broken_from = min(nightly_starts)
+    for slot in range(MAIN_DAYS * len(MAIN_HOURS)):
+        started = MAIN_FIRST + timedelta(days=slot // len(MAIN_HOURS), hours=MAIN_HOURS[slot % len(MAIN_HOURS)] - 1)
+        number = 31000 + slot
+        jobs = []
+        for device, title, key, _, _, _ in VARIANTS:
+            if slot % 2 and key not in SMALL_BUILD:
+                continue
+            state, extra = "passed", {}
+            if key == "routed-beta" and started > broken_from or key == "broken":
+                state = "failed"
+            elif key == "attention-2" and slot in FLAKY_SLOTS:
+                state = "failed"
+            elif key == "attention-1" and slot == MAIN_DAYS * len(MAIN_HOURS) - 2:
+                state, extra = "failed", {"soft_failed": True}
+            if key == "basic-models" and slot in RETRY_SLOTS:
+                retry = main_job(number, started + timedelta(minutes=25), device, title, key, "passed", "/retry",
+                                 retry_source={"job_id": "", "retry_type": "automatic"}, retries_count=1, retry_type="automatic")
+                first = main_job(number, started, device, title, key, "failed", retried=True, retried_in_job_id=retry["id"])
+                retry["retry_source"]["job_id"] = first["id"]
+                jobs += [first, retry]
+                continue
+            jobs.append(main_job(number, started, device, title, key, state, **extra))
+        builds.append({
+            "number": number, "message": HEADLINES[slot % len(HEADLINES)].format(slot), "branch": "main",
+            "state": "failed" if any(job["state"] == "failed" and not job.get("retried") and not job.get("soft_failed") for job in jobs) else "passed",
+            "commit": main_commit(slot), "created_at": started.isoformat(),
+            "finished_at": (started + timedelta(hours=1)).isoformat(),
+            "web_url": f"https://buildkite.com/vllm/ci/builds/{number}", "jobs": jobs,
+        })
+    return builds
+
+
+def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -> dict:
+    """The main-failure watcher's state for the synthetic incidents above."""
+    groups = {group["name"].split(") ", 1)[1]: group for group in reliability["groups"]}
+    every = sorted(nightlies + mains, key=lambda build: build["created_at"])
+    first_nightly = min(nightlies, key=lambda build: build["created_at"])
+    before = [build for build in every if build["created_at"] < first_nightly["created_at"]][-1]
+    latest = every[-1]
+
+    def url(build: dict, job_id: str = "") -> str:
+        return build["web_url"] + (f"/steps/canvas?jid={job_id}&tab=output" if job_id else "")
+
+    def row(title: str, severity: str, status: str, good: dict | None, bad: dict) -> dict:
+        group = groups[title]
+        job = next(job for job in latest["jobs"] if job["name"].endswith(title)) if any(
+            job["name"].endswith(title) for job in latest["jobs"]) else bad["jobs"][0]
+        return {
+            "name": group["name"], "hardware": group["hardware"], "queue": group["queue"], "result": "failed",
+            "transition": {"severity": severity, "peak_severity": severity, "status": status},
+            "build_number": latest["number"], "build_url": url(latest), "job_url": url(latest, job["id"]),
+            "observed_at": latest["finished_at"],
+            "good_commit": good["commit"] if good else "", "good_build_number": good["number"] if good else None,
+            "bad_commit": bad["commit"], "bad_build_number": bad["number"],
+            "commit_range_status": "candidate" if good else "missing_good",
+            "compare_url": f"https://github.com/vllm-project/vllm/compare/{good['commit']}...{bad['commit']}" if good else "",
+            "bisect_command": f"git bisect start {bad['commit']} {good['commit']}" if good else "",
+        }
+
+    flaky = groups["Attention Kernels Shard 2"]
+    flips = [build for build in mains if int(build["number"]) - 31000 in FLAKY_SLOTS][-2:]
+    timeline = [
+        {"event": event, "group_id": flaky["group_id"], "name": flaky["name"], "hardware": flaky["hardware"], "queue": flaky["queue"],
+         "build_number": build["number"], "build_url": url(build), "at": build["created_at"], "severity": "hard", "source": "pulse"}
+        for failed in flips
+        for event, build in (("opened", failed), ("resolved", every[every.index(failed) + 1]))
+    ]
+    return {
+        "hardware_scope": "amd_mi_gpu", "last_run": GENERATED_AT, "issue": {"number": WATCHER_ISSUE}, "suppressed": False,
+        "active": {
+            groups["Routed Beta"]["group_id"]: row("Routed Beta", "hard", "confirmed", before, first_nightly),
+            groups["Broken Group"]["group_id"]: row("Broken Group", "hard", "confirmed", None, every[0]),
+        },
+        "pending_soft": {groups["Attention Kernels Shard 1"]["group_id"]: row("Attention Kernels Shard 1", "soft", "pending", every[-2], latest)},
+        "timeline": timeline,
+    }
+
+
 def seed_current_ci(data_dir: Path) -> None:
     raw = raw_nightlies()
     builds = summarize_pipeline_builds("ci", raw)
@@ -120,12 +239,15 @@ def seed_current_ci(data_dir: Path) -> None:
     analytics["current_nightly_latency"] = build_current_nightly_latency(
         builds, generated_at=GENERATED_AT, source_available=True,
     )
-    # A complete all-main cohort gives the main-derived core clock a real collection time.
+    # A complete all-main cohort (nightlies plus the main builds between them) gives the
+    # main-derived core clock a real collection time and the main CI section its builds.
+    mains = raw_main_builds([datetime.fromisoformat(build["created_at"]) for build in raw])
     analytics["all_main_reliability"] = build_all_main_reliability(
-        raw, pipeline_slug="ci", window_days=30, generated_at=GENERATED_AT,
+        raw + mains, pipeline_slug="ci", window_days=30, generated_at=GENERATED_AT,
         nightly_pattern="nightly", collection_provenance={"exhaustive": True},
     )
     write_json(data_dir / "analytics.json", {"ci": analytics})
+    write_json(data_dir / operations.MAIN_FAILURE_STATE_NAME, watcher_state(analytics["all_main_reliability"], raw, mains))
     latest = raw[0]
     reference = {
         "build_number": latest["number"], "branch": "main", "commit": SOURCE_SHA,

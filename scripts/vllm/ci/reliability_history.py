@@ -190,6 +190,11 @@ def _observation_urls(build_url: str, observation: dict) -> tuple[str, str]:
     return job_url, step_url
 
 
+def observation_job_url(build_url: str, observation: dict) -> str:
+    """The Buildkite page of one observed attempt."""
+    return _observation_urls(build_url, observation)[0]
+
+
 def _hydrate_reliability_observation(
     reliability: dict,
     observation: dict,

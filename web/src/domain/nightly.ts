@@ -307,6 +307,43 @@ export function amdNightlyPresentation(
   }
 }
 
+/** A nightly with parsed test results: the nightlies every count and rate comes from. */
+export function hasTestSignal(build: Rec | null | undefined): boolean {
+  return !!build && build.has_test_results !== false && Number(build.total_groups || 0) > 0
+}
+
+/** The newest nightly with test results, which every page counts from while a newer one runs. */
+export function signalNightly(builds: Rec[] | null | undefined): Rec | undefined {
+  return (builds || []).find(hasTestSignal)
+}
+
+/** Buildkite is still running the build ('failing' is a running build with a failed job). */
+export function nightlyRunning(build: Rec | null | undefined): boolean {
+  const state = String(build?.state || '').toLowerCase()
+  return state === 'failing' || IN_PROGRESS_STATES.includes(state)
+}
+
+/** The newest nightly when it has no test results yet, with the failures already observed in it. */
+export interface PendingNightly {
+  latest: Rec
+  signal: Rec | undefined
+  running: boolean
+  hard: number
+  soft: number
+}
+
+export function pendingNightly(builds: Rec[] | null | undefined): PendingNightly | null {
+  const latest = (builds || [])[0]
+  if (!latest || !Number(latest.number) || hasTestSignal(latest)) return null
+  return {
+    latest,
+    signal: signalNightly(builds),
+    running: nightlyRunning(latest),
+    hard: Array.isArray(latest.failed_groups) ? latest.failed_groups.length : 0,
+    soft: Array.isArray(latest.soft_failed_groups) ? latest.soft_failed_groups.length : 0,
+  }
+}
+
 export type EvidenceScope = 'hard' | 'soft' | 'new' | 'recurring' | 'fixed' | 'movement'
 
 const EVIDENCE_LABELS: Record<string, string> = {
@@ -375,4 +412,18 @@ export function nightlyBuildEvidence(build: Rec, scope?: string): BuildEvidence 
     }
   }
   return { scope: selectedScope, label: EVIDENCE_LABELS[selectedScope] || 'Failure movement', available, rows }
+}
+
+/**
+ * Nightly counts come from two histories: the nightly build summaries (every AMD nightly the
+ * collector keeps, about a month) and the per-job result ledger (only the newest nightlies).
+ * Every count names its history, so a 30 and a 7 never read as the same population.
+ */
+export type NightlyHistory = 'builds' | 'jobs'
+
+const HISTORY_NAME: Record<NightlyHistory, string> = { builds: 'build summaries', jobs: 'per-job results' }
+
+/** "30 nightlies (build summaries)", "7 nightlies (per-job results)". */
+export function nightlyCountLabel(count: number, history: NightlyHistory): string {
+  return `${count.toLocaleString('en-US')} ${count === 1 ? 'nightly' : 'nightlies'} (${HISTORY_NAME[history]})`
 }

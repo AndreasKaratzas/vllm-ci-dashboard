@@ -1,7 +1,7 @@
 import type { Detail, DetailNote, DetailStat } from '@/components/evidence/detail'
 import { badge, link, mono, type ColumnSpec } from '@/components/table/columns'
 import { integer, shortDate, toneForState, value, type Rec, type Tone } from '@/domain/format'
-import { nightlyBuildEvidence, nightlyFailureMovement } from '@/domain/nightly'
+import { nightlyBuildEvidence, nightlyFailureMovement, nightlyRunning, type PendingNightly } from '@/domain/nightly'
 import { commitUrl } from '@/domain/perf'
 import { exactPipelineBuildUrl, exactPipelineEvidenceUrl } from '@/domain/urls'
 import { hardwareColor } from '@/lib/palette'
@@ -31,6 +31,9 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
   const movementAvailable = !!movement && movement.available !== false
   const hasSignal = build.has_test_results !== false
   const blocked = Number(build.test_jobs_blocked || 0)
+  // Before a nightly has parsed results, the jobs that already failed are still evidence, listed as provisional.
+  const provisional = severityScope && !hasSignal ? nightlyBuildEvidence({ ...build, has_test_results: true }, evidence.scope).rows : []
+  const rows = provisional.length ? provisional : evidence.rows
 
   const movementCount = (key: 'new' | 'recurring' | 'fixed') => (movementAvailable && Array.isArray(movement![key]) ? movement![key].length : null)
   const countStat = (label: string, count: number | null, tone?: Tone, toneLabel?: string): DetailStat => ({
@@ -39,7 +42,7 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
     tone: count ? tone : undefined,
     toneLabel: count ? toneLabel : undefined,
   })
-  const stats: DetailStat[] = [{ label: 'Job variants observed', value: integer(build.total_groups) }]
+  const stats: DetailStat[] = hasSignal ? [{ label: 'Job variants observed', value: integer(build.total_groups) }] : []
   // A hard or soft scope lists current failures; every other scope is about movement against the previous nightly.
   if (severityScope) {
     stats.push(countStat('Hard failures', failureCount(build, 'failed_groups')), countStat('Soft failures', failureCount(build, 'soft_failed_groups')))
@@ -52,7 +55,15 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
   }
 
   const notes: DetailNote[] = []
-  if (!hasSignal) {
+  if (provisional.length) {
+    notes.push({
+      tone: 'neutral',
+      title: 'Provisional',
+      text: nightlyRunning(build)
+        ? 'Buildkite is still running this nightly. These job variants have already failed; the list is final once the nightly completes.'
+        : 'This nightly has no parsed test results. These job variants failed before results were parsed.',
+    })
+  } else if (!hasSignal) {
     notes.push({
       tone: blocked ? 'hard' : 'soft',
       text: blocked
@@ -60,7 +71,7 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
         : 'This build has no parsed test-group signal. No pass/fail movement is inferred.',
     })
   }
-  if (!evidence.available) {
+  if (!evidence.available && !provisional.length) {
     notes.push({
       tone: 'soft',
       text: scoped
@@ -122,23 +133,30 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
       { label: 'Dependency-blocked test jobs', value: blocked ? integer(blocked) : null },
     ],
     sources: buildUrl ? [{ label: 'Open Buildkite build', url: buildUrl }] : [],
-    tables: evidence.rows.length
+    tables: rows.length
       ? [
           {
             title: label,
-            meta: `${integer(evidence.rows.length)} job variants`,
+            meta: `${integer(rows.length)} job variants`,
             columns,
-            rows: evidence.rows,
+            rows,
             searchText: (row: Rec) => [row.display_name, row.name, row.lifecycle, row.queue].join(' '),
           },
         ]
       : [],
     empty:
-      !evidence.rows.length && evidence.available
+      !rows.length && evidence.available
         ? scoped
           ? `No ${evidence.label.toLowerCase()} are observed in this build.`
           : 'No failure movement is observed in this build.'
         : undefined,
+    footnote:
+      'Nightly counts come from the jobs with parsed test results. Main CI counts one final Buildkite attempt per AMD MI test group, so its totals for the same build can differ.',
     width: 'lg',
   }
+}
+
+/** The failures a nightly without test results already shows, hard ones when it has any. */
+export function pendingEvidenceDetail(pending: PendingNightly): Detail {
+  return buildEvidenceDetail(pending.latest, { scope: pending.hard ? 'hard' : 'soft', title: `Nightly #${pending.latest.number} failures so far` })
 }
