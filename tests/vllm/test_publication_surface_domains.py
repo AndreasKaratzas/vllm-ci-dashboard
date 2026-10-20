@@ -228,7 +228,7 @@ def test_path_specific_findings_route_to_the_owning_domain(
     path: str,
     expected: set[str],
 ) -> None:
-    finding = _finding("operations-gating-invalid", path=path, source="analytics")
+    finding = _finding("invalid-json", path=path, source="analytics")
     assert finding_surfaces(finding) == frozenset(expected)
 
 

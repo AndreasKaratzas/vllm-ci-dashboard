@@ -45,6 +45,29 @@ describe('PublicationBanner', () => {
     wrapper.unmount()
   })
 
+  it('names the areas published as unavailable', async () => {
+    server.set(STATUS, {
+      affected_surface_count: 1,
+      affected_surfaces: ['Agent health'],
+      degraded_since: '2026-10-19T09:00:00Z',
+      fallback_surface_count: 1,
+      fresh_degraded_surface_count: 0,
+      generated_at: '2026-10-19T09:55:00Z',
+      mode: 'fallback',
+      publication_blocked: false,
+      schema_version: 1,
+      status: 'degraded',
+      unavailable_surface_count: 1,
+      unavailable_surfaces: ['Agent health'],
+      uses_fallback: true,
+    })
+    const wrapper = await mountBanner()
+    const text = wrapper.get('[data-testid="publication-banner"]').text()
+    expect(text).toContain('Some dashboard areas are unavailable')
+    expect(text).toContain('Unavailable areas: Agent health.')
+    wrapper.unmount()
+  })
+
   it('warns that the status is unavailable when the status file cannot be read', async () => {
     server.set(STATUS, { status: 503 })
     const wrapper = await mountBanner()

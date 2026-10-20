@@ -57,6 +57,70 @@ describe('loadOperations', () => {
   })
 })
 
+describe('unavailable surfaces', () => {
+  it('shows a section derived from an unavailable surface as unavailable instead of its data', async () => {
+    publish(server, { generatedAt: G1, sources: SOURCES })
+    const manifest = manifestOf({ generatedAt: G1, sources: SOURCES })
+    server.set(MANIFEST, {
+      ...manifest,
+      shell: {
+        ...manifest.shell,
+        publication: {
+          unavailable: [
+            {
+              surface: 'ci_analytics',
+              since: G1,
+              reason: 'candidate-and-last-known-good-failed',
+              codes: ['analytics-build-count'],
+              sources: ['analytics', 'main_ci'],
+            },
+          ],
+        },
+      },
+    })
+    for (const name of ['nightly', 'reliability']) {
+      const failure = operations.loadOperations([name])
+      await expect(failure).rejects.toBeInstanceOf(operations.SurfaceUnavailableError)
+      await expect(failure).rejects.toThrow(/ci analytics data and its last-known-good snapshot both failed validation \(analytics-build-count\) since 2026-10-19T10:00:00Z/)
+      expect(server.count(sectionPath(name))).toBe(0)
+    }
+    const parity = await operations.loadOperations(['test_group_parity'])
+    expect(parity.test_group_parity).toEqual({ label: `test_group_parity@${G1}` })
+  })
+})
+
+describe('the shell of a publication with unavailable surfaces', () => {
+  it('shows main CI as unavailable and drops the shell data and attention derived from the surface', async () => {
+    const { mainCiRecord, mainCiSummary } = await import('@/domain/mainCi')
+    const { reasonText } = await import('@/domain/format')
+    const base = manifestOf({ generatedAt: G1, sources: SOURCES })
+    const shell = {
+      ...base.shell,
+      main_ci: { available: true, source_generated_at: G1, builds: 40 },
+      nightly: { pipelines: [] },
+      amd_test_health: { summary: { groups: 3 } },
+      queue: { snapshot: { ts: G1 } },
+      attention: [
+        { kind: 'nightly_hard_failures', severity: 'critical', count: 2 },
+        { kind: 'omni_waiting', severity: 'warning', count: 1 },
+      ],
+    }
+    const healthy = operations.combineOperations({ ...base, shell }, [])
+    expect(mainCiSummary(mainCiRecord(healthy))?.available).toBe(true)
+
+    const unavailable = [{ surface: 'ci_analytics', label: 'CI analytics', since: G1, codes: ['analytics-build-count'], sources: ['analytics', 'main_ci'] }]
+    const ops = operations.combineOperations({ ...base, shell: { ...shell, publication: { unavailable } } }, [])
+
+    const summary = mainCiSummary(mainCiRecord(ops))
+    expect(summary).toMatchObject({ available: false, reason: 'publication_surface_unavailable', latest: null, buildCount: null })
+    expect(reasonText(summary?.reason)).toBe('Publication surface unavailable')
+    expect(ops.nightly).toBeUndefined()
+    expect(ops.amd_test_health).toBeUndefined()
+    expect(ops.queue).toEqual({ snapshot: { ts: G1 } })
+    expect(ops.attention).toEqual([{ kind: 'omni_waiting', severity: 'warning', count: 1 }])
+  })
+})
+
 describe('section cache', () => {
   it('downloads the manual reliability section once per page across publications', async () => {
     publish(server, { generatedAt: G1, sources: SOURCES })

@@ -40,6 +40,8 @@ export interface DatasetSource {
   validate?: (payload: unknown) => void
   /** Replaces the default loader (fetch every candidate, newest wins). */
   createLoader?: (paths: readonly string[]) => DatasetLoad
+  /** The publication surface that produces the dataset; while it is published as unavailable the dataset is not shown. */
+  surface?: string
 }
 
 const generatedAt: PublishedAt = (payload) => payload.generated_at
@@ -83,26 +85,31 @@ export const DATASETS = {
   prs: {
     paths: ['data/vllm/prs.json'],
     refresh: COLLECTOR_RUN,
+    surface: 'github_home',
     publishedAt: (payload) => payload.collected_at,
   },
   issues: {
     paths: ['data/vllm/issues.json'],
     refresh: COLLECTOR_RUN,
+    surface: 'github_home',
     publishedAt: (payload) => payload.collected_at,
   },
   perf_eval: {
     paths: ['data/vllm/perf_eval/perf_eval.json'],
     refresh: COLLECTOR_RUN,
+    surface: 'perf_eval',
     publishedAt: generatedAt,
   },
   amd_test_matrix: {
     paths: [`${CI}amd_test_matrix.json`],
     refresh: { on: 'sources', sources: ['amd_test_matrix'] },
+    surface: 'ci_core',
     publishedAt: generatedAt,
   },
   workload_mapping: {
     paths: [`${CI}workload_mapping.json`],
     refresh: { on: 'sources', sources: ['workload_mapping'] },
+    surface: 'queue_workload',
     publishedAt: generatedAt,
   },
   dns: {
@@ -110,6 +117,7 @@ export const DATASETS = {
     refresh: { on: 'poll' },
     publishedAt: generatedAt,
     createLoader: dnsLoader,
+    surface: 'dns_health',
   },
 } as const satisfies Record<string, DatasetSource>
 
@@ -119,6 +127,8 @@ export interface SectionSource {
   /** Published path that views cite as the source; loading follows the manifest descriptor. */
   path: string
   refresh: RefreshPolicy
+  /** Manifest sources the section derives from, when its refresh policy does not name them. */
+  inputs?: readonly string[]
   /** A live candidate that competes with the published section (newest publishedAt wins). */
   live?: string
   publishedAt?: PublishedAt
@@ -134,13 +144,14 @@ export const SECTIONS = {
   // amd_test_signal tracks the AMD test-result ledger, which no published source covers.
   amd_test_health: section('amd_test_health', inputs('analytics', 'ci_health', 'config_parity', 'amd_test_matrix', 'amd_test_signal')),
   amd_agent_health: section('amd_agent_health', inputs('agent_health')),
-  reliability: section('reliability', { on: 'manual' }),
+  reliability: { ...section('reliability', { on: 'manual' }), inputs: ['analytics'] },
   comparison: section('comparison', inputs('analytics')),
   definition_parity: section('definition_parity', inputs('config_parity')),
   test_group_parity: section('test_group_parity', inputs('test_group_parity', 'config_parity')),
   ownership: section('ownership', inputs('ci_ownership')),
   queue: {
     ...section('queue', { on: 'poll' }),
+    inputs: ['queue_timeseries', 'queue_jobs'],
     live: `${QUEUE_LIVE}operations_v2/queue.json`,
     publishedAt: (payload) => payload.queue?.snapshot?.ts,
   },
