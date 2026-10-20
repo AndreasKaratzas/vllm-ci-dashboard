@@ -354,6 +354,44 @@ def _flakiness(scoped: dict, now: datetime, thresholds: dict[str, int]) -> tuple
     return flaky, hotspots
 
 
+def _slowdowns(state: dict, now: datetime) -> dict:
+    """Test-step slowdowns exactly as the duration watcher holds them, provided
+    the watcher evaluated this same cohort (it runs right before the snapshot)."""
+    from vllm.amd_duration_regression_watcher import INCIDENT_STATE_VERSION, MAX_DATA_AGE, RULES
+
+    if (
+        not isinstance(state, dict)
+        or state.get("incident_state_version") != INCIDENT_STATE_VERSION
+        or state.get("hardware_scope") != "amd_mi_gpu"
+    ):
+        return {"available": False, "reason": "duration_watcher_state_unavailable", "rows": []}
+    last_run = main_flakiness.parse_ts(state.get("last_run"))
+    if last_run is None or abs(now - last_run) > MAX_DATA_AGE:
+        return {"available": False, "reason": "duration_watcher_state_stale", "rows": []}
+    rows = sorted(
+        (dict(row) for row in (state.get("active") or {}).values() if isinstance(row, dict)),
+        key=lambda row: (
+            row.get("status") != "active",
+            -float(row.get("increase_mins") or 0),
+            str(row.get("name") or "").lower(),
+        ),
+    )
+    issue = state.get("issue") if isinstance(state.get("issue"), dict) else None
+    number = (issue or {}).get("number")
+    return {
+        "available": True,
+        "watcher_last_run": str(state.get("last_run") or ""),
+        "issue": (
+            {"number": number, "url": f"{DASHBOARD_REPO_URL}/issues/{number}"}
+            if isinstance(number, int) and number > 0
+            else None
+        ),
+        "suppressed": state.get("suppressed") is True,
+        "rules": dict(RULES),
+        "rows": rows,
+    }
+
+
 def unavailable(reason: str, generated_at: str) -> dict:
     return {
         "available": False,
@@ -365,6 +403,7 @@ def unavailable(reason: str, generated_at: str) -> dict:
         "summary": {},
         "builds": [],
         "incidents": {"available": False, "active": [], "pending_soft": []},
+        "slowdowns": {"available": False, "reason": reason, "rows": []},
         "timeline": [],
         "top_flaky": [],
         "retry_hotspots": [],
@@ -372,7 +411,12 @@ def unavailable(reason: str, generated_at: str) -> dict:
     }
 
 
-def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) -> dict:
+def build_main_ci(
+    analytics_ci: dict,
+    watcher_state: dict,
+    generated_at: str,
+    duration_state: dict | None = None,
+) -> dict:
     reliability = (analytics_ci or {}).get("all_main_reliability")
     if not validate_all_main_reliability(reliability, PIPELINE):
         return unavailable("strict_all_main_reliability_unavailable", generated_at)
@@ -388,6 +432,7 @@ def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) ->
     failing, group_catalog = _failing_groups(scoped)
     builds = _build_rows(scoped, failing)
     incidents, timeline = _incidents(watcher_state, scoped)
+    slowdowns = _slowdowns(duration_state or {}, now)
     has_history = main_flakiness.has_outcome_history(scoped)
     flaky, hotspots = _flakiness(scoped, now, thresholds) if has_history else ([], [])
     retry = (analytics_ci or {}).get("main_retry_analysis") or {}
@@ -431,6 +476,14 @@ def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) ->
             "active_incidents": len(incidents["active"]),
             "hard_incidents": sum(row["severity"] == "hard" for row in incidents["active"]),
             "pending_soft": len(incidents["pending_soft"]),
+            **{
+                f"{status}_slowdowns": (
+                    sum(row.get("status") == status for row in slowdowns["rows"])
+                    if slowdowns["available"]
+                    else None
+                )
+                for status in ("active", "settled")
+            },
             "flaky_groups": len(flaky),
             "alerting_flaky_groups": sum(row["alerting"] for row in flaky),
             "retry_hotspot_groups": len(hotspots),
@@ -439,6 +492,7 @@ def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) ->
             "failed_then_passed_recoveries": retry_summary.get("failed_then_passed_recovery_count"),
         },
         "incidents": incidents,
+        "slowdowns": slowdowns,
         "timeline": timeline,
         "top_flaky": flaky[:TOP_FLAKY_LIMIT],
         "retry_hotspots": hotspots[:RETRY_HOTSPOT_LIMIT],
@@ -497,6 +551,7 @@ def main_ci_shell(section: dict) -> dict:
                 "previous_24h",
                 "active_incidents",
                 "hard_incidents",
+                "active_slowdowns",
                 "alerting_flaky_groups",
                 "alerting_retry_groups",
             )

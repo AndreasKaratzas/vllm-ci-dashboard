@@ -491,7 +491,8 @@ bounded by the durable ledgers.
 `ci` branch=main build for 30 days; each catalog build records its final AMD MI
 job outcomes (`amd_jobs`) and each strict group records its per-build final
 outcome (`outcome_history`, with `r` marking a pass reached only by retrying a
-hard failure). From that one cohort:
+hard failure, and `wall_mins` holding each passing final attempt's wall time).
+From that one cohort:
 
 - `ci_main_failure_watcher.py` confirms incidents (hard immediately, soft after
   two builds), keeps `good_commit`/`bad_commit` bisect bounds, and now records
@@ -499,16 +500,18 @@ hard failure). From that one cohort:
 - `ci_flakiness_watcher.py` lists groups at or above the flip or
   retry-recovery thresholds in `config/ci_flakiness_thresholds.json` and closes
   its issue when none remain.
+- `amd_duration_regression_watcher.py` lists test steps whose wall time rose
+  by a sustained step since a change (rules in `scripts/vllm/ci/README.md`).
 - `operations_v2/main_ci.json` (bounded to 1.5 MiB) publishes per-build
-  summaries, the watcher's incidents and timeline, flaky groups, retry hotspots
-  and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's
+  summaries, the watchers' incidents, timeline and slowdowns, flaky groups,
+  retry hotspots and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's
   own collection time, because `analytics.json` advances even when an incomplete
   Buildkite scan preserves the previous cohort. `core.main_derived_sources` in
   `config/data_freshness_targets.json` lists that clock, so Site Health reports
   the case as stale core data and the watchdog labels its recovery
   `core-data-stale`.
 
-Both watchers run in the same Data Collection run that refreshed analytics,
+These watchers run in the same Data Collection run that refreshed analytics,
 before the Operations snapshot is rebuilt, so a new hard failure opens or
 updates its issue and reaches `main_ci` in one generation. They skip, without
 touching issues, whenever the `ci_analytics` surface is degraded or the cohort

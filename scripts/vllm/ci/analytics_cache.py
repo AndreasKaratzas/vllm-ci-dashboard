@@ -268,16 +268,19 @@ def _sanitize_job(job: object, build_number: int) -> dict:
             row[key] = parallel_value
 
     step = job.get("step")
-    if step is not None:
-        if not isinstance(step, dict):
-            raise CacheValidationError("malformed_types", "job.step must be an object")
-        clean_step = {}
-        for key in ("id", "key"):
-            value = _token(step.get(key), f"job.step.{key}")
-            if value:
-                clean_step[key] = value
-        if clean_step:
-            row["step"] = clean_step
+    if step is not None and not isinstance(step, dict):
+        raise CacheValidationError("malformed_types", "job.step must be an object")
+    clean_step = {}
+    for key in ("id", "key"):
+        value = _token((step or {}).get(key), f"job.step.{key}")
+        if value:
+            clean_step[key] = value
+    # Buildkite REST jobs carry the step key at the top level, not under step.
+    step_key = _token(job.get("step_key"), "job.step_key")
+    if step_key:
+        clean_step.setdefault("key", step_key)
+    if clean_step:
+        row["step"] = clean_step
 
     retried = _optional_bool(job.get("retried"), "job.retried")
     if retried is not None:

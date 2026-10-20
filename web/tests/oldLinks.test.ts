@@ -74,7 +74,7 @@ describe('old dashboard links', () => {
     expect(route('ci-analytics', 'ops_analytics_view=groups&ops_analytics_pipeline=ci')).toBe('#/analytics')
     // ops_analytics_search always forces the groups view.
     expect(route('ci-analytics', 'ops_analytics_search=Batch%20Invariance')).toBe('#/analytics')
-    // amd_duration_regression_watcher links the latency view.
+    // Older amd_duration_regression_watcher issue bodies link the latency view.
     expect(route('ci-analytics', 'ops_analytics_view=latency')).toBe('#/analytics?view=latency')
     expect(route('ci-analytics', 'ops_analytics_view=nightlies')).toBe('#/analytics?view=nightlies')
   })

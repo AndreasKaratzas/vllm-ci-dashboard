@@ -262,32 +262,9 @@ def _compact_main_state(
 
 
 def _duration_row(row: dict) -> dict:
-    keys = (
-        "baseline_count",
-        "baseline_mins",
-        "first_detected_at",
-        "hardware",
-        "increase_mins",
-        "increase_pct",
-        "latest_build_number",
-        "latest_build_url",
-        "latest_job_url",
-        "latest_observed_at",
-        "name",
-        "queue",
-        "recent_count",
-        "recent_median_mins",
-    )
-    compact = {key: copy.deepcopy(row[key]) for key in keys if key in row}
-    for key, limit in (
-        ("name", 512),
-        ("hardware", 128),
-        ("queue", 256),
-        ("latest_observed_at", 80),
-        ("first_detected_at", 80),
-        ("latest_build_url", 2048),
-        ("latest_job_url", 2048),
-    ):
+    """Drop the sample series, which the next run re-derives from analytics."""
+    compact = {key: copy.deepcopy(value) for key, value in row.items() if key != "samples"}
+    for key, limit in (("name", 512), ("hardware", 128), ("queue", 256), ("step_key", 256), ("compare_url", 2048)):
         if key in compact:
             compact[key] = _clip(compact[key], limit)
     return compact
