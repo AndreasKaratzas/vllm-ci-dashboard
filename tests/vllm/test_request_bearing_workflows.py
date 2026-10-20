@@ -383,28 +383,49 @@ def test_workflow_drift_supersedes_publication_and_redispatches_once(tmp_path: P
     dispatched = tmp_path / "dispatched"
     stubs = {
         "python": 'printf "%s\\n" "$@" > "$RUNNER_TEMP/python-args"; '
+                  'echo x >> "$RUNNER_TEMP/marks"; '
+                  '[ "$(wc -l < "$RUNNER_TEMP/marks")" -gt "${MARK_FAILS:-0}" ] || exit 1; '
                   'echo "newly_superseded=$NEWLY" >> "${@: -1}"',
         "jq": 'printf "%s\\n" "$@" > "$RUNNER_TEMP/jq-args"; echo payload',
-        "gh": f'cat >> "{dispatched}"',
+        "gh": f'[ -z "$GH_FAILS" ] || exit 1; cat >> "{dispatched}"; echo >> "{dispatched}"',
+        "sleep": "exit 0",
     }
+    inputs = {"ci_days": "13", "skip_tests": "true", "reset_perf_eval": "false",
+              "dns_generation": "dns-g", "queue_generation": "queue-g",
+              "watchdog_generation": "2026-10-20T00:32:36Z", "recovery_key": "0" * 64}
     env = {"REQUEST_MODE": "reserved", "ACTUAL_REQUEST_STARTS": "62",
-           "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID": "data-1-1", "HOURLY_CI_DAYS": "8",
-           "HOURLY_SKIP_TESTS": "false", "HOURLY_RESET_PERF_EVAL": "false",
-           "HOURLY_DNS_GENERATION_INPUT": "", "HOURLY_QUEUE_GENERATION_INPUT": "",
-           "HOURLY_WATCHDOG_GENERATION_INPUT": "2026-10-20T00:32:36Z",
-           "RAW_RECOVERY_KEY": "0" * 64}
-    result, _ = _run_step(redispatch, tmp_path, {**env, "NEWLY": "true"}, stubs)
+           "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID": "data-1-1",
+           "HOURLY_CI_DAYS": inputs["ci_days"], "HOURLY_SKIP_TESTS": inputs["skip_tests"],
+           "HOURLY_RESET_PERF_EVAL": inputs["reset_perf_eval"],
+           "HOURLY_DNS_GENERATION_INPUT": inputs["dns_generation"],
+           "HOURLY_QUEUE_GENERATION_INPUT": inputs["queue_generation"],
+           "HOURLY_WATCHDOG_GENERATION_INPUT": inputs["watchdog_generation"],
+           "RAW_RECOVERY_KEY": inputs["recovery_key"], "GH_FAILS": ""}
+
+    def run(**overrides: str):
+        (tmp_path / "marks").unlink(missing_ok=True)
+        return _run_step(redispatch, tmp_path, {**env, "NEWLY": "true", **overrides}, stubs)[0]
+
+    result = run()
     assert result.returncode == 0, result.stderr
     jq_args = (tmp_path / "jq-args").read_text().splitlines()
-    assert ["--arg", "watchdog_generation", "2026-10-20T00:32:36Z"] == jq_args[
-        jq_args.index("watchdog_generation") - 1:jq_args.index("watchdog_generation") + 2
-    ]
+    passed = {jq_args[i + 1]: jq_args[i + 2] for i, arg in enumerate(jq_args) if arg == "--arg"}
+    assert passed == inputs
     assert "mark-superseded" in (tmp_path / "python-args").read_text()
     assert dispatched.read_text() == "payload\n"
-    result, _ = _run_step(redispatch, tmp_path, {**env, "NEWLY": "false"}, stubs)
+    # A mark already present before this step ran dispatches nothing.
+    result = run(NEWLY="false")
     assert result.returncode == 0 and dispatched.read_text() == "payload\n"
+    # A failed try whose ledger push landed is this run's own mark: still dispatch.
+    result = run(NEWLY="false", MARK_FAILS="1")
+    assert result.returncode == 0 and dispatched.read_text() == "payload\n" * 2
+    result = run(MARK_FAILS="3")
+    assert result.returncode != 0 and dispatched.read_text() == "payload\n" * 2
+    # A dispatch that keeps failing turns the run red for the watchdog to recover.
+    result = run(GH_FAILS="1")
+    assert result.returncode != 0 and "could not re-dispatch" in result.stdout
     # Targeted DNS/queue repairs hold no ledger reservation and dispatch directly.
     (tmp_path / "python-args").unlink()
-    result, _ = _run_step(redispatch, tmp_path, {**env, "REQUEST_MODE": ""}, stubs)
-    assert result.returncode == 0 and dispatched.read_text() == "payload\npayload\n"
+    result = run(REQUEST_MODE="")
+    assert result.returncode == 0 and dispatched.read_text() == "payload\n" * 3
     assert not (tmp_path / "python-args").exists()

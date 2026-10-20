@@ -79,8 +79,8 @@ class DashboardStateError(RuntimeError):
 class WorkflowSupersededError(DashboardStateError):
     """Main changed .github/workflows after this candidate's code was pinned.
 
-    GitHub refuses a GITHUB_TOKEN push that would introduce workflow content
-    differing from the default branch, so the candidate can never publish.
+    GitHub refuses a GITHUB_TOKEN push that newly introduces a commit whose
+    workflow content differs from the default branch, so it can never publish.
     Neither ref moved; a collection on the new main code replaces it.
     """
 
@@ -1529,9 +1529,20 @@ def _workflows_tree(root: Path, commit_sha: str) -> str:
 def check_workflow_drift(
     root: Path, state_sha: str, *, remote: str, default_branch: str
 ) -> None:
-    """Raise when the candidate's workflow tree differs from the default tip."""
+    """Raise when the candidate's workflow tree differs from the default tip.
+
+    An unreachable default branch skips the preflight; the push-time rejection
+    classifier still catches drift, so a transient fetch error cannot fail an
+    otherwise publishable state.
+    """
     branch = _safe_branch(default_branch, label="default branch")
-    _git(root, "fetch", "--no-tags", "--depth=1", remote, f"refs/heads/{branch}")
+    shallow = _git(root, "rev-parse", "--is-shallow-repository").decode().strip() == "true"
+    depth = ("--depth=1",) if shallow else ()
+    try:
+        _git(root, "fetch", "--no-tags", *depth, remote, f"refs/heads/{branch}")
+    except DashboardStateError as exc:
+        print(f"::warning::Skipped the workflow drift preflight: {exc}", file=sys.stderr)
+        return
     default_sha = _resolve_commit(root, "FETCH_HEAD", label="default branch tip")
     candidate_tree = _workflows_tree(root, state_sha)
     default_tree = _workflows_tree(root, default_sha)

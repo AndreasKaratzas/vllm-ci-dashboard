@@ -1800,6 +1800,23 @@ def test_rotation_refuses_workflow_drift_from_main_without_moving_refs(
     assert not isinstance(unreadable.value, state.WorkflowSupersededError)
 
 
+def test_workflow_drift_preflight_keeps_full_clone_and_skips_unreachable_main(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo, remote, code_sha = _repo_with_workflow_on_main(tmp_path)
+    _advance_main(tmp_path, remote, "scripts/app.py", "print('newer')\n")
+    snapshot = make_state(repo, policy, code_sha, generation="run-112.1", value=2)
+    state.check_workflow_drift(repo, snapshot.state_sha, remote="origin", default_branch="main")
+    assert git(repo, "rev-parse", "--is-shallow-repository") == "false"
+
+    # A transient fetch error falls through to the push-time classifier.
+    git(repo, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    state.check_workflow_drift(repo, snapshot.state_sha, remote="origin", default_branch="main")
+    assert "::warning::Skipped the workflow drift preflight" in capsys.readouterr().err
+
+
 def test_workflow_permission_rejection_classifier_is_narrow() -> None:
     assert state.is_workflow_permission_rejection(
         WORKFLOW_PERMISSION_REJECTION, branch="dashboard-state"

@@ -2926,8 +2926,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$REQUEST_MODE" = reserved ]; then
-            # Only the first mark of this attempt dispatches; the mark removes
-            # it from retry backoff but keeps its slot in the 25-hour cap.
+            # The mark removes this attempt from retry backoff but keeps its
+            # slot in the 25-hour cap. The attempt ID is unique to this run, so
+            # an existing mark after a failed try here is this run's own.
             MARK_OUTPUT="$RUNNER_TEMP/data-collection-superseded.outputs"
             for MARK_ATTEMPT in 1 2 3; do
               : > "$MARK_OUTPUT"
@@ -2944,12 +2945,12 @@ jobs:
               fi
               sleep $((MARK_ATTEMPT * 2))
             done
-            if ! grep -qx 'newly_superseded=true' "$MARK_OUTPUT"; then
+            if [ "$MARK_ATTEMPT" -eq 1 ] && ! grep -qx 'newly_superseded=true' "$MARK_OUTPUT"; then
               echo "::warning::This attempt was already superseded; not dispatching again."
               exit 0
             fi
           fi
-          jq -n \
+          PAYLOAD="$(jq -n \
             --arg ci_days "$HOURLY_CI_DAYS" \
             --arg skip_tests "$HOURLY_SKIP_TESTS" \
             --arg reset_perf_eval "$HOURLY_RESET_PERF_EVAL" \
@@ -2960,11 +2961,21 @@ jobs:
             '{ref: "main", inputs: {ci_days: $ci_days, skip_tests: $skip_tests,
               reset_perf_eval: $reset_perf_eval, dns_generation: $dns_generation,
               queue_generation: $queue_generation,
-              watchdog_generation: $watchdog_generation, recovery_key: $recovery_key}}' | \
-          gh api --method POST \
-            -H "Accept: application/vnd.github+json" \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
-            --input -
+              watchdog_generation: $watchdog_generation, recovery_key: $recovery_key}}')"
+          # A duplicate dispatch coalesces in the full-collection concurrency group.
+          for DISPATCH_ATTEMPT in 1 2 3; do
+            if printf '%s' "$PAYLOAD" | gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+              --input -; then
+              break
+            fi
+            if [ "$DISPATCH_ATTEMPT" -eq 3 ]; then
+              echo "::error::Superseded run could not re-dispatch Data Collection; the watchdog recovers it."
+              exit 1
+            fi
+            sleep $((DISPATCH_ATTEMPT * 5))
+          done
           echo "::warning::Superseded by workflow change on main; nothing was published and Data Collection was re-dispatched on main."
 
       - name: Preserve only bounded PR previews
