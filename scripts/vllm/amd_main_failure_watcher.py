@@ -515,13 +515,21 @@ def advance_incidents(
     track_commit_range: bool = False,
     initialize_from_history: bool = False,
     events: list[dict] | None = None,
+    partial_cohort: bool = False,
 ) -> dict:
     """Apply newly completed builds to unresolved strict-group incidents.
 
     ``events`` optionally receives one opened/resolved row for every confirmed
     incident transition applied by this call.
+
+    ``partial_cohort`` applies a slice of recently finished builds on top of
+    initialized state (main_pulse.py): processed builds, ordering fences and
+    the processed-through fence outside the slice are kept, and a new
+    incident's good commit falls back to the group's last observed pass.
     """
     updated = _readable_state_copy(state)
+    if partial_cohort and not updated.get("initialized"):
+        raise ValueError("a partial cohort needs initialized watcher state")
     catalog = [
         build
         for build in reliability.get("builds") or []
@@ -667,12 +675,18 @@ def advance_incidents(
                 continue
 
             if track_commit_range and row["result"] != "passed":
+                existing = previous or {}
+                if partial_cohort and not previous and current_watermark.get("result") == "passed":
+                    existing = {
+                        "good_commit": current_watermark.get("commit"),
+                        "good_build_number": current_watermark.get("build_number"),
+                    }
                 incident.update(
                     _commit_range(
                         group_id,
                         number,
                         row,
-                        previous or {},
+                        existing,
                         ordered_numbers,
                         observations,
                         catalog_by_number,
@@ -713,17 +727,22 @@ def advance_incidents(
         default=None,
     )
     protected_groups = set(active) | set(pending_soft)
-    watermarks = {
-        group_id: row
-        for group_id, row in watermarks.items()
-        if group_id in protected_groups
-        or minimum_catalog_rank is None
-        or _watermark_rank(row) >= minimum_catalog_rank
-    }
+    if not partial_cohort:
+        watermarks = {
+            group_id: row
+            for group_id, row in watermarks.items()
+            if group_id in protected_groups
+            or minimum_catalog_rank is None
+            or _watermark_rank(row) >= minimum_catalog_rank
+        }
 
     updated["active"] = active
     updated["pending_soft"] = pending_soft
     updated["group_watermarks"] = watermarks
+    if partial_cohort:
+        updated["processed_build_numbers"] = sorted(processed)
+        updated["processed_through"] = processed_through
+        return updated
     updated["processed_build_numbers"] = sorted(processed & cohort_numbers)
     newest_processed = max(catalog, key=build_rank, default=None)
     if newest_processed is not None and (
@@ -1014,6 +1033,94 @@ def mi_scoped_state(state: dict, reliability: dict) -> dict:
     return updated
 
 
+def reconcile_issue(
+    state: dict,
+    reliability: dict,
+    config: WatcherConfig,
+    *,
+    client: Any,
+    repo: str,
+    run_url: str,
+    observed_at: str,
+    hold_close: str | None = None,
+) -> dict:
+    """Reconcile the managed umbrella issue with ``state['active']``.
+
+    ``hold_close`` names why the issue may not be closed (or recovered and
+    closed) in this run; the issue is then left untouched while nothing is
+    active.
+    """
+    active = state.get("active") or {}
+    if hold_close and not active:
+        log.warning("::warning::Leaving the managed issue untouched: %s", hold_close)
+        reconciled = normalize_managed_state(state)
+    else:
+        reconciled = reconcile_managed_issue(
+            state,
+            active=bool(active),
+            fingerprint=_migrate_signal_fingerprint(state, active),
+            content_fingerprint=_content_fingerprint(active),
+            title=_issue_title_for(active, config),
+            body=_issue_body_for(active, reliability, run_url, repo_owner(repo), config),
+            ownership_marker=config.ownership_marker,
+            recovery_body=(
+                f"No strict {config.scope_name} origin/main test-group incidents remain under the "
+                "watcher's explicit-pass resolution rule. Closing this tracked umbrella issue.\n\n"
+                f"*{run_url}*"
+            ),
+            observed_at=observed_at,
+            label_specs=list(config.label_specs),
+            client=client,
+            discovery_label=config.label_specs[0][0],
+            recovery_labels=("automated", "workstream:dev"),
+            refresh_before_close=config.refresh_before_close,
+        )
+    reconciled["schema_version"] = 2
+    if config.job_scope == "amd_gpu":
+        reconciled["hardware_scope"] = "amd_mi_gpu"
+    reconciled["signal_fingerprint_version"] = 2
+    return reconciled
+
+
+def _merge_main_pulse(state: dict) -> tuple[dict, dict | str | None]:
+    """Adopt newer main-pulse observations named by ``MAIN_PULSE_STATE_FILE``.
+
+    Returns the merged state and the export record, or the reason the overlay
+    could not be read (closing must then wait), or None outside pulse mode.
+    """
+    path = os.getenv("MAIN_PULSE_STATE_FILE")
+    if not path:
+        return state, None
+    from vllm.ci.main_pulse_overlay import load_export_file, merge_overlay
+
+    try:
+        export = load_export_file(Path(path))
+    except (OSError, ValueError) as error:
+        log.warning("::warning::Main pulse overlay is unavailable: %s", error)
+        return state, f"the main pulse overlay is unavailable ({error})"
+    overlay = export["overlay"]
+    if overlay is None:
+        return state, export
+    log.info("Merged the main pulse overlay of %d groups", len(overlay["groups"]))
+    return merge_overlay(state, overlay), export
+
+
+def _main_pulse_close_hold(export: dict | str | None) -> str | None:
+    """Why closing must wait: the overlay was unreadable or the pulse moved on."""
+    if export is None or isinstance(export, str):
+        return export
+    from vllm.ci.main_pulse_overlay import state_head
+    from vllm.queue_request_budget import QueueRequestBudgetError
+
+    try:
+        head = state_head(ROOT, "origin", export["branch"])
+    except (QueueRequestBudgetError, OSError, ValueError) as error:
+        return f"the main pulse state head is unreadable ({error})"
+    if head != export["state_sha"]:
+        return "the main pulse published newer observations after the overlay export"
+    return None
+
+
 def run_watcher(config: WatcherConfig) -> int:
     token = os.getenv("GITHUB_TOKEN")
     repo = os.getenv("GITHUB_REPOSITORY") or DASHBOARD_REPO
@@ -1050,8 +1157,9 @@ def run_watcher(config: WatcherConfig) -> int:
         reliability = mi_scoped_reliability(reliability)
 
     restored_state = _read_state(config.state)
+    pulse_export: dict | str | None = None
     if config.job_scope == "amd_gpu":
-        restored_state = mi_scoped_state(restored_state, reliability)
+        restored_state, pulse_export = _merge_main_pulse(mi_scoped_state(restored_state, reliability))
     events: list[dict] = []
     state = advance_incidents(
         reliability,
@@ -1064,34 +1172,16 @@ def run_watcher(config: WatcherConfig) -> int:
     active = state.get("active") or {}
     pending_soft = state.get("pending_soft") or {}
     observed_at = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
-    title = _issue_title_for(active, config)
-    body = _issue_body_for(active, reliability, run_url, repo_owner(repo), config)
-    signal_fingerprint = _migrate_signal_fingerprint(state, active)
-    client = GitHubIssueClient(token, repo)
-    reconciled = reconcile_managed_issue(
+    reconciled = reconcile_issue(
         state,
-        active=bool(active),
-        fingerprint=signal_fingerprint,
-        content_fingerprint=_content_fingerprint(active),
-        title=title,
-        body=body,
-        ownership_marker=config.ownership_marker,
-        recovery_body=(
-            f"No strict {config.scope_name} origin/main test-group incidents remain under the "
-            "watcher's explicit-pass resolution rule. Closing this tracked umbrella issue.\n\n"
-            f"*{run_url}*"
-        ),
+        reliability,
+        config,
+        client=GitHubIssueClient(token, repo),
+        repo=repo,
+        run_url=run_url,
         observed_at=observed_at,
-        label_specs=list(config.label_specs),
-        client=client,
-        discovery_label=config.label_specs[0][0],
-        recovery_labels=("automated", "workstream:dev"),
-        refresh_before_close=config.refresh_before_close,
+        hold_close=None if active else _main_pulse_close_hold(pulse_export),
     )
-    reconciled["schema_version"] = 2
-    if config.job_scope == "amd_gpu":
-        reconciled["hardware_scope"] = "amd_mi_gpu"
-    reconciled["signal_fingerprint_version"] = 2
     _write_state(
         reconciled,
         config.state,

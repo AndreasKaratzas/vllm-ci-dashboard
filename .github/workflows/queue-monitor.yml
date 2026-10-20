@@ -554,3 +554,93 @@ jobs:
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
             --input -
           echo "Requested canonical queue reconciliation: $RECONCILE_REASON ($TARGET_QUEUE_GENERATION)"
+
+  main-pulse:
+    # Detect new AMD MI failures on main between full Data Collections. Every
+    # trigger of this workflow wakes the pulse, but its own durable ledger
+    # admits at most one five-start Buildkite reservation per ten minutes;
+    # gated wake-ups expose no token and make zero requests. A pulse failure
+    # must not fail the queue snapshot run that hosts it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    continue-on-error: true
+    env:
+      PYTHONPATH: ${{ github.workspace }}/scripts
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt requests pyyaml
+
+      - name: Reserve durable main pulse request budget
+        id: pulse-budget
+        env:
+          ATTEMPT_ID: main-pulse-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/main-pulse-budget.outputs"
+          : > "$OUTPUTS"
+          python scripts/vllm/main_pulse.py reserve \
+            --reservation-id "$ATTEMPT_ID" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "reserved_request_starts" {print $2}' "$OUTPUTS")
+          case "$REQUEST_MODE:$ALLOWANCE" in
+            interval_gated:0|capacity_gated:0|reserved:5) ;;
+            *)
+              echo "::error::Main pulse budget returned a malformed allowance."
+              exit 1
+              ;;
+          esac
+          GUARD_FILE="$RUNNER_TEMP/main-pulse-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance "$ALLOWANCE"
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+          } >> "$GITHUB_ENV"
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+
+      - name: Read published main failure watcher state
+        if: steps.pulse-budget.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 --filter=blob:none origin \
+            +refs/heads/dashboard-state:refs/remotes/origin/dashboard-state
+          git show origin/dashboard-state:data/vllm/ci/open_ci_main_failure_issues.json \
+            > "$RUNNER_TEMP/main-pulse-authority.json"
+
+      - name: Detect new AMD MI main failures
+        if: steps.pulse-budget.outputs.request_mode == 'reserved'
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          python scripts/vllm/main_pulse.py run
+          --authority-state "$RUNNER_TEMP/main-pulse-authority.json"
+
+      - name: Read exact guarded main pulse request total
+        if: always() && steps.pulse-budget.outcome == 'success'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
