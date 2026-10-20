@@ -2917,18 +2917,28 @@ def test_amd_complete_running_nightly_matches_its_finished_projection():
     assert [item["name"] for item in row["failure_movement"]["recurring"]] == [name]
 
     finished = {**running, "state": "passed", "source_state": "failed", "finished_at": "2026-04-21T20:00:00Z"}
-    health["builds"][0].update(non_amd_jobs_active=0, source_state="failed")
+    health["builds"][0].update(source_state="failed")
     final = ops._nightly_pipeline("ci", {"builds": [finished, previous]}, health)["builds"][0]
-    changed = {"source_state", "non_amd_jobs_active"}
+    changed = {"source_state", "amd_complete", "non_amd_jobs_active"}
+    assert (final["amd_complete"], final["non_amd_jobs_active"]) == (False, 0)
     assert {key: value for key, value in final.items() if key not in changed} == {
         key: value for key, value in row.items() if key not in changed
     }
+
+    # A finished analytics row outranks a stale AMD-complete health generation.
+    stale = ops._nightly_pipeline("ci", {"builds": [{**finished, "state": "failed"}, previous]}, health)["builds"][0]
+    assert (stale["state"], stale["amd_complete"]) == ("failed", False)
 
     health["builds"][0]["state"] = "canceled"
     canceled = ops._nightly_pipeline("ci", {"builds": [running, previous]}, health)["builds"][0]
     assert (canceled["transition_eligible"], canceled["transition_ineligible_reason"]) == (
         False, "build_state_not_completed",
     )
+
+    # A manual AMD retry withdraws the signal; the row says why.
+    health["builds"][0].update(amd_complete=None, active_retry=True, has_test_results=False, state="running")
+    retrying = ops._nightly_pipeline("ci", {"builds": [running, previous]}, health)["builds"][0]
+    assert (retrying["active_retry"], retrying["amd_complete"], retrying["transition_eligible"]) == (True, False, False)
 
 
 def test_nightly_pipeline_replays_soft_hysteresis_and_severity_changes():

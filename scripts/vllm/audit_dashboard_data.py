@@ -117,17 +117,17 @@ SHARD_EVIDENCE_REQUIRED_KEYS = frozenset({
     "result_file",
     "job_names",
 })
-# A build in these states has final AMD evidence once the collector proves
-# every AMD job settled (``amd_complete``); only non-AMD jobs still run.
-AMD_COMPLETE_RUNNING_BUILD_STATES = frozenset({"running", "failing", "canceling"})
-SHARD_COMPLETE_BUILD_STATES = frozenset({
+SHARD_TERMINAL_BUILD_STATES = frozenset({
     "passed",
     "failed",
     "timed_out",
     "canceled",
     "broken",
     "blocked",
-}) | AMD_COMPLETE_RUNNING_BUILD_STATES
+})
+# A build in these states has final AMD evidence only when the collector
+# proves every AMD job settled (``amd_complete``); only non-AMD jobs still run.
+AMD_COMPLETE_RUNNING_BUILD_STATES = frozenset({"running", "failing", "canceling"})
 SHARD_RESULT_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}_amd\.jsonl")
 PUBLIC_FILE_WARN_BYTES = 64 * 1024 * 1024
 PUBLIC_FILE_HARD_BYTES = 85 * 1024 * 1024
@@ -1896,7 +1896,10 @@ class DashboardAudit:
                 return invalid("provisional evidence must not reference a result_file")
             return evidence, "provisional"
 
-        if build_state.casefold() not in SHARD_COMPLETE_BUILD_STATES:
+        if build_state.casefold() not in SHARD_TERMINAL_BUILD_STATES and not (
+            build_state.casefold() in AMD_COMPLETE_RUNNING_BUILD_STATES
+            and evidence.get("amd_complete") is True
+        ):
             return invalid("complete evidence must identify a terminal or AMD-complete running build state")
         if (
             not result_file

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { noSignalLabel } from '@/domain/home'
 import { amdCompleteLabel, amdNightlyPresentation } from '@/domain/nightly'
 
 const NOW = Date.parse('2026-10-20T15:00:00Z')
@@ -22,6 +23,9 @@ describe('AMD-complete nightlies', () => {
     expect(amdCompleteLabel(amdComplete({ non_amd_jobs_active: 0, source_state: 'running' }))).toBe(
       'AMD jobs complete · build still running',
     )
+    expect(amdCompleteLabel(amdComplete({ source_state: 'canceling' }))).toBe(
+      'AMD jobs complete · build canceling (2 non-AMD jobs)',
+    )
   })
 
   it('has no label once Buildkite finishes or before the AMD jobs are final', () => {
@@ -36,5 +40,16 @@ describe('AMD-complete nightlies', () => {
     expect(presentation.meta).toBe(
       '#96078 - 309 pass - 0 soft - 1 hard; Movement unavailable; AMD jobs complete · build still running (2 non-AMD jobs)',
     )
+  })
+
+  it('explains a withdrawn signal while a manual AMD retry runs', () => {
+    const retrying = { number: 96078, state: 'failing', source_state: 'failing', has_test_results: false, active_retry: true }
+    expect(amdNightlyPresentation(retrying, { latest_build_number: 96001 }, '2026-10-20T14:30:00Z', NOW)).toMatchObject({
+      hasSignal: false,
+      label: 'AMD retry running',
+      tone: 'info',
+      meta: '#96078 - an AMD job was retried; results return once the retry settles; latest test signal #96001',
+    })
+    expect(noSignalLabel(retrying)).toBe('AMD retry running')
   })
 })

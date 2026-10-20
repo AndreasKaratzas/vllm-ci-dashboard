@@ -122,12 +122,12 @@ const BUILDKITE_RUNNING_STATES = ['running', 'failing', 'canceling']
  */
 export function amdCompleteLabel(build: Rec | null | undefined): string | null {
   const record = build || {}
-  if (record.amd_complete !== true || !BUILDKITE_RUNNING_STATES.includes(String(record.source_state || '').toLowerCase())) {
-    return null
-  }
+  const sourceState = String(record.source_state || '').toLowerCase()
+  if (record.amd_complete !== true || !BUILDKITE_RUNNING_STATES.includes(sourceState)) return null
   const active = Number(record.non_amd_jobs_active || 0)
   return (
-    'AMD jobs complete · build still running' +
+    'AMD jobs complete · build ' +
+    (sourceState === 'canceling' ? 'canceling' : 'still running') +
     (active > 0 ? ' (' + integer(active) + ' non-AMD ' + (active === 1 ? 'job' : 'jobs') + ')' : '')
   )
 }
@@ -179,14 +179,25 @@ export function amdNightlyPresentation(
   const buildPrefix = pipelineBuild ? '#' + pipelineBuild + ' - ' : ''
 
   if (!hasSignal) {
+    const retrying = !blocked && record.active_retry === true
     return {
-      label: blocked ? 'Infra blocked' : inProgress ? (snapshotStale ? 'Snapshot stale' : 'Awaiting results') : 'No test signal',
-      tone: blocked ? 'hard' : inProgress && !snapshotStale ? 'info' : 'soft',
+      label: blocked
+        ? 'Infra blocked'
+        : retrying
+          ? 'AMD retry running'
+          : inProgress
+            ? snapshotStale
+              ? 'Snapshot stale'
+              : 'Awaiting results'
+            : 'No test signal',
+      tone: blocked ? 'hard' : retrying || (inProgress && !snapshotStale) ? 'info' : 'soft',
       meta:
         buildPrefix +
         (blocked
           ? integer(blocked) + ' test groups never started'
-          : inProgress
+          : retrying
+            ? 'an AMD job was retried; results return once the retry settles'
+            : inProgress
             ? snapshotStale
               ? 'Last published while Buildkite was running; no parsed test groups in this snapshot'
               : 'Buildkite is running; no parsed test groups yet'

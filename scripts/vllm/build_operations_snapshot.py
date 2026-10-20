@@ -472,9 +472,10 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
     for build in reversed(source_builds):
         build_number = _strict_int(build.get("number") or build.get("build_number"))
         health_build = health_builds.get(build_number) or {}
-        amd_complete = health_build.get("amd_complete") is True
+        # A finished analytics row outranks an older AMD-complete health generation.
+        amd_complete = health_build.get("amd_complete") is True and not build.get("finished_at")
         state = build.get("state") or "unknown"
-        if amd_complete and not build.get("finished_at"):
+        if amd_complete:
             # The collector's AMD-only outcome, as analytics derives it once the build finishes.
             state = health_build.get("state") or state
         transition_eligible, ineligible_reason = completed_build_eligibility(
@@ -598,7 +599,8 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
                 health_build.get("source_state") or build.get("source_state") or build.get("state") or "unknown"
             ),
             "amd_complete": amd_complete,
-            "non_amd_jobs_active": int(health_build.get("non_amd_jobs_active") or 0),
+            "non_amd_jobs_active": int(health_build.get("non_amd_jobs_active") or 0) if amd_complete else 0,
+            "active_retry": health_build.get("active_retry") is True,
             "url": _build_url(pipeline, build),
             "commit": build.get("commit") or build.get("commit_sha") or "",
             "message": build.get("message") or "",

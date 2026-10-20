@@ -1346,7 +1346,7 @@ class TestCacheCoversAllJobs:
             m.assert_called_once_with("amd", 7791)
         assert summary_only_build == {
             **full_detail, "job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu", "source_pipeline": "ci",
-            "scope_completion": {"roster_open": True, "out_of_scope_jobs_active": 0},
+            "amd_scope_completion": {"roster_open": True, "non_amd_jobs_active": 0},
         }
 
     def test_api_failure_on_detail_falls_back_to_trusting_cache(self, tmp_path):
@@ -2129,7 +2129,7 @@ class TestAmdCompleteWhileBuildRuns:
 
     def test_running_build_with_only_non_amd_jobs_left_is_amd_complete(self):
         build = self._scoped(self._build())
-        assert build["scope_completion"] == {"roster_open": False, "out_of_scope_jobs_active": 1}
+        assert build["amd_scope_completion"] == {"roster_open": False, "non_amd_jobs_active": 1}
         assert _is_complete_nightly_build(build)
         assert _completed_result_entries([(96078, "2026-10-20", [object()])], [build])
 
@@ -2160,13 +2160,33 @@ class TestAmdCompleteWhileBuildRuns:
     def test_scope_completion_is_computed_once_from_the_unscoped_roster(self):
         build = self._scoped(self._build())
         _scope_nightly_build(build, "amd")
-        assert build["scope_completion"] == {"roster_open": False, "out_of_scope_jobs_active": 1}
+        assert build["amd_scope_completion"] == {"roster_open": False, "non_amd_jobs_active": 1}
 
-    def test_summary_marks_amd_complete_and_keeps_buildkite_state(self):
+    def test_upstream_scope_never_completes_while_the_build_runs(self):
+        build = self._build(amd_state="running")
+        build["jobs"][3]["state"] = "passed"
+        _scope_nightly_build(build, "upstream")
+        assert "amd_scope_completion" not in build
+        assert not _is_complete_nightly_build(build)
+
+    def test_summary_marks_amd_complete_only_while_the_build_runs(self):
         build = self._scoped(self._build())
         summary = compute_build_summary(build, [], "amd", scope_complete=True).to_dict()
         assert (summary["state"], summary["source_state"]) == ("failed", "failing")
         assert (summary["amd_complete"], summary["non_amd_jobs_active"], summary["is_running"]) == (True, 1, False)
+
+        finished = self._scoped(self._build(state="canceled"))
+        summary = compute_build_summary(finished, [], "amd", scope_complete=True).to_dict()
+        assert "amd_complete" not in summary and "non_amd_jobs_active" not in summary
+
+    @pytest.mark.parametrize(("amd_state", "amd_complete"), [("passed", True), ("running", False)])
+    def test_running_shard_evidence_carries_its_own_amd_completion(self, amd_state, amd_complete):
+        build = self._scoped(self._build(amd_state=amd_state))
+        evidence = _shard_catalog_evidence(build, verified_complete=True)
+        assert (evidence["build_state"], evidence["amd_complete"]) == ("failing", amd_complete)
+        assert "amd_complete" not in _shard_catalog_evidence(
+            self._scoped(self._build(state="failed")), verified_complete=True,
+        )
 
     def test_amd_complete_results_publish_once_and_survive_build_completion(self, tmp_path):
         path = tmp_path / "test_results" / "2026-10-20_amd.jsonl"

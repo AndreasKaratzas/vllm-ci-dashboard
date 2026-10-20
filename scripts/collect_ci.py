@@ -453,8 +453,8 @@ def _scope_nightly_build(build: dict, pipeline_key: str) -> dict:
                 }
         if routes:
             build["_ci_job_routes"] = routes
-        if "scope_completion" not in build:
-            build["scope_completion"] = _scope_completion(build["jobs"], pipeline_key)
+        if pipeline_key == "amd" and "amd_scope_completion" not in build:
+            build["amd_scope_completion"] = _amd_scope_completion(build["jobs"])
         build["jobs"] = [job for job in build["jobs"] if pipeline_job_matches_scope(job, pipeline_key)]
     build["job_scope"] = cfg.PIPELINES[pipeline_key].get("job_scope")
     if pipeline_key == "amd":
@@ -718,15 +718,16 @@ def _nightly_test_jobs(build: dict) -> list[dict]:
     ]
 
 
-def _scope_completion(jobs: list, pipeline_key: str) -> dict:
-    """Return whether the full roster can still grow and its unsettled out-of-scope jobs.
+def _amd_scope_completion(jobs: list) -> dict:
+    """Return whether the full CI roster can still grow and its unsettled non-AMD jobs.
 
     The roster is closed once an upload step has settled and no block step or
-    upload step is still pending.
+    upload step is still pending. Superseded attempts are always final, so
+    they never hold the roster open or count as active.
     """
     blocked_or_uploading = False
     uploaded = False
-    out_of_scope_jobs_active = 0
+    non_amd_jobs_active = 0
     for job in jobs:
         if not isinstance(job, dict):
             continue
@@ -734,17 +735,17 @@ def _scope_completion(jobs: list, pipeline_key: str) -> dict:
         if job.get("type") == "manual":
             blocked_or_uploading = blocked_or_uploading or state == "blocked"
             continue
-        if job.get("type") != "script" or job.get("retried_in_job_id"):
+        if job.get("type") != "script":
             continue
         settled = state in SETTLED_JOB_STATES
         if any(pattern in str(job.get("name") or "").casefold() for pattern in ROSTER_GROWTH_JOB_PATTERNS):
             uploaded = uploaded or settled
             blocked_or_uploading = blocked_or_uploading or not settled
-        if not settled and not pipeline_job_matches_scope(job, pipeline_key):
-            out_of_scope_jobs_active += 1
+        if not settled and not pipeline_job_matches_scope(job, "amd"):
+            non_amd_jobs_active += 1
     return {
         "roster_open": blocked_or_uploading or not uploaded,
-        "out_of_scope_jobs_active": out_of_scope_jobs_active,
+        "non_amd_jobs_active": non_amd_jobs_active,
     }
 
 
@@ -752,8 +753,8 @@ def _is_complete_nightly_build(build: dict) -> bool:
     """Return whether a nightly's in-scope test roster is final.
 
     A terminal build is final once every test job is complete. A running build
-    is final for its scope when every current in-scope attempt is settled and
-    no block or upload step can still add jobs, so only out-of-scope jobs keep
+    is final only for the AMD scope, when every current AMD attempt is settled
+    and no block or upload step can still add jobs, so only non-AMD jobs keep
     it running.
     """
     test_jobs = _nightly_test_jobs(build)
@@ -764,7 +765,7 @@ def _is_complete_nightly_build(build: dict) -> bool:
             str(job.get("state") or "").casefold() in COMPLETE_JOB_STATES
             for job in test_jobs
         )
-    completion = build.get("scope_completion")
+    completion = build.get("amd_scope_completion")
     return (
         isinstance(completion, dict)
         and completion.get("roster_open") is False
@@ -833,12 +834,14 @@ def _shard_catalog_evidence(
     """Return the stable shard-catalog evidence object for any collection state."""
     build = build or {}
     evidence_date = nightly_date(str(build.get("created_at") or ""))
+    running = verified_complete and build.get("state") not in cfg.TERMINAL_STATES
     return {
         "pipeline": "amd",
         "build_number": int(build.get("number") or 0),
         "build_commit": str(build.get("commit") or "").casefold(),
         "build_state": str(build.get("state") or "unavailable"),
         "roster_complete": verified_complete,
+        **({"amd_complete": _is_complete_nightly_build(build)} if running else {}),
         "result_file": (
             f"{evidence_date}_amd.jsonl"
             if verified_complete and evidence_date

@@ -116,8 +116,8 @@ class BuildSummary:
     by_hardware: dict = field(default_factory=dict)  # per-hardware breakdown
     delta_vs_previous: dict = field(default_factory=dict)
     source_state: str = ""       # whole CI parent state, separate from MI outcomes
-    amd_complete: Optional[bool] = None       # every AMD job is final, even while the build runs
-    non_amd_jobs_active: Optional[int] = None  # unsettled non-AMD jobs when collected
+    amd_complete: Optional[bool] = None       # True only while every AMD job is final but the build still runs
+    non_amd_jobs_active: Optional[int] = None  # unsettled non-AMD jobs when amd_complete
 
     @property
     def test_pass_rate_pct(self) -> float:

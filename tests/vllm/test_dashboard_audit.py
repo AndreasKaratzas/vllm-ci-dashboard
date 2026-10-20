@@ -5834,6 +5834,10 @@ def test_retry_transaction_accepts_an_amd_complete_signal_from_a_running_build(t
     assert audit.audit_current_completed_ci_transaction() is True
     assert audit.report.errors == []
 
+    analytics["ci"]["builds"][1].update(state="canceled", source_state="canceled", finished_at="2026-10-07T08:00:00Z")
+    (output / "analytics.json").write_text(json.dumps(analytics))
+    assert DashboardAudit(tmp_path, allow_publication_fallback=False).audit_current_completed_ci_transaction() is False
+
 
 def test_completed_retry_preserves_exact_amd_signal_before_newer_no_result_nightly(tmp_path):
     output, health, analytics = _completed_current_retry_fixture(tmp_path)
