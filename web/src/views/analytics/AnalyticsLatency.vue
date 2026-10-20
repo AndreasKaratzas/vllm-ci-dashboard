@@ -58,7 +58,7 @@ const columns: ColumnSpec<Rec>[] = [
   },
   {
     id: 'median',
-    label: 'AMD median',
+    label: 'Median',
     numeric: true,
     value: (row) => (row.amd ? minutes(row) : -1),
     cell: (row) => ({ text: latencySideDuration(row.amd), muted: !row.amd }),
@@ -69,6 +69,7 @@ const columns: ColumnSpec<Rec>[] = [
     numeric: true,
     value: (row) => Number(row.amd?.sample_count ?? 0),
     cell: (row) => ({ text: observedNightliesLabel(row, model.value.builds), muted: !row.amd }),
+    class: 'hidden sm:table-cell',
   },
 ]
 </script>
