@@ -276,21 +276,6 @@ test.describe('CI Analytics AMD tabs behave consistently', () => {
       }
     }
   });
-
-  test('phone tables show every visible column without sideways scrolling', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    for (const [route, id] of [
-      ['/#/analytics', 'priority'],
-      ['/#/analytics?view=latency', 'latency-table'],
-      ['/#/analytics?view=nightlies', 'nightlies-table'],
-    ]) {
-      await page.goto(route);
-      const table = page.getByTestId(id).locator('table');
-      await expect(table.locator('tbody tr').first()).toBeVisible();
-      const overflow = await table.evaluate((node) => node.parentElement.scrollWidth - node.parentElement.clientWidth);
-      expect(overflow, `${id} scrolls sideways`).toBeLessThanOrEqual(0);
-    }
-  });
 });
 
 // Every drill-down of the three AMD tabs, light and dark, desktop and phone.

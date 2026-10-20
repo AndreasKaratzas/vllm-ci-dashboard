@@ -48,6 +48,7 @@ export function buildColumns(): ColumnSpec<MainBuild>[] {
       label: 'Created',
       value: (row) => row.createdAt,
       cell: (row) => ({ text: shortDayTime(Date.parse(row.createdAt)), sub: row.nightly ? 'Nightly' : undefined, nowrap: true }),
+      class: 'hidden sm:table-cell',
     },
     {
       id: 'commit',
@@ -147,7 +148,7 @@ export function incidentColumns(ctx: MainCiContext): ColumnSpec<MainIncident>[] 
       cell: (row) => badge(row.pending ? 'Pending soft' : TONE_LABEL[row.severity], row.severity),
       class: 'whitespace-nowrap',
     },
-    { id: 'since', label: 'First bad', value: (row) => row.bad.build ?? row.latestBuild ?? 0, cell: (row) => buildCell(row.bad.build ?? row.latestBuild, row.latestBuildUrl, ctx), class: 'whitespace-nowrap' },
+    { id: 'since', label: 'First bad', value: (row) => row.bad.build ?? row.latestBuild ?? 0, cell: (row) => buildCell(row.bad.build ?? row.latestBuild, row.latestBuildUrl, ctx), class: 'hidden whitespace-nowrap sm:table-cell' },
     {
       id: 'range',
       label: 'Commit range',
@@ -232,7 +233,7 @@ export function flakyColumns(ctx: MainCiContext): ColumnSpec<FlakyGroup>[] {
   return [
     { id: 'group', label: 'Test group', value: (row) => groupLabel(row.name), cell: (row) => ({ text: groupLabel(row.name), sub: row.queue || undefined }) },
     { id: 'hardware', label: 'Hardware', value: (row) => row.hardware, cell: (row) => hardwareCell(row.hardware, row.queue), class: 'hidden sm:table-cell' },
-    { id: 'alert', label: 'Alert', value: (row) => (row.alerting ? 1 : 0), cell: (row) => alertCell(row.alerting), class: 'whitespace-nowrap' },
+    { id: 'alert', label: 'Alert', value: (row) => (row.alerting ? 1 : 0), cell: (row) => alertCell(row.alerting), class: 'hidden whitespace-nowrap sm:table-cell' },
     { id: 'flips', label: 'Flips', numeric: true, value: (row) => row.flips, cell: (row) => ({ ...num(row.flips), sub: `prev ${integer(row.previousFlips)}` }) },
     { id: 'flips30', label: '30 days', numeric: true, value: (row) => row.flips30d, cell: (row) => ({ ...num(row.flips30d), sub: `${integer(row.runs30d)} runs` }), class: 'hidden md:table-cell' },
     { id: 'rate', label: 'Pass rate', numeric: true, value: (row) => row.passRate ?? -1, cell: (row) => ({ text: percentText(row.passRate), sub: `30d ${percentText(row.passRate30d)}` }), class: 'hidden sm:table-cell' },
@@ -244,7 +245,7 @@ export function retryColumns(ctx: MainCiContext): ColumnSpec<RetryGroup>[] {
   return [
     { id: 'group', label: 'Test group', value: (row) => groupLabel(row.name), cell: (row) => ({ text: groupLabel(row.name), sub: row.queue || undefined }) },
     { id: 'hardware', label: 'Hardware', value: (row) => row.hardware, cell: (row) => hardwareCell(row.hardware, row.queue), class: 'hidden sm:table-cell' },
-    { id: 'alert', label: 'Alert', value: (row) => (row.alerting ? 1 : 0), cell: (row) => alertCell(row.alerting), class: 'whitespace-nowrap' },
+    { id: 'alert', label: 'Alert', value: (row) => (row.alerting ? 1 : 0), cell: (row) => alertCell(row.alerting), class: 'hidden whitespace-nowrap sm:table-cell' },
     { id: 'recovered', label: 'Recoveries', numeric: true, value: (row) => row.recovered, cell: (row) => ({ ...num(row.recovered), sub: `prev ${integer(row.previousRecovered)}` }) },
     { id: 'recovered30', label: '30 days', numeric: true, value: (row) => row.recovered30d, cell: (row) => ({ ...num(row.recovered30d), sub: `${integer(row.runs30d)} runs` }), class: 'hidden md:table-cell' },
     { id: 'last', label: 'Last recovery', value: (row) => row.lastRecovery?.number ?? 0, cell: (row) => lastBuildCell(row.lastRecovery, ctx), class: 'hidden whitespace-nowrap lg:table-cell' },

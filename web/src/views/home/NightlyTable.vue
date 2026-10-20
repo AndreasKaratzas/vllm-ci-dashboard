@@ -65,6 +65,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       numeric: true,
       value: (build) => severityCount(build, scope) ?? -1,
       cell: (build) => countCell(build, scope, severityCount(build, scope)),
+      class: scope === 'soft' ? 'hidden sm:table-cell' : undefined,
     }),
   ),
   ...(['new', 'recurring', 'fixed'] as const).map(
