@@ -78,3 +78,9 @@ export function observedCountLabel(count: unknown, semantics: string): string {
   if (rendered === '-') return rendered
   return semantics === 'lower_bound' ? '≥' + rendered : rendered
 }
+
+/** A published machine reason as a sentence: "strict_all_main_reliability_unavailable" -> "Strict all main reliability unavailable". */
+export function reasonText(reason: unknown): string {
+  const text = String(reason || '').replace(/_/g, ' ').trim()
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'Unavailable'
+}

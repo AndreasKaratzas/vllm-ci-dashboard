@@ -46,14 +46,19 @@ export interface SourceFreshness {
   path: string | null
   timestampSource: string | null
   published: boolean
+  /** Why the producer published no timestamp (e.g. the all-main cohort failed validation). */
+  unavailableReason: string | null
 }
 
 export interface FreshnessSummary {
-  /** The oldest source timestamp, or null when any source has none. */
+  /** The oldest timestamp among the sources that have one; null when none has. */
   timestamp: string | null
   ageMs: number | null
+  /** The worst state; a source without a timestamp is stale, so its age cannot hide behind the others. */
   state: FreshnessState
   sources: SourceFreshness[]
+  /** Sources without a timestamp, named next to the age rather than replacing it. */
+  missing: SourceFreshness[]
 }
 
 function limits(key: string, target: SourceTarget) {
@@ -102,16 +107,17 @@ export function sourceFreshness(ops: Rec | null | undefined, perf: Rec | null | 
       path: record.path ?? target.path ?? null,
       timestampSource: record.timestamp_source ?? null,
       published: record.published !== false,
+      unavailableReason: typeof record.unavailable_reason === 'string' && record.unavailable_reason ? record.unavailable_reason : null,
     }
   })
 }
 
 function summarize(rows: SourceFreshness[]): FreshnessSummary | null {
   if (!rows.length) return null
-  const missing = rows.some((row) => row.ageMs === null)
-  const oldest = missing ? null : rows.reduce((a, b) => (b.ageMs! > a.ageMs! ? b : a))
+  const dated = rows.filter((row) => row.ageMs !== null)
+  const oldest = dated.length ? dated.reduce((a, b) => (b.ageMs! > a.ageMs! ? b : a)) : null
   const state = rows.reduce<FreshnessState>((worst, row) => (SEVERITY[row.state] > SEVERITY[worst] ? row.state : worst), 'fresh')
-  return { timestamp: oldest?.timestamp ?? null, ageMs: oldest?.ageMs ?? null, state, sources: rows }
+  return { timestamp: oldest?.timestamp ?? null, ageMs: oldest?.ageMs ?? null, state, sources: rows, missing: rows.filter((row) => row.ageMs === null) }
 }
 
 const pick = (rows: SourceFreshness[], keys: readonly string[]) => rows.filter((row) => keys.includes(row.key))

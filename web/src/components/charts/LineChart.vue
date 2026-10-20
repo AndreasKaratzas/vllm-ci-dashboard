@@ -17,6 +17,8 @@ const props = withDefaults(
     rowLabel?: (row: T) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
+    /** Explicit y-axis ticks, e.g. a zoomed rate axis; defaults to round ticks over the domain. */
+    yTicks?: number[]
     compact?: boolean
     hint?: string
     class?: string
@@ -54,7 +56,7 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
           </template>
           <template v-if="!compact">
             <VisAxis type="x" :x="xValue" :tick-values="thinTicks(rows.map(xValue), ticks)" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
-            <VisAxis type="y" :num-ticks="yDomain ? undefined : 4" :tick-values="yDomain ? niceTicks(yDomain[0], yDomain[1], 4) : undefined" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
+            <VisAxis type="y" :num-ticks="yDomain ? undefined : 4" :tick-values="yTicks ?? (yDomain ? niceTicks(yDomain[0], yDomain[1], 4) : undefined)" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           </template>
           <ChartTooltip />
           <ChartCrosshair

@@ -9,7 +9,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTheme } from '@/composables/useTheme'
 import type { FreshnessState, FreshnessSummary } from '@/domain/freshness'
-import { FRESHNESS_LABEL, FRESHNESS_TONE, sourceAge } from '@/features/freshness/freshness'
+import { FRESHNESS_LABEL, FRESHNESS_TONE, missingSuffix, sourceAge } from '@/features/freshness/freshness'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { toneClasses } from '@/lib/palette'
 import type { NavTab } from '@/router'
@@ -90,6 +90,7 @@ const setTip = (key: string, open: boolean) => {
               <span class="size-2 shrink-0 rounded-full" :class="toneClasses(FRESHNESS_TONE[chip.summary.state], 'fill')" aria-hidden="true" />
               <span class="text-muted-foreground">{{ chip.label }}</span>
               <span class="text-foreground tabular-nums">{{ age(chip.summary) }}</span>
+              <span v-if="missingSuffix(chip.summary)" class="text-muted-foreground" data-slot="header-freshness-missing">· {{ chip.summary.missing.length }} missing</span>
               <span class="sr-only">: {{ FRESHNESS_LABEL[chip.summary.state] }}</span>
             </Button>
           </TooltipTrigger>
@@ -98,7 +99,7 @@ const setTip = (key: string, open: boolean) => {
             <ul class="grid gap-0.5">
               <li v-for="source in chip.summary.sources" :key="source.key" class="flex justify-between gap-4">
                 <span>{{ source.label }}</span>
-                <span class="tabular-nums opacity-80">{{ source.timestamp ? age(source) : 'no timestamp' }}</span>
+                <span class="tabular-nums opacity-80">{{ source.timestamp ? age(source) : source.unavailableReason ? 'unavailable' : 'no timestamp' }}</span>
               </li>
             </ul>
             <p class="mt-1 opacity-80">Click for every source.</p>
@@ -111,7 +112,7 @@ const setTip = (key: string, open: boolean) => {
           class="h-8 gap-1.5 px-2 font-normal lg:hidden"
           data-slot="header-freshness-compact"
           :data-freshness="worst"
-          :aria-label="`Data freshness: ${chips.map((chip) => `${chip.label} ${age(chip.summary)}`).join(', ')}. ${FRESHNESS_LABEL[worst]}`"
+          :aria-label="`Data freshness: ${chips.map((chip) => `${chip.label} ${age(chip.summary)}${missingSuffix(chip.summary)}`).join(', ')}. ${FRESHNESS_LABEL[worst]}`"
           @click="freshness.open"
         >
           <Clock class="text-muted-foreground" aria-hidden="true" />

@@ -82,9 +82,23 @@ describe('group freshness', () => {
     expect(coreFreshness(rows)).toMatchObject({ ageMs: (CONFIG.core.stale_minutes + 1) * 60_000, state: 'stale' })
   })
 
-  it('reports core data as stale with no age when a core source is missing', () => {
-    const rows = sourceFreshness(opsAt(10), null, NOW)
-    expect(coreFreshness(rows)).toMatchObject({ timestamp: null, ageMs: null, state: 'stale' })
+  it('keeps the age of the dated core sources and names the missing one as stale', () => {
+    const rows = sourceFreshness(opsAt(10, { analytics: 30 }), null, NOW)
+    const core = coreFreshness(rows)!
+    expect(core).toMatchObject({ timestamp: minutesAgo(30), ageMs: 30 * 60_000, state: 'stale' })
+    expect(core.missing.map((row) => row.key)).toEqual(['perf_eval'])
+    expect(coreFreshness(sourceFreshness({ sources: {} }, null, NOW))).toMatchObject({ timestamp: null, ageMs: null, state: 'stale' })
+  })
+
+  it('carries why a producer published a source without a timestamp', () => {
+    const ops = { sources: { ...opsAt(10).sources, main_ci: { path: 'analytics.json', timestamp: null, unavailable_reason: 'strict_all_main_reliability_unavailable' } } }
+    const rows = sourceFreshness(ops, { generated_at: minutesAgo(10) }, NOW)
+    expect(byKey(rows).main_ci).toMatchObject({ timestamp: null, state: 'stale', unavailableReason: 'strict_all_main_reliability_unavailable' })
+    const core = coreFreshness(rows)!
+    expect(core).toMatchObject({ ageMs: 10 * 60_000, state: 'stale' })
+    const chip = freshnessChip(core, NOW, 'Core data')!
+    expect(chip.text).toBe('Core data 10m ago · 1 missing')
+    expect(chip.detail).toContain('Main CI builds unavailable: strict all main reliability unavailable')
   })
 
   it('summarizes the queue and each area, leaving upstream activity informational', () => {
@@ -145,6 +159,7 @@ describe('page freshness chip', () => {
     path: 'data/vllm/ci/dns_failures.json',
     timestampSource: 'payload',
     published: true,
+    unavailableReason: null,
     ...over,
   })
 

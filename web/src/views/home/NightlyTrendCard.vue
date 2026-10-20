@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AreaChart, { type CompanionBars } from '@/components/charts/AreaChart.vue'
-import { shortDay, type SeriesSpec } from '@/components/charts/chart'
+import { rateAxis, shortDay, type SeriesSpec } from '@/components/charts/chart'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import SegmentedSelect, { type SegmentedItem } from '@/components/layout/SegmentedSelect.vue'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useQueryState } from '@/composables/useQueryState'
-import { passRateAxis, type NightlyCounts } from '@/domain/home'
+import type { NightlyCounts } from '@/domain/home'
+import { nightlyCountLabel } from '@/domain/nightly'
 import { SERIES, statusVar } from '@/lib/palette'
 
 const props = defineProps<{ series: NightlyCounts[] }>()
@@ -53,7 +54,7 @@ const range = computed({
   set: (value: number) => (rangeParam.value = value ? (String(value) as RangeKey) : 'all'),
 })
 const shown = computed(() => (range.value ? Math.min(range.value, rows.value.length) : rows.value.length))
-const axis = computed(() => passRateAxis(props.series))
+const axis = computed(() => rateAxis(props.series.map((row) => row.passRate * 100)))
 
 const percent = (value: number) => `${Number(value.toFixed(1))}%`
 const dayOf = (index: number) => {
@@ -68,7 +69,7 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
     <CardHeader>
       <CardTitle class="text-base">AMD nightly pass rate</CardTitle>
       <CardDescription>
-        <span>{{ shown === rows.length ? `All ${shown} retained nightlies` : `Last ${shown} of ${rows.length} retained nightlies` }}</span>
+        <span>{{ shown === rows.length ? `All ${nightlyCountLabel(shown, 'builds')}` : `Last ${shown} of ${nightlyCountLabel(rows.length, 'builds')}` }}</span>
         <span class="hidden @3xl/main:inline"> · hard and soft failures below</span>
       </CardDescription>
       <CardAction v-if="ranges.length > 1">
@@ -79,7 +80,7 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
       <EmptyState
         v-if="!rows.length"
         title="No nightly with test signal"
-        description="No retained AMD nightly has parsed test-group results yet."
+        description="No AMD nightly build summary has parsed test-group results yet."
       />
       <AreaChart
         v-else

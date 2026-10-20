@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { currentSubView, subViewQuery } from '@/components/layout/navigation'
-import { attentionTone, nightlyResultTone, noSignalLabel, passRateAxis, nightlySeries } from '@/domain/home'
+import { rateAxis } from '@/components/charts/chart'
+import { attentionTone, nightlyResultTone, noSignalLabel, nightlySeries, type NightlyCounts } from '@/domain/home'
 import { sourceFreshness } from '@/domain/freshness'
 import { freshnessChip, freshnessDetail } from '@/features/freshness/freshness'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -90,12 +91,13 @@ describe('home tones and domains', () => {
   })
 
   it('keeps small pass-rate changes visible and ranks attention severity', () => {
-    expect(passRateAxis(nightlySeries([build]))).toEqual({ domain: [20, 100], ticks: [20, 40, 60, 80, 100] })
-    expect(passRateAxis(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }]))).toEqual({
+    const rates = (series: NightlyCounts[]) => series.map((row) => row.passRate * 100)
+    expect(rateAxis(rates(nightlySeries([build])))).toEqual({ domain: [20, 100], ticks: [20, 40, 60, 80, 100] })
+    expect(rateAxis(rates(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }])))).toEqual({
       domain: [97, 100],
       ticks: [97, 98, 99, 100],
     })
-    expect(passRateAxis([])).toEqual({ domain: [0, 100], ticks: [0, 25, 50, 75, 100] })
+    expect(rateAxis([])).toEqual({ domain: [0, 100], ticks: [0, 25, 50, 75, 100] })
     expect(attentionTone([{ severity: 'warning' }, { severity: 'critical' }])).toBe('hard')
     expect(attentionTone([{ severity: 'warning' }])).toBe('soft')
     expect(attentionTone([])).toBe('pass')
@@ -113,7 +115,7 @@ describe('freshness presentation', () => {
 
   it('labels a page chip with the oldest source and the worst state', () => {
     const rows = sourceFreshness(ops, null, NOW).filter((row) => ['analytics', 'ci_health'].includes(row.key))
-    const chip = freshnessChip({ timestamp: '2026-10-17T06:00:00Z', ageMs: 4 * 3_600_000, state: 'stale', sources: rows }, NOW)
+    const chip = freshnessChip({ timestamp: '2026-10-17T06:00:00Z', ageMs: 4 * 3_600_000, state: 'stale', sources: rows, missing: [] }, NOW)
     expect(chip).toMatchObject({ text: 'Collected 4h ago', tone: 'hard' })
     expect(chip?.detail).toContain('CI health 4h ago')
     expect(freshnessChip(null, NOW)).toBeUndefined()

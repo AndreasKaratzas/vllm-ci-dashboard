@@ -25,7 +25,7 @@ import { amdHealthModel } from '@/domain/analytics'
 import { integer, value, type Rec } from '@/domain/format'
 import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
 import { amdMirrorInventoryView, amdMirrorSummary } from '@/domain/mirrors'
-import { amdNightlyPresentation, latestAmd, nightlyFailureCount } from '@/domain/nightly'
+import { amdNightlyPresentation, latestAmd, nightlyCountLabel, nightlyFailureCount } from '@/domain/nightly'
 import { exactJobCatalogDetail, exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -161,7 +161,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         :spark="variantRate"
         :delta="lastDelta(variantRate, 'up', { unit: ' pts' })"
         :headline="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} job variants passed` : undefined"
-        :footnote="`Across the ${integer(variants.length)} nightlies in the AMD test-health history`"
+        :footnote="`Across ${nightlyCountLabel(variants.length, 'jobs')}`"
         :action="{ label: 'Inspect latest job variants', onOpen: () => sheets.open(exactJobCatalogDetail(amdHealthModel(health).catalogs.variants, latestBuild)) }"
         data-testid="kpi-job-rate"
       />
@@ -200,7 +200,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         <CardHeader>
           <CardTitle as="h2">Nightly failure movement</CardTitle>
           <CardDescription>
-            {{ movement.length }} nightlies compared with their predecessor · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring,
+            {{ nightlyCountLabel(movement.length, 'builds') }} compared with their predecessor · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring,
             {{ movementTotals[2] }} fixed · fixes are drawn below zero
           </CardDescription>
         </CardHeader>
@@ -238,7 +238,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
               <h3 class="text-sm font-medium">Logical pass rate across nightlies</h3>
               <span class="text-xs text-muted-foreground tabular-nums">{{ logicalTrend[0]!.toFixed(1) }}% → {{ logicalTrend.at(-1)!.toFixed(1) }}%</span>
             </div>
-            <Sparkline :values="logicalTrend" :label="`Logical pass rate over ${logicalTrend.length} retained nightlies`" />
+            <Sparkline :values="logicalTrend" :label="`Logical pass rate over ${nightlyCountLabel(logicalTrend.length, 'builds')}`" />
           </div>
         </CardContent>
       </Card>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, BarChart3, Cpu, FolderGit2, Gauge, HeartPulse, House, Layers, Search } from '@lucide/vue'
+import { Activity, BarChart3, Cpu, FolderGit2, Gauge, GitCommitHorizontal, HeartPulse, House, Layers, Search } from '@lucide/vue'
 import type { Component } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import {
@@ -30,6 +30,7 @@ const { setOpenMobile } = useSidebar()
 const close = () => setOpenMobile(false)
 const ICONS: Record<string, Component> = {
   home: House,
+  main: GitCommitHorizontal,
   health: HeartPulse,
   analytics: BarChart3,
   perf: Gauge,

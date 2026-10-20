@@ -346,3 +346,17 @@ export function nightlyBuildEvidence(build: Rec, scope?: string): BuildEvidence 
   }
   return { scope: selectedScope, label: EVIDENCE_LABELS[selectedScope] || 'Failure movement', available, rows }
 }
+
+/**
+ * Nightly counts come from two histories: the nightly build summaries (every AMD nightly the
+ * collector keeps, about a month) and the per-job result ledger (only the newest nightlies).
+ * Every count names its history, so a 30 and a 7 never read as the same population.
+ */
+export type NightlyHistory = 'builds' | 'jobs'
+
+const HISTORY_NAME: Record<NightlyHistory, string> = { builds: 'build summaries', jobs: 'per-job results' }
+
+/** "30 nightlies (build summaries)", "7 nightlies (per-job results)". */
+export function nightlyCountLabel(count: number, history: NightlyHistory): string {
+  return `${count.toLocaleString('en-US')} ${count === 1 ? 'nightly' : 'nightlies'} (${HISTORY_NAME[history]})`
+}
