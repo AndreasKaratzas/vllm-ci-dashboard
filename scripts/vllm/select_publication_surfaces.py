@@ -49,7 +49,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
-    declared_unavailable_surfaces,
+    declared_unavailable_codes,
     fallback_dependency_closure,
     finding_surfaces,
     ignored_watcher_state_paths,
@@ -117,12 +117,18 @@ QUEUE_SPLIT_SURFACES = frozenset({
 })
 UNAVAILABLE_REASON = "candidate-and-last-known-good-failed"
 EXPIRED_UNAVAILABLE_REASON = "last-known-good-expired"
-UNAVAILABLE_REASON_MAX_CODES = 20
+EXPIRED_FALLBACK_CODE = "publication-fallback-expired"
 SELECTION_DIAGNOSTICS_MAX_BYTES = 256 * 1024
 SELECTION_FINDINGS_OUTPUT_MAX_BYTES = 32 * 1024
 DIAGNOSTIC_FINDING_FIELDS = (
     "candidate_errors", "candidate_degradations", "final_errors", "final_degradations",
 )
+
+
+class FallbackClockError(RuntimeError):
+    def __init__(self, findings: list[dict]):
+        super().__init__("last-known-good publication fallback clock is corrupt")
+        self.findings = findings
 
 
 def _bounded_text(value: object, *, limit: int) -> str:
@@ -2092,13 +2098,31 @@ def _expired_fallback_surfaces(
     fallback_since: dict[str, str],
     now: datetime,
 ) -> set[str]:
-    """Fallback surfaces past the bound on silently serving last-known-good data."""
+    """Fallback surfaces past the bound on silently serving last-known-good data.
+
+    An unparsable or future clock is corrupt state, not an expiry, and blocks.
+    """
     expired = set()
-    for surface, raw_since in fallback_since.items():
+    corrupt = []
+    for surface, raw_since in sorted(fallback_since.items()):
         since = _parse_utc(raw_since)
-        age_hours = (now - since).total_seconds() / 3600 if since else float("inf")
-        if age_hours > FALLBACK_MAX_AGE_HOURS or age_hours < -1:
+        age_hours = (now - since).total_seconds() / 3600 if since else None
+        if age_hours is None or age_hours < -1:
+            corrupt.append({
+                "severity": "error",
+                "code": EXPIRED_FALLBACK_CODE,
+                "message": (
+                    f"{surface} has an invalid or future last-known-good clock "
+                    f"{_bounded_text(raw_since, limit=64)!r}"
+                ),
+                "path": DEFAULT_STATE.as_posix(),
+                "context": {"surface": surface, "since": raw_since},
+                "surfaces": [],
+            })
+        elif age_hours > FALLBACK_MAX_AGE_HOURS:
             expired.add(surface)
+    if corrupt:
+        raise FallbackClockError(corrupt)
     return expired
 
 
@@ -2529,6 +2553,7 @@ def select_publication(
     preserved_collector_policy: dict[str, Any] | None = None
     preserved_incident_policy: dict[str, Any] | None = None
     unavailable: dict[str, dict] = {}
+    prior_unavailable: dict[str, dict] = {}
     if refresh_surface is not None:
         _validate_refresh_only_candidate(
             root,
@@ -2550,13 +2575,16 @@ def select_publication(
                 "fallback dependency"
             )
         preserved_fresh_degraded = prior_fresh - {refresh_surface}
+        # Carried declarations are re-validated by every audit pass below and
+        # rewritten from what that audit actually accepted.
         prior_reasons = preserved_state.get("unavailable_reasons") or {}
         unavailable = {
             surface: copy.deepcopy(prior_reasons[surface])
             for surface in sorted(
-                declared_unavailable_surfaces(preserved_state) - {refresh_surface}
+                set(declared_unavailable_codes(preserved_state)) - {refresh_surface}
             )
         }
+        prior_unavailable = copy.deepcopy(unavailable)
         preserved_degraded = preserved_fallback | preserved_fresh_degraded
         raw_collector_policy = preserved_state.get("collector_incident_policy")
         if preserved_degraded and isinstance(raw_collector_policy, dict):
@@ -2633,7 +2661,6 @@ def select_publication(
         forced | retry_surfaces
     )
     restored: dict[str, list[str]] = {}
-    newly_marked_unavailable: set[str] = set()
     admitted_completed_retry = False
     previous: dict | None = None
     state = {
@@ -2682,15 +2709,41 @@ def select_publication(
 
     def declare_expired_fallback_unavailable() -> None:
         """Publish fallback data past its age bound as unavailable, never as current."""
+        fallback_since = _fallback_start_times(fallback, previous, now)
+        for surface in sorted(_expired_fallback_surfaces(fallback_since, now)):
+            declaration = unavailable.setdefault(
+                surface, {"reason": EXPIRED_UNAVAILABLE_REASON, "codes": []}
+            )
+            declaration["codes"] = sorted({*declaration["codes"], EXPIRED_FALLBACK_CODE})
         _apply_surface_state(state, fresh_degraded, fallback, previous, now, unavailable)
-        expired = _expired_fallback_surfaces(state["fallback_since"], now) - set(unavailable)
-        for surface in sorted(expired):
-            unavailable[surface] = {
-                "reason": EXPIRED_UNAVAILABLE_REASON,
-                "codes": ["publication-fallback-expired"],
+
+    def accepted_unavailable_declarations(degradations: list[dict]) -> dict[str, dict]:
+        """The declarations the terminal audit pass actually relied on.
+
+        A surface whose last-known-good bytes now pass reverts to a plain
+        fallback; an expired one stays unavailable on its age alone.
+        """
+        accepted: dict[str, set[str]] = {}
+        for record in degradations:
+            for surface in (record.get("context") or {}).get("unavailable_surfaces") or []:
+                accepted.setdefault(surface, set()).add(record["code"])
+        expired = _expired_fallback_surfaces(state["fallback_since"], now)
+        declarations = {}
+        for surface in sorted(unavailable):
+            codes = accepted.get(surface, set())
+            if surface in expired:
+                codes = codes | {EXPIRED_FALLBACK_CODE}
+            if not codes:
+                continue
+            declarations[surface] = {
+                "reason": (
+                    UNAVAILABLE_REASON
+                    if codes - {EXPIRED_FALLBACK_CODE}
+                    else EXPIRED_UNAVAILABLE_REASON
+                ),
+                "codes": sorted(codes),
             }
-        newly_marked_unavailable.update(expired)
-        _apply_surface_state(state, fresh_degraded, fallback, previous, now, unavailable)
+        return declarations
 
     def restore_active_fallback() -> None:
         """Atomically restore and attest every not-yet-restored fallback lane."""
@@ -2983,12 +3036,13 @@ def select_publication(
                 print("Publication selection: all candidate surfaces are valid and current.")
             return state
 
-        declare_expired_fallback_unavailable()
         # Cross-surface invariants can reveal another transaction only after
         # the first one has been restored. Reconcile to a fixed point, while
         # requiring every failed pass to add at least one previously current
-        # surface or to declare one restored surface unavailable. Both sets
-        # grow monotonically, so this is bounded by the number of surfaces.
+        # surface or one undeclared audit code to an unavailable restored
+        # surface. Both grow monotonically and are bounded by the surfaces and
+        # the audit's code vocabulary. A passing pass may then only narrow the
+        # declarations to what it accepted, which converges in one more pass.
         while True:
             restore_active_fallback()
             rebuild_operations_with_baseline_recovery()
@@ -3029,19 +3083,28 @@ def select_publication(
             _apply_surface_state(state, fresh_degraded, fallback, previous, now, unavailable)
 
             if not final.errors and not unrouted_final_degradations:
-                break
+                accepted = accepted_unavailable_declarations(final_degradations)
+                if accepted == unavailable:
+                    break
+                unavailable.clear()
+                unavailable.update(accepted)
+                continue
 
             next_fallback = _closed_fallback_surfaces(
                 fallback | final_error_surfaces
             )
             newly_implicated = next_fallback - set(restored)
-            newly_unavailable = final_error_surfaces - set(unavailable)
+            undeclared: dict[str, set[str]] = {}
+            for record in final_errors:
+                for surface in record["surfaces"]:
+                    if record["code"] not in unavailable.get(surface, {}).get("codes", ()):
+                        undeclared.setdefault(surface, set()).add(record["code"])
             if (
                 unrouted_final_errors
                 or unrouted_final_degradations
                 or (
                     not newly_implicated
-                    and (not unavailable_eligible or not newly_unavailable)
+                    and (not unavailable_eligible or not undeclared)
                 )
             ):
                 state["mode"] = "blocked"
@@ -3060,28 +3123,20 @@ def select_publication(
             state["final_degradations"] = []
             if not newly_implicated:
                 # Every implicated surface already failed as last-known-good
-                # too. Publish the rest and declare these surfaces unavailable;
-                # the next audit pass must accept exactly that declaration.
-                for surface in sorted(newly_unavailable):
-                    codes = sorted({
-                        record["code"]
-                        for record in final_errors
-                        if surface in record["surfaces"]
-                    })
-                    unavailable[surface] = {
-                        "reason": UNAVAILABLE_REASON,
-                        "codes": codes[:UNAVAILABLE_REASON_MAX_CODES],
-                    }
-                newly_marked_unavailable.update(newly_unavailable)
-                _apply_surface_state(state, fresh_degraded, fallback, previous, now, unavailable)
+                # too. Publish the rest and declare these surfaces unavailable
+                # with these codes; the next audit pass accepts only those.
+                for surface, codes in sorted(undeclared.items()):
+                    declaration = unavailable.setdefault(
+                        surface, {"reason": UNAVAILABLE_REASON, "codes": []}
+                    )
+                    declaration["reason"] = UNAVAILABLE_REASON
+                    declaration["codes"] = sorted({*declaration["codes"], *codes})
                 continue
 
             # Intermediate evidence stays in candidate_*; final_* is reserved
             # for the terminal audit pass.
             fallback = next_fallback
             fresh_degraded.difference_update(fallback)
-            _apply_surface_state(state, fresh_degraded, fallback, previous, now, unavailable)
-            declare_expired_fallback_unavailable()
 
         _apply_upstream_retry_reporting_policy(
             state,
@@ -3098,24 +3153,31 @@ def select_publication(
             state["restored_manifest"] = (
                 _surface_manifest(root, restored) if restored else {}
             )
-            state["final_errors"] = [{
-                "severity": "error",
-                "code": "publication-selection-failed",
-                "message": _safe_detail_text(exc),
-                "path": DEFAULT_STATE.as_posix(),
-                "surfaces": [],
-            }]
+            state["final_errors"] = (
+                exc.findings
+                if isinstance(exc, FallbackClockError)
+                else [{
+                    "severity": "error",
+                    "code": "publication-selection-failed",
+                    "message": _safe_detail_text(exc),
+                    "path": DEFAULT_STATE.as_posix(),
+                    "surfaces": [],
+                }]
+            )
             _write_state(state_path, state)
             _emit_outputs(state)
         raise
 
     _write_state(state_path, state)
-    # A queue/DNS reconciliation cannot recollect the surfaces it just found
-    # unavailable, so it asks for the full collection that can repair them.
+    # A queue/DNS reconciliation cannot recollect a surface it newly found
+    # unavailable, or found failing with a new code, so it asks for the full
+    # collection that can repair it.
     _emit_outputs(
         state,
-        collection_required=bool(
-            refresh_surface is not None and newly_marked_unavailable
+        collection_required=refresh_surface is not None and any(
+            set(declaration["codes"])
+            - set(prior_unavailable.get(surface, {}).get("codes", ()))
+            for surface, declaration in unavailable.items()
         ),
     )
     if unavailable:

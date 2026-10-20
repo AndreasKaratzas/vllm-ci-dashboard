@@ -64,6 +64,7 @@ from vllm.ci.nightly_latency import (  # noqa: E402
 )
 from vllm.publication_surfaces import (  # noqa: E402
     MANIFEST_SOURCE_SURFACES,
+    PUBLICATION_SURFACE_LABELS,
     UNAVAILABLE_SOURCE_REASON,
     declared_unavailable_surfaces,
 )
@@ -229,8 +230,10 @@ def _load_json(path: Path) -> dict:
 def _unavailable_publication(data_dir: Path) -> list[dict]:
     """Surfaces the publication selector declared unavailable, with their sources.
 
-    A malformed declaration publishes nothing here; the dashboard audit rejects
-    that publication state as a global failure.
+    This couples every Operations build to the selector's publication_state.json
+    in the same data directory: a build without it (a preview or local run)
+    declares nothing. A malformed declaration also publishes nothing here; the
+    dashboard audit rejects that publication state as a global failure.
     """
     state = _load_json(data_dir / "publication_state.json")
     try:
@@ -243,6 +246,7 @@ def _unavailable_publication(data_dir: Path) -> list[dict]:
         reason = reason if isinstance(reason, dict) else {}
         rows.append({
             "surface": surface,
+            "label": PUBLICATION_SURFACE_LABELS.get(surface, surface),
             "since": state["unavailable_since"].get(surface),
             "reason": reason.get("reason"),
             "codes": list(reason.get("codes") or []),

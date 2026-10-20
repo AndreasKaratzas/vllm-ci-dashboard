@@ -538,6 +538,7 @@ def test_unavailable_publication_surface_has_no_trustworthy_clock_in_the_shell(t
     assert "publication" not in baseline
     assert shell["publication"] == {"unavailable": [{
         "surface": "ci_analytics",
+        "label": "CI analytics",
         "since": since,
         "reason": "candidate-and-last-known-good-failed",
         "codes": ["analytics-build-count"],

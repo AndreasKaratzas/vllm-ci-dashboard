@@ -16,9 +16,11 @@ if _scripts_dir not in sys.path:
 
 import pytest  # noqa: E402
 
-# Live-data tests that read exactly one publication surface. When the selector
-# publishes that surface as unavailable (its candidate and last-known-good data
-# both failed the audit), the failure is that surface's, not the publication's.
+# Live-data tests by the publication surfaces they read. When the selector
+# publishes every one of them as unavailable (candidate and last-known-good data
+# both failed the audit), the failure is those surfaces', not the publication's.
+# The most specific node wins; an empty set marks a policy or public-safety
+# check that is never excused.
 LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
     "test_data_freshness.py::TestCIDataFreshness::test_amd_test_matrix_fresh": frozenset({"ci_core"}),
     "test_data_freshness.py::TestCIDataFreshness::test_ci_health_fresh": frozenset({"ci_core"}),
@@ -26,6 +28,9 @@ LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
     "test_data_freshness.py::TestQueueDataFreshness::test_latest_snapshot_fresh": frozenset({"queue"}),
     "test_data_freshness.py::TestQueueDataFreshness::test_queue_lifecycle_aggregate_fresh": frozenset({"queue_lifecycle"}),
     "test_data_integrity.py::TestAnalyticsData": frozenset({"ci_analytics"}),
+    "test_data_integrity.py::TestAnalyticsData::test_ci_analytics_not_blank_when_amd_test_results_exist": (
+        frozenset({"ci_analytics", "ci_core"})
+    ),
     "test_data_integrity.py::TestCIHealthData": frozenset({"ci_core"}),
     "test_data_schemas.py::TestAmdTestMatrix": frozenset({"ci_core"}),
     "test_data_schemas.py::TestAnalytics": frozenset({"ci_analytics"}),
@@ -33,6 +38,7 @@ LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
     "test_data_schemas.py::TestCiOwnership": frozenset({"ci_core"}),
     "test_data_schemas.py::TestConfigParity": frozenset({"ci_core"}),
     "test_data_schemas.py::TestDnsFailures": frozenset({"dns_health"}),
+    "test_data_schemas.py::TestDnsFailures::test_public_payload_has_no_log_or_url_fields": frozenset(),
     "test_data_schemas.py::TestFailureTrends": frozenset({"ci_core"}),
     "test_data_schemas.py::TestFlakyTests": frozenset({"ci_core"}),
     "test_data_schemas.py::TestOpenQueueIssues": frozenset({"queue"}),
@@ -42,7 +48,10 @@ LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
     "test_data_schemas.py::TestQueueLifecycle": frozenset({"queue_lifecycle"}),
     "test_data_schemas.py::TestQueueTimeseries": frozenset({"queue"}),
     "test_data_schemas.py::TestWorkloadMapping": frozenset({"queue_workload"}),
+    "test_data_schemas.py::TestWorkloadMapping::test_query_is_bounded_and_contains_no_raw_records": frozenset(),
     "test_perf_eval_dashboard.py::TestPerfEvalDataContract": frozenset({"perf_eval"}),
+    "test_perf_eval_dashboard.py::TestPerfEvalDataContract::test_models_are_amd_only": frozenset(),
+    "test_perf_eval_dashboard.py::TestPerfEvalDataContract::test_no_nvidia_models_present": frozenset(),
 }
 
 
@@ -51,9 +60,9 @@ def live_data_test_surfaces(nodeid: str) -> frozenset[str]:
     parts = nodeid.split("[", 1)[0].split("::")
     parts[0] = Path(parts[0]).name
     for end in range(len(parts), 1, -1):
-        surfaces = LIVE_DATA_TEST_SURFACES.get("::".join(parts[:end]))
-        if surfaces:
-            return surfaces
+        key = "::".join(parts[:end])
+        if key in LIVE_DATA_TEST_SURFACES:
+            return LIVE_DATA_TEST_SURFACES[key]
     return frozenset()
 
 

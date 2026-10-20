@@ -40,6 +40,8 @@ export interface DatasetSource {
   validate?: (payload: unknown) => void
   /** Replaces the default loader (fetch every candidate, newest wins). */
   createLoader?: (paths: readonly string[]) => DatasetLoad
+  /** The publication surface that produces the dataset; while it is published as unavailable the dataset is not shown. */
+  surface?: string
 }
 
 const generatedAt: PublishedAt = (payload) => payload.generated_at
@@ -83,26 +85,31 @@ export const DATASETS = {
   prs: {
     paths: ['data/vllm/prs.json'],
     refresh: COLLECTOR_RUN,
+    surface: 'github_home',
     publishedAt: (payload) => payload.collected_at,
   },
   issues: {
     paths: ['data/vllm/issues.json'],
     refresh: COLLECTOR_RUN,
+    surface: 'github_home',
     publishedAt: (payload) => payload.collected_at,
   },
   perf_eval: {
     paths: ['data/vllm/perf_eval/perf_eval.json'],
     refresh: COLLECTOR_RUN,
+    surface: 'perf_eval',
     publishedAt: generatedAt,
   },
   amd_test_matrix: {
     paths: [`${CI}amd_test_matrix.json`],
     refresh: { on: 'sources', sources: ['amd_test_matrix'] },
+    surface: 'ci_core',
     publishedAt: generatedAt,
   },
   workload_mapping: {
     paths: [`${CI}workload_mapping.json`],
     refresh: { on: 'sources', sources: ['workload_mapping'] },
+    surface: 'queue_workload',
     publishedAt: generatedAt,
   },
   dns: {
@@ -110,6 +117,7 @@ export const DATASETS = {
     refresh: { on: 'poll' },
     publishedAt: generatedAt,
     createLoader: dnsLoader,
+    surface: 'dns_health',
   },
 } as const satisfies Record<string, DatasetSource>
 

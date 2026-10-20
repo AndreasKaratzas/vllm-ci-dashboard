@@ -26,6 +26,7 @@ from vllm.publication_limits import (
     PUBLICATION_MAX_FILES,
     PUBLICATION_MAX_TREE_BYTES,
 )
+from vllm.publication_surfaces import PUBLICATION_SURFACE_LABELS
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,20 +47,6 @@ PROJECTOR_SERIALIZERS: dict[str, Callable[[object], str]] = {
     PUBLIC_ANALYTICS_PROJECTOR_ID: compact_public_analytics_json,
 }
 PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "blocked"})
-PUBLICATION_SURFACE_LABELS = {
-    "agent_health": "Agent health",
-    "ci": "CI health",
-    "ci_analytics": "CI analytics",
-    "ci_core": "CI core health",
-    "dns_health": "DNS health",
-    "github_home": "Project activity",
-    "perf_eval": "Performance evaluation",
-    "queue": "Queue health",
-    "queue_capacity": "Queue capacity",
-    "queue_lifecycle": "Queue lifecycle",
-    "queue_omni": "Omni queue surge",
-    "queue_workload": "Queue workload mapping",
-}
 
 
 def copy_tree_contents(src: Path, dest: Path) -> None:

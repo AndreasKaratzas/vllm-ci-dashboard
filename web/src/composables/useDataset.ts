@@ -1,7 +1,9 @@
 import { getCurrentScope, onScopeDispose, ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import { clearDataCache } from '@/data/client'
 import {
+  assertAvailable,
   combineOperations,
+  datasetUnavailability,
   fetchSection,
   GenerationMismatchError,
   isManualSection,
@@ -9,6 +11,9 @@ import {
   policyStamp,
   samePublication,
   sectionStamp,
+  sectionUnavailability,
+  SurfaceUnavailableError,
+  unavailabilityKey,
   type OperationsManifest,
 } from '@/data/operations'
 import { DATASETS, datasetLoader, OPERATIONS_MANIFEST_PATH, type DatasetKey, type DatasetSource } from '@/data/sources'
@@ -68,6 +73,11 @@ function run(entry: Entry, task: () => Promise<void>, after = false): Promise<vo
         state.error.value = null
       },
       (error) => {
+        // An unavailable surface replaces its last shown data rather than labelling it stale.
+        if (error instanceof SurfaceUnavailableError) {
+          state.data.value = null
+          state.updatedAt.value = null
+        }
         state.error.value = message(error)
       },
     )
@@ -88,6 +98,8 @@ function createAssetEntry(key: DatasetKey): Entry {
   // undefined: loaded before any manifest was known, so the first manifest seen is adopted.
   let stamp: string | null | undefined
   let fetchedAt = 0
+  // The unavailable declarations the last load saw; a change reloads into or out of the unavailable state.
+  let blocked: string | undefined
   const state = createState(() => entry.load(true))
   const show = (payload: Rec) => {
     state.data.value = payload
@@ -101,7 +113,11 @@ function createAssetEntry(key: DatasetKey): Entry {
       run(
         entry,
         async () => {
-          const manifest = currentManifest()
+          // A dataset that belongs to a surface waits for the manifest that may declare it unavailable.
+          const manifest = source.surface ? await manifestSource(false).catch(() => null) : currentManifest()
+          const unavailable = datasetUnavailability(manifest, key)
+          blocked = unavailabilityKey(unavailable)
+          assertAvailable(unavailable)
           show(await load(fresh, show))
           fetchedAt = Date.now()
           stamp = manifest ? policyStamp(source.refresh, manifest) : undefined
@@ -110,6 +126,10 @@ function createAssetEntry(key: DatasetKey): Entry {
       ),
     async sync(manifest, isPoll) {
       const { refresh } = source
+      if (manifest && blocked !== undefined && unavailabilityKey(datasetUnavailability(manifest, key)) !== blocked) {
+        await entry.load(true)
+        return
+      }
       if (refresh.on === 'poll' || refresh.on === 'interval') {
         const due = refresh.on === 'poll' || Date.now() - fetchedAt >= refresh.minutes * 60_000
         if (isPoll && due) await entry.load(true)
@@ -145,6 +165,9 @@ function createOperationsEntry(names: readonly string[]): Entry {
   let shown: OperationsManifest | null = null
   let payloads: Record<string, Rec> = {}
   let stamps: Record<string, string | null> = {}
+  const blockedIn = (manifest: OperationsManifest | null) =>
+    manifest ? unavailabilityKey(names.flatMap((name) => sectionUnavailability(manifest, name))) : undefined
+  let blocked: string | undefined
   const show = (manifest: OperationsManifest, sections: Record<string, Rec>) => {
     shown = manifest
     payloads = sections
@@ -153,8 +176,12 @@ function createOperationsEntry(names: readonly string[]): Entry {
     state.updatedAt.value = manifest.generated_at ?? null
   }
   const reload = async (fresh: boolean) => {
-    const { manifest, sections } = await loadSections(names, manifestSource, fresh)
-    show(manifest, sections)
+    try {
+      const { manifest, sections } = await loadSections(names, manifestSource, fresh)
+      show(manifest, sections)
+    } finally {
+      blocked = blockedIn(currentManifest())
+    }
   }
   const entry: Entry = {
     state,
@@ -162,6 +189,11 @@ function createOperationsEntry(names: readonly string[]): Entry {
     pending: null,
     load: (fresh) => run(entry, () => reload(fresh), fresh),
     async sync(manifest, isPoll) {
+      // Entering or leaving an unavailable state reloads even a manual or never-shown entry.
+      if (manifest && blocked !== undefined && blockedIn(manifest) !== blocked) {
+        await run(entry, () => reload(true))
+        return
+      }
       const previous = shown
       if (!automatic || !manifest || !previous) return
       const changed = names.filter((name) => {

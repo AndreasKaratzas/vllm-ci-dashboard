@@ -1,5 +1,7 @@
 """Regression tests for atomic dashboard publication-surface fallback."""
 
+# cspell:ignore kwonlyargs
+
 from __future__ import annotations
 
 import base64
@@ -9,6 +11,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Collection, Sequence
 
 import pytest
 
@@ -89,12 +92,12 @@ def test_failed_selector_retains_pre_fallback_ci_evidence_and_both_finding_lanes
         def run(self):
             current = json.loads(source.read_text())["amd"]["latest_test_signal_build"]["build_number"]
             return SimpleNamespace(errors=[Finding(
-                "error", "candidate-count-mismatch" if current == 200 else "baseline-scope-mismatch",
+                "error", "ci-health-candidate-count-mismatch" if current == 200 else "ci-health-baseline-scope-mismatch",
                 "Current CI route count is inconsistent", selector_module.CI_HEALTH_PATH,
                 {"build_number": current, "expected": 225, "actual": 215,
                  "agent_id": "private-agent-identity", "raw_log": "private-raw-log"},
             )], degradations=[Finding(
-                "degradation", "candidate-degraded" if current == 200 else "baseline-degraded",
+                "degradation", "ci-health-candidate-degraded" if current == 200 else "ci-health-baseline-degraded",
                 "Current signal has incomplete coverage", selector_module.CI_HEALTH_PATH,
             )])
     monkeypatch.setattr(selector_module, "SURFACE_SPECS", specs)
@@ -109,10 +112,10 @@ def test_failed_selector_retains_pre_fallback_ci_evidence_and_both_finding_lanes
     ]) == 1
     artifact = json.loads(artifact_path.read_text())
     assert artifact["mode"] == "blocked"
-    assert artifact["candidate_errors"][0]["code"] == "candidate-count-mismatch"
-    assert artifact["candidate_degradations"][0]["code"] == "candidate-degraded"
-    assert artifact["final_errors"][0]["code"] == "baseline-scope-mismatch"
-    assert artifact["final_degradations"][0]["code"] == "baseline-degraded"
+    assert artifact["candidate_errors"][0]["code"] == "ci-health-candidate-count-mismatch"
+    assert artifact["candidate_degradations"][0]["code"] == "ci-health-candidate-degraded"
+    assert artifact["final_errors"][0]["code"] == "ci-health-baseline-scope-mismatch"
+    assert artifact["final_degradations"][0]["code"] == "ci-health-baseline-degraded"
     captured = artifact["candidate_evidence"]["ci_health.json"]["cohorts"]["amd"]["latest_test_signal_build"]
     assert captured["build_number"] == 200
     assert captured["unique_test_groups"] == 225
@@ -1931,7 +1934,8 @@ def _agent_health_contract_repo(
     monkeypatch: pytest.MonkeyPatch,
     *,
     baseline_contract: str,
-    extra_findings: tuple[Finding, ...] = (),
+    extra_findings: Sequence[Finding] = (),
+    accepted_contracts: Collection[str] = frozenset({"current"}),
 ) -> tuple[Path, str, Path, list[str]]:
     """Agent health plus live queue, audited by a producer-contract check.
 
@@ -1966,7 +1970,7 @@ def _agent_health_contract_repo(
             self.fallback_surfaces()
             audit_runs.append("run")
             contract = json.loads((self.root / AGENT_HEALTH_RELATIVE).read_text())
-            if contract["contract"] != "current":
+            if contract["contract"] not in accepted_contracts:
                 for code in INCIDENT_CODES:
                     self.error(
                         code,
@@ -2048,6 +2052,64 @@ def test_queue_reconcile_publishes_with_old_contract_agent_health_unavailable(
     assert carried["unavailable_since"] == state["unavailable_since"]
     assert carried["fallback_since"] == state["fallback_since"]
     assert _outputs(outputs)["collection_required"] == "false"
+
+
+def test_carried_unavailable_declaration_tracks_the_current_audit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extra: list[Finding] = []
+    accepted = {"current"}
+    repo, baseline, state_path, _ = _agent_health_contract_repo(
+        tmp_path,
+        monkeypatch,
+        baseline_contract="old",
+        extra_findings=extra,
+        accepted_contracts=accepted,
+    )
+    outputs = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(outputs))
+
+    def queue_run(generation: str) -> dict:
+        nonlocal baseline
+        (repo / QUEUE_JOBS_RELATIVE).write_text(json.dumps({"generation": generation}) + "\n")
+        outputs.write_text("")
+        state = selector_module.select_publication(
+            repo, baseline, state_path, refresh_only_surface="queue"
+        )
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", f"published {generation}")
+        baseline = _git(repo, "rev-parse", "HEAD")
+        return state
+
+    first = queue_run("first")
+    assert first["unavailable_reasons"]["agent_health"]["codes"] == list(INCIDENT_CODES)
+
+    # A new defect on the unavailable surface is declared, never hidden.
+    new_code = "operations-agent-health-options"
+    extra.append(Finding(
+        "error", new_code, "options drifted", "data/vllm/ci/operations_v2.json"
+    ))
+    second = queue_run("second")
+    assert second["unavailable_reasons"]["agent_health"]["codes"] == sorted(
+        {*INCIDENT_CODES, new_code}
+    )
+    assert second["unavailable_since"] == first["unavailable_since"]
+    assert _outputs(outputs)["collection_required"] == "true"
+
+    # Codes that no longer occur are dropped from the public reason.
+    extra.clear()
+    third = queue_run("third")
+    assert third["unavailable_reasons"]["agent_health"]["codes"] == list(INCIDENT_CODES)
+    assert _outputs(outputs)["collection_required"] == "false"
+
+    # Once the last-known-good bytes pass, the surface is a plain fallback.
+    accepted.add("old")
+    recovered = queue_run("fourth")
+    assert recovered["fallback_surfaces"] == ["agent_health"]
+    assert "unavailable_surfaces" not in recovered
+    assert recovered["final_degradations"] == []
+    assert _outputs(outputs)["unavailable_surfaces"] == ""
 
 
 def test_unavailable_surface_still_blocks_on_a_global_finding(
@@ -3947,22 +4009,22 @@ def test_tampered_restored_manifest_disables_fallback(
     }
 
 
-def test_expired_fallback_is_published_unavailable_instead_of_blocking(
+def _ci_fallback_since_repo(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    original_since: str,
+) -> tuple[Path, str, Path, Path]:
     repo = tmp_path / "repo"
     source = repo / "data/source.json"
     state_path = repo / "data/vllm/ci/publication_state.json"
     state_path.parent.mkdir(parents=True)
     source.write_text('{"version":"baseline"}\n')
-    original_since = "2000-01-01T00:00:00Z"
     source_bytes = source.read_bytes()
     state_path.write_text(
         json.dumps(
             {
                 "schema_version": 1,
-                "generated_at": "2000-01-01T00:00:00Z",
+                "generated_at": original_since,
                 "baseline_ref": "0" * 40,
                 "mode": "fallback",
                 "degraded_surfaces": ["ci"],
@@ -4006,6 +4068,18 @@ def test_expired_fallback_is_published_unavailable_instead_of_blocking(
     monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
 
+    return repo, baseline, state_path, source
+
+
+def test_expired_fallback_is_published_unavailable_instead_of_blocking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_since = "2000-01-01T00:00:00Z"
+    repo, baseline, state_path, source = _ci_fallback_since_repo(
+        tmp_path, monkeypatch, original_since
+    )
+
     selector_module.select_publication(
         repo,
         baseline,
@@ -4028,6 +4102,34 @@ def test_expired_fallback_is_published_unavailable_instead_of_blocking(
         }
     }
     assert source.read_text() == '{"version":"baseline"}\n'
+
+
+@pytest.mark.parametrize("original_since", ["2999-01-01T00:00:00Z", "not-a-time"])
+def test_corrupt_fallback_clock_blocks_instead_of_publishing_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    original_since: str,
+) -> None:
+    repo, baseline, state_path, source = _ci_fallback_since_repo(
+        tmp_path, monkeypatch, original_since
+    )
+    monkeypatch.setattr(selector_module, "_baseline_publication_state", lambda *args: {
+        **json.loads(state_path.read_text()),
+        "fallback_surfaces": ["ci"],
+        "fallback_since": {"ci": original_since},
+    })
+
+    with pytest.raises(selector_module.FallbackClockError):
+        selector_module.select_publication(
+            repo, baseline, state_path, forced_degraded=("ci",)
+        )
+
+    published = json.loads(state_path.read_text())
+    assert published["mode"] == "blocked"
+    assert "unavailable_surfaces" not in published
+    assert [record["code"] for record in published["final_errors"]] == [
+        "publication-fallback-expired"
+    ]
 
 
 def test_clean_candidate_recovers_after_prior_fallback_expired(
@@ -4999,45 +5101,160 @@ def test_v6_runtime_parity_and_optional_override_retire_only_after_full_old_proo
         assert migrated[field] == original[field]
 
 
-def _audit_finding_codes() -> set[str]:
-    """Every error or degradation code the dashboard audit can emit."""
-    import ast
-    import re
+_EMITTERS = frozenset({"error", "degradation"})
 
-    slug = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)+")
-    source = (ROOT / "scripts/vllm/audit_dashboard_data.py").read_text()
-    codes: set[str] = set()
-    families: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-        for keyword in node.keywords:
-            value = keyword.value
-            if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
+
+def _audit_finding_codes() -> tuple[set[str], list[str]]:
+    """Every error or degradation code the dashboard audit can emit.
+
+    A code expression is a template of literal parts and parameters of its
+    enclosing function. A template with parameters makes that function a code
+    wrapper, whose call sites are expanded in turn until every template is
+    literal. Returns the codes and every emission that could not be resolved.
+    """
+    import ast
+
+    tree = ast.parse((ROOT / "scripts/vllm/audit_dashboard_data.py").read_text())
+    functions: list[tuple[ast.FunctionDef, tuple[ast.FunctionDef, ...]]] = []
+
+    def collect(node: ast.AST, scopes: tuple[ast.FunctionDef, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef):
+                functions.append((child, scopes))
+                collect(child, (*scopes, child))
+            else:
+                collect(child, scopes)
+
+    collect(tree, ())
+    by_name: dict[str, list[ast.FunctionDef]] = {}
+    for function, _ in functions:
+        by_name.setdefault(function.name, []).append(function)
+
+    def own_calls(function: ast.FunctionDef):
+        pending = list(function.body)
+        while pending:
+            node = pending.pop()
+            if isinstance(node, ast.FunctionDef):
                 continue
-            if keyword.arg == "code" and slug.fullmatch(value.value):
-                codes.add(value.value)
-            if keyword.arg == "code_prefix":
-                families.add(value.value)
-        if name in {"error", "degradation", "report_cross_surface_build_mismatch"} and node.args:
-            first = node.args[0]
-            if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                if slug.fullmatch(first.value):
-                    codes.add(first.value)
-            elif isinstance(first, ast.JoinedStr) and isinstance(first.values[0], ast.Constant):
-                families.add(str(first.values[0].value).rstrip("-"))
-    for family in families:
-        codes.update(
-            f"{family}-{suffix}"
-            for suffix in ("version", "basis", "pct", "alias", "math")
-        )
-    return codes
+            if isinstance(node, ast.Call):
+                yield node
+            pending.extend(ast.iter_child_nodes(node))
+
+    def params(function: ast.FunctionDef) -> list[str]:
+        args = function.args
+        return [arg.arg for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
+
+    def template(expr: ast.AST, function: ast.FunctionDef):
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            return (expr.value,)
+        if isinstance(expr, ast.Name) and expr.id in params(function):
+            return (("param", expr.id),)
+        if isinstance(expr, ast.JoinedStr):
+            parts: list = []
+            for value in expr.values:
+                part = template(value.value if isinstance(value, ast.FormattedValue) else value, function)
+                if part is None:
+                    return None
+                parts.extend(part)
+            return tuple(parts)
+        return None
+
+    def argument(call: ast.Call, callee: ast.FunctionDef, name: str) -> ast.AST | None:
+        for keyword in call.keywords:
+            if keyword.arg == name:
+                return keyword.value
+        positional = [arg.arg for arg in (*callee.args.posonlyargs, *callee.args.args)]
+        if isinstance(call.func, ast.Attribute) and positional[:1] == ["self"]:
+            positional = positional[1:]
+        if name in positional and positional.index(name) < len(call.args):
+            return call.args[positional.index(name)]
+        every = [*callee.args.posonlyargs, *callee.args.args]
+        defaults = {
+            arg.arg: default
+            for arg, default in zip(every[len(every) - len(callee.args.defaults):], callee.args.defaults)
+        }
+        defaults.update({
+            arg.arg: default
+            for arg, default in zip(callee.args.kwonlyargs, callee.args.kw_defaults)
+            if default is not None
+        })
+        return defaults.get(name)
+
+    def callees(call: ast.Call, function: ast.FunctionDef, scopes) -> list[ast.FunctionDef]:
+        if isinstance(call.func, ast.Attribute):
+            return by_name.get(call.func.attr, [])
+        if isinstance(call.func, ast.Name):
+            visible = {id(scope) for scope in (*scopes, function)}
+            nested = [
+                candidate for candidate, parents in functions
+                if candidate.name == call.func.id and parents and id(parents[-1]) in visible
+            ]
+            return nested or [
+                candidate for candidate, parents in functions
+                if candidate.name == call.func.id and not parents
+            ]
+        return []
+
+    templates: dict[int, set[tuple]] = {}
+    codes: set[str] = set()
+    unresolved: list[str] = []
+
+    def add(function: ast.FunctionDef, parts: tuple, lineno: int) -> bool:
+        if all(isinstance(part, str) for part in parts):
+            codes.add("".join(parts))
+            return False
+        if (function.name in _EMITTERS) or not params(function):
+            unresolved.append(f"line {lineno}")
+            return False
+        known = templates.setdefault(id(function), set())
+        if parts in known:
+            return False
+        known.add(parts)
+        return True
+
+    for function, _ in functions:
+        if function.name in _EMITTERS:
+            continue
+        for call in own_calls(function):
+            if (
+                isinstance(call.func, ast.Attribute)
+                and call.func.attr in _EMITTERS
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id == "self"
+                and call.args
+            ):
+                parts = template(call.args[0], function)
+                if parts is None:
+                    unresolved.append(f"line {call.lineno}: {ast.unparse(call.args[0])}")
+                else:
+                    add(function, parts, call.lineno)
+
+    changed = True
+    while changed:
+        changed = False
+        for function, scopes in functions:
+            for call in own_calls(function):
+                for callee in callees(call, function, scopes):
+                    for parts in list(templates.get(id(callee), ())):
+                        expanded: list = []
+                        for part in parts:
+                            if isinstance(part, str):
+                                expanded.append(part)
+                                continue
+                            value = argument(call, callee, part[1])
+                            resolved = None if value is None else template(value, function)
+                            if resolved is None:
+                                unresolved.append(f"line {call.lineno}: {callee.name}({part[1]})")
+                                break
+                            expanded.extend(resolved)
+                        else:
+                            changed |= add(function, tuple(expanded), call.lineno)
+    return codes, sorted(set(unresolved))
 
 
 def test_every_audit_finding_code_is_attributed_or_explicitly_global() -> None:
-    codes = _audit_finding_codes()
+    codes, unresolved = _audit_finding_codes()
+    assert unresolved == []
     assert len(codes) > 300
 
     unattributed = sorted(code for code in codes if surfaces_module.finding_code_route(code) is None)
@@ -5050,7 +5267,7 @@ def test_every_audit_finding_code_is_attributed_or_explicitly_global() -> None:
     )
 
 
-def test_global_codes_block_even_when_their_path_names_a_surface_file() -> None:
+def test_global_and_unknown_codes_block_even_when_their_path_names_a_surface_file() -> None:
     lineage = Finding(
         "error", "private-analytics-lineage", "analytics lost its private lineage",
         "data/vllm/ci/analytics.json",
@@ -5058,9 +5275,13 @@ def test_global_codes_block_even_when_their_path_names_a_surface_file() -> None:
     owned_shape = Finding("error", "publication-source-shape", "bad shape", AGENT_HEALTH_RELATIVE)
     unowned_shape = Finding("error", "publication-source-shape", "bad shape", "data/vllm/unowned.json")
 
+    unknown = Finding("error", "agent-health-new-check", "unclassified", AGENT_HEALTH_RELATIVE)
+
     assert finding_surfaces(lineage) == frozenset()
     assert finding_surfaces(owned_shape) == frozenset({"agent_health"})
     assert finding_surfaces(unowned_shape) == frozenset()
+    assert surfaces_module.finding_code_route(unknown.code) is None
+    assert finding_surfaces(unknown) == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -5144,6 +5365,65 @@ def test_audit_accepts_only_findings_owned_by_an_attested_unavailable_surface(
     assert audit.unavailable_surfaces() == frozenset({"agent_health"})
 
 
+def test_audit_keeps_an_undeclared_code_on_an_unavailable_surface_an_error(
+    tmp_path: Path,
+    agent_health_specs: None,
+) -> None:
+    _write_unavailable_agent_health(
+        tmp_path, since="2026-01-01T00:00:00Z", payload=b'{"contract":"old"}\n'
+    )
+    audit = DashboardAudit(tmp_path)
+    audit.error(
+        "operations-agent-health-options", "a new defect", "data/vllm/ci/operations_v2.json"
+    )
+    audit.error(INCIDENT_CODES[0], "the declared defect", "data/vllm/ci/operations_v2.json")
+
+    audit.accept_unavailable_surfaces()
+
+    assert [finding.code for finding in audit.report.errors] == ["operations-agent-health-options"]
+    assert [finding.code for finding in audit.report.degradations] == [INCIDENT_CODES[0]]
+
+
+@pytest.mark.parametrize("declared", [True, False])
+def test_audit_accepts_the_missing_clock_only_of_an_attested_unavailable_source(
+    tmp_path: Path,
+    agent_health_specs: None,
+    declared: bool,
+) -> None:
+    state_path = _write_unavailable_agent_health(
+        tmp_path,
+        since=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        payload=b'{"contract":"old"}\n',
+    )
+    if not declared:
+        state = json.loads(state_path.read_text())
+        for key in ("unavailable_surfaces", "unavailable_since", "unavailable_reasons"):
+            state.pop(key)
+        state_path.write_text(json.dumps(state))
+    (tmp_path / "data/vllm/ci/operations_v2.json").write_text(json.dumps({
+        "schema_version": 2,
+        "hardware_scope": "amd_mi_gpu",
+        "generated_at": "2026-08-12T12:00:00Z",
+        "sources": {
+            "agent_health": {
+                "timestamp": None,
+                "unavailable_reason": "publication_surface_unavailable",
+            },
+        },
+    }))
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_operations_v2()
+
+    missing_clocks = [
+        finding.context.get("source")
+        for finding in audit.report.errors
+        if finding.code == "operations-source-timestamp"
+    ]
+    assert ("agent_health" in missing_clocks) is not declared
+    assert "analytics" in missing_clocks
+
+
 def test_audit_ignores_an_unavailable_declaration_without_a_valid_restore_proof(
     tmp_path: Path,
     agent_health_specs: None,
@@ -5191,8 +5471,8 @@ def test_live_data_surface_map_names_existing_tests_and_excuses_only_unavailable
     from tests.vllm.conftest import LIVE_DATA_TEST_SURFACES, excused_live_data_failure
 
     for key, owners in LIVE_DATA_TEST_SURFACES.items():
-        assert owners and owners <= set(SURFACE_SPECS), key
         filename, class_name, *method = key.split("::")
+        assert owners <= set(SURFACE_SPECS) and (owners or method), key
         tree = ast.parse((ROOT / "tests/vllm" / filename).read_text())
         classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name]
         assert classes, key
@@ -5209,3 +5489,14 @@ def test_live_data_surface_map_names_existing_tests_and_excuses_only_unavailable
         "tests/vllm/test_dashboard_audit.py::test_dashboard_audit_current_data_has_no_errors",
         frozenset(SURFACE_SPECS),
     ) == frozenset()
+    perf = "tests/vllm/test_perf_eval_dashboard.py::TestPerfEvalDataContract"
+    assert excused_live_data_failure(f"{perf}::test_top_level_shape", frozenset({"perf_eval"})) == {"perf_eval"}
+    assert excused_live_data_failure(f"{perf}::test_models_are_amd_only", frozenset(SURFACE_SPECS)) == frozenset()
+    analytics = (
+        "tests/vllm/test_data_integrity.py::TestAnalyticsData::"
+        "test_ci_analytics_not_blank_when_amd_test_results_exist"
+    )
+    assert excused_live_data_failure(analytics, frozenset({"ci_analytics"})) == frozenset()
+    assert excused_live_data_failure(analytics, frozenset({"ci_analytics", "ci_core"})) == {
+        "ci_analytics", "ci_core"
+    }
